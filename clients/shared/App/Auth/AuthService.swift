@@ -733,8 +733,7 @@ public final class AuthService {
         /// Server accepted the request (HTTP 201). The session should be torn
         /// down on the client side.
         case requested
-        /// Server-side `account-deletion` flag is off (HTTP 404). The feature
-        /// is unavailable for this account; the caller should surface the
+        /// The endpoint returned HTTP 404. The caller should surface the
         /// inline "not available" copy rather than a generic error.
         case unavailable
     }

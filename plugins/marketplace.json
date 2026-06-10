@@ -1,0 +1,33 @@
+{
+  "name": "vellum-assistant",
+  "owner": {
+    "name": "Vellum",
+    "url": "https://github.com/vellum-ai/vellum-assistant"
+  },
+  "plugins": [
+    {
+      "name": "caveman",
+      "source": {
+        "source": "github",
+        "repo": "JuliusBrussee/caveman",
+        "ref": "63a91ecadbf4c4719a4602a5abb00883f9966034"
+      },
+      "description": "Ultra-compressed communication mode that strips filler words to cut token usage.",
+      "category": "productivity",
+      "homepage": "https://github.com/JuliusBrussee/caveman",
+      "license": "MIT"
+    },
+    {
+      "name": "dynamic-notch",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/dynamic-notch",
+        "ref": "25fd4db8e8eee493396f7206d7015099ec1af689"
+      },
+      "description": "Put your Vellum assistant inside your MacBook's notch: click to chat, hold Ctrl+Option to talk, and get a floating task bulb while it works, with live-streamed replies and per-sentence voice.",
+      "category": "interface",
+      "homepage": "https://github.com/AnitaKirkovska/dynamic-notch",
+      "license": "MIT"
+    }
+  ]
+}

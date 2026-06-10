@@ -36,19 +36,28 @@ const hatchAssistantMock = mock(async () => ({
   },
 }));
 
-const getAssistantMock = mock(async () => ({
+const assistantResult = (status: string) => ({
   ok: true,
   status: 200,
   data: {
     id: "asst-1",
-    status: "active",
+    status,
     is_local: false,
     maintenance_mode: { enabled: false },
   },
-}));
+});
+let getAssistantImpl: () => Promise<unknown> = async () =>
+  assistantResult("active");
+const getAssistantMock = mock(() => getAssistantImpl());
 
-const fetchCharacterTraitsMock = mock(async () => null);
+let fetchTraitsImpl: () => Promise<unknown> = async () => null;
+const fetchCharacterTraitsMock = mock(() => fetchTraitsImpl());
 const saveCharacterTraitsMock = mock(async () => undefined);
+const invalidateQueriesMock = mock(() => {});
+const queryClientMock = {
+  fetchQuery: mock(async () => []),
+  invalidateQueries: invalidateQueriesMock,
+};
 const writeSelectedVersionMock = mock(() => {});
 
 type TestOnboardingRecipe = {
@@ -89,11 +98,16 @@ mock.module("@/assistant/lifecycle-service", () => ({
 mock.module("@/assistant/api", () => ({
   hatchAssistant: hatchAssistantMock,
   getAssistant: getAssistantMock,
+  getAssistantHealthz: async () => ({ ok: true, status: 200, data: { status: "ok" } }),
 }));
 
 mock.module("@/assistant/avatar-api", () => ({
   fetchCharacterTraits: fetchCharacterTraitsMock,
   saveCharacterTraits: saveCharacterTraitsMock,
+}));
+
+mock.module("@/lib/sync/query-tags", () => ({
+  avatarQueryKey: (assistantId: string) => ["assistantAvatar", assistantId],
 }));
 
 mock.module("@/utils/avatar-bundled-components", () => ({
@@ -194,6 +208,7 @@ mock.module("@/lib/local-mode", () => ({
   getSelectedAssistant: () => undefined,
   loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
   setSelectedAssistantId: () => {},
+  setActiveLockfileAssistant: async () => {},
   saveLockfileAssistant: async () => {},
   primeLocalGatewayConnection: async () => {},
   getLocalGatewayUrl: () => undefined,
@@ -201,6 +216,26 @@ mock.module("@/lib/local-mode", () => ({
 
 mock.module("@/runtime/local-mode-host", () => ({
   hatchLocalAssistant: async () => ({ ok: true, assistantId: "local-1" }),
+}));
+
+mock.module("@/assistant/select-platform-assistant", () => ({
+  selectPlatformAssistant: async () => {},
+}));
+
+mock.module("@/stores/resolved-assistants-store", () => ({
+  useResolvedAssistantsStore: {
+    getState: () => ({
+      assistants: [],
+      activeAssistantId: null,
+      upsertFromApi: () => {},
+      setActiveAssistantId: () => {},
+    }),
+    use: {
+      assistants: () => [],
+      activeAssistantId: () => null,
+      selectedPlatformAssistantByOrg: () => ({}),
+    },
+  },
 }));
 
 mock.module("@/stores/client-feature-flag-store", () => ({
@@ -273,7 +308,7 @@ mock.module("@tanstack/react-query", () => ({
     return isRecipeQuery ? state : { data: { id: "asst-1" } };
   },
   useMutation: () => ({ mutate: mock(() => {}), isPending: false }),
-  useQueryClient: () => ({ fetchQuery: mock(async () => []) }),
+  useQueryClient: () => queryClientMock,
 }));
 
 mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
@@ -357,6 +392,8 @@ const { PreChatFlow } =
 beforeEach(() => {
   searchParams = new URLSearchParams();
   checkAssistantImpl = async () => {};
+  fetchTraitsImpl = async () => null;
+  getAssistantImpl = async () => assistantResult("active");
   preChatOnboardingExperiment = "variant-a";
   activationFlowExperiment = "control";
   selfIntroGreeting = true;
@@ -376,6 +413,7 @@ beforeEach(() => {
   getAssistantMock.mockClear();
   fetchCharacterTraitsMock.mockClear();
   saveCharacterTraitsMock.mockClear();
+  invalidateQueriesMock.mockClear();
   writeSelectedVersionMock.mockClear();
   fetchOnboardingRecipeMock.mockClear();
 });
@@ -624,5 +662,112 @@ describe("onboarding lifecycle sync", () => {
 
     expect(await screen.findByTestId("prior-continue")).toBeTruthy();
     expect(checkAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("hatching persists the random avatar and invalidates the avatar query before leaving onboarding", async () => {
+    // Route through the hatch + poll path (a freshly provisioned assistant),
+    // not the already-active early return — only a fresh hatch may be seeded.
+    let assistantCalls = 0;
+    getAssistantImpl = async () =>
+      assistantResult(++assistantCalls === 1 ? "initializing" : "active");
+
+    let resolveLifecycle!: () => void;
+    checkAssistantImpl = () =>
+      new Promise<void>((resolve) => {
+        resolveLifecycle = resolve;
+      });
+
+    render(<HatchingScreen />);
+
+    await waitFor(() =>
+      expect(saveCharacterTraitsMock).toHaveBeenCalledWith("asst-1", {
+        bodyShape: "round",
+        eyeStyle: "dot",
+        color: "green",
+      }),
+    );
+    await waitFor(() =>
+      expect(invalidateQueriesMock).toHaveBeenCalledWith({
+        queryKey: ["assistantAvatar", "asst-1"],
+      }),
+    );
+
+    // Persisting the avatar must not block the lifecycle hand-off.
+    await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled(), {
+      timeout: 2_000,
+    });
+    resolveLifecycle();
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.prechat, {
+        replace: true,
+      }),
+    );
+  });
+
+  test("an already-active assistant (returning user) is not re-seeded with a random avatar", async () => {
+    // getAssistantImpl defaults to active → the early-return path. A returning
+    // user's avatar must be left untouched: an image avatar has no traits
+    // sidecar, so seeding would overwrite it (see persistHatchAvatar).
+    render(<HatchingScreen />);
+
+    await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled(), {
+      timeout: 2_000,
+    });
+    expect(saveCharacterTraitsMock).not.toHaveBeenCalled();
+    expect(invalidateQueriesMock).not.toHaveBeenCalled();
+  });
+
+  test("a returning user whose pre-flight check fails transiently is not re-seeded via the poll path", async () => {
+    // The early-return guard relies on a pre-flight getAssistant(); when that
+    // throws transiently, the flow falls through to hatch + poll. hatchAssistant
+    // then returns 200 (an existing assistant, not a fresh 201 creation), so the
+    // poll path must NOT seed a random avatar over the returning user's avatar.
+    let assistantCalls = 0;
+    getAssistantImpl = async () => {
+      assistantCalls += 1;
+      if (assistantCalls === 1) throw new Error("transient pre-flight failure");
+      return assistantResult("active");
+    };
+    hatchAssistantMock.mockResolvedValueOnce(assistantResult("active"));
+
+    render(<HatchingScreen />);
+
+    await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled(), {
+      timeout: 2_000,
+    });
+    expect(saveCharacterTraitsMock).not.toHaveBeenCalled();
+    expect(invalidateQueriesMock).not.toHaveBeenCalled();
+  });
+
+  test("a fresh hatch is still seeded when the hatch response is lost (pre-flight saw no assistant)", async () => {
+    // Pre-flight resolves auto_hatch (HTTP 404 = no assistant existed), so the
+    // user is provably new. hatchAssistant then throws (POST accepted, response
+    // lost), so createdFreshAssistant never gets set — but the poll discovers
+    // the freshly-created assistant, which must still be seeded rather than
+    // landing on the default avatar.
+    let assistantCalls = 0;
+    getAssistantImpl = async () => {
+      assistantCalls += 1;
+      if (assistantCalls === 1) return { ok: false, status: 404, error: {} };
+      return assistantResult("active");
+    };
+    hatchAssistantMock.mockImplementationOnce(async () => {
+      throw new Error("response lost");
+    });
+
+    render(<HatchingScreen />);
+
+    await waitFor(() =>
+      expect(saveCharacterTraitsMock).toHaveBeenCalledWith("asst-1", {
+        bodyShape: "round",
+        eyeStyle: "dot",
+        color: "green",
+      }),
+    );
+    await waitFor(() =>
+      expect(invalidateQueriesMock).toHaveBeenCalledWith({
+        queryKey: ["assistantAvatar", "asst-1"],
+      }),
+    );
   });
 });

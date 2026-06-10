@@ -14,7 +14,6 @@ import { BlockedDeleteModal } from "@/domains/settings/ai/manage-profiles-blocke
 import { ProfileListItem } from "@/domains/settings/ai/manage-profiles-list-item";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import { gateAutoProfile } from "@/domains/settings/ai/profile-pickers";
-import { filterFlaggedConnections } from "@/domains/settings/ai/provider-connections-client";
 import { invalidateDaemonConfig, useDaemonConfigMutation, useDaemonConfigQuery } from "@/domains/settings/ai/use-daemon-config";
 import { inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { configLlmProfilesByNamePut } from "@/generated/daemon/sdk.gen";
@@ -48,8 +47,6 @@ export function ManageProfilesModal({
   const configMutation = useDaemonConfigMutation();
   const queryClient = useQueryClient();
 
-  const openAICompatibleEndpoints = useAssistantFeatureFlagStore.use.openAICompatibleEndpoints();
-  const chatgptSubscriptionAuth = useAssistantFeatureFlagStore.use.chatgptSubscriptionAuth();
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<ProfileWithName | null>(null);
 
@@ -60,13 +57,7 @@ export function ManageProfilesModal({
     }),
     enabled: isOpen,
   });
-  const connections = useMemo(
-    () =>
-      connectionsData
-        ? filterFlaggedConnections(connectionsData.connections, openAICompatibleEndpoints)
-        : undefined,
-    [connectionsData, openAICompatibleEndpoints],
-  );
+  const connections = connectionsData?.connections;
 
   const existingNames = Object.keys(profiles);
 
@@ -185,9 +176,7 @@ export function ManageProfilesModal({
         initialValues={editingProfile ?? undefined}
         existingNames={existingNames}
         connections={connections}
-        openAICompatibleEndpointsEnabled={openAICompatibleEndpoints}
         assistantId={assistantId}
-        chatgptSubscriptionEnabled={chatgptSubscriptionAuth}
         onSave={handleEditorSave}
         onCancel={() => {
           setEditorOpen(false);

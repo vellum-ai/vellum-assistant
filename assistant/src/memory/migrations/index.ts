@@ -262,6 +262,9 @@ export { createAuthFallbackEventsTable } from "./271-create-auth-fallback-events
 export { migrateAcpSessionHistoryCwd } from "./272-acp-session-history-cwd.js";
 export { migrateOnboardingEventsFunnelColumns } from "./273-onboarding-events-funnel-columns.js";
 export { createActivationSessionsTable } from "./274-create-activation-sessions.js";
+export { migrateToolInvocationsSkillId } from "./275-tool-invocations-add-skill-id.js";
+export { migrateToolInvocationsCreatedAtIdIndex } from "./276-tool-invocations-created-at-id-index.js";
+export { migrateAddMemoryV3EverInjected } from "./277-add-memory-v3-ever-injected.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

@@ -2,7 +2,7 @@
  * Memory v3 — `memory_v3_maintain` job handler.
  *
  * A flag-gated, best-effort self-maintenance pass over the v3 section dense
- * store and the in-memory lanes. It runs three independent stages, in order:
+ * store and the in-memory lanes. It runs four independent stages, in order:
  *
  *   1. **Section re-embed** — diff the page index by `modifiedAt` against the
  *      last successful pass (the high-water mark below), and for every page that
@@ -22,7 +22,12 @@
  *      (it only names live pages), so without this its section points would
  *      linger in Qdrant and the dense lane could still surface the deleted page.
  *      Synthetic capability rows are in the page index, so they are never pruned.
- *   3. **Lane invalidation** — `invalidateLanes()` so the next turn rebuilds the
+ *   3. **Core-set validation** — load the maintainer-curated core set
+ *      (`memory/core-pages.md`) and report entries whose page no longer exists
+ *      in the page index (dangling slugs) via the log + outcome. The file is
+ *      maintainer-owned, so this stage NEVER edits it — the maintainer fixes
+ *      dangling entries at the next consolidation pass.
+ *   4. **Lane invalidation** — `invalidateLanes()` so the next turn rebuilds the
  *      in-memory section index, needle, and edge graph from the freshly-updated
  *      pages.
  *
@@ -35,8 +40,8 @@
  *
  * Dependency-injectable: `deps` lets tests substitute the page-index reader,
  * section builder, dense-store ops (including the prune-stage
- * `listSectionArticles`/`listIndexedSlugs` collaborators), and `invalidateLanes`
- * without process-global module mocks.
+ * `listSectionArticles`/`listIndexedSlugs` collaborators), the core-set loader,
+ * and `invalidateLanes` without process-global module mocks.
  */
 
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
@@ -51,6 +56,7 @@ import { readPage } from "../../../memory/v2/page-store.js";
 import { getLogger } from "../../../util/logger.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
 import { capabilityOrDiskBody } from "./capabilities.js";
+import { loadCoreSet as realLoadCoreSet } from "./core-set.js";
 import {
   deleteSectionsForArticle as realDeleteSectionsForArticle,
   ensureSectionCollection as realEnsureSectionCollection,
@@ -126,6 +132,12 @@ export interface MaintainJobDeps {
    * from this set. Includes synthetic capability rows so they are never pruned.
    */
   listIndexedSlugs: () => Promise<Slug[]>;
+  /**
+   * The maintainer-curated core set from `memory/core-pages.md`. The validation
+   * stage diffs it against the live page-index slugs and REPORTS dangling
+   * entries only — the file is maintainer-owned and is never edited here.
+   */
+  loadCoreSet: () => Slug[];
   /** Drop the memoized v3 lanes so the next turn rebuilds them. */
   invalidateLanes: () => void;
   /** Active assistant config (for the dense-store/embedding calls). */
@@ -188,6 +200,12 @@ export interface MaintainOutcome {
   pruned: number;
   /** Prune deletes that threw (and were contained). */
   pruneFailures: number;
+  /**
+   * Core-set entries (`memory/core-pages.md`) whose page no longer exists in
+   * the page index. Reported for the maintainer to fix at the next
+   * consolidation pass — the file itself is never mutated.
+   */
+  danglingCoreSlugs: Slug[];
   /** Whether the in-memory lanes were invalidated. */
   invalidated: boolean;
   /** Stages that threw (and were contained). */
@@ -284,6 +302,7 @@ function defaultDeps(config: AssistantConfig): MaintainJobDeps {
     commitEmbedHighWater,
     listSectionArticles: () => realListSectionArticles(config),
     listIndexedSlugs: () => selectAllPagesFromWorkspace(workspaceDir),
+    loadCoreSet: () => realLoadCoreSet(workspaceDir),
     invalidateLanes: realInvalidateLanes,
     config,
   };
@@ -463,6 +482,7 @@ export async function maintainJob(
     reembedFailures: 0,
     pruned: 0,
     pruneFailures: 0,
+    danglingCoreSlugs: [],
     invalidated: false,
     failures: [],
   };
@@ -527,7 +547,35 @@ export async function maintainJob(
     );
   }
 
-  // Stage 3: rebuild section index + needle + edge graph on the next turn.
+  // Stage 3: validate the maintainer-curated core set. Diff `core-pages.md`
+  // entries against the live page-index slugs and REPORT dangling entries
+  // (pages that were renamed or deleted) through the log + outcome — the file
+  // is maintainer-owned, so it is never auto-edited; the maintainer fixes it at
+  // the next consolidation pass. No hot/core recompute is needed in this job:
+  // the lanes (including the core and hot prefixes) are computed at lane init,
+  // and the invalidateLanes() stage below already forces a next-turn rebuild —
+  // that rebuild IS the consolidation-cadence refresh.
+  try {
+    const coreSlugs = deps.loadCoreSet();
+    if (coreSlugs.length > 0) {
+      const live = new Set(await deps.listIndexedSlugs());
+      outcome.danglingCoreSlugs = coreSlugs.filter((slug) => !live.has(slug));
+      if (outcome.danglingCoreSlugs.length > 0) {
+        log.warn(
+          { dangling: outcome.danglingCoreSlugs },
+          "memory-v3 maintain: core-pages.md lists pages missing from the index — review the file at the next consolidation",
+        );
+      }
+    }
+  } catch (err) {
+    outcome.failures.push("core-validate");
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "memory-v3 maintain: core-set validation failed (non-fatal)",
+    );
+  }
+
+  // Stage 4: rebuild section index + needle + edge graph on the next turn.
   try {
     deps.invalidateLanes();
     outcome.invalidated = true;
@@ -545,6 +593,7 @@ export async function maintainJob(
       reembedFailures: outcome.reembedFailures,
       pruned: outcome.pruned,
       pruneFailures: outcome.pruneFailures,
+      danglingCoreSlugs: outcome.danglingCoreSlugs,
       invalidated: outcome.invalidated,
       failures: outcome.failures,
     },

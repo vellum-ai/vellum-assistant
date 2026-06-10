@@ -16,6 +16,7 @@ export interface LlmCatalogModel {
   defaultContextWindowTokens: number;
   maxOutputTokens: number;
   supportsThinking?: boolean;
+  adaptiveThinkingOnly?: boolean;
   longContextPricingThresholdTokens?: number;
 }
 
@@ -28,6 +29,7 @@ export const MODELS_BY_PROVIDER = {
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
       supportsThinking: true,
+      adaptiveThinkingOnly: true,
       longContextPricingThresholdTokens: 200_000,
     },
     {
@@ -251,6 +253,7 @@ export const MODELS_BY_PROVIDER = {
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
       supportsThinking: true,
+      adaptiveThinkingOnly: true,
       longContextPricingThresholdTokens: 200_000,
     },
     {

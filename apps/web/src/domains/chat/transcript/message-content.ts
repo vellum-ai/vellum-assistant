@@ -101,11 +101,9 @@ export function resolveToolCall(
  * the unified `contentBlocks` projection and falling back to the positional
  * `thinkingSegments` per index. Thinking blocks are built in lockstep with
  * `thinkingSegments`, so the i-th thinking block carries the same text as
- * `thinkingSegments[i]`. The per-index fallback covers indices the projection
- * doesn't span: rows with no `contentBlocks` at all (older daemons, in-flight
- * streaming rows) and rows whose `contentBlocks` is shorter than the positional
- * arrays — e.g. one formed by merging adjacent/duplicate messages, where the
- * positional arrays are concatenated but `contentBlocks` carries only one side.
+ * `thinkingSegments[i]`. The per-index fallback covers rows that have no
+ * `contentBlocks` projection yet — older daemons that never emit blocks and
+ * in-flight streaming rows whose blocks have not been built.
  */
 export function resolveThinkingContent(
   message: DisplayMessage,

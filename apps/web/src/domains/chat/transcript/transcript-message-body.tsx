@@ -46,7 +46,6 @@ import {
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 
 export interface OpenRuleEditorContext {
   toolName: string;
@@ -206,31 +205,6 @@ function resolveSpawnedSubagentIds(
   }
 
   return ids;
-}
-
-function shouldAutoExpandToolCallGroup({
-  isCurrentGroup,
-  isStreaming,
-  toolCalls,
-}: {
-  isCurrentGroup: boolean;
-  isStreaming: boolean;
-  toolCalls: ChatMessageToolCall[];
-}): boolean {
-  if (!isCurrentGroup) {
-    return false;
-  }
-  // While the turn streams, the message's last content group stays open for the
-  // whole turn — so a trailing tool-call card is visible until the model starts
-  // writing the answer below it, at which point the text group becomes last and
-  // the card collapses. Outside a stream (history) it only expands while a tool
-  // is running, which keeps completed turns collapsed and compact.
-  if (isStreaming) {
-    return true;
-  }
-  return toolCalls.some(
-    (toolCall) => isToolCallRunning(toolCall),
-  );
 }
 
 function fallbackRoleLabel(
@@ -678,11 +652,6 @@ export function TranscriptMessageBody({
               <ActivityRunCard
                 toolCalls={groupToolCalls}
                 items={cardItems}
-                autoExpand={shouldAutoExpandToolCallGroup({
-                  isCurrentGroup: isLastGroup,
-                  isStreaming,
-                  toolCalls: renderableToolCalls,
-                })}
                 onOpenRuleEditor={onOpenRuleEditor}
                 onConfirmationSubmit={onConfirmationSubmit}
                 onAllowAndCreateRule={onAllowAndCreateRule}
@@ -876,11 +845,6 @@ export function TranscriptMessageBody({
               <div className="w-full">
                 <ActivityRunCard
                   toolCalls={legacyToolCalls}
-                  autoExpand={shouldAutoExpandToolCallGroup({
-                    isCurrentGroup: !hasVisibleLegacyContent,
-                    isStreaming,
-                    toolCalls: legacyToolCalls,
-                  })}
                   onOpenRuleEditor={onOpenRuleEditor}
                   onConfirmationSubmit={onConfirmationSubmit}
                   onAllowAndCreateRule={onAllowAndCreateRule}

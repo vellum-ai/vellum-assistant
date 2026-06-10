@@ -328,7 +328,7 @@ describe("TranscriptMessageBody", () => {
     expect(inspectedIds).toEqual(["message-1"]);
   });
 
-  test("auto-expands the latest interleaved tool-call group while a tool is running", () => {
+  test("renders the latest interleaved tool-call group collapsed while a tool is running", () => {
     const { getByTestId } = render(
       <TranscriptMessageBody
         message={{
@@ -351,9 +351,11 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
+    // Activity cards are collapsed by default — a running tool no longer forces
+    // the group open; the user opens it to see the live timeline.
     expect(
       getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
-    ).toBe("true");
+    ).toBe("false");
   });
 
   test("does not auto-expand a latest interleaved tool-call group whose tools have all completed", () => {
@@ -386,7 +388,7 @@ describe("TranscriptMessageBody", () => {
     ).toBe("false");
   });
 
-  test("auto-expands the last tool-call group of a streaming message even after its tools complete", () => {
+  test("renders a streaming message's last tool-call group collapsed", () => {
     const { getByTestId } = render(
       <TranscriptMessageBody
         message={{
@@ -411,12 +413,13 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
+    // Streaming no longer forces the trailing group open — collapsed by default.
     expect(
       getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
-    ).toBe("true");
+    ).toBe("false");
   });
 
-  test("only the last tool-call group of a streaming message auto-expands", () => {
+  test("renders every tool-call group of a streaming message collapsed", () => {
     const { getAllByTestId } = render(
       <TranscriptMessageBody
         message={{
@@ -455,7 +458,7 @@ describe("TranscriptMessageBody", () => {
       getAllByTestId("tool-progress-card").map((el) =>
         el.getAttribute("data-auto-expand"),
       ),
-    ).toEqual(["false", "true"]);
+    ).toEqual(["false", "false"]);
   });
 
   test("collapses a streaming message's tool-call group once answer text streams in below it", () => {
@@ -521,7 +524,7 @@ describe("TranscriptMessageBody", () => {
     ).toBe("false");
   });
 
-  test("moves auto-expansion to a later interleaved tool-call group", () => {
+  test("renders multiple interleaved tool-call groups collapsed", () => {
     const { getAllByTestId } = render(
       <TranscriptMessageBody
         message={{
@@ -558,7 +561,7 @@ describe("TranscriptMessageBody", () => {
       getAllByTestId("tool-progress-card").map((el) =>
         el.getAttribute("data-auto-expand"),
       ),
-    ).toEqual(["false", "true"]);
+    ).toEqual(["false", "false"]);
   });
 
   test("renders user text and an image attachment inside a single bubble", () => {
@@ -821,7 +824,7 @@ describe("TranscriptMessageBody", () => {
     ).not.toBeNull();
   });
 
-  test("auto-expands legacy tool-only messages while a tool runs, until content appears", () => {
+  test("renders legacy tool-only messages collapsed whether or not a tool is running", () => {
     const { getByTestId, rerender } = render(
       <TranscriptMessageBody
         message={{
@@ -839,9 +842,10 @@ describe("TranscriptMessageBody", () => {
         onSurfaceAction={noop}
       />,
     );
+    // Collapsed by default even while the tool runs.
     expect(
       getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
-    ).toBe("true");
+    ).toBe("false");
 
     rerender(
       <TranscriptMessageBody

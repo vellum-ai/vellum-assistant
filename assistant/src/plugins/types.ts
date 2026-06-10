@@ -317,12 +317,11 @@ export interface Injector {
 }
 
 // ─── Model-visible capability slots ──────────────────────────────────────────
-// Concrete shapes are defined by the tool/route/skill registries. Tool
-// contributions (PR 31) use the canonical `Tool` interface; route
-// contributions (PR 32) use the `SkillRoute` shape from the skill-route
-// registry; skill contributions (PR 33) ship with the concrete
-// `PluginSkillRegistration` shape below so plugins can declare
-// catalog-discoverable skills today.
+// Concrete shapes are defined by the tool/route registries. Tool
+// contributions use the canonical `Tool` interface; route contributions use
+// the `SkillRoute` shape from the skill-route registry. Skills ship on disk
+// inside an installed plugin (`plugins/<name>/skills/<id>/SKILL.md`) and are
+// discovered by the skill catalog loader, so they need no contribution slot.
 
 /**
  * HTTP route registration contributed by a plugin. Plugins express routes as
@@ -335,49 +334,6 @@ export interface Injector {
  * happen to register the same regex from evicting each other's routes.
  */
 export type PluginRouteRegistration = SkillRoute;
-
-/**
- * A skill contributed by a plugin.
- *
- * When a plugin declares {@link Plugin.skills}, the bootstrap registers each
- * entry into an in-memory side catalog that {@link loadSkillCatalog} merges
- * into its output. The entry is then discoverable by the model's `skill_load`
- * / `skill_execute` flow under `source: "plugin"` — the same code paths used
- * for filesystem-backed skills.
- *
- * The fields mirror the subset of `SkillSummary` / `SkillDefinition` that
- * makes sense for an in-memory contribution. Inline commands and reference
- * files are out of scope for plugin skills in this PR — add them later if a
- * real plugin needs them.
- */
-export interface PluginSkillRegistration {
-  /** Stable skill id (kebab-case). Must be unique across the catalog. */
-  id: string;
-  /**
-   * Skill "name" as surfaced to the model. Matches the SKILL.md frontmatter
-   * `name` field for filesystem skills.
-   */
-  name: string;
-  /**
-   * Human-readable display name shown in UI lists. Defaults to `name` when
-   * omitted — matches the filesystem-skill default.
-   */
-  displayName?: string;
-  /** One-line description shown by `skill_load` / UI. */
-  description: string;
-  /** Full skill body returned when `skill_load` fires for this skill. */
-  body: string;
-  /** Optional emoji shown beside the skill in UI surfaces. */
-  emoji?: string;
-  /** Optional assistant feature-flag key — when set and the flag is OFF, the skill is filtered out. */
-  featureFlag?: string;
-  /** Compact routing cues injected into `<available_skills>` to guide selection. */
-  activationHints?: string[];
-  /** Conditions under which this skill should NOT be loaded. */
-  avoidWhen?: string[];
-  /** IDs of child skills that this skill includes (metadata-only, not auto-activated). */
-  includes?: string[];
-}
 
 // ─── Plugin ──────────────────────────────────────────────────────────────────
 
@@ -420,8 +376,6 @@ export interface Plugin {
   tools?: Tool[];
   /** HTTP route registrations served by the assistant. */
   routes?: PluginRouteRegistration[];
-  /** Skill registrations loaded at startup. */
-  skills?: PluginSkillRegistration[];
 }
 
 // ─── Errors ──────────────────────────────────────────────────────────────────

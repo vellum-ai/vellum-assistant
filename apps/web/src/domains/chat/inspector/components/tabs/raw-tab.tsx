@@ -2,8 +2,10 @@ import { AlertCircle, Copy, Download, RefreshCw } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { useLlmLogPayload } from "@/domains/chat/inspector/inspector-payload-api";
+import { captureError } from "@/lib/sentry/capture-error";
 import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
 import { Button, Card } from "@vellumai/design-library";
+import { toast } from "@vellumai/design-library/components/toast";
 
 type RawPane = "request" | "response";
 
@@ -76,7 +78,9 @@ export function RawTab({ entry, assistantId }: RawTabProps): ReactNode {
               iconOnly
               leftIcon={<Download size={14} aria-hidden />}
               aria-label={`Download ${pane} payload`}
-              onClick={() => downloadRawPayload(displayText, downloadFilename)}
+              onClick={() =>
+                void downloadRawPayload(displayText, downloadFilename)
+              }
             />
             <Button
               variant="ghost"
@@ -119,16 +123,18 @@ export function buildRawPayloadFilename(logId: string, pane: RawPane): string {
   return `llm-${safeLogId}-${pane}.json`;
 }
 
-function downloadRawPayload(text: string, filename: string): void {
-  const blob = new Blob([text], { type: "application/json;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+async function downloadRawPayload(
+  text: string,
+  filename: string,
+): Promise<void> {
+  try {
+    const blob = new Blob([text], { type: "application/json;charset=utf-8" });
+    const { saveFile } = await import("@/runtime/native-file");
+    await saveFile(blob, filename);
+  } catch (error) {
+    captureError(error, { context: "download_raw_payload" });
+    toast.error("Failed to download the payload.");
+  }
 }
 
 function LoadingState(): ReactNode {

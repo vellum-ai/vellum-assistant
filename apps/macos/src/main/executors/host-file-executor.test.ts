@@ -153,6 +153,45 @@ describe("host-file-executor", () => {
   // -- Read -----------------------------------------------------------------
 
   describe("read", () => {
+    test("rejects denied backup key basenames before reading", () => {
+      const dir = freshTmpDir();
+      const filePath = path.join(dir, ".backup.key");
+      fs.writeFileSync(filePath, "secret");
+
+      const result = __testing.executeRead({ path: filePath });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('Access to ".backup.key" is denied');
+    });
+
+    test("rejects symlinks pointing to denied basenames", () => {
+      const dir = freshTmpDir();
+      const target = path.join(dir, ".backup.key");
+      const link = path.join(dir, "innocent.txt");
+      fs.writeFileSync(target, "secret");
+      fs.symlinkSync(target, link);
+
+      const result = __testing.executeRead({ path: link });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('Access to ".backup.key" is denied');
+    });
+
+    test("rejects non-regular files before reading", () => {
+      const result = __testing.executeRead({ path: "/dev/null" });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("Not a regular file");
+    });
+
+    test("rejects oversized files before reading", () => {
+      const dir = freshTmpDir();
+      const filePath = path.join(dir, "large.txt");
+      fs.closeSync(fs.openSync(filePath, "w"));
+      fs.truncateSync(filePath, 100 * 1024 * 1024 + 1);
+
+      const result = __testing.executeRead({ path: filePath });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("exceeds the 100.0 MB limit");
+    });
+
     test("reads text file and returns content", () => {
       const dir = freshTmpDir();
       const filePath = path.join(dir, "hello.txt");
@@ -202,6 +241,75 @@ describe("host-file-executor", () => {
   // -- Write ----------------------------------------------------------------
 
   describe("write", () => {
+    test("rejects denied backup key basenames before writing", () => {
+      const dir = freshTmpDir();
+      const filePath = path.join(dir, "backup.key");
+
+      const result = __testing.executeWrite({ path: filePath, content: "secret" });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('Access to "backup.key" is denied');
+      expect(fs.existsSync(filePath)).toBe(false);
+    });
+
+    test("rejects oversized content before writing", () => {
+      const dir = freshTmpDir();
+      const filePath = path.join(dir, "large.txt");
+      const result = __testing.validateContentSize("x".repeat(100 * 1024 * 1024 + 1), filePath);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.isError).toBe(true);
+        expect(result.content).toContain("exceeds the 100.0 MB limit");
+      }
+    });
+
+    test("rejects writing through symlink to denied basename", () => {
+      const dir = freshTmpDir();
+      const target = path.join(dir, ".backup.key");
+      const link = path.join(dir, "innocent.txt");
+      fs.writeFileSync(target, "original");
+      fs.symlinkSync(target, link);
+
+      const result = __testing.executeWrite({ path: link, content: "overwritten" });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('Access to ".backup.key" is denied');
+      expect(fs.readFileSync(target, "utf-8")).toBe("original");
+    });
+
+    test("rejects writing through dangling symlink to denied basename", () => {
+      const dir = freshTmpDir();
+      const target = path.join(dir, "backup.key");
+      const link = path.join(dir, "harmless.txt");
+      // Target doesn't exist — symlink is dangling
+      fs.symlinkSync(target, link);
+
+      const result = __testing.executeWrite({ path: link, content: "secret" });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('Access to "backup.key" is denied');
+      expect(fs.existsSync(target)).toBe(false);
+    });
+
+    test("rejects writing through multi-level symlink chain to denied basename", () => {
+      const dir = freshTmpDir();
+      const target = path.join(dir, ".backup.key");
+      const mid = path.join(dir, "intermediate");
+      const link = path.join(dir, "harmless.txt");
+      fs.writeFileSync(target, "original");
+      fs.symlinkSync(target, mid);
+      fs.symlinkSync(mid, link);
+
+      const result = __testing.executeWrite({ path: link, content: "overwritten" });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('Access to ".backup.key" is denied');
+      expect(fs.readFileSync(target, "utf-8")).toBe("original");
+    });
+
+    test("rejects writing to existing non-regular file", () => {
+      const result = __testing.executeWrite({ path: "/dev/null", content: "data" });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("Not a regular file");
+    });
+
     test("writes content to file", () => {
       const dir = freshTmpDir();
       const filePath = path.join(dir, "out.txt");
@@ -223,6 +331,52 @@ describe("host-file-executor", () => {
   // -- Edit -----------------------------------------------------------------
 
   describe("edit", () => {
+    test("rejects denied backup key basenames before editing", () => {
+      const dir = freshTmpDir();
+      const filePath = path.join(dir, ".backup.key");
+      fs.writeFileSync(filePath, "old secret");
+
+      const result = __testing.executeEdit({
+        path: filePath,
+        old_string: "old",
+        new_string: "new",
+      });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('Access to ".backup.key" is denied');
+      expect(fs.readFileSync(filePath, "utf-8")).toBe("old secret");
+    });
+
+    test("rejects oversized files before editing", () => {
+      const dir = freshTmpDir();
+      const filePath = path.join(dir, "large.txt");
+      fs.closeSync(fs.openSync(filePath, "w"));
+      fs.truncateSync(filePath, 100 * 1024 * 1024 + 1);
+
+      const result = __testing.executeEdit({
+        path: filePath,
+        old_string: "old",
+        new_string: "new",
+      });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("exceeds the 100.0 MB limit");
+    });
+
+    test("rejects edits that would produce oversized output", () => {
+      const dir = freshTmpDir();
+      const filePath = path.join(dir, "small.txt");
+      fs.writeFileSync(filePath, "REPLACE_ME");
+
+      const bigString = "x".repeat(100 * 1024 * 1024 + 1);
+      const result = __testing.executeEdit({
+        path: filePath,
+        old_string: "REPLACE_ME",
+        new_string: bigString,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("exceeds the 100.0 MB limit");
+      expect(fs.readFileSync(filePath, "utf-8")).toBe("REPLACE_ME");
+    });
+
     test("replaces unique string", () => {
       const dir = freshTmpDir();
       const filePath = path.join(dir, "edit.txt");

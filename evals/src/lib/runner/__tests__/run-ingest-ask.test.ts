@@ -13,6 +13,7 @@ import type {
   AgentHatchInput,
   AgentMessage,
   BaseAgent,
+  ConfirmationDecision,
   WorkspaceFileWrite,
 } from "../../adapter";
 import type { TestSetupCommand } from "../../setup-command";
@@ -32,7 +33,7 @@ mock.module("../create-agent", () => ({
 
 // Import-under-test goes AFTER `mock.module` so the runner's import-time
 // reference to `createAgent` resolves to the stub above.
-import { runIngestAsk } from "../run-ingest-ask";
+import { IngestAskError, runIngestAsk } from "../run-ingest-ask";
 
 function profileFor(id: string): Profile {
   return {
@@ -44,6 +45,24 @@ function profileFor(id: string): Profile {
 
 function textEvent(text: string): AgentEvent {
   return { message: { type: "assistant_text_delta", text } };
+}
+
+/**
+ * The completion sentinel the ingest turn waits for. The runner only
+ * treats an ingest turn as finished once this standalone line appears, so
+ * every happy-path ingest queue must end with it.
+ */
+function readyEvent(): AgentEvent {
+  return textEvent("\nReady.");
+}
+
+/**
+ * A pending tool-confirmation event, the kind a hatched assistant emits
+ * when it reaches for a tool above the auto-approve risk threshold. In a
+ * headless run nothing answers it unless the runner auto-confirms.
+ */
+function confirmationRequestEvent(requestId: string): AgentEvent {
+  return { message: { type: "confirmation_request", requestId } };
 }
 
 interface FakeAgentOptions {
@@ -61,6 +80,18 @@ interface FakeAgentOptions {
   omitNewConversation?: boolean;
   /** When true, `newConversation()` does NOT rotate `conversationKey`. */
   newConversationNoOp?: boolean;
+  /** Omit `confirm` entirely (capability missing). */
+  omitConfirm?: boolean;
+  /** When set, `confirm()` throws with the given message. */
+  confirmFailure?: string;
+  /**
+   * Artificial delay (ms) before each ingest-turn (index 0) event *after
+   * the first* is yielded, simulating the long between-step silences of a
+   * heavy agentic turn. The first event arrives promptly (the turn always
+   * starts emitting); the gap that bites is mid-turn. Used to exercise the
+   * ingest drain's quiet window.
+   */
+  ingestEventDelayMs?: number;
 }
 
 interface FakeAgentHarness {
@@ -69,6 +100,7 @@ interface FakeAgentHarness {
   shutdownCount: () => number;
   writes: () => WorkspaceFileWrite[];
   sends: () => string[];
+  confirms: () => ConfirmationDecision[];
 }
 
 /**
@@ -84,14 +116,20 @@ function makeFakeAgent(opts: FakeAgentOptions = {}): FakeAgentHarness {
   let shutdowns = 0;
   const writes: WorkspaceFileWrite[] = [];
   const sends: string[] = [];
+  const confirms: ConfirmationDecision[] = [];
   const queues: AgentEvent[][] = (
-    opts.responses ?? [[textEvent("ack")], [textEvent("hypothesis")]]
+    opts.responses ?? [
+      [textEvent("ack"), readyEvent()],
+      [textEvent("hypothesis")],
+    ]
   ).map((q) => q.slice());
   let turn = 0;
   let conversationKey = "convo-1";
 
   const eventsFn = (): AsyncIterable<AgentEvent> => {
     const queue = queues[turn];
+    const delayMs = turn === 0 ? (opts.ingestEventDelayMs ?? 0) : 0;
+    let yielded = 0;
     return {
       [Symbol.asyncIterator]() {
         return {
@@ -99,7 +137,11 @@ function makeFakeAgent(opts: FakeAgentOptions = {}): FakeAgentHarness {
             if (!queue || queue.length === 0) {
               return { value: undefined, done: true };
             }
+            if (delayMs > 0 && yielded > 0) {
+              await new Promise((resolve) => setTimeout(resolve, delayMs));
+            }
             const value = queue.shift()!;
+            yielded += 1;
             return { value, done: false };
           },
         };
@@ -143,6 +185,14 @@ function makeFakeAgent(opts: FakeAgentOptions = {}): FakeAgentHarness {
       }
     };
   }
+  if (!opts.omitConfirm) {
+    agent.confirm = async (input) => {
+      if (opts.confirmFailure) {
+        throw new Error(opts.confirmFailure);
+      }
+      confirms.push(input);
+    };
+  }
 
   return {
     agent,
@@ -150,6 +200,7 @@ function makeFakeAgent(opts: FakeAgentOptions = {}): FakeAgentHarness {
     shutdownCount: () => shutdowns,
     writes: () => writes.slice(),
     sends: () => sends.slice(),
+    confirms: () => confirms.slice(),
   };
 }
 
@@ -161,7 +212,7 @@ describe("runIngestAsk — happy path", () => {
   test("hatches, stages inputs, sends both messages, rotates conversation, returns hypothesis", async () => {
     const harness = makeFakeAgent({
       responses: [
-        [textEvent("ingested-ack")],
+        [textEvent("ingested-ack"), readyEvent()],
         [textEvent("March 14"), textEvent(", 2025")],
       ],
     });
@@ -193,14 +244,15 @@ describe("runIngestAsk — happy path", () => {
       result.questionConversationKey,
     );
     expect(result.hypothesis).toBe("March 14, 2025");
-    expect(result.ingestEvents.length).toBe(1);
+    expect(result.ingestEvents.length).toBe(2);
     expect(result.questionEvents.length).toBe(2);
+    expect(result.ingestSentinelSeen).toBe(true);
     expect(harness.shutdownCount()).toBe(1);
   });
 
   test("supports zero inputs (caller relies on persistent state alone)", async () => {
     const harness = makeFakeAgent({
-      responses: [[textEvent("ok")], [textEvent("answer")]],
+      responses: [[textEvent("ok"), readyEvent()], [textEvent("answer")]],
     });
     nextAgent = harness.agent;
 
@@ -219,6 +271,166 @@ describe("runIngestAsk — happy path", () => {
       "what did the user say?",
     ]);
     expect(result.hypothesis).toBe("answer");
+  });
+});
+
+describe("runIngestAsk — confirmation auto-approval", () => {
+  afterEach(() => {
+    nextAgent = null;
+  });
+
+  test("auto-approves confirmation_request events raised during ingest", async () => {
+    // GIVEN an ingest turn whose stream carries a pending tool confirmation
+    // before the agent finishes and emits the sentinel
+    const harness = makeFakeAgent({
+      responses: [
+        [
+          textEvent("reading trajectories"),
+          confirmationRequestEvent("req-42"),
+          textEvent(" committed to memory"),
+          readyEvent(),
+        ],
+        [textEvent("answer")],
+      ],
+    });
+    nextAgent = harness.agent;
+
+    // WHEN the runner drives the ingest turn
+    const result = await runIngestAsk({
+      profile: profileFor("p-confirm"),
+      runId: "r-confirm",
+      inputs: [],
+      ingestMessage: "ingest everything",
+      questionMessage: "recall it",
+      quietMs: 25,
+    });
+
+    // THEN the pending confirmation was approved so the turn could complete
+    expect(harness.confirms()).toEqual([
+      { requestId: "req-42", decision: "allow" },
+    ]);
+    // AND the ingest reached its completion sentinel and the run produced a
+    // hypothesis rather than stalling on the unresolved confirmation
+    expect(result.ingestSentinelSeen).toBe(true);
+    expect(result.hypothesis).toBe("answer");
+  });
+
+  test("does not stall when the adapter cannot confirm", async () => {
+    // GIVEN an adapter that lacks the optional confirm() capability but whose
+    // ingest still completes (e.g. a species that never gates on confirmation)
+    const harness = makeFakeAgent({
+      omitConfirm: true,
+      responses: [[textEvent("done"), readyEvent()], [textEvent("answer")]],
+    });
+    nextAgent = harness.agent;
+
+    // WHEN the runner drives the ingest turn
+    const result = await runIngestAsk({
+      profile: profileFor("p-no-confirm"),
+      runId: "r-no-confirm",
+      inputs: [],
+      ingestMessage: "ingest everything",
+      questionMessage: "recall it",
+      quietMs: 25,
+    });
+
+    // THEN the run completes normally without requiring confirm()
+    expect(result.ingestSentinelSeen).toBe(true);
+    expect(result.hypothesis).toBe("answer");
+  });
+
+  test("a failed confirmation is not fatal; the sentinel still governs completion", async () => {
+    // GIVEN an adapter whose confirm() throws, with a confirmation raised
+    // mid-ingest that the agent recovers from to reach the sentinel
+    const harness = makeFakeAgent({
+      confirmFailure: "gateway unreachable",
+      responses: [
+        [
+          textEvent("working"),
+          confirmationRequestEvent("req-7"),
+          textEvent(" recovered"),
+          readyEvent(),
+        ],
+        [textEvent("answer")],
+      ],
+    });
+    nextAgent = harness.agent;
+
+    // WHEN the runner drives the ingest turn and the approval call fails
+    const result = await runIngestAsk({
+      profile: profileFor("p-confirm-fail"),
+      runId: "r-confirm-fail",
+      inputs: [],
+      ingestMessage: "ingest everything",
+      questionMessage: "recall it",
+      quietMs: 25,
+    });
+
+    // THEN the failed approval does not abort the drain; the sentinel is what
+    // decides the turn completed
+    expect(result.ingestSentinelSeen).toBe(true);
+    expect(result.hypothesis).toBe("answer");
+  });
+});
+
+describe("runIngestAsk — ingest quiet window", () => {
+  afterEach(() => {
+    nextAgent = null;
+  });
+
+  test("does not abandon the ingest turn during a gap longer than the question quiet window", async () => {
+    // GIVEN an ingest turn whose events arrive with gaps longer than the
+    // (tight) question quiet window but shorter than the (generous) ingest
+    // quiet window — the heavy-turn case where the model sits silent between
+    // steps without being done
+    const harness = makeFakeAgent({
+      ingestEventDelayMs: 60,
+      responses: [[textEvent("thinking"), readyEvent()], [textEvent("answer")]],
+    });
+    nextAgent = harness.agent;
+
+    // WHEN the runner drives the turns with a 20ms question window and a
+    // 200ms ingest window
+    const result = await runIngestAsk({
+      profile: profileFor("p-ingest-quiet"),
+      runId: "r-ingest-quiet",
+      inputs: [],
+      ingestMessage: "ingest everything",
+      questionMessage: "recall it",
+      quietMs: 20,
+      ingestQuietMs: 200,
+    });
+
+    // THEN the ingest turn survives the 60ms inter-event gaps and reaches its
+    // sentinel rather than being cut off at the 20ms question window
+    expect(result.ingestSentinelSeen).toBe(true);
+    expect(result.hypothesis).toBe("answer");
+  });
+
+  test("fails loudly when an ingest gap exceeds even the ingest quiet window", async () => {
+    // GIVEN an ingest turn whose inter-event gap exceeds the ingest quiet
+    // window itself — a genuinely stalled turn
+    const harness = makeFakeAgent({
+      ingestEventDelayMs: 120,
+      responses: [[textEvent("thinking"), readyEvent()], [textEvent("answer")]],
+    });
+    nextAgent = harness.agent;
+
+    // WHEN the runner drives the ingest turn with a 40ms ingest window
+    // THEN the drain goes quiet before the sentinel arrives and the run fails
+    // loudly rather than grading a truncated ingest
+    await expect(
+      runIngestAsk({
+        profile: profileFor("p-ingest-stall"),
+        runId: "r-ingest-stall",
+        inputs: [],
+        ingestMessage: "ingest everything",
+        questionMessage: "recall it",
+        quietMs: 20,
+        ingestQuietMs: 40,
+        ingestMaxMs: 5_000,
+      }),
+    ).rejects.toThrow(/never emitted the completion sentinel/);
   });
 });
 
@@ -309,7 +521,7 @@ describe("runIngestAsk — event-stream failures", () => {
 
   test("throws when the question turn produces zero events", async () => {
     const harness = makeFakeAgent({
-      responses: [[textEvent("ack")], []],
+      responses: [[textEvent("ack"), readyEvent()], []],
     });
     nextAgent = harness.agent;
 
@@ -329,7 +541,7 @@ describe("runIngestAsk — event-stream failures", () => {
   test("throws when the question turn emits only non-text events", async () => {
     const harness = makeFakeAgent({
       responses: [
-        [textEvent("ack")],
+        [textEvent("ack"), readyEvent()],
         // tool-use event with no text/chunk → hypothesis would be
         // empty even though the turn produced an event.
         [{ message: { type: "tool_use_start", toolName: "lookup" } }],
@@ -348,6 +560,102 @@ describe("runIngestAsk — event-stream failures", () => {
       }),
     ).rejects.toThrow(/no assistant text/);
     expect(harness.shutdownCount()).toBe(1);
+  });
+});
+
+describe("runIngestAsk — ingest completion sentinel", () => {
+  afterEach(() => {
+    nextAgent = null;
+  });
+
+  test("fails loudly when the ingest turn ends without the sentinel", async () => {
+    // GIVEN an ingest turn that emits events but never declares completion
+    // (e.g. it stalled on an unresolved tool confirmation before saying
+    // "Ready.")
+    const harness = makeFakeAgent({
+      responses: [
+        [textEvent("reading trajectories..."), textEvent("still working")],
+        [textEvent("unreachable hypothesis")],
+      ],
+    });
+    nextAgent = harness.agent;
+
+    // WHEN we run ingest → ask
+    const run = runIngestAsk({
+      profile: profileFor("p-no-sentinel"),
+      runId: "r-no-sentinel",
+      inputs: [],
+      ingestMessage: "ingest",
+      questionMessage: "ask",
+      quietMs: 25,
+      ingestMaxMs: 200,
+    });
+
+    // THEN it refuses to grade the truncated ingest rather than rotating
+    // to the question turn
+    const err = await run.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(IngestAskError);
+    expect((err as Error).message).toMatch(
+      /never emitted the completion sentinel/,
+    );
+    // AND it carries the captured ingest events so the caller can persist
+    // them for debugging the stalled turn
+    expect((err as IngestAskError).ingestEvents.length).toBe(2);
+    // AND the question turn was never sent
+    expect(harness.sends()).toEqual(["ingest"]);
+    expect(harness.shutdownCount()).toBe(1);
+  });
+
+  test("accepts a sentinel wrapped in quotes and trailing punctuation", async () => {
+    // GIVEN an ingest turn whose final line is a quoted/punctuated variant
+    // of the sentinel, as models commonly emit
+    const harness = makeFakeAgent({
+      responses: [
+        [textEvent("done ingesting.\n"), textEvent('"Ready!"')],
+        [textEvent("the answer")],
+      ],
+    });
+    nextAgent = harness.agent;
+
+    // WHEN we run ingest → ask
+    const result = await runIngestAsk({
+      profile: profileFor("p-fuzzy-sentinel"),
+      runId: "r-fuzzy-sentinel",
+      inputs: [],
+      ingestMessage: "ingest",
+      questionMessage: "ask",
+      quietMs: 25,
+    });
+
+    // THEN the sentinel is recognized and the run completes normally
+    expect(result.ingestSentinelSeen).toBe(true);
+    expect(result.hypothesis).toBe("the answer");
+  });
+
+  test("honors a custom ingestSentinel", async () => {
+    // GIVEN a caller that overrides the completion sentinel
+    const harness = makeFakeAgent({
+      responses: [
+        [textEvent("indexed everything"), textEvent("\nDONE")],
+        [textEvent("recalled")],
+      ],
+    });
+    nextAgent = harness.agent;
+
+    // WHEN we run ingest → ask with that sentinel
+    const result = await runIngestAsk({
+      profile: profileFor("p-custom-sentinel"),
+      runId: "r-custom-sentinel",
+      inputs: [],
+      ingestMessage: "ingest",
+      questionMessage: "ask",
+      quietMs: 25,
+      ingestSentinel: "DONE",
+    });
+
+    // THEN the custom sentinel ends the ingest turn
+    expect(result.ingestSentinelSeen).toBe(true);
+    expect(result.hypothesis).toBe("recalled");
   });
 });
 

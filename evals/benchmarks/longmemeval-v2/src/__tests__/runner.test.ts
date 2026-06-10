@@ -250,7 +250,7 @@ describe("runLongMemEvalV2Unit", () => {
     const runId = `lme-v2-runner-events-${Date.now()}`;
     runIdsToCleanup.push(runId);
     const harness = makeFakeAgent([
-      [textEvent("Indexing haystack…")],
+      [textEvent("Indexing haystack…"), textEvent("\nReady.")],
       [textEvent("The laptop was blue.")],
     ]);
     nextAgent = harness.agent;

@@ -279,7 +279,7 @@ describe("PhaseGroupedStepList — timeline mode", () => {
     expect(icons[0]!.children.length).toBe(3);
   });
 
-  test("renders a gapped connector line for every non-last section (and a lead-in above the first), none for the last", () => {
+  test("renders a gapped connector line for every non-last section, none for the last (no header lead-in)", () => {
     const steps: ToolCallCardStep[] = [
       bash("ls", "completed", "1s", "tc-a"),
       thinking("Reasoning"),
@@ -295,19 +295,21 @@ describe("PhaseGroupedStepList — timeline mode", () => {
         section.querySelectorAll('div[aria-hidden][class*="w-px"]'),
       ) as HTMLElement[];
 
-    // First section: the inter-node segment (`top-6 bottom-0`) + the lead-in.
-    expect(connectorsIn(sections[0]!).length).toBe(2);
+    // First section: only the inter-node segment (`top-6 bottom-0`). The
+    // expanded card header omits its status icon, so there is no lead-in
+    // trailing up to it — the timeline starts cleanly at the first node.
+    expect(connectorsIn(sections[0]!).length).toBe(1);
     // Middle section: one inter-node segment.
     expect(connectorsIn(sections[1]!).length).toBe(1);
     // Last section: no line trails below the final circle.
     expect(connectorsIn(sections[2]!).length).toBe(0);
 
-    // First section carries the lead-in (`bottom-full`) up toward the header.
+    // No section renders a `bottom-full` lead-in any more.
     expect(
-      connectorsIn(sections[0]!).some((el) =>
-        el.className.includes("bottom-full"),
+      sections.some((s) =>
+        connectorsIn(s).some((el) => el.className.includes("bottom-full")),
       ),
-    ).toBe(true);
+    ).toBe(false);
 
     // The inter-node segment starts below its node (`top-6`) and runs to the
     // section bottom (`bottom-0`) — a small, even gap before the next node.

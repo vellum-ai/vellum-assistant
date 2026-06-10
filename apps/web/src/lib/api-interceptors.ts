@@ -25,19 +25,23 @@
  *
  * Reference: https://heyapi.dev/openapi-ts/clients/fetch#interceptors
  */
+import {
+  UNREACHABLE_STATUS_CODES,
+  notifyAssistantUnreachable,
+} from "@/assistant/unreachable-bus";
 import { client as platformClient } from "@/generated/api/client.gen";
 import { client as authClient } from "@/generated/auth/client.gen";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
-import { isLocalMode } from "@/lib/local-mode";
+import { isLocalMode, isPlatformDisabled } from "@/lib/local-mode";
 import {
     getSelfHostedActorToken,
     getSelfHostedIngressUrl,
 } from "@/lib/self-hosted/connection";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
+import { getDeviceId } from "@/runtime/device-id";
 import { isElectron } from "@/runtime/is-electron";
 import { getElectronSessionToken } from "@/runtime/session-token";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -207,6 +211,11 @@ function createInterceptor({ skipSegmentAllowlist = false } = {}) {
       newRequest.headers.set("Vellum-Organization-Id", organizationId);
     }
 
+    const deviceId = getDeviceId();
+    if (deviceId) {
+      newRequest.headers.set("Vellum-Device-Id", deviceId);
+    }
+
     // Electron app provides a session token header. This is no-ops on web.
     const sessionToken = getElectronSessionToken();
     if (sessionToken) {
@@ -235,17 +244,29 @@ export const daemonRequestInterceptor = createInterceptor({
   skipSegmentAllowlist: true,
 });
 
+/**
+ * Daemon-only response interceptor — fires the unreachable bus on
+ * gateway-class errors. No URL filtering needed because every daemon
+ * SDK request targets the assistant runtime by definition. Not
+ * installed on platform/auth clients (a 502 from Django is a
+ * different failure domain).
+ */
+export function daemonUnreachableInterceptor(response: Response): Response {
+  if (UNREACHABLE_STATUS_CODES.has(response.status)) {
+    notifyAssistantUnreachable();
+  }
+  return response;
+}
+
 daemonClient.interceptors.request.use(daemonRequestInterceptor);
+daemonClient.interceptors.response.use(daemonUnreachableInterceptor);
 
 for (const apiClient of [authClient, platformClient]) {
   apiClient.interceptors.request.use(requestInterceptor);
 }
 
 function arePlatformFeaturesEnabled(): boolean {
-  return (
-    (useAssistantFeatureFlagStore.getState() as Record<string, unknown>)
-      .platformFeaturesInLocalMode !== false
-  );
+  return !isPlatformDisabled();
 }
 
 /**
@@ -270,7 +291,7 @@ export function platformFeaturesGate(request: Request): Request {
   }
 
   console.debug(
-    "platform-features-in-local-mode is disabled — no-op platform request:",
+    "VELLUM_DISABLE_PLATFORM is set — no-op platform request:",
     new URL(request.url).pathname,
   );
   const aborted = new AbortController();

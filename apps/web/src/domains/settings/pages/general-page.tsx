@@ -217,7 +217,6 @@ export function GeneralPage() {
     refetch,
     refetchUntilResized,
   } = useAssistantWithHealthz();
-  const accountDeletion = useAssistantFeatureFlagStore.use.accountDeletion();
   const multiPlatformAssistant = useClientFeatureFlagStore.use.multiPlatformAssistant();
   const settingsSleepPolicy = useAssistantFeatureFlagStore.use.settingsSleepPolicy();
   const isAuthenticated = useIsAuthenticated();
@@ -377,7 +376,7 @@ export function GeneralPage() {
         </DetailCard>
       )}
 
-      {accountDeletion && <DeleteAccountSection />}
+      <DeleteAccountSection />
     </div>
   );
 }

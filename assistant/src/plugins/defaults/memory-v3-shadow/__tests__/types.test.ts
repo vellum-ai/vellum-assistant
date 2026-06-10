@@ -1,21 +1,9 @@
 import { expect, test } from "bun:test";
 
-import type {
-  MemoryRoutingTurn,
-  SelectionSource,
-  Slug,
-  WorkingSetEntry,
-} from "../types.js";
+import type { MemoryRoutingTurn, SelectionSource, Slug } from "../types.js";
 
 test("v3 core types instantiate", () => {
   const slug: Slug = "page-123";
-
-  const entry: WorkingSetEntry = {
-    slug,
-    selectedAtTurn: 1,
-    pinned: false,
-    lastSeenTurn: 2,
-  };
 
   const turnContext: MemoryRoutingTurn = {
     conversationId: "conv-xyz",
@@ -24,9 +12,9 @@ test("v3 core types instantiate", () => {
     recentContext: "prior turns",
   };
 
-  const source: SelectionSource = "carry-forward";
+  const source: SelectionSource = "needle";
 
-  expect(entry.slug).toBe(slug);
+  expect(slug).toBe("page-123");
   expect(turnContext.turnNumber).toBe(3);
-  expect(source).toBe("carry-forward");
+  expect(source).toBe("needle");
 });

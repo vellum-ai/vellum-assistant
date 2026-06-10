@@ -37,6 +37,7 @@ import {
     useHasPlatformSession,
     useIsAuthenticated,
 } from "@/stores/auth-store";
+import { openUrl } from "@/runtime/browser";
 import { adminUrl, routes } from "@/utils/routes";
 
 import { CreditsCard } from "./credits-card";
@@ -236,7 +237,7 @@ function PreferencesMenuContent({
           label="Admin"
           onSelect={() => {
             onClose();
-            window.location.href = adminUrl();
+            void openUrl(adminUrl());
           }}
         />
       ) : null}

@@ -10,7 +10,6 @@
 
 import { z } from "zod";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfigReadOnly } from "../../config/loader.js";
 import { getDb } from "../../memory/db-connection.js";
 import {
@@ -44,22 +43,6 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 // ---------------------------------------------------------------------------
 
 const providerConnectionResponseSchema = ProviderConnectionSchema;
-const OPENAI_COMPATIBLE_ENDPOINTS_FLAG = "openai-compatible-endpoints";
-
-function openAICompatibleEndpointsEnabled(): boolean {
-  return isAssistantFeatureFlagEnabled(
-    OPENAI_COMPATIBLE_ENDPOINTS_FLAG,
-    getConfigReadOnly(),
-  );
-}
-
-function rejectDisabledOpenAICompatibleProvider(provider: string): void {
-  if (provider !== "openai-compatible") return;
-  if (openAICompatibleEndpointsEnabled()) return;
-  throw new BadRequestError(
-    "OpenAI-compatible endpoints are disabled. Enable the openai-compatible-endpoints feature flag to configure this provider.",
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Custom provider field parsing (openai-compatible base_url + models)
@@ -170,18 +153,10 @@ async function parseCustomProviderFields(
 
 function handleListConnections({ queryParams = {} }: RouteHandlerArgs) {
   const provider = queryParams.provider;
-  if (provider) rejectDisabledOpenAICompatibleProvider(provider);
   const connections = listConnections(
     getDb(),
     provider ? { provider } : undefined,
   );
-  if (!openAICompatibleEndpointsEnabled()) {
-    return {
-      connections: connections.filter(
-        (conn) => conn.provider !== "openai-compatible",
-      ),
-    };
-  }
   return { connections };
 }
 
@@ -191,12 +166,6 @@ function handleGetConnection({ pathParams = {} }: RouteHandlerArgs) {
 
   const conn = getConnection(getDb(), name);
   if (!conn) throw new NotFoundError(`Connection "${name}" not found.`);
-  if (
-    conn.provider === "openai-compatible" &&
-    !openAICompatibleEndpointsEnabled()
-  ) {
-    throw new NotFoundError(`Connection "${name}" not found.`);
-  }
 
   return conn;
 }
@@ -216,8 +185,6 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
       `Invalid provider "${String(provider)}". Valid: ${VALID_CONNECTION_PROVIDERS.join(", ")}`,
     );
   }
-  rejectDisabledOpenAICompatibleProvider(providerResult.data);
-
   const authResult = AuthSchema.safeParse(auth);
   if (!authResult.success) {
     throw new BadRequestError(`Invalid auth: ${authResult.error.message}`);
@@ -283,12 +250,6 @@ async function handleUpdateConnection({
 
   const existing = getConnection(getDb(), name);
   if (!existing) throw new NotFoundError(`Connection "${name}" not found.`);
-  if (
-    existing.provider === "openai-compatible" &&
-    !openAICompatibleEndpointsEnabled()
-  ) {
-    throw new NotFoundError(`Connection "${name}" not found.`);
-  }
 
   const auth = body.auth;
   const authResult = AuthSchema.safeParse(auth);
@@ -356,12 +317,6 @@ function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   // reference to a missing connection returns 404 (not 409).
   const existing = getConnection(getDb(), name);
   if (!existing) {
-    throw new NotFoundError(`Connection "${name}" not found.`);
-  }
-  if (
-    existing.provider === "openai-compatible" &&
-    !openAICompatibleEndpointsEnabled()
-  ) {
     throw new NotFoundError(`Connection "${name}" not found.`);
   }
 

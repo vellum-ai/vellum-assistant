@@ -172,6 +172,8 @@ export interface ToolExecutedEvent {
   conversationId: string;
   requestId?: string;
   executionTarget?: ExecutionTarget;
+  /** Id of the skill whose `skill_execute` dispatch triggered this tool call. Absent for direct tool calls. */
+  skillId?: string;
   riskLevel: string;
   /** ID of the trust rule that matched this invocation (if any). */
   matchedTrustRuleId?: string;
@@ -210,6 +212,14 @@ export interface ToolContext {
   assistantId?: string;
   /** When set, the tool execution is part of a task run. Used to retrieve ephemeral permission rules. */
   taskRunId?: string;
+  /**
+   * Id of the skill whose `skill_execute` dispatch triggered this tool
+   * invocation. Set by the `skill_execute` interception in
+   * `daemon/conversation-tool-setup.ts`; the executor stamps it onto every
+   * lifecycle event so audit/telemetry consumers can attribute skill-routed
+   * calls. Absent for direct (non-skill) tool calls.
+   */
+  skillId?: string;
   /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error). */
   onToolLifecycleEvent?: ToolLifecycleEventHandler;
   /** Optional resolver for proxy tools - delegates execution to an external client. */
@@ -398,7 +408,7 @@ export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>;
 export type Tool = Required<ToolDefinition>;
 
 /** The kind of extension that owns a tool. Core tools have no owner. */
-export type OwnerKind = "skill" | "mcp" | "plugin";
+export type OwnerKind = "skill" | "mcp" | "plugin" | "workspace";
 
 /**
  * Identifies which extension owns a tool (skill / plugin / MCP server).
@@ -407,6 +417,6 @@ export type OwnerKind = "skill" | "mcp" | "plugin";
  */
 export interface OwnerInfo {
   kind: OwnerKind;
-  /** ID of the owning extension (skill id / plugin name / MCP server id). */
+  /** ID of the owning extension (skill id / plugin name / MCP server id / workspace path). */
   id: string;
 }

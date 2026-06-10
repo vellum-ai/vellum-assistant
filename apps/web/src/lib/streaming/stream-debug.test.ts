@@ -222,8 +222,10 @@ describe("pushSseEvent", () => {
     const last = events[events.length - 1];
     expect(last.clientId).toBe(id);
     expect(last.event).toEqual(event);
-    expect(last.receivedAt).toBeGreaterThanOrEqual(before);
-    expect(last.receivedAt).toBeLessThanOrEqual(after);
+    expect(last.receivedAt).toBe(new Date(last.receivedAt).toISOString());
+    const receivedMs = new Date(last.receivedAt).getTime();
+    expect(receivedMs).toBeGreaterThanOrEqual(before);
+    expect(receivedMs).toBeLessThanOrEqual(after);
   });
 
   test("caps event buffer at 1000 entries", () => {

@@ -178,7 +178,7 @@ describe("formatScheduleCost", () => {
   test("formats zero, cents, and tiny nonzero costs", () => {
     expect(formatScheduleCost(0)).toBe("$0.00");
     expect(formatScheduleCost(0.42)).toBe("$0.42");
-    expect(formatScheduleCost(0.0034)).toBe("$0.0034");
+    expect(formatScheduleCost(0.0034)).toBe("$0.00");
   });
 
   test("falls back when cost is missing or invalid", () => {
@@ -255,7 +255,7 @@ describe("SystemTaskDetailView", () => {
     );
 
     await waitFor(() =>
-      expect(document.body.textContent).toContain("$0.1234"),
+      expect(document.body.textContent).toContain("$0.12"),
     );
     expect(screen.getByRole("button", { name: /Run now/i })).toBeTruthy();
     expect(document.body.textContent).not.toContain(

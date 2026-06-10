@@ -64,8 +64,6 @@ mock.module("@/domains/settings/ai/use-daemon-config", () => ({
 mock.module("@/stores/assistant-feature-flag-store", () => {
   const store = () => null;
   store.use = {
-    openAICompatibleEndpoints: () => false,
-    chatgptSubscriptionAuth: () => false,
     queryComplexityRouting: () => false,
   };
   return { useAssistantFeatureFlagStore: store };

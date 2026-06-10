@@ -31,6 +31,7 @@ import emptyResponseStop from "./empty-response/hooks/stop.js";
 import emptyResponsePkg from "./empty-response/package.json" with { type: "json" };
 import historyRepairUserPromptSubmit from "./history-repair/hooks/user-prompt-submit.js";
 import historyRepairPkg from "./history-repair/package.json" with { type: "json" };
+import memoryRetrievalPostCompact from "./memory-retrieval/hooks/post-compact.js";
 import memoryRetrievalUserPromptSubmit from "./memory-retrieval/hooks/user-prompt-submit.js";
 import memoryRetrievalPkg from "./memory-retrieval/package.json" with { type: "json" };
 import memoryV3PostCompact from "./memory-v3-shadow/hooks/post-compact.js";
@@ -73,12 +74,13 @@ export const defaultEmptyResponsePlugin: Plugin = {
 };
 
 /**
- * `memory-retrieval` — a `user-prompt-submit` hook that runs memory-graph
- * retrieval and assembles the turn's runtime injections (the unified
+ * `memory-retrieval` — assembles the turn's runtime injections (the unified
  * `<turn_context>` block, Slack chronological transcript, NOW.md / PKB /
- * memory-v2 / workspace blocks). Registered first in the chain so later
- * `user-prompt-submit` hooks (history repair, title) see the fully
- * memory-injected history.
+ * memory-v2 / workspace blocks) via two hooks: `user-prompt-submit` runs
+ * memory-graph retrieval and the initial injection, and `post-compact`
+ * re-applies the injections onto the compacted history after a mid-turn
+ * compaction. Registered first in the chain so later `user-prompt-submit`
+ * hooks (history repair, title) see the fully memory-injected history.
  */
 export const defaultMemoryRetrievalPlugin: Plugin = {
   manifest: {
@@ -87,6 +89,7 @@ export const defaultMemoryRetrievalPlugin: Plugin = {
   },
   hooks: {
     "user-prompt-submit": memoryRetrievalUserPromptSubmit,
+    "post-compact": memoryRetrievalPostCompact,
   },
 };
 

@@ -342,16 +342,17 @@ describe("injector chain", () => {
     expect(byName.get("thread-focus")).toBe(DEFAULT_INJECTOR_ORDER.threadFocus);
   });
 
-  test("the injector chain sorts the defaults plus memory-v3 by ascending order", () => {
-    // The assembled chain merges the defaults with the memory-v3 injector and
-    // sorts by `order`, so memory-v3 (order 1000) sits last.
+  test("the injector chain sorts the defaults plus the memory-v3 injectors by ascending order", () => {
+    // The assembled chain merges the defaults with the two memory-v3
+    // injectors and sorts by `order`, so the cards injector (order 1000) and
+    // the spotlight injector (order 1001) sit last, in that order.
     const chain = getInjectorChain();
     const orders = chain.map((i) => i.order);
     expect(orders).toEqual([...orders].sort((a, b) => a - b));
-    expect(chain[chain.length - 1]?.name).toBe("memory-v3-shadow");
     expect(chain.map((i) => i.name)).toEqual([
       ...defaultInjectors.map((i) => i.name),
       "memory-v3-shadow",
+      "memory-v3-spotlight",
     ]);
   });
 

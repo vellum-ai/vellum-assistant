@@ -33,7 +33,7 @@ function fileEntry(name: string, downloadUrl: string): ContentEntry {
 }
 
 interface FixtureConfig {
-  /** Manifest object served at `experimental/plugins/marketplace.json`. Omit for 404. */
+  /** Manifest object served at `plugins/marketplace.json`. Omit for 404. */
   marketplace?: unknown;
   /** Directory listings keyed by `<owner>/<repo>[/<path>]`. Missing key → 404. */
   listings?: Record<string, ContentEntry[]>;

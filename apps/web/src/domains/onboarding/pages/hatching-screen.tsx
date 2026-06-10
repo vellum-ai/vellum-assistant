@@ -1,9 +1,10 @@
 import { captureError } from "@/lib/sentry/capture-error";
 import * as Sentry from "@sentry/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { getAssistant, hatchAssistant } from "@/assistant/api";
+import { getAssistant, getAssistantHealthz, hatchAssistant, type Assistant } from "@/assistant/api";
 import { fetchCharacterTraits, saveCharacterTraits } from "@/assistant/avatar-api";
 import {
     isPlatformHostedDisabled,
@@ -20,11 +21,14 @@ import {
 import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { getLocalGatewayUrl, getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, saveLockfileAssistant, setSelectedAssistantId } from "@/lib/local-mode";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
+import { avatarQueryKey } from "@/lib/sync/query-tags";
 import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { hatchLocalAssistant } from "@/runtime/local-mode-host";
 import { isNativePlatform } from "@/runtime/native-auth";
+import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
 import { useAuthStore } from "@/stores/auth-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { CharacterTraits } from "@/types/avatar";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
@@ -89,6 +93,7 @@ export function decideHatchGate(): HatchGateDecision {
 
 export function HatchingScreen() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const hostingParam = searchParams.get("hosting");
   const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
@@ -142,6 +147,20 @@ export function HatchingScreen() {
     let navigateTimer: ReturnType<typeof setTimeout> | null = null;
     let readyPollTimer: ReturnType<typeof setTimeout> | null = null;
     const pollStartMs = Date.now();
+    let hatchedAssistantId: string | undefined;
+    // Two independent signals that the assistant the poll discovers is THIS
+    // run's brand-new hatch (and so may be seeded with a random avatar) rather
+    // than a returning user's existing one (which might carry an uploaded/AI
+    // image avatar that a "no traits" read would clobber):
+    //   - `createdFreshAssistant`: the hatch POST returned 201 (newly created).
+    //   - `preflightFoundNoAssistant`: the pre-flight `getAssistant()` cleanly
+    //     resolved `auto_hatch` (HTTP 404 = no assistant existed yet), so any
+    //     later-active assistant must be this hatch — covers the case where the
+    //     hatch response is lost and 201 never lands. A pre-existing non-active
+    //     assistant, a thrown pre-flight, or a 5xx leaves both false, so a
+    //     returning user is never re-seeded.
+    let createdFreshAssistant = false;
+    let preflightFoundNoAssistant = false;
 
     const pinnedVersion = readSelectedVersion();
 
@@ -180,6 +199,35 @@ export function HatchingScreen() {
       }, COMPLETION_NAVIGATE_DELAY_MS);
     };
 
+    // Persist the random hatch avatar (skipping the save when one already
+    // exists) and invalidate the avatar query that feeds the Dock + menu-bar
+    // icons, the favicon, and the in-app avatar. Fire-and-forget: callers do
+    // NOT await it, so onboarding never blocks on the server-side render — it
+    // runs in the background as the user lands in the app. The avatar query
+    // holds results with `staleTime: Infinity` and is disabled until the
+    // assistant activates, so its first fetch can beat the save and cache an
+    // avatar-less result; the post-save invalidate forces a refetch that picks
+    // up the persisted traits, so the icons self-correct within a beat rather
+    // than sticking on the bundled mark.
+    //
+    // Only call this for a freshly hatched assistant, never for an
+    // already-active one: a returning user may have an uploaded/AI image
+    // avatar, which deletes the character-traits sidecar, so a "no traits"
+    // read would wrongly seed random traits over their image.
+    const persistHatchAvatar = async (assistantId: string): Promise<void> => {
+      try {
+        const existing = await fetchCharacterTraits(assistantId);
+        if (!existing) {
+          await saveCharacterTraits(assistantId, hatchTraits);
+        }
+        void queryClient.invalidateQueries({
+          queryKey: avatarQueryKey(assistantId),
+        });
+      } catch (err) {
+        captureError(err, { context: "onboarding_avatar_sync" });
+      }
+    };
+
     const startHatch = async () => {
       transitionPhase("provisioning");
 
@@ -190,7 +238,8 @@ export function HatchingScreen() {
       if (!useLocalHatch) {
         try {
           const existing = await getAssistant();
-          if (!cancelled && existing.ok && resolveAssistantLifecycleState(existing).kind === "active") {
+          const preflightState = resolveAssistantLifecycleState(existing);
+          if (!cancelled && existing.ok && preflightState.kind === "active") {
             if (isLocalMode()) {
               void saveLockfileAssistant({
                 assistantId: existing.data.id,
@@ -201,6 +250,12 @@ export function HatchingScreen() {
             }
             handleHatchReady();
             return;
+          }
+          // A clean 404 (`auto_hatch`) means no assistant existed yet, so the
+          // assistant the poll later finds active is necessarily this run's
+          // fresh hatch — seedable even if the hatch response is lost.
+          if (preflightState.kind === "auto_hatch") {
+            preflightFoundNoAssistant = true;
           }
         } catch {
           // Fall through to normal hatch
@@ -283,6 +338,15 @@ export function HatchingScreen() {
             } catch (err) {
               captureError(err, { context: "onboarding_apply_provider_key" });
             }
+            useResolvedAssistantsStore.getState().upsertFromApi({
+              id: result.assistantId,
+              name: result.assistantId,
+              status: "active",
+              is_local: true,
+              created: new Date().toISOString(),
+            } as Assistant);
+            void selectPlatformAssistant(result.assistantId);
+            void persistHatchAvatar(result.assistantId);
           }
 
           handleHatchReady();
@@ -303,6 +367,11 @@ export function HatchingScreen() {
         const result = await platformHatchPromise;
         platformHatchPromise = null;
         if (cancelled) return;
+        if (result.ok) {
+          hatchedAssistantId = result.data.id;
+        }
+        // 201 = newly created; 200 = an existing assistant was returned.
+        createdFreshAssistant = result.ok && result.status === 201;
         if (!result.ok) {
           Sentry.captureMessage("Onboarding hatch request failed", {
             level: "warning",
@@ -353,18 +422,24 @@ export function HatchingScreen() {
         return;
       }
       try {
-        const result = await getAssistant();
+        let result = await getAssistant(hatchedAssistantId);
         if (cancelled) return;
+        // If the hatched ID 404s (e.g. stale after refresh, or backend
+        // assigned a different ID), fall back to list-based discovery.
+        if (hatchedAssistantId && !result.ok && result.status === 404) {
+          hatchedAssistantId = undefined;
+          result = await getAssistant();
+          if (cancelled) return;
+        }
         const next = resolveAssistantLifecycleState(result);
         if (next.kind === "active") {
           if (result.ok) {
             const assistantId = result.data.id;
-            fetchCharacterTraits(assistantId).then((existing) => {
-              if (existing) return;
-              return saveCharacterTraits(assistantId, hatchTraits);
-            }).catch((err) => {
-              captureError(err, { context: "onboarding_avatar_sync" });
-            });
+            useResolvedAssistantsStore.getState().upsertFromApi(result.data);
+            void selectPlatformAssistant(assistantId);
+            if (createdFreshAssistant || preflightFoundNoAssistant) {
+              void persistHatchAvatar(assistantId);
+            }
             if (isLocalMode()) {
               void saveLockfileAssistant({
                 assistantId,
@@ -373,6 +448,28 @@ export function HatchingScreen() {
                 hatchedAt: new Date().toISOString(),
               });
             }
+
+            // Wait for the daemon to be reachable before navigating.
+            // The platform may report "active" before the pod is
+            // fully ready to serve requests.
+            transitionPhase("connecting");
+            while (!cancelled) {
+              try {
+                const health = await getAssistantHealthz(assistantId);
+                if (health.ok) break;
+              } catch {
+                // Daemon not reachable yet
+              }
+              if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
+                setError("Your assistant is taking longer than expected. Please try again.");
+                return;
+              }
+              await new Promise<void>(resolve => {
+                pollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
+              });
+              pollTimer = null;
+            }
+            if (cancelled) return;
           }
 
           handleHatchReady();
@@ -406,6 +503,7 @@ export function HatchingScreen() {
     hatchTraits,
     sessionStatus,
     navigate,
+    queryClient,
     transitionPhase,
     useLocalHatch,
   ]);

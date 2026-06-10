@@ -7,6 +7,7 @@ import type {
   AgentHatchInput,
   AgentMessage,
   BaseAgent,
+  ConfirmationDecision,
   WorkspaceFileWrite,
 } from "../adapter";
 import type { Profile } from "../profile";
@@ -329,18 +330,14 @@ export class VellumAgent implements BaseAgent {
       this.jail = await applyDockerEgressJail(this.runner, {
         containerName: this.assistantContainerName,
         recordingDir: runArtifacts(this.id).runDir,
-        // Bind-mount the live repo's `experimental/plugins/` into the
+        // Bind-mount the live repo's `plugins/` into the
         // recording sidecar so the addon's mock-github handler can
         // serve `assistant plugins install` traffic from disk instead
         // of letting it egress to github.com. The runner always runs
         // inside the repo (`repoRootFromAdapter()` already drives the
         // hatch `--source` arg above), so the fixtures path is always
         // resolvable here.
-        pluginFixturesDir: resolve(
-          repoRootFromAdapter(),
-          "experimental",
-          "plugins",
-        ),
+        pluginFixturesDir: resolve(repoRootFromAdapter(), "plugins"),
       });
 
       // Apply species-default feature flags BEFORE setup commands.
@@ -480,6 +477,27 @@ export class VellumAgent implements BaseAgent {
       message.content,
     ]);
     assertSuccess(result, `send message to ${this.id}`);
+  }
+
+  /**
+   * Resolve a pending tool confirmation the agent raised. A hatched
+   * assistant runs headless with no interactive approver, so any tool
+   * above the auto-approve risk threshold stalls on a pending
+   * `confirmation_request` until something answers it. Runners that
+   * auto-approve during a turn call this on each such event so the turn
+   * can proceed. Routes through the gateway via `vellum confirm`.
+   */
+  async confirm(input: ConfirmationDecision): Promise<void> {
+    this.assertHatched();
+    const result = await this.runner.run(this.cliCommand, [
+      "confirm",
+      this.id,
+      "--request-id",
+      input.requestId,
+      "--decision",
+      input.decision,
+    ]);
+    assertSuccess(result, `confirm ${input.requestId} for ${this.id}`);
   }
 
   async runSetupCommand(command: TestSetupCommand): Promise<void> {

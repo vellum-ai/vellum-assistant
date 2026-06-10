@@ -12,6 +12,7 @@ import {
     assistantsListOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { credentialsInspectPost } from "@/generated/daemon/sdk.gen";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useEnvironmentStore } from "@/stores/environment-store";
@@ -34,7 +35,11 @@ export function EmailServiceCard() {
   const assistantId = useActiveAssistantId();
 
   // assistantHandle is platform-only; used to pre-fill the email subdomain.
-  const { data: assistantList } = useQuery(assistantsListOptions());
+  const isOrgReady = useIsOrgReady();
+  const { data: assistantList } = useQuery({
+    ...assistantsListOptions(),
+    enabled: isOrgReady,
+  });
   const assistantHandle = assistantList?.results?.[0]?.handle;
 
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
