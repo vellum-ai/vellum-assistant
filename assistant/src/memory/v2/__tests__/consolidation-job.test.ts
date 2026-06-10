@@ -108,10 +108,13 @@ mock.module("../../jobs-store.js", () => ({
 // ── v3 follow-up flag mock ──────────────────────────────────────────
 //
 // A v3 flag being on appends `memory_v3_maintain` to the post-consolidation
-// follow-up fan-out. This mock lets each test toggle the flag.
+// follow-up fan-out, and the LIVE flag (alone) selects the v3 article-shape
+// prompt. `v3FlagOn` toggles all flags at once for the existing tests;
+// `flagStates` overrides individual keys for the shadow-vs-live tests.
 let v3FlagOn = false;
+let flagStates: Record<string, boolean> = {};
 mock.module("../../../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: () => v3FlagOn,
+  isAssistantFeatureFlagEnabled: (key: string) => flagStates[key] ?? v3FlagOn,
 }));
 
 // ── Workspace pin ───────────────────────────────────────────────────
@@ -185,6 +188,7 @@ beforeEach(() => {
 
   // v3 follow-up flag default: off.
   v3FlagOn = false;
+  flagStates = {};
 });
 
 // ---------------------------------------------------------------------------
@@ -485,5 +489,42 @@ describe("CONSOLIDATION_PROMPT", () => {
     expect(CONSOLIDATION_PROMPT).toContain("memory/threads.md");
     expect(CONSOLIDATION_PROMPT).toContain("memory/recent.md");
     expect(CONSOLIDATION_PROMPT).toContain("memory/buffer.md");
+  });
+});
+
+describe("article-shape selection — live flag only, never shadow", () => {
+  // The v3 article shape drops the `summary:` field that v2 injection
+  // depends on. Under SHADOW, live prompts are still served by v2, so
+  // consolidation must keep producing v2-shaped pages — only the LIVE flag
+  // may select the v3 template. Collapsing this distinction (e.g. keying the
+  // shape on shadow||live) would corrupt the corpus of every shadow install
+  // before its flip.
+  const V3_MARKER = "The lead IS the card";
+
+  test("shadow on, live off → v2 article shape", async () => {
+    writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
+    flagStates = { "memory-v3-shadow": true, "memory-v3-live": false };
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(runnerCalls).toBe(1);
+    const prompt = runnerLastArgs?.prompt as string;
+    expect(prompt).not.toContain(V3_MARKER);
+    expect(prompt).toContain("The `summary` field is required");
+    // §10 still rides the shadow flag.
+    expect(prompt).toContain("memory/core-pages.md");
+  });
+
+  test("live on → v3 article shape", async () => {
+    writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
+    flagStates = { "memory-v3-shadow": false, "memory-v3-live": true };
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(runnerCalls).toBe(1);
+    const prompt = runnerLastArgs?.prompt as string;
+    expect(prompt).toContain(V3_MARKER);
+    expect(prompt).not.toContain("The `summary` field is required");
+    expect(prompt).toContain("memory/core-pages.md");
   });
 });
