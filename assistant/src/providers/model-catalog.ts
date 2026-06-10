@@ -1041,6 +1041,17 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       },
       // MiniMax
       {
+        id: "minimax/minimax-m3",
+        displayName: "MiniMax M3",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 512000,
+        supportsThinking: true,
+        supportsCaching: false,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: { inputPer1mTokens: 0.3, outputPer1mTokens: 1.2 },
+      },
+      {
         id: "minimax/minimax-m2.7",
         displayName: "MiniMax M2.7",
         contextWindowTokens: 196608,

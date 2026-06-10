@@ -417,6 +417,14 @@ export const MODELS_BY_PROVIDER = {
       maxOutputTokens: 32_768,
     },
     {
+      id: "minimax/minimax-m3",
+      displayName: "MiniMax M3",
+      contextWindowTokens: 1_048_576,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 512_000,
+      supportsThinking: true,
+    },
+    {
       id: "minimax/minimax-m2.7",
       displayName: "MiniMax M2.7",
       contextWindowTokens: 196_608,
