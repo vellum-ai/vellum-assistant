@@ -7,6 +7,7 @@ import type {
   ToolLifecycleEvent,
   ToolLifecycleEventHandler,
 } from "../tools/types.js";
+import type { UsageAttributionSnapshot } from "../usage/attribution.js";
 import { getLogger } from "../util/logger.js";
 
 const RESULT_PREVIEW_LIMIT = 1000;
@@ -36,11 +37,12 @@ function toInvocationRecord(
   event: ToolLifecycleEvent,
 ): ToolInvocationRecord | null {
   switch (event.type) {
-    case "executed":
+    case "executed": {
+      const input = stringifyInput(event.input);
       return {
         conversationId: event.conversationId,
         toolName: event.toolName,
-        input: stringifyInput(event.input),
+        input,
         result: redactSecrets(event.result.content).slice(
           0,
           RESULT_PREVIEW_LIMIT,
@@ -49,19 +51,34 @@ function toInvocationRecord(
         riskLevel: event.riskLevel,
         matchedTrustRuleId: event.matchedTrustRuleId,
         durationMs: event.durationMs,
+        // Byte sizes are computed here from the raw payloads — the stored
+        // `result` column is truncated and redacted above, so sizing at
+        // query time would undercount. Only the sizes leave the device.
+        argBytes: Buffer.byteLength(input, "utf8"),
+        resultBytes: Buffer.byteLength(event.result.content, "utf8"),
+        ...toAttributionFields(event.attribution),
       };
-    case "error":
+    }
+    case "error": {
+      const input = stringifyInput(event.input);
+      const result = `error: ${event.errorMessage}`;
       return {
         conversationId: event.conversationId,
         toolName: event.toolName,
-        input: stringifyInput(event.input),
-        result: `error: ${event.errorMessage}`,
+        input,
+        result,
         decision: "error",
         riskLevel: event.riskLevel,
         matchedTrustRuleId: event.matchedTrustRuleId,
         durationMs: event.durationMs,
+        argBytes: Buffer.byteLength(input, "utf8"),
+        resultBytes: Buffer.byteLength(result, "utf8"),
+        ...toAttributionFields(event.attribution),
       };
+    }
     case "permission_denied":
+      // No telemetry fields: the tool never executed, and denied rows are
+      // filtered out of the tool_executed projection anyway.
       return {
         conversationId: event.conversationId,
         toolName: event.toolName,
@@ -76,6 +93,25 @@ function toInvocationRecord(
     case "permission_prompt":
       return null;
   }
+}
+
+/**
+ * Maps an attribution snapshot to the tool_invocations telemetry columns —
+ * the same mapping `llm_usage` reporting uses (`appliedProfile` →
+ * inference_profile, `profileSource` → inference_profile_source).
+ */
+function toAttributionFields(
+  attribution: UsageAttributionSnapshot | null | undefined,
+): Pick<
+  ToolInvocationRecord,
+  "provider" | "model" | "inferenceProfile" | "inferenceProfileSource"
+> {
+  return {
+    provider: attribution?.resolvedProvider ?? null,
+    model: attribution?.resolvedModel ?? null,
+    inferenceProfile: attribution?.appliedProfile ?? null,
+    inferenceProfileSource: attribution?.profileSource ?? null,
+  };
 }
 
 function stringifyInput(input: Record<string, unknown>): string {

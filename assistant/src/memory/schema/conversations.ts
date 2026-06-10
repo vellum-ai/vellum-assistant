@@ -93,6 +93,14 @@ export const toolInvocations = sqliteTable(
     matchedTrustRuleId: text("matched_trust_rule_id"),
     durationMs: integer("duration_ms").notNull(),
     createdAt: integer("created_at").notNull(),
+    /** Serialized input size in bytes, computed before any redaction. Null pre-migration-278. */
+    argBytes: integer("arg_bytes"),
+    /** Full serialized result size in bytes, computed before truncation/redaction. Null pre-migration-278 and for denied rows. */
+    resultBytes: integer("result_bytes"),
+    provider: text("provider"),
+    model: text("model"),
+    inferenceProfile: text("inference_profile"),
+    inferenceProfileSource: text("inference_profile_source"),
   },
   (table) => [
     index("idx_tool_invocations_conversation_id").on(table.conversationId),

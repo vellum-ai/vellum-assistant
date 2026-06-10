@@ -152,5 +152,104 @@ describe("tool audit listener", () => {
     expect(records).toHaveLength(1);
     expect(records[0].result).toBe("error: boom");
     expect(records[0].decision).toBe("error");
+    expect(records[0].argBytes).toBe(
+      Buffer.byteLength(JSON.stringify({ path: "/tmp/secret" }), "utf8"),
+    );
+    expect(records[0].resultBytes).toBe(Buffer.byteLength("error: boom"));
+  });
+
+  test("records byte sizes from the full payloads, before truncation and redaction", () => {
+    const records: ToolInvocationRecord[] = [];
+    const listener = createToolAuditListener((record) => records.push(record));
+
+    listener({
+      type: "executed",
+      toolName: "file_read",
+      input: { path: "/tmp/a" },
+      workingDir: "/tmp",
+      conversationId: "conv-bytes",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 12,
+      // 1200 chars: the stored result is capped at 1000 but the size must
+      // reflect the full payload. "é" is 1 char / 2 utf8 bytes, proving
+      // byte (not char) accounting.
+      result: { content: "é".repeat(1200), isError: false },
+    });
+
+    expect(records).toHaveLength(1);
+    expect(records[0].result).toHaveLength(1000);
+    expect(records[0].argBytes).toBe(
+      Buffer.byteLength(JSON.stringify({ path: "/tmp/a" }), "utf8"),
+    );
+    expect(records[0].resultBytes).toBe(2400);
+  });
+
+  test("maps attribution onto executed records and leaves denied records null", () => {
+    const records: ToolInvocationRecord[] = [];
+    const listener = createToolAuditListener((record) => records.push(record));
+
+    listener({
+      type: "executed",
+      toolName: "file_read",
+      input: { path: "/tmp/a" },
+      workingDir: "/tmp",
+      conversationId: "conv-attr",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 12,
+      result: { content: "ok", isError: false },
+      attribution: {
+        callSite: "mainAgent",
+        activeProfile: "balanced",
+        overrideProfile: null,
+        callSiteProfile: null,
+        appliedProfile: "balanced",
+        profileSource: "active",
+        resolvedProvider: "anthropic",
+        resolvedModel: "model-a",
+        resolvedMixArm: null,
+      },
+    });
+    listener({
+      type: "executed",
+      toolName: "file_read",
+      input: { path: "/tmp/b" },
+      workingDir: "/tmp",
+      conversationId: "conv-attr",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 3,
+      result: { content: "ok", isError: false },
+      attribution: null,
+    });
+    listener({
+      type: "permission_denied",
+      toolName: "bash",
+      input: { command: "rm -rf /tmp" },
+      workingDir: "/tmp",
+      conversationId: "conv-attr",
+      riskLevel: "high",
+      decision: "deny",
+      reason: "Permission denied by user",
+      durationMs: 1,
+    });
+
+    expect(records).toHaveLength(3);
+    expect(records[0]).toMatchObject({
+      provider: "anthropic",
+      model: "model-a",
+      inferenceProfile: "balanced",
+      inferenceProfileSource: "active",
+    });
+    expect(records[1]).toMatchObject({
+      provider: null,
+      model: null,
+      inferenceProfile: null,
+      inferenceProfileSource: null,
+    });
+    expect(records[2].provider).toBeUndefined();
+    expect(records[2].argBytes).toBeUndefined();
+    expect(records[2].resultBytes).toBeUndefined();
   });
 });
