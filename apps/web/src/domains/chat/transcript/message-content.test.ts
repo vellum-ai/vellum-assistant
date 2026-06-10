@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
+import type { ConversationContentBlock } from "@vellumai/assistant-api";
 import {
+  groupContentBlocks,
   groupMessageActivityRuns,
   isSubagentSpawnCall,
   isSuppressedUiTool,
@@ -87,6 +89,104 @@ describe("groupMessageActivityRuns", () => {
 
   test("empty / missing contentOrder yields no groups", () => {
     expect(groupMessageActivityRuns(assistant({}))).toEqual([]);
+  });
+});
+
+describe("groupContentBlocks", () => {
+  test("merges contiguous thinking + tool_use runs, broken by text/surface", () => {
+    /**
+     * The blocks-driven walk groups the same way the positional walk does: a
+     * run of thinking + tool_use blocks collapses into one activity group,
+     * closed by a text or surface block.
+     */
+
+    // GIVEN unified blocks interleaving thinking, tool_use, text and surface
+    const blocks: ConversationContentBlock[] = [
+      { type: "thinking", thinking: "plan" },
+      { type: "tool_use", toolCall: toolCall({ id: "call-a" }) },
+      { type: "text", text: "answer" },
+      { type: "tool_use", toolCall: toolCall({ id: "call-b" }) },
+      { type: "surface", surface: surface({}) },
+    ];
+
+    // WHEN the blocks are grouped
+    // THEN thinking + the first tool merge, text and surface pass through, and
+    // the trailing tool opens a fresh activity group
+    expect(groupContentBlocks(blocks)).toEqual([
+      {
+        type: "activity",
+        items: [
+          { type: "thinking", thinking: "plan", startedAt: undefined, completedAt: undefined },
+          { type: "tool_use", toolCall: toolCall({ id: "call-a" }) },
+        ],
+      },
+      { type: "text", text: "answer" },
+      { type: "activity", items: [{ type: "tool_use", toolCall: toolCall({ id: "call-b" }) }] },
+      { type: "surface", surface: surface({}) },
+    ]);
+  });
+
+  test("coalesces consecutive thinking blocks into one item, joining text and widening timing", () => {
+    /**
+     * Consecutive reasoning blocks render as a single thought process, so they
+     * merge into one item whose text is newline-joined and whose timing spans
+     * the earliest start and latest completion — matching the legacy walk.
+     */
+
+    // GIVEN two consecutive thinking blocks with out-of-order timing
+    const blocks: ConversationContentBlock[] = [
+      { type: "thinking", thinking: "first", startedAt: 300, completedAt: 500 },
+      { type: "thinking", thinking: "second", startedAt: 100, completedAt: 900 },
+    ];
+
+    // WHEN the blocks are grouped
+    // THEN they collapse into one thinking item with joined text and a widened span
+    expect(groupContentBlocks(blocks)).toEqual([
+      {
+        type: "activity",
+        items: [
+          {
+            type: "thinking",
+            thinking: "first\nsecond",
+            startedAt: 100,
+            completedAt: 900,
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("skips attachment blocks and narrows out tool_use blocks missing an id", () => {
+    /**
+     * Attachments render in their own region, not inline, so attachment blocks
+     * are dropped from the walk. Every tool_use block carries an id by the time
+     * it reaches render (daemon-guaranteed, ingest-synthesized); the id guard
+     * narrows the inherited-optional wire id without a cast.
+     */
+
+    // GIVEN a tool_use block whose wire tool call has no id, plus an attachment
+    const blocks: ConversationContentBlock[] = [
+      { type: "tool_use", toolCall: { name: "bash", input: {} } },
+      {
+        type: "attachment",
+        attachment: {
+          id: "att-1",
+          filename: "a.png",
+          mimeType: "image/png",
+          sizeBytes: 10,
+          kind: "image",
+        },
+      },
+      { type: "text", text: "done" },
+    ];
+
+    // WHEN the blocks are grouped
+    // THEN the id-less tool and the attachment are both absent, leaving the text
+    expect(groupContentBlocks(blocks)).toEqual([{ type: "text", text: "done" }]);
+  });
+
+  test("empty blocks yield no groups", () => {
+    expect(groupContentBlocks([])).toEqual([]);
   });
 });
 

@@ -115,6 +115,7 @@ describe("AgentLoop.run — mutableLatestUserMessage from memory-v3-live", () =>
 
     // WHEN the loop runs
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -143,6 +144,7 @@ describe("AgentLoop.run — mutableLatestUserMessage from memory-v3-live", () =>
 
     // WHEN the loop runs
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },

@@ -526,6 +526,8 @@ export function useSendMessage({
         role: "user",
         textSegments: [content],
         contentOrder: [{ type: "text", id: "0" }],
+        contentBlocks:
+          content.trim().length > 0 ? [{ type: "text", text: content }] : [],
         timestamp: Date.now(),
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(willQueue ? { queueStatus: "queued" as const, queuePosition: 0 } : {}),

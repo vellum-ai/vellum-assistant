@@ -443,8 +443,7 @@ function buildMessageScopeOptions(messages: ConversationMessage[]): ScopeOption[
     if (!id || seen.has(id)) continue;
     seen.add(id);
     const firstTextBlock = normalizeContentBlocks(m)?.find(
-      (b): b is Extract<ConversationContentBlock, { type: "text" }> =>
-        b.type === "text",
+      (b): b is Extract<ConversationContentBlock, { type: "text" }> => b.type === "text",
     );
     const preview = previewContent(firstTextBlock?.text);
     const roleLabel = m.role === "assistant" ? "Assistant" : "User";

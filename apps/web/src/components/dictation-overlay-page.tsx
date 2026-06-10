@@ -12,9 +12,8 @@ import type { DictationOverlayState } from "@/runtime/is-electron";
  * BrowserWindow — a click-through, non-activating panel pinned top-center
  * of the active display while the user dictates via push-to-talk into
  * another app. The Electron port of the native Swift client's
- * `DictationOverlayWindow`: a status row (state icon + label) over an
- * optional two-line live transcription that expands the pill as words
- * stream in.
+ * `DictationOverlayWindow`: a status row (state icon + label), compact
+ * audio meter, and optional two-line live transcription.
  *
  * Standalone (no auth, no RootLayout) like the Quick Input page; the
  * window canvas is transparent, so the page paints only the pill. The
@@ -45,18 +44,22 @@ export function DictationOverlayPage() {
 
   const transcription =
     state.kind === "recording" ? state.transcription.trim() : "";
+  const audioLevel = state.kind === "recording" ? (state.audioLevel ?? 0) : 0;
 
   return (
     <div className="flex h-screen w-screen items-start justify-center bg-transparent p-4">
-      <div className="flex min-w-40 max-w-full flex-col gap-1 rounded-xl border border-[var(--border-default)] bg-[var(--surface-base)] px-4 py-2.5 shadow-lg">
-        <div className="flex items-center gap-2">
+      <div className="flex w-[min(28rem,calc(100vw-2rem))] flex-col gap-1 rounded-xl border border-[var(--border-default)] bg-[var(--surface-base)] px-4 py-2.5 shadow-lg">
+        <div className="flex min-w-0 items-center gap-2">
           <StateIcon state={state} />
           <span className="truncate text-[11px] font-medium text-[var(--content-secondary)]">
             {stateLabel(state)}
           </span>
+          {state.kind === "recording" && (
+            <AudioMeter level={audioLevel} />
+          )}
         </div>
         {transcription && (
-          // Bottom-anchored two-line window: the transcript grows as words
+          // Bottom-anchored two-line text: the transcript grows as words
           // stream in and the newest words are the ones worth showing — a
           // line-clamp would freeze on the first two lines instead.
           <div className="flex max-h-7 flex-col justify-end overflow-hidden">
@@ -66,6 +69,28 @@ export function DictationOverlayPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function AudioMeter({ level }: { level: number }) {
+  const clamped = Math.max(0, Math.min(1, level));
+
+  return (
+    <div
+      className="ml-auto flex h-4 w-16 shrink-0 items-end gap-0.5"
+      aria-hidden
+    >
+      {[0.16, 0.32, 0.48, 0.64, 0.8, 0.96].map((threshold, index) => (
+        <span
+          key={threshold}
+          className="w-1 rounded-full bg-[var(--system-negative-strong)] transition-[height,opacity] duration-75"
+          style={{
+            height: `${6 + index * 1.5}px`,
+            opacity: clamped >= threshold ? 1 : 0.22,
+          }}
+        />
+      ))}
     </div>
   );
 }

@@ -24,7 +24,9 @@ const listAssistantsMock = mock(async () => ({
   data: [{ id: "ast-new", is_local: false, created: "" }],
 }));
 const selectPlatformAssistantMock = mock(async (_id: string) => {});
-const syncPlatformAssistantsToLockfileMock = mock(async (_a: unknown) => {});
+const syncPlatformAssistantsToLockfileMock = mock(
+  async (_a: unknown, _orgId?: string) => {},
+);
 
 mock.module("@/assistant/api", () => ({
   hatchAssistant: hatchAssistantMock,
@@ -35,6 +37,11 @@ mock.module("@/assistant/select-platform-assistant", () => ({
 }));
 mock.module("@/lib/local-mode", () => ({
   syncPlatformAssistantsToLockfile: syncPlatformAssistantsToLockfileMock,
+}));
+mock.module("@/stores/organization-store", () => ({
+  useOrganizationStore: {
+    getState: () => ({ currentOrganizationId: "org-test" }),
+  },
 }));
 mock.module("@/utils/api-errors", () => ({
   extractErrorMessage: (e: unknown, _r: unknown, fallback?: string) =>
@@ -57,7 +64,10 @@ describe("createPlatformAssistant", () => {
   test("hatches with mode=create, syncs the lockfile, and switches to the new id", async () => {
     const result = await createPlatformAssistant("My Bot");
     expect(hatchAssistantMock).toHaveBeenCalledWith({ name: "My Bot" }, "create");
-    expect(syncPlatformAssistantsToLockfileMock).toHaveBeenCalled();
+    expect(syncPlatformAssistantsToLockfileMock).toHaveBeenCalledWith(
+      [{ id: "ast-new", is_local: false, created: "" }],
+      "org-test",
+    );
     expect(selectPlatformAssistantMock).toHaveBeenCalledWith("ast-new");
     expect(result).toEqual({ ok: true, id: "ast-new" });
   });

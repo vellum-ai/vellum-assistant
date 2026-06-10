@@ -33,7 +33,6 @@ import {
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
-import type { CesClient } from "../credential-execution/client.js";
 import { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
 import { createToolAuditListener } from "../events/tool-audit-listener.js";
@@ -186,7 +185,6 @@ import { isPersonalMemoryAllowed, type TrustContext } from "./trust-context.js";
 
 export interface ConversationConstructorOptions {
   maxTokens?: number;
-  sharedCesClient?: CesClient;
   speedOverride?: Speed;
   cacheTtl?: "5m" | "1h";
   modelOverride?: string;
@@ -271,7 +269,6 @@ export class Conversation {
    * @internal
    */
   hostAppControlProxy?: HostAppControlProxy;
-  /** @internal */ cesClient?: CesClient;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
   /** @internal */ currentPage?: string;
@@ -504,13 +501,7 @@ export class Conversation {
     workingDir: string,
     options?: ConversationConstructorOptions,
   ) {
-    const {
-      maxTokens,
-      sharedCesClient,
-      speedOverride,
-      cacheTtl,
-      modelOverride,
-    } = options ?? {};
+    const { maxTokens, speedOverride, cacheTtl, modelOverride } = options ?? {};
     this.conversationId = conversationId;
     this.systemPrompt = systemPrompt;
     this.provider = provider;
@@ -578,13 +569,6 @@ export class Conversation {
     const config = getConfig();
     const resolvedMainAgent = resolveCallSiteConfig("mainAgent", config.llm);
     this.streamThinking = resolvedMainAgent.thinking.streamThinking ?? false;
-
-    // CES (Credential Execution Service) — use the shared server-level client.
-    // The CES sidecar accepts exactly one bootstrap connection, so the
-    // client is owned by DaemonServer and passed in here.
-    if (sharedCesClient) {
-      this.cesClient = sharedCesClient;
-    }
 
     const resolveTools = createResolveToolsCallback(toolDefs, this);
 
@@ -1279,9 +1263,6 @@ export class Conversation {
     this.hostCuProxy?.dispose();
     this.hostAppControlProxy?.dispose();
     this.hostAppControlProxy = undefined;
-    // CES client is owned by DaemonServer — just drop the reference.
-    // Do NOT close it here; the server manages the CES lifecycle.
-    this.cesClient = undefined;
     this.activeContextNodeIds = this.graphMemory.tracker.getActiveNodeIds();
     this.graphMemory.persistState();
     this.graphMemory.dispose();

@@ -30,9 +30,13 @@ import {
 import { handleBundleFile, installBundleFlow } from "./bundle-flow";
 import { handleFileOpen, installFileOpen, onFileOpen } from "./file-open";
 import { installAvatarIpc } from "./avatar";
+import { installCommandPaletteWindow } from "./command-palette-window";
 import { installDictationOverlay } from "./dictation-overlay-window";
 import { installDock } from "./dock";
-import { installEscapeMonitor } from "./escape-monitor";
+import {
+  installEscapeMonitor,
+  setDictationRecording,
+} from "./escape-monitor";
 import { installFeatureFlagsIpc } from "./feature-flags";
 import { installFeedbackIpc } from "./feedback";
 import { installGlobalShortcuts } from "./global-shortcuts";
@@ -41,6 +45,7 @@ import { installHotkeysIpc } from "./hotkeys";
 import { installPopoutWindows } from "./popout-window";
 import { installQuickInput } from "./quick-input-window";
 import { installLocalMode, resolveCliInvocation } from "./local-mode";
+import { installLoginItem, installLoginItemIpc } from "./login-item";
 import { installLockfileWatcher } from "./lockfile-watcher";
 import { installHostProxyBridge } from "./host-proxy-router";
 import "./executors/host-bash-executor"; // side-effect: registers host_bash executor
@@ -321,14 +326,17 @@ app
     installHotkeysIpc();
     installFeatureFlagsIpc();
     installLocalMode();
+    installLoginItem();
+    installLoginItemIpc();
     installHotkeyHelper();
     installAbout();
     installAutoUpdate();
     installFeedbackIpc();
     installTextInsertionIpc();
+    installCommandPaletteWindow();
     installApplicationMenu();
     installQuickInput();
-    installDictationOverlay();
+    installDictationOverlay({ onRecordingLifecycle: setDictationRecording });
     installPopoutWindows();
     installGlobalShortcuts();
     // Register the avatar channel before the Dock and Tray install so their

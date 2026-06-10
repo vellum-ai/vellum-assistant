@@ -6,7 +6,24 @@
 // anchor / suppression logic so the projection and the rendered DOM anchors
 // cannot drift.
 
-import type { ConversationContentBlock } from "@vellumai/assistant-api";
+import type {
+  ConversationContentBlock,
+  ConversationMessageToolCall,
+} from "@vellumai/assistant-api";
+
+type ConversationThinkingBlock = Extract<
+  ConversationContentBlock,
+  { type: "thinking" }
+>;
+type ConversationTextBlock = Extract<
+  ConversationContentBlock,
+  { type: "text" }
+>;
+type ConversationSurfaceBlock = Extract<
+  ConversationContentBlock,
+  { type: "surface" }
+>;
+
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 
@@ -67,6 +84,127 @@ export function groupMessageActivityRuns(
     } else if (entry.type === "surface") {
       current = null;
       groups.push({ type: "surface", id: entry.id });
+    }
+  }
+
+  return groups;
+}
+
+/**
+ * One item inside a blocks-driven `activity` run, reusing the server block
+ * shapes rather than re-declaring them: a `thinking` item is the wire
+ * `thinking` block (a contiguous reasoning run is pre-merged into one
+ * synthesized block — text newline-joined, timing widened to the earliest
+ * start / latest completion), and a `tool_use` item is the wire `tool_use`
+ * block with its `toolCall` narrowed to the client `ChatMessageToolCall`. The
+ * id is guaranteed at ingest, so the narrow happens once here and the render
+ * body needs no per-item check.
+ */
+export type ContentBlockActivityItem =
+  | ConversationThinkingBlock
+  | { type: "tool_use"; toolCall: ChatMessageToolCall };
+
+/**
+ * Grouped content for the blocks-driven render body. Adjacent thinking +
+ * tool_use blocks merge into one `activity` group (broken only by a `text` or
+ * `surface` block); `text` and `surface` reuse the server block as-is. The
+ * `activity` wrapper is the only shape with no wire analog — collapsing a run
+ * of blocks into one card is a render concern. Pure — no React/DOM; the blocks
+ * embed their referents, so unlike `groupMessageActivityRuns` this needs no
+ * positional resolvers.
+ */
+export type ContentBlockGroup =
+  | ConversationTextBlock
+  | ConversationSurfaceBlock
+  | { type: "activity"; items: ContentBlockActivityItem[] };
+
+/**
+ * Narrow a wire `ConversationMessageToolCall` to the client `ChatMessageToolCall`
+ * by asserting its `id` is present. The daemon guarantees an id on every wire
+ * tool call (>= v0.8.8) and the ingest boundary re-synthesizes one for older
+ * daemons, so every tool_use block carries an id by the time it reaches render;
+ * the guard is the cast-free way to surface that narrowing to the type system.
+ */
+function hasToolCallId(
+  toolCall: ConversationMessageToolCall,
+): toolCall is ChatMessageToolCall {
+  return typeof toolCall.id === "string" && toolCall.id.length > 0;
+}
+
+/**
+ * Group a message's unified `contentBlocks` into merged activity runs for the
+ * blocks-driven (flag-ON) render path — the block-native counterpart to
+ * `groupMessageActivityRuns`. A contiguous run of `thinking` + `tool_use`
+ * blocks collapses into one `activity` group whose `items` preserve interleaved
+ * order; consecutive `thinking` blocks merge into one item (text joined with
+ * newlines, timing widened to the earliest start / latest completion), matching
+ * macOS and the legacy walk. A `text` or `surface` block closes the open
+ * activity group and passes through unchanged as its own group; the render
+ * body reads the client-narrowed `Surface` (placement, orphaned binding) from
+ * `message.surfaces` by the block's `surface.surfaceId`, exactly as the legacy
+ * walk does. `attachment` blocks are skipped — attachments render in their own
+ * region from `message.attachments`, mirroring the positional walk. Pure — no
+ * React/DOM.
+ */
+export function groupContentBlocks(
+  blocks: ConversationContentBlock[],
+): ContentBlockGroup[] {
+  const groups: ContentBlockGroup[] = [];
+  let current: { type: "activity"; items: ContentBlockActivityItem[] } | null =
+    null;
+
+  const openActivity = () => {
+    if (!current) {
+      current = { type: "activity", items: [] };
+      groups.push(current);
+    }
+    return current;
+  };
+
+  for (const block of blocks) {
+    if (block.type === "thinking") {
+      const activity = openActivity();
+      const lastItem = activity.items[activity.items.length - 1];
+      if (lastItem?.type === "thinking") {
+        lastItem.thinking = lastItem.thinking
+          ? `${lastItem.thinking}\n${block.thinking}`
+          : block.thinking;
+        if (block.startedAt != null) {
+          lastItem.startedAt =
+            lastItem.startedAt == null
+              ? block.startedAt
+              : Math.min(lastItem.startedAt, block.startedAt);
+        }
+        if (block.completedAt != null) {
+          lastItem.completedAt =
+            lastItem.completedAt == null
+              ? block.completedAt
+              : Math.max(lastItem.completedAt, block.completedAt);
+        }
+      } else {
+        // Synthesize a fresh thinking block so the merge above never mutates a
+        // block held by `message.contentBlocks`.
+        activity.items.push({
+          type: "thinking",
+          thinking: block.thinking,
+          startedAt: block.startedAt,
+          completedAt: block.completedAt,
+        });
+      }
+    } else if (block.type === "tool_use") {
+      if (!hasToolCallId(block.toolCall)) {
+        continue;
+      }
+      openActivity().items.push({
+        type: "tool_use",
+        toolCall: block.toolCall,
+      });
+    } else if (block.type === "text") {
+      current = null;
+      groups.push(block);
+    } else if (block.type === "surface") {
+      current = null;
+      groups.push(block);
     }
   }
 

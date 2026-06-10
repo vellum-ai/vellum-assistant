@@ -4,7 +4,6 @@
  */
 
 import type { InterfaceId } from "../channels/types.js";
-import type { CesClient } from "../credential-execution/client.js";
 import type { SurfaceConversationContext } from "./conversation-surfaces.js";
 import type { TrustContext } from "./trust-context.js";
 
@@ -33,8 +32,6 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   trustContext?: TrustContext;
   /** Voice/call session ID, if the conversation originates from a call. Propagated into ToolContext for scoped grant consumption. */
   callSessionId?: string;
-  /** CES RPC client for credential execution operations. Injected when CES tools are enabled and the CES process is available. */
-  cesClient?: CesClient;
   /** The interface ID of the connected client driving the current turn (e.g. "macos", "chrome-extension"). Propagated into ToolContext for browser backend selection. */
   readonly transportInterface?: InterfaceId;
 

@@ -16,6 +16,7 @@ import {
 } from "@vellumai/service-contracts/credential-rpc";
 
 import { RiskLevel } from "../../permissions/types.js";
+import { getCesClient } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import type {
   ToolContext,
@@ -77,7 +78,7 @@ export const makeAuthenticatedRequestTool = {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
-    const cesClient = context.cesClient;
+    const cesClient = getCesClient();
     if (!cesClient) {
       return {
         content:

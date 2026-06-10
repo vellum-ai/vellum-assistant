@@ -332,6 +332,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "centralized-assistant-status",
+      "scope": "client",
+      "key": "centralized-assistant-status",
+      "label": "Centralized Assistant Status",
+      "description": "Enable client polling of the centralized assistant operational status endpoint.",
+      "defaultEnabled": false
+    },
+    {
       "id": "preview-channel",
       "scope": "client",
       "key": "preview-channel",

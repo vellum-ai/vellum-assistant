@@ -361,7 +361,7 @@ function BubbleToolbar({ editor, onCommentSubmit, commentSubmitting }: BubbleToo
               className={cn(
                 "rounded-md px-2.5 py-1 text-label-medium-default transition-colors",
                 draft.trim() && !commentSubmitting
-                  ? "bg-[var(--primary-base)] text-white hover:opacity-90"
+                  ? "bg-[var(--primary-base)] text-[var(--content-inset)] hover:opacity-90"
                   : "bg-[var(--surface-active)] text-[var(--content-disabled)] cursor-not-allowed",
               )}
               onClick={handleSubmitComment}

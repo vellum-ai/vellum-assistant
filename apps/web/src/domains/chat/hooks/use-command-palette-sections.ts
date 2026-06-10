@@ -197,6 +197,9 @@ interface UseCommandPaletteSectionsParams {
   switchConversation: (key: string) => void;
   navigate: (to: string | number) => void;
   navigateToSettings: () => void;
+  isOpen?: boolean;
+  onClose?: () => void;
+  onItemSelect?: (item: CommandPaletteItemData) => void;
 }
 
 export interface UseCommandPaletteSectionsReturn {
@@ -214,6 +217,9 @@ export function useCommandPaletteSections({
   switchConversation,
   navigate,
   navigateToSettings,
+  isOpen,
+  onClose,
+  onItemSelect,
 }: UseCommandPaletteSectionsParams): UseCommandPaletteSectionsReturn {
   // Static sections: actions + recent conversations.
   const localSections = useMemo((): CommandPaletteSection[] => {
@@ -231,6 +237,10 @@ export function useCommandPaletteSections({
   // Dispatch handler for a selected item.
   const handleSelect = useCallback(
     (item: CommandPaletteItemData) => {
+      if (onItemSelect) {
+        onItemSelect(item);
+        return;
+      }
       dispatchCommandPaletteAction(item, {
         startNewConversation,
         switchConversation,
@@ -245,6 +255,7 @@ export function useCommandPaletteSections({
       navigate,
       activeConversationId,
       navigateToSettings,
+      onItemSelect,
     ],
   );
 
@@ -274,6 +285,8 @@ export function useCommandPaletteSections({
       mergedSectionsRef.current.reduce((acc, s) => acc + s.items.length, 0),
     onSelect: handleIndexSelect,
     assistantId,
+    isOpen,
+    onClose,
   });
 
   useLayoutEffect(() => {

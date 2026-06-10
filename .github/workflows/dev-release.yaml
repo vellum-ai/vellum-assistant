@@ -1229,7 +1229,7 @@ jobs:
   # SLACK_RELEASES_WEBHOOK_URL (releases). The job no-ops if the secret is unset.
 
   notify-dev-release:
-    needs: [compute-version, register-release, register-preview-release, build-electron]
+    needs: [compute-version, register-release, register-preview-release, build-electron, upload-electron-updates]
     # Run on success and failure alike, but not when the run was cancelled
     # (e.g. superseded by a newer hourly run via cancel-in-progress) — a
     # cancelled run is not a real failure and should not alert the channel.
@@ -1807,10 +1807,12 @@ jobs:
           - arch: arm64
             dmg_name: vellum-assistant-electron-dev.dmg
             artifact_name: dev-electron-dmg
+            update_artifact_name: dev-electron-update-arm64
             experimental: false
           - arch: x64
             dmg_name: vellum-assistant-electron-dev-x64.dmg
             artifact_name: dev-electron-dmg-x64
+            update_artifact_name: dev-electron-update-x64
             experimental: true
     defaults:
       run:
@@ -1993,12 +1995,92 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Upload Electron update artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ matrix.update_artifact_name }}
+          path: |
+            apps/macos/dist/latest-mac.yml
+            apps/macos/dist/*.zip
+            apps/macos/dist/*.zip.blockmap
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Cleanup keychain and keys
         if: always()
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
           rm -rf ~/.private_keys 2>/dev/null || true
+
+  # ── Upload Electron update artifacts to GCS ────────────────────────────
+  # Push per-arch update feeds (manifest + ZIP + blockmap) to the public
+  # GCS bucket so electron-updater can pull delta updates. Each arch gets
+  # its own path: mac-electron/dev/{arch}/.
+
+  upload-electron-updates:
+    needs: [compute-version, build-electron]
+    if: ${{ needs.build-electron.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: dev
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download arm64 update artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dev-electron-update-arm64
+          path: electron-artifacts/arm64
+
+      - name: Download x64 update artifacts
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dev-electron-update-x64
+          path: electron-artifacts/x64
+
+      - name: Validate update artifacts
+        run: |
+          DIR="electron-artifacts/arm64"
+          if [ ! -f "$(find "$DIR" -name 'latest-mac.yml' -type f 2>/dev/null | grep -m1 .)" ]; then
+            echo "::error::Missing latest-mac.yml for arm64"
+            exit 1
+          fi
+          if [ -z "$(find "$DIR" -name '*.zip' -type f ! -name '*.blockmap' 2>/dev/null | grep -m1 .)" ]; then
+            echo "::error::Missing ZIP for arm64"
+            exit 1
+          fi
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Upload Electron update artifacts to GCS
+        run: |
+          CHANNEL="dev"
+          BUCKET="vellum-desktop-releases"
+          MANIFEST_NAME="${CHANNEL}-mac.yml"
+
+          for ARCH in arm64 x64; do
+            ARCH_DIR="electron-artifacts/${ARCH}"
+            [ -d "$ARCH_DIR" ] || continue
+            PREFIX="mac-electron/${CHANNEL}/${ARCH}"
+
+            find "$ARCH_DIR" -name "*.zip" -type f ! -name "*.blockmap" | while read -r ZIP; do
+              gcloud storage cp "$ZIP" "gs://${BUCKET}/${PREFIX}/$(basename "$ZIP")"
+            done
+
+            find "$ARCH_DIR" -name "*.zip.blockmap" -type f | while read -r BM; do
+              gcloud storage cp "$BM" "gs://${BUCKET}/${PREFIX}/$(basename "$BM")"
+            done
+
+            YML=$(find "$ARCH_DIR" -name "latest-mac.yml" -type f | grep -m1 .)
+            [ -n "$YML" ] && gcloud storage cp "$YML" "gs://${BUCKET}/${PREFIX}/${MANIFEST_NAME}"
+          done
 
   # ── Dev npm publishing ─────────────────────────────────────────────────
 

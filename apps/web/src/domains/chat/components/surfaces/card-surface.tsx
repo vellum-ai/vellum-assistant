@@ -1,6 +1,5 @@
 import { lazy } from "react";
 import { Circle, CircleCheck, CircleX, Clock, Loader2 } from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import type { Surface } from "@/domains/chat/types/types";
 import { isTaskProgressSurface } from "@/domains/chat/transcript/message-content";
@@ -28,7 +27,7 @@ interface CardMetadataItem {
 }
 
 interface TaskStepItem {
-  id: string;
+  id?: string;
   label: string;
   status?: string;
   detail?: string;
@@ -45,7 +44,7 @@ interface CardSurfaceData {
 
 interface CardSurfaceProps {
   surface: Surface;
-  onAction: (surfaceId: string, actionId: string, data?: Record<string, unknown>) => void;
+  onAction: (surfaceId: string, actionId: string, data?: Record<string, unknown>) => void | Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -132,31 +131,10 @@ function TaskProgressBar({ templateData }: { templateData: Record<string, unknow
       </div>
       <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--border-subtle)]">
         <div
-          className="h-full rounded-full bg-forest-500 transition-all"
+          className="h-full rounded-full bg-[var(--primary-base)] transition-all"
           style={{ width: `${percent}%` }}
         />
       </div>
-    </div>
-  );
-}
-
-function InProgressDetail({ value }: { value: string }) {
-  const prefersReducedMotion = useReducedMotion();
-  return (
-    <div className="relative h-3 min-w-0 max-w-[50%] overflow-hidden">
-      <AnimatePresence mode="popLayout" initial={false}>
-        <motion.span
-          key={value}
-          initial={prefersReducedMotion ? false : { y: "-100%", opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          exit={prefersReducedMotion ? { opacity: 0 } : { y: "100%", opacity: 0 }}
-          transition={{ duration: 0.22, ease: "easeOut" }}
-          className="block truncate text-body-small-default text-[var(--content-tertiary)]"
-          title={value}
-        >
-          {value}
-        </motion.span>
-      </AnimatePresence>
     </div>
   );
 }
@@ -188,7 +166,16 @@ function TaskStepList({
                 </p>
               )}
             </div>
-            {showDetailOnRight && <InProgressDetail value={step.detail!} />}
+            {showDetailOnRight && (
+              <div className="h-4 min-w-0 max-w-[50%] overflow-hidden">
+                <span
+                  className="block truncate text-body-small-default leading-[16px] text-[var(--content-tertiary)]"
+                  title={step.detail!}
+                >
+                  {step.detail}
+                </span>
+              </div>
+            )}
             <div className="shrink-0">
               <StepIcon status={status} />
             </div>
@@ -197,35 +184,6 @@ function TaskStepList({
       })}
     </div>
   );
-}
-
-function TaskProgressDisplay({
-  templateData,
-  titleFallback,
-}: {
-  templateData: Record<string, unknown>;
-  titleFallback?: string;
-}) {
-  const steps = Array.isArray(templateData.steps)
-    ? (templateData.steps as TaskStepItem[])
-    : null;
-
-  if (steps && steps.length > 0) {
-    const title = normalizedTitle(templateData.title) || titleFallback || "Task";
-    const status = typeof templateData.status === "string" ? templateData.status : undefined;
-
-    return (
-      <div>
-        <div className="flex items-center justify-between">
-          <span className="text-title-small text-[var(--content-strong)]">{title}</span>
-          <StatusBadge status={status} />
-        </div>
-        <TaskStepList steps={steps} taskCompleted={status === "completed"} />
-      </div>
-    );
-  }
-
-  return <TaskProgressBar templateData={templateData} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -240,21 +198,35 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
   // hoist-detection in transcript-message-body cannot drift.
   const hasSteps = isTaskProgressSurface(surface);
   const cardTitle = normalizedTitle(data.title) || normalizedTitle(surface.title);
-  const surfaceWithoutContainerTitle = { ...surface, title: undefined };
 
   if (hasSteps) {
+    const templateData = data.templateData!;
+    const title = normalizedTitle(templateData.title) || cardTitle || "Task";
+    const status = typeof templateData.status === "string" ? templateData.status : undefined;
+    const steps = templateData.steps as TaskStepItem[];
+
     return (
-      <SurfaceContainer surface={surfaceWithoutContainerTitle} onAction={onAction}>
-        <TaskProgressDisplay
-          templateData={data.templateData!}
-          titleFallback={cardTitle}
-        />
+      <SurfaceContainer surface={surface} onAction={onAction} hideTitle>
+        <div>
+          <div className="flex items-center justify-between">
+            <span className="text-title-small text-[var(--content-strong)]">{title}</span>
+            <StatusBadge status={status} />
+          </div>
+          <TaskStepList steps={steps} taskCompleted={status === "completed"} />
+        </div>
       </SurfaceContainer>
     );
   }
 
+  const bodyMarkdown = (
+    <ChatMarkdownMessage
+      content={data.body}
+      className="mt-2 text-body-medium-lighter text-[var(--content-tertiary)]"
+    />
+  );
+
   return (
-    <SurfaceContainer surface={surfaceWithoutContainerTitle} onAction={onAction}>
+    <SurfaceContainer surface={surface} onAction={onAction} hideTitle>
       <div>
         {cardTitle && (
           <h3 className="text-title-small text-[var(--content-strong)]">{cardTitle}</h3>
@@ -265,33 +237,12 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
         )}
 
         {isWeather ? (
-          <LazyBoundary
-            fallback={
-              <ChatMarkdownMessage
-                content={data.body}
-                className="mt-2 text-body-medium-lighter text-[var(--content-tertiary)]"
-              />
-            }
-            errorFallback={
-              <ChatMarkdownMessage
-                content={data.body}
-                className="mt-2 text-body-medium-lighter text-[var(--content-tertiary)]"
-              />
-            }
-          >
-            <WeatherForecastDisplay templateData={data.templateData!} fallback={
-              <ChatMarkdownMessage
-                content={data.body}
-                className="mt-2 text-body-medium-lighter text-[var(--content-tertiary)]"
-              />
-            } />
+          <LazyBoundary fallback={bodyMarkdown} errorFallback={bodyMarkdown}>
+            <WeatherForecastDisplay templateData={data.templateData!} fallback={bodyMarkdown} />
           </LazyBoundary>
         ) : (
           <>
-            <ChatMarkdownMessage
-              content={data.body}
-              className="mt-2 text-body-medium-lighter text-[var(--content-tertiary)]"
-            />
+            {bodyMarkdown}
 
             {data.metadata && data.metadata.length > 0 && (
               <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2">
@@ -307,10 +258,7 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
             )}
 
             {isTaskProgress && (
-              <TaskProgressDisplay
-                templateData={data.templateData!}
-                titleFallback={cardTitle}
-              />
+              <TaskProgressBar templateData={data.templateData!} />
             )}
           </>
         )}
