@@ -52,6 +52,13 @@ final class DictationPartialsSession: @unchecked Sendable {
         }
 
         request.shouldReportPartialResults = true
+        // This recognizer is the fallback when daemon STT is unreachable —
+        // often because there's no network at all — so prefer the on-device
+        // model whenever it's installed instead of Apple's server-based
+        // recognition, which would fail offline too.
+        if recognizer.supportsOnDeviceRecognition {
+            request.requiresOnDeviceRecognition = true
+        }
 
         let input = audioEngine.inputNode
         let format = input.outputFormat(forBus: 0)

@@ -28,8 +28,14 @@ mock.module("@sentry/react", () => ({
 }));
 
 const postSttTranscribeSpy = mock(
-  async (_blob: Blob, _assistantId: string, _signal?: AbortSignal) => ({
-    status: "ok" as const,
+  async (
+    _blob: Blob,
+    _assistantId: string,
+    _signal?: AbortSignal,
+  ): Promise<
+    { status: "ok"; text: string } | { status: "error"; reason: string }
+  > => ({
+    status: "ok",
     text: "hello world",
   }),
 );
@@ -37,13 +43,19 @@ mock.module("@/domains/chat/voice/stt-api", () => ({
   postSttTranscribe: postSttTranscribeSpy,
 }));
 
-// No daemon stream and no native helper partials — live interim text is not
-// under test, and returning null from both exercises the default web path.
+// No daemon stream — live interim text from that source is not under test.
 mock.module("@/domains/chat/voice/dictation-stream", () => ({
   startDictationStream: () => null,
 }));
+
+// Native helper partials default to unavailable (the plain web path); the
+// fallback tests swap in an implementation that emits text.
+let nativePartialsImpl: (
+  onPartial: (text: string) => void,
+) => Promise<(() => void) | null> = async () => null;
 mock.module("@/runtime/native-dictation-partials", () => ({
-  startNativeDictationPartials: async () => null,
+  startNativeDictationPartials: (onPartial: (text: string) => void) =>
+    nativePartialsImpl(onPartial),
 }));
 
 mock.module("@/runtime/native-auth", () => ({
@@ -244,5 +256,56 @@ describe("VoiceInputButton — session breadcrumb", () => {
     expect(crumb.data.finalLength).toBe("hello world".length);
     expect(crumb.data.durationMs).toBeGreaterThanOrEqual(0);
     expect(typeof crumb.data.locale).toBe("string");
+  });
+});
+
+describe("VoiceInputButton — native partials fallback", () => {
+  beforeEach(() => {
+    addBreadcrumbSpy.mockClear();
+    postSttTranscribeSpy.mockClear();
+    useVoiceRecordingStore.getState().reset();
+  });
+
+  afterEach(() => {
+    nativePartialsImpl = async () => null;
+    cleanup();
+    useVoiceRecordingStore.getState().reset();
+  });
+
+  test("native Apple Speech text becomes the final transcript when batch STT fails", async () => {
+    nativePartialsImpl = async (onPartial) => {
+      onPartial("offline transcript");
+      return () => {};
+    };
+    postSttTranscribeSpy.mockImplementationOnce(async () => ({
+      status: "error",
+      reason: "network",
+    }));
+
+    const onTranscript = mock(async (_text: string) => {});
+    await startSession(onTranscript);
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(onTranscript).toHaveBeenCalledWith("offline transcript");
+    });
+    expect(lastBreadcrumb().data.outcome).toBe("completed");
+  });
+
+  test("successful batch STT takes priority over native partials text", async () => {
+    nativePartialsImpl = async (onPartial) => {
+      onPartial("offline transcript");
+      return () => {};
+    };
+
+    const onTranscript = mock(async (_text: string) => {});
+    await startSession(onTranscript);
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(onTranscript).toHaveBeenCalledWith("hello world");
+    });
   });
 });

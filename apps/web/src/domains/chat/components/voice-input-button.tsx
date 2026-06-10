@@ -358,9 +358,11 @@ export const VoiceInputButton = forwardRef<
   }, []);
 
   const stopNativePartials = useCallback(() => {
+    // Deliberately leaves nativePartialsTextRef intact: stopRecording runs
+    // this before recorder.onstop reads the text as the final-transcript
+    // fallback. startRecording resets it for the next session.
     nativePartialsStopRef.current?.();
     nativePartialsStopRef.current = null;
-    nativePartialsTextRef.current = "";
   }, []);
 
   const stopRecording = useCallback(() => {
@@ -502,6 +504,7 @@ export const VoiceInputButton = forwardRef<
     // pipeline first. Starting it after getUserMedia claims the mic causes
     // Chrome to silently starve SpeechRecognition of audio input.
     speechAccumulatorRef.current = "";
+    nativePartialsTextRef.current = "";
     const Ctor = getSpeechRecognitionCtor();
     if (Ctor) {
       try {
@@ -607,6 +610,7 @@ export const VoiceInputButton = forwardRef<
       releaseStream();
       stopSpeechRecognition();
       stopDictationStream();
+      const nativeText = nativePartialsTextRef.current;
       stopNativePartials();
       publishInterim("");
 
@@ -614,6 +618,7 @@ export const VoiceInputButton = forwardRef<
         discardedRef.current = false;
         chunksRef.current = [];
         speechAccumulatorRef.current = "";
+        nativePartialsTextRef.current = "";
         // Re-assert idle: a stop() racing in between cancelRecording and
         // this handler (e.g. the push-to-talk key-up after Esc) can have
         // moved the store to "processing".
@@ -631,7 +636,7 @@ export const VoiceInputButton = forwardRef<
       chunksRef.current = [];
       const fallbackText = speechAccumulatorRef.current;
       speechAccumulatorRef.current = "";
-      if (chunks.length === 0 && !fallbackText) {
+      if (chunks.length === 0 && !fallbackText && !nativeText) {
         addDictationSessionBreadcrumb("empty", durationMs, 0);
         vsReset();
         return;
@@ -664,6 +669,13 @@ export const VoiceInputButton = forwardRef<
           daemonFailure = "unknown";
         }
 
+        // Batch text is the authority. When it fails (offline, provider
+        // down), the native Apple Speech partials are the only usable
+        // transcript inside Electron — Web Speech ships there without a
+        // speech service, so its accumulator stays empty.
+        if (!text && nativeText) {
+          text = nativeText;
+        }
         if (!text && fallbackText) {
           text = fallbackText;
         }
