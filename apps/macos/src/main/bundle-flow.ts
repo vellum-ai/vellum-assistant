@@ -14,15 +14,10 @@ import {
   getLockfileData,
   resolveConfigDir,
   resolveLockfilePaths,
-  type CliInvocation,
 } from "@vellumai/local-mode";
 
 import { BUNDLES_DIR_NAME } from "./app-config";
-import {
-  ensureCliInstalled,
-  getBundledBunPath,
-  getCliBinPath,
-} from "./cli-installer";
+import { resolveCliInvocation } from "./local-mode";
 import { openBundleConfirmation, installBundleConfirmation } from "./bundle-confirmation";
 import { unpackBundle, type BundleScanData } from "./bundle-manager";
 import { openBundleWindow } from "./bundle-window";
@@ -43,20 +38,6 @@ export function resolveActiveGateway(): ActiveGateway | null {
   if (!entry?.resources?.gatewayPort) return null;
 
   return { assistantId: entry.assistantId, port: entry.resources.gatewayPort };
-}
-
-async function resolveCliInvocation(): Promise<CliInvocation> {
-  if (!app.isPackaged) {
-    const repoRoot = path.resolve(app.getAppPath(), "..", "..");
-    const { existsSync } = await import("node:fs");
-    const cliEntry = path.join(repoRoot, "cli", "src", "index.ts");
-    if (existsSync(cliEntry)) {
-      return { command: "bun", baseArgs: ["run", cliEntry] };
-    }
-  }
-  // Early-returns when already installed, refreshing the PATH-wrapper locator.
-  await ensureCliInstalled();
-  return { command: getBundledBunPath(), baseArgs: ["run", getCliBinPath()] };
 }
 
 async function acquireGatewayToken(assistantId: string): Promise<string | null> {
