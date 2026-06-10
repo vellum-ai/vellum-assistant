@@ -9,7 +9,6 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, type ReactNode } from "react";
 
-import { AssistantOperationalStatusIndicator } from "@/components/assistant-operational-status-indicator";
 import { isElectron } from "@/runtime/is-electron";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { useTitleBarStore } from "@/stores/title-bar-store";
@@ -190,7 +189,6 @@ export function ChatLayoutHeader({
             onClick={handleSearchClick}
           />
         ) : null}
-        <AssistantOperationalStatusIndicator />
         {topBarRightSlot}
       </div>
     </header>

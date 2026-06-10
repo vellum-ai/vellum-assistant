@@ -4,7 +4,10 @@ import { client } from "@/generated/api/client.gen";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import type { AssistantState } from "@/assistant/types";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
-import { usePlatformGate } from "@/hooks/use-platform-gate";
+import {
+  useActiveAssistantIsPlatformHosted,
+  usePlatformGate,
+} from "@/hooks/use-platform-gate";
 import {
   ApiError,
   assertHasResponse,
@@ -59,16 +62,20 @@ function clampPollMs(value: number | null | undefined): number {
   return Math.min(MAX_STATUS_POLL_MS, Math.max(MIN_STATUS_POLL_MS, value));
 }
 
-function canPollOperationalStatus(assistantState: AssistantState): boolean {
+function canPollOperationalStatus({
+  assistantState,
+  activeAssistantIsPlatformHosted,
+  targetIsLifecycleOperationAssistant,
+}: {
+  assistantState: AssistantState;
+  activeAssistantIsPlatformHosted: boolean;
+  targetIsLifecycleOperationAssistant: boolean;
+}): boolean {
+  if (targetIsLifecycleOperationAssistant) return true;
+
   switch (assistantState.kind) {
-    case "loading":
-    case "initializing":
-    case "cleaning_up":
-    case "platform_hosted":
-    case "error":
-      return true;
     case "active":
-      return !assistantState.isLocal;
+      return activeAssistantIsPlatformHosted;
     default:
       return false;
   }
@@ -106,13 +113,22 @@ export function useAssistantOperationalStatus(assistantId: string | null) {
   const platformHostedGate = usePlatformGate({ platformHostedOnly: true });
   const platformApiGate = usePlatformGate();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
+  const operationalStatusAssistantId =
+    useAssistantLifecycleStore.use.operationalStatusAssistantId();
+  const activeAssistantIsPlatformHosted = useActiveAssistantIsPlatformHosted();
   const isOrgReady = useIsOrgReady();
+  const targetIsLifecycleOperationAssistant =
+    Boolean(assistantId) && assistantId === operationalStatusAssistantId;
   const enabled =
     Boolean(assistantId) &&
     platformHostedGate === "full" &&
     platformApiGate === "full" &&
     isOrgReady &&
-    canPollOperationalStatus(assistantState);
+    canPollOperationalStatus({
+      assistantState,
+      activeAssistantIsPlatformHosted,
+      targetIsLifecycleOperationAssistant,
+    });
 
   return useQuery({
     // Keep disabled observers off the assistant-specific cache entry so
