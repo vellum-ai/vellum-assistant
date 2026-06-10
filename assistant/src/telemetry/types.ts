@@ -225,34 +225,10 @@ export interface AuthFallbackTelemetryEvent extends TelemetryEventBase {
   window_end: number;
 }
 
-/**
- * Tool execution event — one per tool invocation, sourced from the
- * `tool_invocations` audit table. Skill-routed calls appear under their
- * underlying tool name; `skill_id` identifies the triggering skill.
- * Carries NO raw input/output — only tool identity, permission
- * outcome, risk class, duration, and parent conversation.
- */
-export interface ToolExecutionTelemetryEvent extends TelemetryEventBase {
-  type: "tool_execution";
-  tool_name: string;
-  /**
-   * Triggering skill id for skill-routed calls. Null for direct tool
-   * calls and for rows recorded before the `skill_id` column existed.
-   */
-  skill_id: string | null;
-  /** Permission outcome: "allow" | "error" | "denied". */
-  decision: string;
-  /** Executor risk classification. */
-  risk_level: string;
-  duration_ms: number;
-  conversation_id: string;
-}
-
 /** Discriminated union of all telemetry event types. */
 export type TelemetryEvent =
   | LlmUsageTelemetryEvent
   | TurnTelemetryEvent
   | LifecycleTelemetryEvent
   | OnboardingTelemetryEvent
-  | AuthFallbackTelemetryEvent
-  | ToolExecutionTelemetryEvent;
+  | AuthFallbackTelemetryEvent;

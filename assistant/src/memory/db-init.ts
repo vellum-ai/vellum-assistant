@@ -202,9 +202,7 @@ import {
   migrateStripIntegrationPrefixFromProviderKeys,
   migrateStripPlaceholderSentinelsFromMessages,
   migrateStripThinkingFromConsolidated,
-  migrateToolInvocationsCreatedAtIdIndex,
   migrateToolInvocationsMatchedRuleId,
-  migrateToolInvocationsSkillId,
   migrateTraceEventsCreatedAtIndex,
   migrateUsageDashboardIndexes,
   migrateUsageLlmCallCount,
@@ -487,8 +485,6 @@ export function initializeDb(): void {
     migrateAcpSessionHistoryCwd,
     migrateOnboardingEventsFunnelColumns,
     createActivationSessionsTable,
-    migrateToolInvocationsSkillId,
-    migrateToolInvocationsCreatedAtIdIndex,
     migrateAddMemoryV3EverInjected,
   ];
 

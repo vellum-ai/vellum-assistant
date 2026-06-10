@@ -48,7 +48,6 @@ function toInvocationRecord(
         decision: event.decision,
         riskLevel: event.riskLevel,
         matchedTrustRuleId: event.matchedTrustRuleId,
-        skillId: event.skillId,
         durationMs: event.durationMs,
       };
     case "error":
@@ -60,7 +59,6 @@ function toInvocationRecord(
         decision: "error",
         riskLevel: event.riskLevel,
         matchedTrustRuleId: event.matchedTrustRuleId,
-        skillId: event.skillId,
         durationMs: event.durationMs,
       };
     case "permission_denied":
@@ -72,7 +70,6 @@ function toInvocationRecord(
         decision: "denied",
         riskLevel: event.riskLevel,
         matchedTrustRuleId: event.matchedTrustRuleId,
-        skillId: event.skillId,
         durationMs: event.durationMs,
       };
     case "start":
