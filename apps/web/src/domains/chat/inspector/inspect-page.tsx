@@ -21,8 +21,8 @@ import { normalizeContentBlocks } from "@/domains/chat/api/messages";
 import { useAuthStore, useIsSessionInitializing } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import type {
-  ConversationContentBlock,
   ConversationMessage,
+  ConversationTextBlock,
   LlmContextResponse,
   LLMRequestLogEntry,
 } from "@vellumai/assistant-api";
@@ -443,7 +443,7 @@ function buildMessageScopeOptions(messages: ConversationMessage[]): ScopeOption[
     if (!id || seen.has(id)) continue;
     seen.add(id);
     const firstTextBlock = normalizeContentBlocks(m)?.find(
-      (b): b is Extract<ConversationContentBlock, { type: "text" }> => b.type === "text",
+      (b): b is ConversationTextBlock => b.type === "text",
     );
     const preview = previewContent(firstTextBlock?.text);
     const roleLabel = m.role === "assistant" ? "Assistant" : "User";

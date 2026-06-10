@@ -9,22 +9,10 @@
 import type {
   ConversationContentBlock,
   ConversationMessageToolCall,
+  ConversationSurfaceBlock,
+  ConversationTextBlock,
+  ConversationThinkingBlock,
 } from "@vellumai/assistant-api";
-
-// These union members aren't individually exported from @vellumai/assistant-api;
-// narrow from the discriminated union instead.
-type ConversationThinkingBlock = Extract<
-  ConversationContentBlock,
-  { type: "thinking" }
->;
-type ConversationTextBlock = Extract<
-  ConversationContentBlock,
-  { type: "text" }
->;
-type ConversationSurfaceBlock = Extract<
-  ConversationContentBlock,
-  { type: "surface" }
->;
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 
@@ -249,8 +237,7 @@ export function resolveThinkingContent(
   ids: string[],
 ): string {
   const thinkingBlocks = message.contentBlocks?.filter(
-    (b): b is Extract<ConversationContentBlock, { type: "thinking" }> =>
-      b.type === "thinking",
+    (b): b is ConversationThinkingBlock => b.type === "thinking",
   );
   return ids
     .map((id) => {
@@ -281,8 +268,7 @@ export function resolveThinkingTiming(
   ids: string[],
 ): ThinkingTiming {
   const thinkingBlocks = message.contentBlocks?.filter(
-    (b): b is Extract<ConversationContentBlock, { type: "thinking" }> =>
-      b.type === "thinking",
+    (b): b is ConversationThinkingBlock => b.type === "thinking",
   );
   if (!thinkingBlocks) return {};
   let startedAt: number | undefined;
