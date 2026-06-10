@@ -12,7 +12,7 @@ import { z } from "zod";
 import { runAppleScript } from "./appleScriptExecutor";
 import {
   queryMacHelperPermission,
-  requestMacHelperPermission,
+  requestMacHelperInputMonitoringPermission,
   requestMacHelperSpeechRecognitionPermission,
   type MacHelperPermissionKind,
 } from "./hotkey-helper";
@@ -150,7 +150,7 @@ export class PermissionsService {
           await requestMacHelperSpeechRecognitionPermission();
           break;
         case "inputMonitoring":
-          await requestMacHelperPermission(kind);
+          await requestMacHelperInputMonitoringPermission();
           break;
         case "automation":
           await this.requestAutomation();
@@ -175,6 +175,10 @@ export class PermissionsService {
     kind: PermissionKind,
     sender?: WebContents,
   ): Promise<PermissionStateItem> {
+    if (kind === "inputMonitoring") {
+      await requestMacHelperInputMonitoringPermission();
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
     await shell.openExternal(SETTINGS_PANES[kind]);
     this.startPolling(kind, sender);
     return this.item(kind, sender);

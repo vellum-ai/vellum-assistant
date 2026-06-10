@@ -106,6 +106,8 @@ const {
   getMacHelperAppPath,
   getMacHelperPath,
   installHotkeyHelper,
+  requestMacHelperInputMonitoringPermission,
+  requestMacHelperSpeechRecognitionPermission,
 } = await import("./hotkey-helper");
 
 const invokeFnPushToTalk = (enable: boolean) =>
@@ -175,6 +177,38 @@ describe("getMacHelperPath", () => {
     expect(getMacHelperPath()).toBe(
       "/mock/resources/bin/vellum-mac-helper.app/Contents/MacOS/vellum-mac-helper",
     );
+  });
+});
+
+describe("permission request launchers", () => {
+  test("launches the helper app for Speech Recognition prompts", async () => {
+    const pending = requestMacHelperSpeechRecognitionPermission();
+
+    expect(spawnCalls[0]?.[0]).toBe("open");
+    expect(spawnCalls[0]?.[1]).toEqual([
+      "-n",
+      "/repo/apps/macos/resources/vellum-mac-helper.app",
+      "--args",
+      "--request-speech-recognition",
+    ]);
+
+    lastChild?.emit("exit", 0);
+    await expect(pending).resolves.toBeUndefined();
+  });
+
+  test("launches the helper app for Input Monitoring prompts", async () => {
+    const pending = requestMacHelperInputMonitoringPermission();
+
+    expect(spawnCalls[0]?.[0]).toBe("open");
+    expect(spawnCalls[0]?.[1]).toEqual([
+      "-n",
+      "/repo/apps/macos/resources/vellum-mac-helper.app",
+      "--args",
+      "--request-input-monitoring",
+    ]);
+
+    lastChild?.emit("exit", 0);
+    await expect(pending).resolves.toBeUndefined();
   });
 });
 

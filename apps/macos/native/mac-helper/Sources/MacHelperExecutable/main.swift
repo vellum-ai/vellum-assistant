@@ -87,13 +87,6 @@ final class MacHelper: @unchecked Sendable {
             let kind = try self.parsePermissionKind(params)
             return ["status": self.permissionStatus(kind: kind)]
         }
-        router.register("permission.request") { [weak self] params in
-            guard let self else {
-                throw JsonRpcDispatchError.internalError("Helper is shutting down")
-            }
-            let kind = try self.parsePermissionKind(params)
-            return ["status": self.requestPermission(kind: kind)]
-        }
         return router
     }()
 
@@ -202,15 +195,6 @@ final class MacHelper: @unchecked Sendable {
         }
     }
 
-    private func requestPermission(kind: PermissionKind) -> String {
-        switch kind {
-        case .speechRecognition:
-            return requestSpeechRecognition()
-        case .inputMonitoring:
-            return requestInputMonitoring()
-        }
-    }
-
     private func speechRecognitionStatus() -> String {
         switch SFSpeechRecognizer.authorizationStatus() {
         case .authorized:
@@ -226,14 +210,6 @@ final class MacHelper: @unchecked Sendable {
         }
     }
 
-    private func requestSpeechRecognition() -> String {
-        // The RPC helper is often a child of Electron or a developer terminal.
-        // TCC evaluates Speech prompts against the responsible app, so the main
-        // process launches this helper bundle through LaunchServices for the
-        // actual prompt and uses this route only for status reads.
-        return speechRecognitionStatus()
-    }
-
     private func inputMonitoringStatus() -> String {
         switch IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) {
         case kIOHIDAccessTypeGranted:
@@ -245,14 +221,6 @@ final class MacHelper: @unchecked Sendable {
         default:
             return "unknown"
         }
-    }
-
-    private func requestInputMonitoring() -> String {
-        if IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted {
-            return "granted"
-        }
-        _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
-        return inputMonitoringStatus()
     }
 
     private func registerFnHotkey() throws {
@@ -412,6 +380,14 @@ if CommandLine.arguments.contains("--request-speech-recognition") {
             }
             NSApplication.shared.run()
         }
+    }
+} else if CommandLine.arguments.contains("--request-input-monitoring") {
+    MainActor.assumeIsolated {
+        NSApplication.shared.setActivationPolicy(.prohibited)
+        if IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) != kIOHIDAccessTypeGranted {
+            _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+        }
+        NSApplication.shared.terminate(nil)
     }
 } else {
     MainActor.assumeIsolated {

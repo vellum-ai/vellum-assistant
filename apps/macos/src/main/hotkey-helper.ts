@@ -131,36 +131,38 @@ export const queryMacHelperPermission = async (
   return HELPER_PERMISSION_STATUS_SCHEMA.parse(result).status;
 };
 
-export const requestMacHelperPermission = async (
-  kind: MacHelperPermissionKind,
-): Promise<MacHelperPermissionStatus> => {
-  const result = await client.call("permission.request", { kind });
-  return HELPER_PERMISSION_STATUS_SCHEMA.parse(result).status;
-};
-
 export const requestMacHelperSpeechRecognitionPermission =
   async (): Promise<void> => {
-    await new Promise<void>((resolve, reject) => {
-      const child = spawn(
-        "open",
-        [
-          "-n",
-          getMacHelperAppPath(),
-          "--args",
-          "--request-speech-recognition",
-        ],
-        { stdio: "ignore" },
-      );
-      child.once("error", reject);
-      child.once("exit", (code) => {
-        if (code === 0) {
-          resolve();
-        } else {
-          reject(new Error(`open exited with code ${code ?? "unknown"}`));
-        }
-      });
-    });
+    await openMacHelperPermissionRequest("--request-speech-recognition");
   };
+
+export const requestMacHelperInputMonitoringPermission =
+  async (): Promise<void> => {
+    await openMacHelperPermissionRequest("--request-input-monitoring");
+  };
+
+const openMacHelperPermissionRequest = async (arg: string): Promise<void> => {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(
+      "open",
+      [
+        "-n",
+        getMacHelperAppPath(),
+        "--args",
+        arg,
+      ],
+      { stdio: "ignore" },
+    );
+    child.once("error", reject);
+    child.once("exit", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`open exited with code ${code ?? "unknown"}`));
+      }
+    });
+  });
+};
 
 interface HotkeyOwner {
   webContents: WebContents;
