@@ -321,6 +321,12 @@ export interface VellumBridge {
      */
     onChange(callback: (catalog: ResolvedHotkey[]) => void): () => void;
   };
+  launchAtLogin: {
+    /** Read the current launch-at-login preference. */
+    get(): Promise<boolean>;
+    /** Persist the launch-at-login preference; triggers `syncLoginItem()`. */
+    set(enabled: boolean): Promise<void>;
+  };
   featureFlags: {
     /** Publish the renderer's feature-flag map to main (fire-and-forget). */
     set(flags: Record<string, boolean>): void;
@@ -690,6 +696,12 @@ const bridge: VellumBridge = {
         ipcRenderer.off("vellum:hotkeys:changed", handler);
       };
     },
+  },
+  launchAtLogin: {
+    get: (): Promise<boolean> =>
+      ipcRenderer.invoke("vellum:launchAtLogin:get") as Promise<boolean>,
+    set: (enabled: boolean): Promise<void> =>
+      ipcRenderer.invoke("vellum:launchAtLogin:set", enabled) as Promise<void>,
   },
   featureFlags: {
     set: (flags: Record<string, boolean>): void => {

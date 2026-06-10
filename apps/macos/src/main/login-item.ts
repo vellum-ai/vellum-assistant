@@ -1,11 +1,27 @@
 import { app } from "electron";
+import { z } from "zod";
 
+import { handle } from "./ipc";
 import { readSetting, onSettingChange, writeSetting } from "./settings";
 
 /** Apply the current `launchAtLogin` preference to the OS login item. */
 export const syncLoginItem = (): void => {
   const value = readSetting("launchAtLogin");
   app.setLoginItemSettings({ openAtLogin: value ?? false });
+};
+
+/**
+ * Install the typed launch-at-login IPC surface: `get` returns the current
+ * boolean, `set` persists it (the existing `onSettingChange` subscription
+ * from `installLoginItem` triggers `syncLoginItem()` in the same tick).
+ */
+export const installLoginItemIpc = (): void => {
+  handle("vellum:launchAtLogin:get", z.tuple([]), () =>
+    readSetting("launchAtLogin") ?? false,
+  );
+  handle("vellum:launchAtLogin:set", z.tuple([z.boolean()]), ([enabled]) => {
+    writeSetting("launchAtLogin", enabled);
+  });
 };
 
 /**
