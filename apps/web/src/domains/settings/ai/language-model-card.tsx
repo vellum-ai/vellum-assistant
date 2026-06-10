@@ -26,7 +26,12 @@ import { useDaemonConfigMutation, useDaemonConfigQuery } from "@/domains/setting
 import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
 import { configLlmCallsitesGetOptions, inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 
-export function LanguageModelCard() {
+interface LanguageModelCardProps {
+  onOpenProfiles?: () => void;
+  onOpenProviders?: () => void;
+}
+
+export function LanguageModelCard({ onOpenProfiles, onOpenProviders }: LanguageModelCardProps = {}) {
   const {
     assistantId,
     orderedProfiles,
@@ -144,7 +149,7 @@ export function LanguageModelCard() {
                   variant="outlined"
                   size="regular"
                   className="h-9"
-                  onClick={() => setManageProfilesOpen(true)}
+                  onClick={onOpenProfiles ?? (() => setManageProfilesOpen(true))}
                 >
                   + Create
                 </Button>
@@ -194,8 +199,8 @@ export function LanguageModelCard() {
                         ? { managed: managedConnectionCount, own: ownConnectionCount }
                         : undefined
                     }
-                    onAdd={() => setManageProvidersOpen(true)}
-                    onManage={() => setManageProvidersOpen(true)}
+                    onAdd={onOpenProviders ?? (() => setManageProvidersOpen(true))}
+                    onManage={onOpenProviders ?? (() => setManageProvidersOpen(true))}
                   />
                   <AdvancedRow
                     label="Profiles"
@@ -205,8 +210,8 @@ export function LanguageModelCard() {
                         ? { managed: managedProfileCount, own: ownProfileCount }
                         : undefined
                     }
-                    onAdd={() => setManageProfilesOpen(true)}
-                    onManage={() => setManageProfilesOpen(true)}
+                    onAdd={onOpenProfiles ?? (() => setManageProfilesOpen(true))}
+                    onManage={onOpenProfiles ?? (() => setManageProfilesOpen(true))}
                   />
                   <AdvancedRow
                     label="Overrides"
