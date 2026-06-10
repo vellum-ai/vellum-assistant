@@ -54,7 +54,7 @@ import { clearOrganization, useOrganizationStore } from "@/stores/organization-s
 import { clearUserScopedStorage } from "@/lib/auth/session-cleanup";
 import { subscribe } from "@/lib/event-bus";
 import { isElectron } from "@/runtime/is-electron";
-import { isNativePlatform, installSessionCookies, waitForNativeSessionCookie } from "@/runtime/native-auth";
+import { isNativePlatform, isOAuthFlowInFlight, installSessionCookies, waitForNativeSessionCookie } from "@/runtime/native-auth";
 import { isBiometricEnabled, retrieveBiometricToken } from "@/runtime/native-biometric";
 
 export interface AuthUser {
@@ -493,6 +493,8 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     }
     const user = toAuthUser(result.data.user);
     await syncUserScopedState(user?.id ?? null);
+    // Hydrate the organizations to avoid race conditions from lazy fetch.
+    await useOrganizationStore.getState().fetchOrganizations();
     set(authenticatedPlatformUser(user));
   },
 
