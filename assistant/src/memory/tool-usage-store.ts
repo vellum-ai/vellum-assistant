@@ -14,8 +14,6 @@ export interface ToolInvocationRecord {
   decision: string;
   riskLevel: string;
   matchedTrustRuleId?: string;
-  /** Id of the skill whose `skill_execute` dispatch triggered this tool call. Absent for direct tool calls. */
-  skillId?: string;
   durationMs: number;
 }
 
@@ -31,7 +29,6 @@ export function recordToolInvocation(record: ToolInvocationRecord): void {
       decision: record.decision,
       riskLevel: record.riskLevel,
       matchedTrustRuleId: record.matchedTrustRuleId,
-      skillId: record.skillId,
       durationMs: record.durationMs,
       createdAt: Date.now(),
     })

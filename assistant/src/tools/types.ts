@@ -171,8 +171,6 @@ export interface ToolExecutedEvent {
   conversationId: string;
   requestId?: string;
   executionTarget?: ExecutionTarget;
-  /** Id of the skill whose `skill_execute` dispatch triggered this tool call. Absent for direct tool calls. */
-  skillId?: string;
   riskLevel: string;
   /** ID of the trust rule that matched this invocation (if any). */
   matchedTrustRuleId?: string;
@@ -211,14 +209,6 @@ export interface ToolContext {
   assistantId?: string;
   /** When set, the tool execution is part of a task run. Used to retrieve ephemeral permission rules. */
   taskRunId?: string;
-  /**
-   * Id of the skill whose `skill_execute` dispatch triggered this tool
-   * invocation. Set by the `skill_execute` interception in
-   * `daemon/conversation-tool-setup.ts`; the executor stamps it onto every
-   * lifecycle event so audit/telemetry consumers can attribute skill-routed
-   * calls. Absent for direct (non-skill) tool calls.
-   */
-  skillId?: string;
   /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error). */
   onToolLifecycleEvent?: ToolLifecycleEventHandler;
   /** Optional resolver for proxy tools - delegates execution to an external client. */

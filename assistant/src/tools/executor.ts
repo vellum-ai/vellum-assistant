@@ -487,12 +487,9 @@ function emitLifecycleEvent(
   const handler = context.onToolLifecycleEvent;
   if (!handler) return;
 
-  // Redact sensitive fields from tool inputs before they reach audit
-  // listeners, and stamp the triggering skill id (if any) so audit/telemetry
-  // consumers can attribute skill-routed calls.
+  // Redact sensitive fields from tool inputs before they reach audit listeners
   const sanitizedEvent = {
     ...event,
-    skillId: context.skillId,
     input: sanitizeToolInput(event.toolName, event.input),
   };
 
