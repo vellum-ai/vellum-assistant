@@ -99,14 +99,11 @@ export function useAssistantAvatar(assistantId: string | null) {
           : fetchAvatarViaLegacyFiles(id),
       ]);
 
-      // Character components are a static catalog that must always be
-      // available from a running daemon. A null result indicates a transient
-      // transport failure — throw so React Query retries instead of caching
-      // a partial result that leaves the avatar stuck on the "V" fallback.
-      if (!components) {
-        if (imageUrl) {
-          URL.revokeObjectURL(imageUrl);
-        }
+      // Character components are needed for the animated SVG avatar but NOT
+      // for custom uploaded images — ChatAvatar renders those via a plain
+      // <img> tag. Only treat null components as a failure when there is no
+      // image to fall back on; otherwise the partial result is usable.
+      if (!components && !imageUrl) {
         throw new Error("Failed to fetch character components");
       }
 

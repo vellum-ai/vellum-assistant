@@ -255,6 +255,29 @@ describe("useAssistantAvatar", () => {
     second.unmount();
   });
 
+  test("image avatar renders successfully even when components fail", async () => {
+    // GIVEN the avatar state is an uploaded image
+    fetchAvatarState.mockResolvedValue(imageState);
+    // AND the image fetch succeeds
+    fetchAvatarImageUrl.mockResolvedValue("blob:avatar-image");
+    // AND the character-components endpoint fails
+    fetchCharacterComponents.mockResolvedValue(null as unknown as CharacterComponents);
+
+    // WHEN the hook mounts
+    const { result } = renderHook(() => useAssistantAvatar("asst-1"), {
+      wrapper: createWrapper(),
+    });
+
+    // THEN the custom image URL is returned (not thrown away)
+    await waitFor(() => {
+      expect(result.current.customImageUrl).toBe("blob:avatar-image");
+    });
+
+    // AND components is null but that's fine — ChatAvatar renders via <img>
+    expect(result.current.components).toBeNull();
+    expect(result.current.traits).toBeNull();
+  });
+
   test("pre-manifest assistants infer character traits from the sidecar files", async () => {
     useAssistantIdentityStore.getState().setIdentity("test-asst", "0.8.6");
     fetchCharacterTraits.mockResolvedValueOnce(traits);
