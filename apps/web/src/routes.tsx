@@ -116,6 +116,13 @@ export const routeTree = [
     // outside auth middleware and RootLayout for fast load.
     { path: "/assistant/quick-input", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/quick-input-page").then((m) => m.QuickInputPage) } },
 
+    // Dictation overlay — live transcription pill rendered inside the
+    // Electron dictation overlay BrowserWindow (a click-through floating
+    // panel pinned top-center of the screen while push-to-talk dictation
+    // is active). Same pattern as Quick Input: sibling of `/assistant`,
+    // outside auth middleware and RootLayout for fast load.
+    { path: "/assistant/dictation-overlay", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/dictation-overlay-page").then((m) => m.DictationOverlayPage) } },
+
     // Assistant routes — auth-protected app with layout
     {
       path: "/assistant",

@@ -30,6 +30,7 @@ import {
 import { handleBundleFile, installBundleFlow } from "./bundle-flow";
 import { handleFileOpen, installFileOpen, onFileOpen } from "./file-open";
 import { installAvatarIpc } from "./avatar";
+import { installDictationOverlay } from "./dictation-overlay-window";
 import { installDock } from "./dock";
 import { installEscapeMonitor } from "./escape-monitor";
 import { installFeatureFlagsIpc } from "./feature-flags";
@@ -327,6 +328,7 @@ app
     installTextInsertionIpc();
     installApplicationMenu();
     installQuickInput();
+    installDictationOverlay();
     installPopoutWindows();
     installGlobalShortcuts();
     // Register the avatar channel before the Dock and Tray install so their

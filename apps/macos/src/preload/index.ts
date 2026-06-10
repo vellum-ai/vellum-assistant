@@ -108,6 +108,20 @@ export type FnPushToTalkResult =
   | { ok: true; enabled: boolean }
   | { ok: false; reason: string };
 
+// States the system-wide dictation overlay can display, plus the explicit
+// dismiss message. Mirrors `DictationOverlayState` / `DictationOverlayMessage`
+// in `apps/macos/src/main/dictation-overlay-window.ts` (kept inline for the
+// same three-TS-project reason as `VellumCommand`).
+export type DictationOverlayState =
+  | { kind: "recording"; transcription: string }
+  | { kind: "processing" }
+  | { kind: "done" }
+  | { kind: "error"; message: string };
+
+export type DictationOverlayMessage =
+  | DictationOverlayState
+  | { kind: "dismiss" };
+
 export type HelperState =
   | { status: "idle" }
   | { status: "starting"; attempt: number }
@@ -549,6 +563,21 @@ export interface VellumBridge {
     /** Dismiss the quick input panel without submitting. */
     dismiss(): Promise<void>;
   };
+  dictationOverlay: {
+    /**
+     * Publish the current dictation lifecycle state so main can drive the
+     * system-wide overlay panel (live transcription pinned top-center of
+     * the active display). Fire-and-forget — interim transcription updates
+     * are high-frequency and need no acknowledgement.
+     */
+    setState(state: DictationOverlayMessage): void;
+    /**
+     * Subscribe to overlay states. Only the dictation overlay window's own
+     * renderer (`/dictation-overlay`) consumes this. Returns an unsubscribe
+     * function.
+     */
+    onState(callback: (state: DictationOverlayState) => void): () => void;
+  };
   popout: {
     /**
      * Open (or focus) a pop-out window for a conversation. Main creates an
@@ -869,6 +898,23 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke("vellum:quickInput:submit", message) as Promise<void>,
     dismiss: (): Promise<void> =>
       ipcRenderer.invoke("vellum:quickInput:dismiss") as Promise<void>,
+  },
+  dictationOverlay: {
+    setState: (state: DictationOverlayMessage): void => {
+      ipcRenderer.send("vellum:dictationOverlay:setState", state);
+    },
+    onState: (callback) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        payload: DictationOverlayState,
+      ) => {
+        callback(payload);
+      };
+      ipcRenderer.on("vellum:dictationOverlay:state", handler);
+      return () => {
+        ipcRenderer.off("vellum:dictationOverlay:state", handler);
+      };
+    },
   },
   popout: {
     open: (conversationId: string): Promise<void> =>
