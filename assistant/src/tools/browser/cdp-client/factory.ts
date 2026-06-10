@@ -248,7 +248,7 @@ export function buildPinnedCandidateList(
   switch (mode) {
     case "extension": {
         const hostBrowserProxy = HostBrowserProxy.instance;
-        if (!hostBrowserProxy.hasExtensionClient()) {
+        if (!hostBrowserProxy.hasExtensionClient(sourceActorPrincipalId)) {
           throw new CdpError(
             "transport_error",
             `Pinned mode "extension" unavailable: no Chrome Extension connected`,
@@ -325,10 +325,12 @@ export function buildPinnedCandidateList(
       // upgrades to the extension candidate with correct kind labeling.
       const hostBrowserProxy = HostBrowserProxy.instance;
       if (
-        !hostBrowserProxy.isAvailable() ||
-        hostBrowserProxy.hasExtensionClient()
+        !hostBrowserProxy.isAvailable(sourceActorPrincipalId) ||
+        hostBrowserProxy.hasExtensionClient(sourceActorPrincipalId)
       ) {
-        const errorMessage = hostBrowserProxy.hasExtensionClient()
+        const errorMessage = hostBrowserProxy.hasExtensionClient(
+          sourceActorPrincipalId,
+        )
           ? "a Chrome Extension is now connected"
           : "no host_browser bridge client connected";
         throw new CdpError(
@@ -404,7 +406,7 @@ export function buildCandidateList(context: ToolContext, targetClientId?: string
   // unavailable, fail loudly rather than silently routing to a different
   // browser.
   if (targetClientId != null) {
-    if (!hostBrowserProxy.hasExtensionClient()) {
+    if (!hostBrowserProxy.hasExtensionClient(sourceActorPrincipalId)) {
       throw new CdpError(
         "transport_error",
         `Cannot reach target_client_id "${targetClientId}": no Chrome Extension connected`,
@@ -449,7 +451,11 @@ export function buildCandidateList(context: ToolContext, targetClientId?: string
   }
 
   // 1. Extension -- preferred when a Chrome Extension client is connected.
-  if (hostBrowserProxy.hasExtensionClient()) {
+  // Availability checks are actor-scoped: on a multi-actor cloud daemon,
+  // another actor's extension must not select extension-labelled
+  // transports for this conversation (the proxy would refuse to
+  // dispatch to it anyway).
+  if (hostBrowserProxy.hasExtensionClient(sourceActorPrincipalId)) {
     candidates.push({
       kind: "extension",
       reason: "Chrome Extension connected via registry singleton",
@@ -474,7 +480,7 @@ export function buildCandidateList(context: ToolContext, targetClientId?: string
         return { client, backend };
       },
     });
-  } else if (hostBrowserProxy.isAvailable()) {
+  } else if (hostBrowserProxy.isAvailable(sourceActorPrincipalId)) {
     // 1b. Host bridge -- a host_browser-capable client (the desktop SSE
     // bridge) is connected but no Chrome Extension. Raw CDP commands are
     // proxied to the user's machine and executed against Chrome's local

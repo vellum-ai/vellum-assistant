@@ -239,6 +239,27 @@ function makeUnavailableProxy(): HostBrowserProxy {
   } as unknown as HostBrowserProxy;
 }
 
+/**
+ * Create a fake HostBrowserProxy with actor-scoped availability, mirroring
+ * the real implementation: with an actor, only that actor's clients count;
+ * without one, any client counts.
+ */
+function makeActorScopedProxy(opts: {
+  extensionActors: string[];
+  bridgeActors: string[];
+}): HostBrowserProxy {
+  const allActors = [...opts.extensionActors, ...opts.bridgeActors];
+  return {
+    request: mock(async () => ({})),
+    isAvailable: (actor?: string) =>
+      actor == null ? allActors.length > 0 : allActors.includes(actor),
+    hasExtensionClient: (actor?: string) =>
+      actor == null
+        ? opts.extensionActors.length > 0
+        : opts.extensionActors.includes(actor),
+  } as unknown as HostBrowserProxy;
+}
+
 describe("getCdpClient", () => {
   beforeEach(() => {
     createExtensionCdpClientMock.mockClear();
@@ -948,6 +969,61 @@ describe("buildCandidateList", () => {
       "candidates-bridge-create",
       "actor-1",
     );
+  });
+
+  test("multi-actor: another actor's extension does not select the extension candidate", () => {
+    // Actor A has an extension; actor B has only the bridge. B's
+    // conversation must get the host-bridge candidate, not an
+    // extension-labelled client that the proxy would route to B's bridge.
+    mockSingletonProxy = makeActorScopedProxy({
+      extensionActors: ["actor-a"],
+      bridgeActors: ["actor-b"],
+    });
+    const ctx = makeContext({
+      conversationId: "candidates-multi-actor-b",
+      sourceActorPrincipalId: "actor-b",
+    });
+
+    const candidates = buildCandidateList(ctx);
+
+    expect(candidates[0].kind).toBe("host-bridge");
+    expect(candidates.every((c) => c.kind !== "extension")).toBe(true);
+  });
+
+  test("multi-actor: the extension owner still gets the extension candidate", () => {
+    mockSingletonProxy = makeActorScopedProxy({
+      extensionActors: ["actor-a"],
+      bridgeActors: ["actor-b"],
+    });
+    const ctx = makeContext({
+      conversationId: "candidates-multi-actor-a",
+      sourceActorPrincipalId: "actor-a",
+    });
+
+    const candidates = buildCandidateList(ctx);
+
+    expect(candidates[0].kind).toBe("extension");
+    expect(candidates.every((c) => c.kind !== "host-bridge")).toBe(true);
+  });
+
+  test("multi-actor: actor with no clients at all gets neither proxy candidate", () => {
+    mockSingletonProxy = makeActorScopedProxy({
+      extensionActors: ["actor-a"],
+      bridgeActors: ["actor-b"],
+    });
+    const ctx = makeContext({
+      conversationId: "candidates-multi-actor-c",
+      sourceActorPrincipalId: "actor-c",
+    });
+
+    const candidates = buildCandidateList(ctx);
+
+    expect(
+      candidates.every(
+        (c) => c.kind !== "extension" && c.kind !== "host-bridge",
+      ),
+    ).toBe(true);
+    expect(candidates[candidates.length - 1].kind).toBe("local");
   });
 
   test("includes cdp-inspect candidate when enabled in config", () => {

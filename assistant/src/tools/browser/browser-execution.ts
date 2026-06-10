@@ -2400,7 +2400,7 @@ async function checkExtensionModeStatus(
 ): Promise<BrowserStatusModeResult> {
   const proxy = HostBrowserProxy.instance;
 
-  if (!proxy.hasExtensionClient()) {
+  if (!proxy.hasExtensionClient(context.sourceActorPrincipalId)) {
     return {
       mode: BROWSER_STATUS_MODE.EXTENSION,
       available: false,
