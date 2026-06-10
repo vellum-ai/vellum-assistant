@@ -1,44 +1,17 @@
-import { captureError } from "@/lib/sentry/capture-error";
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useConversationStore } from "@/stores/conversation-store";
 import { useConversationListQuery } from "@/hooks/conversation-queries";
-import { markConversationSeenLocal } from "@/utils/conversation-cache-mutations";
-import { getConversations } from "@/utils/conversation-cache";
-import { conversationsSeenPost } from "@/generated/daemon/sdk.gen";
 import { listConversationIdsWithPendingInteractions } from "@/domains/chat/api/interactions";
 import { USER_FACING_INTERACTION_KINDS } from "@/types/event-types";
 import type { AssistantState } from "@/assistant/types";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store";
 import { decideGraduationDispatches } from "@/domains/chat/hooks/attention-tracking-utils";
+import { reconcileAttentionKeys } from "@/domains/chat/utils/reconcile-attention-keys";
 
 import { useActiveConversation } from "./use-active-conversation";
-
-/**
- * The Background and Scheduled conversation lists load lazily via separate
- * queries, only once the user reveals their sidebar sections. A pending
- * interaction can, however, belong to a background or scheduled job the user
- * hasn't revealed yet — its attention dot would stay invisible because that
- * section's rows aren't loaded. The pending key alone doesn't tell us which
- * of the two sections it lives in, so when the daemon reports a pending key
- * absent from the loaded conversations, reveal both sections; each lazy
- * fetch then runs and the indicator surfaces wherever the row resolves.
- */
-function revealLazySectionsIfPendingUnloaded(
-  pendingKeys: ReadonlySet<string>,
-  loadedConversationIds: ReadonlySet<string>,
-): void {
-  for (const key of pendingKeys) {
-    if (!loadedConversationIds.has(key)) {
-      const store = useSidebarCollapseStore.getState();
-      store.activateBackground();
-      store.activateScheduled();
-      return;
-    }
-  }
-}
+import { useMarkSeenOnOpen } from "./use-mark-seen-on-open";
 
 interface UseAttentionTrackingParams {
   /** From `useAssistantLifecycle` in `ChatLayout`. */
@@ -63,11 +36,14 @@ interface UseAttentionTrackingParams {
  * chat) — not only `/assistant`.
  *
  * Handles:
- * - Marking conversations as seen when opened
  * - Graduating processing keys when the assistant finishes responding
  * - Clearing attention/processing keys when an `interaction_resolved`
  *   SSE event arrives on the event bus
+ * - Post-reconnect reconciliation of attention state
  * - One-time initial sweep of all conversations for pending interactions
+ *
+ * Mark-seen-on-open is handled by `useMarkSeenOnOpen` (conversation
+ * lifecycle, not attention tracking).
  */
 
 export function useAttentionTracking({
@@ -91,47 +67,17 @@ export function useAttentionTracking({
     assistantStateKind === "active",
   );
 
-  const lastSeenOnOpenConversationIdRef = useRef<string | null>(null);
   const initialAttentionSweepDoneRef = useRef(false);
 
   // -------------------------------------------------------------------------
-  // Mark conversation as seen when opened or when new assistant messages
-  // arrive while the user is viewing it
+  // Mark conversation as seen when opened
   // -------------------------------------------------------------------------
-  useEffect(() => {
-    if (assistantStateKind !== "active" || !assistantId || !activeConversationId) return;
-    if (!activeConversation) return;
-    if (!activeConversation.hasUnseenLatestAssistantMessage) return;
-    if (lastSeenOnOpenConversationIdRef.current === activeConversationId) return;
-
-    lastSeenOnOpenConversationIdRef.current = activeConversationId;
-
-    let cancelled = false;
-
-    conversationsSeenPost({
-      path: { assistant_id: assistantId },
-      body: { conversationId: activeConversationId },
-      throwOnError: true,
-    })
-      .then(() => {
-        if (cancelled) return;
-        markConversationSeenLocal(queryClient, assistantId, activeConversationId);
-        lastSeenOnOpenConversationIdRef.current = null;
-      })
-      .catch((err) => {
-        captureError(err, { context: "mark_conversation_seen" });
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    activeConversation,
-    activeConversationId,
+  useMarkSeenOnOpen({
     assistantId,
     assistantStateKind,
-    queryClient,
-  ]);
+    activeConversationId,
+    activeConversation,
+  });
 
   // -------------------------------------------------------------------------
   // Processing keys cleanup — graduate keys when assistant finishes responding
@@ -234,41 +180,9 @@ export function useAttentionTracking({
   // -------------------------------------------------------------------------
   useBusSubscription("sse.opened", ({ cause }) => {
     if (!assistantId || cause === "fresh") return;
-    void (async () => {
-      let pendingKeys: Set<string>;
-      try {
-        pendingKeys = await listConversationIdsWithPendingInteractions(assistantId);
-      } catch {
-        return; // Best-effort — sse.event will catch subsequent transitions.
-      }
-      const state = useConversationStore.getState();
-      const activeKey = state.activeConversationId;
-      revealLazySectionsIfPendingUnloaded(
-        pendingKeys,
-        new Set(
-          getConversations(queryClient, assistantId).map(
-            (c) => c.conversationId,
-          ),
-        ),
-      );
-      for (const key of state.attentionConversationIds) {
-        if (key === activeKey) continue;
-        if (!pendingKeys.has(key)) state.removeAttentionConversationId(key);
-      }
-      for (const key of state.processingConversationIds) {
-        if (key === activeKey) continue;
-        if (pendingKeys.has(key)) {
-          state.addAttentionConversationId(key);
-          state.removeProcessingConversationId(key);
-        }
-      }
-      for (const key of pendingKeys) {
-        if (key === activeKey) continue;
-        if (!state.attentionConversationIds.has(key) && !state.processingConversationIds.has(key)) {
-          state.addAttentionConversationId(key);
-        }
-      }
-    })();
+    void reconcileAttentionKeys(assistantId, queryClient, activeConversationId, {
+      pruneStale: true,
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -281,30 +195,6 @@ export function useAttentionTracking({
     if (!assistantId || conversations.length === 0 || initialAttentionSweepDoneRef.current) return;
     initialAttentionSweepDoneRef.current = true;
 
-    let cancelled = false;
-    (async () => {
-      let pendingKeys: Set<string>;
-      try {
-        pendingKeys = await listConversationIdsWithPendingInteractions(assistantId);
-      } catch {
-        return; // Best-effort — sidebar can still graduate via SSE events.
-      }
-      if (cancelled || pendingKeys.size === 0) return;
-      // Pull the current snapshot from the cache to avoid the closed-over
-      // `conversations` capture from the effect's first render.
-      const currentConversations = getConversations(queryClient, assistantId);
-      revealLazySectionsIfPendingUnloaded(
-        pendingKeys,
-        new Set(currentConversations.map((c) => c.conversationId)),
-      );
-      for (const conv of currentConversations) {
-        if (conv.conversationId === activeConversationId) continue;
-        if (pendingKeys.has(conv.conversationId)) {
-          useConversationStore.getState().addAttentionConversationId(conv.conversationId);
-        }
-      }
-    })();
-
-    return () => { cancelled = true; };
+    void reconcileAttentionKeys(assistantId, queryClient, activeConversationId);
   }, [assistantId, conversations, activeConversationId, queryClient]);
 }

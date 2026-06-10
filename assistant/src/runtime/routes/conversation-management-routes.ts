@@ -11,6 +11,7 @@
  * DELETE /v1/conversations/:id            — delete a single conversation
  * POST   /v1/conversations/:id/archive    — archive a conversation
  * POST   /v1/conversations/:id/unarchive  — restore an archived conversation
+ * POST   /v1/conversations/archive/bulk   — archive multiple conversations
  * POST   /v1/conversations/:id/cancel     — cancel generation
  * POST   /v1/conversations/:id/undo       — undo last message
  * POST   /v1/conversations/:id/regenerate — regenerate last assistant response
@@ -360,6 +361,33 @@ function handleUnarchiveConversation({
   return { ok: true, conversationId: resolvedId };
 }
 
+function handleArchiveConversationsBulk({
+  body = {},
+  headers,
+}: RouteHandlerArgs) {
+  const rawIds = body.conversationIds as string[] | undefined;
+  if (!Array.isArray(rawIds) || rawIds.length === 0) {
+    throw new BadRequestError("conversationIds must be a non-empty array");
+  }
+
+  const originClientId = headers?.["x-vellum-client-id"]?.trim() || undefined;
+  const archivedIds: string[] = [];
+
+  for (const rawId of rawIds) {
+    const conversationId = resolveOrThrow(rawId);
+    const archived = archiveConversation(conversationId);
+    if (archived) {
+      archivedIds.push(conversationId);
+    }
+  }
+
+  if (archivedIds.length > 0) {
+    publishConversationListChanged("reordered", originClientId);
+  }
+
+  return { ok: true, archived: archivedIds.length };
+}
+
 function handleCancelGeneration({ pathParams = {} }: RouteHandlerArgs) {
   const resolvedId = resolveConversationId(pathParams.id!) ?? pathParams.id!;
   const cancelled = cancelGeneration(resolvedId);
@@ -655,6 +683,24 @@ export const ROUTES: RouteDefinition[] = [
       conversationId: z.string(),
     }),
     handler: handleUnarchiveConversation,
+  },
+  {
+    operationId: "archiveConversationsBulk",
+    endpoint: "conversations/archive/bulk",
+    method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Bulk archive conversations",
+    description:
+      "Archive multiple conversations in one request. Emits a single sync invalidation for the entire batch.",
+    tags: ["conversations"],
+    requestBody: z.object({
+      conversationIds: z.array(z.string()).min(1),
+    }),
+    responseBody: z.object({ ok: z.boolean(), archived: z.number() }),
+    handler: handleArchiveConversationsBulk,
   },
   {
     operationId: "cancelConversationGeneration",

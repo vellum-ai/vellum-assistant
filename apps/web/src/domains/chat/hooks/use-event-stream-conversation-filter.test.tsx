@@ -35,7 +35,6 @@ function renderEventStream(
         reachabilityPhase: "ready",
         reachabilityReset: () => {},
         dispatchReconnect: async () => undefined,
-        cancelScheduledRefetch: () => {},
       });
     },
     { initialProps: { key: activeConversationId } },

@@ -1,10 +1,11 @@
 /**
  * Route handlers for conversation listing, detail, and seen/unread state.
  *
- * GET    /v1/conversations          — paginated conversation list
- * POST   /v1/conversations/seen     — record a seen signal
- * POST   /v1/conversations/unread   — mark a conversation unread
- * GET    /v1/conversations/:id      — conversation detail
+ * GET    /v1/conversations              — paginated conversation list
+ * POST   /v1/conversations/seen         — record a seen signal (single)
+ * POST   /v1/conversations/seen/bulk    — record seen signals (batch)
+ * POST   /v1/conversations/unread       — mark a conversation unread
+ * GET    /v1/conversations/:id          — conversation detail
  */
 
 import { z } from "zod";
@@ -37,7 +38,10 @@ import {
   buildConversationDetailResponse,
   serializeConversationSummary,
 } from "../services/conversation-serializer.js";
-import { publishConversationListAndMetadataChanged } from "../sync/resource-sync-events.js";
+import {
+  publishConversationListAndMetadataChanged,
+  publishConversationListChanged,
+} from "../sync/resource-sync-events.js";
 import {
   BadRequestError,
   InternalError,
@@ -312,6 +316,55 @@ function handleRecordSeen({ body = {}, headers }: RouteHandlerArgs) {
   }
 }
 
+function handleRecordSeenBulk({ body = {}, headers }: RouteHandlerArgs) {
+  const rawIds = body.conversationIds as string[] | undefined;
+  if (!Array.isArray(rawIds) || rawIds.length === 0) {
+    throw new BadRequestError("conversationIds must be a non-empty array");
+  }
+
+  const originClientId = headers?.["x-vellum-client-id"]?.trim() || undefined;
+  const changedIds: string[] = [];
+
+  for (const rawId of rawIds) {
+    const conversationId = resolveOrThrow(rawId);
+    try {
+      const priorState = getAttentionStateByConversationIds([
+        conversationId,
+      ]).get(conversationId);
+      const wasUnseen =
+        priorState != null &&
+        priorState.latestAssistantMessageAt != null &&
+        (priorState.lastSeenAssistantMessageAt == null ||
+          priorState.lastSeenAssistantMessageAt <
+            priorState.latestAssistantMessageAt);
+
+      recordConversationSeenSignal({
+        conversationId,
+        sourceChannel: "vellum",
+        signalType: "macos_conversation_opened",
+        confidence: "explicit",
+        source: "http-api",
+      });
+
+      if (wasUnseen) {
+        changedIds.push(conversationId);
+      }
+    } catch (err) {
+      log.error(
+        { err, conversationId },
+        "POST /v1/conversations/seen/bulk: failed for conversation",
+      );
+      // Best-effort: continue with remaining conversations.
+    }
+  }
+
+  if (changedIds.length > 0) {
+    publishConversationListChanged("reordered", originClientId);
+  }
+
+  return { ok: true, updated: changedIds.length };
+}
+
 function handleMarkUnread({ body = {}, headers }: RouteHandlerArgs) {
   const rawConversationId = body.conversationId as string | undefined;
   if (!rawConversationId) {
@@ -419,6 +472,24 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseBody: z.object({ ok: z.boolean() }),
     handler: handleRecordSeen,
+  },
+  {
+    operationId: "recordConversationSeenBulk",
+    endpoint: "conversations/seen/bulk",
+    method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Bulk mark conversations as seen",
+    description:
+      "Mark multiple conversations as seen in one request. Emits a single sync invalidation for the entire batch instead of per-conversation events.",
+    tags: ["conversations"],
+    requestBody: z.object({
+      conversationIds: z.array(z.string()).min(1),
+    }),
+    responseBody: z.object({ ok: z.boolean(), updated: z.number() }),
+    handler: handleRecordSeenBulk,
   },
   {
     operationId: "markConversationUnread",

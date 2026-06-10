@@ -19,6 +19,7 @@ import {
   conversationsSeenPost,
   conversationsUnreadPost,
 } from "@/generated/daemon/sdk.gen";
+import { client as daemonClient } from "@/generated/daemon/client.gen";
 
 import { haptic } from "@/utils/haptics";
 
@@ -349,30 +350,46 @@ export function useConversationActions({
         });
       }
 
-      const { abortedAt, succeeded } = await batchExecute(
-        unread,
-        async (c) => {
-          try {
-            await conversationsSeenPost({
-              path: { assistant_id: assistantId },
-              body: { conversationId: c.conversationId },
-              throwOnError: true,
-            });
-          } catch (err) {
-            patchConversation(queryClient, assistantId, c.conversationId, {
-              hasUnseenLatestAssistantMessage: true,
-            });
-            throw err;
-          }
-        },
-      );
-      if (abortedAt !== null) {
-        captureError(
-          new Error(
-            `markAllReadInGroup: aborted at batch ${abortedAt}, ${succeeded}/${unread.length} succeeded`,
-          ),
-          { context: "markAllReadInGroup", bestEffort: true },
+      try {
+        const res = await daemonClient.post({
+          url: "/v1/assistants/{assistant_id}/conversations/seen/bulk",
+          path: { assistant_id: assistantId },
+          body: {
+            conversationIds: unread.map((c) => c.conversationId),
+          },
+          headers: { "Content-Type": "application/json" },
+        });
+
+        if (res.response?.status === 404) {
+          throw new Error("bulk endpoint not available");
+        }
+      } catch {
+        // Fallback: old daemon without bulk endpoint.
+        const { abortedAt, succeeded } = await batchExecute(
+          unread,
+          async (c) => {
+            try {
+              await conversationsSeenPost({
+                path: { assistant_id: assistantId },
+                body: { conversationId: c.conversationId },
+                throwOnError: true,
+              });
+            } catch (err) {
+              patchConversation(queryClient, assistantId, c.conversationId, {
+                hasUnseenLatestAssistantMessage: true,
+              });
+              throw err;
+            }
+          },
         );
+        if (abortedAt !== null) {
+          captureError(
+            new Error(
+              `markAllReadInGroup: aborted at batch ${abortedAt}, ${succeeded}/${unread.length} succeeded`,
+            ),
+            { context: "markAllReadInGroup", bestEffort: true },
+          );
+        }
       }
       void invalidateConversationQueries(queryClient, assistantId);
     },
@@ -412,32 +429,48 @@ export function useConversationActions({
         }
       }
 
-      const { abortedAt, succeeded } = await batchExecute(
-        groupConversations,
-        async (c) => {
-          try {
-            await conversationsByIdArchivePost({
-              path: {
-                assistant_id: assistantId,
-                id: c.conversationId,
-              },
-              throwOnError: true,
-            });
-          } catch (err) {
-            patchConversation(queryClient, assistantId, c.conversationId, {
-              archivedAt: c.archivedAt,
-            });
-            throw err;
-          }
-        },
-      );
-      if (abortedAt !== null) {
-        captureError(
-          new Error(
-            `archiveAllInGroup: aborted at batch ${abortedAt}, ${succeeded}/${groupConversations.length} succeeded`,
-          ),
-          { context: "archiveAllInGroup", bestEffort: true },
+      try {
+        const res = await daemonClient.post({
+          url: "/v1/assistants/{assistant_id}/conversations/archive/bulk",
+          path: { assistant_id: assistantId },
+          body: {
+            conversationIds: groupConversations.map((c) => c.conversationId),
+          },
+          headers: { "Content-Type": "application/json" },
+        });
+
+        if (res.response?.status === 404) {
+          throw new Error("bulk endpoint not available");
+        }
+      } catch {
+        // Fallback: old daemon without bulk endpoint.
+        const { abortedAt, succeeded } = await batchExecute(
+          groupConversations,
+          async (c) => {
+            try {
+              await conversationsByIdArchivePost({
+                path: {
+                  assistant_id: assistantId,
+                  id: c.conversationId,
+                },
+                throwOnError: true,
+              });
+            } catch (err) {
+              patchConversation(queryClient, assistantId, c.conversationId, {
+                archivedAt: c.archivedAt,
+              });
+              throw err;
+            }
+          },
         );
+        if (abortedAt !== null) {
+          captureError(
+            new Error(
+              `archiveAllInGroup: aborted at batch ${abortedAt}, ${succeeded}/${groupConversations.length} succeeded`,
+            ),
+            { context: "archiveAllInGroup", bestEffort: true },
+          );
+        }
       }
       void invalidateConversationQueries(queryClient, assistantId);
     },
