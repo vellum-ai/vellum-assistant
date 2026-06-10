@@ -29,6 +29,10 @@ import { type Plugin, PluginExecutionError } from "../types.js";
 import compactionPkg from "./compaction/package.json" with { type: "json" };
 import emptyResponseStop from "./empty-response/hooks/stop.js";
 import emptyResponsePkg from "./empty-response/package.json" with { type: "json" };
+import explorationDriftPostToolUse, {
+  resetExplorationDriftStateForTests,
+} from "./exploration-drift/hooks/post-tool-use.js";
+import explorationDriftPkg from "./exploration-drift/package.json" with { type: "json" };
 import historyRepairStop from "./history-repair/hooks/stop.js";
 import historyRepairUserPromptSubmit from "./history-repair/hooks/user-prompt-submit.js";
 import historyRepairPkg from "./history-repair/package.json" with { type: "json" };
@@ -182,6 +186,23 @@ export const defaultToolErrorPlugin: Plugin = {
 };
 
 /**
+ * `exploration-drift` — a `post-tool-use` hook that detects a long unbroken
+ * run of exploration tool calls (bash, file_read, file_list) with no
+ * user-facing text and nudges the model — via `additionalContext` — to
+ * summarize progress for the user and delegate the remaining investigation to
+ * an `investigator` subagent rather than continuing inline.
+ */
+export const defaultExplorationDriftPlugin: Plugin = {
+  manifest: {
+    name: explorationDriftPkg.name,
+    version: explorationDriftPkg.version,
+  },
+  hooks: {
+    "post-tool-use": explorationDriftPostToolUse,
+  },
+};
+
+/**
  * `tool-result-truncate` — a `post-tool-use` hook that tail-drops an oversized
  * tool result down to a character budget derived from the model's context
  * window before the result is sent to the provider.
@@ -208,6 +229,7 @@ function getAllDefaultPlugins(): readonly Plugin[] {
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
     defaultToolErrorPlugin,
+    defaultExplorationDriftPlugin,
     defaultHistoryRepairPlugin,
     defaultImageRecoveryPlugin,
     defaultCompactionPlugin,
@@ -254,5 +276,6 @@ export function resetPluginRegistryAndRegisterDefaults(): void {
   resetPluginRegistryForTests();
   resetRepairStateStoreForTests();
   resetImageRecoveryStoreForTests();
+  resetExplorationDriftStateForTests();
   registerDefaultPlugins();
 }
