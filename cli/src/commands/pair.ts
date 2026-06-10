@@ -37,7 +37,7 @@ function isLoopbackHost(url: string): boolean {
 }
 
 function printUsage(): void {
-  console.log(`vellum pair - Mint a device-scoped token for another machine
+  console.log(`vellum pair [beta] - Mint a device-scoped token for another machine
 
 USAGE:
     vellum pair [assistant] [options]

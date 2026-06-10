@@ -29,8 +29,10 @@ import { type Plugin, PluginExecutionError } from "../types.js";
 import compactionPkg from "./compaction/package.json" with { type: "json" };
 import emptyResponseStop from "./empty-response/hooks/stop.js";
 import emptyResponsePkg from "./empty-response/package.json" with { type: "json" };
+import historyRepairStop from "./history-repair/hooks/stop.js";
 import historyRepairUserPromptSubmit from "./history-repair/hooks/user-prompt-submit.js";
 import historyRepairPkg from "./history-repair/package.json" with { type: "json" };
+import { resetRepairStateStoreForTests } from "./history-repair/repair-state-store.js";
 import memoryRetrievalPostCompact from "./memory-retrieval/hooks/post-compact.js";
 import memoryRetrievalUserPromptSubmit from "./memory-retrieval/hooks/user-prompt-submit.js";
 import memoryRetrievalPkg from "./memory-retrieval/package.json" with { type: "json" };
@@ -94,9 +96,11 @@ export const defaultMemoryRetrievalPlugin: Plugin = {
 };
 
 /**
- * `history-repair` — a `user-prompt-submit` hook that normalizes the working
- * message history (tool-use/tool-result pairing, role alternation) before the
- * agent loop hands it to the provider.
+ * `history-repair` — normalizes the working message history (tool-use/tool-result
+ * pairing, role alternation). The `user-prompt-submit` hook normalizes the
+ * history before each provider call; the `stop` hook handles the error stop
+ * where the provider rejected the call on an ordering violation, deep-repairing
+ * the history and asking the loop to retry.
  */
 export const defaultHistoryRepairPlugin: Plugin = {
   manifest: {
@@ -105,6 +109,7 @@ export const defaultHistoryRepairPlugin: Plugin = {
   },
   hooks: {
     "user-prompt-submit": historyRepairUserPromptSubmit,
+    stop: historyRepairStop,
   },
 };
 
@@ -226,5 +231,6 @@ export function registerDefaultPlugins(): void {
  */
 export function resetPluginRegistryAndRegisterDefaults(): void {
   resetPluginRegistryForTests();
+  resetRepairStateStoreForTests();
   registerDefaultPlugins();
 }

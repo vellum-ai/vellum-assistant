@@ -101,13 +101,13 @@ describe("PluginDetailPage", () => {
       homepage: null,
       license: null,
       version: "0.1.0",
-      source: { kind: "first-party" },
+      source: null,
       readme: null,
       ref: "main",
     });
 
     expect(html).toContain("Remove");
-    // First-party plugins aren't badged external.
+    // A plugin with no marketplace origin isn't badged external.
     expect(html).not.toContain("external");
     // No README falls back to an explanatory line.
     expect(html).toContain("ship a README");

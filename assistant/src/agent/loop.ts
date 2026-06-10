@@ -25,10 +25,6 @@ import type {
 } from "../plugin-api/types.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
-import {
-  deepRepairHistory,
-  isRepairableOrderingError,
-} from "../plugins/defaults/history-repair/terminal.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { CompactionCircuitEvent } from "../plugins/types.js";
 import { normalizeThinkingConfigForWire } from "../providers/thinking-config.js";
@@ -103,12 +99,6 @@ export interface AgentLoopRunResult {
    * (completion, error, abort, or a tool-requested yield-to-user).
    */
   exitReason: ExitReason | null;
-  /**
-   * Whether the loop produced at least one new assistant message this run —
-   * the forward-progress signal for the ordering-error retry gate (immune to
-   * in-loop compaction shrinking history below a pre-run length).
-   */
-  appendedNewMessages: boolean;
   /**
    * Slice of `history` appended this run, measured from the loop's input or
    * from the compacted base when it compacts in place. The loop owns this
@@ -849,7 +839,6 @@ export class AgentLoop {
     let stopContinueRetries = 0;
     let lastLlmCallTime = 0;
     let exitReason: ExitReason | null = null;
-    let appendedNewMessages = false;
     // Armed at the end of a tool-use iteration so the budget gate runs at the
     // top of the NEXT iteration — before that iteration's provider call —
     // instead of after the current one. Stop-hook re-query continues re-enter
@@ -876,13 +865,6 @@ export class AgentLoop {
     // `context_too_large`) instead of looping.
     let overflowLadderExhausted = false;
     let overflowAutoCompressApplied = false;
-    // Tracks whether a deep-repair pass has already run for the in-flight
-    // provider call after an ordering rejection. One rejection triggers a
-    // single `deepRepairHistory` pass and a re-issue; if the next call still
-    // rejects on ordering grounds the repair could not recover it, so the loop
-    // stops retrying and lets the generic error path end the turn. Reset after
-    // any successful provider call so a later turn can repair independently.
-    let orderingRepairAttempted = false;
     const rlog = requestId ? log.child({ requestId }) : log;
 
     // Resolve the inference-profile override that applies right now. The
@@ -921,6 +903,12 @@ export class AgentLoop {
       );
 
       let toolUseBlocks: Extract<ContentBlock, { type: "tool_use" }>[] = [];
+      // The provider rejection thrown by this iteration's call, if any. Set in
+      // the inner provider catch and read by the outer catch to confine
+      // error-stop recovery to genuine provider rejections — a throw from
+      // elsewhere in the turn body (tool execution, the success-path stop
+      // chain, post-model-call hooks) must not re-enter the stop chain.
+      let providerCallError: unknown;
 
       try {
         // ── Pre-call budget gate ─────────────────────────────────────
@@ -1318,12 +1306,9 @@ export class AgentLoop {
                   : this.provider.name,
             });
           }
+          providerCallError = llmCallError;
           throw llmCallError;
         }
-
-        // The call succeeded, so any prior ordering repair stuck — let a later
-        // turn's rejection repair afresh rather than treating it as exhausted.
-        orderingRepairAttempted = false;
 
         const providerDurationMs = Date.now() - providerStart;
 
@@ -1442,7 +1427,6 @@ export class AgentLoop {
             content: safeContent,
           });
           history.push(safeAssistantMessage);
-          appendedNewMessages = true;
           await onEvent({
             type: "max_tokens_reached",
             stopReason: response.stopReason,
@@ -1544,7 +1528,6 @@ export class AgentLoop {
         }
 
         history.push(assistantMessage);
-        appendedNewMessages = true;
 
         await onEvent({ type: "message_complete", message: assistantMessage });
 
@@ -1870,34 +1853,42 @@ export class AgentLoop {
           continue;
         }
 
-        // Reactive ordering-error recovery. The provider rejected the call
-        // because the history violated tool-use/tool-result pairing or
-        // role-alternation rules (orphan tool_use, leading assistant, etc.).
-        // Run `deepRepairHistory` directly — deliberately not through the
-        // `user-prompt-submit` hook chain, whose user/plugin hooks may have
-        // caused the drift — to re-normalize the history, then re-issue the
-        // call. Bounded to one pass: a second consecutive ordering rejection
-        // means the repair could not recover it, so fall through to the
-        // generic error path rather than looping.
-        if (
-          !orderingRepairAttempted &&
-          error instanceof Error &&
-          isRepairableOrderingError(error.message)
-        ) {
-          orderingRepairAttempted = true;
-          history = deepRepairHistory(history).messages;
-          // Deep repair removes and merges messages anywhere in the history,
-          // so the prior input boundary no longer maps onto the new array; the
-          // re-normalized history is the base the retry's output appends after.
-          newMessagesStart = history.length;
-          rlog.warn(
-            { turn: toolUseTurns, messageCount: history.length },
-            "Provider ordering error — recovering via history deep-repair",
-          );
-          continue;
+        // A provider rejection is also a stop moment: the loop has nothing more
+        // to produce this turn unless a `stop` hook recovers it. Run the chain
+        // with the rejection attached so a recovery hook (history-repair on an
+        // ordering violation) can re-normalize the history and request a retry;
+        // hooks that only act on a real response ignore the error stop. A
+        // `"continue"` decision re-issues the call with the hook's repaired
+        // history; otherwise the rejection falls through to the error path.
+        //
+        // Confined to genuine provider rejections: a throw from elsewhere in
+        // the turn body (tool execution, the success-path stop chain,
+        // post-model-call hooks) is not a provider stop, and re-entering the
+        // stop chain on a stop-hook failure could re-throw from the same hook
+        // and bypass the generic error handling below.
+        const err = error instanceof Error ? error : new Error(String(error));
+        if (error === providerCallError) {
+          const errorStopCtx: StopContext = {
+            conversationId: this.conversationId,
+            messages: [...history],
+            responseContent: [],
+            stopReason: null,
+            error: err,
+            decision: "stop",
+            logger: rlog,
+          };
+          const finalErrorStopCtx = await runHook(HOOKS.STOP, errorStopCtx);
+          if (finalErrorStopCtx.decision === "continue") {
+            history = finalErrorStopCtx.messages;
+            // A recovery hook rewrites the history anywhere (deep repair merges
+            // and drops messages), so the prior input boundary no longer maps
+            // onto the new array; the repaired history is the base the retry's
+            // output appends after.
+            newMessagesStart = history.length;
+            continue;
+          }
         }
 
-        const err = error instanceof Error ? error : new Error(String(error));
         rlog.error(
           { err, turn: toolUseTurns, messageCount: history.length },
           "Agent loop error during turn processing",
@@ -1926,7 +1917,6 @@ export class AgentLoop {
     return {
       history,
       exitReason,
-      appendedNewMessages,
       newMessages: history.slice(newMessagesStart),
     };
   }

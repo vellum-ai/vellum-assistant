@@ -313,6 +313,13 @@ export function ChatLayout() {
     [navigate],
   );
 
+  // A fresh draft URL per call so the sidebar pencil can render as a link and
+  // each open-in-new-tab gesture lands on its own draft conversation.
+  const getNewConversationHref = useCallback(
+    () => routes.conversation(createDraftConversationId()),
+    [],
+  );
+
   const {
     handleArchiveConversation,
     handleUnarchiveConversation,
@@ -530,6 +537,7 @@ export function ChatLayout() {
       attentionConversationIds={attentionConversationIds}
       onSelectConversation={handleSelectConversation}
       onStartNewConversation={startNewConversation}
+      getNewConversationHref={getNewConversationHref}
       isIntelligenceActive={isIdentityActive}
       onOpenIntelligence={handleOpenIdentity}
       isLibraryActive={isLibraryActive}

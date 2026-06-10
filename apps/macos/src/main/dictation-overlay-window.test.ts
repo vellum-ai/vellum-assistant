@@ -1,0 +1,182 @@
+import { describe, expect, mock, test } from "bun:test";
+
+import {
+  DONE_HIDE_MS,
+  ERROR_HIDE_MS,
+  createDictationOverlayController,
+  type DictationOverlayState,
+} from "./dictation-overlay-window";
+
+type Harness = {
+  controller: ReturnType<typeof createDictationOverlayController>;
+  setFocused: (focused: boolean) => void;
+  flushTimers: () => void;
+  pendingTimerDelays: () => number[];
+  showOverlay: ReturnType<typeof mock>;
+  hideOverlay: ReturnType<typeof mock>;
+  forwarded: DictationOverlayState[];
+};
+
+const createHarness = ({ focused = false }: { focused?: boolean } = {}): Harness => {
+  let isFocused = focused;
+  const timers = new Map<number, { callback: () => void; ms: number }>();
+  let nextTimerId = 1;
+  const showOverlay = mock(() => undefined);
+  const hideOverlay = mock(() => undefined);
+  const forwarded: DictationOverlayState[] = [];
+
+  const controller = createDictationOverlayController({
+    isVellumFocused: () => isFocused,
+    showOverlay,
+    hideOverlay,
+    forwardState: (state) => {
+      forwarded.push(state);
+    },
+    setTimeout: (callback, ms) => {
+      const id = nextTimerId++;
+      timers.set(id, { callback, ms });
+      return id;
+    },
+    clearTimeout: (handle) => {
+      timers.delete(handle as number);
+    },
+  });
+
+  return {
+    controller,
+    setFocused: (value) => {
+      isFocused = value;
+    },
+    flushTimers: () => {
+      const pending = [...timers.values()];
+      timers.clear();
+      for (const { callback } of pending) callback();
+    },
+    pendingTimerDelays: () => [...timers.values()].map((t) => t.ms),
+    showOverlay,
+    hideOverlay,
+    forwarded,
+  };
+};
+
+describe("createDictationOverlayController", () => {
+  test("shows the overlay and forwards live transcription while unfocused", () => {
+    const h = createHarness();
+
+    h.controller.handleMessage({ kind: "recording", transcription: "" });
+    h.controller.handleMessage({ kind: "recording", transcription: "hello wor" });
+    h.controller.handleMessage({ kind: "processing" });
+
+    expect(h.showOverlay).toHaveBeenCalledTimes(1);
+    expect(h.forwarded).toEqual([
+      { kind: "recording", transcription: "" },
+      { kind: "recording", transcription: "hello wor" },
+      { kind: "processing" },
+    ]);
+    expect(h.hideOverlay).not.toHaveBeenCalled();
+  });
+
+  test("suppresses the whole session when a Vellum window is focused at start", () => {
+    const h = createHarness({ focused: true });
+
+    h.controller.handleMessage({ kind: "recording", transcription: "" });
+    h.controller.handleMessage({ kind: "recording", transcription: "hi" });
+    h.controller.handleMessage({ kind: "processing" });
+    h.controller.handleMessage({ kind: "done" });
+    h.controller.handleMessage({ kind: "dismiss" });
+
+    expect(h.showOverlay).not.toHaveBeenCalled();
+    expect(h.forwarded).toEqual([]);
+
+    // The suppressed session ended on `done`; a later unfocused session
+    // shows normally.
+    h.setFocused(false);
+    h.controller.handleMessage({ kind: "recording", transcription: "" });
+    expect(h.showOverlay).toHaveBeenCalledTimes(1);
+    expect(h.forwarded).toEqual([{ kind: "recording", transcription: "" }]);
+  });
+
+  test("focus is only evaluated at session start", () => {
+    const h = createHarness();
+
+    h.controller.handleMessage({ kind: "recording", transcription: "" });
+    h.setFocused(true);
+    h.controller.handleMessage({ kind: "recording", transcription: "still showing" });
+
+    expect(h.forwarded).toHaveLength(2);
+  });
+
+  test("dismiss hides immediately during recording (cancelled session)", () => {
+    const h = createHarness();
+
+    h.controller.handleMessage({ kind: "recording", transcription: "" });
+    h.controller.handleMessage({ kind: "dismiss" });
+
+    expect(h.hideOverlay).toHaveBeenCalledTimes(1);
+  });
+
+  test("dismiss without a session is a no-op", () => {
+    const h = createHarness();
+
+    h.controller.handleMessage({ kind: "dismiss" });
+
+    expect(h.hideOverlay).not.toHaveBeenCalled();
+  });
+
+  test("done lingers on its own timer and ignores the store's dismiss", () => {
+    const h = createHarness();
+
+    h.controller.handleMessage({ kind: "recording", transcription: "hi" });
+    h.controller.handleMessage({ kind: "processing" });
+    h.controller.handleMessage({ kind: "done" });
+    expect(h.pendingTimerDelays()).toEqual([DONE_HIDE_MS]);
+
+    h.controller.handleMessage({ kind: "dismiss" });
+    expect(h.hideOverlay).not.toHaveBeenCalled();
+
+    h.flushTimers();
+    expect(h.hideOverlay).toHaveBeenCalledTimes(1);
+  });
+
+  test("error lingers longer than done and ignores dismiss", () => {
+    const h = createHarness();
+
+    h.controller.handleMessage({ kind: "recording", transcription: "" });
+    h.controller.handleMessage({ kind: "error", message: "Paste blocked" });
+    expect(h.forwarded).toContainEqual({ kind: "error", message: "Paste blocked" });
+    expect(h.pendingTimerDelays()).toEqual([ERROR_HIDE_MS]);
+
+    h.controller.handleMessage({ kind: "dismiss" });
+    expect(h.hideOverlay).not.toHaveBeenCalled();
+
+    h.flushTimers();
+    expect(h.hideOverlay).toHaveBeenCalledTimes(1);
+  });
+
+  test("a new recording cancels a pending terminal hide and reuses the session", () => {
+    const h = createHarness();
+
+    h.controller.handleMessage({ kind: "recording", transcription: "" });
+    h.controller.handleMessage({ kind: "done" });
+    h.controller.handleMessage({ kind: "recording", transcription: "again" });
+
+    expect(h.pendingTimerDelays()).toEqual([]);
+    h.flushTimers();
+    expect(h.hideOverlay).not.toHaveBeenCalled();
+    // Window already visible — no second show needed.
+    expect(h.showOverlay).toHaveBeenCalledTimes(1);
+    expect(h.forwarded).toContainEqual({ kind: "recording", transcription: "again" });
+  });
+
+  test("a session can start again after a terminal hide completes", () => {
+    const h = createHarness();
+
+    h.controller.handleMessage({ kind: "recording", transcription: "" });
+    h.controller.handleMessage({ kind: "done" });
+    h.flushTimers();
+    expect(h.hideOverlay).toHaveBeenCalledTimes(1);
+
+    h.controller.handleMessage({ kind: "recording", transcription: "" });
+    expect(h.showOverlay).toHaveBeenCalledTimes(2);
+  });
+});

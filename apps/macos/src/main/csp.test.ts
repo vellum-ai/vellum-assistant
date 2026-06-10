@@ -59,4 +59,12 @@ describe("CSP_POLICY", () => {
     expect(connectSrc).toContain("https://*.ingest.sentry.io");
     expect(connectSrc).not.toMatch(/\bhttps:\s/);
   });
+
+  test("connect-src allows loopback gateway WebSockets but not broad ws:", () => {
+    const connectSrc = directiveValue("connect-src")!;
+    expect(connectSrc).toContain("ws://localhost:*");
+    expect(connectSrc).toContain("ws://127.0.0.1:*");
+    expect(connectSrc).not.toMatch(/\bws:\s/);
+    expect(connectSrc).not.toContain("ws://*");
+  });
 });

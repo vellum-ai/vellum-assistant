@@ -3156,10 +3156,10 @@ describe("session-agent-loop", () => {
         estimatedTokens: 5000,
       });
 
-      // GIVEN a real loop that appends a tool turn (so the run reports
-      // `appendedNewMessages`) and then rejects with a context-too-large
-      // error on the following call — reactive overflow recovery strips that
-      // appended history when it compacts before a final call recovers.
+      // GIVEN a real loop that appends a tool turn and then rejects with a
+      // context-too-large error on the following call — reactive overflow
+      // recovery strips that appended history when it compacts before a final
+      // call recovers.
       const ctx = makeCtx({
         providerResponses: [
           toolUseResponse("t1", "file_read", {}),
