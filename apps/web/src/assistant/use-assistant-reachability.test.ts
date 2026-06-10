@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  shouldDeferReachabilityOverlay,
-  shouldFailReachabilityImmediately,
-} from "@/assistant/use-assistant-reachability";
+import { shouldFailReachabilityImmediately } from "@/assistant/use-assistant-reachability";
 import type { ConnectionStatus } from "@/generated/api/index";
 
 function fakeResponse(
@@ -62,27 +59,6 @@ describe("assistant reachability", () => {
     });
     expect(
       shouldFailReachabilityImmediately("not_found", response),
-    ).toBe(false);
-  });
-
-  test("defers only the first silent probe response", () => {
-    expect(
-      shouldDeferReachabilityOverlay({
-        probeResponseCount: 1,
-        silentGracePeriod: true,
-      }),
-    ).toBe(true);
-    expect(
-      shouldDeferReachabilityOverlay({
-        probeResponseCount: 2,
-        silentGracePeriod: true,
-      }),
-    ).toBe(false);
-    expect(
-      shouldDeferReachabilityOverlay({
-        probeResponseCount: 1,
-        silentGracePeriod: false,
-      }),
     ).toBe(false);
   });
 });

@@ -14,7 +14,7 @@ import { lifecycleService } from "@/assistant/lifecycle-service";
  * Reads from the lifecycle store's `reachable` field (set by the
  * lifecycle service's background healthz probes and unreachable-bus
  * subscription) as the source of truth. The hook owns the UI-specific
- * concerns: phase state machine, failure timeout, retry/dismiss actions.
+ * concerns: phase state machine, failure timeout, retry/reset actions.
  *
  * Caller-visible semantics:
  *   * When the lifecycle store marks `reachable: false`, the hook
@@ -24,8 +24,6 @@ import { lifecycleService } from "@/assistant/lifecycle-service";
  *   * Imperative `probe()` calls delegate to
  *     `lifecycleService.triggerReachabilityProbe()`.
  */
-export const RECHECK_INTERVAL_MS = 4_000;
-export const MAX_ATTEMPTS = 8;
 export const MAX_WINDOW_MS = 60_000;
 export const BUS_REENTRY_COOLDOWN_MS = 5_000;
 
@@ -40,20 +38,10 @@ export type ReachabilityPhase =
 export type ReachabilityState =
   | { phase: "idle" }
   | { phase: "checking" }
-  | {
-      phase: "connecting";
-      attempt: number;
-      isPodWaking: boolean;
-      lastServerState: ConnectionServerState | null;
-    }
+  | { phase: "connecting" }
   | { phase: "ready" }
   | { phase: "retrying" }
-  | {
-      phase: "failed";
-      isPodWaking: boolean;
-      lastServerState: ConnectionServerState | null;
-      detail: string | null;
-    };
+  | { phase: "failed" };
 
 export type ConnectionServerState = AssistantsConnectionStatusResponse["state"];
 
@@ -67,8 +55,6 @@ export interface ReachabilityProbeOptions {
   showConnectingImmediately?: boolean;
   /** @internal Used by passive probes that should not interrupt the user. */
   mode?: ReachabilityProbeMode;
-  /** @internal Used by passive probes to hide one transient miss. */
-  silentGracePeriod?: boolean;
 }
 
 export type ReachabilityProbeMode = "visible" | "background";
@@ -90,16 +76,6 @@ export function shouldFailReachabilityImmediately(
   return false;
 }
 
-export function shouldDeferReachabilityOverlay({
-  probeResponseCount,
-  silentGracePeriod,
-}: {
-  probeResponseCount: number;
-  silentGracePeriod: boolean;
-}): boolean {
-  return silentGracePeriod && probeResponseCount === 1;
-}
-
 export function useAssistantReachability(
   assistantId: string | null,
 ): UseAssistantReachabilityResult {
@@ -119,19 +95,9 @@ export function useAssistantReachability(
   const enterConnecting = useCallback(() => {
     clearFailureTimer();
     failureTimerRef.current = setTimeout(() => {
-      setState({
-        phase: "failed",
-        isPodWaking: false,
-        lastServerState: null,
-        detail: null,
-      });
+      setState({ phase: "failed" });
     }, MAX_WINDOW_MS);
-    setState({
-      phase: "connecting",
-      attempt: 0,
-      isPodWaking: false,
-      lastServerState: null,
-    });
+    setState({ phase: "connecting" });
   }, [clearFailureTimer]);
 
   const reset = useCallback(() => {
