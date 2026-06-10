@@ -1,7 +1,7 @@
 {
   "name": "default-exploration-drift",
   "version": "1.0.0",
-  "description": "First-party default plugin contributing a post-tool-use hook that nudges the model to summarize and delegate to an investigator subagent when a turn accumulates a long run of exploration tool calls.",
+  "description": "First-party default plugin contributing a post-tool-use hook that nudges the model to summarize and delegate to an investigator subagent when a turn accumulates a long run of exploration tool calls, or (on loop-prone models) re-issues an identical exploration call.",
   "private": true,
   "license": "MIT",
   "type": "module",
