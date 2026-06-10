@@ -1044,7 +1044,7 @@
         {
           "id": "minimax/minimax-m3",
           "displayName": "MiniMax M3",
-          "contextWindowTokens": 1048576,
+          "contextWindowTokens": 524288,
           "maxOutputTokens": 512000,
           "defaultContextWindowTokens": 200000,
           "longContextMode": "native-model",

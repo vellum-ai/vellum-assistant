@@ -1043,7 +1043,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       {
         id: "minimax/minimax-m3",
         displayName: "MiniMax M3",
-        contextWindowTokens: 1048576,
+        // The model supports 1M context, but OpenRouter's only route
+        // (MiniMax) accepts 524,288 tokens; advertise the routed limit.
+        contextWindowTokens: 524288,
         maxOutputTokens: 512000,
         supportsThinking: true,
         supportsCaching: false,
