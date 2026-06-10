@@ -121,14 +121,23 @@ export type SkillLookupErrorCode =
   | "invalid_selector"
   | "load_failed";
 
+/**
+ * How a selector resolved to a skill. `id_prefix` means no installed skill
+ * matched the selector exactly — callers that can install from the catalog
+ * should prefer an exact-id catalog skill over a prefix match.
+ */
+export type SkillSelectorMatchKind = "exact_id" | "exact_name" | "id_prefix";
+
 export interface SkillLookupResult {
   skill?: SkillDefinition;
+  matchKind?: SkillSelectorMatchKind;
   error?: string;
   errorCode?: SkillLookupErrorCode;
 }
 
 export interface SkillSelectorResult {
   skill?: SkillSummary;
+  matchKind?: SkillSelectorMatchKind;
   error?: string;
   errorCode?: SkillLookupErrorCode;
 }
@@ -1145,7 +1154,7 @@ export function resolveSkillSelector(
 
   const exactIdMatch = catalog.find((skill) => skill.id === needle);
   if (exactIdMatch) {
-    return { skill: exactIdMatch };
+    return { skill: exactIdMatch, matchKind: "exact_id" };
   }
 
   const exactNameMatches = catalog.filter(
@@ -1154,7 +1163,7 @@ export function resolveSkillSelector(
       skill.displayName.toLowerCase() === needle.toLowerCase(),
   );
   if (exactNameMatches.length === 1) {
-    return { skill: exactNameMatches[0] };
+    return { skill: exactNameMatches[0], matchKind: "exact_name" };
   }
   if (exactNameMatches.length > 1) {
     const ids = exactNameMatches.map((skill) => skill.id).join(", ");
@@ -1168,7 +1177,7 @@ export function resolveSkillSelector(
     skill.id.startsWith(needle),
   );
   if (idPrefixMatches.length === 1) {
-    return { skill: idPrefixMatches[0] };
+    return { skill: idPrefixMatches[0], matchKind: "id_prefix" };
   }
   if (idPrefixMatches.length > 1) {
     const ids = idPrefixMatches.map((skill) => skill.id).join(", ");
@@ -1196,7 +1205,10 @@ export function loadSkillBySelector(
       errorCode: resolved.errorCode ?? "load_failed",
     };
   }
-  return loadSkillDefinition(resolved.skill);
+  return {
+    ...loadSkillDefinition(resolved.skill),
+    matchKind: resolved.matchKind,
+  };
 }
 
 // ─── Icon generation ─────────────────────────────────────────────────────────
