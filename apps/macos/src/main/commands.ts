@@ -33,6 +33,7 @@ export type VellumCommand =
   | { kind: "cancelDictation" }
   | { kind: "replayOnboarding" }
   | { kind: "previewPrechat" }
+  | { kind: "replayHatchFailure" }
   | { kind: "openComponentGallery" };
 
 export type VellumCommandKind = VellumCommand["kind"];
@@ -70,6 +71,7 @@ export const DEFAULT_ACCELERATORS: Record<VellumCommandKind, string> = {
   cancelDictation: "",
   replayOnboarding: "",
   previewPrechat: "",
+  replayHatchFailure: "",
   openComponentGallery: "",
 };
 

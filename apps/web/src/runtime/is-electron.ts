@@ -52,6 +52,7 @@ export type VellumCommand =
   | { kind: "cancelDictation" }
   | { kind: "replayOnboarding" }
   | { kind: "previewPrechat" }
+  | { kind: "replayHatchFailure" }
   | { kind: "openComponentGallery" };
 
 /**

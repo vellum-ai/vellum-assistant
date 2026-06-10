@@ -193,6 +193,9 @@ export function RootLayout() {
     previewPrechat: () => {
       void navigate(`${routes.onboarding.prechat}?preview=true`);
     },
+    replayHatchFailure: () => {
+      void navigate(`${routes.onboarding.hatching}?preview=true&fail=1`);
+    },
   });
 
   const handleConfirmRetire = async () => {
