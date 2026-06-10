@@ -15,6 +15,15 @@ import {
 
 const PATH_EXPORT_LINE = 'export PATH="$HOME/.local/bin:$PATH"';
 
+// Shared by both flows: they mutate the same wrapper file, and re-entrant
+// runs stack dialogs and overwrite each other's answers.
+let flowInFlight = false;
+
+/** Whether an install/uninstall flow is currently running. */
+export function isCliPathFlowInFlight(): boolean {
+  return flowInFlight;
+}
+
 const errorMessage = (err: unknown): string =>
   err instanceof Error ? err.message : "Unknown error";
 
@@ -75,6 +84,8 @@ async function showInstallSuccessDialog(): Promise<void> {
 }
 
 export async function runInstallCliCommandFlow(): Promise<void> {
+  if (flowInFlight) return;
+  flowInFlight = true;
   try {
     if (installWrapper({ overwriteForeign: false }) === "needs-overwrite-confirmation") {
       if (!(await confirmReplaceForeignFile())) return;
@@ -95,10 +106,14 @@ export async function runInstallCliCommandFlow(): Promise<void> {
     await showInstallSuccessDialog();
   } catch (err) {
     dialog.showErrorBox("Failed to install vellum command", errorMessage(err));
+  } finally {
+    flowInFlight = false;
   }
 }
 
 export async function runUninstallCliCommandFlow(): Promise<void> {
+  if (flowInFlight) return;
+  flowInFlight = true;
   try {
     const { response } = await dialog.showMessageBox({
       type: "warning",
@@ -132,5 +147,7 @@ export async function runUninstallCliCommandFlow(): Promise<void> {
     await dialog.showMessageBox(resultDialogs[uninstallWrapper()]);
   } catch (err) {
     dialog.showErrorBox("Failed to uninstall vellum command", errorMessage(err));
+  } finally {
+    flowInFlight = false;
   }
 }

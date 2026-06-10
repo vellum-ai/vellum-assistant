@@ -266,6 +266,7 @@ mock.module("./cli-path-installer", () => ({
 mock.module("./cli-path-flow", () => ({
   runInstallCliCommandFlow: async () => undefined,
   runUninstallCliCommandFlow: async () => undefined,
+  isCliPathFlowInFlight: () => false,
 }));
 
 const {

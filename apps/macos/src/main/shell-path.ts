@@ -1,73 +1,107 @@
 import { spawn } from "node:child_process";
-import { accessSync, constants } from "node:fs";
+import { accessSync, constants, statSync } from "node:fs";
 import path from "node:path";
 
-import { buildInstallEnv } from "./cli-installer";
-
 const SHELL_PATH_TIMEOUT_MS = 5_000;
+
+// Successful results are cached briefly so bursts within one flow share a
+// spawn, while menu-driven re-checks after the user edits their shell
+// profile still see fresh state. Failures (null) are never cached.
+const SHELL_PATH_CACHE_TTL_MS = 30_000;
 
 // Wraps the printf'd PATH so it can be isolated from any startup-file
 // output (banners, warnings) the interactive login shell writes first.
 const PATH_SENTINEL = "__VELLUM_PATH_7f3a__";
 
-export interface ShellPathResult {
-  path: string;
-  /**
-   * False when the login shell couldn't be queried and `path` is the
-   * synthesized `buildInstallEnv()` fallback — good enough for spawning
-   * processes, but NOT evidence of what's on the user's real PATH.
-   */
-  reliable: boolean;
+// Shells where the POSIX `printf ... "$PATH"` query is valid syntax.
+const POSIX_SHELLS = new Set(["zsh", "bash", "sh", "dash", "ksh"]);
+
+interface CacheEntry {
+  promise: Promise<string | null>;
+  expiresAt: number;
 }
 
-// Cached for the process lifetime; caching the promise also dedupes
-// concurrent first calls into a single shell spawn.
-let shellPathPromise: Promise<ShellPathResult> | null = null;
+let cache: CacheEntry | null = null;
 
 /** Reset the shell PATH cache. Exposed for testing only. */
 export function _resetShellPathCache(): void {
-  shellPathPromise = null;
-}
-
-function fallbackResult(): ShellPathResult {
-  return { path: buildInstallEnv().PATH ?? "", reliable: false };
+  cache = null;
 }
 
 /**
- * Resolve the user's interactive login shell PATH.
+ * Resolve the user's interactive login shell PATH, or null when it can't be
+ * reliably determined (unknown shell, spawn failure, timeout, non-zero
+ * exit, missing sentinel, implausible output).
  *
  * GUI apps launched from Finder inherit a minimal PATH that excludes
  * ~/.local/bin and package-manager bin dirs, so PATH checks (shadow
  * detection, "is ~/.local/bin in PATH") must use the shell's PATH rather
- * than `process.env.PATH`. Never rejects — on failure or timeout it falls
- * back to the PATH produced by `buildInstallEnv()`, marked unreliable.
+ * than `process.env.PATH`. Never rejects.
  */
 export function resolveShellPath(
   timeoutMs: number = SHELL_PATH_TIMEOUT_MS,
-): Promise<ShellPathResult> {
-  shellPathPromise ??= queryShellPath(timeoutMs);
-  return shellPathPromise;
+): Promise<string | null> {
+  if (cache && Date.now() < cache.expiresAt) return cache.promise;
+
+  const entry: CacheEntry = {
+    promise: queryShellPath(timeoutMs),
+    // Valid while in flight so concurrent callers share one spawn; the
+    // real TTL starts once the result arrives.
+    expiresAt: Infinity,
+  };
+  cache = entry;
+
+  void entry.promise.then((result) => {
+    if (cache !== entry) return;
+    if (result === null) cache = null;
+    else entry.expiresAt = Date.now() + SHELL_PATH_CACHE_TTL_MS;
+  });
+
+  return entry.promise;
 }
 
-function queryShellPath(timeoutMs: number): Promise<ShellPathResult> {
-  return new Promise((resolve) => {
-    const shell = process.env.SHELL ?? "/bin/zsh";
+// Argv for printing a sentinel-wrapped PATH in the given shell, or null for
+// shells whose syntax we don't know how to drive (tcsh, csh, nu, ...).
+function shellPathArgs(shell: string): string[] | null {
+  const name = path.basename(shell);
+  if (name === "fish") {
+    // fish's $PATH is a list that expands space-joined; join it explicitly.
+    return [
+      "-ilc",
+      `printf "${PATH_SENTINEL}%s${PATH_SENTINEL}" (string join : $PATH)`,
+    ];
+  }
+  if (POSIX_SHELLS.has(name)) {
+    return ["-ilc", `printf "${PATH_SENTINEL}%s${PATH_SENTINEL}" "$PATH"`];
+  }
+  return null;
+}
 
+// A plausible PATH has at least one separator, or is a single absolute
+// directory. Space-joined garbage (e.g. a misquoted list) has neither.
+function isPlausiblePath(value: string): boolean {
+  if (value.includes(":")) return true;
+  return value.startsWith("/") && !value.includes(" ");
+}
+
+function queryShellPath(timeoutMs: number): Promise<string | null> {
+  const shell = process.env.SHELL ?? "/bin/zsh";
+  const args = shellPathArgs(shell);
+  if (args === null) return Promise.resolve(null);
+
+  return new Promise((resolve) => {
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(shell, [
-        "-ilc",
-        `printf "${PATH_SENTINEL}%s${PATH_SENTINEL}" "$PATH"`,
-      ]);
+      child = spawn(shell, args);
     } catch {
-      resolve(fallbackResult());
+      resolve(null);
       return;
     }
 
     let stdout = "";
     let settled = false;
 
-    const settle = (value: ShellPathResult) => {
+    const settle = (value: string | null) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -76,18 +110,18 @@ function queryShellPath(timeoutMs: number): Promise<ShellPathResult> {
 
     const timer = setTimeout(() => {
       child.kill();
-      settle(fallbackResult());
+      settle(null);
     }, timeoutMs);
 
     child.stdout?.on("data", (data: Buffer) => {
       stdout += data.toString();
     });
 
-    child.on("error", () => settle(fallbackResult()));
+    child.on("error", () => settle(null));
 
     child.on("close", (code: number | null) => {
       const value = code === 0 ? extractSentinelValue(stdout) : null;
-      settle(value ? { path: value, reliable: true } : fallbackResult());
+      settle(value !== null && isPlausiblePath(value) ? value : null);
     });
   });
 }
@@ -134,9 +168,11 @@ export function findExecutablesInPath(
     const candidate = path.join(dir, name);
     try {
       accessSync(candidate, constants.X_OK);
-      results.push(candidate);
+      // X_OK passes for directories (search bit); require a regular file.
+      // statSync follows symlinks, so a link to an executable file counts.
+      if (statSync(candidate).isFile()) results.push(candidate);
     } catch {
-      // Missing or not executable.
+      // Missing, not executable, or unstattable.
     }
   }
 

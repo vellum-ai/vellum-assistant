@@ -103,9 +103,7 @@ export type CliPathInstallState =
   | { kind: "not-installed" }
   | { kind: "foreign-file" }
   | { kind: "installed"; inPath: boolean }
-  // `inPath` is optional only so sibling-owned test fixtures keep compiling;
-  // getCliPathInstallState always populates it.
-  | { kind: "shadowed"; shadowedBy: string; inPath?: boolean };
+  | { kind: "shadowed"; shadowedBy: string; inPath: boolean };
 
 function realpathOr(p: string): string {
   try {
@@ -120,16 +118,16 @@ function realpathOr(p: string): string {
  * PATH. `shadowed` means another executable wins over our wrapper (e.g. an
  * npm-global install earlier in PATH); symlink/case variants that resolve
  * to the wrapper itself don't count. Never throws — when login-shell PATH
- * resolution fails, degrades to `installed` with `inPath: false` rather
- * than reporting states the fallback PATH can't actually attest to.
+ * resolution fails (null), degrades to `installed` with `inPath: false`
+ * rather than reporting states we can't actually attest to.
  */
 export async function getCliPathInstallState(): Promise<CliPathInstallState> {
   const ownership = readWrapperOwnership();
   if (ownership === "absent") return { kind: "not-installed" };
   if (ownership === "foreign") return { kind: "foreign-file" };
 
-  const { path: shellPath, reliable } = await resolveShellPath();
-  if (!reliable) return { kind: "installed", inPath: false };
+  const shellPath = await resolveShellPath();
+  if (shellPath === null) return { kind: "installed", inPath: false };
 
   const wrapperPath = getWrapperPath();
   const [firstHit] = findExecutablesInPath("vellum", shellPath);
