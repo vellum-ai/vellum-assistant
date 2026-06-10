@@ -618,6 +618,8 @@ export function setupAuthListeners(): () => void {
     );
 
   const unsubResume = subscribe("app.resume", () => {
+    // Mid-OAuth refocus — an unauthenticated probe would tear down state.
+    if (isOAuthFlowInFlight()) return;
     void safeRefresh();
   });
   cleanups.push(unsubResume);
