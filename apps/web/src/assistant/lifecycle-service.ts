@@ -323,7 +323,6 @@ class AssistantLifecycleService {
   ): void {
     const mm = result.data.maintenance_mode;
     setSelfHostedConnection(null);
-    this.setOperationalStatusAssistantId(result.data.id);
     const store = useResolvedAssistantsStore.getState();
     store.upsertFromApi(result.data);
     store.setActiveAssistantId(result.data.id);
@@ -356,7 +355,6 @@ class AssistantLifecycleService {
   private projectSelfHosted(
     result: GetAssistantResult & { ok: true },
   ): void {
-    this.setOperationalStatusAssistantId(null);
     setSelfHostedConnection({
       url: result.data.ingress_url,
       token: result.data.platform_actor_token,
@@ -389,11 +387,13 @@ class AssistantLifecycleService {
   ): Promise<void> {
     const generation = this.generation;
     const nextState = resolveAssistantLifecycleState(result);
-    if (result.ok) {
-      this.setOperationalStatusAssistantId(result.data.id);
-    } else {
-      this.setOperationalStatusAssistantId(null);
-    }
+    // Single decision point for every server-result path (the
+    // gateway-auth short-circuit and logout reset clear it
+    // separately). Self-hosted assistants have no platform
+    // operational status, so they map to null like errors do.
+    this.setOperationalStatusAssistantId(
+      result.ok && nextState.kind !== "self_hosted" ? result.data.id : null,
+    );
 
     if (nextState.kind === "auto_hatch") {
       // No assistant found. Don't hatch or redirect — the navigation

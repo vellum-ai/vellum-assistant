@@ -9,6 +9,7 @@ let connectivityStateMock: "online" | "device-offline" | "backend-unreachable" =
 let isElectronMock = false;
 let activeAssistantIdMock: string | null = "assistant-123";
 let operationalStatusAssistantIdMock: string | null = null;
+let hasMaintenanceSurfaceMock = false;
 let requestedOperationalStatusAssistantId: string | null | undefined;
 let operationalStatusQueryMock: {
   data: { state: string } | null | undefined;
@@ -57,6 +58,11 @@ mock.module("@/assistant/lifecycle-store", () => ({
   },
 }));
 
+mock.module("@/components/maintenance-surface-store", () => ({
+  useHasMaintenanceSurface: () => hasMaintenanceSurfaceMock,
+  useRegisterMaintenanceSurface: () => {},
+}));
+
 mock.module("@/stores/resolved-assistants-store", () => ({
   useResolvedAssistantsStore: {
     use: {
@@ -98,6 +104,7 @@ beforeEach(() => {
   isElectronMock = false;
   activeAssistantIdMock = "assistant-123";
   operationalStatusAssistantIdMock = null;
+  hasMaintenanceSurfaceMock = false;
   requestedOperationalStatusAssistantId = undefined;
   operationalStatusQueryMock = {
     data: null,
@@ -175,6 +182,42 @@ describe("StatusBanner", () => {
 
     expect(maintenanceHtml).toContain("Assistant is in maintenance mode");
     expect(maintenanceHtml).toContain('data-tone="info"');
+  });
+
+  test("suppresses the maintenance_mode notice while a Recovery Mode card is rendered", () => {
+    hasMaintenanceSurfaceMock = true;
+    operationalStatusQueryMock = {
+      data: { state: "maintenance_mode" },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(html).toBe("");
+  });
+
+  test("keeps the maintenance_mode notice when no Recovery Mode card is rendered", () => {
+    hasMaintenanceSurfaceMock = false;
+    operationalStatusQueryMock = {
+      data: { state: "maintenance_mode" },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(html).toContain("Assistant is in maintenance mode");
+  });
+
+  test("a rendered Recovery Mode card only suppresses the maintenance_mode state", () => {
+    hasMaintenanceSurfaceMock = true;
+    operationalStatusQueryMock = {
+      data: { state: "crash_loop" },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(html).toContain("Assistant is crash looping");
   });
 
   test("renders status query failures as error banners", () => {

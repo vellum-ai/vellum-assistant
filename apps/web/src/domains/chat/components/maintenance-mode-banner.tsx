@@ -3,6 +3,7 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import { useState } from "react";
 
 import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
+import { useRegisterMaintenanceSurface } from "@/components/maintenance-surface-store";
 import {
     useActiveAssistantLifecycleIsLoading,
     usePlatformGate,
@@ -37,6 +38,9 @@ export function MaintenanceModeBanner({
   // mounts it when `maintenanceMode != null` — so the narrow predicate
   // catches exactly the deep-link race we care about.
   const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
+  // Tell StatusBanner this card is actually on screen so it drops its
+  // own operational maintenance notice instead of stacking a second one.
+  useRegisterMaintenanceSurface(platformGate !== "gated");
 
   if (platformGate === "gated") return null;
 
