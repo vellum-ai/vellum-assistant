@@ -1,37 +1,14 @@
 /**
- * Gateway log tail route — gateway HTTP proxy.
+ * Gateway log tail route — gateway IPC proxy.
  *
- * The handler makes a single HTTP call to the gateway's log-tail API
- * and surfaces the body's `.error` message on non-OK responses.
+ * The handler calls the gateway over the local IPC socket so the assistant
+ * does not need gateway signing material.
  */
 import { z } from "zod";
 
-import { getGatewayInternalBaseUrl } from "../../config/env.js";
+import { ipcCall } from "../../ipc/gateway-client.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
-
-// ── Shared helper ───────────────────────────────────────────────────────
-
-async function gatewayFetch(
-  path: string,
-  init?: RequestInit,
-): Promise<unknown> {
-  const base = getGatewayInternalBaseUrl();
-  const res = await fetch(`${base}${path}`, init);
-  if (!res.ok) {
-    let message = `Gateway request failed (${res.status})`;
-    try {
-      const body = (await res.json()) as { error?: unknown };
-      if (typeof body.error === "string") {
-        message = body.error;
-      }
-    } catch {
-      // ignore JSON parse failures
-    }
-    throw new Error(message);
-  }
-  return res.json();
-}
 
 // ── Schemas ─────────────────────────────────────────────────────────────
 
@@ -67,14 +44,11 @@ async function handleGatewayLogsTail({
   // HTTP GET delivers filters via queryParams; CLI IPC puts them in body.
   const source = Object.keys(queryParams).length > 0 ? queryParams : body;
   const p = GatewayLogsTailParams.parse(source);
-  const qs = new URLSearchParams();
-  if (p.n !== undefined) qs.set("n", String(p.n));
-  if (p.level !== undefined) qs.set("level", p.level);
-  if (p.module !== undefined) qs.set("module", p.module);
-  const query = qs.toString();
-  return gatewayFetch(
-    `/v1/logs/tail${query ? `?${query}` : ""}`,
-  ) as Promise<GatewayLogsTailResponse>;
+  const result = await ipcCall("gateway_logs_tail", p);
+  if (result === undefined) {
+    throw new Error("Gateway IPC request failed");
+  }
+  return GatewayLogsTailResponseSchema.parse(result);
 }
 
 // ── Route definitions ───────────────────────────────────────────────────

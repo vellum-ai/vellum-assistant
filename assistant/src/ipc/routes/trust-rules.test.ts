@@ -1,51 +1,29 @@
 /**
  * Unit tests for the trust rule IPC proxy routes.
- *
- * Covers:
- * - trust_rules_list: no params, tool filter, include_all, origin filter
- * - error path: non-OK gateway response surfaces body .error message
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// ---------------------------------------------------------------------------
-// Mocks — must be defined before importing the module under test
-// ---------------------------------------------------------------------------
+type IpcCall = {
+  method: string;
+  params?: Record<string, unknown>;
+};
 
-mock.module("../../config/env.js", () => ({
-  getGatewayInternalBaseUrl: () => "http://localhost:7822",
+let ipcCalls: IpcCall[] = [];
+let ipcResult: unknown = { rules: [] };
+
+const ipcCallMock = mock(
+  async (method: string, params?: Record<string, unknown>) => {
+    ipcCalls.push({ method, params });
+    return ipcResult;
+  },
+);
+
+mock.module("../gateway-client.js", () => ({
+  ipcCall: ipcCallMock,
 }));
 
-type MockResponse = {
-  ok: boolean;
-  status: number;
-  json: () => Promise<unknown>;
-};
-
-let mockFetchResponse: MockResponse = {
-  ok: true,
-  status: 200,
-  json: async () => ({ rules: [] }),
-};
-
-let capturedFetchCalls: Array<{ url: string; init?: RequestInit }> = [];
-
-const mockFetch = mock(async (url: string, init?: RequestInit) => {
-  capturedFetchCalls.push({ url, init });
-  return mockFetchResponse;
-});
-
-global.fetch = mockFetch as unknown as typeof fetch;
-
-// ---------------------------------------------------------------------------
-// Import module under test AFTER mocks are set up
-// ---------------------------------------------------------------------------
-
 import { ROUTES as trustRuleRoutes } from "../../runtime/routes/trust-rules-routes.js";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function findRoute(method: string) {
   const route = trustRuleRoutes.find((r) => r.operationId === method);
@@ -53,71 +31,84 @@ function findRoute(method: string) {
   return route;
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 describe("trustRuleRoutes", () => {
   beforeEach(() => {
-    capturedFetchCalls = [];
-    mockFetchResponse = {
-      ok: true,
-      status: 200,
-      json: async () => ({ rules: [] }),
-    };
-    mockFetch.mockClear();
+    ipcCalls = [];
+    ipcResult = { rules: [] };
+    ipcCallMock.mockClear();
   });
 
   describe("trust_rules_list", () => {
-    test("no params → GET /v1/trust-rules (no query string)", async () => {
+    test("no params calls trust_rules_list with empty params", async () => {
       const route = findRoute("trust_rules_list");
       await route.handler({ body: {} });
 
-      expect(capturedFetchCalls).toHaveLength(1);
-      expect(capturedFetchCalls[0].url).toBe(
-        "http://localhost:7822/v1/trust-rules",
-      );
-      expect(capturedFetchCalls[0].init).toBeUndefined();
+      expect(ipcCalls).toEqual([{ method: "trust_rules_list", params: {} }]);
     });
 
-    test("{ tool: 'bash' } → appends ?tool=bash", async () => {
+    test("{ tool: 'bash' } is forwarded", async () => {
       const route = findRoute("trust_rules_list");
       await route.handler({ body: { tool: "bash" } });
 
-      expect(capturedFetchCalls[0].url).toBe(
-        "http://localhost:7822/v1/trust-rules?tool=bash",
-      );
+      expect(ipcCalls).toEqual([
+        { method: "trust_rules_list", params: { tool: "bash" } },
+      ]);
     });
 
-    test("{ include_all: true } → appends ?include_all=true", async () => {
+    test("{ include_all: true } is forwarded", async () => {
       const route = findRoute("trust_rules_list");
       await route.handler({ body: { include_all: true } });
 
-      expect(capturedFetchCalls[0].url).toBe(
-        "http://localhost:7822/v1/trust-rules?include_all=true",
-      );
+      expect(ipcCalls).toEqual([
+        { method: "trust_rules_list", params: { include_all: true } },
+      ]);
     });
 
-    test("{ origin: 'user_defined' } → appends ?origin=user_defined", async () => {
+    test("{ origin: 'user_defined' } is forwarded", async () => {
       const route = findRoute("trust_rules_list");
       await route.handler({ body: { origin: "user_defined" } });
 
-      expect(capturedFetchCalls[0].url).toBe(
-        "http://localhost:7822/v1/trust-rules?origin=user_defined",
-      );
+      expect(ipcCalls).toEqual([
+        {
+          method: "trust_rules_list",
+          params: { origin: "user_defined" },
+        },
+      ]);
+    });
+
+    test("returns the parsed gateway IPC response", async () => {
+      ipcResult = {
+        rules: [
+          {
+            id: "rule-123",
+            tool: "bash",
+            pattern: "echo hello",
+            risk: "low",
+            description: "Allow echo hello",
+            origin: "user_defined",
+            userModified: false,
+            deleted: false,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+      };
+
+      const route = findRoute("trust_rules_list");
+      const result = await route.handler({ body: {} });
+
+      expect(result).toEqual(ipcResult);
     });
   });
 
   describe("error path", () => {
-    test("non-OK response surfaces body .error message", async () => {
-      mockFetchResponse = {
-        ok: false,
-        status: 404,
-        json: async () => ({ error: "Not found" }),
-      };
+    test("undefined IPC response surfaces gateway IPC failure", async () => {
+      ipcResult = undefined;
 
       const route = findRoute("trust_rules_list");
-      await expect(route.handler({ body: {} })).rejects.toThrow("Not found");
+      await expect(route.handler({ body: {} })).rejects.toThrow(
+        "Gateway IPC request failed",
+      );
     });
   });
 });

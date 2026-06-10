@@ -56,6 +56,26 @@ const SuggestRequestSchema = z.object({
     .optional(),
 });
 
+export interface TrustRulesListParams {
+  origin?: string;
+  tool?: string;
+  includeDeleted?: boolean;
+  includeAll?: boolean;
+}
+
+export function listTrustRules(params: TrustRulesListParams = {}) {
+  const store = new TrustRuleStore();
+  const userRelevantOnly = !params.includeAll && params.origin === undefined;
+
+  const rules = store.list({
+    origin: params.origin,
+    tool: params.tool,
+    includeDeleted: params.includeDeleted,
+    userRelevantOnly,
+  });
+  return { rules };
+}
+
 /**
  * Read the interactive auto-approve threshold from the DB.
  * Falls back to "low" if the DB is unavailable or the row is missing.
@@ -120,8 +140,6 @@ export function createTrustRulesSuggestHandler() {
 // ---------------------------------------------------------------------------
 
 export function createTrustRulesListHandler() {
-  const store = new TrustRuleStore();
-
   return async (req: Request): Promise<Response> => {
     try {
       const url = new URL(req.url);
@@ -129,15 +147,10 @@ export function createTrustRulesListHandler() {
       const tool = url.searchParams.get("tool") ?? undefined;
       const includeDeleted = url.searchParams.get("include_deleted") === "true";
       const includeAll = url.searchParams.get("include_all") === "true";
-      const userRelevantOnly = !includeAll && origin === undefined;
 
-      const rules = store.list({
-        origin,
-        tool,
-        includeDeleted,
-        userRelevantOnly,
-      });
-      return Response.json({ rules });
+      return Response.json(
+        listTrustRules({ origin, tool, includeDeleted, includeAll }),
+      );
     } catch (err) {
       log.error({ err }, "Failed to list trust rules");
       return Response.json({ error: "Internal server error" }, { status: 500 });
