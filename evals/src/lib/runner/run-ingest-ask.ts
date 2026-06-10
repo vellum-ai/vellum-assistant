@@ -135,15 +135,17 @@ const DEFAULT_INGEST_MAX_MS = 600_000;
 
 /**
  * Error raised when a two-conversation run cannot proceed. Carries the
- * ingest-turn events captured so far (when any) so the caller can still
- * persist them as a debugging artifact even though the run failed before
- * producing a result — e.g. to inspect *why* an ingest never reached its
- * completion sentinel.
+ * ingest-turn and question-turn events captured so far (when any) so the
+ * caller can still persist them as a debugging artifact even though the
+ * run failed before producing a result — e.g. to inspect *why* an ingest
+ * never reached its completion sentinel, or what conversation B did when
+ * it returned no gradable answer.
  */
 export class IngestAskError extends Error {
   constructor(
     message: string,
     readonly ingestEvents: readonly AgentEvent[] = [],
+    readonly questionEvents: readonly AgentEvent[] = [],
   ) {
     super(message);
     this.name = "IngestAskError";
@@ -256,14 +258,15 @@ export async function runIngestAsk(
     );
     await agent.send({ content: input.ingestMessage });
 
-    // Auto-approve tool confirmations during ingest. The agent legitimately
-    // reaches for tools above the auto-approve risk threshold to process the
-    // staged trajectories; in a headless hatch nothing answers the resulting
-    // `confirmation_request`, so the turn would hang until the hard cap and
-    // never reach the sentinel. Approving on receipt unblocks the turn. A
-    // failed approval is logged but not fatal — the sentinel wait still fails
-    // loudly if the turn never completes, and the captured events are
-    // persisted for inspection.
+    // Auto-approve tool confirmations in both turns. The agent legitimately
+    // reaches for tools above the auto-approve risk threshold — to process
+    // the staged trajectories during ingest, and to read/extract from them
+    // on demand while answering. In a headless hatch nothing answers the
+    // resulting `confirmation_request`, so the turn would hang until its cap
+    // (the ingest sentinel never arrives; the question turn goes quiet with
+    // no answer). Approving on receipt unblocks the turn. A failed approval
+    // is logged but not fatal — the run still fails loudly if the turn never
+    // completes, and the captured events are persisted for inspection.
     const autoConfirm = async (event: AgentEvent): Promise<void> => {
       const requestId = confirmationRequestId(event);
       if (requestId === undefined || typeof agent.confirm !== "function") {
@@ -330,10 +333,12 @@ export async function runIngestAsk(
     await agent.send({ content: input.questionMessage });
     const questionEvents = await questionCollector.collectUntilQuiet({
       quietMs,
+      onEvent: autoConfirm,
     });
     if (questionEvents.length === 0) {
       throw new IngestAskError(
         `Question turn produced no events for conversation ${questionConversationKey}.`,
+        ingestEvents,
       );
     }
 
@@ -342,6 +347,8 @@ export async function runIngestAsk(
       throw new IngestAskError(
         `Question turn captured ${questionEvents.length} event(s) but no assistant text; ` +
           `cannot produce a hypothesis to judge.`,
+        ingestEvents,
+        questionEvents,
       );
     }
 
