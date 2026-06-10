@@ -54,6 +54,8 @@ export interface CommandPaletteProps {
   onItemSelect?: (item: CommandPaletteItemData, index: number) => void;
   /** Key-down handler from useCommandPalette for keyboard navigation. */
   onKeyDown: (e: KeyboardEvent) => void;
+  /** Render without the main-app backdrop/portal inside a floating window. */
+  surface?: "overlay" | "window";
 }
 
 // ---------------------------------------------------------------------------
@@ -79,6 +81,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
   isSearching = false,
   onItemSelect,
   onKeyDown,
+  surface = "overlay",
 }) => {
   const isMobile = useIsMobile();
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -258,13 +261,17 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
     );
   }
 
-  return createPortal(
+  const desktopPalette = (
     <div
       ref={overlayRef}
       role="dialog"
       aria-modal="true"
       aria-label="Command palette"
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[15vh]"
+      className={
+        surface === "window"
+          ? "flex h-full w-full items-start justify-center bg-transparent p-3"
+          : "fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[15vh]"
+      }
       onClick={handleBackdropClick}
       onKeyDown={onKeyDown}
     >
@@ -272,7 +279,12 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
         {searchInputRow}
         {resultsList}
       </div>
-    </div>,
-    document.body,
+    </div>
   );
+
+  if (surface === "window") {
+    return desktopPalette;
+  }
+
+  return createPortal(desktopPalette, document.body);
 };

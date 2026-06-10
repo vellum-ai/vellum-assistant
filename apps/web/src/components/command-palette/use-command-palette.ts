@@ -12,6 +12,10 @@ export interface UseCommandPaletteOptions {
   onSelect?: (index: number) => void;
   /** Assistant ID for server-side global search. If omitted, search is disabled. */
   assistantId?: string | null;
+  /** Controlled open state for standalone hosts such as the floating window. */
+  isOpen?: boolean;
+  /** Called when the palette closes, after local state has reset. */
+  onClose?: () => void;
 }
 
 export interface UseCommandPaletteReturn {
@@ -42,8 +46,11 @@ export function useCommandPalette({
   itemCount: itemCountProp,
   onSelect,
   assistantId,
+  isOpen: controlledIsOpen,
+  onClose,
 }: UseCommandPaletteOptions): UseCommandPaletteReturn {
-  const isOpen = useCommandPaletteStore.use.isOpen();
+  const storeIsOpen = useCommandPaletteStore.use.isOpen();
+  const isOpen = controlledIsOpen ?? storeIsOpen;
   const storeOpen = useCommandPaletteStore.use.open();
   const storeClose = useCommandPaletteStore.use.close();
 
@@ -82,7 +89,8 @@ export function useCommandPalette({
     setIsSearching(false);
     setSearchResults(null);
     cancelSearch();
-  }, [storeClose, cancelSearch]);
+    onClose?.();
+  }, [storeClose, cancelSearch, onClose]);
 
   const toggle = useCallback(() => {
     if (isOpen) {
