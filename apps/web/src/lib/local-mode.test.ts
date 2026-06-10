@@ -1,4 +1,16 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
+
+import * as localModeHost from "@/runtime/local-mode-host";
+
+const replacePlatformAssistantsHost = mock(async () => ({
+  ok: true,
+  lockfile: { assistants: [], activeAssistant: null },
+}));
+
+mock.module("@/runtime/local-mode-host", () => ({
+  ...localModeHost,
+  replacePlatformAssistantsHost,
+}));
 
 import {
   getActiveAssistant,
@@ -10,6 +22,7 @@ import {
   isPlatformAssistant,
   reconcileSelectedAssistant,
   setSelectedAssistantId,
+  syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
 import type { Lockfile, LockfileAssistant } from "@/runtime/local-mode-host";
 import { useLockfileStore } from "@/stores/lockfile-store";
@@ -42,6 +55,34 @@ afterEach(() => {
   useLockfileStore.setState({ lockfile: null });
   localStorage.removeItem(LOCKFILE_STORAGE_KEY);
   localStorage.removeItem(SELECTED_ASSISTANT_STORAGE_KEY);
+  replacePlatformAssistantsHost.mockClear();
+});
+
+describe("syncPlatformAssistantsToLockfile", () => {
+  const remote = {
+    id: "platform-a",
+    name: "A",
+    is_local: false,
+    created: "2026-01-01",
+  };
+
+  test("skips the host replace when the org is unresolved (no wipe)", async () => {
+    await syncPlatformAssistantsToLockfile([remote], undefined);
+    await syncPlatformAssistantsToLockfile([remote]);
+
+    expect(replacePlatformAssistantsHost).not.toHaveBeenCalled();
+  });
+
+  test("runs the host replace when an org is provided", async () => {
+    await syncPlatformAssistantsToLockfile([remote], "org-1");
+
+    expect(replacePlatformAssistantsHost).toHaveBeenCalledTimes(1);
+    const [entries, org] = replacePlatformAssistantsHost.mock.calls[0]!;
+    expect(org).toBe("org-1");
+    expect(entries).toEqual([
+      expect.objectContaining({ assistantId: "platform-a", organizationId: "org-1" }),
+    ]);
+  });
 });
 
 describe("assistant classification", () => {
