@@ -293,7 +293,7 @@ export function ChatMainPanel({
 
   const handleSurfaceActionCallback = useCallback(
     (surfaceId: string, action: string, input: unknown) => {
-      void handleSurfaceAction(surfaceId, action, input as Record<string, unknown> | undefined);
+      return handleSurfaceAction(surfaceId, action, input as Record<string, unknown> | undefined);
     },
     [],
   );
