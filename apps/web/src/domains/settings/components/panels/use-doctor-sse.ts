@@ -2,7 +2,7 @@ import { useCallback, useRef } from "react";
 import { z } from "zod";
 
 import type { ChatEntry, NewChatEntry } from "@/domains/settings/components/panels/doctor-history";
-import { buildVellumHeaders } from "@/lib/auth/request-headers";
+import { assistantsDoctorSessionsEventsRetrieve } from "@/generated/api";
 import { captureError } from "@/lib/sentry/capture-error";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 
@@ -42,21 +42,16 @@ export const DoctorEventSchema = z.discriminatedUnion("type", [
 
 export type DoctorEvent = z.infer<typeof DoctorEventSchema>;
 
-export function parseDoctorEvent(raw: string): DoctorEvent | null {
+const SESSION_EXPIRED_STATUSES = new Set([404, 410]);
+
+export function parseDoctorEvent(payload: Record<string, unknown> | string): DoctorEvent | null {
   try {
-    const parsed: unknown = JSON.parse(raw);
-    const result = DoctorEventSchema.safeParse(parsed);
+    const obj: unknown = typeof payload === "string" ? JSON.parse(payload) : payload;
+    const result = DoctorEventSchema.safeParse(obj);
     return result.success ? result.data : null;
   } catch {
     return null;
   }
-}
-
-function buildSSEHeaders(): Record<string, string> {
-  return buildVellumHeaders({
-    Accept: "text/event-stream",
-    ...getClientRegistrationHeaders(),
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -242,7 +237,6 @@ export function useDoctorSSE(callbacks: DoctorSSECallbacks) {
       const controller = new AbortController();
       controllerRef.current = controller;
 
-      const url = `/v1/assistants/${assistantId}/doctor/sessions/${sessionId}/events/`;
       let streamEndedTerminally = false;
 
       const isCurrentStream = () => controllerRef.current === controller;
@@ -303,60 +297,74 @@ export function useDoctorSSE(callbacks: DoctorSSECallbacks) {
       }
 
       (async () => {
+        let streamError: Error | null = null;
+        let sessionExpired = false;
+        let failedStatus: number | null = null;
         try {
-          const response = await fetch(url, {
+          const { stream } = await assistantsDoctorSessionsEventsRetrieve({
+            path: { assistant_id: assistantId, session_id: sessionId },
+            headers: {
+              Accept: "text/event-stream, application/json",
+              ...getClientRegistrationHeaders(),
+            },
             signal: controller.signal,
-            credentials: "include",
-            headers: buildSSEHeaders(),
+            sseMaxRetryAttempts: 0,
+            fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+              const response = await globalThis.fetch(input, init);
+              if (!response.ok) {
+                failedStatus = response.status;
+                if (SESSION_EXPIRED_STATUSES.has(response.status)) {
+                  sessionExpired = true;
+                }
+              }
+              return response;
+            }) as typeof globalThis.fetch,
+            onSseError: (error) => {
+              if (sessionExpired) return;
+              streamError =
+                error instanceof Error
+                  ? error
+                  : new Error("Doctor stream disconnected");
+            },
           });
 
           if (!isCurrentStream()) return;
 
-          if (!response.ok || !response.body) {
+          for await (const payload of stream) {
+            if (!isCurrentStream()) return;
+            const event = parseDoctorEvent(payload);
+            if (event) {
+              dispatchEvent(event);
+            }
+          }
+
+          if (!isCurrentStream()) return;
+
+          if (sessionExpired) {
+            streamEndedTerminally = true;
             ctx.setThinking(false);
             ctx.setStreamingEntryId(null);
-            if (response.status === 404 || response.status === 410) {
-              streamEndedTerminally = true;
-              ctx.setSessionStatus("completed");
-              ctx.setPendingApproval(false);
-              ctx.appendEntry({
-                kind: "status",
-                content:
-                  "Previous session expired. Start a new session to continue.",
-              });
-            } else {
-              failStream(
-                `Failed to connect to event stream (${response.status})`,
-              );
-            }
+            ctx.setSessionStatus("completed");
+            ctx.setPendingApproval(false);
+            ctx.appendEntry({
+              kind: "status",
+              content:
+                "Previous session expired. Start a new session to continue.",
+            });
             return;
           }
 
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = "";
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? "";
-
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed || trimmed.startsWith(":")) continue;
-              if (trimmed.startsWith("data: ")) {
-                const event = parseDoctorEvent(trimmed.slice(6));
-                if (event) {
-                  dispatchEvent(event);
-                }
-              }
-            }
+          if (streamError) {
+            captureError(streamError, { context: "doctor_sse_stream" });
+            failStream(
+              failedStatus
+                ? `Failed to connect to event stream (${failedStatus}). Start a new session to continue.`
+                : "Event stream disconnected. Start a new session to continue.",
+            );
+            return;
           }
 
-          if (!controller.signal.aborted && !streamEndedTerminally) {
+          if (!streamEndedTerminally) {
             failStream(
               "Doctor event stream ended before the session completed. Start a new session to continue.",
             );
