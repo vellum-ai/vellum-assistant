@@ -41,6 +41,7 @@ import { installHotkeysIpc } from "./hotkeys";
 import { installPopoutWindows } from "./popout-window";
 import { installQuickInput } from "./quick-input-window";
 import { installLocalMode, resolveCliInvocation } from "./local-mode";
+import { installLoginItem } from "./login-item";
 import { installLockfileWatcher } from "./lockfile-watcher";
 import { installHostProxyBridge } from "./host-proxy-router";
 import "./executors/host-bash-executor"; // side-effect: registers host_bash executor
@@ -321,6 +322,7 @@ app
     installHotkeysIpc();
     installFeatureFlagsIpc();
     installLocalMode();
+    installLoginItem();
     installHotkeyHelper();
     installAbout();
     installAutoUpdate();

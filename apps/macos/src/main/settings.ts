@@ -18,6 +18,7 @@ export interface AppSettings {
   hotkeys: Record<string, string>;
   theme: "light" | "dark" | "system";
   featureFlags: Record<string, boolean>;
+  launchAtLogin: boolean;
 }
 
 const schema: Schema<AppSettings> = {
@@ -35,6 +36,10 @@ const schema: Schema<AppSettings> = {
     type: "object",
     additionalProperties: { type: "boolean" },
     default: {},
+  },
+  launchAtLogin: {
+    type: "boolean",
+    default: false,
   },
 };
 
