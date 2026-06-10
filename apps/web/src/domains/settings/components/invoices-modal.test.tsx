@@ -1,14 +1,3 @@
-/**
- * Tests for the InvoicesModal "Download all" zip flow.
- *
- * Strategy: pre-seed the invoice list into the React Query cache so the modal
- * renders synchronously, and mock the generated SDK's zip download plus the
- * shared `downloadBlob` helper and the toast module. Covers: one SDK call →
- * one saved `invoices.zip` (never one download per invoice), the error toast
- * on a non-OK response, and the disabled button while the request is in
- * flight.
- */
-
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
@@ -16,10 +5,6 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import * as sdkGen from "@/generated/api/sdk.gen";
 import { organizationsBillingInvoicesRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import type { Invoice } from "@/generated/api/types.gen";
-
-// ---------------------------------------------------------------------------
-// Module mocks
-// ---------------------------------------------------------------------------
 
 type DownloadResult = {
   data?: Blob;
@@ -45,11 +30,11 @@ mock.module("@/generated/api/sdk.gen", () => ({
   },
 }));
 
-let downloadBlobCalls: { blob: Blob; filename: string }[] = [];
+let saveFileCalls: { source: Blob | string; filename: string }[] = [];
 
-mock.module("@/utils/download-blob", () => ({
-  downloadBlob: (blob: Blob, filename: string) => {
-    downloadBlobCalls.push({ blob, filename });
+mock.module("@/runtime/native-file", () => ({
+  saveFile: async (source: Blob | string, filename: string) => {
+    saveFileCalls.push({ source, filename });
   },
 }));
 
@@ -65,20 +50,13 @@ let toastErrorCalls: string[] = [];
 
 mock.module("@vellumai/design-library/components/toast", () => ({
   toast: {
-    success: () => {},
     error: (message: string) => {
       toastErrorCalls.push(message);
     },
   },
-  Toaster: () => null,
-  ToastContent: () => null,
 }));
 
 import { InvoicesModal } from "./invoices-modal";
-
-// ---------------------------------------------------------------------------
-// Harness
-// ---------------------------------------------------------------------------
 
 function makeInvoice(id: string): Invoice {
   return {
@@ -120,16 +98,12 @@ function getDownloadAllButton(
 beforeEach(() => {
   downloadRetrieveCalls = 0;
   downloadRetrieveResult = async () => okDownloadResult();
-  downloadBlobCalls = [];
+  saveFileCalls = [];
   captureErrorCalls = [];
   toastErrorCalls = [];
 });
 
 afterEach(cleanup);
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe("InvoicesModal download all", () => {
   test("clicking Download all fetches the zip once and saves a single invoices.zip", async () => {
@@ -138,15 +112,15 @@ describe("InvoicesModal download all", () => {
     fireEvent.click(getDownloadAllButton(result));
 
     await waitFor(() => {
-      if (downloadBlobCalls.length === 0) {
-        throw new Error("downloadBlob not called");
+      if (saveFileCalls.length === 0) {
+        throw new Error("saveFile not called");
       }
     });
 
-    // One SDK call and one saved file — never one download per invoice.
     expect(downloadRetrieveCalls).toBe(1);
-    expect(downloadBlobCalls).toHaveLength(1);
-    expect(downloadBlobCalls[0]!.filename).toBe("invoices.zip");
+    expect(saveFileCalls).toHaveLength(1);
+    expect(saveFileCalls[0]!.source).toBeInstanceOf(Blob);
+    expect(saveFileCalls[0]!.filename).toBe("invoices.zip");
     expect(toastErrorCalls).toHaveLength(0);
   });
 
@@ -164,7 +138,7 @@ describe("InvoicesModal download all", () => {
     });
 
     expect(toastErrorCalls).toEqual(["Failed to download invoices."]);
-    expect(downloadBlobCalls).toHaveLength(0);
+    expect(saveFileCalls).toHaveLength(0);
     expect(captureErrorCalls).toHaveLength(1);
     expect(captureErrorCalls[0]!.context).toBe("download_all_invoices");
   });
@@ -182,7 +156,7 @@ describe("InvoicesModal download all", () => {
     });
 
     expect(toastErrorCalls).toEqual(["Failed to download invoices."]);
-    expect(downloadBlobCalls).toHaveLength(0);
+    expect(saveFileCalls).toHaveLength(0);
     expect(captureErrorCalls).toHaveLength(1);
     expect(captureErrorCalls[0]!.context).toBe("download_all_invoices");
   });
@@ -213,6 +187,6 @@ describe("InvoicesModal download all", () => {
         throw new Error("button still disabled after resolution");
       }
     });
-    expect(downloadBlobCalls).toHaveLength(1);
+    expect(saveFileCalls).toHaveLength(1);
   });
 });
