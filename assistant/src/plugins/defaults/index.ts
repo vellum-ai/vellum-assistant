@@ -34,6 +34,7 @@ import historyRepairStop from "./history-repair/hooks/stop.js";
 import historyRepairUserPromptSubmit from "./history-repair/hooks/user-prompt-submit.js";
 import historyRepairPkg from "./history-repair/package.json" with { type: "json" };
 import { resetRepairStateStoreForTests } from "./history-repair/repair-state-store.js";
+import imageRecoveryPostModelCall from "./image-recovery/hooks/post-model-call.js";
 import imageRecoveryStop from "./image-recovery/hooks/stop.js";
 import { resetImageRecoveryStoreForTests } from "./image-recovery/image-recovery-state-store.js";
 import imageRecoveryPkg from "./image-recovery/package.json" with { type: "json" };
@@ -119,11 +120,13 @@ export const defaultHistoryRepairPlugin: Plugin = {
 };
 
 /**
- * `image-recovery` — a `stop` hook that recovers from a provider
- * image-too-large rejection. It downscales the oversized image blocks in the
- * working history and asks the loop to retry, and persists the same downgrade
- * durably so the rejected image cannot rehydrate from the stored row and
- * re-reject on later turns. Bounded to one pass per turn.
+ * `image-recovery` — recovers from a provider image-too-large rejection. The
+ * `post-model-call` hook handles the rejection, downscaling the oversized image
+ * blocks in the working history and asking the loop to retry, and persisting
+ * the same downgrade durably so the rejected image cannot rehydrate from the
+ * stored row and re-reject on later turns; the `stop` hook clears the one-shot
+ * recovery bound on a terminal stop so the next turn recovers afresh. Bounded
+ * to one pass per turn.
  */
 export const defaultImageRecoveryPlugin: Plugin = {
   manifest: {
@@ -131,6 +134,7 @@ export const defaultImageRecoveryPlugin: Plugin = {
     version: imageRecoveryPkg.version,
   },
   hooks: {
+    "post-model-call": imageRecoveryPostModelCall,
     stop: imageRecoveryStop,
   },
 };
