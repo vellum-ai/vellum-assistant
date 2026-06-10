@@ -103,6 +103,7 @@ const {
 const seedPkgPath = `${mockResourcesPath}/cli-lockfile/package.json`;
 const seedLockPath = `${mockResourcesPath}/cli-lockfile/bun.lock`;
 const locatorPath = `${userDataPath}/cli/locator.sh`;
+const cliBinPath = `${userDataPath}/cli/${PINNED_CLI_VERSION}/node_modules/.bin/vellum`;
 
 afterEach(() => {
   existsSyncDefault = false;
@@ -166,6 +167,8 @@ describe("shQuote", () => {
 
 describe("writeCliLocator", () => {
   test("writes the temp file then renames it over locator.sh", () => {
+    existsSyncByPath[cliBinPath] = true;
+
     writeCliLocator();
 
     expect(mkdirSyncCalls).toContainEqual([
@@ -178,6 +181,8 @@ describe("writeCliLocator", () => {
   });
 
   test("content contains both single-quoted paths", () => {
+    existsSyncByPath[cliBinPath] = true;
+
     writeCliLocator();
 
     const content = writeFileSyncCalls[0][1];
@@ -190,9 +195,19 @@ describe("writeCliLocator", () => {
   });
 
   test("swallows write errors", () => {
+    existsSyncByPath[cliBinPath] = true;
     writeFileSyncError = new Error("EACCES: permission denied");
 
     expect(() => writeCliLocator()).not.toThrow();
+    expect(renameSyncCalls).toHaveLength(0);
+  });
+
+  test("no-ops when the CLI bin is not installed", () => {
+    existsSyncDefault = false;
+
+    writeCliLocator();
+
+    expect(writeFileSyncCalls).toHaveLength(0);
     expect(renameSyncCalls).toHaveLength(0);
   });
 });
@@ -288,6 +303,8 @@ describe("ensureCliInstalled", () => {
     readdirSyncReturn = [dirEntry("0.8.5")];
 
     const promise = ensureCliInstalled();
+    // Simulate bun creating the bin so the locator write proceeds.
+    existsSyncByPath[cliBinPath] = true;
     lastChild.emit("close", 0);
     await promise;
 
@@ -303,6 +320,7 @@ describe("ensureCliInstalled", () => {
     writeFileSyncError = new Error("EACCES: permission denied");
 
     const promise = ensureCliInstalled();
+    existsSyncByPath[cliBinPath] = true;
     lastChild.emit("close", 0);
 
     await expect(promise).resolves.toBeUndefined();

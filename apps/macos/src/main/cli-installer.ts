@@ -52,8 +52,13 @@ export function shQuote(value: string): string {
  * sources to find the bundled bun and the current CLI bin. Refreshed on
  * every launch so app moves and version bumps self-heal. Non-fatal —
  * failures are logged but never block app startup.
+ *
+ * No-ops when the pinned CLI bin isn't installed yet (e.g. first launch
+ * after a version bump) so the wrapper is never pointed at a missing binary.
  */
 export function writeCliLocator(): void {
+  if (!isCliInstalled()) return;
+
   try {
     const locatorPath = getCliLocatorPath();
     mkdirSync(path.dirname(locatorPath), { recursive: true });
