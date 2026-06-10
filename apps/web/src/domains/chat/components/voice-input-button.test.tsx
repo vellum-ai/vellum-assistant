@@ -43,9 +43,19 @@ mock.module("@/domains/chat/voice/stt-api", () => ({
   postSttTranscribe: postSttTranscribeSpy,
 }));
 
-// No daemon stream — live interim text from that source is not under test.
+// The daemon stream defaults to unavailable (null) — live interim text from
+// that source is not under test; the fallback tests swap in a fake handle to
+// drive the stream-death path.
+interface FakeDictationStreamArgs {
+  onPartial: (text: string) => void;
+  onDown?: () => void;
+}
+let dictationStreamImpl: (
+  args: FakeDictationStreamArgs,
+) => { isLive: () => boolean; stop: () => void } | null = () => null;
 mock.module("@/domains/chat/voice/dictation-stream", () => ({
-  startDictationStream: () => null,
+  startDictationStream: (args: FakeDictationStreamArgs) =>
+    dictationStreamImpl(args),
 }));
 
 // Native helper partials default to unavailable (the plain web path); the
@@ -268,6 +278,7 @@ describe("VoiceInputButton — native partials fallback", () => {
 
   afterEach(() => {
     nativePartialsImpl = async () => null;
+    dictationStreamImpl = () => null;
     cleanup();
     useVoiceRecordingStore.getState().reset();
   });
@@ -306,6 +317,41 @@ describe("VoiceInputButton — native partials fallback", () => {
 
     await waitFor(() => {
       expect(onTranscript).toHaveBeenCalledWith("hello world");
+    });
+  });
+
+  test("stream dying mid-recording starts the native fallback", async () => {
+    let streamOnDown: (() => void) | undefined;
+    dictationStreamImpl = (args) => {
+      streamOnDown = args.onDown;
+      return { isLive: () => false, stop: () => {} };
+    };
+    nativePartialsImpl = async (onPartial) => {
+      onPartial("offline transcript");
+      return () => {};
+    };
+    postSttTranscribeSpy.mockImplementationOnce(async () => ({
+      status: "error",
+      reason: "network",
+    }));
+
+    const onTranscript = mock(async (_text: string) => {});
+    await startSession(onTranscript);
+
+    // While the stream handle exists the native fallback stays off.
+    expect(useVoiceRecordingStore.getState().interimTranscript).toBe("");
+
+    act(() => streamOnDown?.());
+    await waitFor(() => {
+      expect(useVoiceRecordingStore.getState().interimTranscript).toBe(
+        "offline transcript",
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(onTranscript).toHaveBeenCalledWith("offline transcript");
     });
   });
 });

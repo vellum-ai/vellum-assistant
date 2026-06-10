@@ -365,6 +365,29 @@ export const VoiceInputButton = forwardRef<
     nativePartialsStopRef.current = null;
   }, []);
 
+  // Fall back to the mac helper's local speech recognizer for live text and
+  // the offline final-transcript fallback. Started when the daemon stream
+  // can't be opened at all (no self-hosted gateway ingress) AND when an
+  // opened stream later dies without going live — a reachable-looking
+  // ingress with an unreachable daemon (machine offline) lands there.
+  const startNativePartialsFallback = useCallback(() => {
+    if (!mediaRecorderRef.current || nativePartialsStopRef.current) return;
+    void startNativeDictationPartials((text) => {
+      nativePartialsTextRef.current = text;
+      if (!dictationStreamRef.current?.isLive()) {
+        publishInterim(text);
+      }
+    }).then((stop) => {
+      if (!stop) return;
+      // The session may have ended while the helper call was in flight.
+      if (!mediaRecorderRef.current) {
+        stop();
+        return;
+      }
+      nativePartialsStopRef.current = stop;
+    });
+  }, [publishInterim]);
+
   const stopRecording = useCallback(() => {
     cancelledStartRef.current = true;
     stopSpeechRecognition();
@@ -754,28 +777,14 @@ export const VoiceInputButton = forwardRef<
     // transcripts. Null / later failure means no live partials from that
     // source; the recorder above is untouched either way.
     stopDictationStream();
+    stopNativePartials();
     dictationStreamRef.current = startDictationStream({
       onPartial: publishInterim,
+      onDown: startNativePartialsFallback,
     });
 
-    // No stream possible (no self-hosted gateway ingress) — fall back to
-    // the mac helper's local speech recognizer for live text.
-    stopNativePartials();
     if (!dictationStreamRef.current) {
-      void startNativeDictationPartials((text) => {
-        nativePartialsTextRef.current = text;
-        if (!dictationStreamRef.current?.isLive()) {
-          publishInterim(text);
-        }
-      }).then((stop) => {
-        if (!stop) return;
-        // The session may have ended while the helper call was in flight.
-        if (!mediaRecorderRef.current) {
-          stop();
-          return;
-        }
-        nativePartialsStopRef.current = stop;
-      });
+      startNativePartialsFallback();
     }
   }, [
     assistantId,
@@ -784,6 +793,7 @@ export const VoiceInputButton = forwardRef<
     onTranscript,
     publishInterim,
     releaseStream,
+    startNativePartialsFallback,
     stopSpeechRecognition,
     stopDictationStream,
     stopNativePartials,

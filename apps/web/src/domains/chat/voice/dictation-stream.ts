@@ -60,6 +60,14 @@ export interface StartDictationStreamArgs {
    * on every partial/final event.
    */
   onPartial: (text: string) => void;
+  /**
+   * Invoked once when the session tears down for any reason other than the
+   * caller's own `stop()` — connect failure, capture denial, server error,
+   * socket close. Lets the caller switch to a fallback partials source
+   * mid-recording (e.g. the daemon is unreachable because the machine is
+   * offline).
+   */
+  onDown?: () => void;
 }
 
 /** Injection seams for tests. */
@@ -115,7 +123,7 @@ function joinTranscript(a: string, b: string): string {
  * session down silently; the batch recording path is unaffected.
  */
 export function startDictationStream(
-  { onPartial }: StartDictationStreamArgs,
+  { onPartial, onDown }: StartDictationStreamArgs,
   options: DictationStreamOptions = {},
 ): DictationStreamHandle | null {
   const ingressUrl = getSelfHostedIngressUrl();
@@ -141,6 +149,7 @@ export function startDictationStream(
 
   let live = false;
   let closed = false;
+  let stopRequested = false;
   let committedText = "";
 
   const capture = (
@@ -169,6 +178,9 @@ export function startDictationStream(
       } catch {
         // Already closing — nothing to clean up.
       }
+    }
+    if (!stopRequested) {
+      onDown?.();
     }
   };
 
@@ -242,6 +254,7 @@ export function startDictationStream(
   return {
     isLive: () => live && !closed,
     stop: () => {
+      stopRequested = true;
       if (!closed && ws.readyState === WebSocket.OPEN) {
         try {
           ws.send(JSON.stringify({ type: "stop" }));
