@@ -91,7 +91,7 @@ export function VoicePage() {
 function SpeechServicesBanner() {
   return (
     <div className="flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--field-bg)] px-3 py-2">
-      <Info className="h-3.5 w-3.5 shrink-0 text-forest-700" />
+      <Info className="h-3.5 w-3.5 shrink-0 text-[var(--primary-base)]" />
       <span className="text-body-medium-lighter text-[var(--content-tertiary)]">
         Looking to configure Speech-to-Text or Text-to-Speech models?
       </span>
@@ -480,7 +480,7 @@ function ActivationKeyOption({
         className={[
           "inline-block h-2.5 w-2.5 rounded-full border",
           selected
-            ? "border-forest-700 bg-forest-700"
+            ? "border-[var(--primary-base)] bg-[var(--primary-base)]"
             : "border-[var(--border-element)]",
         ].join(" ")}
       />

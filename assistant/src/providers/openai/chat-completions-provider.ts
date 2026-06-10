@@ -237,6 +237,43 @@ export function clampReasoningEffort(
     : value;
 }
 
+/**
+ * Translate the neutral (Anthropic-shaped) `tool_choice` carried on the call
+ * config into the OpenAI chat-completions wire format. Callers express
+ * `tool_choice` once in the Anthropic union — `{ type: "auto" | "any" | "none"
+ * | "tool", name? }` — and each provider maps it to its own dialect (the
+ * Anthropic client forwards the union verbatim). For OpenAI-compatible APIs:
+ *   - `{ type: "auto" }`        -> `"auto"`
+ *   - `{ type: "any" }`         -> `"required"`
+ *   - `{ type: "none" }`        -> `"none"`
+ *   - `{ type: "tool", name }`  -> `{ type: "function", function: { name } }`
+ * Returns `undefined` for an absent or unrecognized value so the request omits
+ * `tool_choice` and falls back to the API default.
+ *
+ * See OpenAI's tool_choice spec:
+ * https://platform.openai.com/docs/api-reference/chat/create#chat-create-tool_choice
+ */
+export function mapNeutralToolChoice(
+  toolChoice: unknown,
+): OpenAI.Chat.Completions.ChatCompletionToolChoiceOption | undefined {
+  if (toolChoice == null || typeof toolChoice !== "object") return undefined;
+  const tc = toolChoice as { type?: unknown; name?: unknown };
+  switch (tc.type) {
+    case "auto":
+      return "auto";
+    case "any":
+      return "required";
+    case "none":
+      return "none";
+    case "tool":
+      return typeof tc.name === "string"
+        ? { type: "function", function: { name: tc.name } }
+        : undefined;
+    default:
+      return undefined;
+  }
+}
+
 const OPENAI_SUPPORTED_IMAGE_TYPES = new Set([
   "image/jpeg",
   "image/png",
@@ -367,6 +404,15 @@ export class OpenAIChatCompletionsProvider implements Provider {
             parameters: t.input_schema as OpenAI.FunctionParameters,
           },
         }));
+
+        // Honor a caller-supplied tool_choice (e.g. `{ type: "none" }` to force
+        // a text-only answer, or `{ type: "tool", name }` for a forced call).
+        // Only meaningful when tools are present — OpenAI rejects a named or
+        // "required" choice with no tools.
+        const toolChoice = mapNeutralToolChoice(configObj?.tool_choice);
+        if (toolChoice !== undefined) {
+          params.tool_choice = toolChoice;
+        }
       }
 
       const { signal: timeoutSignal, cleanup: cleanupTimeout } =

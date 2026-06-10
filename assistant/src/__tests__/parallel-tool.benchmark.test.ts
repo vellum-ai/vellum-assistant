@@ -137,6 +137,7 @@ describe("Parallel tool execution benchmarks", () => {
     });
     const start = Date.now();
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -185,6 +186,7 @@ describe("Parallel tool execution benchmarks", () => {
     });
     const start = Date.now();
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -246,6 +248,7 @@ describe("Parallel tool execution benchmarks", () => {
     const events: AgentEvent[] = [];
     const start = Date.now();
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -319,6 +322,7 @@ describe("Parallel tool execution benchmarks", () => {
       });
       const start = Date.now();
       const { history } = await loop.run({
+        requestId: "test-request",
         messages: [userMessage],
         onEvent: () => {},
         trust: { sourceChannel: "vellum", trustClass: "unknown" },

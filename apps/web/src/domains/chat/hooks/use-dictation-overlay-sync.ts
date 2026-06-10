@@ -15,16 +15,16 @@ import { setDictationOverlayState } from "@/runtime/dictation-overlay";
  * no-ops, so this is safe to mount on web and iOS.
  *
  * Everything it publishes is read from `useVoiceRecordingStore` — phase,
- * live interim transcript, and error codes — so it must be mounted exactly
+ * live interim transcript, audio level, and error codes — so it must be mounted exactly
  * ONCE per window, in `GlobalPushToTalkBridge` (always present in
  * `RootLayout`). That covers dictation hosted by any `VoiceInputButton`
  * instance: the chat composer's on chat routes, and the bridge's headless
  * fallback on every other route (Settings, onboarding, …). A second
  * mounted instance would publish duplicate messages racing this one.
  *
- * The main process decides visibility: sessions that start while a Vellum
- * window is focused are suppressed there (the composer already shows
- * interim text inline), so this hook publishes unconditionally.
+ * The main process owns visibility. The Electron shell shows the same
+ * top-center recording overlay for both in-app and global dictation, so this
+ * hook publishes unconditionally.
  *
  * `dictationInsertionError` exists because front-app insertion failures
  * (automation denied / paste blocked) flag an error and then still
@@ -36,12 +36,17 @@ export function useDictationOverlaySync(): void {
   const phase = useVoiceRecordingStore.use.phase();
   const errorCode = useVoiceRecordingStore.use.errorCode();
   const interim = useVoiceRecordingStore.use.interimTranscript();
+  const audioLevel = useVoiceRecordingStore.use.audioLevel();
   const insertionError = useVoiceRecordingStore.use.dictationInsertionError();
 
   useEffect(() => {
     switch (phase) {
       case "recording":
-        setDictationOverlayState({ kind: "recording", transcription: interim });
+        setDictationOverlayState({
+          kind: "recording",
+          transcription: interim,
+          audioLevel,
+        });
         break;
       case "processing":
         setDictationOverlayState({ kind: "processing" });
@@ -63,7 +68,7 @@ export function useDictationOverlaySync(): void {
         setDictationOverlayState({ kind: "dismiss" });
         break;
     }
-  }, [phase, interim, errorCode, insertionError]);
+  }, [phase, interim, audioLevel, errorCode, insertionError]);
 
   // Mount-scoped (not in the effect above — its cleanup runs on every dep
   // change, which would hide and re-show the overlay between interim

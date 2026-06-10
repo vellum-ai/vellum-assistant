@@ -278,7 +278,10 @@ function probePlatformSession(
               ),
             ]);
             if (!isStale() && apiAssistants.ok) {
-              await syncPlatformAssistantsToLockfile(apiAssistants.data);
+              await syncPlatformAssistantsToLockfile(
+                apiAssistants.data,
+                useOrganizationStore.getState().currentOrganizationId ?? undefined,
+              );
             }
           } catch {
             // Sync failed or timed out — continue with cached lockfile data
@@ -385,7 +388,10 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
               await useOrganizationStore.getState().fetchOrganizations();
               const apiAssistants = await listAssistants();
               if (apiAssistants.ok) {
-                await syncPlatformAssistantsToLockfile(apiAssistants.data);
+                await syncPlatformAssistantsToLockfile(
+                  apiAssistants.data,
+                  useOrganizationStore.getState().currentOrganizationId ?? undefined,
+                );
                 if (getPlatformAssistants().length === 0 && getLocalAssistants().length === 0) {
                   set(authenticatedPlatformUser(user));
                   return;
@@ -527,7 +533,10 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
             await useOrganizationStore.getState().fetchOrganizations();
             const apiAssistants = await listAssistants();
             if (apiAssistants.ok) {
-              await syncPlatformAssistantsToLockfile(apiAssistants.data);
+              await syncPlatformAssistantsToLockfile(
+                apiAssistants.data,
+                useOrganizationStore.getState().currentOrganizationId ?? undefined,
+              );
             }
           } catch {
             // Sync failed — continue with cached lockfile data.

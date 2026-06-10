@@ -1,6 +1,7 @@
 import { AlertTriangle, File, Loader2, Upload, X } from "lucide-react";
 import { type ChangeEvent, type DragEvent, useCallback, useRef, useState } from "react";
 
+import { Button } from "@vellumai/design-library";
 import type { Surface } from "@/domains/chat/types/types";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
@@ -344,7 +345,7 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
       )}
 
       {/* Error message */}
-      {error && <p className="mt-2 text-body-small-default text-danger-500">{error}</p>}
+      {error && <p className="mt-2 text-body-small-default text-[var(--system-negative-strong)]">{error}</p>}
 
       {/* Suspicious extension warning */}
       {extensionWarning && (
@@ -356,19 +357,14 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
 
       {/* Submit button */}
       <div className="mt-4 flex justify-end">
-        <button
-          type="button"
+        <Button
+          variant="primary"
           disabled={isSubmitting || selectedFiles.length === 0}
           onClick={handleSubmit}
-          className="flex items-center gap-2 rounded-lg bg-forest-600 px-4 py-2 text-body-medium-default text-white transition-colors hover:bg-forest-700 disabled:opacity-50"
+          leftIcon={isSubmitting ? <Loader2 className="animate-spin" /> : <Upload />}
         >
-          {isSubmitting ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Upload className="h-4 w-4" />
-          )}
           {isSubmitting ? "Uploading..." : "Upload"}
-        </button>
+        </Button>
       </div>
     </div>
   );

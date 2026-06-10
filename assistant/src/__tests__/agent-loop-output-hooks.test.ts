@@ -101,6 +101,7 @@ describe("agent loop output hooks", () => {
     });
     const events: AgentEvent[] = [];
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collect(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -125,6 +126,7 @@ describe("agent loop output hooks", () => {
     });
     const events: AgentEvent[] = [];
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collect(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -149,6 +151,7 @@ describe("agent loop output hooks", () => {
     });
     const events: AgentEvent[] = [];
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collect(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -192,6 +195,7 @@ describe("agent loop output hooks", () => {
       toolExecutor: async () => ({ content: "ok", isError: false }),
     });
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collect([]),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -224,6 +228,7 @@ describe("agent loop output hooks", () => {
       conversationId: "test-conversation",
     });
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collect([]),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -249,6 +254,7 @@ describe("agent loop output hooks", () => {
       conversationId: "test-conversation",
     });
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collect([]),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -290,6 +296,7 @@ describe("agent loop output hooks", () => {
     });
     const events: AgentEvent[] = [];
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collect(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -341,6 +348,7 @@ describe("agent loop output hooks", () => {
     });
     const events: AgentEvent[] = [];
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collect(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },

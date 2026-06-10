@@ -38,6 +38,7 @@ mock.module("@/hooks/use-is-org-ready", () => ({
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAssistantOperationalStatus } from "@/assistant/operational-status";
 import { useAuthStore } from "@/stores/auth-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 const initialAuthState = useAuthStore.getState();
 const initialLifecycleState = useAssistantLifecycleStore.getState();
@@ -85,6 +86,7 @@ beforeEach(() => {
     true,
   );
   useAssistantLifecycleStore.setState(initialLifecycleState, true);
+  useClientFeatureFlagStore.setState({ centralizedAssistantStatus: true });
 });
 
 afterEach(() => {
@@ -92,6 +94,18 @@ afterEach(() => {
 });
 
 describe("useAssistantOperationalStatus", () => {
+  test("does not fetch when the centralized assistant status flag is off", async () => {
+    useClientFeatureFlagStore.setState({ centralizedAssistantStatus: false });
+    setLifecycle({ kind: "active", isLocal: false });
+
+    renderHook(() => useAssistantOperationalStatus("assistant-platform"), {
+      wrapper,
+    });
+    await settleQueries();
+
+    expect(clientGetMock).not.toHaveBeenCalled();
+  });
+
   test("does not fetch for active local assistants", async () => {
     setLifecycle({ kind: "active", isLocal: true });
 

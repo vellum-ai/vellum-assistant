@@ -283,6 +283,29 @@ describe("history-repair stop hook — direct", () => {
     expect(ctx.decision).toBe("continue");
   });
 
+  test("a non-ordering stop already continuing this turn keeps the bound", async () => {
+    // GIVEN this turn already repaired an ordering rejection (bound marked),
+    // then an earlier stop hook recovered a different error and set the
+    // decision to continue.
+    const conversationId = "conv-cross-hook";
+    markOrderingRepairAttempted(conversationId);
+    const ctx = makeStopCtx({
+      conversationId,
+      decision: "continue",
+      error: new Error("image dimensions exceed max allowed size"),
+    });
+
+    // WHEN the history-repair hook runs after that earlier hook.
+    await stop(ctx);
+
+    // THEN it leaves the in-flight continue alone and keeps its bound, so a
+    // later ordering rejection in the same turn is recognized as the exhausted
+    // second attempt rather than a fresh first one. The error stop retry has no
+    // loop-side cap, so clearing here could loop the provider call forever.
+    expect(ctx.decision).toBe("continue");
+    expect(isOrderingRepairAttempted(conversationId)).toBe(true);
+  });
+
   test("non-ordering error is left untouched", async () => {
     // GIVEN an error stop whose rejection is not an ordering violation.
     const messages = orderingViolatingHistory();

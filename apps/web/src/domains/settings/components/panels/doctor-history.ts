@@ -1,49 +1,60 @@
-export type ChatEntryKind =
-  | "user"
-  | "assistant"
-  | "tool_call"
-  | "tool_result"
-  | "approval"
-  | "backup_prompt"
-  | "error"
-  | "status";
+import type {
+  DoctorMessage,
+  DoctorSessionStatusEnum,
+} from "@/generated/api/types.gen";
 
-export interface ChatEntry {
+// ---------------------------------------------------------------------------
+// ChatEntry — discriminated union by `kind`
+// ---------------------------------------------------------------------------
+
+interface ChatEntryBase {
   id: string;
-  kind: ChatEntryKind;
   content: string;
   timestamp: number;
-  meta?: Record<string, unknown>;
 }
 
-export type PersistedMessageKind =
-  | "user"
-  | "assistant"
-  | "tool_call"
-  | "tool_result"
-  | "approval"
-  | "status"
-  | "error";
-
-export type PersistedSessionStatus = "active" | "completed" | "error";
-
-export interface PersistedMessage {
-  id: string;
-  kind: PersistedMessageKind;
-  content: string;
-  metadata: unknown;
-  sequence: number;
-  occurred_at: string;
+export interface ToolCallMeta {
+  toolName: string;
+  input: Record<string, unknown>;
+  toolCallId: string;
+  status: "running" | "completed" | "error";
+  result?: string;
+  isError?: boolean;
 }
 
-export interface PersistedSession {
-  id: string;
-  status: PersistedSessionStatus;
-  last_message_at: string | null;
-  ended_at: string | null;
-  created: string;
-  modified: string;
+export interface ApprovalMeta {
+  toolName: string;
+  input: Record<string, unknown>;
+  toolCallId: string;
+  description: string;
 }
+
+export interface BackupPromptMeta {
+  toolName: string;
+}
+
+export type ChatEntry =
+  | (ChatEntryBase & { kind: "user" })
+  | (ChatEntryBase & { kind: "assistant" })
+  | (ChatEntryBase & { kind: "tool_call"; meta: ToolCallMeta })
+  | (ChatEntryBase & { kind: "approval"; meta: ApprovalMeta })
+  | (ChatEntryBase & { kind: "backup_prompt"; meta: BackupPromptMeta })
+  | (ChatEntryBase & { kind: "error" })
+  | (ChatEntryBase & { kind: "status" });
+
+/** Distributive omit that preserves the discriminated union structure. */
+export type NewChatEntry =
+  | { kind: "user"; content: string }
+  | { kind: "assistant"; content: string }
+  | { kind: "tool_call"; content: string; meta: ToolCallMeta }
+  | { kind: "approval"; content: string; meta: ApprovalMeta }
+  | { kind: "backup_prompt"; content: string; meta: BackupPromptMeta }
+  | { kind: "error"; content: string }
+  | { kind: "status"; content: string };
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function metaRecord(metadata: unknown): Record<string, unknown> {
   if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
@@ -53,7 +64,7 @@ function metaRecord(metadata: unknown): Record<string, unknown> {
 }
 
 export function mapPersistedMessagesToEntries(
-  messages: PersistedMessage[],
+  messages: DoctorMessage[],
 ): ChatEntry[] {
   const entries: ChatEntry[] = [];
 
@@ -90,8 +101,8 @@ export function mapPersistedMessagesToEntries(
           timestamp,
           meta: {
             toolName,
-            input: meta.input,
-            id: meta.id,
+            input: (meta.input as Record<string, unknown>) ?? {},
+            toolCallId: typeof meta.id === "string" ? meta.id : message.id,
             status: "running",
           },
         });
@@ -101,14 +112,17 @@ export function mapPersistedMessagesToEntries(
         const toolCallId = meta.toolCallId;
         const isError = meta.isError === true;
         const idx = entries.findIndex(
-          (e) => e.kind === "tool_call" && e.meta?.id === toolCallId,
+          (e) =>
+            e.kind === "tool_call" &&
+            e.meta.toolCallId === toolCallId,
         );
         if (idx === -1) break;
         const existing = entries[idx]!;
+        if (existing.kind !== "tool_call") break;
         entries[idx] = {
           ...existing,
           meta: {
-            ...(existing.meta ?? {}),
+            ...existing.meta,
             result: message.content,
             isError,
             status: isError ? "error" : "completed",
@@ -126,9 +140,9 @@ export function mapPersistedMessagesToEntries(
           timestamp,
           meta: {
             toolName,
-            input: meta.input,
-            id: meta.id,
-            description: meta.description,
+            input: (meta.input as Record<string, unknown>) ?? {},
+            toolCallId: typeof meta.id === "string" ? meta.id : message.id,
+            description: typeof meta.description === "string" ? meta.description : "",
           },
         });
         break;
@@ -170,7 +184,7 @@ export function mapPersistedMessagesToEntries(
 }
 
 export function mapPersistedStatusToPanelStatus(
-  status: PersistedSessionStatus,
+  status: DoctorSessionStatusEnum,
 ): "idle" | "active" | "completed" | "error" {
   switch (status) {
     case "active":
@@ -205,5 +219,5 @@ export function hasPendingBackup(entries: ChatEntry[]): boolean {
 export function selectLatestHistorySession<
   T extends { last_message_at: string | null; created: string },
 >(sessions: T[]): T | null {
-  return sessions.length > 0 ? sessions[0]! : null;
+  return sessions[0] ?? null;
 }

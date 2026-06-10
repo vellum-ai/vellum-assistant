@@ -42,6 +42,7 @@ import {
     useConversationGroupsQuery,
     useConversationListQuery,
 } from "@/hooks/conversation-queries";
+import { openCommandPaletteWindow } from "@/runtime/command-palette-window";
 import { openPopoutWindow } from "@/runtime/popout-window";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -420,7 +421,13 @@ export function ChatLayout() {
       void navigate(routes.home);
     },
     commandPalette: () => {
-      useCommandPaletteStore.getState().toggle();
+      void openCommandPaletteWindow()
+        .then((opened) => {
+          if (!opened) useCommandPaletteStore.getState().toggle();
+        })
+        .catch(() => {
+          useCommandPaletteStore.getState().toggle();
+        });
     },
     previousConversation: () => {
       if (!activeConversationId || conversations.length === 0) return;
@@ -437,6 +444,36 @@ export function ChatLayout() {
       );
       const next = conversations[idx + 1];
       if (next) handleSelectConversation(next.conversationId);
+    },
+    openConversation: (command) => {
+      if (command.kind === "openConversation") {
+        handleSelectConversation(command.conversationId);
+      }
+    },
+    openLibrary: () => {
+      void navigate(routes.library.root);
+    },
+    openIdentity: () => {
+      void navigate(routes.identity);
+    },
+    navigateBack: () => {
+      navigate(-1);
+    },
+    navigateForward: () => {
+      navigate(1);
+    },
+    zoomIn: () => {
+      document.body.style.zoom = String(
+        parseFloat(document.body.style.zoom || "1") + 0.1,
+      );
+    },
+    zoomOut: () => {
+      document.body.style.zoom = String(
+        Math.max(0.5, parseFloat(document.body.style.zoom || "1") - 0.1),
+      );
+    },
+    actualSize: () => {
+      document.body.style.zoom = "1";
     },
     popOut: () => {
       if (!activeConversationId) {
@@ -644,4 +681,3 @@ export function ChatLayout() {
     </>
   );
 }
-

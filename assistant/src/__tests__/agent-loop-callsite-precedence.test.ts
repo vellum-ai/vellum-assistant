@@ -108,6 +108,7 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -139,6 +140,7 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -173,6 +175,7 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -212,6 +215,7 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -242,6 +246,7 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -280,6 +285,7 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -318,6 +324,7 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },

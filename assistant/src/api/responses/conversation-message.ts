@@ -276,6 +276,53 @@ export type ConversationSlackMessage = z.infer<
 // Content block (unified ordered content)
 // ---------------------------------------------------------------------------
 
+/** A run of assistant prose. */
+export const ConversationTextBlockSchema = z.object({
+  type: z.literal("text"),
+  text: z.string(),
+});
+export type ConversationTextBlock = z.infer<typeof ConversationTextBlockSchema>;
+
+/** A contiguous model reasoning run with its timing. */
+export const ConversationThinkingBlockSchema = z.object({
+  type: z.literal("thinking"),
+  thinking: z.string(),
+  /** Unix ms when the model began emitting this reasoning block. */
+  startedAt: z.number().optional(),
+  /** Unix ms when this reasoning block completed. */
+  completedAt: z.number().optional(),
+});
+export type ConversationThinkingBlock = z.infer<
+  typeof ConversationThinkingBlockSchema
+>;
+
+/** A tool invocation carrying its paired result (`toolCall.result`). */
+export const ConversationToolUseBlockSchema = z.object({
+  type: z.literal("tool_use"),
+  toolCall: ConversationMessageToolCallSchema,
+});
+export type ConversationToolUseBlock = z.infer<
+  typeof ConversationToolUseBlockSchema
+>;
+
+/** A vellum surface projection (no provider analog). */
+export const ConversationSurfaceBlockSchema = z.object({
+  type: z.literal("surface"),
+  surface: ConversationMessageSurfaceSchema,
+});
+export type ConversationSurfaceBlock = z.infer<
+  typeof ConversationSurfaceBlockSchema
+>;
+
+/** A vellum attachment projection (no provider analog). */
+export const ConversationAttachmentBlockSchema = z.object({
+  type: z.literal("attachment"),
+  attachment: ConversationMessageAttachmentSchema,
+});
+export type ConversationAttachmentBlock = z.infer<
+  typeof ConversationAttachmentBlockSchema
+>;
+
 /**
  * A single ordered content block. `contentBlocks` is the unified, display-ready
  * projection of a message's model-native content — one ordered tagged array so
@@ -300,27 +347,11 @@ export type ConversationSlackMessage = z.infer<
  * it from the positional arrays, so it stays correct once those are retired.
  */
 export const ConversationContentBlockSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("text"), text: z.string() }),
-  z.object({
-    type: z.literal("thinking"),
-    thinking: z.string(),
-    /** Unix ms when the model began emitting this reasoning block. */
-    startedAt: z.number().optional(),
-    /** Unix ms when this reasoning block completed. */
-    completedAt: z.number().optional(),
-  }),
-  z.object({
-    type: z.literal("tool_use"),
-    toolCall: ConversationMessageToolCallSchema,
-  }),
-  z.object({
-    type: z.literal("surface"),
-    surface: ConversationMessageSurfaceSchema,
-  }),
-  z.object({
-    type: z.literal("attachment"),
-    attachment: ConversationMessageAttachmentSchema,
-  }),
+  ConversationTextBlockSchema,
+  ConversationThinkingBlockSchema,
+  ConversationToolUseBlockSchema,
+  ConversationSurfaceBlockSchema,
+  ConversationAttachmentBlockSchema,
 ]);
 export type ConversationContentBlock = z.infer<
   typeof ConversationContentBlockSchema

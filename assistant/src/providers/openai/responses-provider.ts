@@ -49,6 +49,41 @@ const EFFORT_TO_REASONING_EFFORT: Record<
 /** Values accepted by the Responses API `text.verbosity` parameter. */
 const VALID_VERBOSITIES = new Set<string>(["low", "medium", "high"]);
 
+/**
+ * Translate the neutral (Anthropic-shaped) `tool_choice` carried on the call
+ * config into the OpenAI Responses API wire format. Callers express
+ * `tool_choice` once in the Anthropic union — `{ type: "auto" | "any" | "none"
+ * | "tool", name? }`. For the Responses API:
+ *   - `{ type: "auto" }`        -> `"auto"`
+ *   - `{ type: "any" }`         -> `"required"`
+ *   - `{ type: "none" }`        -> `"none"`
+ *   - `{ type: "tool", name }`  -> `{ type: "function", name }`
+ * Note the named shape differs from chat-completions (no nested `function`
+ * wrapper). Returns `undefined` for an absent or unrecognized value.
+ *
+ * https://platform.openai.com/docs/api-reference/responses/create#responses-create-tool_choice
+ */
+export function mapNeutralToolChoiceForResponses(
+  toolChoice: unknown,
+): string | { type: "function"; name: string } | undefined {
+  if (toolChoice == null || typeof toolChoice !== "object") return undefined;
+  const tc = toolChoice as { type?: unknown; name?: unknown };
+  switch (tc.type) {
+    case "auto":
+      return "auto";
+    case "any":
+      return "required";
+    case "none":
+      return "none";
+    case "tool":
+      return typeof tc.name === "string"
+        ? { type: "function", name: tc.name }
+        : undefined;
+    default:
+      return undefined;
+  }
+}
+
 /** `text.verbosity` is a GPT-5-series-only parameter. Older models on the
  *  Responses API (o-series, etc.) reject unknown wire fields with HTTP 400, so
  *  gate forwarding by model name here. The retry layer can't make this call
@@ -228,6 +263,16 @@ export class OpenAIResponsesProvider implements Provider {
             parameters: t.input_schema,
             strict: null,
           }));
+        }
+
+        // Honor a caller-supplied tool_choice (e.g. `{ type: "none" }` to force
+        // a text-only answer, or `{ type: "tool", name }` for a forced call).
+        // Only meaningful when tools are present.
+        const toolChoice = mapNeutralToolChoiceForResponses(
+          configObj?.tool_choice,
+        );
+        if (toolChoice !== undefined) {
+          params.tool_choice = toolChoice;
         }
       }
 

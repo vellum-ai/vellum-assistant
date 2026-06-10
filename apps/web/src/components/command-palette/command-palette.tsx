@@ -54,6 +54,8 @@ export interface CommandPaletteProps {
   onItemSelect?: (item: CommandPaletteItemData, index: number) => void;
   /** Key-down handler from useCommandPalette for keyboard navigation. */
   onKeyDown: (e: KeyboardEvent) => void;
+  /** Render without the main-app backdrop/portal inside a floating window. */
+  surface?: "overlay" | "window";
 }
 
 // ---------------------------------------------------------------------------
@@ -79,6 +81,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
   isSearching = false,
   onItemSelect,
   onKeyDown,
+  surface = "overlay",
 }) => {
   const isMobile = useIsMobile();
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -120,20 +123,36 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
 
   // Flatten all items to compute the global index for each item.
   let flatIndex = 0;
+  const isWindowSurface = surface === "window";
+  const useMobileLayout = isMobile && !isWindowSurface;
 
   const searchInputRow = (
-    <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-base)] px-4 py-3">
+    <div
+      className={
+        isWindowSurface
+          ? "flex shrink-0 items-center gap-2 border-b border-[#24292e] px-4 py-3"
+          : "flex shrink-0 items-center gap-2 border-b border-[var(--border-base)] px-4 py-3"
+      }
+    >
       {isSearching ? (
         <Loader2
           size={16}
           aria-hidden
-          className="shrink-0 animate-spin text-[var(--content-tertiary)]"
+          className={
+            isWindowSurface
+              ? "shrink-0 animate-spin text-[#8d99a5]"
+              : "shrink-0 animate-spin text-[var(--content-tertiary)]"
+          }
         />
       ) : (
         <Search
           size={16}
           aria-hidden
-          className="shrink-0 text-[var(--content-tertiary)]"
+          className={
+            isWindowSurface
+              ? "shrink-0 text-[#8d99a5]"
+              : "shrink-0 text-[var(--content-tertiary)]"
+          }
         />
       )}
       <input
@@ -142,11 +161,15 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
         value={query}
         onChange={(e) => onQueryChange(e.target.value)}
         placeholder="Search conversations, memories…"
-        className="min-w-0 flex-1 bg-transparent text-body-medium-lighter text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none"
+        className={
+          isWindowSurface
+            ? "min-w-0 flex-1 bg-transparent text-sm font-medium text-[#f6f5f4] placeholder:text-[#8d99a5] outline-none"
+            : "min-w-0 flex-1 bg-transparent text-body-medium-lighter text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] outline-none"
+        }
         aria-label="Search"
       />
       {query ? (
-        isMobile ? (
+        useMobileLayout ? (
           <button
             type="button"
             className="shrink-0 text-body-medium-lighter text-[var(--content-tertiary)]"
@@ -154,6 +177,15 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
             aria-label="Clear search"
           >
             Clear
+          </button>
+        ) : isWindowSurface ? (
+          <button
+            type="button"
+            className="flex size-7 shrink-0 items-center justify-center rounded-md text-[#8d99a5] transition-colors hover:bg-[#1c2024] hover:text-[#f6f5f4]"
+            aria-label="Clear search"
+            onClick={() => onQueryChange("")}
+          >
+            <X size={16} aria-hidden />
           </button>
         ) : (
           <Button
@@ -165,12 +197,18 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
             tintColor="var(--content-tertiary)"
           />
         )
-      ) : isMobile ? null : (
-        <kbd className="shrink-0 rounded-md border border-[var(--border-base)] bg-[var(--surface-active)] px-1.5 py-0.5 text-label-small-default text-[var(--content-tertiary)]">
+      ) : useMobileLayout ? null : (
+        <kbd
+          className={
+            isWindowSurface
+              ? "shrink-0 rounded-md border border-[#2d3339] bg-[#24292e] px-1.5 py-0.5 text-xs font-medium text-[#a9b2bb]"
+              : "shrink-0 rounded-md border border-[var(--border-base)] bg-[var(--surface-active)] px-1.5 py-0.5 text-label-small-default text-[var(--content-tertiary)]"
+          }
+        >
           ⌘K
         </kbd>
       )}
-      {isMobile ? (
+      {useMobileLayout ? (
         <Button
           variant="ghost"
           size="compact"
@@ -188,7 +226,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
     <div
       ref={listRef}
       className={
-        isMobile
+        useMobileLayout
           ? "flex-1 overflow-y-auto overscroll-contain p-2"
           : "max-h-[360px] overflow-y-auto overscroll-contain p-2"
       }
@@ -198,7 +236,11 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
         <div className="px-3 py-6 text-center">
           <Typography
             variant="body-medium-lighter"
-            className="text-[var(--content-tertiary)]"
+            className={
+              isWindowSurface
+                ? "text-[#8d99a5]"
+                : "text-[var(--content-tertiary)]"
+            }
           >
             {isSearching ? "Searching…" : "No results"}
           </Typography>
@@ -209,7 +251,11 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
             <Typography
               variant="label-small-default"
               as="div"
-              className="px-3 pb-1 pt-2 text-[var(--content-tertiary)]"
+              className={
+                isWindowSurface
+                  ? "px-3 pb-1 pt-2 text-xs font-semibold text-[#8d99a5]"
+                  : "px-3 pb-1 pt-2 text-[var(--content-tertiary)]"
+              }
             >
               {section.label}
             </Typography>
@@ -221,9 +267,10 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
                   icon={item.icon}
                   title={item.title}
                   subtitle={item.subtitle}
-                  shortcutHint={isMobile ? undefined : item.shortcutHint}
+                  shortcutHint={useMobileLayout ? undefined : item.shortcutHint}
                   isSelected={currentIndex === selectedIndex}
                   onClick={() => onItemSelect?.(item, currentIndex)}
+                  surface={surface}
                 />
               );
             })}
@@ -233,7 +280,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
     </div>
   );
 
-  if (isMobile) {
+  if (useMobileLayout) {
     return (
       <div
         className="absolute inset-0 z-30 flex flex-col bg-[var(--surface-lift)]"
@@ -258,21 +305,36 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
     );
   }
 
-  return createPortal(
+  const desktopPalette = (
     <div
       ref={overlayRef}
       role="dialog"
       aria-modal="true"
       aria-label="Command palette"
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[15vh]"
+      className={
+        surface === "window"
+          ? "flex h-full w-full items-start justify-center bg-transparent p-3"
+          : "fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[15vh]"
+      }
       onClick={handleBackdropClick}
       onKeyDown={onKeyDown}
     >
-      <div className="flex w-full max-w-[560px] flex-col overflow-hidden rounded-xl border border-[var(--border-base)] bg-[var(--surface-base)] shadow-xl">
+      <div
+        className={
+          isWindowSurface
+            ? "flex w-full max-w-[560px] flex-col overflow-hidden rounded-xl border border-[#24292e] bg-[#111417] shadow-xl"
+            : "flex w-full max-w-[560px] flex-col overflow-hidden rounded-xl border border-[var(--border-base)] bg-[var(--surface-base)] shadow-xl"
+        }
+      >
         {searchInputRow}
         {resultsList}
       </div>
-    </div>,
-    document.body,
+    </div>
   );
+
+  if (surface === "window") {
+    return desktopPalette;
+  }
+
+  return createPortal(desktopPalette, document.body);
 };

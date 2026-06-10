@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 
+import { openCommandPaletteWindow } from "@/runtime/command-palette-window";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
 /**
@@ -50,6 +51,15 @@ export function useChatLayoutShortcuts({
 }): void {
   useEffect(() => {
     const toggle = useCommandPaletteStore.getState().toggle;
+    const openCommandPalette = () => {
+      void openCommandPaletteWindow()
+        .then((opened) => {
+          if (!opened) toggle();
+        })
+        .catch(() => {
+          toggle();
+        });
+    };
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (shouldHandleShortcut(event, document.activeElement, "\\")) {
@@ -59,7 +69,7 @@ export function useChatLayoutShortcuts({
       }
       if (shouldHandleShortcut(event, document.activeElement, "k")) {
         event.preventDefault();
-        toggle();
+        openCommandPalette();
         return;
       }
       if (shouldHandleShortcut(event, document.activeElement, ["[", "]"])) {

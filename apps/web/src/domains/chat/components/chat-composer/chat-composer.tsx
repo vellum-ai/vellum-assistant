@@ -6,6 +6,7 @@ import {
     type RefObject,
     type SetStateAction,
     useCallback,
+    useEffect,
     useLayoutEffect,
     useMemo,
     useRef,
@@ -29,6 +30,7 @@ import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-st
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { isPointerCoarse } from "@/utils/pointer";
@@ -198,9 +200,14 @@ export function ChatComposer({
   const voiceStreamRef = useRef<MediaStream | null>(null);
   const [voiceStream, setVoiceStream] = useState<MediaStream | null>(null);
   const { amplitude } = useAudioAmplitude({
-    active: voicePhase === "recording",
+    active: voicePhase === "recording" && voiceStream !== null,
     stream: voiceStream,
   });
+  const setVoiceAudioLevel = useVoiceRecordingStore.use.setAudioLevel();
+  useEffect(() => {
+    if (!voiceStream) return;
+    setVoiceAudioLevel(amplitude);
+  }, [amplitude, voiceStream, setVoiceAudioLevel]);
   const showVoiceInput =
     voiceInputRef !== undefined && onVoiceTranscript !== undefined;
 
@@ -235,6 +242,7 @@ export function ChatComposer({
   const pointerCoarse = useMemo(() => isPointerCoarse(), []);
   const isMobile = useIsMobile();
   const isNative = useIsNativePlatform();
+  const isElectronHost = isElectron();
 
   // Stable ref so handleSlashCommandSelect's autoSend path always calls the
   // latest onSubmit even after flushSync triggers a synchronous re-render.
@@ -308,7 +316,10 @@ export function ChatComposer({
   const phase: TurnPhase = useTurnStore.use.phase();
   const isLocallyGenerating =
     phase === "queued" || phase === "thinking" || phase === "streaming";
-  const hideTextareaForVoice = isNative && isVoiceActive && !isLocallyGenerating;
+  const showInlineVoicePreview =
+    isVoiceActive && !isLocallyGenerating && !isElectronHost;
+  const hideTextareaForVoice =
+    isNative && showInlineVoicePreview;
 
   const ghostSuffix = useMemo(
     () =>
@@ -529,13 +540,11 @@ export function ChatComposer({
                 style={{ maxHeight: `${textareaMaxHeightPx}px` }}
               />
             </div>
-            {isVoiceActive && !isLocallyGenerating && (
-              // macOS parity: full-width scrolling waveform between textarea and
-              // action bar. Mirrors VStreamingWaveform(.scrolling) in ComposerView.
-              // Stays mounted through the `processing` phase with `paused` set so
-              // the trailing recorded waveform freezes and dims while STT and
-              // dictation cleanup are in flight — the visual signal that the
-              // recording was captured and the transcript is on its way.
+            {showInlineVoicePreview && (
+              // Non-Electron fallback: Electron uses the shared top-center
+              // dictation overlay for both focused and global recording.
+              // Browser/iOS hosts keep this inline waveform because the
+              // overlay bridge no-ops there.
               <div
                 className={hideTextareaForVoice ? "px-2 pt-3" : "px-2"}
                 aria-label={voicePhase === "processing" ? "Transcribing" : "Recording"}

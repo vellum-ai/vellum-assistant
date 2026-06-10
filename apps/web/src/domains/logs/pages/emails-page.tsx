@@ -1,14 +1,14 @@
 import { Navigate } from "react-router";
 
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { EmailsTab } from "@/domains/logs/components/emails-tab";
-import { useCurrentPlatformAssistant } from "@/hooks/use-current-platform-assistant";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
 import { Notice } from "@vellumai/design-library/components/notice";
 
 export function EmailsPage() {
   const platformGate = usePlatformGate();
-  const { assistantId } = useCurrentPlatformAssistant();
+  const assistantId = useActiveAssistantId();
 
   if (platformGate === "gated") {
     return <Navigate replace to={routes.logs.root} />;
@@ -20,10 +20,6 @@ export function EmailsPage() {
         Log in to the Vellum platform to view emails.
       </Notice>
     );
-  }
-
-  if (!assistantId) {
-    return null;
   }
 
   return <EmailsTab assistantId={assistantId} platformGate={platformGate} />;

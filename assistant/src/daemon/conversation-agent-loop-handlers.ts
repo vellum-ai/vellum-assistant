@@ -156,12 +156,6 @@ export interface EventHandlerState {
   exchangeLlmCallCount: number;
   readonly exchangeRawResponses: unknown[];
   model: string;
-  /**
-   * Set when the provider rejects with an image-dimension error. The agent
-   * loop strips or downscales oversized image blocks from ctx.messages and
-   * retries once before surfacing an error to the user.
-   */
-  imageTooLargeDetected: boolean;
   providerErrorUserMessage: string | null;
   lastAssistantMessageId: string | undefined;
   /**
@@ -332,7 +326,6 @@ export function createEventHandlerState(): EventHandlerState {
     exchangeLlmCallCount: 0,
     exchangeRawResponses: [],
     model: "",
-    imageTooLargeDetected: false,
     providerErrorUserMessage: null,
     lastAssistantMessageId: undefined,
     assistantRowAwaitingFinalization: false,
@@ -1585,35 +1578,29 @@ function handleError(
   const classified = classifyConversationError(event.error, {
     phase: "agent_loop",
   });
-  if (classified.code === "IMAGE_TOO_LARGE") {
-    // Trigger silent recovery: the agent loop will strip/downscale images
-    // in ctx.messages and retry once before surfacing an error.
-    state.imageTooLargeDetected = true;
-  } else {
-    if (classified.errorCategory === "provider_api_error") {
-      log.error(
-        {
-          conversationId: deps.ctx.conversationId,
-          errorCode: classified.code,
-          errorCategory: classified.errorCategory,
-          statusCode:
-            event.error instanceof ProviderError
-              ? event.error.statusCode
-              : undefined,
-          provider:
-            event.error instanceof ProviderError
-              ? event.error.provider
-              : undefined,
-          errorMessage: event.error.message,
-        },
-        "Provider rejected request with unclassified 4xx error",
-      );
-    }
-    deps.onEvent(
-      buildConversationErrorMessage(deps.ctx.conversationId, classified),
+  if (classified.errorCategory === "provider_api_error") {
+    log.error(
+      {
+        conversationId: deps.ctx.conversationId,
+        errorCode: classified.code,
+        errorCategory: classified.errorCategory,
+        statusCode:
+          event.error instanceof ProviderError
+            ? event.error.statusCode
+            : undefined,
+        provider:
+          event.error instanceof ProviderError
+            ? event.error.provider
+            : undefined,
+        errorMessage: event.error.message,
+      },
+      "Provider rejected request with unclassified 4xx error",
     );
-    state.providerErrorUserMessage = classified.userMessage;
   }
+  deps.onEvent(
+    buildConversationErrorMessage(deps.ctx.conversationId, classified),
+  );
+  state.providerErrorUserMessage = classified.userMessage;
 }
 
 export function handleMaxTokensReached(
