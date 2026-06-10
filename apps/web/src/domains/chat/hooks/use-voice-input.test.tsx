@@ -196,6 +196,18 @@ describe("useVoiceInput — handleRetryMicPermission (OS/TCC branch)", () => {
     expect(hook.result.current.voiceError).toBeNull();
   });
 
+  test("a failed prompt bridge call keeps the retryable error, not the System Settings one", async () => {
+    nextMicAccessStatus = "not-determined";
+    nextMicAccessGrant = null;
+    const { hook } = renderVoiceInput();
+
+    await act(async () => {
+      await hook.result.current.handleRetryMicPermission();
+    });
+
+    expect(hook.result.current.voiceError).toBe("not-allowed");
+  });
+
   test("handleOpenMicSettings deep-links System Settings", async () => {
     const { hook } = renderVoiceInput();
 

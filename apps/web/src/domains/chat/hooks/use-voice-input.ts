@@ -224,6 +224,12 @@ export function useVoiceInput({
       }
       if (nativeStatus === "not-determined") {
         const granted = await requestMicAccess();
+        // null = the bridge call failed, not a user denial — keep the
+        // retryable error rather than sending the user to System Settings.
+        if (granted === null) {
+          setVoiceError("not-allowed");
+          return;
+        }
         setVoiceError(granted ? null : "not-allowed-system");
         return;
       }
