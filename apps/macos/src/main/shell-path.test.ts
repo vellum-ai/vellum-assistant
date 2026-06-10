@@ -42,11 +42,17 @@ mock.module("node:child_process", () => ({
   },
 }));
 
-const { resolveShellPath, findExecutablesInPath, _resetShellPathCache } =
-  await import("./shell-path");
+const {
+  resolveShellPath,
+  findExecutablesInPath,
+  _resetShellPathCache,
+  PATH_SENTINEL,
+} = await import("./shell-path");
 const { buildInstallEnv } = await import("./cli-installer");
 
 const originalShell = process.env.SHELL;
+
+const wrap = (path: string) => `${PATH_SENTINEL}${path}${PATH_SENTINEL}`;
 
 afterEach(() => {
   spawnCalls.length = 0;
@@ -63,20 +69,45 @@ describe("resolveShellPath", () => {
     process.env.SHELL = "/bin/bash";
 
     const promise = resolveShellPath();
-    lastChild.stdout.emit("data", Buffer.from("/Users/me/.local/bin:/usr/bin"));
+    lastChild.stdout.emit(
+      "data",
+      Buffer.from(wrap("/Users/me/.local/bin:/usr/bin")),
+    );
     lastChild.emit("close", 0);
 
     expect(await promise).toBe("/Users/me/.local/bin:/usr/bin");
     expect(spawnCalls).toHaveLength(1);
     expect(spawnCalls[0][0]).toBe("/bin/bash");
-    expect(spawnCalls[0][1]).toEqual(["-ilc", 'printf "%s" "$PATH"']);
+    expect(spawnCalls[0][1]).toEqual([
+      "-ilc",
+      `printf "${PATH_SENTINEL}%s${PATH_SENTINEL}" "$PATH"`,
+    ]);
+  });
+
+  test("ignores startup-file banner output before the sentinel pair", async () => {
+    const promise = resolveShellPath();
+    lastChild.stdout.emit(
+      "data",
+      Buffer.from(`Welcome to my shell!\nnvm warning\n${wrap("/usr/local/bin:/usr/bin")}`),
+    );
+    lastChild.emit("close", 0);
+
+    expect(await promise).toBe("/usr/local/bin:/usr/bin");
+  });
+
+  test("falls back to buildInstallEnv PATH when sentinels are missing", async () => {
+    const promise = resolveShellPath();
+    lastChild.stdout.emit("data", Buffer.from("banner only, no sentinel"));
+    lastChild.emit("close", 0);
+
+    expect(await promise).toBe(buildInstallEnv().PATH ?? "");
   });
 
   test("falls back to /bin/zsh when $SHELL is unset", async () => {
     delete process.env.SHELL;
 
     const promise = resolveShellPath();
-    lastChild.stdout.emit("data", Buffer.from("/usr/bin"));
+    lastChild.stdout.emit("data", Buffer.from(wrap("/usr/bin")));
     lastChild.emit("close", 0);
 
     await promise;
@@ -116,7 +147,7 @@ describe("resolveShellPath", () => {
     const promise = resolveShellPath(10);
     const result = await promise;
 
-    lastChild.stdout.emit("data", Buffer.from("/late/bin"));
+    lastChild.stdout.emit("data", Buffer.from(wrap("/late/bin")));
     lastChild.emit("close", 0);
 
     expect(result).toBe(buildInstallEnv().PATH ?? "");
@@ -125,7 +156,7 @@ describe("resolveShellPath", () => {
 
   test("caches the result; second call does not spawn again", async () => {
     const promise = resolveShellPath();
-    lastChild.stdout.emit("data", Buffer.from("/cached/bin"));
+    lastChild.stdout.emit("data", Buffer.from(wrap("/cached/bin")));
     lastChild.emit("close", 0);
     await promise;
 
@@ -138,7 +169,7 @@ describe("resolveShellPath", () => {
     const p2 = resolveShellPath();
     expect(spawnCalls).toHaveLength(1);
 
-    lastChild.stdout.emit("data", Buffer.from("/shared/bin"));
+    lastChild.stdout.emit("data", Buffer.from(wrap("/shared/bin")));
     lastChild.emit("close", 0);
 
     expect(await p1).toBe("/shared/bin");
@@ -147,7 +178,7 @@ describe("resolveShellPath", () => {
 
   test("_resetShellPathCache clears the cache", async () => {
     const p1 = resolveShellPath();
-    lastChild.stdout.emit("data", Buffer.from("/first/bin"));
+    lastChild.stdout.emit("data", Buffer.from(wrap("/first/bin")));
     lastChild.emit("close", 0);
     await p1;
 
@@ -155,7 +186,7 @@ describe("resolveShellPath", () => {
 
     const p2 = resolveShellPath();
     expect(spawnCalls).toHaveLength(2);
-    lastChild.stdout.emit("data", Buffer.from("/second/bin"));
+    lastChild.stdout.emit("data", Buffer.from(wrap("/second/bin")));
     lastChild.emit("close", 0);
     expect(await p2).toBe("/second/bin");
   });

@@ -6,6 +6,10 @@ import { buildInstallEnv } from "./cli-installer";
 
 const SHELL_PATH_TIMEOUT_MS = 5_000;
 
+// Wraps the printf'd PATH so it can be isolated from any startup-file
+// output (banners, warnings) the interactive login shell writes first.
+export const PATH_SENTINEL = "__VELLUM_PATH_7f3a__";
+
 // Cached for the process lifetime; caching the promise also dedupes
 // concurrent first calls into a single shell spawn.
 let shellPathPromise: Promise<string> | null = null;
@@ -41,7 +45,10 @@ function queryShellPath(timeoutMs: number): Promise<string> {
 
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(shell, ["-ilc", 'printf "%s" "$PATH"']);
+      child = spawn(shell, [
+        "-ilc",
+        `printf "${PATH_SENTINEL}%s${PATH_SENTINEL}" "$PATH"`,
+      ]);
     } catch {
       resolve(fallbackPath());
       return;
@@ -69,10 +76,19 @@ function queryShellPath(timeoutMs: number): Promise<string> {
     child.on("error", () => settle(fallbackPath()));
 
     child.on("close", (code: number | null) => {
-      const value = stdout.trim();
-      settle(code === 0 && value ? value : fallbackPath());
+      const value = code === 0 ? extractSentinelValue(stdout) : null;
+      settle(value || fallbackPath());
     });
   });
+}
+
+// Extracts the last sentinel-wrapped value; null when no complete pair.
+function extractSentinelValue(stdout: string): string | null {
+  const end = stdout.lastIndexOf(PATH_SENTINEL);
+  if (end <= 0) return null;
+  const start = stdout.lastIndexOf(PATH_SENTINEL, end - 1);
+  if (start === -1) return null;
+  return stdout.slice(start + PATH_SENTINEL.length, end);
 }
 
 /**
