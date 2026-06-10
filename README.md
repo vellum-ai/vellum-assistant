@@ -36,7 +36,7 @@ It learns how you work, remembers what matters, and acts before you ask. Yours t
 
 **3. Hatch your assistant**
 
-- Give it a name, connect your tools, and start talking
+- It's yours! Have fun with it.
 
 <sub>Prefer the terminal? See <a href="#cli">CLI install</a> below.</sub>
 
