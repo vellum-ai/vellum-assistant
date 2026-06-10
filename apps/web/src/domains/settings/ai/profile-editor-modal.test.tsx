@@ -249,22 +249,17 @@ describe("ProfileEditorModal create mode", () => {
     expect(providerIdx).toBeGreaterThan(keyIdx);
   });
 
-  test("Advanced is hidden until a model is chosen, then collapsed by default", () => {
+  test("advanced params are hidden until a model is chosen, then shown inline", () => {
     renderCreate([makeConnection("anthropic-personal")]);
 
-    // No model selected yet → the Advanced disclosure is not rendered.
-    const hasAdvancedButton = () =>
-      Array.from(document.querySelectorAll("button")).some(
-        (b) => b.textContent?.trim() === "Advanced",
-      );
-    expect(hasAdvancedButton()).toBe(false);
+    // No model selected yet → advanced params not rendered.
+    expect(document.body.textContent).not.toContain("Max Output Tokens");
 
     selectProvider("Anthropic");
     selectModel("Claude Opus 4.8");
 
-    // Once a model is chosen the disclosure appears, collapsed.
-    expect(hasAdvancedButton()).toBe(true);
-    expect(getButton("Advanced").getAttribute("aria-expanded")).toBe("false");
+    // Once a model is chosen the params appear inline (no disclosure).
+    expect(document.body.textContent).toContain("Max Output Tokens");
   });
 
   test("selecting a model pre-fills Name and Key", () => {

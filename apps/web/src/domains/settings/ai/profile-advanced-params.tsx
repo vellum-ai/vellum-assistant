@@ -121,7 +121,7 @@ export function ProfileAdvancedParams({
             <span className="text-body-small-default text-[var(--content-tertiary)]">
               {maxTokens !== null
                 ? formatCompactTokens(maxTokens)
-                : "Default"}
+                : "Inherit"}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -161,7 +161,7 @@ export function ProfileAdvancedParams({
             <span className="text-body-small-default text-[var(--content-tertiary)]">
               {contextWindowMaxInputTokens !== null
                 ? formatCompactTokens(contextWindowMaxInputTokens)
-                : "Default"}
+                : "Inherit"}
             </span>
           </div>
           <div className="flex items-center gap-2">

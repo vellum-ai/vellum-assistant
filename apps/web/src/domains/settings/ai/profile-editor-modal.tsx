@@ -8,7 +8,6 @@ import { Modal } from "@vellumai/design-library/components/modal";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Typography } from "@vellumai/design-library/components/typography";
-import { ChevronRight } from "lucide-react";
 
 import { getModelsForProvider } from "@/assistant/llm-model-catalog";
 import { inferenceProviderconnectionsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
@@ -294,9 +293,8 @@ function ProfileEditorModalInner({
   const queryClient = useQueryClient();
 
   // Create-mode-only UI: whether the inline "+ New Connection" sub-form
-  // is mounted, and whether the advanced-params disclosure is expanded.
+  // is mounted.
   const [creatingProvider, setCreatingProvider] = useState(false);
-  const [advancedExpanded, setAdvancedExpanded] = useState(false);
   // One-time helper note shown after an inline provider create succeeds.
   const [newProviderNote, setNewProviderNote] = useState(false);
 
@@ -304,7 +302,6 @@ function ProfileEditorModalInner({
   useEffect(() => {
     resetDirty();
     setCreatingProvider(false);
-    setAdvancedExpanded(false);
     setNewProviderNote(false);
     setLocallyCreatedConnections([]);
   }, [profileName, mode, resetDirty]);
@@ -673,10 +670,11 @@ function ProfileEditorModalInner({
   // new provider" sentinel. First-run empty state shows ONLY the sentinel.
   const createModeProviderOptions = useMemo(() => {
     const seen = new Set<string>();
-    const opts: { value: string; label: string }[] = [
+    const opts: { value: string; label: string; separated?: boolean | "above" | "below" }[] = [
       {
         value: CREATE_NEW_PROVIDER_SENTINEL,
         label: "+ New Connection",
+        separated: "below",
       },
     ];
     for (const c of effectiveConnections) {
@@ -785,28 +783,11 @@ function ProfileEditorModalInner({
     </div>
   );
 
-  // Only surface Advanced once a model is chosen — the advanced params are
-  // model-dependent (effort/thinking/token ranges resolve from the selected
-  // model), so showing the disclosure before then is meaningless.
-  const createAdvancedDisclosure =
-    !isAutoProfile && model !== "" && advancedParamsNode ? (
-      <div>
-        <button
-          type="button"
-          aria-expanded={advancedExpanded}
-          onClick={() => setAdvancedExpanded((v) => !v)}
-          className="flex items-center gap-1 text-body-small-default text-[var(--content-secondary)] w-full text-left"
-        >
-          <ChevronRight
-            className={`h-4 w-4 transition-transform ${advancedExpanded ? "rotate-90" : ""}`}
-          />
-          <span>Advanced</span>
-        </button>
-        {advancedExpanded ? (
-          <div className="mt-4">{advancedParamsNode}</div>
-        ) : null}
-      </div>
-    ) : null;
+  // Show advanced params inline once a model is chosen (they're
+  // model-dependent — effort/thinking/token ranges resolve from the
+  // selected model).
+  const createAdvancedParams =
+    !isAutoProfile && model !== "" ? advancedParamsNode : null;
 
   return (
     <Modal.Content size="md">
@@ -841,8 +822,8 @@ function ProfileEditorModalInner({
             {/* Provider + Connection + Model — hidden for the auto profile. */}
             {!isAutoProfile && createProviderSection}
 
-            {/* Advanced params — collapsed by default in create mode. */}
-            {createAdvancedDisclosure}
+            {/* Advanced params — shown inline once a model is selected. */}
+            {createAdvancedParams}
 
             {saveErrorNode}
           </div>
