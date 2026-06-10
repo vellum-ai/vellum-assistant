@@ -1136,6 +1136,51 @@ describe("forkConversation", () => {
     ]);
   });
 
+  test("truncated fork carries the parent's pruned tombstones for inherited v3 slugs", async () => {
+    // Pruning never rewrites the persisted metadata block, so the fork scan
+    // sees pruned cards' sections too — the seed must tombstone them, or the
+    // child's rehydration would resurrect cards the parent's live view lost.
+    const source = createConversation("V3 truncated pruned thread");
+    await addMessage(source.id, "user", "first turn", {
+      metadata: {
+        [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]:
+          "# memory/concepts/topics/page-a.md\nCard A\n\n# memory/concepts/topics/page-b.md\nCard B",
+      },
+      skipIndexing: true,
+    });
+    const boundaryMessage = await addMessage(
+      source.id,
+      "assistant",
+      "first reply",
+      { skipIndexing: true },
+    );
+    // Past the fork boundary — forces the truncated-seed path (a fork through
+    // the final message takes the wholesale-copy path instead).
+    await addMessage(source.id, "user", "second turn", { skipIndexing: true });
+
+    recordV3Injected(
+      source.id,
+      [
+        { slug: "topics/page-a", bytes: 120 },
+        { slug: "topics/page-b", bytes: 340 },
+      ],
+      1_700_000_000_000,
+    );
+    markV3Pruned(source.id, ["topics/page-b"], 1_700_000_005_000);
+
+    const fork = forkConversation({
+      conversationId: source.id,
+      throughMessageId: boundaryMessage.id,
+    });
+
+    expect(getV3Injected(fork.id)).toEqual(
+      new Map([
+        ["topics/page-a", { bytes: 0, prunedAt: null }],
+        ["topics/page-b", { bytes: 0, prunedAt: 1_700_000_005_000 }],
+      ]),
+    );
+  });
+
   test("defaults conversationType to standard and inherits the parent's group", async () => {
     const source = createConversation("Default inheritance thread");
     await addMessage(source.id, "user", "first message", {

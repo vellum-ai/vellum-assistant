@@ -1108,7 +1108,13 @@ export function forkConversation(params: {
         }
       }
       seedForkActivationState(db, fc.id, [...inheritedSlugs]);
-      seedEverInjectedFromSlugs(db, fc.id, [...inheritedV3Slugs], Date.now());
+      seedEverInjectedFromSlugs(
+        db,
+        sourceConversation.id,
+        fc.id,
+        [...inheritedV3Slugs],
+        Date.now(),
+      );
     }
     forkRetrospectiveState({
       database: db,

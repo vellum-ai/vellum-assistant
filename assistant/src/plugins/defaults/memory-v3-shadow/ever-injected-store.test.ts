@@ -49,6 +49,7 @@ const {
   forkEverInjected,
   getActiveSlugs,
   getInjected,
+  getPrunedSlugs,
   markPruned,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   recordInjected,
@@ -205,6 +206,7 @@ describe("seedEverInjectedFromSlugs", () => {
   test("seeds dedup-only rows with bytes = 0 stamped at the given time", () => {
     seedEverInjectedFromSlugs(
       testDb,
+      "conv-parent",
       "conv-child",
       ["topics/page-a", "topics/page-b"],
       5_000,
@@ -230,8 +232,47 @@ describe("seedEverInjectedFromSlugs", () => {
     expect(row.injected_at).toBe(5_000);
   });
 
+  test("carries the parent's pruned_at tombstones for inherited slugs", () => {
+    // Parent injected both pages, then pruned page-a: the metadata block the
+    // child inherits still contains page-a's section, so the fork scan seeds
+    // both slugs — but page-a must arrive tombstoned, not active, or the
+    // child's rehydration would resurrect a card the parent's live view lost.
+    recordInjected(
+      "conv-parent",
+      [
+        { slug: "topics/page-a", bytes: 100 },
+        { slug: "topics/page-b", bytes: 200 },
+      ],
+      1_000,
+    );
+    markPruned("conv-parent", ["topics/page-a"], 2_000);
+
+    seedEverInjectedFromSlugs(
+      testDb,
+      "conv-parent",
+      "conv-child",
+      ["topics/page-a", "topics/page-b"],
+      5_000,
+    );
+
+    expect(getInjected("conv-child")).toEqual(
+      new Map([
+        ["topics/page-a", { bytes: 0, prunedAt: 2_000 }],
+        ["topics/page-b", { bytes: 0, prunedAt: null }],
+      ]),
+    );
+    expect(getActiveSlugs("conv-child")).toEqual(new Set(["topics/page-b"]));
+    expect(getPrunedSlugs("conv-child")).toEqual(new Set(["topics/page-a"]));
+
+    // Re-selection clears the inherited tombstone, same as in the parent.
+    recordInjected("conv-child", [{ slug: "topics/page-a", bytes: 50 }], 6_000);
+    expect(getActiveSlugs("conv-child")).toEqual(
+      new Set(["topics/page-a", "topics/page-b"]),
+    );
+  });
+
   test("is a no-op for an empty slug list and never overwrites existing rows", () => {
-    seedEverInjectedFromSlugs(testDb, "conv-child", [], 5_000);
+    seedEverInjectedFromSlugs(testDb, "conv-parent", "conv-child", [], 5_000);
     expect(getInjected("conv-child").size).toBe(0);
 
     recordInjected(
@@ -239,7 +280,13 @@ describe("seedEverInjectedFromSlugs", () => {
       [{ slug: "topics/page-a", bytes: 100 }],
       1_000,
     );
-    seedEverInjectedFromSlugs(testDb, "conv-child", ["topics/page-a"], 5_000);
+    seedEverInjectedFromSlugs(
+      testDb,
+      "conv-parent",
+      "conv-child",
+      ["topics/page-a"],
+      5_000,
+    );
     expect(getInjected("conv-child").get("topics/page-a")).toEqual({
       bytes: 100,
       prunedAt: null,

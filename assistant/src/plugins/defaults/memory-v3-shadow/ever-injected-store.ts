@@ -1,7 +1,7 @@
 /**
  * Per-conversation everInjected record for memory-v3's frozen-card carry.
  *
- * Backed by `memory_v3_ever_injected` (migration 275): one row per
+ * Backed by `memory_v3_ever_injected` (migration 277): one row per
  * (conversation, page-slug) the v3 injector ever attached as a card. The
  * active (non-pruned) slug set is the injection dedup record — a slug present
  * here rides the cached message prefix and must not be re-rendered — and
@@ -235,22 +235,44 @@ export function forkEverInjected(
  *
  * Rows are stamped `injected_at = at` and `bytes = 0` — the rendered size of
  * inherited cards is unknown, so `residentBytes` accounting restarts from the
- * fork's own injections. No-op when the child inherited no card blocks.
- * Synchronous so it can run inside the `forkConversation()` transaction.
+ * fork's own injections.
+ *
+ * The parent's `pruned_at` tombstones are carried over: pruning leaves the
+ * persisted metadata block intact and relies on the tombstone to filter the
+ * section out at rehydration, so the metadata scan feeding this seed
+ * necessarily sees pruned cards' sections too. Seeding those slugs as active
+ * would resurrect parent-pruned cards in the child on its next load (and
+ * diverge from the full-fork copy path, which preserves tombstones). A
+ * tombstoned seed keeps the child's rehydrated view identical to the parent's
+ * live view at fork time; re-selection clears the tombstone and re-injects,
+ * same as in the parent.
+ *
+ * No-op when the child inherited no card blocks. Synchronous so it can run
+ * inside the `forkConversation()` transaction.
  */
 export function seedEverInjectedFromSlugs(
   db: DrizzleDb,
+  parentConversationId: string,
   newConversationId: string,
   slugs: string[],
   at: number,
 ): void {
   if (slugs.length === 0) return;
+  const prunedRows = getSqliteFrom(db)
+    .query(
+      /*sql*/ `
+      SELECT slug, pruned_at AS prunedAt FROM memory_v3_ever_injected
+      WHERE conversation_id = ? AND pruned_at IS NOT NULL
+    `,
+    )
+    .all(parentConversationId) as Array<{ slug: string; prunedAt: number }>;
+  const parentPrunedAt = new Map(prunedRows.map((r) => [r.slug, r.prunedAt]));
   const stmt = getSqliteFrom(db).query(/*sql*/ `
     INSERT INTO memory_v3_ever_injected (conversation_id, slug, injected_at, bytes, pruned_at)
-    VALUES (?, ?, ?, 0, NULL)
+    VALUES (?, ?, ?, 0, ?)
     ON CONFLICT (conversation_id, slug) DO NOTHING
   `);
   for (const slug of slugs) {
-    stmt.run(newConversationId, slug, at);
+    stmt.run(newConversationId, slug, at, parentPrunedAt.get(slug) ?? null);
   }
 }
