@@ -7,20 +7,10 @@ import log from "./logger";
 
 declare const __VELLUM_ENVIRONMENT__: string;
 
-const resolveChannel = (): string => {
-  const env =
-    typeof __VELLUM_ENVIRONMENT__ === "string"
-      ? __VELLUM_ENVIRONMENT__
-      : "production";
-  switch (env) {
-    case "staging":
-      return "staging";
-    case "dev":
-      return "dev";
-    default:
-      return "production";
-  }
-};
+const CHANNEL: string =
+  typeof __VELLUM_ENVIRONMENT__ === "string"
+    ? __VELLUM_ENVIRONMENT__
+    : "production";
 
 type UpdateStatus =
   | "idle"
@@ -63,16 +53,14 @@ export const installAutoUpdate = (): void => {
 
   if (!app.isPackaged) return;
 
-  const channel = resolveChannel();
-
   autoUpdater.logger = log;
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.channel = channel;
+  autoUpdater.channel = CHANNEL;
   autoUpdater.allowDowngrade = false;
   autoUpdater.setFeedURL({
     provider: "generic",
-    url: `https://storage.googleapis.com/vellum-desktop-releases/mac-electron/${channel}/${process.arch}/`,
+    url: `https://storage.googleapis.com/vellum-desktop-releases/mac-electron/${CHANNEL}/${process.arch}/`,
   });
 
   autoUpdater.on("checking-for-update", () => {
