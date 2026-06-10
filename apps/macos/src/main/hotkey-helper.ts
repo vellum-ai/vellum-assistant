@@ -1,4 +1,5 @@
 import { BrowserWindow, app, type WebContents } from "electron";
+import { spawn } from "node:child_process";
 import path from "node:path";
 import { z } from "zod";
 
@@ -71,10 +72,19 @@ const getPlatform = (): NodeJS.Platform =>
   platformForTesting ?? process.platform;
 
 export const getMacHelperPath = (): string => {
+  return path.join(
+    getMacHelperAppPath(),
+    "Contents",
+    "MacOS",
+    "vellum-mac-helper",
+  );
+};
+
+export const getMacHelperAppPath = (): string => {
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, "bin", "vellum-mac-helper");
+    return path.join(process.resourcesPath, "bin", "vellum-mac-helper.app");
   }
-  return path.join(app.getAppPath(), "resources", "vellum-mac-helper");
+  return path.join(app.getAppPath(), "resources", "vellum-mac-helper.app");
 };
 
 const makeClient = (): MacHelperClient =>
@@ -127,6 +137,30 @@ export const requestMacHelperPermission = async (
   const result = await client.call("permission.request", { kind });
   return HELPER_PERMISSION_STATUS_SCHEMA.parse(result).status;
 };
+
+export const requestMacHelperSpeechRecognitionPermission =
+  async (): Promise<void> => {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(
+        "open",
+        [
+          "-n",
+          getMacHelperAppPath(),
+          "--args",
+          "--request-speech-recognition",
+        ],
+        { stdio: "ignore" },
+      );
+      child.once("error", reject);
+      child.once("exit", (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`open exited with code ${code ?? "unknown"}`));
+        }
+      });
+    });
+  };
 
 interface HotkeyOwner {
   webContents: WebContents;

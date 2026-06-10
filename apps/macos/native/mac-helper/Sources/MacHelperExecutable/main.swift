@@ -227,9 +227,10 @@ final class MacHelper: @unchecked Sendable {
     }
 
     private func requestSpeechRecognition() -> String {
-        if SFSpeechRecognizer.authorizationStatus() == .notDetermined {
-            SFSpeechRecognizer.requestAuthorization { _ in }
-        }
+        // The RPC helper is often a child of Electron or a developer terminal.
+        // TCC evaluates Speech prompts against the responsible app, so the main
+        // process launches this helper bundle through LaunchServices for the
+        // actual prompt and uses this route only for status reads.
         return speechRecognitionStatus()
     }
 
@@ -399,6 +400,21 @@ private enum HelperError: LocalizedError {
 }
 
 let helper = MacHelper()
-MainActor.assumeIsolated {
-    helper.run()
+
+if CommandLine.arguments.contains("--request-speech-recognition") {
+    MainActor.assumeIsolated {
+        NSApplication.shared.setActivationPolicy(.prohibited)
+        if SFSpeechRecognizer.authorizationStatus() == .notDetermined {
+            SFSpeechRecognizer.requestAuthorization { _ in
+                DispatchQueue.main.async {
+                    NSApplication.shared.terminate(nil)
+                }
+            }
+            NSApplication.shared.run()
+        }
+    }
+} else {
+    MainActor.assumeIsolated {
+        helper.run()
+    }
 }

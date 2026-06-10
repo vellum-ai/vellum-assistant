@@ -13,6 +13,7 @@ import { runAppleScript } from "./appleScriptExecutor";
 import {
   queryMacHelperPermission,
   requestMacHelperPermission,
+  requestMacHelperSpeechRecognitionPermission,
   type MacHelperPermissionKind,
 } from "./hotkey-helper";
 import { handle } from "./ipc";
@@ -146,10 +147,10 @@ export class PermissionsService {
           });
           break;
         case "speechRecognition":
+          await requestMacHelperSpeechRecognitionPermission();
+          break;
         case "inputMonitoring":
-          if (isMacHelperPermissionKind(kind)) {
-            await requestMacHelperPermission(kind);
-          }
+          await requestMacHelperPermission(kind);
           break;
         case "automation":
           await this.requestAutomation();

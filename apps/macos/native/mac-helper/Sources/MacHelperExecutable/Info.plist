@@ -4,6 +4,10 @@
 <dict>
     <key>CFBundleIdentifier</key>
     <string>com.vellum.vellum-assistant-electron.mac-helper</string>
+    <key>CFBundleExecutable</key>
+    <string>vellum-mac-helper</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
     <key>CFBundleName</key>
     <string>Vellum Mac Helper</string>
     <key>CFBundlePackageType</key>

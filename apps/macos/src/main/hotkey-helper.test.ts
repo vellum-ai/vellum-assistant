@@ -103,6 +103,7 @@ const {
   __resetForTesting,
   __setPlatformForTesting,
   __setSupervisorOptionsForTesting,
+  getMacHelperAppPath,
   getMacHelperPath,
   installHotkeyHelper,
 } = await import("./hotkey-helper");
@@ -150,16 +151,29 @@ afterEach(() => {
 });
 
 describe("getMacHelperPath", () => {
+  test("resolves dev helper app from app path resources", () => {
+    expect(getMacHelperAppPath()).toBe(
+      "/repo/apps/macos/resources/vellum-mac-helper.app",
+    );
+  });
+
   test("resolves dev helper from app path resources", () => {
     expect(getMacHelperPath()).toBe(
-      "/repo/apps/macos/resources/vellum-mac-helper",
+      "/repo/apps/macos/resources/vellum-mac-helper.app/Contents/MacOS/vellum-mac-helper",
+    );
+  });
+
+  test("resolves packaged helper app from process.resourcesPath", () => {
+    appState.isPackaged = true;
+    expect(getMacHelperAppPath()).toBe(
+      "/mock/resources/bin/vellum-mac-helper.app",
     );
   });
 
   test("resolves packaged helper from process.resourcesPath", () => {
     appState.isPackaged = true;
     expect(getMacHelperPath()).toBe(
-      "/mock/resources/bin/vellum-mac-helper",
+      "/mock/resources/bin/vellum-mac-helper.app/Contents/MacOS/vellum-mac-helper",
     );
   });
 });
@@ -198,7 +212,7 @@ describe("installHotkeyHelper", () => {
       state: { status: "running" },
     });
     expect(spawnCalls[0]?.[0]).toBe(
-      "/repo/apps/macos/resources/vellum-mac-helper",
+      "/repo/apps/macos/resources/vellum-mac-helper.app/Contents/MacOS/vellum-mac-helper",
     );
   });
 
@@ -261,7 +275,7 @@ describe("installHotkeyHelper", () => {
     const pending = invokeFnPushToTalk(true);
 
     expect(spawnCalls[0]?.[0]).toBe(
-      "/repo/apps/macos/resources/vellum-mac-helper",
+      "/repo/apps/macos/resources/vellum-mac-helper.app/Contents/MacOS/vellum-mac-helper",
     );
     expect(lastChild?.stdin.writes[0]).toContain("\"jsonrpc\":\"2.0\"");
     expect(lastChild?.stdin.writes[0]).toContain(
