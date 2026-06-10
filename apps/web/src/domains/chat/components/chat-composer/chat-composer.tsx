@@ -199,13 +199,14 @@ export function ChatComposer({
   const voiceStreamRef = useRef<MediaStream | null>(null);
   const [voiceStream, setVoiceStream] = useState<MediaStream | null>(null);
   const { amplitude } = useAudioAmplitude({
-    active: voicePhase === "recording",
+    active: voicePhase === "recording" && voiceStream !== null,
     stream: voiceStream,
   });
   const setVoiceAudioLevel = useVoiceRecordingStore.use.setAudioLevel();
   useEffect(() => {
+    if (!voiceStream) return;
     setVoiceAudioLevel(amplitude);
-  }, [amplitude, setVoiceAudioLevel]);
+  }, [amplitude, voiceStream, setVoiceAudioLevel]);
   const showVoiceInput =
     voiceInputRef !== undefined && onVoiceTranscript !== undefined;
 
