@@ -7088,6 +7088,44 @@ paths:
           required: true
           schema:
             type: string
+  /v1/conversations/archive/bulk:
+    post:
+      operationId: conversations_archive_bulk_post
+      summary: Bulk archive conversations
+      description: Archive multiple conversations in one request. Emits a single sync invalidation for the entire batch.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  archived:
+                    type: number
+                required:
+                  - ok
+                  - archived
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationIds:
+                  minItems: 1
+                  type: array
+                  items:
+                    type: string
+              required:
+                - conversationIds
+              additionalProperties: false
   /v1/conversations/attention:
     get:
       operationId: conversations_attention_get
@@ -8512,6 +8550,46 @@ paths:
                   type: number
               required:
                 - conversationId
+              additionalProperties: false
+  /v1/conversations/seen/bulk:
+    post:
+      operationId: conversations_seen_bulk_post
+      summary: Bulk mark conversations as seen
+      description:
+        Mark multiple conversations as seen in one request. Emits a single sync invalidation for the entire batch
+        instead of per-conversation events.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  updated:
+                    type: number
+                required:
+                  - ok
+                  - updated
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationIds:
+                  minItems: 1
+                  type: array
+                  items:
+                    type: string
+              required:
+                - conversationIds
               additionalProperties: false
   /v1/conversations/switch:
     post:
