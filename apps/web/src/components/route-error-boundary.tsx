@@ -4,6 +4,7 @@ import { isRouteErrorResponse, useRouteError } from "react-router";
 import { Button } from "@vellumai/design-library/components/button";
 
 import { isChunkLoadError } from "@/lib/chunk-errors";
+import { isElectron } from "@/runtime/is-electron";
 
 /**
  * Single error boundary used at every level of the route tree. Picks
@@ -66,11 +67,20 @@ export function RouteErrorBoundary() {
       ? "The page you requested doesn't exist."
       : "An unexpected error occurred. Try reloading the page.";
 
+  // On Electron with `titleBarStyle: "hidden"`, the macOS traffic lights and
+  // the global `WindowDragRegion` (h-7 = 28px) occupy the top of the viewport.
+  // Add matching top padding so content centres in the usable area below the
+  // window controls — the same treatment `SidebarShell` and
+  // `ChatLayoutHeader` apply. Off Electron this is a no-op.
+  const electron = isElectron();
+
   return (
     <div
       data-slot="route-error-boundary"
       data-variant="full-page"
-      className="flex min-h-svh flex-col items-center justify-center gap-4 p-6 text-center"
+      className={`flex min-h-svh flex-col items-center justify-center gap-4 p-6 text-center${
+        electron ? " pt-7" : ""
+      }`}
     >
       <h1 className="text-2xl font-semibold text-[var(--content-primary)]">
         {heading}
