@@ -79,7 +79,6 @@ function renderHandler(
         cancelReconciliation: () => {},
         startReconciliationLoop: () => {},
         setAssetsRefreshKey: () => {},
-        scheduleConversationListRefetch: () => {},
         dispatchSyncChanged: () => {},
       }),
     { wrapper },
