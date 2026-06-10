@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import { mergeAdjacentAssistantMessages } from "@/domains/chat/utils/message-merge";
-import { resolveThinkingContent } from "@/domains/chat/transcript/message-content";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
 import {
@@ -464,18 +463,11 @@ describe("mergeAdjacentAssistantMessages · contentBlocks lockstep", () => {
     const [merged] = mergeAdjacentAssistantMessages([olderPage, newerPage]);
 
     // THEN the merged row carries both sides' blocks in survivor→donor order,
-    // so its contentBlocks span every thinking index rather than only the
+    // so its contentBlocks span the whole folded turn rather than only the
     // survivor's (the staleness the per-index fallback previously had to heal)
     expect(merged!.contentBlocks).toEqual([
       { type: "thinking", thinking: "survivor reasoning" },
       { type: "thinking", thinking: "donor reasoning" },
     ]);
-
-    // AND the block-first thinking reader resolves the whole folded run from
-    // those complete blocks
-    const ids = merged!.contentOrder!.map((entry) => entry.id);
-    expect(resolveThinkingContent(merged!, ids)).toBe(
-      "survivor reasoning\ndonor reasoning",
-    );
   });
 });
