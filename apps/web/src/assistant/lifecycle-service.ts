@@ -51,7 +51,7 @@ import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { isAuthenticated, type SessionStatus } from "@/stores/session-status";
 
 const PROBE_RETRY_DELAY_MS = 4_000;
-const PROBE_RETRY_LIMIT_MS = 30_000;
+const PROBE_RETRY_LIMIT_MS = 60_000;
 
 export interface LifecycleServiceInputs {
   sessionStatus: SessionStatus;
@@ -419,10 +419,12 @@ class AssistantLifecycleService {
       const result = await getAssistantHealthz(assistantId);
       if (generation !== this.generation) return;
       if (this.state.kind !== "active") return;
+      if (useResolvedAssistantsStore.getState().activeAssistantId !== assistantId) return;
       this.transition({ ...this.state, reachable: result.ok });
     } catch {
       if (generation !== this.generation) return;
       if (this.state.kind !== "active") return;
+      if (useResolvedAssistantsStore.getState().activeAssistantId !== assistantId) return;
       this.transition({ ...this.state, reachable: false });
     }
   }
