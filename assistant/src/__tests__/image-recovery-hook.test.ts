@@ -255,6 +255,29 @@ describe("image-recovery stop hook — direct", () => {
     expect(ctx.decision).toBe("continue");
   });
 
+  test("a non-image stop already continuing this turn keeps the bound", async () => {
+    // GIVEN this turn already recovered an image rejection (bound marked), then
+    // an earlier stop hook (e.g. history-repair on an ordering rejection)
+    // recovered a different error and set the decision to continue.
+    const conversationId = "conv-cross-hook";
+    markImageRecoveryAttempted(conversationId);
+    const ctx = makeStopCtx({
+      conversationId,
+      decision: "continue",
+      error: new Error("messages: roles must alternate"),
+    });
+
+    // WHEN the image-recovery hook runs after that earlier hook.
+    await stop(ctx);
+
+    // THEN it leaves the in-flight continue alone and keeps its bound, so a
+    // later image rejection in the same turn is recognized as the exhausted
+    // second attempt rather than a fresh first one. The error stop retry has no
+    // loop-side cap, so clearing here could loop the provider call forever.
+    expect(ctx.decision).toBe("continue");
+    expect(isImageRecoveryAttempted(conversationId)).toBe(true);
+  });
+
   test("non-image error is left untouched", async () => {
     // GIVEN an error stop whose rejection is not an image-size violation.
     const messages = oversizedImageHistory();

@@ -50,9 +50,17 @@ const stop: PluginHookFn<StopContext> = async (ctx) => {
     return;
   }
 
-  // Any other stop — a successful response or a non-ordering rejection — ends
-  // the turn, so clear the bound the next turn starts from.
-  clearOrderingRepairAttempted(ctx.conversationId);
+  // A terminal stop — a successful response or an unrecovered rejection — ends
+  // the turn, so clear the bound the next turn starts from. A `"continue"`
+  // decision means an earlier hook is already retrying this turn; the bound
+  // must survive that retry so a later ordering rejection in the same turn is
+  // recognized as this hook's exhausted second attempt rather than a fresh
+  // first one. The error stop retry has no loop-side cap, so dropping the bound
+  // mid-turn could let alternating recoverable rejections reissue the provider
+  // call indefinitely.
+  if (ctx.decision === "stop") {
+    clearOrderingRepairAttempted(ctx.conversationId);
+  }
 };
 
 export default stop;
