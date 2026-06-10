@@ -26,6 +26,7 @@ import {
 import {
   messageText as text,
   textBody as seg,
+  textBodyWithBlocks as segWithBlocks,
 } from "@/domains/chat/utils/message-test-helpers";
 
 function makeAssistantMsg(
@@ -954,7 +955,7 @@ describe("applyUserMessageEcho", () => {
     expect(result[1]).toEqual({
       id: "msg-server-1",
       role: "user",
-      ...seg("from another device"),
+      ...segWithBlocks("from another device"),
       timestamp: result[1]!.timestamp,
     });
   });
