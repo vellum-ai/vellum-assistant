@@ -61,6 +61,7 @@ module.exports = {
     entitlements: "./scripts/entitlements/app.plist",
     entitlementsInherit: "./scripts/entitlements/inherit.plist",
     extendInfo: {
+      CFBundleIconName: "AppIcon",
       NSMicrophoneUsageDescription:
         "Vellum uses the microphone to record voice input for chat.",
       NSAppleEventsUsageDescription:

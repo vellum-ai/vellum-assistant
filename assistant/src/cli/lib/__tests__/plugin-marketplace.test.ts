@@ -264,7 +264,7 @@ describe("resolveMarketplaceSource", () => {
   test("returns null for a name not in the whitelist", () => {
     // GIVEN whitelisted entries
     // WHEN resolving an unknown name
-    // THEN no source is returned (caller falls back to first-party)
+    // THEN no source is returned (the name is not installable)
     expect(resolveMarketplaceSource("unknown", entries)).toBeNull();
   });
 });

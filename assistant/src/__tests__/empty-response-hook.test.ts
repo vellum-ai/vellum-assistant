@@ -273,6 +273,25 @@ describe("empty-response stop hook — default decisions", () => {
     ]);
     expect(ctx.messages).toEqual([priorToolUseTurn]);
   });
+
+  test("error stop is ignored — no nudge, no rewrite", async () => {
+    // GIVEN an error stop (a provider rejection ended the turn). The shape
+    // otherwise matches the post-tool-empty nudge case, but no response was
+    // produced, so this plugin must defer to the recovery hooks.
+    const ctx = makeCtx({
+      messages: [priorToolUseTurn],
+      responseContent: [],
+      error: new Error("provider rejected the request"),
+    });
+
+    // WHEN the hook runs.
+    await stop(ctx);
+
+    // THEN it leaves the decision and history untouched — empty-response only
+    // acts on a real (successful) model stop.
+    expect(ctx.decision).toBe("stop");
+    expect(ctx.messages).toEqual([priorToolUseTurn]);
+  });
 });
 
 // ─── Via runHook + registry ──────────────────────────────────────────────────

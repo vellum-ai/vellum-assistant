@@ -24,6 +24,17 @@ if [ -n "${ELECTRON_TARGET_ARCH:-}" ]; then
   esac
 fi
 
+# Embed Info.plist (bundle id + microphone / speech-recognition usage
+# strings) into the bare executable so TCC can attribute permission
+# prompts for the dictation-partials session without a full .app bundle.
+INFO_PLIST="$PACKAGE_DIR/Sources/MacHelperExecutable/Info.plist"
+BUILD_ARGS+=(
+  -Xlinker -sectcreate
+  -Xlinker __TEXT
+  -Xlinker __info_plist
+  -Xlinker "$INFO_PLIST"
+)
+
 mkdir -p "$OUTPUT_DIR"
 rm -f "$OUTPUT_DIR/hotkey-helper"
 xcrun swift build "${BUILD_ARGS[@]}"

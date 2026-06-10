@@ -90,6 +90,7 @@ describe("AgentLoop provider_error event emission", () => {
     });
 
     await loop.run({
+      requestId: "test-request",
       messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
       onEvent: (e) => {
         events.push(e);
@@ -134,6 +135,7 @@ describe("AgentLoop provider_error event emission", () => {
     });
 
     await loop.run({
+      requestId: "test-request",
       messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
       onEvent: (e) => {
         events.push(e);
@@ -165,6 +167,7 @@ describe("AgentLoop provider_error event emission", () => {
     });
 
     await loop.run({
+      requestId: "test-request",
       messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
       onEvent: (e) => {
         events.push(e);
@@ -201,6 +204,7 @@ describe("AgentLoop provider_error event emission", () => {
     });
 
     await loop.run({
+      requestId: "test-request",
       messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
       onEvent: (e) => {
         events.push(e);

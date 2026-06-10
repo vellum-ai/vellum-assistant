@@ -325,6 +325,8 @@ export {
   DictationRequestSchema,
 } from "./requests/dictation.js";
 export {
+  type ConversationAttachmentBlock,
+  ConversationAttachmentBlockSchema,
   type ConversationContentBlock,
   ConversationContentBlockSchema,
   type ConversationMessage,
@@ -339,6 +341,14 @@ export {
   ConversationSlackMessageSchema,
   type ConversationSubagentNotification,
   ConversationSubagentNotificationSchema,
+  type ConversationSurfaceBlock,
+  ConversationSurfaceBlockSchema,
+  type ConversationTextBlock,
+  ConversationTextBlockSchema,
+  type ConversationThinkingBlock,
+  ConversationThinkingBlockSchema,
+  type ConversationToolUseBlock,
+  ConversationToolUseBlockSchema,
   type PendingToolConfirmation,
   PendingToolConfirmationSchema,
 } from "./responses/conversation-message.js";

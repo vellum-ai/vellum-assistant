@@ -200,13 +200,19 @@ export async function memoryV2ConsolidateJob(
     // same v3 gate as the maintenance follow-up: the file feeds the v3 core
     // lane, so on a v2-only install the instruction would curate a file
     // nothing reads.
+    // The article SHAPE is keyed on the live flag alone: under shadow, live
+    // prompts are still assembled by v2's injection model, so consolidation
+    // must keep producing `summary:`-bearing fragment pages until the flip.
+    const memoryV3Live = isAssistantFeatureFlagEnabled(MEMORY_V3_LIVE, config);
     const memoryV3Active =
-      isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config) ||
-      isAssistantFeatureFlagEnabled(MEMORY_V3_LIVE, config);
+      isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config) || memoryV3Live;
     const prompt = resolveConsolidationPrompt(
       config.memory.v2.consolidation_prompt_path,
       cutoff,
-      { includeCorePagesSection: memoryV3Active },
+      {
+        includeCorePagesSection: memoryV3Active,
+        articleShape: memoryV3Live ? "v3" : "v2",
+      },
     );
 
     const runResult = await runBackgroundJob({

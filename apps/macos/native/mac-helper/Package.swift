@@ -16,7 +16,9 @@ let package = Package(
             dependencies: ["MacHelperCore"],
             linkerSettings: [
                 .linkedFramework("AppKit"),
+                .linkedFramework("AVFoundation"),
                 .linkedFramework("Carbon"),
+                .linkedFramework("Speech"),
             ]
         ),
         .testTarget(

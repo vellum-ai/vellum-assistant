@@ -34,6 +34,10 @@
  *
  * Defaults register before any user plugin, so this hook runs at the front of
  * the `stop` chain — later hooks see (and may override) its decision.
+ *
+ * Only successful stops are handled. An error stop (the provider rejected the
+ * call before any response existed) carries no turn content to assess, so the
+ * hook returns early and leaves it to a recovery hook like history-repair.
  */
 
 import type { PluginHookFn, StopContext } from "@vellumai/plugin-api";
@@ -95,6 +99,8 @@ function currentCycleMessages(
 }
 
 const stop: PluginHookFn<StopContext> = async (ctx) => {
+  if (ctx.error) return;
+
   const turnHasVisibleText = hasVisibleText(ctx.responseContent);
 
   const cycleMessages = currentCycleMessages(ctx.messages);

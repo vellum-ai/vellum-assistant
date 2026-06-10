@@ -1,14 +1,12 @@
 /**
  * Tests for {@link installPlugin}.
  *
- * Two materialization paths are exercised without touching the network or
- * spawning real subprocesses:
- *   - First-party plugins are fetched from the GitHub Contents API, replaced
- *     by an in-memory fixture passed via the `fetch` dependency.
- *   - External (whitelisted) plugins are shallow-cloned with `git`, replaced
- *     by a fake {@link GitRunner} that materializes a tree into the clone dir.
- * No globals are monkey-patched and no `--test-hook` exports leak into
- * production code.
+ * Whitelisted external plugins are shallow-cloned with `git` (replaced by a
+ * fake {@link GitRunner} that materializes a tree into the clone dir) and,
+ * when a curated adapter stub exists for the name, the stub is overlaid from
+ * the GitHub Contents API (replaced by an in-memory fixture passed via the
+ * `fetch` dependency). No globals are monkey-patched and no `--test-hook`
+ * exports leak into production code.
  */
 
 import {
@@ -45,13 +43,13 @@ const DOWNLOAD_HOST = "https://files.test/";
  * Build a `fetch` that serves the GitHub Contents API from an in-memory tree.
  *
  * `tree` is keyed by full canonical-repo path (e.g.
- * `plugins/simple-memory/package.json`) and maps each entry to a
+ * `plugins/caveman/package.json`) and maps each entry to a
  * file's content (`string`/`Uint8Array`) or `null` for an explicit directory.
  * Directory listings are derived from the key set; file `download_url`s point
  * at {@link DOWNLOAD_HOST} and are served with the stored bytes.
  *
  * The marketplace manifest lookup is answered with `manifest` (or a 404 when
- * omitted, so resolution degrades to the first-party source).
+ * omitted, so the name resolves to no installable source).
  */
 function makeContentsFetch(opts: {
   tree: Record<string, Uint8Array | string | null>;
@@ -60,7 +58,7 @@ function makeContentsFetch(opts: {
    * HTTP status to answer the manifest fetch with. Defaults to 200 (when
    * `manifest` is provided) or 404 (when omitted). Set to a transient status
    * (e.g. 500) to simulate a marketplace lookup that fails rather than being
-   * absent — exercising the degrade-to-first-party path.
+   * absent.
    */
   manifestStatus?: number;
 }): FetchLike {
@@ -136,17 +134,6 @@ function makeContentsFetch(opts: {
   }) as FetchLike;
 }
 
-/** First-party fixture: keys are relative to `plugins/`. */
-function fixtureFetch(
-  tree: Record<string, Uint8Array | string | null>,
-): FetchLike {
-  const full: Record<string, Uint8Array | string | null> = {};
-  for (const [key, value] of Object.entries(tree)) {
-    full[`plugins/${key}`] = value;
-  }
-  return makeContentsFetch({ tree: full });
-}
-
 /**
  * Build a fake {@link GitRunner} that simulates a shallow clone.
  *
@@ -191,9 +178,7 @@ function fakeGitRunner(opts: {
 
 /** A git runner that fails the test if any git command is invoked. */
 const unusedGitRunner: GitRunner = async (args) => {
-  throw new Error(
-    `git should not run for a first-party install: ${args.join(" ")}`,
-  );
+  throw new Error(`git should not run for this install: ${args.join(" ")}`);
 };
 
 /**
@@ -223,7 +208,24 @@ function readRealCavemanStub(): Record<string, string> {
   return tree;
 }
 
-describe("installPlugin — first-party", () => {
+const CAVEMAN_SHA = "63a91ecadbf4c4719a4602a5abb00883f9966034";
+
+const CAVEMAN_MANIFEST = {
+  name: "vellum-assistant",
+  plugins: [
+    {
+      name: "caveman",
+      source: {
+        source: "github",
+        repo: "JuliusBrussee/caveman",
+        ref: CAVEMAN_SHA,
+      },
+      description: "Ultra-compressed communication mode.",
+    },
+  ],
+};
+
+describe("installPlugin — install lifecycle", () => {
   let ws: string;
   let pluginsDir: string;
 
@@ -237,278 +239,76 @@ describe("installPlugin — first-party", () => {
     rmSync(ws, { recursive: true, force: true });
   });
 
-  test("copies a first-party plugin into <workspacePluginsDir>/<name>", async () => {
-    const result = await installPlugin(
-      { name: "simple-memory", force: false, ref: "main" },
-      {
-        fetch: fixtureFetch({
-          "simple-memory": null,
-          "simple-memory/package.json": '{"name":"simple-memory"}',
-          "simple-memory/README.md": "# simple-memory",
-          "simple-memory/hooks": null,
-          "simple-memory/hooks/init.ts": "export default async () => {};\n",
-          "simple-memory/tools": null,
-          "simple-memory/tools/ping.ts": "export default {};\n",
-        }),
-        workspacePluginsDir: pluginsDir,
-      },
-    );
-
-    const target = join(pluginsDir, "simple-memory");
-    expect(result.target).toBe(target);
-    expect(result.fileCount).toBe(4);
-    expect(result.ref).toBe("main");
-    // First-party installs have no clone, so no commit is resolved.
-    expect(result.commit).toBeNull();
-    expect(existsSync(join(target, "package.json"))).toBe(true);
-    expect(existsSync(join(target, "README.md"))).toBe(true);
-    expect(existsSync(join(target, "hooks", "init.ts"))).toBe(true);
-    expect(existsSync(join(target, "tools", "ping.ts"))).toBe(true);
-    expect(readFileSync(join(target, "package.json"), "utf-8")).toBe(
-      '{"name":"simple-memory"}',
-    );
-  });
-
-  test("writes a provenance manifest recording the source and ref", async () => {
-    // GIVEN a first-party install
-    const target = join(pluginsDir, "simple-memory");
-
-    // WHEN it completes
-    await installPlugin(
-      { name: "simple-memory", force: false, ref: "main" },
-      {
-        fetch: fixtureFetch({
-          "simple-memory/package.json": '{"name":"simple-memory"}',
-        }),
-        workspacePluginsDir: pluginsDir,
-      },
-    );
-
-    // THEN a hidden manifest records the resolved coordinates (no commit for
-    // first-party) and is not counted as a plugin file
-    const manifest = JSON.parse(
-      readFileSync(join(target, ".vellum-plugin.json"), "utf-8"),
-    );
-    expect(manifest.name).toBe("simple-memory");
-    expect(manifest.source.kind).toBe("first-party");
-    expect(manifest.source.repo).toBe("vellum-assistant");
-    expect(manifest.source.ref).toBe("main");
-    expect(manifest.commit).toBeUndefined();
-  });
-
   test("refuses to overwrite an existing install without --force", async () => {
-    const target = join(pluginsDir, "simple-memory");
+    // GIVEN a plugin already installed at <pluginsDir>/caveman
+    const target = join(pluginsDir, "caveman");
     mkdirSync(target, { recursive: true });
-    writeFileSync(join(target, "marker"), "pre-existing");
+    writeFileSync(join(target, "package.json"), '{"name":"caveman"}');
 
+    // WHEN we install the same name without --force
+    // THEN it refuses rather than clobbering the existing copy, and git is
+    // never invoked (the guard trips before any clone)
+    const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
     await expect(
       installPlugin(
-        { name: "simple-memory", force: false, ref: "main" },
-        {
-          fetch: fixtureFetch({
-            "simple-memory/package.json": "{}",
-          }),
-          workspacePluginsDir: pluginsDir,
-        },
+        { name: "caveman", force: false, ref: "main" },
+        { fetch, runGit: unusedGitRunner, workspacePluginsDir: pluginsDir },
       ),
     ).rejects.toBeInstanceOf(PluginAlreadyInstalledError);
-
-    // The pre-existing marker is left untouched on refusal.
-    expect(readFileSync(join(target, "marker"), "utf-8")).toBe("pre-existing");
   });
 
   test("--force replaces an existing install", async () => {
-    const target = join(pluginsDir, "simple-memory");
+    // GIVEN a stale copy already on disk
+    const target = join(pluginsDir, "caveman");
     mkdirSync(target, { recursive: true });
-    writeFileSync(join(target, "marker"), "pre-existing");
+    writeFileSync(join(target, "stale.txt"), "old");
 
-    await installPlugin(
-      { name: "simple-memory", force: true, ref: "main" },
-      {
-        fetch: fixtureFetch({
-          "simple-memory/package.json": '{"name":"simple-memory"}',
-        }),
-        workspacePluginsDir: pluginsDir,
-      },
+    // AND a clone that materializes the fresh upstream tree
+    const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
+    const runGit = fakeGitRunner({
+      tree: { "package.json": '{"name":"caveman"}', "README.md": "# caveman" },
+      commit: CAVEMAN_SHA,
+    });
+
+    // WHEN we install with --force
+    const result = await installPlugin(
+      { name: "caveman", force: true, ref: "main" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
     );
 
-    expect(existsSync(join(target, "marker"))).toBe(false);
+    // THEN the fresh tree replaces the old copy entirely
+    expect(result.target).toBe(target);
+    expect(existsSync(join(target, "stale.txt"))).toBe(false);
     expect(existsSync(join(target, "package.json"))).toBe(true);
+    expect(existsSync(join(target, "README.md"))).toBe(true);
   });
 
-  test("--force preserves the existing install when the fetch fails", async () => {
-    // A transient 5xx during a forced re-install must NOT delete the
-    // previously working plugin. The fetch error surfaces, but the existing
-    // tree on disk is untouched (all writes go through the staging dir).
-    const target = join(pluginsDir, "simple-memory");
+  test("--force preserves the existing install when the clone fails", async () => {
+    // GIVEN a working copy already on disk
+    const target = join(pluginsDir, "caveman");
     mkdirSync(target, { recursive: true });
-    writeFileSync(join(target, "marker"), "pre-existing");
+    writeFileSync(join(target, "package.json"), '{"name":"caveman-existing"}');
 
+    // AND a clone that fails mid-fetch
+    const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
+    const runGit = fakeGitRunner({
+      tree: {},
+      fetchError: Object.assign(new Error("git fetch failed"), {
+        stderr: "fatal: unable to access: Could not resolve host: github.com",
+      }),
+    });
+
+    // WHEN we install with --force and the fetch fails
+    // THEN the previous install is left untouched (staging never swapped in)
     await expect(
       installPlugin(
-        { name: "simple-memory", force: true, ref: "main" },
-        {
-          fetch: (async () =>
-            new Response("upstream broken", { status: 503 })) as FetchLike,
-          workspacePluginsDir: pluginsDir,
-        },
+        { name: "caveman", force: true, ref: "main" },
+        { fetch, runGit, workspacePluginsDir: pluginsDir },
       ),
-    ).rejects.toThrow(/HTTP 503/);
-
-    expect(readFileSync(join(target, "marker"), "utf-8")).toBe("pre-existing");
-    // And no staging dir leaks into the plugins directory.
-    expect(readdirSync(pluginsDir)).toEqual(["simple-memory"]);
-  });
-
-  test("404 on the canonical path is reported as not-found", async () => {
-    await expect(
-      installPlugin(
-        { name: "missing-plugin", force: false, ref: "main" },
-        {
-          fetch: fixtureFetch({}),
-          workspacePluginsDir: pluginsDir,
-        },
-      ),
-    ).rejects.toBeInstanceOf(PluginNotFoundError);
-
-    expect(existsSync(join(pluginsDir, "missing-plugin"))).toBe(false);
-    // And no staging dir leaks either.
-    expect(readdirSync(pluginsDir)).toEqual([]);
-  });
-
-  test("HTTP 5xx from GitHub propagates and leaves no staging behind", async () => {
-    await expect(
-      installPlugin(
-        { name: "demo", force: false, ref: "main" },
-        {
-          fetch: (async () =>
-            new Response("upstream broken", { status: 503 })) as FetchLike,
-          workspacePluginsDir: pluginsDir,
-        },
-      ),
-    ).rejects.toThrow(/HTTP 503/);
-
-    expect(existsSync(join(pluginsDir, "demo"))).toBe(false);
-    expect(readdirSync(pluginsDir)).toEqual([]);
-  });
-
-  test("a rate-limited contents listing surfaces a retryable PluginSourceUnavailableError", async () => {
-    // GIVEN GitHub's unauthenticated rate limit is exhausted: the contents
-    // listing 403s with the remaining-quota header at zero
-    const rateLimited: FetchLike = (async (input: RequestInfo | URL) => {
-      const url = typeof input === "string" ? input : input.toString();
-      if (url.includes("marketplace.json")) {
-        return new Response("not found", { status: 404 });
-      }
-      if (url.includes("/contents/")) {
-        return new Response("rate limited", {
-          status: 403,
-          headers: { "x-ratelimit-remaining": "0" },
-        });
-      }
-      return new Response("not found", { status: 404 });
-    }) as FetchLike;
-
-    // WHEN we install
-    // THEN the failure is classified as transient (retryable), not a hard
-    // error, so the route can surface a 503 instead of a 500
-    await expect(
-      installPlugin(
-        { name: "demo", force: false, ref: "main" },
-        { fetch: rateLimited, workspacePluginsDir: pluginsDir },
-      ),
-    ).rejects.toBeInstanceOf(PluginSourceUnavailableError);
-
-    // AND no staging dir leaks behind on the transient failure.
-    expect(readdirSync(pluginsDir)).toEqual([]);
-  });
-
-  test("a forbidden contents listing with quota remaining stays a hard error", async () => {
-    // GIVEN a 403 that is NOT a rate-limit (quota header present and nonzero):
-    // a genuine authorization failure, not a transient one
-    const forbidden: FetchLike = (async (input: RequestInfo | URL) => {
-      const url = typeof input === "string" ? input : input.toString();
-      if (url.includes("marketplace.json")) {
-        return new Response("not found", { status: 404 });
-      }
-      if (url.includes("/contents/")) {
-        return new Response("forbidden", {
-          status: 403,
-          headers: { "x-ratelimit-remaining": "57" },
-        });
-      }
-      return new Response("not found", { status: 404 });
-    }) as FetchLike;
-
-    // WHEN we install
-    // THEN it surfaces as a hard error — NOT the retryable variant — so the
-    // route maps it to 500 rather than inviting an endless retry loop
-    await expect(
-      installPlugin(
-        { name: "demo", force: false, ref: "main" },
-        { fetch: forbidden, workspacePluginsDir: pluginsDir },
-      ),
-    ).rejects.not.toBeInstanceOf(PluginSourceUnavailableError);
-    expect(readdirSync(pluginsDir)).toEqual([]);
-  });
-
-  test("respects ref by forwarding it to the contents listing", async () => {
-    // The requested ref must reach the first-party contents listing request.
-    let listRef: string | undefined;
-    const base = fixtureFetch({ "demo/package.json": "{}" });
-    const fetch: FetchLike = async (input, init) => {
-      const url = typeof input === "string" ? input : input.toString();
-      const match = /\/contents\/plugins\/demo\?ref=([^&]+)/.exec(url);
-      if (match) listRef = decodeURIComponent(match[1]!);
-      return base(url, init);
-    };
-
-    await installPlugin(
-      { name: "demo", force: false, ref: "feat-branch" },
-      { fetch, workspacePluginsDir: pluginsDir },
+    ).rejects.toThrow();
+    expect(readFileSync(join(target, "package.json"), "utf-8")).toBe(
+      '{"name":"caveman-existing"}',
     );
-
-    expect(listRef).toBe("feat-branch");
-    expect(existsSync(join(pluginsDir, "demo", "package.json"))).toBe(true);
-  });
-
-  test("rejects untrusted entry names from the GitHub response", async () => {
-    // Even though GitHub returns trustworthy data, defense-in-depth requires
-    // us to validate every entry name before any filesystem write. A malicious
-    // or buggy upstream that hands us `../escape` must not write outside the
-    // target.
-    const badFetch: FetchLike = (async (input: RequestInfo | URL) => {
-      const url = typeof input === "string" ? input : input.toString();
-      if (url.includes("marketplace.json")) {
-        return new Response("not found", { status: 404 });
-      }
-      if (url.includes("/contents/")) {
-        return new Response(
-          JSON.stringify([
-            {
-              name: "../escape",
-              path: "plugins/demo/../escape",
-              type: "file",
-              download_url: `${DOWNLOAD_HOST}escape`,
-            },
-          ]),
-          { status: 200 },
-        );
-      }
-      return new Response("x", { status: 200 });
-    }) as FetchLike;
-
-    await expect(
-      installPlugin(
-        { name: "demo", force: false, ref: "main" },
-        { fetch: badFetch, workspacePluginsDir: pluginsDir },
-      ),
-    ).rejects.toThrow(/Unsafe entry name/);
-
-    // Nothing was written outside the target — in fact, the target itself
-    // is gone because the failed install rolled back the staging dir.
-    expect(existsSync(join(pluginsDir, "..", "escape"))).toBe(false);
-    expect(readdirSync(pluginsDir)).toEqual([]);
   });
 });
 
@@ -525,21 +325,6 @@ describe("installPlugin — marketplace resolution", () => {
   afterEach(() => {
     rmSync(ws, { recursive: true, force: true });
   });
-
-  const CAVEMAN_MANIFEST = {
-    name: "vellum-assistant",
-    plugins: [
-      {
-        name: "caveman",
-        source: {
-          source: "github",
-          repo: "JuliusBrussee/caveman",
-          ref: "63a91ecadbf4c4719a4602a5abb00883f9966034",
-        },
-        description: "Ultra-compressed communication mode.",
-      },
-    ],
-  };
 
   test("installs a whitelisted plugin by shallow-cloning its pinned repo + ref", async () => {
     // GIVEN a marketplace whitelisting caveman at its repo root, pinned to a commit SHA
@@ -586,11 +371,11 @@ describe("installPlugin — marketplace resolution", () => {
       "https://github.com/JuliusBrussee/caveman.git",
     );
 
-    // AND a provenance manifest records the external source + commit.
+    // AND a provenance manifest records the github source + commit.
     const manifest = JSON.parse(
       readFileSync(join(target, ".vellum-plugin.json"), "utf-8"),
     );
-    expect(manifest.source.kind).toBe("external");
+    expect(manifest.source.kind).toBe("github");
     expect(manifest.source.owner).toBe("JuliusBrussee");
     expect(manifest.source.ref).toBe(
       "63a91ecadbf4c4719a4602a5abb00883f9966034",
@@ -662,14 +447,13 @@ describe("installPlugin — marketplace resolution", () => {
     expect(readdirSync(pluginsDir)).toEqual([]);
   });
 
-  test("a name absent from the manifest falls back to the first-party source", async () => {
-    // GIVEN a manifest that does NOT whitelist "simple-memory", and no such
-    // first-party tree in the canonical repo
+  test("a name absent from the manifest is a not-found", async () => {
+    // GIVEN a manifest that does NOT whitelist "simple-memory"
     const fetch = makeContentsFetch({ tree: {}, manifest: CAVEMAN_MANIFEST });
 
-    // WHEN we install a first-party name
-    // THEN resolution falls back to the first-party path and surfaces a clean
-    // not-found pointing at the first-party source (git is never invoked)
+    // WHEN we install an unlisted name
+    // THEN it is a clean not-found pointing at the marketplace manifest, and
+    // git is never invoked (there is no source to clone)
     await expect(
       installPlugin(
         { name: "simple-memory", ref: "main" },
@@ -677,7 +461,7 @@ describe("installPlugin — marketplace resolution", () => {
       ),
     ).rejects.toMatchObject({
       constructor: PluginNotFoundError,
-      message: expect.stringContaining("vellum-ai/vellum-assistant"),
+      message: expect.stringContaining("plugins/marketplace.json"),
     });
   });
 
@@ -981,33 +765,21 @@ describe("installPlugin — marketplace resolution", () => {
     expect(readdirSync(pluginsDir)).toEqual([]);
   });
 
-  test("refuses to install an adapter stub as first-party when the marketplace lookup fails", async () => {
+  test("a transient marketplace failure surfaces a retryable error", async () => {
     // GIVEN the marketplace lookup fails transiently (e.g. rate-limit / 5xx)
-    // rather than being absent, so resolution degrades to the first-party path
-    // AND the same-named in-repo directory is an adapter stub (a package.json
-    // with a postinstall + adapter script, but no hooks/tools of its own)
-    const fetch = makeContentsFetch({
-      tree: {
-        "plugins/caveman/package.json": JSON.stringify({
-          name: "caveman",
-          scripts: { postinstall: "bun ./postinstall.ts" },
-        }),
-        "plugins/caveman/postinstall.ts": "// adapter",
-      },
-      manifestStatus: 500,
-    });
+    // rather than being absent, so the name can't be resolved to a source
+    const fetch = makeContentsFetch({ tree: {}, manifestStatus: 500 });
 
-    // WHEN we install the name (git never runs — there is no external source to
+    // WHEN we install the name (git never runs — there is no resolved source to
     // clone because the marketplace that would have named it was unreadable)
-    // THEN it fails loudly with a PluginPostinstallError instead of
-    // materializing the bare stub as a non-functional standalone plugin, and
-    // nothing is left behind on disk
+    // THEN it surfaces as the retryable variant so the route maps it to 503,
+    // and nothing is left behind on disk
     await expect(
       installPlugin(
         { name: "caveman", ref: "main" },
         { fetch, runGit: unusedGitRunner, workspacePluginsDir: pluginsDir },
       ),
-    ).rejects.toBeInstanceOf(PluginPostinstallError);
+    ).rejects.toBeInstanceOf(PluginSourceUnavailableError);
     expect(readdirSync(pluginsDir)).toEqual([]);
   });
 });

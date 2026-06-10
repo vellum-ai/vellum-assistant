@@ -9,9 +9,9 @@
  * a `plugins` array where each entry carries a `name` and a `source`. Only
  * `github` sources are resolved today.
  *
- * Like the first-party plugin listing, the manifest is fetched from the repo
- * at a git ref (via the GitHub Contents API) rather than bundled into the
- * assistant build — so the whitelist can grow without shipping a new release.
+ * The manifest is fetched from the repo at a git ref (via the GitHub Contents
+ * API) rather than bundled into the assistant build — so the whitelist can
+ * grow without shipping a new release.
  * Every external source pins an explicit `ref` that MUST be a full commit SHA:
  * the fetched code is locked to an immutable revision. Tags and branches are
  * rejected because they are mutable — an upstream owner could retag/repoint
@@ -132,23 +132,51 @@ export interface FetchMarketplaceDeps {
 /**
  * The manifest could not be read or did not validate. Distinct from "no
  * manifest at this ref" (a missing file is a normal, empty result) — this
- * signals an upstream/parse problem the caller may choose to surface or
- * degrade past.
+ * signals an upstream/parse problem the caller must surface.
+ *
+ * `transient` distinguishes a retryable upstream hiccup (GitHub rate-limited
+ * us or returned a 5xx) from a hard failure (a malformed or invalid manifest).
+ * The catalog is the source of truth for installable plugins, so a transient
+ * fetch failure should map to a retryable 503 and serve a stale cache, while a
+ * hard failure surfaces as a real error.
  */
 export class MarketplaceFetchError extends Error {
-  constructor(message: string) {
+  /** Whether the failure is a retryable upstream hiccup vs a hard error. */
+  readonly transient: boolean;
+  /** Upstream HTTP status, when the failure originated from a response. */
+  readonly status?: number;
+  constructor(
+    message: string,
+    opts?: { transient?: boolean; status?: number },
+  ) {
     super(message);
     this.name = "MarketplaceFetchError";
+    this.transient = opts?.transient ?? false;
+    if (opts?.status !== undefined) this.status = opts.status;
   }
+}
+
+/**
+ * Classify an upstream GitHub status as transient (worth retrying) vs hard.
+ * A 429 or 5xx is always transient. A 403 is GitHub's unauthenticated
+ * rate-limit signal only when the remaining-quota header is exhausted — a 403
+ * without it is a genuine authorization failure and stays hard.
+ */
+function isTransientUpstreamStatus(res: Response): boolean {
+  if (res.status === 429 || res.status >= 500) return true;
+  if (res.status === 403) {
+    return res.headers.get("x-ratelimit-remaining") === "0";
+  }
+  return false;
 }
 
 /**
  * Fetch and validate the marketplace manifest, returning its plugin entries.
  *
- * A missing manifest (HTTP 404) is treated as an empty whitelist — the
- * marketplace is supplementary to the first-party plugin listing, so its
- * absence is not an error. Any other HTTP failure, a non-JSON body, or a
- * schema violation throws {@link MarketplaceFetchError}.
+ * A missing manifest (HTTP 404) is treated as an empty whitelist — an empty
+ * catalog is a valid state, not an error. Any other HTTP failure, a non-JSON
+ * body, or a schema violation throws {@link MarketplaceFetchError}; a
+ * rate-limit or 5xx is flagged `transient` so the caller can retry.
  */
 export async function fetchMarketplaceEntries(
   deps: FetchMarketplaceDeps,
@@ -172,6 +200,7 @@ export async function fetchMarketplaceEntries(
   if (!res.ok) {
     throw new MarketplaceFetchError(
       `Marketplace manifest fetch failed for ${MARKETPLACE_FILE_PATH} @ ${ref}: HTTP ${res.status}`,
+      { transient: isTransientUpstreamStatus(res), status: res.status },
     );
   }
 
@@ -196,8 +225,7 @@ export async function fetchMarketplaceEntries(
 
 /**
  * Resolve a plugin name to concrete GitHub coordinates using the supplied
- * marketplace entries. Returns `null` when no entry claims the name (the
- * caller then falls back to the first-party source convention).
+ * marketplace entries. Returns `null` when no entry claims the name.
  */
 export function resolveMarketplaceSource(
   name: string,

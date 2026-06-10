@@ -71,8 +71,11 @@ const {
 const CUTOFF = "2026-05-01T12:00:00.000Z";
 
 /** Options for tests not exercising the v3 core-pages gate. */
-const NO_CORE = { includeCorePagesSection: false };
-const WITH_CORE = { includeCorePagesSection: true };
+const NO_CORE = { includeCorePagesSection: false, articleShape: "v2" as const };
+const WITH_CORE = {
+  includeCorePagesSection: true,
+  articleShape: "v2" as const,
+};
 
 const bundledPrompt = (includeCorePagesSection = false): string =>
   (CONSOLIDATION_PROMPT as string)

@@ -198,12 +198,12 @@ guard let ctx = CGContext(
 
 let s = CGFloat(size)
 
-let iconRect = CGRect(x: 0, y: 0, width: s, height: s)
-let cornerRadius = s * 0.2237
-let bgPath = CGPath(roundedRect: iconRect, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
-ctx.addPath(bgPath)
+// Full-bleed opaque fill (no rounding). macOS Tahoe inspects edge pixel alpha:
+// ≥ 253 → clean system-applied squircle clip; ≤ 252 → "icon jail" (gray border).
+// A rounded rect leaves transparent corner pixels (alpha 0) triggering the jail.
+// Ref: https://developer.apple.com/forums/thread/797971
 ctx.setFillColor(fillColor)
-ctx.fillPath()
+ctx.fill(CGRect(x: 0, y: 0, width: s, height: s))
 
 let svgPixelWidth = svgWidth * scale
 let svgPixelHeight = svgHeight * scale
@@ -245,3 +245,44 @@ done
 iconutil --convert icns --output "$OUTPUT_DIR/icon.icns" "$ICONSET_DIR"
 
 echo "generate-icon: wrote $OUTPUT_DIR/icon.icns ($VELLUM_ENVIRONMENT)"
+
+# Compile the Icon Composer .icon bundle into Assets.car so Finder/Dock can use
+# the Liquid Glass icon on Tahoe and actool's rounded raster fallback on pre-Tahoe.
+# The .icns above is a full-bleed square (required for Tahoe edge-alpha check) and
+# serves as CFBundleIconFile fallback. Assets.car (CFBundleIconName) takes priority
+# in Finder, providing proper rounded display on all macOS versions.
+ICON_BUNDLE_DIR=$(mktemp -d)/AppIcon.icon
+mkdir -p "$ICON_BUNDLE_DIR"
+cp "$ICON_SOURCE_DIR/icon.json" "$ICON_BUNDLE_DIR/icon.json"
+cp -R "$ICON_SOURCE_DIR/Assets" "$ICON_BUNDLE_DIR/Assets"
+
+ACTOOL_MAX_ATTEMPTS=3
+ACTOOL_SUCCESS=0
+for attempt in $(seq 1 $ACTOOL_MAX_ATTEMPTS); do
+    rm -f "$OUTPUT_DIR/Assets.car"
+    if ACTOOL_OUTPUT=$(xcrun actool "$ICON_BUNDLE_DIR" \
+        --compile "$OUTPUT_DIR" \
+        --platform macosx \
+        --minimum-deployment-target 15.0 \
+        --app-icon AppIcon \
+        --output-partial-info-plist /dev/null \
+        2>&1); then
+        ACTOOL_SUCCESS=1
+        break
+    fi
+    if [ -f "$OUTPUT_DIR/Assets.car" ]; then
+        echo "generate-icon: actool exited non-zero but Assets.car was produced on attempt $attempt; continuing."
+        ACTOOL_SUCCESS=1
+        break
+    fi
+    echo "generate-icon: actool attempt $attempt/$ACTOOL_MAX_ATTEMPTS failed; retrying."
+done
+rm -rf "$(dirname "$ICON_BUNDLE_DIR")"
+
+if [ "$ACTOOL_SUCCESS" = "1" ]; then
+    echo "generate-icon: wrote $OUTPUT_DIR/Assets.car ($VELLUM_ENVIRONMENT)"
+else
+    echo "generate-icon: actool failed to produce Assets.car after all attempts:" >&2
+    echo "$ACTOOL_OUTPUT" >&2
+    exit 1
+fi

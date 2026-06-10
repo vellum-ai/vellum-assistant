@@ -19406,15 +19406,7 @@ paths:
                       - type: "null"
                     description: Resolved version (installed copy first, then repo `package.json`).
                   source:
-                    oneOf:
-                      - type: object
-                        properties:
-                          kind:
-                            type: string
-                            const: first-party
-                        required:
-                          - kind
-                        additionalProperties: false
+                    anyOf:
                       - type: object
                         properties:
                           kind:
@@ -19434,7 +19426,9 @@ paths:
                           - repo
                           - ref
                         additionalProperties: false
-                    description: "Origin of the match: a first-party in-repo plugin or a whitelisted external one."
+                        description: "Origin of the match: a whitelisted external plugin repository."
+                      - type: "null"
+                    description: Pinned origin from the marketplace entry, or null when an installed copy has no catalog entry.
                   readme:
                     anyOf:
                       - type: string
@@ -19475,13 +19469,12 @@ paths:
       operationId: plugins_install_post
       summary: Install a plugin
       description:
-        "Install a plugin by name from the canonical source — a whitelisted `plugins/marketplace.json` entry, else
-        the first-party `plugins/<name>/` convention. Always resolves against the curated default git ref (no
-        caller-supplied ref): installing from an unreviewed revision would bypass the marketplace/first-party curation
-        boundary and let attacker-controlled code be loaded. Materializes the plugin under
-        `<workspaceDir>/plugins/<name>/`; the assistant must be restarted to load it. Mirrors the CLI's `assistant
-        plugins install <name>`. An already-installed name without `force` returns 409; a name that resolves to nothing
-        returns 404. Sibling to `POST /v1/skills/install`."
+        "Install a plugin by name from the canonical source — a whitelisted `plugins/marketplace.json` entry.
+        Always resolves against the curated default git ref (no caller-supplied ref): installing from an unreviewed
+        revision would bypass the marketplace curation boundary and let attacker-controlled code be loaded. Materializes
+        the plugin under `<workspaceDir>/plugins/<name>/`; the assistant must be restarted to load it. Mirrors the CLI's
+        `assistant plugins install <name>`. An already-installed name without `force` returns 409; a name that resolves
+        to nothing returns 404. Sibling to `POST /v1/skills/install`."
       tags:
         - plugins
       responses:
@@ -19529,7 +19522,7 @@ paths:
               properties:
                 name:
                   type: string
-                  description: Install name to resolve against the catalog (first-party directory or marketplace entry).
+                  description: Install name to resolve against the marketplace catalog.
                 force:
                   description: Overwrite an existing install in place. Defaults to false.
                   type: boolean
@@ -19541,9 +19534,9 @@ paths:
       operationId: plugins_search_get
       summary: Search the plugin catalog
       description:
-        List installable plugins from the canonical `vellum-ai/vellum-assistant` catalog at `plugins/`. The query
-        is an ECMAScript regex matched case-insensitively against the directory name (e.g. `memory`, `^simple`). Empty
-        query returns every entry. Mirrors the CLI's `assistant plugins search`.
+        List installable plugins from the curated `plugins/marketplace.json` catalog. The query is an ECMAScript
+        regex matched case-insensitively against the plugin name (e.g. `memory`, `^simple`). Empty query returns every
+        entry. Mirrors the CLI's `assistant plugins search`.
       tags:
         - plugins
       responses:
@@ -19570,42 +19563,31 @@ paths:
                           description: Install name. Matches `assistant plugins install <name>`.
                         path:
                           type: string
-                          description:
-                            "Human-readable origin: a repo-relative path (`plugins/<name>`) for first-party plugins or a
-                            `github:owner/repo@ref` locator for external ones."
+                          description: "Human-readable origin: a `github:owner/repo@ref` locator for the external plugin."
                         description:
                           description: Short description, when known (external entries only today).
                           type: string
                         source:
-                          oneOf:
-                            - type: object
-                              properties:
-                                kind:
-                                  type: string
-                                  const: first-party
-                              required:
-                                - kind
-                              additionalProperties: false
-                            - type: object
-                              properties:
-                                kind:
-                                  type: string
-                                  const: github
-                                repo:
-                                  type: string
-                                  description: "`owner/repo` of the external plugin repository."
-                                path:
-                                  description: Directory within the repo, when the plugin is not at the root.
-                                  type: string
-                                ref:
-                                  type: string
-                                  description: Pinned git ref the plugin is fetched from.
-                              required:
-                                - kind
-                                - repo
-                                - ref
-                              additionalProperties: false
-                          description: "Origin of the match: a first-party in-repo plugin or a whitelisted external one."
+                          type: object
+                          properties:
+                            kind:
+                              type: string
+                              const: github
+                            repo:
+                              type: string
+                              description: "`owner/repo` of the external plugin repository."
+                            path:
+                              description: Directory within the repo, when the plugin is not at the root.
+                              type: string
+                            ref:
+                              type: string
+                              description: Pinned git ref the plugin is fetched from.
+                          required:
+                            - kind
+                            - repo
+                            - ref
+                          additionalProperties: false
+                          description: "Origin of the match: a whitelisted external plugin repository."
                       required:
                         - name
                         - path

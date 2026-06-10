@@ -236,7 +236,7 @@ export interface PostCompactContext {
    * re-applied blocks are attributed to the originating request; it is fixed
    * for the turn and cannot be recovered from the message history.
    */
-  readonly requestId: string | null;
+  readonly requestId: string;
   /** Conversation ID the turn being compacted is scoped to. */
   readonly conversationId: string;
   /**
@@ -346,19 +346,31 @@ export interface PostToolUseContext {
 export type StopDecision = "continue" | "stop";
 
 /**
- * Context passed to the `stop` hook. Fires when the model yields a response
- * with no tool calls — the run's stop boundary, where the loop is about to
- * hand the turn back to the user. The default empty-response plugin uses it
- * to re-query the model when a turn came back empty or as a provider refusal.
+ * Context passed to the `stop` hook. Fires at the run's stop boundary — the
+ * point where the loop has nothing more to produce this turn and is about to
+ * hand back to the user. There are two stop moments:
+ *
+ * - **Successful stop.** The model yielded a response with no tool calls.
+ *   {@link error} is absent, {@link responseContent} holds the turn's content,
+ *   and {@link stopReason} carries the provider's stop reason. The default
+ *   empty-response plugin uses this to re-query when a turn came back empty or
+ *   as a provider refusal.
+ * - **Error stop.** The provider rejected the call before any response
+ *   existed. {@link error} holds the rejection, {@link responseContent} is
+ *   empty, and {@link stopReason} is `null`. A hook that recognizes the
+ *   rejection (e.g. history-repair on an ordering violation) may repair
+ *   {@link messages} and set {@link decision} to `"continue"` to retry;
+ *   otherwise the loop surfaces the error. Hooks that only act on a real
+ *   response must guard on {@link error} and ignore error stops.
  *
  * The hook decides the outcome by setting {@link decision}. When it sets
- * `"continue"` it must also append the follow-up turn (e.g. a nudge `user`
- * message) to {@link messages}; the loop threads those messages into the next
- * iteration. {@link messages} is the full conversation history, carried back
- * verbatim. A hook that needs to reason about just the current response cycle
- * (e.g. whether an earlier turn already delivered visible text) derives that
- * boundary from the history itself — the messages after the last genuine user
- * prompt — rather than an index, since mid-run compaction can rewrite the
+ * `"continue"` it must also leave {@link messages} as the history the next
+ * iteration should send — a successful-stop hook appends its follow-up turn
+ * (e.g. a nudge `user` message); an error-stop hook replaces the history with
+ * a repaired one. A hook that needs to reason about just the current response
+ * cycle (e.g. whether an earlier turn already delivered visible text) derives
+ * that boundary from the history itself — the messages after the last genuine
+ * user prompt — rather than an index, since mid-run compaction can rewrite the
  * array.
  *
  * Multiple plugins' hooks chain in registration order — each sees the
@@ -389,9 +401,18 @@ export interface StopContext {
   responseContent: ReadonlyArray<ContentBlock>;
   /**
    * Provider-reported stop reason for the assistant turn (e.g. `"refusal"`,
-   * `"end_turn"`). `null` when the provider didn't report one.
+   * `"end_turn"`). `null` when the provider didn't report one, including every
+   * error stop (no response existed to carry a stop reason).
    */
   readonly stopReason: string | null;
+  /**
+   * The provider rejection that ended the turn, on an error stop. Absent on a
+   * successful stop (the model returned a response). A hook that recovers from
+   * a specific rejection class inspects this and may repair {@link messages}
+   * and set {@link decision} to `"continue"`; hooks that only act on a real
+   * response must return early when it is present.
+   */
+  readonly error?: Error;
   /**
    * Seeded to `"stop"`. A hook sets it to `"continue"` to force another loop
    * iteration; later hooks in the chain may override it.

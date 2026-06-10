@@ -4,8 +4,9 @@ Plugins extend the assistant's default capabilities using hooks, tools,
 skills, and more.
 
 If you're authoring a plugin against the current convention, this file is
-your map. Read [`simple-memory/`](./simple-memory/) alongside, it's the
-canonical reference implementation and exercises every wired surface.
+your map. Read [`vellum-ai/simple-memory`](https://github.com/vellum-ai/simple-memory)
+alongside, it's the canonical reference implementation and exercises every
+wired surface.
 
 ## Table of contents
 
@@ -424,11 +425,8 @@ call time.
 ## Marketplace — whitelisting external plugins
 
 The catalog shown by `assistant plugins search` (and the web plugins tab) is
-computed live from two sources:
-
-1. **First-party plugins** — the directories in this folder.
-2. **Whitelisted external plugins** — entries in
-   [`marketplace.json`](./marketplace.json).
+computed live from the whitelisted external plugins listed in
+[`marketplace.json`](./marketplace.json).
 
 The manifest lets us surface plugins that live in other repos without copying
 their code here. Its shape is a subset of the
@@ -477,14 +475,14 @@ Resolution rules:
 
 - **Curation is the whitelist.** Only repos listed here appear in the catalog;
   there is no open registry.
-- **A marketplace entry owns its name.** If an entry and a directory in this
-  folder share a name, the entry wins and the same-named directory is treated
-  as that plugin's [postinstall adapter stub](#postinstall-adapters) (below),
-  not a standalone first-party plugin. A directory whose name *no* entry claims
-  is a first-party plugin, as before.
-- **The manifest is supplementary.** A missing or malformed `marketplace.json`
-  degrades to the first-party listing — it never blocks core plugin discovery
-  or installation.
+- **A marketplace entry owns its name.** A directory in this folder that shares
+  a name with an entry is that plugin's [postinstall adapter
+  stub](#postinstall-adapters) (below), overlaid onto the external clone — not
+  a standalone plugin. Directories here exist only as adapter stubs; the
+  catalog is the marketplace manifest alone.
+- **The manifest is the catalog.** `marketplace.json` is the sole source of
+  installable plugins. A missing or malformed manifest yields an empty catalog
+  rather than falling back to an in-repo listing.
 
 Whitelisting makes an external plugin **appear in the catalog and install by
 name**. It does not by itself guarantee the plugin's hooks/tools match this

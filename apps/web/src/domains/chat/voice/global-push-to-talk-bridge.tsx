@@ -5,6 +5,7 @@ import {
   type VoiceInputButtonHandle,
 } from "@/domains/chat/components/voice-input-button";
 import { useComposerStore } from "@/domains/chat/composer-store";
+import { useDictationOverlaySync } from "@/domains/chat/hooks/use-dictation-overlay-sync";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { formatVoiceError } from "@/domains/chat/utils/chat";
 import { postDictation } from "@/domains/chat/voice/dictation-api";
@@ -12,6 +13,7 @@ import { getPushToTalkTarget } from "@/domains/chat/voice/push-to-talk-target";
 import { shouldEnablePushToTalk } from "@/domains/chat/voice/push-to-talk-host";
 import { useNativePushToTalkRegistration } from "@/domains/chat/voice/use-native-push-to-talk-registration";
 import { usePushToTalk } from "@/domains/chat/voice/use-push-to-talk";
+import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { insertTextIntoFrontApp } from "@/runtime/text-insertion";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -45,6 +47,13 @@ export function GlobalPushToTalkBridge({
 
   useNativePushToTalkRegistration();
 
+  // Single per-window publisher for the Electron dictation overlay. Lives
+  // here — not in `useVoiceInput` — because this bridge is always mounted
+  // (RootLayout) while the chat composer only exists on chat routes; the
+  // overlay must mirror dictation hosted by either VoiceInputButton
+  // instance. Reads everything from the shared recording store.
+  useDictationOverlaySync();
+
   const resolveTarget = useCallback(
     () =>
       getPushToTalkTarget() ??
@@ -73,8 +82,14 @@ export function GlobalPushToTalkBridge({
 
       if (frontAppInsertion.status === "automation-denied") {
         toast.error(formatVoiceError("dictation-automation-denied"));
+        useVoiceRecordingStore
+          .getState()
+          .flagDictationInsertionError("dictation-automation-denied");
       } else if (frontAppInsertion.status === "blocked") {
         toast.error(formatVoiceError("dictation-paste-blocked"));
+        useVoiceRecordingStore
+          .getState()
+          .flagDictationInsertionError("dictation-paste-blocked");
       }
 
       if (assistantId) {

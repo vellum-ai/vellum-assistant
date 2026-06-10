@@ -25,6 +25,14 @@ export type HelperRestartResult =
   | { ok: true; state: MacHelperState }
   | { ok: false; reason: string; state: MacHelperState };
 
+export type DictationPartialsResult =
+  | { ok: true; enabled: boolean }
+  | { ok: false; reason: string };
+
+export interface DictationPartialEvent {
+  text: string;
+}
+
 const HOTKEY_EVENT_SCHEMA = z.object({
   kind: z.literal("fnPushToTalk"),
   state: z.enum(["down", "up"]),
@@ -32,6 +40,15 @@ const HOTKEY_EVENT_SCHEMA = z.object({
 
 const HOTKEY_RESULT_SCHEMA = z.object({
   enabled: z.boolean(),
+});
+
+const DICTATION_PARTIAL_SCHEMA = z.object({
+  text: z.string(),
+});
+
+const DICTATION_RESULT_SCHEMA = z.object({
+  enabled: z.boolean(),
+  reason: z.string().optional(),
 });
 
 let platformForTesting: NodeJS.Platform | null = null;
@@ -97,6 +114,41 @@ interface HotkeyOwner {
   webContents: WebContents;
   cleanup: () => void;
 }
+
+// The renderer that most recently enabled dictation partials — the recording
+// session's host. Partial notifications route only there.
+let dictationPartialsOwner: WebContents | null = null;
+
+const setDictationPartials = async (
+  webContents: WebContents,
+  enable: boolean,
+): Promise<DictationPartialsResult> => {
+  try {
+    const result = await client.call("dictation.setPartials", { enable });
+    const parsed = DICTATION_RESULT_SCHEMA.safeParse(result);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        reason: "mac helper returned invalid dictation result",
+      };
+    }
+    if (enable && !parsed.data.enabled) {
+      return { ok: false, reason: parsed.data.reason ?? "unavailable" };
+    }
+    dictationPartialsOwner = enable ? webContents : null;
+    return { ok: true, enabled: parsed.data.enabled };
+  } catch (err) {
+    return {
+      ok: false,
+      reason: err instanceof Error ? err.message : String(err),
+    };
+  }
+};
+
+const sendDictationPartialToOwner = (event: DictationPartialEvent): void => {
+  if (!dictationPartialsOwner || dictationPartialsOwner.isDestroyed()) return;
+  dictationPartialsOwner.send("vellum:helper:dictation:partial", event);
+};
 
 const hotkeyOwners = new Map<number, HotkeyOwner>();
 let activeHotkeyOwnerId: number | null = null;
@@ -285,6 +337,9 @@ const handleHelperState = (state: MacHelperState): void => {
     restoreHotkeyAfterRestart = true;
   }
   helperRegistered = false;
+  // The partials session lived in the dead helper process; the renderer's
+  // session simply continues without live text.
+  dictationPartialsOwner = null;
   sendSyntheticHotkeyUpIfNeeded();
 };
 
@@ -304,6 +359,7 @@ const restartHelper = (): HelperRestartResult => {
 let installed = false;
 let unsubscribeHotkeyEvents: (() => void) | null = null;
 let unsubscribeHelperState: (() => void) | null = null;
+let unsubscribeDictationPartials: (() => void) | null = null;
 
 export const installHotkeyHelper = (): void => {
   if (installed) return;
@@ -314,6 +370,13 @@ export const installHotkeyHelper = (): void => {
     HOTKEY_EVENT_SCHEMA,
     (event) => {
       sendHotkeyEventToOwner(event);
+    },
+  );
+  unsubscribeDictationPartials = client.onNotification(
+    "dictation.partial",
+    DICTATION_PARTIAL_SCHEMA,
+    (event) => {
+      sendDictationPartialToOwner(event);
     },
   );
   unsubscribeHelperState = client.onState(handleHelperState);
@@ -329,6 +392,12 @@ export const installHotkeyHelper = (): void => {
       enable
         ? enableFnPushToTalkForOwner(event.sender)
         : disableFnPushToTalkForOwner(event.sender),
+  );
+
+  handle(
+    "vellum:helper:dictation:setPartials",
+    z.tuple([z.boolean()]),
+    ([enable], event) => setDictationPartials(event.sender, enable),
   );
 
   app.on("before-quit", () => {
@@ -352,6 +421,9 @@ export const __resetForTesting = (): void => {
   unsubscribeHotkeyEvents = null;
   unsubscribeHelperState?.();
   unsubscribeHelperState = null;
+  unsubscribeDictationPartials?.();
+  unsubscribeDictationPartials = null;
+  dictationPartialsOwner = null;
   for (const owner of hotkeyOwners.values()) owner.cleanup();
   hotkeyOwners.clear();
   activeHotkeyOwnerId = null;

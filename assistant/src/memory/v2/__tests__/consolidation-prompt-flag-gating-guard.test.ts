@@ -23,6 +23,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import {
+  CONSOLIDATION_PROMPT_V3,
   CORE_PAGES_CONSOLIDATION_SECTION,
   renderConsolidationPrompt,
 } from "../prompts/consolidation.js";
@@ -53,7 +54,22 @@ const GATED_SECTIONS: Array<{
 ];
 
 /** All `ConsolidationPromptOptions` gates forced off — the v2-only rendering. */
-const ALL_GATES_OFF = { includeCorePagesSection: false };
+const ALL_GATES_OFF = {
+  includeCorePagesSection: false,
+  articleShape: "v2" as const,
+};
+
+/**
+ * Phrases distinctive to the v3 article-shape template. The all-gates-off
+ * rendering must contain none of them — the v3 shape drops the `summary:`
+ * field that v2 injection depends on, so leaking it to a v2 install corrupts
+ * the corpus the install actually serves prompts from.
+ */
+const V3_SHAPE_MARKERS = [
+  "The lead IS the card",
+  "status: cc-draft",
+  "kind: index",
+];
 
 // Registry helpers mirror workspace-release-notes-feature-flag-guard.test.ts.
 function loadDefaultDisabledAssistantFlagKeys(): string[] {
@@ -136,5 +152,38 @@ describe("default consolidation prompt flag-gating guard", () => {
         "assistant feature flags by name.\n" +
         violations.map((violation) => `  - ${violation}`).join("\n"),
     ).toEqual([]);
+  });
+
+  test("contains no v3 article-shape content when the shape gate is v2", () => {
+    const violations = V3_SHAPE_MARKERS.filter((marker) =>
+      rendered.includes(marker),
+    );
+    expect(
+      violations,
+      "The v2 (all-gates-off) rendering must not teach the v3 article shape — " +
+        "v2 installs depend on `summary:` fragment pages. v3-shape content " +
+        "belongs only in CONSOLIDATION_PROMPT_V3, selected via " +
+        "options.articleShape.\nLeaked markers: " +
+        violations.join(", "),
+    ).toEqual([]);
+  });
+
+  test("the v3 rendering teaches the v3 shape and drops the v2 summary requirement", () => {
+    const v3 = renderConsolidationPrompt("Jan 1, 12:00 AM", {
+      includeCorePagesSection: true,
+      articleShape: "v3",
+    });
+    for (const marker of V3_SHAPE_MARKERS) {
+      expect(v3).toContain(marker);
+    }
+    // The v3 shape must not instruct a required `summary:` field — its absence
+    // is the wiki↔v2 coupling the deploy sequence is built around.
+    expect(v3).not.toContain("The `summary` field is required");
+    // §10 rides along under the live flag.
+    expect(v3).toContain(CORE_PAGES_CONSOLIDATION_SECTION);
+    // The raw template keeps both placeholders wired.
+    expect(CONSOLIDATION_PROMPT_V3).toContain("{{CUTOFF}}");
+    expect(CONSOLIDATION_PROMPT_V3).toContain("{{CORE_PAGES_SECTION}}");
+    expect(v3.match(/\{\{[A-Z0-9_]+\}\}/g) ?? []).toEqual([]);
   });
 });

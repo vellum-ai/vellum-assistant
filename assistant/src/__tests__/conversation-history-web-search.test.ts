@@ -812,7 +812,7 @@ describe("web_search_tool_result structural guard", () => {
     // Downgrades permanently-unsendable images nested in tool_result.contentBlocks
     // (e.g. an oversized browser screenshot). web_search_tool_result has opaque
     // content with no contentBlocks property, so it cannot hold such an image.
-    "daemon/persist-unsendable-image.ts",
+    "plugins/defaults/image-recovery/recover.ts",
 
     // Final orphan-pair safety pass in the Slack transcript renderer.
     // Server-side block types (`server_tool_use`, `web_search_tool_result`)
