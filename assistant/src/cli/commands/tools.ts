@@ -42,10 +42,15 @@ origin as "core" or "<kind>:<id>" (e.g. "plugin:echo", "skill:my-skill",
 "mcp:linear"). The risk level is the author-asserted default band used for
 permission gating, not the runtime-classified risk of a specific call.
 
+By default the global registry is listed. Pass --conversation to scope the
+list to the tools available to one conversation as of its most recent turn —
+including skill/MCP tools it registered over its lifecycle.
+
 Examples:
   $ assistant tools list
   $ assistant tools ls
-  $ assistant tools list --json`,
+  $ assistant tools list --json
+  $ assistant tools list --conversation conv_abc123`,
       );
 
       tools
@@ -55,8 +60,17 @@ Examples:
           "List all registered tools with their source and risk level",
         )
         .option("--json", "Emit machine-readable JSON instead of a table")
-        .action(async (opts: { json?: boolean }) => {
-          const response = await cliIpcCall<ToolsGetResponse>("tools_get");
+        .option(
+          "--conversation <id>",
+          "Scope to one conversation's tools as of its most recent turn — run 'assistant conversations list' to find the id",
+        )
+        .action(async (opts: { json?: boolean; conversation?: string }) => {
+          const response = await cliIpcCall<ToolsGetResponse>(
+            "tools_get",
+            opts.conversation
+              ? { conversationId: opts.conversation }
+              : undefined,
+          );
           if (!response.ok) {
             return exitFromIpcResult(response);
           }

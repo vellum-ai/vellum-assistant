@@ -1769,6 +1769,21 @@ export class Conversation {
     });
   }
 
+  // ── Tools ────────────────────────────────────────────────────────
+
+  /**
+   * The set of tool names available to this conversation as of its most
+   * recent turn — including skill/MCP tools registered over the
+   * conversation's lifecycle. Read from the snapshot the agent loop's
+   * `resolveTools` callback computed on the last turn; before the first
+   * turn it falls back to the core tool set. This is a pure read: it does
+   * not re-run `resolveTools`, which has registry/projection side effects
+   * that must not fire outside a turn.
+   */
+  getRegisteredToolNames(): Set<string> {
+    return new Set(this.allowedToolNames ?? this.coreToolNames);
+  }
+
   // ── History ──────────────────────────────────────────────────────
 
   getMessages(): Message[] {
