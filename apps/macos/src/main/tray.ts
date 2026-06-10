@@ -1,4 +1,4 @@
-import { Menu, Tray, app, nativeTheme } from "electron";
+import { Menu, Tray, app, nativeTheme, shell } from "electron";
 
 import type { LockfileAssistant } from "@vellumai/local-mode/contract";
 
@@ -101,6 +101,16 @@ const assistantDisplayTitle = (assistant: LockfileAssistant): string => {
 const isMultiAssistantEnabled = (): boolean => {
   const flags = readSetting("featureFlags");
   return flags?.["multi-platform-assistant"] === true;
+};
+
+/**
+ * Whether the developer-menu-items feature flag is currently enabled.
+ * Gates developer/internal actions (Replay Onboarding, Preview PreChat,
+ * Component Gallery) in the tray and application menu.
+ */
+const isDeveloperMenuEnabled = (): boolean => {
+  const flags = readSetting("featureFlags");
+  return flags?.["developer-menu-items"] === true;
 };
 
 const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu => {
@@ -226,6 +236,35 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
         dispatchToMain({ kind: "markAllRead" });
       },
     },
+    ...(isDeveloperMenuEnabled()
+      ? [
+          { type: "separator" as const },
+          {
+            label: "Replay Onboarding",
+            click: async () => {
+              await handlers.ensureMainWindow();
+              dispatchToMain({ kind: "replayOnboarding" as const });
+            },
+          },
+          {
+            label: "Preview PreChat",
+            click: async () => {
+              await handlers.ensureMainWindow();
+              dispatchToMain({ kind: "previewPrechat" as const });
+            },
+          },
+          ...(!app.isPackaged
+            ? [
+                {
+                  label: "Component Gallery",
+                  click: () => {
+                    void shell.openExternal("http://localhost:6007");
+                  },
+                },
+              ]
+            : []),
+        ]
+      : []),
     { type: "separator" },
     {
       label: "Show / Hide Main Window",
