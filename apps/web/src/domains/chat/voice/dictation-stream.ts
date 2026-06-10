@@ -35,6 +35,7 @@ import {
   type LiveVoiceCaptureResult,
 } from "@/domains/chat/voice/live-voice/pcm-capture";
 import { LIVE_VOICE_AUDIO_FORMAT } from "@/domains/chat/voice/live-voice/protocol";
+import { joinTranscript } from "@/domains/chat/voice/join-transcript";
 import {
   getSelfHostedActorToken,
   getSelfHostedIngressUrl,
@@ -106,11 +107,6 @@ export function buildSttStreamWsUrl({
   url.searchParams.set("mimeType", LIVE_VOICE_AUDIO_FORMAT.mimeType);
   url.searchParams.set("sampleRate", String(LIVE_VOICE_AUDIO_FORMAT.sampleRate));
   return url.toString();
-}
-
-/** Join transcript segments with a single space, ignoring blanks. */
-function joinTranscript(a: string, b: string): string {
-  return [a.trim(), b.trim()].filter(Boolean).join(" ");
 }
 
 /**

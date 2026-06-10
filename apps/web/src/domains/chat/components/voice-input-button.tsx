@@ -14,6 +14,7 @@ import {
   startDictationStream,
   type DictationStreamHandle,
 } from "@/domains/chat/voice/dictation-stream";
+import { joinTranscript } from "@/domains/chat/voice/join-transcript";
 import { startNativeDictationPartials } from "@/runtime/native-dictation-partials";
 import {
     postSttTranscribe,
@@ -314,6 +315,12 @@ export const VoiceInputButton = forwardRef<
   const nativePartialsStopRef = useRef<(() => void) | null>(null);
   const nativePartialsTextRef = useRef("");
 
+  // Latest running transcript from the daemon stream. A stream that dies
+  // mid-recording hands off to the native recognizer, which only hears from
+  // that point on — this keeps the words from before the handoff so the
+  // offline fallback can stitch the two together.
+  const streamTranscriptRef = useRef("");
+
   const onStreamReadyRef = useRef(onStreamReady);
   onStreamReadyRef.current = onStreamReady;
 
@@ -375,7 +382,7 @@ export const VoiceInputButton = forwardRef<
     void startNativeDictationPartials((text) => {
       nativePartialsTextRef.current = text;
       if (!dictationStreamRef.current?.isLive()) {
-        publishInterim(text);
+        publishInterim(joinTranscript(streamTranscriptRef.current, text));
       }
     }).then((stop) => {
       if (!stop) return;
@@ -528,6 +535,7 @@ export const VoiceInputButton = forwardRef<
     // Chrome to silently starve SpeechRecognition of audio input.
     speechAccumulatorRef.current = "";
     nativePartialsTextRef.current = "";
+    streamTranscriptRef.current = "";
     const Ctor = getSpeechRecognitionCtor();
     if (Ctor) {
       try {
@@ -633,7 +641,13 @@ export const VoiceInputButton = forwardRef<
       releaseStream();
       stopSpeechRecognition();
       stopDictationStream();
-      const nativeText = nativePartialsTextRef.current;
+      // Transcript text the offline fallback can stitch together: whatever
+      // the daemon stream produced before it (possibly) died, plus the
+      // native recognizer's text from the handoff onward.
+      const offlineText = joinTranscript(
+        streamTranscriptRef.current,
+        nativePartialsTextRef.current,
+      );
       stopNativePartials();
       publishInterim("");
 
@@ -642,6 +656,7 @@ export const VoiceInputButton = forwardRef<
         chunksRef.current = [];
         speechAccumulatorRef.current = "";
         nativePartialsTextRef.current = "";
+        streamTranscriptRef.current = "";
         // Re-assert idle: a stop() racing in between cancelRecording and
         // this handler (e.g. the push-to-talk key-up after Esc) can have
         // moved the store to "processing".
@@ -659,7 +674,7 @@ export const VoiceInputButton = forwardRef<
       chunksRef.current = [];
       const fallbackText = speechAccumulatorRef.current;
       speechAccumulatorRef.current = "";
-      if (chunks.length === 0 && !fallbackText && !nativeText) {
+      if (chunks.length === 0 && !fallbackText && !offlineText) {
         addDictationSessionBreadcrumb("empty", durationMs, 0);
         vsReset();
         return;
@@ -693,11 +708,11 @@ export const VoiceInputButton = forwardRef<
         }
 
         // Batch text is the authority. When it fails (offline, provider
-        // down), the native Apple Speech partials are the only usable
-        // transcript inside Electron — Web Speech ships there without a
-        // speech service, so its accumulator stays empty.
-        if (!text && nativeText) {
-          text = nativeText;
+        // down), the stream/native partials are the only usable transcript
+        // inside Electron — Web Speech ships there without a speech
+        // service, so its accumulator stays empty.
+        if (!text && offlineText) {
+          text = offlineText;
         }
         if (!text && fallbackText) {
           text = fallbackText;
@@ -779,7 +794,10 @@ export const VoiceInputButton = forwardRef<
     stopDictationStream();
     stopNativePartials();
     dictationStreamRef.current = startDictationStream({
-      onPartial: publishInterim,
+      onPartial: (text) => {
+        streamTranscriptRef.current = text;
+        publishInterim(text);
+      },
       onDown: startNativePartialsFallback,
     });
 

@@ -320,9 +320,11 @@ describe("VoiceInputButton — native partials fallback", () => {
     });
   });
 
-  test("stream dying mid-recording starts the native fallback", async () => {
+  test("stream dying mid-recording hands off to the native fallback, stitching both transcripts", async () => {
+    let streamOnPartial: ((text: string) => void) | undefined;
     let streamOnDown: (() => void) | undefined;
     dictationStreamImpl = (args) => {
+      streamOnPartial = args.onPartial;
       streamOnDown = args.onDown;
       return { isLive: () => false, stop: () => {} };
     };
@@ -339,19 +341,50 @@ describe("VoiceInputButton — native partials fallback", () => {
     await startSession(onTranscript);
 
     // While the stream handle exists the native fallback stays off.
-    expect(useVoiceRecordingStore.getState().interimTranscript).toBe("");
+    act(() => streamOnPartial?.("stream words"));
+    expect(useVoiceRecordingStore.getState().interimTranscript).toBe(
+      "stream words",
+    );
 
     act(() => streamOnDown?.());
     await waitFor(() => {
       expect(useVoiceRecordingStore.getState().interimTranscript).toBe(
-        "offline transcript",
+        "stream words offline transcript",
       );
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
 
     await waitFor(() => {
-      expect(onTranscript).toHaveBeenCalledWith("offline transcript");
+      expect(onTranscript).toHaveBeenCalledWith(
+        "stream words offline transcript",
+      );
+    });
+  });
+
+  test("stream text alone survives when the native helper is unavailable", async () => {
+    let streamOnPartial: ((text: string) => void) | undefined;
+    let streamOnDown: (() => void) | undefined;
+    dictationStreamImpl = (args) => {
+      streamOnPartial = args.onPartial;
+      streamOnDown = args.onDown;
+      return { isLive: () => false, stop: () => {} };
+    };
+    postSttTranscribeSpy.mockImplementationOnce(async () => ({
+      status: "error",
+      reason: "network",
+    }));
+
+    const onTranscript = mock(async (_text: string) => {});
+    await startSession(onTranscript);
+
+    act(() => streamOnPartial?.("stream words"));
+    act(() => streamOnDown?.());
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(onTranscript).toHaveBeenCalledWith("stream words");
     });
   });
 });
