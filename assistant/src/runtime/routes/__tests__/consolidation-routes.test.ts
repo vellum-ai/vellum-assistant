@@ -40,7 +40,6 @@ import { invalidateConfigCache } from "../../../config/loader.js";
 import { createConversation } from "../../../memory/conversation-crud.js";
 import { getDb } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
-import { enqueueMemoryJob } from "../../../memory/jobs-store.js";
 import { recordUsageEvent } from "../../../memory/llm-usage-store.js";
 import { rawAll, rawRun } from "../../../memory/raw-query.js";
 import { ROUTES } from "../consolidation-routes.js";
@@ -449,9 +448,7 @@ describe("consolidation config and run-now handlers", () => {
     );
 
     const handler = findHandler("runConsolidationNow");
-    await expect(handler({})).rejects.toThrow(
-      "Consolidation is not available",
-    );
+    await expect(handler({})).rejects.toThrow("Consolidation is not available");
   });
 
   test("run-now remains available when memory v2 is enabled", async () => {
