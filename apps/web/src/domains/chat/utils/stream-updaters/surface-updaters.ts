@@ -9,10 +9,42 @@
  */
 
 import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
+import type { ConversationContentBlock } from "@vellumai/assistant-api";
 import {
   findAssistantRowIndexByMessageId,
   withMergedAlias,
 } from "@/domains/chat/utils/stream-updaters/shared";
+
+/**
+ * Insert or update the `surface` block carrying `surface` (matched by
+ * `surfaceId`), keeping the `contentBlocks` projection in lockstep with the
+ * positional `surfaces` array as the surface streams show → update → complete.
+ */
+function upsertSurfaceBlock(
+  blocks: ConversationContentBlock[] | undefined,
+  surface: Surface,
+): ConversationContentBlock[] {
+  const next = [...(blocks ?? [])];
+  const existingIdx = next.findIndex(
+    (b) => b.type === "surface" && b.surface.surfaceId === surface.surfaceId,
+  );
+  if (existingIdx === -1) {
+    next.push({ type: "surface", surface });
+  } else {
+    next[existingIdx] = { type: "surface", surface };
+  }
+  return next;
+}
+
+/** Drop the `surface` block matching `surfaceId` from a block projection. */
+function removeSurfaceBlock(
+  blocks: ConversationContentBlock[] | undefined,
+  surfaceId: string,
+): ConversationContentBlock[] | undefined {
+  return blocks?.filter(
+    (b) => !(b.type === "surface" && b.surface.surfaceId === surfaceId),
+  );
+}
 
 // ---------------------------------------------------------------------------
 // ui_surface_show
@@ -46,6 +78,7 @@ export function attachSurface(
       role: "assistant" as const,
       surfaces: [surface],
       contentOrder: [{ type: "surface", id: surface.surfaceId }],
+      contentBlocks: [{ type: "surface", surface }],
       timestamp: Date.now(),
     });
   } else {
@@ -65,6 +98,7 @@ export function attachSurface(
         ...(target.contentOrder ?? []),
         { type: "surface", id: surface.surfaceId },
       ],
+      contentBlocks: upsertSurfaceBlock(target.contentBlocks, surface),
     };
   }
   return updated;
@@ -99,10 +133,15 @@ export function updateSurfaceData(
         ...(data.templateData as Record<string, unknown>),
       };
     }
+    const updatedSurface = { ...surface, data: mergedData };
     const updated = [...prev];
     const newSurfaces = [...msg.surfaces!];
-    newSurfaces[surfIdx] = { ...surface, data: mergedData };
-    updated[i] = { ...msg, surfaces: newSurfaces };
+    newSurfaces[surfIdx] = updatedSurface;
+    updated[i] = {
+      ...msg,
+      surfaces: newSurfaces,
+      contentBlocks: upsertSurfaceBlock(msg.contentBlocks, updatedSurface),
+    };
     return updated;
   }
   return prev;
@@ -126,6 +165,7 @@ export function dismissSurface(
       contentOrder: prev[i]!.contentOrder?.filter(
         (e) => !(e.type === "surface" && e.id === surfaceId),
       ),
+      contentBlocks: removeSurfaceBlock(prev[i]!.contentBlocks, surfaceId),
     };
     return updated;
   }
@@ -143,15 +183,20 @@ export function completeSurface(
   summary?: string,
 ): DisplayMessage[] {
   for (let i = prev.length - 1; i >= 0; i--) {
-    if (!prev[i]!.surfaces?.some((s) => s.surfaceId === surfaceId)) continue;
+    const surface = prev[i]!.surfaces?.find((s) => s.surfaceId === surfaceId);
+    if (!surface) continue;
+    const completedSurface: Surface = {
+      ...surface,
+      completed: true,
+      completionSummary: summary,
+    };
     const updated = [...prev];
     updated[i] = {
       ...prev[i]!,
       surfaces: prev[i]!.surfaces?.map((s) =>
-        s.surfaceId === surfaceId
-          ? { ...s, completed: true, completionSummary: summary }
-          : s,
+        s.surfaceId === surfaceId ? completedSurface : s,
       ),
+      contentBlocks: upsertSurfaceBlock(prev[i]!.contentBlocks, completedSurface),
     };
     return updated;
   }

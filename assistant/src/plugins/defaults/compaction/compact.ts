@@ -49,6 +49,19 @@ export interface CompactionContext {
   minKeepRecentUserTurns?: number;
   /** Trust class of the actor whose turn triggered compaction. */
   actorTrustClass?: TrustClass;
+  /**
+   * Set when this compaction is recovering from a provider context-overflow
+   * rejection rather than the ordinary auto-threshold trip. Its presence
+   * routes the request through the manager's reduction ladder (which escalates
+   * one rung per call) instead of plain forced compaction; the agent loop
+   * records it in its overflow catch and forwards it on the next gate pass.
+   */
+  overflowSignal?: {
+    /** Provider-reported token count from the rejection, or `null`. */
+    actualTokens: number | null;
+    /** Whether a human is present this turn (drives the auto-compress policy). */
+    isInteractive: boolean;
+  };
 }
 
 /**
@@ -59,12 +72,25 @@ export interface CompactionContext {
 export async function defaultCompact(
   context: CompactionContext,
 ): Promise<ContextWindowResult> {
-  const { conversationId, messages, signal, ...options } = context;
+  const { conversationId, messages, signal, overflowSignal, ...options } =
+    context;
   const manager = getContextWindowManager(conversationId);
   if (manager == null) {
     throw new PluginExecutionError(
       `default-compaction: no ContextWindowManager registered for conversation ${conversationId} — the conversation must register one before compaction runs`,
       DEFAULT_COMPACTION_PLUGIN_NAME,
+    );
+  }
+  if (overflowSignal) {
+    return manager.recoverContextOverflow(
+      messages,
+      {
+        actualTokens: overflowSignal.actualTokens,
+        isInteractive: overflowSignal.isInteractive,
+        overrideProfile: options.overrideProfile,
+        actorTrustClass: options.actorTrustClass,
+      },
+      signal,
     );
   }
   return manager.maybeCompact(messages, signal, options);

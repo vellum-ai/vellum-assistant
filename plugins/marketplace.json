@@ -28,6 +28,18 @@
       "category": "memory",
       "homepage": "https://github.com/vellum-ai/simple-memory",
       "license": "MIT"
+    },
+    {
+      "name": "dynamic-notch",
+      "source": {
+        "source": "github",
+        "repo": "AnitaKirkovska/dynamic-notch",
+        "ref": "25fd4db8e8eee493396f7206d7015099ec1af689"
+      },
+      "description": "Put your Vellum assistant inside your MacBook's notch: click to chat, hold Ctrl+Option to talk, and get a floating task bulb while it works, with live-streamed replies and per-sentence voice.",
+      "category": "interface",
+      "homepage": "https://github.com/AnitaKirkovska/dynamic-notch",
+      "license": "MIT"
     }
   ]
 }

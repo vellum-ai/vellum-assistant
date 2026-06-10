@@ -52,7 +52,9 @@ const postCompact: PluginHookFn<PostCompactContext> = async (ctx) => {
     conversationId,
     isNonInteractive,
     modelProfileKey,
+    injectionMode,
   } = ctx;
+  const mode = injectionMode ?? "full";
   const config = getConfig();
   const conversation = findConversationOrSubagent(conversationId);
   // Trust and the inbound actor context are read from the conversation's
@@ -68,9 +70,7 @@ const postCompact: PluginHookFn<PostCompactContext> = async (ctx) => {
   const actorContext = conversation?.currentTurnInboundActorContext ?? null;
   // Render the `model_profile:` label from the turn's resolved profile key,
   // using the call site self-resolved from the live conversation — the same
-  // derivation the first-call user-prompt-submit assembly uses. Mid-loop
-  // re-injection always runs at `"full"` volume; only the orchestrator's
-  // post-rejection convergence re-injection ever downgrades the mode.
+  // derivation the first-call user-prompt-submit assembly uses.
   const modelProfile = resolveTurnModelProfileLabel(
     modelProfileKey,
     conversation?.currentCallSite ?? "mainAgent",
@@ -81,7 +81,7 @@ const postCompact: PluginHookFn<PostCompactContext> = async (ctx) => {
     isNonInteractive,
     modelProfile,
     actorContext,
-    mode: "full",
+    mode,
     requestId,
     conversationId,
     trust,

@@ -52,6 +52,24 @@ export function textBody(
 }
 
 /**
+ * Build a text row's `textSegments`, `contentOrder`, and `contentBlocks` all
+ * in lockstep — the shape both the ingest boundary and the streaming updaters
+ * produce for a row whose body is a single text block. An empty string yields
+ * empty positional arrays and no blocks, matching a contentless row.
+ */
+export function textBodyWithBlocks(
+  content: string,
+): Pick<DisplayMessage, "textSegments" | "contentOrder" | "contentBlocks"> {
+  return content
+    ? {
+        textSegments: [content],
+        contentOrder: [{ type: "text", id: "0" }],
+        contentBlocks: [{ type: "text", text: content }],
+      }
+    : { textSegments: [], contentOrder: [] };
+}
+
+/**
  * Build a settled reasoning row's `thinkingSegments`, `contentOrder`, and
  * `contentBlocks` all in lockstep — the shape the ingest boundary
  * (`normalizeContentBlocks`) materializes for a row whose body is a run of
