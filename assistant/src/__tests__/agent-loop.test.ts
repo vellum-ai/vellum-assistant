@@ -361,6 +361,71 @@ describe("AgentLoop", () => {
     expect(events.filter((e) => e.type === "error")).toHaveLength(1);
   });
 
+  // 5c. Reactive ordering-error recovery
+  //
+  // When the provider rejects a call because the history violates
+  // tool-use/tool-result pairing or role-alternation rules, the loop runs
+  // `deepRepairHistory` directly and re-issues the call. It is bounded to a
+  // single repair pass per provider call, so a second consecutive ordering
+  // rejection falls through to the error path instead of looping forever.
+  test("repairs the history and re-issues on a provider ordering rejection", async () => {
+    // GIVEN a provider that rejects the first call with an ordering error and
+    // succeeds on the retry
+    const { provider, calls } = createMockProvider([
+      new Error(
+        "tool_result blocks that are not immediately after a tool_use block",
+      ),
+      textResponse("recovered"),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+    const events: AgentEvent[] = [];
+
+    // WHEN the loop runs
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN it re-issued the call after repairing, surfaced no error, and
+    // appended the recovered assistant response
+    expect(calls).toHaveLength(2);
+    expect(events.filter((e) => e.type === "error")).toHaveLength(0);
+    expect(history[history.length - 1]).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "recovered" }],
+    });
+  });
+
+  test("surfaces an ordering error after a single repair fails to recover", async () => {
+    // GIVEN a provider that rejects every call with an ordering error
+    const { provider, calls } = createMockProvider([
+      new Error("tool_use_id provided without a matching tool_result"),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+    const events: AgentEvent[] = [];
+
+    // WHEN the loop runs
+    await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN it repaired once, re-issued once, then surfaced the error rather
+    // than retrying again
+    expect(calls).toHaveLength(2);
+    expect(events.filter((e) => e.type === "error")).toHaveLength(1);
+  });
+
   // 6. Abort signal — verify the loop respects AbortSignal
   test("stops when abort signal is triggered before provider call", async () => {
     const controller = new AbortController();

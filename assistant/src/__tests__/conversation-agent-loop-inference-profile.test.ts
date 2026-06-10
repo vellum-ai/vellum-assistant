@@ -264,6 +264,7 @@ mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
     },
   }),
   deepRepairHistory: (msgs: Message[]) => ({ messages: msgs, stats: {} }),
+  isRepairableOrderingError: () => false,
 }));
 
 mock.module("../daemon/conversation-usage.js", () => ({
@@ -329,10 +330,6 @@ mock.module("../daemon/conversation-error.js", () => ({
     ...classified,
   }),
   isContextTooLarge: () => false,
-}));
-
-mock.module("../daemon/conversation-slash.js", () => ({
-  isProviderOrderingError: () => false,
 }));
 
 mock.module("../util/truncate.js", () => ({

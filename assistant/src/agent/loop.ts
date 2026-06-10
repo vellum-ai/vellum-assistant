@@ -25,6 +25,10 @@ import type {
 } from "../plugin-api/types.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
+import {
+  deepRepairHistory,
+  isRepairableOrderingError,
+} from "../plugins/defaults/history-repair/terminal.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { CompactionCircuitEvent } from "../plugins/types.js";
 import { normalizeThinkingConfigForWire } from "../providers/thinking-config.js";
@@ -863,6 +867,13 @@ export class AgentLoop {
     // `context_too_large`) instead of looping.
     let overflowLadderExhausted = false;
     let overflowAutoCompressApplied = false;
+    // Tracks whether a deep-repair pass has already run for the in-flight
+    // provider call after an ordering rejection. One rejection triggers a
+    // single `deepRepairHistory` pass and a re-issue; if the next call still
+    // rejects on ordering grounds the repair could not recover it, so the loop
+    // stops retrying and lets the generic error path end the turn. Reset after
+    // any successful provider call so a later turn can repair independently.
+    let orderingRepairAttempted = false;
     const rlog = requestId ? log.child({ requestId }) : log;
 
     // Resolve the inference-profile override that applies right now. The
@@ -1299,6 +1310,10 @@ export class AgentLoop {
           }
           throw llmCallError;
         }
+
+        // The call succeeded, so any prior ordering repair stuck — let a later
+        // turn's rejection repair afresh rather than treating it as exhausted.
+        orderingRepairAttempted = false;
 
         const providerDurationMs = Date.now() - providerStart;
 
@@ -1815,6 +1830,29 @@ export class AgentLoop {
               actualTokens,
             },
             "Context too large — recovering via the compaction reduction ladder",
+          );
+          continue;
+        }
+
+        // Reactive ordering-error recovery. The provider rejected the call
+        // because the history violated tool-use/tool-result pairing or
+        // role-alternation rules (orphan tool_use, leading assistant, etc.).
+        // Run `deepRepairHistory` directly — deliberately not through the
+        // `user-prompt-submit` hook chain, whose user/plugin hooks may have
+        // caused the drift — to re-normalize the history, then re-issue the
+        // call. Bounded to one pass: a second consecutive ordering rejection
+        // means the repair could not recover it, so fall through to the
+        // generic error path rather than looping.
+        if (
+          !orderingRepairAttempted &&
+          error instanceof Error &&
+          isRepairableOrderingError(error.message)
+        ) {
+          orderingRepairAttempted = true;
+          history = deepRepairHistory(history).messages;
+          rlog.warn(
+            { turn: toolUseTurns, messageCount: history.length },
+            "Provider ordering error — recovering via history deep-repair",
           );
           continue;
         }

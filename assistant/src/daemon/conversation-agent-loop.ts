@@ -67,7 +67,6 @@ import {
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
-import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
@@ -270,10 +269,6 @@ export async function runAgentLoopImpl(
     requestId: reqId,
   });
   let yieldedForHandoff = false;
-  // Whether the most recent agent-loop run produced at least one new assistant
-  // message — the loop's own forward-progress signal, used by the ordering
-  // retry gate.
-  let lastRunAppendedNewMessages = false;
   // The messages the most recent agent-loop run appended on top of its base —
   // the loop's own new-output boundary, persisted as this turn's new messages.
   let lastRunNewMessages: Message[] = [];
@@ -929,23 +924,21 @@ export async function runAgentLoopImpl(
       msgs: Message[],
       compactInPlace = false,
     ): Promise<Message[]> => {
-      const { history, exitReason, appendedNewMessages, newMessages } =
-        await ctx.agentLoop.run({
-          messages: msgs,
-          onEvent: eventHandler,
-          signal: abortController.signal,
-          requestId: reqId,
-          onCheckpoint,
-          callSite: turnCallSite,
-          trust: loopTrust,
-          overrideProfile: turnOverrideProfile,
-          resolveOverrideProfile: resolveCurrentOverrideProfile,
-          resolveContextWindow,
-          compactInPlace,
-          isNonInteractive,
-          modelProfileKey,
-        });
-      lastRunAppendedNewMessages = appendedNewMessages;
+      const { history, exitReason, newMessages } = await ctx.agentLoop.run({
+        messages: msgs,
+        onEvent: eventHandler,
+        signal: abortController.signal,
+        requestId: reqId,
+        onCheckpoint,
+        callSite: turnCallSite,
+        trust: loopTrust,
+        overrideProfile: turnOverrideProfile,
+        resolveOverrideProfile: resolveCurrentOverrideProfile,
+        resolveContextWindow,
+        compactInPlace,
+        isNonInteractive,
+        modelProfileKey,
+      });
       lastRunNewMessages = newMessages;
       if (exitReason === "handoff") {
         yieldedForHandoff = true;
@@ -962,36 +955,6 @@ export async function runAgentLoopImpl(
 
     if (yieldedForHandoff) {
       await emitTerminalExit?.("checkpoint_handoff");
-    }
-
-    // One-shot ordering error retry
-    if (state.orderingErrorDetected && !lastRunAppendedNewMessages) {
-      rlog.warn(
-        { phase: "retry" },
-        "Provider ordering error detected, attempting one-shot deep-repair retry",
-      );
-      // Design note: deep-repair intentionally stays a direct call rather
-      // than running through the `user-prompt-submit` hook chain. Deep-repair
-      // is a recovery-only path triggered by a provider ordering error — it
-      // must be deterministic and unaffected by user hooks that might have
-      // caused (or be unable to recover from) the original drift. Plugins can
-      // already observe / transform the pre-run repair via the
-      // `user-prompt-submit` hook (the default history-repair plugin runs
-      // `repairHistory` there); widening that surface to deep-repair is
-      // intentionally deferred until there's a concrete plugin-level use case.
-      const retryRepair = deepRepairHistory(updatedHistory);
-      runMessages = retryRepair.messages;
-      state.orderingErrorDetected = false;
-      state.deferredOrderingError = null;
-
-      updatedHistory = await runAgentLoop(runMessages);
-
-      if (state.orderingErrorDetected) {
-        rlog.error(
-          { phase: "retry" },
-          "Deep-repair retry also failed with ordering error. Consider starting a new conversation if this persists.",
-        );
-      }
     }
 
     // ── Image-dimension overflow recovery ──────────────────────────
@@ -1098,14 +1061,6 @@ export async function runAgentLoopImpl(
           budgetYieldClassification,
         ),
       );
-    }
-
-    if (state.deferredOrderingError) {
-      const classified = classifyConversationError(
-        new Error(state.deferredOrderingError),
-        { phase: "agent_loop" },
-      );
-      onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
     }
 
     // Flush remaining tool results. On a normal turn these drain at the next

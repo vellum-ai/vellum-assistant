@@ -199,10 +199,11 @@ mock.module("../agent/loop.js", () => ({
       await onEvent({ type: "llm_call_started" });
       agentLoopRunCount++;
 
-      // The ordering error only fires on the first call; the wrapper's
-      // deep-repair retry then re-runs the loop, which succeeds.
-      const shouldError =
-        firstRunErrorMode === "ordering" && agentLoopRunCount === 1;
+      // Ordering-error recovery lives inside `AgentLoop.run`; with the loop
+      // mocked here, an unrecovered ordering error surfaces as a terminal
+      // `error` event so we can assert the wrapper's surface behavior — it
+      // routes the error to a durable conversation_error and does not re-run.
+      const shouldError = firstRunErrorMode === "ordering";
 
       if (shouldError) {
         onEvent({
@@ -300,7 +301,7 @@ function makeConversation(): Conversation {
   );
 }
 
-describe("provider ordering error retry", () => {
+describe("terminal provider ordering error", () => {
   beforeEach(() => {
     agentLoopRunCount = 0;
     firstRunErrorMode = "ordering";
@@ -311,12 +312,13 @@ describe("provider ordering error retry", () => {
     resetPluginRegistryAndRegisterDefaults();
   });
 
-  test("simulated strict provider error triggers exactly one retry", async () => {
+  test("surfaces a durable conversation error without re-running the loop", async () => {
+    // GIVEN the agent loop reports an unrecovered ordering error
     firstRunErrorMode = "ordering";
-
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
+    // WHEN the conversation processes a message
     const events: Array<Record<string, unknown>> = [];
     await conversation.processMessage({
       content: "Hello",
@@ -324,51 +326,37 @@ describe("provider ordering error retry", () => {
       onEvent: (msg) => events.push(msg as unknown as Record<string, unknown>),
     });
 
-    // Should have been called exactly 2 times: original + one retry
-    expect(agentLoopRunCount).toBe(2);
-  });
-
-  test("[experimental] retry succeeds with repaired history and no spurious error event", async () => {
-    firstRunErrorMode = "ordering";
-
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-
-    const events: Array<Record<string, unknown>> = [];
-    await conversation.processMessage({
-      content: "Hello",
-      attachments: [],
-      onEvent: (msg) => events.push(msg as unknown as Record<string, unknown>),
-    });
-
-    // Should have a message_complete event (from successful retry)
-    const messageComplete = events.find((e) => e.type === "message_complete");
-    expect(messageComplete).toBeDefined();
-
-    // Ordering error should be suppressed when retry succeeds — no error events
-    const errorEvents = events.filter((e) => e.type === "error");
-    expect(errorEvents.length).toBe(0);
-
-    // Should also have the assistant response in memory
-    const messages = conversation.getMessages();
-    const lastMsg = messages[messages.length - 1];
-    expect(lastMsg.role).toBe("assistant");
-  });
-
-  test("non-ordering errors do not trigger retry", async () => {
-    firstRunErrorMode = "none";
-
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-
-    const events: Array<Record<string, unknown>> = [];
-    await conversation.processMessage({
-      content: "Hello",
-      attachments: [],
-      onEvent: (msg) => events.push(msg as unknown as Record<string, unknown>),
-    });
-
-    // Should have been called exactly 1 time (no retry for non-ordering errors)
+    // THEN the wrapper invokes the loop exactly once — ordering recovery is
+    // the loop's responsibility, not a wrapper-level re-run
     expect(agentLoopRunCount).toBe(1);
+
+    // AND the error is surfaced as a durable conversation_error consistent
+    // with every other terminal provider error
+    const conversationError = events.find(
+      (e) => e.type === "conversation_error",
+    );
+    expect(conversationError).toBeDefined();
+    expect(conversationError?.code).toBe("PROVIDER_ORDERING");
+  });
+
+  test("runs the loop once and emits no error on a normal turn", async () => {
+    // GIVEN the agent loop completes the turn without error
+    firstRunErrorMode = "none";
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    // WHEN the conversation processes a message
+    const events: Array<Record<string, unknown>> = [];
+    await conversation.processMessage({
+      content: "Hello",
+      attachments: [],
+      onEvent: (msg) => events.push(msg as unknown as Record<string, unknown>),
+    });
+
+    // THEN the loop ran once and the assistant response was persisted
+    expect(agentLoopRunCount).toBe(1);
+    expect(events.some((e) => e.type === "conversation_error")).toBe(false);
+    const messages = conversation.getMessages();
+    expect(messages[messages.length - 1].role).toBe("assistant");
   });
 });
