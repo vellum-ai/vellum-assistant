@@ -51,7 +51,7 @@ describe("fetchCatalog normalization", () => {
           ],
         }),
         { status: 200, headers: { "content-type": "application/json" } },
-      )) as typeof fetch;
+      )) as unknown as typeof fetch;
 
     const catalog = await fetchCatalog();
 
@@ -72,7 +72,7 @@ describe("fetchCatalog normalization", () => {
           skills: [{ id: "no-cat", name: "no-cat", description: "d" }],
         }),
         { status: 200, headers: { "content-type": "application/json" } },
-      )) as typeof fetch;
+      )) as unknown as typeof fetch;
 
     const catalog = await fetchCatalog();
 
@@ -87,7 +87,7 @@ describe("fetchCatalog normalization", () => {
           skills: [{ name: "missing-id", description: "d" }, { id: 42 }],
         }),
         { status: 200, headers: { "content-type": "application/json" } },
-      )) as typeof fetch;
+      )) as unknown as typeof fetch;
 
     const catalog = await fetchCatalog();
 
