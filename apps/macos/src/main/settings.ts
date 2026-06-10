@@ -39,7 +39,6 @@ const schema: Schema<AppSettings> = {
   },
   launchAtLogin: {
     type: "boolean",
-    default: false,
   },
 };
 
