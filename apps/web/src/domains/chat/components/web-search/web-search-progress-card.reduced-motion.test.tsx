@@ -3,7 +3,7 @@
  * carousel. Split out from the main test file because `mock.module` of
  * `motion/react` leaks across files in the same test run — colocating it
  * with the main suite breaks downstream `motion/react`-using suites
- * (`ActivityRunCard.test.tsx` was the canary). Mirrors the isolation
+ * (`multi-activity-group.test.tsx` was the canary). Mirrors the isolation
  * pattern used by `website-carousel.test.tsx`.
  */
 

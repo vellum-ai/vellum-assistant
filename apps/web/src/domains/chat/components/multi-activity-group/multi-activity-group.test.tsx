@@ -1,5 +1,5 @@
 /**
- * Tests for the unified `ActivityRunCard` dispatcher.
+ * Tests for the unified `MultiActivityGroup` dispatcher.
  *
  * Covers the post-unification rendering contract:
  *  - Non-web tool groups (bash, read, MCP, etc.) render via the shared
@@ -41,8 +41,8 @@ const exportNames = [...sdkSource.matchAll(/^export const (\w+)/gm)].map(
 const sdkMock = Object.fromEntries(exportNames.map((n) => [n, sdkStub]));
 mock.module("@/generated/daemon/sdk.gen", () => sdkMock);
 
-const { ActivityRunCard } = await import(
-  "@/domains/chat/components/activity-run-card/activity-run-card"
+const { MultiActivityGroup } = await import(
+  "@/domains/chat/components/multi-activity-group/multi-activity-group"
 );
 const { useViewerStore } = await import("@/stores/viewer-store");
 const { useChatSessionStore } = await import(
@@ -78,18 +78,18 @@ function makeToolCall(
 function renderCard(
   toolCalls: ChatMessageToolCall[],
   overrides: Partial<
-    ComponentProps<typeof ActivityRunCard>
+    ComponentProps<typeof MultiActivityGroup>
   > = {},
 ) {
   return render(
-    <ActivityRunCard
+    <MultiActivityGroup
       toolCalls={toolCalls}
       {...overrides}
     />,
   );
 }
 
-describe("ActivityRunCard — non-web tool group", () => {
+describe("MultiActivityGroup — non-web tool group", () => {
   test("collapsed terminal card promotes the bash command into the carousel header", () => {
     const toolCalls = [
       makeToolCall({
@@ -209,7 +209,7 @@ describe("ActivityRunCard — non-web tool group", () => {
   });
 });
 
-describe("ActivityRunCard — tool step pill", () => {
+describe("MultiActivityGroup — tool step pill", () => {
   test("non-web tool step renders a tool-step-pill with activity + risk badge", () => {
     const toolCalls = [
       makeToolCall({
@@ -268,7 +268,7 @@ describe("ActivityRunCard — tool step pill", () => {
   });
 });
 
-describe("ActivityRunCard — web tool group regression", () => {
+describe("MultiActivityGroup — web tool group regression", () => {
   test("web_search-only groups still render through WebSearchProgressCard", () => {
     const toolCalls = [
       makeToolCall({
@@ -295,7 +295,7 @@ describe("ActivityRunCard — web tool group regression", () => {
       }),
     ];
     const { getByRole, rerender } = render(
-      <ActivityRunCard
+      <MultiActivityGroup
         toolCalls={toolCalls}
         autoExpand
       />,
@@ -303,7 +303,7 @@ describe("ActivityRunCard — web tool group regression", () => {
     expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
 
     rerender(
-      <ActivityRunCard
+      <MultiActivityGroup
         toolCalls={toolCalls}
         autoExpand={false}
       />,
@@ -312,7 +312,7 @@ describe("ActivityRunCard — web tool group regression", () => {
   });
 });
 
-describe("ActivityRunCard — mixed group", () => {
+describe("MultiActivityGroup — mixed group", () => {
   test("web_search + bash falls through to the unified shell with one step per call", () => {
     const toolCalls = [
       makeToolCall({
@@ -335,7 +335,7 @@ describe("ActivityRunCard — mixed group", () => {
   });
 });
 
-describe("ActivityRunCard — confirmation short-circuit", () => {
+describe("MultiActivityGroup — confirmation short-circuit", () => {
   test("a tool call with pendingConfirmation renders the inline approve/deny UI, not the progress card", () => {
     const toolCalls = [
       makeToolCall({
@@ -362,7 +362,7 @@ describe("ActivityRunCard — confirmation short-circuit", () => {
   });
 });
 
-describe("ActivityRunCard — subagent_spawn filtering", () => {
+describe("MultiActivityGroup — subagent_spawn filtering", () => {
   test("renders null for a single subagent_spawn group (inline card handles it)", () => {
     const toolCalls = [
       makeToolCall({
@@ -433,7 +433,7 @@ describe("ActivityRunCard — subagent_spawn filtering", () => {
   });
 });
 
-describe("ActivityRunCard — unknown-command nudge", () => {
+describe("MultiActivityGroup — unknown-command nudge", () => {
   test("renders the 'Create a rule' nudge for tool calls flagged as unknown", () => {
     const toolCalls = [
       makeToolCall({
@@ -522,7 +522,7 @@ describe("ActivityRunCard — unknown-command nudge", () => {
   });
 });
 
-describe("ActivityRunCard — expansion derived from state", () => {
+describe("MultiActivityGroup — expansion derived from state", () => {
   test("mounts collapsed while loading", () => {
     const toolCalls = [
       makeToolCall({
@@ -561,7 +561,7 @@ describe("ActivityRunCard — expansion derived from state", () => {
       }),
     ];
     const { getByRole, rerender } = render(
-      <ActivityRunCard
+      <MultiActivityGroup
         toolCalls={running}
       />,
     );
@@ -578,7 +578,7 @@ describe("ActivityRunCard — expansion derived from state", () => {
       }),
     ];
     rerender(
-      <ActivityRunCard
+      <MultiActivityGroup
         toolCalls={completed}
       />,
     );
@@ -595,7 +595,7 @@ describe("ActivityRunCard — expansion derived from state", () => {
       }),
     ];
     const { getByRole, rerender } = render(
-      <ActivityRunCard
+      <MultiActivityGroup
         toolCalls={running}
       />,
     );
@@ -615,7 +615,7 @@ describe("ActivityRunCard — expansion derived from state", () => {
       }),
     ];
     rerender(
-      <ActivityRunCard
+      <MultiActivityGroup
         toolCalls={completed}
       />,
     );
@@ -638,7 +638,7 @@ describe("ActivityRunCard — expansion derived from state", () => {
       }),
     ];
     const { getByRole } = render(
-      <ActivityRunCard
+      <MultiActivityGroup
         toolCalls={toolCalls}
       />,
     );
@@ -658,7 +658,7 @@ describe("ActivityRunCard — expansion derived from state", () => {
       }),
     ];
     const { getByRole } = render(
-      <ActivityRunCard
+      <MultiActivityGroup
         toolCalls={toolCalls}
       />,
     );
@@ -722,7 +722,7 @@ describe("ActivityRunCard — expansion derived from state", () => {
       }),
     ];
     const { getByRole, rerender } = render(
-      <ActivityRunCard
+      <MultiActivityGroup
         toolCalls={toolCalls}
         autoExpand
       />,
@@ -730,7 +730,7 @@ describe("ActivityRunCard — expansion derived from state", () => {
     expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
 
     rerender(
-      <ActivityRunCard
+      <MultiActivityGroup
         toolCalls={toolCalls}
         autoExpand={false}
       />,
@@ -739,7 +739,7 @@ describe("ActivityRunCard — expansion derived from state", () => {
   });
 });
 
-describe("ActivityRunCard — web group error chrome", () => {
+describe("MultiActivityGroup — web group error chrome", () => {
   test("a purely-web group with an errored tool call renders the shell's error icon", () => {
     // Previously the `WebSearchView` recomputed state from raw status only,
     // so an errored web_search rendered the green check (loading → complete)
@@ -761,7 +761,7 @@ describe("ActivityRunCard — web group error chrome", () => {
   });
 });
 
-describe("ActivityRunCard — mixed group web_search_error rendering", () => {
+describe("MultiActivityGroup — mixed group web_search_error rendering", () => {
   test("renders an ErrorChip (not the default pill) for a web_search_error step in a mixed group", () => {
     // The unified card's `ExpandedStep` previously fell through to
     // `DefaultStepPill` for `web_search_error`, dropping the dedicated
@@ -802,7 +802,7 @@ describe("ActivityRunCard — mixed group web_search_error rendering", () => {
   });
 });
 
-describe("ActivityRunCard — ordered thinking items", () => {
+describe("MultiActivityGroup — ordered thinking items", () => {
   test("renders a leading thinking step in the expanded body when supplied via items", () => {
     const toolCalls = [
       makeToolCall({
@@ -825,7 +825,7 @@ describe("ActivityRunCard — ordered thinking items", () => {
   });
 });
 
-describe("ActivityRunCard — header reflects the latest step", () => {
+describe("MultiActivityGroup — header reflects the latest step", () => {
   test("a run ending in a thinking step shows 'Thinking' + the thinking text in the header", () => {
     const toolCalls = [
       makeToolCall({
@@ -876,7 +876,7 @@ describe("ActivityRunCard — header reflects the latest step", () => {
   });
 });
 
-describe("ActivityRunCard — thinking pill", () => {
+describe("MultiActivityGroup — thinking pill", () => {
   // A long reasoning text so we can assert hard-cap truncation (60 chars).
   const LONG_THINKING =
     "I should first inspect the repository layout before running anything destructive on disk.";

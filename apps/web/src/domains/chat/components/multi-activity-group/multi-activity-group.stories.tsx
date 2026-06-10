@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
 
-import { ActivityRunCard, type ActivityRunCardProps } from "./activity-run-card";
+import { MultiActivityGroup, type MultiActivityGroupProps } from "./multi-activity-group";
 
 /**
  * Build a realistic {@link ChatMessageToolCall}. Defaults to a completed bash
@@ -32,8 +32,8 @@ function makeToolCall(
  * want the collapsed header pass `autoExpand: false`.
  */
 function baseProps(
-  overrides: Partial<ActivityRunCardProps> = {},
-): ActivityRunCardProps {
+  overrides: Partial<MultiActivityGroupProps> = {},
+): MultiActivityGroupProps {
   return {
     toolCalls: [],
     autoExpand: true,
@@ -51,9 +51,9 @@ function toolCallsFromItems(items: ToolCallCardItem[]): ChatMessageToolCall[] {
     .map((i) => i.toolCall);
 }
 
-const meta: Meta<typeof ActivityRunCard> = {
-  title: "Chat/ActivityRunCard",
-  component: ActivityRunCard,
+const meta: Meta<typeof MultiActivityGroup> = {
+  title: "Chat/MultiActivityGroup",
+  component: MultiActivityGroup,
   parameters: {
     layout: "padded",
   },
@@ -67,35 +67,14 @@ const meta: Meta<typeof ActivityRunCard> = {
 };
 
 export default meta;
-type Story = StoryObj<typeof ActivityRunCard>;
+type Story = StoryObj<typeof MultiActivityGroup>;
 
 // ---------------------------------------------------------------------------
-// Single-tool variants
-// ---------------------------------------------------------------------------
-
-export const SingleToolCompleted: Story = {
-  args: baseProps({
-    toolCalls: [
-      makeToolCall({
-        input: { command: "date", activity: "Checking the current time" },
-      }),
-    ],
-  }),
-};
-
-export const SingleToolRunning: Story = {
-  args: baseProps({
-    toolCalls: [
-      makeToolCall({
-        completedAt: undefined,
-        input: { command: "date", activity: "Checking the current time" },
-      }),
-    ],
-  }),
-};
-
-// ---------------------------------------------------------------------------
-// Interleaved thinking + tool variants — the merged activity-run cases
+// Interleaved thinking + tool variants — the merged activity-run cases.
+//
+// `MultiActivityGroup` is strictly for runs with MORE THAN ONE activity. A lone
+// single tool (or lone thinking step) renders as the inline `SingleActivity`
+// link instead — see that component's stories for the single-step cases.
 // ---------------------------------------------------------------------------
 
 /**
@@ -118,7 +97,7 @@ export const ToolThenThinking: Story = {
       },
     ];
     return (
-      <ActivityRunCard
+      <MultiActivityGroup
         {...baseProps({ items, toolCalls: toolCallsFromItems(items) })}
       />
     );
@@ -169,7 +148,7 @@ export const InterleavedRun: Story = {
       },
     ];
     return (
-      <ActivityRunCard
+      <MultiActivityGroup
         {...baseProps({ items, toolCalls: toolCallsFromItems(items) })}
       />
     );
@@ -196,7 +175,7 @@ export const LongThinkingHeader: Story = {
       },
     ];
     return (
-      <ActivityRunCard
+      <MultiActivityGroup
         {...baseProps({ items, toolCalls: toolCallsFromItems(items) })}
       />
     );
@@ -204,40 +183,64 @@ export const LongThinkingHeader: Story = {
 };
 
 // ---------------------------------------------------------------------------
-// Status / tool-kind variants
+// Status / tool-kind variants — shown inside a multi-activity run, since a lone
+// single (non-web) tool renders as the inline `SingleActivity` link, not this
+// card.
 // ---------------------------------------------------------------------------
 
+/** A failing tool within a run — exercises the error header chrome. */
 export const ErrorTool: Story = {
-  args: baseProps({
-    toolCalls: [
-      makeToolCall({
-        isError: true,
-        result: "bash: nonexistent-command: command not found",
-        input: {
-          command: "nonexistent-command --help",
-          activity: "Trying an unknown command",
-        },
-      }),
-    ],
-  }),
+  render: () => {
+    const items: ToolCallCardItem[] = [
+      { kind: "thinking", text: "Let me try that command." },
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          isError: true,
+          result: "bash: nonexistent-command: command not found",
+          input: {
+            command: "nonexistent-command --help",
+            activity: "Trying an unknown command",
+          },
+        }),
+      },
+    ];
+    return (
+      <MultiActivityGroup
+        {...baseProps({ items, toolCalls: toolCallsFromItems(items) })}
+      />
+    );
+  },
 };
 
+/** A skill step within a run — exercises the skill glyph + label. */
 export const SkillTool: Story = {
-  args: baseProps({
-    toolCalls: [
-      makeToolCall({
-        name: "skill_execute",
-        input: { skill: "review-cycle", activity: "Using a skill" },
-        riskLevel: undefined,
-      }),
-    ],
-  }),
+  render: () => {
+    const items: ToolCallCardItem[] = [
+      { kind: "thinking", text: "I'll kick off the review cycle." },
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          name: "skill_execute",
+          input: { skill: "review-cycle", activity: "Using a skill" },
+          riskLevel: undefined,
+        }),
+      },
+    ];
+    return (
+      <MultiActivityGroup
+        {...baseProps({ items, toolCalls: toolCallsFromItems(items) })}
+      />
+    );
+  },
 };
 
 /**
- * A purely-web `web_search` group. The card routes this through the
- * web-search view; the inline favicon chips + carousel header derive from the
- * call's `activityMetadata.webSearch`.
+ * A purely-web `web_search` group. This is the ONE single-tool case that still
+ * renders through `MultiActivityGroup`: web tools always route through the
+ * web-search view (never the inline `SingleActivity` link), so even a lone web
+ * search is the card's responsibility. The inline favicon chips + carousel
+ * header derive from the call's `activityMetadata.webSearch`.
  */
 export const WebSearch: Story = {
   args: baseProps({
@@ -278,12 +281,24 @@ export const WebSearch: Story = {
 // ---------------------------------------------------------------------------
 
 export const Collapsed: Story = {
-  args: baseProps({
-    autoExpand: false,
-    toolCalls: [
-      makeToolCall({
-        input: { command: "date", activity: "Checking the current time" },
-      }),
-    ],
-  }),
+  render: () => {
+    const items: ToolCallCardItem[] = [
+      { kind: "thinking", text: "Checking the time, then the workspace." },
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          input: { command: "date", activity: "Checking the current time" },
+        }),
+      },
+    ];
+    return (
+      <MultiActivityGroup
+        {...baseProps({
+          autoExpand: false,
+          items,
+          toolCalls: toolCallsFromItems(items),
+        })}
+      />
+    );
+  },
 };
