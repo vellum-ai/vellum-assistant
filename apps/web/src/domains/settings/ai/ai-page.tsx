@@ -74,7 +74,7 @@ export function AiPage() {
       </div>
 
       {sidePanel && isReady && (
-        <div className="w-[380px] shrink-0 overflow-hidden rounded-xl border border-[var(--border-base)] bg-[var(--surface-overlay)]">
+        <div className="w-[420px] shrink-0 overflow-hidden rounded-2xl border border-[var(--border-base)] bg-[var(--surface-lift)]">
           {sidePanel === "profiles" && (
             <ProfilesSidePanel
               assistantId={assistantId}

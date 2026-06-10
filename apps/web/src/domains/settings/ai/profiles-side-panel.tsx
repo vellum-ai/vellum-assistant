@@ -301,7 +301,7 @@ export function ProfilesSidePanel({
     <>
       <div className="flex h-full flex-col">
         {/* Header */}
-        <div className="flex shrink-0 items-center justify-between px-4 pt-4 pb-2">
+        <div className="flex shrink-0 items-center justify-between border-b border-[var(--border-base)] px-4 py-4">
           <Typography variant="body-large-default" as="h2" className="text-(--content-default)">
             Profiles{" "}
             <span className="text-(--content-tertiary)">· {profileCount}</span>
@@ -328,7 +328,7 @@ export function ProfilesSidePanel({
         </div>
 
         {/* Default Profile dropdown */}
-        <div className="shrink-0 space-y-1 px-4 pb-2">
+        <div className="shrink-0 space-y-1 px-4 pt-4 pb-2">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
             Default Profile
           </label>
