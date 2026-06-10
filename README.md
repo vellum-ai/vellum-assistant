@@ -31,16 +31,16 @@ It learns how you work, remembers what matters, and acts before you ask. Yours t
 
 ## Get started
 
-**1. [Download the latest release](https://vellum.ai/download)**
+**1. [Sign up](https://vellum.ai/signup) and [download the app](https://vellum.ai/download)**
 
-**2. Open the app and pick your mode**
+**2. Pick your mode**
 
-- **Managed** — sign in via Vellum Cloud, no local runtime required
-- **Local** — everything runs on your machine
+- **Managed**: sign in via Vellum Cloud, no local runtime required
+- **Local**: everything runs on your machine
 
 **3. Hatch your assistant**
 
-- Give it a name, a personality, and the keys to your work
+- Give it a name, connect your tools, and start talking
 
 <sub>Prefer the terminal? See <a href="#cli">CLI install</a> below.</sub>
 
