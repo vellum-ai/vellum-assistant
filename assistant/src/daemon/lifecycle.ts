@@ -31,6 +31,7 @@ import {
 import {
   awaitCesClientWithTimeout,
   DEFAULT_CES_STARTUP_TIMEOUT_MS,
+  injectCesClientWhenReady,
 } from "../credential-execution/startup-timeout.js";
 import { FilingService } from "../filing/filing-service.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
@@ -75,6 +76,7 @@ import { publishConversationListChanged } from "../runtime/sync/resource-sync-ev
 import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import {
+  getCesClient,
   onCesClientChanged,
   setCesClient,
   setCesReconnect,
@@ -673,6 +675,16 @@ export async function runDaemon(): Promise<void> {
       });
       if (client) {
         setCesClient(client);
+      } else {
+        // The handshake lost the startup race, so provider init proceeds on
+        // the direct credential store. Still inject the CES client into the
+        // resolver once the handshake completes, so CES tools and the
+        // approval bridge route through CES rather than reporting it
+        // unavailable for the rest of the process.
+        injectCesClientWhenReady(cesResult.clientPromise, {
+          getCesClient,
+          setCesClient,
+        });
       }
     }
 
