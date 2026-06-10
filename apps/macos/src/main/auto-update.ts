@@ -60,7 +60,7 @@ export const installAutoUpdate = (): void => {
   autoUpdater.allowDowngrade = false;
   autoUpdater.setFeedURL({
     provider: "generic",
-    url: `https://storage.googleapis.com/vellum-desktop-releases/mac-electron/${CHANNEL}/${process.arch}/`,
+    url: `https://storage.googleapis.com/vellum-${CHANNEL}-releases/mac-electron/${process.arch}/`,
   });
 
   autoUpdater.on("checking-for-update", () => {

@@ -24,7 +24,7 @@ module.exports = {
   productName,
   publish: {
     provider: "generic",
-    url: `https://storage.googleapis.com/vellum-desktop-releases/mac-electron/${env}/${targetArch}/`,
+    url: `https://storage.googleapis.com/vellum-${env}-releases/mac-electron/${targetArch}/`,
   },
   directories: {
     output: "dist",
