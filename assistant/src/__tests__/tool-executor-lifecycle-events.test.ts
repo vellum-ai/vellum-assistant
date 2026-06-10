@@ -4,6 +4,7 @@ import type {
   ToolExecutionResult,
   ToolLifecycleEvent,
 } from "../tools/types.js";
+import type { UsageAttributionSnapshot } from "../usage/attribution.js";
 
 const mockConfig = {
   provider: "anthropic",
@@ -513,6 +514,84 @@ describe("ToolExecutor lifecycle events", () => {
     if (executed.type !== "executed")
       throw new Error("Expected executed event");
     expect(executed.executionTarget).toBe("sandbox");
+  });
+
+  // ── attribution forwarding tests ──────────────────────────
+
+  const testAttribution: UsageAttributionSnapshot = {
+    callSite: "mainAgent",
+    activeProfile: "balanced",
+    overrideProfile: null,
+    callSiteProfile: null,
+    appliedProfile: "balanced",
+    profileSource: "active",
+    resolvedProvider: "anthropic",
+    resolvedModel: "test-model",
+    resolvedMixArm: null,
+  };
+
+  test("forwards context.attribution into the executed lifecycle event", async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    await executor.execute(
+      "file_read",
+      { path: "README.md" },
+      makeContext(events, { attribution: testAttribution }),
+    );
+
+    const executed = events.find((event) => event.type === "executed");
+    if (executed?.type !== "executed")
+      throw new Error("Expected executed event");
+    expect(executed.attribution).toEqual(testAttribution);
+  });
+
+  test("forwards context.attribution into the error lifecycle event", async () => {
+    toolThrow = new Error("boom");
+
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    await executor.execute(
+      "file_read",
+      {},
+      makeContext(events, { attribution: testAttribution }),
+    );
+
+    const errorEvent = events.find((event) => event.type === "error");
+    if (errorEvent?.type !== "error") throw new Error("Expected error event");
+    expect(errorEvent.attribution).toEqual(testAttribution);
+  });
+
+  test("missing context.attribution yields null on the executed event without throwing", async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    const result = await executor.execute(
+      "file_read",
+      { path: "README.md" },
+      makeContext(events),
+    );
+
+    expect(result).toMatchObject({ content: "ok", isError: false });
+    const executed = events.find((event) => event.type === "executed");
+    if (executed?.type !== "executed")
+      throw new Error("Expected executed event");
+    expect(executed.attribution).toBeNull();
+  });
+
+  test("missing context.attribution yields null on the error event without throwing", async () => {
+    toolThrow = new Error("boom");
+
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    const result = await executor.execute("file_read", {}, makeContext(events));
+
+    expect(result.isError).toBe(true);
+    const errorEvent = events.find((event) => event.type === "error");
+    if (errorEvent?.type !== "error") throw new Error("Expected error event");
+    expect(errorEvent.attribution).toBeNull();
   });
 
   test("skill tool with sandbox execution_target resolves to sandbox executionTarget", async () => {

@@ -227,6 +227,7 @@ export class ToolExecutor {
           errorMessage: msg,
           isExpected: true,
           errorCategory: "tool_failure",
+          attribution: context.attribution ?? null,
         });
         return { content: msg, isError: true };
       }
@@ -305,6 +306,7 @@ export class ToolExecutor {
             errorMessage: errorMsg,
             isExpected: true,
             errorCategory: "tool_failure",
+            attribution: context.attribution ?? null,
           });
           return { content: errorMsg, isError: true };
         }
@@ -341,6 +343,7 @@ export class ToolExecutor {
         decision,
         durationMs,
         result: safeResult,
+        attribution: context.attribution ?? null,
       });
 
       // Merge risk metadata from the classifier assessment cache onto the
@@ -421,6 +424,7 @@ export class ToolExecutor {
         errorCategory,
         errorName: err instanceof Error ? err.name : undefined,
         errorStack: err instanceof Error ? err.stack : undefined,
+        attribution: context.attribution ?? null,
       });
 
       if (isExpected) {

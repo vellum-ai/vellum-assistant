@@ -1,10 +1,10 @@
 import type { ApprovalRequired } from "@vellumai/service-contracts/credential-rpc";
 import type {
   DiffInfo,
+  ErrorCategory,
   ExecutionTarget,
   ProxyApprovalCallback,
   SensitiveOutputBinding,
-  ToolExecutionErrorEvent,
   ToolExecutionStartEvent,
   ToolPermissionDeniedEvent,
   ToolPermissionPromptEvent,
@@ -17,6 +17,7 @@ import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.
 import type { SecretPromptResult } from "../permissions/secret-prompter.js";
 import type { ContentBlock } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
+import type { UsageAttributionSnapshot } from "../usage/attribution.js";
 
 export const DISK_PRESSURE_CLEANUP_TOOL_NAMES: ReadonlySet<string> = new Set([
   "bash",
@@ -43,10 +44,12 @@ export function isDiskPressureCleanupToolName(name: string): boolean {
 // Pure re-exports below cover types the contracts package could declare
 // without any assistant-side references. The remaining interfaces (`Tool`,
 // `ToolContext`, `ToolExecutionResult`, `ToolExecutedEvent`,
-// `ToolLifecycleEvent`, `ToolLifecycleEventHandler`, `ProxyToolResolver`)
+// `ToolExecutionErrorEvent`, `ToolLifecycleEvent`,
+// `ToolLifecycleEventHandler`, `ProxyToolResolver`)
 // reference daemon-internal types (CES client, host-proxy classes,
 // `ContentBlock`, `ApprovalRequired`, `TrustClass`, `InterfaceId`,
-// `SecretPromptResult`) that can't move into a neutral package. For those,
+// `SecretPromptResult`, `UsageAttributionSnapshot`) that can't move into a
+// neutral package. For those,
 // the contracts version uses opaque placeholders (`unknown`, broadened
 // `string`) and the assistant redeclares the interface here with the
 // concrete types. The two sides are structurally independent — no
@@ -63,7 +66,6 @@ export type {
   ProxyEnvVars,
   SensitiveOutputBinding,
   SensitiveOutputKind,
-  ToolExecutionErrorEvent,
   ToolExecutionStartEvent,
   ToolPermissionDeniedEvent,
   ToolPermissionPromptEvent,
@@ -181,6 +183,45 @@ export interface ToolExecutedEvent {
   decision: string;
   durationMs: number;
   result: ToolExecutionResult;
+  /**
+   * Model attribution snapshot for the conversation at invocation time.
+   * Copied from {@link ToolContext.attribution} by the executor; `null` when
+   * resolution failed or no attribution was available.
+   */
+  attribution?: UsageAttributionSnapshot | null;
+}
+
+/**
+ * `ToolExecutionErrorEvent` is redeclared here (rather than re-exported from
+ * the contracts package) so it can carry the assistant-side `attribution`
+ * snapshot, which references the daemon-internal `UsageAttributionSnapshot`
+ * type. All other fields mirror the contracts declaration.
+ */
+export interface ToolExecutionErrorEvent {
+  type: "error";
+  toolName: string;
+  input: Record<string, unknown>;
+  workingDir: string;
+  conversationId: string;
+  requestId?: string;
+  executionTarget?: ExecutionTarget;
+  riskLevel: string;
+  /** ID of the trust rule that matched this invocation (if any). */
+  matchedTrustRuleId?: string;
+  decision: string;
+  durationMs: number;
+  errorMessage: string;
+  isExpected: boolean;
+  /** Classifies the error for downstream consumers (audit, alerting, monitoring). */
+  errorCategory: ErrorCategory;
+  errorName?: string;
+  errorStack?: string;
+  /**
+   * Model attribution snapshot for the conversation at invocation time.
+   * Copied from {@link ToolContext.attribution} by the executor; `null` when
+   * resolution failed or no attribution was available.
+   */
+  attribution?: UsageAttributionSnapshot | null;
 }
 
 export type ToolLifecycleEvent =
@@ -209,6 +250,12 @@ export interface ToolContext {
   assistantId?: string;
   /** When set, the tool execution is part of a task run. Used to retrieve ephemeral permission rules. */
   taskRunId?: string;
+  /**
+   * Model attribution snapshot for the conversation at invocation time
+   * (provider/model/profile that issued this tool call). Used by tool
+   * telemetry; never sent to the tool itself.
+   */
+  attribution?: UsageAttributionSnapshot | null;
   /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error). */
   onToolLifecycleEvent?: ToolLifecycleEventHandler;
   /** Optional resolver for proxy tools - delegates execution to an external client. */
