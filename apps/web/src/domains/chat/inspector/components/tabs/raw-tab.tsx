@@ -76,7 +76,9 @@ export function RawTab({ entry, assistantId }: RawTabProps): ReactNode {
               iconOnly
               leftIcon={<Download size={14} aria-hidden />}
               aria-label={`Download ${pane} payload`}
-              onClick={() => downloadRawPayload(displayText, downloadFilename)}
+              onClick={() =>
+                void downloadRawPayload(displayText, downloadFilename)
+              }
             />
             <Button
               variant="ghost"
@@ -119,16 +121,13 @@ export function buildRawPayloadFilename(logId: string, pane: RawPane): string {
   return `llm-${safeLogId}-${pane}.json`;
 }
 
-function downloadRawPayload(text: string, filename: string): void {
+async function downloadRawPayload(
+  text: string,
+  filename: string,
+): Promise<void> {
   const blob = new Blob([text], { type: "application/json;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  const { saveFile } = await import("@/runtime/native-file");
+  await saveFile(blob, filename);
 }
 
 function LoadingState(): ReactNode {

@@ -19,7 +19,6 @@ import {
 } from "@/domains/chat/inspector/inspector-payload-api";
 import { normalizeContentBlocks } from "@/domains/chat/api/messages";
 import { useAuthStore, useIsSessionInitializing } from "@/stores/auth-store";
-import { downloadBlob } from "@/utils/download-blob";
 import { routes } from "@/utils/routes";
 import type {
   ConversationContentBlock,
@@ -207,7 +206,8 @@ function Header({
         }),
       );
       const blob = await buildInspectorExportZipBlob(context, payloads);
-      downloadBlob(
+      const { saveFile } = await import("@/runtime/native-file");
+      await saveFile(
         blob,
         buildInspectorExportFilename(
           context.conversationId ?? conversationId,

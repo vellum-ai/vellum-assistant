@@ -8,9 +8,8 @@ import {
   organizationsBillingInvoicesDownloadRetrieve,
   organizationsBillingInvoicesRetrieve,
 } from "@/generated/api/sdk.gen";
-import type { Invoice, InvoiceListResponse } from "@/generated/api/types.gen";
+import type { InvoiceListResponse } from "@/generated/api/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
-import { downloadBlob } from "@/utils/download-blob";
 import { formatFriendlyDate } from "@/utils/format-date";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
@@ -109,9 +108,8 @@ export function InvoicesModal({ open, onOpenChange }: InvoicesModalProps) {
   });
 
   const invoices = invoicesQuery.data?.invoices ?? [];
-  const downloadable = invoices.filter(
-    (invoice): invoice is Invoice & { invoice_pdf: string } =>
-      invoice.invoice_pdf != null,
+  const hasDownloadablePdfs = invoices.some(
+    (invoice) => invoice.invoice_pdf != null,
   );
 
   /**
@@ -132,7 +130,8 @@ export function InvoicesModal({ open, onOpenChange }: InvoicesModalProps) {
           `Failed to download invoices (${response?.status ?? "network error"})`,
         );
       }
-      downloadBlob(data, "invoices.zip");
+      const { saveFile } = await import("@/runtime/native-file");
+      await saveFile(data, "invoices.zip");
     } catch (error) {
       captureError(error, { context: "download_all_invoices" });
       toast.error("Failed to download invoices.");
@@ -235,7 +234,7 @@ export function InvoicesModal({ open, onOpenChange }: InvoicesModalProps) {
         </Modal.Body>
 
         <Modal.Footer>
-          {downloadable.length > 0 && (
+          {hasDownloadablePdfs && (
             <Button
               variant="outlined"
               leftIcon={
