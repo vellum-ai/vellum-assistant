@@ -6,6 +6,7 @@ import {
     type RefObject,
     type SetStateAction,
     useCallback,
+    useEffect,
     useLayoutEffect,
     useMemo,
     useRef,
@@ -201,6 +202,9 @@ export function ChatComposer({
     active: voicePhase === "recording",
     stream: voiceStream,
   });
+  useEffect(() => {
+    useVoiceRecordingStore.getState().setAudioLevel(amplitude);
+  }, [amplitude]);
   const showVoiceInput =
     voiceInputRef !== undefined && onVoiceTranscript !== undefined;
 
