@@ -94,6 +94,19 @@ describe("useDictationOverlaySync", () => {
     });
   });
 
+  test("unmounting mid-recording publishes a dismiss so the overlay can't stick", () => {
+    const hook = renderSync();
+
+    act(() => {
+      store().startRecording();
+    });
+    messages.length = 0;
+
+    hook.unmount();
+
+    expect(messages).toContainEqual({ kind: "dismiss" });
+  });
+
   test("a front-app insertion error turns the finalized session into an error, not done", () => {
     const hook = renderSync();
 

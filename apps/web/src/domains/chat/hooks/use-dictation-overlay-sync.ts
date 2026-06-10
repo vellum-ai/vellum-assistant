@@ -63,4 +63,17 @@ export function useDictationOverlaySync({
         break;
     }
   }, [phase, interim, errorCode, storeErrorCode]);
+
+  // Mount-scoped (not in the effect above — its cleanup runs on every dep
+  // change, which would hide and re-show the overlay between interim
+  // updates). If the composer unmounts mid-recording (e.g. navigating to
+  // Settings), no idle transition is ever published, so dismiss explicitly
+  // or the overlay would stay up until the next session. Harmless after a
+  // terminal state: main pins done/error on their own timers and ignores
+  // this dismiss.
+  useEffect(() => {
+    return () => {
+      setDictationOverlayState({ kind: "dismiss" });
+    };
+  }, []);
 }
