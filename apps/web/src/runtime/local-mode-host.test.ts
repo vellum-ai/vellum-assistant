@@ -183,23 +183,24 @@ describe("saveLockfileAssistantHost", () => {
 });
 
 describe("replacePlatformAssistantsHost", () => {
-  test("web/dev host POSTs the platform set with the syncPlatform flag", async () => {
+  test("web/dev host POSTs the platform set and active org with the syncPlatform flag", async () => {
     const fetchMock = mock(async () => ({
       json: async () => ({ ok: true, lockfile: {} }),
     }));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    await replacePlatformAssistantsHost([{ assistantId: "p-1" }]);
+    await replacePlatformAssistantsHost([{ assistantId: "p-1" }], "org-1");
 
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("/assistant/__local/lockfile");
     expect(JSON.parse(init.body as string)).toEqual({
       syncPlatform: true,
       platformAssistants: [{ assistantId: "p-1" }],
+      organizationId: "org-1",
     });
   });
 
-  test("Electron host replaces through the bridge and never touches fetch", async () => {
+  test("Electron host replaces through the bridge with the active org and never touches fetch", async () => {
     const replacePlatformAssistants = mock(async () => ({ ok: true, lockfile: {} }));
     const fetchMock = mock(async () => {
       throw new Error("fetch must not run on the Electron branch");
@@ -207,9 +208,12 @@ describe("replacePlatformAssistantsHost", () => {
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     setElectronBridge({ replacePlatformAssistants });
 
-    await replacePlatformAssistantsHost([{ assistantId: "p-1" }]);
+    await replacePlatformAssistantsHost([{ assistantId: "p-1" }], "org-1");
 
-    expect(replacePlatformAssistants).toHaveBeenCalledWith([{ assistantId: "p-1" }]);
+    expect(replacePlatformAssistants).toHaveBeenCalledWith(
+      [{ assistantId: "p-1" }],
+      "org-1",
+    );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

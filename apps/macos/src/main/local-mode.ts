@@ -199,9 +199,9 @@ export const installLocalMode = (): void => {
 
   handle(
     "vellum:localMode:replacePlatformAssistants",
-    z.tuple([z.array(assistantRecord)]),
-    ([list]): LockfileWriteResult => {
-      const result = replacePlatformAssistants(lockfilePaths, list);
+    z.tuple([z.array(assistantRecord), z.string().optional()]),
+    ([list, organizationId]): LockfileWriteResult => {
+      const result = replacePlatformAssistants(lockfilePaths, list, organizationId);
       return result.ok
         ? { ok: true, lockfile: result.lockfile }
         : { ok: false, error: result.error };
