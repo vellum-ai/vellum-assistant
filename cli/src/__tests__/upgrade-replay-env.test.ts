@@ -1,9 +1,14 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { resetHostDeviceIdCache } from "../lib/device-id.js";
 import type { DockerStatefulSetSpec } from "../lib/statefulset.js";
-import { buildReplayEnv } from "../lib/upgrade-lifecycle.js";
+import { buildReplayEnv, buildReplayState } from "../lib/upgrade-lifecycle.js";
 
-const SAVED_ENV_VARS = ["VELLUM_PLATFORM_URL", "ANTHROPIC_API_KEY"] as const;
+const SAVED_ENV_VARS = [
+  "VELLUM_PLATFORM_URL",
+  "ANTHROPIC_API_KEY",
+  "VELLUM_DEVICE_ID",
+] as const;
 const savedEnv: Record<string, string | undefined> = {};
 for (const key of SAVED_ENV_VARS) {
   savedEnv[key] = process.env[key];
@@ -17,6 +22,7 @@ afterEach(() => {
       process.env[key] = savedEnv[key];
     }
   }
+  resetHostDeviceIdCache();
 });
 
 describe("buildReplayEnv", () => {
@@ -109,5 +115,44 @@ describe("buildReplayEnv", () => {
       spec,
     );
     expect(replay).toEqual({ VELLUM_DEVICE_ID: "abc" });
+  });
+});
+
+describe("buildReplayState", () => {
+  beforeEach(() => {
+    // VELLUM_DEVICE_ID env precedence keeps getOrCreateHostDeviceId off the
+    // filesystem in tests.
+    process.env.VELLUM_DEVICE_ID = "host-device-id";
+    resetHostDeviceIdCache();
+  });
+
+  test("backfills VELLUM_DEVICE_ID on gateway replay env when absent", () => {
+    const state = buildReplayState({}, { VELLUM_DISABLE_PLATFORM: "1" });
+    expect(state.extraGatewayEnv).toEqual({
+      VELLUM_DISABLE_PLATFORM: "1",
+      VELLUM_DEVICE_ID: "host-device-id",
+    });
+  });
+
+  test("captured VELLUM_DEVICE_ID wins over host-derived id", () => {
+    const state = buildReplayState({}, { VELLUM_DEVICE_ID: "existing" });
+    expect(state.extraGatewayEnv.VELLUM_DEVICE_ID).toBe("existing");
+  });
+
+  test("plucks secrets from the captured envs", () => {
+    const state = buildReplayState(
+      { CES_SERVICE_TOKEN: "ces-token", ACTOR_TOKEN_SIGNING_KEY: "sign-key" },
+      { GUARDIAN_BOOTSTRAP_SECRET: "bootstrap" },
+    );
+    expect(state.bootstrapSecret).toBe("bootstrap");
+    expect(state.cesServiceToken).toBe("ces-token");
+    expect(state.signingKey).toBe("sign-key");
+  });
+
+  test("generates fresh secrets when missing from captured env", () => {
+    const state = buildReplayState({}, {});
+    expect(state.bootstrapSecret).toBeUndefined();
+    expect(state.cesServiceToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(state.signingKey).toMatch(/^[0-9a-f]{64}$/);
   });
 });

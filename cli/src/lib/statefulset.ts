@@ -262,7 +262,7 @@ export interface BuildServiceRunArgsOpts extends DockerRunSecrets {
   avatarDevicePath?: string;
 }
 
-export interface BuilderManagedEnvKeys {
+interface BuilderManagedEnvKeys {
   /** Always set by buildServiceRunArgs (spec static/secret entries, builder-computed extras, image-baked PATH). Never replay. */
   always: ReadonlySet<string>;
   /**
