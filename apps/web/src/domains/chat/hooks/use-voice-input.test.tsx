@@ -11,6 +11,10 @@ type TextInsertionStatus =
 
 let nextTextInsertionStatus: TextInsertionStatus = "unavailable";
 const insertedTexts: string[] = [];
+let nextDictationResult: { mode: "dictation"; text: string } | null = null;
+const showTranscriptionOverlayMock = mock(
+  async (_state: { transcript: string }) => undefined,
+);
 
 mock.module("@/runtime/text-insertion", () => ({
   insertTextIntoFrontApp: async (text: string) => {
@@ -29,7 +33,11 @@ mock.module("@/domains/chat/components/mic-permission-primer", () => ({
 }));
 
 mock.module("@/domains/chat/voice/dictation-api", () => ({
-  postDictation: async () => null,
+  postDictation: async () => nextDictationResult,
+}));
+
+mock.module("@/runtime/transcription-overlay", () => ({
+  showTranscriptionOverlay: showTranscriptionOverlayMock,
 }));
 
 mock.module("@/domains/chat/voice/push-to-talk-host", () => ({
@@ -42,7 +50,7 @@ mock.module("@/domains/chat/voice/use-push-to-talk", () => ({
 
 const { useVoiceInput } = await import("./use-voice-input");
 
-const renderVoiceInput = () => {
+const renderVoiceInput = (assistantId: string | null = null) => {
   let input = "";
   let focusCount = 0;
   const setInput: Dispatch<SetStateAction<string>> = (value) => {
@@ -58,7 +66,7 @@ const renderVoiceInput = () => {
   } satisfies RefObject<HTMLTextAreaElement | null>;
 
   const hook = renderHook(() =>
-    useVoiceInput({ assistantId: null, inputRef, setInput }),
+    useVoiceInput({ assistantId, inputRef, setInput }),
   );
 
   return {
@@ -71,10 +79,30 @@ const renderVoiceInput = () => {
 afterEach(() => {
   cleanup();
   nextTextInsertionStatus = "unavailable";
+  nextDictationResult = null;
   insertedTexts.length = 0;
+  showTranscriptionOverlayMock.mockClear();
 });
 
 describe("useVoiceInput", () => {
+  test("shows the cleaned final transcript after successful front-app insertion", async () => {
+    nextTextInsertionStatus = "inserted";
+    nextDictationResult = { mode: "dictation", text: "cleaned text" };
+    const { hook, getInput, getFocusCount } = renderVoiceInput("assistant-1");
+
+    await act(async () => {
+      await hook.result.current.handleVoiceTranscript("raw text");
+    });
+
+    expect(insertedTexts).toEqual(["cleaned text"]);
+    expect(showTranscriptionOverlayMock).toHaveBeenCalledWith({
+      transcript: "cleaned text",
+    });
+    expect(getInput()).toBe("");
+    expect(getFocusCount()).toBe(0);
+    expect(hook.result.current.voiceError).toBeNull();
+  });
+
   test("keeps blocked external-paste dictation in the composer", async () => {
     nextTextInsertionStatus = "blocked";
     const { hook, getInput, getFocusCount } = renderVoiceInput();
@@ -84,6 +112,9 @@ describe("useVoiceInput", () => {
     });
 
     expect(insertedTexts).toEqual(["dictated text"]);
+    expect(showTranscriptionOverlayMock).toHaveBeenCalledWith({
+      transcript: "dictated text",
+    });
     expect(getInput()).toBe("dictated text");
     expect(getFocusCount()).toBe(1);
     expect(hook.result.current.voiceError).toBe("dictation-paste-blocked");
@@ -98,8 +129,21 @@ describe("useVoiceInput", () => {
     });
 
     expect(insertedTexts).toEqual(["open settings please"]);
+    expect(showTranscriptionOverlayMock).toHaveBeenCalledWith({
+      transcript: "open settings please",
+    });
     expect(getInput()).toBe("open settings please");
     expect(getFocusCount()).toBe(1);
     expect(hook.result.current.voiceError).toBe("dictation-automation-denied");
+  });
+
+  test("does not show the final overlay for empty transcripts", async () => {
+    const { hook } = renderVoiceInput();
+
+    await act(async () => {
+      await hook.result.current.handleVoiceTranscript("   ");
+    });
+
+    expect(showTranscriptionOverlayMock).not.toHaveBeenCalled();
   });
 });
