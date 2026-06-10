@@ -15,19 +15,16 @@ import {
   getOrCreateHostDeviceId,
   resetHostDeviceIdCache,
 } from "../lib/device-id.js";
+import { snapshotEnv } from "./helpers/env.js";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-const SAVED_ENV_VARS = [
+const restoreEnv = snapshotEnv([
   "XDG_CONFIG_HOME",
   "VELLUM_ENVIRONMENT",
   "VELLUM_DEVICE_ID",
-] as const;
-const savedEnv: Record<string, string | undefined> = {};
-for (const key of SAVED_ENV_VARS) {
-  savedEnv[key] = process.env[key];
-}
+]);
 
 describe("getOrCreateHostDeviceId", () => {
   let tempHome: string;
@@ -45,13 +42,7 @@ describe("getOrCreateHostDeviceId", () => {
   });
 
   afterEach(() => {
-    for (const key of SAVED_ENV_VARS) {
-      if (savedEnv[key] === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = savedEnv[key];
-      }
-    }
+    restoreEnv();
     rmSync(tempHome, { recursive: true, force: true });
     resetHostDeviceIdCache();
   });
