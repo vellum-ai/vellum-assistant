@@ -219,8 +219,8 @@ interface ReplayState {
  * already-captured assistant/gateway envs. GUARDIAN_BOOTSTRAP_SECRET is only
  * set on the gateway; CES_SERVICE_TOKEN and ACTOR_TOKEN_SIGNING_KEY fall back
  * to fresh values for instances that predate them. VELLUM_DEVICE_ID is
- * backfilled from the host for gateways hatched before device-id injection
- * (captured value wins — it was itself host-derived).
+ * backfilled from the host on both containers for instances hatched before
+ * device-id injection (captured value wins — it was itself host-derived).
  */
 export function buildReplayState(
   capturedEnv: Record<string, string>,
@@ -229,13 +229,16 @@ export function buildReplayState(
   const extraGatewayEnv = buildReplayEnv(gatewayEnv, "gateway");
   extraGatewayEnv.VELLUM_DEVICE_ID ??= getOrCreateHostDeviceId();
 
+  const extraAssistantEnv = buildReplayEnv(capturedEnv, "assistant");
+  extraAssistantEnv.VELLUM_DEVICE_ID ??= getOrCreateHostDeviceId();
+
   return {
     bootstrapSecret: gatewayEnv["GUARDIAN_BOOTSTRAP_SECRET"],
     cesServiceToken:
       capturedEnv["CES_SERVICE_TOKEN"] || randomBytes(32).toString("hex"),
     signingKey:
       capturedEnv["ACTOR_TOKEN_SIGNING_KEY"] || randomBytes(32).toString("hex"),
-    extraAssistantEnv: buildReplayEnv(capturedEnv, "assistant"),
+    extraAssistantEnv,
     extraGatewayEnv,
   };
 }

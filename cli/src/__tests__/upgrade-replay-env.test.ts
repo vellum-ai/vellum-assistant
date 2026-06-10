@@ -130,6 +130,16 @@ describe("buildReplayState", () => {
     expect(state.extraGatewayEnv.VELLUM_DEVICE_ID).toBe("existing");
   });
 
+  test("backfills VELLUM_DEVICE_ID on assistant replay env when absent", () => {
+    const state = buildReplayState({}, {});
+    expect(state.extraAssistantEnv.VELLUM_DEVICE_ID).toBe("host-device-id");
+  });
+
+  test("captured assistant VELLUM_DEVICE_ID wins over host-derived id", () => {
+    const state = buildReplayState({ VELLUM_DEVICE_ID: "existing" }, {});
+    expect(state.extraAssistantEnv.VELLUM_DEVICE_ID).toBe("existing");
+  });
+
   test("plucks secrets from the captured envs", () => {
     const state = buildReplayState(
       { CES_SERVICE_TOKEN: "ces-token", ACTOR_TOKEN_SIGNING_KEY: "sign-key" },
