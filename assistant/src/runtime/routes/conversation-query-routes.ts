@@ -658,8 +658,9 @@ function warnDroppedProfileOverrideFields(
  * - Entries left with no keys are removed so no empty `{}` entry lands on
  *   disk.
  * - `null` entries are kept or removed per `keepNullEntries`: PATCH keeps
- *   them (`deepMergeOverwrite` implements clear-entry semantics for `null`),
- *   while replace-style SET writes remove them (deletion IS the clear).
+ *   them (`applyProfileOverridesPatch` implements clear-entry semantics for
+ *   `null`), while replace-style SET writes remove them (deletion IS the
+ *   clear).
  * - Non-object, non-null entries are dropped with a warning.
  */
 function sanitizeProfileOverridesMap(
@@ -719,9 +720,9 @@ function normalizeRawProfileOverrides(raw: Record<string, unknown>): void {
  * Drop empty `{}` entries from `llm.profileOverrides` (and the map itself
  * once nothing is left) on a raw config destined for disk. An empty entry
  * carries no information — the merge layer applies overrides by key
- * presence — and can be left behind by clear-to-default writes
- * (`deepMergeOverwrite`'s null handling deletes the last key of an entry,
- * and its `stripNullLeaves` pass empties a fresh `{label: null}` subtree).
+ * presence — and can be left behind by entry-clearing writes
+ * (`applyProfileOverridesPatch`, `writeBuiltinProfileOverride`) or already
+ * sit on disk from an earlier write.
  */
 function pruneEmptyProfileOverrides(raw: Record<string, unknown>): void {
   const llm = asMutablePlainObject(raw.llm);
@@ -762,6 +763,77 @@ function liftIntoRawProfileOverrides(
 }
 
 /**
+ * Detach the `llm.profileOverrides` fragment from a PATCH body so
+ * `handlePatchConfig` can apply it directly to the raw config instead of
+ * routing it through `deepMergeOverwrite`. In the override store, `null` IS
+ * the data — a stored `label`/`status` null is the "explicitly cleared"
+ * sentinel that masks a stale label/status still carried by a
+ * transition-state materialized entry — while the merge treats `null` as a
+ * deletion sentinel and strips null leaves from any subtree assigned to a
+ * missing target key, which would silently drop the sentinel whenever the
+ * raw config holds no `llm.profileOverrides` yet.
+ *
+ * Returns the detached fragment: the map object, `null` (clear the whole
+ * map), or `undefined` when the body carries none.
+ */
+function takeProfileOverridesPatch(body: Record<string, unknown>): unknown {
+  const llm = asMutablePlainObject(body.llm);
+  if (!llm || !("profileOverrides" in llm)) return undefined;
+  const fragment = llm.profileOverrides;
+  delete llm.profileOverrides;
+  return fragment;
+}
+
+/**
+ * Apply a detached `llm.profileOverrides` PATCH fragment (see
+ * `takeProfileOverridesPatch`) to the raw config with key-presence semantics
+ * that preserve explicit nulls:
+ *
+ * - a `null` fragment clears the whole map;
+ * - a `null` entry clears that profile's stored entry;
+ * - an entry object assigns each carried key onto the stored entry —
+ *   explicit field nulls included, persisting the clear sentinel exactly as
+ *   the dedicated PUT profile route stores it.
+ *
+ * The fragment has already been sanitized (`sanitizeProfileOverridesMap`
+ * plus the built-in `llm.profiles` lift), so entries are `null` or objects
+ * holding only legal label/status values.
+ */
+function applyProfileOverridesPatch(
+  raw: Record<string, unknown>,
+  fragment: unknown,
+): void {
+  if (fragment === undefined) return;
+  if (fragment === null) {
+    const llm = asMutablePlainObject(raw.llm);
+    if (llm) delete llm.profileOverrides;
+    return;
+  }
+  const map = asMutablePlainObject(fragment);
+  if (!map) return;
+  for (const [name, entry] of Object.entries(map)) {
+    if (entry === null) {
+      const llm = asMutablePlainObject(raw.llm);
+      const overrides = llm ? asMutablePlainObject(llm.profileOverrides) : null;
+      if (overrides) delete overrides[name];
+      continue;
+    }
+    const entryObj = asMutablePlainObject(entry);
+    if (!entryObj || Object.keys(entryObj).length === 0) continue;
+    const overrides = ensureObjectAt(
+      ensureObjectAt(raw, "llm"),
+      "profileOverrides",
+    );
+    const existing = asMutablePlainObject(overrides[name]);
+    if (existing) {
+      Object.assign(existing, entryObj);
+    } else {
+      overrides[name] = { ...entryObj };
+    }
+  }
+}
+
+/**
  * Re-route built-in profile edits arriving on the generic `PATCH /v1/config`
  * body into `llm.profileOverrides`, and drop everything else.
  *
@@ -797,7 +869,7 @@ function sanitizeBuiltinProfileWrites(
   // Guard the explicit override-store fragment first: the built-in
   // `llm.profiles` lift below merges into it (`explicitWins`), so it must
   // already be reduced to legal fields. `null` map / entries pass through —
-  // `deepMergeOverwrite` implements their clear semantics.
+  // `applyProfileOverridesPatch` implements their clear semantics.
   const overridesFragment = asMutablePlainObject(llm.profileOverrides);
   if (overridesFragment) {
     sanitizeProfileOverridesMap(overridesFragment, { keepNullEntries: true });
@@ -1066,10 +1138,15 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   const raw = loadRawConfig();
   const patch = body as Record<string, unknown>;
   sanitizeBuiltinProfileWrites(patch, raw);
+  // The override-store fragment (explicit client-sent entries plus the
+  // lifted built-in edits) bypasses `deepMergeOverwrite`: its explicit
+  // nulls are data (the clear sentinel), and the merge would strip them
+  // whenever the raw config holds no `llm.profileOverrides` subtree yet.
+  const overridesPatch = takeProfileOverridesPatch(patch);
   deepMergeOverwrite(raw, patch);
-  // The merge's null handling can hollow out an override entry (clear the
-  // last key of an existing entry, or strip a fresh `{label: null}` subtree
-  // to `{}`) — never persist the husk.
+  applyProfileOverridesPatch(raw, overridesPatch);
+  // Clearing an entry can hollow out the override map — never persist the
+  // husk.
   pruneEmptyProfileOverrides(raw);
 
   await commitConfigWrite(raw, "patch");
@@ -1690,7 +1767,10 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Patch config",
     description:
-      "Deep-merge a partial JSON object into the settings.json configuration.",
+      "Deep-merge a partial JSON object into the settings.json configuration. " +
+      "`llm.profileOverrides` fragments are applied directly with " +
+      "null-preserving semantics: a null label/status persists as the " +
+      "stored clear sentinel, while a null entry (or map) clears it.",
     tags: ["config"],
     requestBody: z.record(z.string(), z.unknown()),
     responseBody: z.object({ ok: z.boolean() }),

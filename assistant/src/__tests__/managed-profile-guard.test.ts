@@ -71,6 +71,7 @@ mock.module("../providers/inference/connections.js", () => ({
   PROVIDERS_REQUIRING_BASE_URL_AND_MODELS: new Set(["openai-compatible"]),
 }));
 
+import { applyBuiltinProfiles } from "../config/loader.js";
 import { ROUTES } from "../runtime/routes/conversation-query-routes.js";
 import { BadRequestError } from "../runtime/routes/errors.js";
 
@@ -584,6 +585,60 @@ describe("PATCH /v1/config — built-in profile sanitization", () => {
     expect(saved.llm.profiles.balanced).toBeUndefined();
   });
 
+  test("PATCH { label: null } persists the sentinel and masks a stale materialized label", async () => {
+    // No llm.profileOverrides on disk: the lifted null must not flow through
+    // deepMergeOverwrite, whose stripNullLeaves would empty the fresh
+    // subtree and lose the clear.
+    rawConfig = {
+      llm: {
+        profiles: {
+          balanced: {
+            provider: "anthropic",
+            model: "claude-drifted",
+            label: "Stale Custom",
+            source: "managed",
+          },
+        },
+      },
+    };
+    const result = await patchRoute.handler({
+      body: { llm: { profiles: { balanced: { label: null } } } },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides.balanced).toEqual({ label: null });
+    // At merge time the stored null outranks the stale materialized label:
+    // the effective entry reports the cleared state, not "Stale Custom".
+    const effective = structuredClone(saved);
+    applyBuiltinProfiles(effective);
+    expect(effective.llm.profiles.balanced.label).toBeNull();
+  });
+
+  test("PATCH { label: null } persists on an existing override entry, leaving other keys untouched", async () => {
+    rawConfig = {
+      llm: {
+        profiles: {
+          balanced: {
+            provider: "anthropic",
+            model: "claude-drifted",
+            label: "Stale Custom",
+            source: "managed",
+          },
+        },
+        profileOverrides: { balanced: { status: "disabled" } },
+      },
+    };
+    const result = await patchRoute.handler({
+      body: { llm: { profiles: { balanced: { label: null } } } },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides.balanced).toEqual({
+      status: "disabled",
+      label: null,
+    });
+  });
+
   test("an unmodified GET → PATCH round trip creates no overrides and leaves raw profiles unchanged", async () => {
     const got = (await getRoute.handler({})) as Record<string, any>;
     const result = await patchRoute.handler({
@@ -791,15 +846,25 @@ describe("PATCH /v1/config — profileOverrides payload guard", () => {
     expect(saved.llm.profileOverrides).toBeUndefined();
   });
 
-  test("a fresh { label: null } entry does not materialize an empty {} entry", async () => {
-    // deepMergeOverwrite's stripNullLeaves empties a null-only subtree
-    // assigned to a missing key; the post-merge prune must drop the husk.
+  test("a fresh { label: null } entry persists the null clear sentinel", async () => {
+    // Override fragments bypass deepMergeOverwrite (whose stripNullLeaves
+    // would empty a null-only subtree assigned to a missing key): for the
+    // override store the null IS the data.
     const result = await patchRoute.handler({
       body: { llm: { profileOverrides: { balanced: { label: null } } } },
     });
     expect(result).toEqual({ ok: true });
     const saved = savedRaw as unknown as Record<string, any>;
-    expect(saved.llm.profileOverrides).toBeUndefined();
+    expect(saved.llm.profileOverrides.balanced).toEqual({ label: null });
+  });
+
+  test("an explicit { status: null } field persists as the clear sentinel", async () => {
+    const result = await patchRoute.handler({
+      body: { llm: { profileOverrides: { balanced: { status: null } } } },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides.balanced).toEqual({ status: null });
   });
 
   test("unknown profile names with legal fields are allowed (open record; only fields are validated)", async () => {
