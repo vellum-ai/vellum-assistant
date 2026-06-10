@@ -9,7 +9,7 @@ import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 // SSE event protocol
 // ---------------------------------------------------------------------------
 
-type DoctorEvent =
+export type DoctorEvent =
   | { type: "message"; content: string }
   | { type: "message_delta"; content: string }
   | {
@@ -46,7 +46,7 @@ const VALID_EVENT_TYPES = new Set([
   "error",
 ]);
 
-function parseDoctorEvent(raw: string): DoctorEvent | null {
+export function parseDoctorEvent(raw: string): DoctorEvent | null {
   try {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== "object" || parsed === null) return null;
@@ -71,7 +71,7 @@ function buildSSEHeaders(): Record<string, string> {
 // Pure event handlers
 // ---------------------------------------------------------------------------
 
-interface StreamContext {
+export interface StreamContext {
   setEntries: React.Dispatch<React.SetStateAction<ChatEntry[]>>;
   setThinking: (v: boolean) => void;
   setPendingApproval: (v: boolean) => void;
@@ -83,7 +83,7 @@ interface StreamContext {
   setStreamingEntryId: (id: string | null) => void;
 }
 
-function handleMessageDelta(ctx: StreamContext, event: { content: string }): void {
+export function handleMessageDelta(ctx: StreamContext, event: { content: string }): void {
   ctx.setThinking(false);
   const currentId = ctx.getStreamingEntryId();
   if (!currentId) {
@@ -102,12 +102,12 @@ function handleMessageDelta(ctx: StreamContext, event: { content: string }): voi
   }
 }
 
-function handleMessageComplete(ctx: StreamContext): void {
+export function handleMessageComplete(ctx: StreamContext): void {
   ctx.setThinking(false);
   ctx.setStreamingEntryId(null);
 }
 
-function handleToolCall(
+export function handleToolCall(
   ctx: StreamContext,
   event: { toolName: string; input: Record<string, unknown>; id: string },
 ): void {
@@ -125,7 +125,7 @@ function handleToolCall(
   });
 }
 
-function handleToolResult(
+export function handleToolResult(
   ctx: StreamContext,
   event: { toolCallId: string; content: string; isError: boolean },
 ): void {
@@ -150,7 +150,7 @@ function handleToolResult(
   });
 }
 
-function handleApprovalRequired(
+export function handleApprovalRequired(
   ctx: StreamContext,
   event: { toolName: string; input: Record<string, unknown>; id: string; description: string },
 ): void {
@@ -168,7 +168,7 @@ function handleApprovalRequired(
   });
 }
 
-function handleBackupPrompt(ctx: StreamContext, event: { toolName: string }): void {
+export function handleBackupPrompt(ctx: StreamContext, event: { toolName: string }): void {
   ctx.setThinking(false);
   ctx.setPendingBackup(true);
   ctx.appendEntry({
@@ -178,7 +178,7 @@ function handleBackupPrompt(ctx: StreamContext, event: { toolName: string }): vo
   });
 }
 
-function handleStatus(
+export function handleStatus(
   ctx: StreamContext,
   event: { status: "active" | "completed" | "error" },
 ): boolean {
@@ -198,7 +198,7 @@ function handleStatus(
   return false;
 }
 
-function handleError(ctx: StreamContext, event: { message: string }): void {
+export function handleError(ctx: StreamContext, event: { message: string }): void {
   ctx.setThinking(false);
   ctx.setPendingApproval(false);
   ctx.setStreamingEntryId(null);
