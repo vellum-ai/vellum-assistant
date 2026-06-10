@@ -1164,20 +1164,10 @@ export function resolveSkillSelector(
     };
   }
 
-  const idPrefixMatches = catalog.filter((skill) =>
-    skill.id.startsWith(needle),
-  );
-  if (idPrefixMatches.length === 1) {
-    return { skill: idPrefixMatches[0] };
-  }
-  if (idPrefixMatches.length > 1) {
-    const ids = idPrefixMatches.map((skill) => skill.id).join(", ");
-    return {
-      error: `Ambiguous skill id prefix "${needle}". Matching IDs: ${ids}`,
-      errorCode: "ambiguous",
-    };
-  }
-
+  // Intentionally no prefix-match fallback. Silently substituting a
+  // prefix-matched skill (e.g. `slack` → `slack-app-setup`) hands the model
+  // the wrong instructions and bypasses the auto-install path that would
+  // fetch the actually-requested skill from the catalog.
   const knownSkills = catalog.map((skill) => skill.id).join(", ");
   return {
     error: `No skill matched "${needle}". Available skills: ${knownSkills}`,

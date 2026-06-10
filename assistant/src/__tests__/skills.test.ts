@@ -223,6 +223,22 @@ describe("workspace skills", () => {
     expect(result.error).toBeDefined();
   });
 
+  test("resolveSkillSelector does NOT prefix-match to a different skill id", () => {
+    // Regression: previously `slack` would silently resolve to `slack-app-setup`
+    // when the `slack` skill wasn't installed locally. That handed the model
+    // the wrong instructions and bypassed catalog auto-install. The resolver
+    // must fail closed so `skill_load` can attempt the auto-install path.
+    writeWorkspaceSkill(
+      "slack-app-setup",
+      "Slack App Setup",
+      "Setup-only skill",
+    );
+
+    const result = resolveSkillSelector("slack", workspaceSkillsDir);
+    expect(result.skill).toBeUndefined();
+    expect(result.errorCode).toBe("not_found");
+  });
+
   test("loadSkillBySelector loads workspace skill body without isOutsideSkillsRoot rejection", () => {
     writeWorkspaceSkill(
       "ws-load",
