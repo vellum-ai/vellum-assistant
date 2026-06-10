@@ -6,6 +6,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
 import {
+    useConversationCallNumbering,
     useConversationMessageList,
     useLlmContext,
 } from "@/domains/chat/inspector/inspector-api";
@@ -107,16 +108,15 @@ function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
   } = useLlmContext(assistantId, conversationId, messageId);
 
   const logs = useMemo(() => data?.logs ?? [], [data?.logs]);
-  // Conversation-wide context. In conversation mode this is the same
-  // query as `data` (identical key, deduped by TanStack Query). In
-  // message mode it supplies the conversation-wide call numbering so a
+  // Best-effort conversation-wide log list (message mode only) so a
   // scoped turn keeps showing "Call 12" instead of renumbering from 1.
-  const { data: conversationData } = useLlmContext(
+  // Resolves to null on daemons without the conversation endpoint, in
+  // which case the rail falls back to subset-relative numbering.
+  const { data: conversationLogs } = useConversationCallNumbering(
     assistantId,
     conversationId,
-    null,
+    Boolean(messageId),
   );
-  const conversationLogs = conversationData?.logs;
   const callNumbers = useMemo<ReadonlyMap<string, number> | undefined>(() => {
     if (!messageId || !conversationLogs?.length) return undefined;
     return new Map(conversationLogs.map((log, index) => [log.id, index + 1]));

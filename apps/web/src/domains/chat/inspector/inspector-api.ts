@@ -97,6 +97,47 @@ export function useLlmContext(
 }
 
 /**
+ * Best-effort fetch of the conversation's full log list, used in
+ * message-scoped mode to map each scoped call back to its position in
+ * the whole conversation ("Call 12" instead of renumbering from 1).
+ *
+ * Deliberately hits ONLY `GET /v1/conversations/llm-context` — no
+ * legacy per-message fan-out. On daemons that predate that endpoint
+ * (or on any failure) it resolves to `null` and the UI falls back to
+ * subset-relative numbering, rather than issuing one request per
+ * message just to compute labels.
+ */
+export function useConversationCallNumbering(
+  assistantId: string | undefined,
+  conversationId: string | undefined,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: [
+      "assistants",
+      assistantId,
+      "llm-context-call-numbering",
+      conversationId,
+    ] as const,
+    queryFn: async ({
+      signal,
+    }): Promise<LLMRequestLogEntry[] | null> => {
+      if (!assistantId || !conversationId) return null;
+      const { data, response } = await conversationsLlmcontextGet({
+        path: { assistant_id: assistantId },
+        query: { conversationId },
+        signal,
+        throwOnError: false,
+      });
+      if (!response || !response.ok || !data) return null;
+      return data.logs ?? [];
+    },
+    enabled: Boolean(enabled && assistantId && conversationId),
+    staleTime: 30_000,
+  });
+}
+
+/**
  * Lightweight query used by the "filter to message" dropdown in
  * conversation mode. Returns the conversation's message list so the
  * UI can render a labelled scope selector.

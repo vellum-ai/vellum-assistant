@@ -143,6 +143,13 @@ mock.module("@/domains/chat/inspector/inspector-api", () => ({
     _conversationId: string | undefined,
     messageId?: string | null,
   ) => (messageId ? contextStub : (conversationContextStub ?? contextStub)),
+  useConversationCallNumbering: (
+    _assistantId: string | undefined,
+    _conversationId: string | undefined,
+    enabled: boolean,
+  ) => ({
+    data: enabled ? (conversationContextStub?.data?.logs ?? null) : null,
+  }),
   useConversationMessageList: () => ({
     data: messageListStub,
     isLoading: false,
