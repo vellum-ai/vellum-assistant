@@ -67,7 +67,7 @@ export function AccountInput(
   return (
     <input
       {...props}
-      className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-stone-500 focus:border-forest-600/50"
+      className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-stone-500 focus:border-[var(--primary-base)]/50"
     />
   );
 }

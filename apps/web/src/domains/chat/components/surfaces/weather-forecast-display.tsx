@@ -304,7 +304,7 @@ function UnitToggle({
         onClick={() => onToggle(true)}
         className={`px-2 py-0.5 text-body-small-default transition-colors ${
           useFahrenheit
-            ? "bg-forest-600 text-white"
+            ? "bg-[var(--primary-base)] text-white"
             : "bg-transparent text-[var(--content-quiet)]"
         }`}
       >
@@ -315,7 +315,7 @@ function UnitToggle({
         onClick={() => onToggle(false)}
         className={`px-2 py-0.5 text-body-small-default transition-colors ${
           !useFahrenheit
-            ? "bg-forest-600 text-white"
+            ? "bg-[var(--primary-base)] text-white"
             : "bg-transparent text-[var(--content-quiet)]"
         }`}
       >
@@ -535,7 +535,7 @@ function DailySection({
 
               <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--border-subtle)]">
                 <div
-                  className="absolute top-0 h-full rounded-full bg-forest-500"
+                  className="absolute top-0 h-full rounded-full bg-[var(--primary-base)]"
                   style={{
                     left: `${barLeft}%`,
                     width: `${barWidth}%`,
