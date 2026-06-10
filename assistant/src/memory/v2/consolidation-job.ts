@@ -175,10 +175,17 @@ export async function memoryV2ConsolidateJob(
     // the `memory.v2.consolidation_prompt_path` config override but bounds
     // it to a regular file under 1 MiB before substitution so a stray path
     // (or a `/dev/zero`-style pseudo-file) cannot exfiltrate megabytes of
-    // bytes through the wake hint.
+    // bytes through the wake hint. The core-pages curation section rides the
+    // same v3 gate as the maintenance follow-up: the file feeds the v3 core
+    // lane, so on a v2-only install the instruction would curate a file
+    // nothing reads.
+    const memoryV3Active =
+      isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config) ||
+      isAssistantFeatureFlagEnabled(MEMORY_V3_LIVE, config);
     const prompt = resolveConsolidationPrompt(
       config.memory.v2.consolidation_prompt_path,
       cutoff,
+      { includeCorePagesSection: memoryV3Active },
     );
 
     const runResult = await runBackgroundJob({
@@ -212,10 +219,7 @@ export async function memoryV2ConsolidateJob(
     // is active, so it never fans out on v2-only installs.
     const followUpJobIds: string[] = [];
     const jobTypes: MemoryJobType[] = [...FOLLOW_UP_JOB_TYPES];
-    if (
-      isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config) ||
-      isAssistantFeatureFlagEnabled(MEMORY_V3_LIVE, config)
-    ) {
+    if (memoryV3Active) {
       jobTypes.push(V3_FOLLOW_UP_JOB_TYPE);
     }
     for (const jobType of jobTypes) {
