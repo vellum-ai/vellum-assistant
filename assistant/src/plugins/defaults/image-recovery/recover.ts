@@ -1,26 +1,28 @@
 /**
- * Persistence for the image-too-large recovery path.
+ * Image-too-large recovery transforms for the image-recovery plugin.
  *
  * When the provider rejects a turn because an attached image exceeds its
- * limits, the agent loop downgrades the offending image blocks in memory and
- * retries. That transformation is transient — the stored message row keeps the
- * full-size image block, so the rejected image is rehydrated on every later
- * turn and keeps re-entering the model's context. This module makes the
- * downgrade durable: the oversized block is rewritten to its downscaled form,
- * or to a text note when it cannot be shrunk on this host, so a rejected image
- * cannot resurface and re-reject on every later turn.
+ * limits, the `stop` hook downgrades the offending image blocks in the working
+ * history and asks the loop to retry. {@link recoverOversizedImages} performs
+ * that in-memory transform for the immediate retry; {@link
+ * persistUnsendableImageDowngrades} makes the same downgrade durable, because
+ * the stored message row otherwise keeps the full-size image block and the
+ * rejected image rehydrates on every later turn and keeps re-entering the
+ * model's context. The durable rewrite replaces the oversized block with its
+ * downscaled form, or with a text note when it cannot be shrunk on this host,
+ * so a rejected image cannot resurface and re-reject on every later turn.
  */
 
-import { optimizeImageForTransport } from "../agent/image-optimize.js";
-import { parseImageDimensions } from "../context/image-dimensions.js";
+import { optimizeImageForTransport } from "../../../agent/image-optimize.js";
+import { parseImageDimensions } from "../../../context/image-dimensions.js";
 import {
   getMessages,
   updateMessageContent,
-} from "../memory/conversation-crud.js";
-import type { ContentBlock } from "../providers/types.js";
-import { getLogger } from "../util/logger.js";
+} from "../../../memory/conversation-crud.js";
+import type { ContentBlock, Message } from "../../../providers/types.js";
+import { getLogger } from "../../../util/logger.js";
 
-const log = getLogger("persist-unsendable-image");
+const log = getLogger("image-recovery");
 
 // Anthropic rejects any image whose longest side exceeds this many pixels,
 // regardless of payload size. Mirrors the user-facing message surfaced by
@@ -151,4 +153,55 @@ export function persistUnsendableImageDowngrades(
     );
   }
   return rewritten;
+}
+
+/**
+ * True when a message's content holds an image the provider may have rejected
+ * for being oversized — either a top-level image block (user upload) or one
+ * nested inside a tool_result's contentBlocks (e.g. a browser screenshot).
+ */
+function messageHasImageBlock(content: ReadonlyArray<ContentBlock>): boolean {
+  return content.some(
+    (b) =>
+      b.type === "image" ||
+      (b.type === "tool_result" &&
+        (b.contentBlocks?.some((cb) => cb.type === "image") ?? false)),
+  );
+}
+
+/**
+ * Downscale every oversized image in the working history for an immediate
+ * retry, leaving still-sendable images untouched. Recovers both top-level image
+ * blocks (user uploads) and images nested inside a tool_result's contentBlocks
+ * (e.g. a browser screenshot) in place, so the tool_use/tool_result pairing
+ * stays intact rather than dropping the whole tool_result. Applies the same
+ * provider-cap gate as {@link persistUnsendableImageDowngrades} so the in-memory
+ * retry and the durable rewrite agree on which images are unsendable.
+ */
+export function recoverOversizedImages(
+  messages: ReadonlyArray<Message>,
+): Message[] {
+  return messages.map((msg) => {
+    if (!Array.isArray(msg.content)) return msg;
+    if (!messageHasImageBlock(msg.content)) return msg;
+    return {
+      ...msg,
+      content: msg.content.flatMap((b): ContentBlock[] => {
+        if (b.type === "image") {
+          return [oversizedImageReplacement(b) ?? b];
+        }
+        if (b.type === "tool_result" && b.contentBlocks?.length) {
+          return [
+            {
+              ...b,
+              contentBlocks: b.contentBlocks.map((cb) =>
+                cb.type === "image" ? (oversizedImageReplacement(cb) ?? cb) : cb,
+              ),
+            },
+          ];
+        }
+        return [b];
+      }),
+    };
+  });
 }
