@@ -12,7 +12,7 @@
  *  - field order is provider-first (Provider before Name/Key/Description),
  *  - selecting a model pre-fills Name + Key from the model display name,
  *  - editing Name then selecting another model does NOT clobber Name/Key,
- *  - "+ Create new provider" mounts the inline ProviderCreateForm, and a
+ *  - "+ New Connection" mounts the inline ProviderCreateForm, and a
  *    successful create selects that provider + enables Save once a model is
  *    chosen.
  */
@@ -309,13 +309,13 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     const optionLabels = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
     ).map((o) => o.textContent?.trim());
-    expect(optionLabels).toEqual(["+ Create new provider"]);
+    expect(optionLabels).toEqual(["+ New Connection"]);
   });
 
-  test("+ Create new provider mounts ProviderCreateForm; successful create selects it and Save enables after a model", async () => {
+  test("+ New Connection mounts ProviderCreateForm; successful create selects it and Save enables after a model", async () => {
     renderCreate([]);
 
-    selectProvider("+ Create new provider");
+    selectProvider("+ New Connection");
 
     // Inline ProviderCreateForm is mounted (its Key field placeholder).
     const inlineKey = getInputByPlaceholder("e.g. anthropic-personal");
@@ -362,7 +362,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     // binding must be valid purely from the optimistic local merge).
     renderCreate([], onSave);
 
-    selectProvider("+ Create new provider");
+    selectProvider("+ New Connection");
     fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
       target: { value: "anthropic-personal" },
     });
