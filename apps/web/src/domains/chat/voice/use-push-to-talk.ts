@@ -1,20 +1,20 @@
-
 import { useEffect, useRef, type RefObject } from "react";
 
 import {
-  FN_PTT_ACTIVATOR,
-  LS_PTT_ACTIVATION_KEY,
   eventActivatesPTT,
   eventDeactivatesPTT,
-  isFnPushToTalkActivator,
+  isDisabledPttActivator,
+  mouseEventActivatesPTT,
   parseActivator,
   type PTTActivator,
 } from "@/utils/ptt-activator";
-import { getLocalSetting, watchSetting } from "@/utils/local-settings";
 import {
-  subscribeToHotkeyEvents,
-  supportsFnPushToTalk,
-  type HotkeyEvent,
+  getLocalPushToTalkConfig,
+  getPushToTalkConfig,
+  onPushToTalkConfigChange,
+  subscribeToNativePushToTalkEvents,
+  supportsNativePushToTalk,
+  type PttEvent,
 } from "@/runtime/hotkey";
 
 /**
@@ -106,7 +106,7 @@ function playActivationBlip(): void {
  * Listens for the saved PTT activator on `window` keydown/keyup and drives
  * the provided voice-input handle. Hold-to-talk: key-down starts recording
  * after a 300 ms hold delay, key-up stops it. Only fires while the Vellum
- * tab has focus. Electron's app-level native Fn bridge bypasses this DOM path
+ * tab has focus. Electron's app-level native PTT bridge bypasses this DOM path
  * so the desktop app can keep PTT active while it is in the background.
  *
  * The 300 ms hold delay prevents accidental activation from quick taps and
@@ -114,16 +114,15 @@ function playActivationBlip(): void {
  * another non-modifier key is pressed during the hold window, activation
  * is cancelled (the user is likely typing a shortcut like Ctrl+C).
  *
- * Storage lives in `localStorage` under `LS_PTT_ACTIVATION_KEY`; the hook
- * re-reads on `storage` events so PTT picks up changes made in the settings
- * UI without a reload.
+ * Storage lives in Electron `settings.hotkeys.ptt` when the native bridge is
+ * available, with localStorage fallback for browser/iOS surfaces.
  */
 export function usePushToTalk(
   targetSource: PushToTalkTargetSource,
   options: { enabled?: boolean } = {},
 ): void {
   const { enabled = true } = options;
-  const activatorRef = useRef<PTTActivator>({ kind: "off" });
+  const activatorRef = useRef<PTTActivator>({ kind: "none" });
   const activeRef = useRef(false);
   const activeOriginRef = useRef<"dom" | "native" | null>(null);
   const activeTargetRef = useRef<PushToTalkTarget | null>(null);
@@ -138,14 +137,12 @@ export function usePushToTalk(
       return;
     }
 
-    const nativeFnAvailable = supportsFnPushToTalk();
+    const nativePttAvailable = supportsNativePushToTalk();
     const readActivator = () => {
-      const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
-      activatorRef.current = raw
-        ? parseActivator(raw, { preserveFunction: nativeFnAvailable })
-        : nativeFnAvailable
-          ? FN_PTT_ACTIVATOR
-          : { kind: "off" };
+      activatorRef.current = getLocalPushToTalkConfig();
+      void getPushToTalkConfig().then((config) => {
+        activatorRef.current = config;
+      });
     };
     readActivator();
 
@@ -183,7 +180,7 @@ export function usePushToTalk(
         return;
       }
       const activator = activatorRef.current;
-      if (activator.kind === "off") {
+      if (isDisabledPttActivator(activator)) {
         return;
       }
 
@@ -194,7 +191,10 @@ export function usePushToTalk(
         return;
       }
 
-      if (activator.kind === "key" && isEditableTarget(event.target)) {
+      if (
+        (activator.kind === "key" || activator.kind === "modifierKey") &&
+        isEditableTarget(event.target)
+      ) {
         return;
       }
 
@@ -212,7 +212,7 @@ export function usePushToTalk(
           return;
         }
         // Re-check activator in case it changed during the hold window.
-        if (activatorRef.current.kind === "off") {
+        if (isDisabledPttActivator(activatorRef.current)) {
           holdingRef.current = false;
           return;
         }
@@ -223,7 +223,7 @@ export function usePushToTalk(
 
     const handleKeyUp = (event: KeyboardEvent) => {
       const activator = activatorRef.current;
-      if (activator.kind === "off") {
+      if (isDisabledPttActivator(activator)) {
         return;
       }
 
@@ -232,7 +232,7 @@ export function usePushToTalk(
       // eventDeactivatesPTT only matches the trigger key, not modifiers.
       if (
         holdingRef.current &&
-        activator.kind === "key" &&
+        activator.kind === "modifierKey" &&
         activator.modifiers.length > 0
       ) {
         const k = event.key;
@@ -263,11 +263,8 @@ export function usePushToTalk(
       stopActiveTarget();
     };
 
-    const handleNativeHotkey = (event: HotkeyEvent) => {
-      if (
-        !nativeFnAvailable ||
-        !isFnPushToTalkActivator(activatorRef.current)
-      ) {
+    const handleNativeHotkey = (event: PttEvent) => {
+      if (!nativePttAvailable || isDisabledPttActivator(activatorRef.current)) {
         return;
       }
       if (event.state === "down") {
@@ -285,11 +282,31 @@ export function usePushToTalk(
       stopActiveTarget();
     };
 
+    const handleMouseDown = (event: MouseEvent) => {
+      const activator = activatorRef.current;
+      if (!mouseEventActivatesPTT(event, activator)) {
+        return;
+      }
+      if (activeRef.current || holdingRef.current) {
+        return;
+      }
+      startActiveTarget("dom");
+    };
+
+    const handleMouseUp = (event: MouseEvent) => {
+      if (!activeRef.current || activeOriginRef.current !== "dom") {
+        return;
+      }
+      if (mouseEventActivatesPTT(event, activatorRef.current)) {
+        stopActiveTarget();
+      }
+    };
+
     const handleBlur = () => {
       // Dropping focus while in the hold window — cancel.
       cancelHold();
 
-      // DOM keyup can be lost when the page blurs. Native Fn events are
+      // DOM keyup can be lost when the page blurs. Native events are
       // delivered by the host helper while the app is in the background, so
       // leave those sessions running until the helper sends the up event.
       if (activeRef.current && activeOriginRef.current !== "native") {
@@ -297,16 +314,26 @@ export function usePushToTalk(
       }
     };
 
-    const unsubscribeSetting = watchSetting(LS_PTT_ACTIVATION_KEY, readActivator);
-    const unsubscribeNative = subscribeToHotkeyEvents(handleNativeHotkey);
+    const unsubscribeSetting = onPushToTalkConfigChange((config) => {
+      activatorRef.current = parseActivator(config, {
+        preserveFunction: nativePttAvailable,
+      });
+    });
+    const unsubscribeNative = subscribeToNativePushToTalkEvents(
+      handleNativeHotkey,
+    );
 
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("mousedown", handleMouseDown);
+    window.addEventListener("mouseup", handleMouseUp);
     window.addEventListener("blur", handleBlur);
 
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("mousedown", handleMouseDown);
+      window.removeEventListener("mouseup", handleMouseUp);
       window.removeEventListener("blur", handleBlur);
       unsubscribeSetting();
       unsubscribeNative();

@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { handle } from "./ipc";
 import log from "./logger";
+import { onSettingChange, readSetting, writeSetting } from "./settings";
 import {
   MacHelperClient,
   type MacHelperClientOptions,
@@ -17,8 +18,38 @@ export interface HotkeyEvent {
   state: HotkeyEventState;
 }
 
+export type PttModifier =
+  | "function"
+  | "control"
+  | "shift"
+  | "option"
+  | "command"
+  | "rightCommand"
+  | "rightOption";
+
+export type PttConfig =
+  | { kind: "none" }
+  | { kind: "modifierOnly"; modifiers: PttModifier[] }
+  | { kind: "key"; keyCode: number; code?: string; label?: string }
+  | {
+      kind: "modifierKey";
+      modifiers: PttModifier[];
+      keyCode: number;
+      code?: string;
+      label?: string;
+    }
+  | { kind: "mouseButton"; button: number };
+
+export interface PttEvent {
+  state: HotkeyEventState;
+}
+
 export type FnPushToTalkResult =
   | { ok: true; enabled: boolean }
+  | { ok: false; reason: string };
+
+export type PttRegistrationResult =
+  | { ok: true; enabled: boolean; config: PttConfig }
   | { ok: false; reason: string };
 
 export type HelperRestartResult =
@@ -38,7 +69,50 @@ const HOTKEY_EVENT_SCHEMA = z.object({
   state: z.enum(["down", "up"]),
 });
 
+const PTT_MODIFIER_SCHEMA = z.enum([
+  "function",
+  "control",
+  "shift",
+  "option",
+  "command",
+  "rightCommand",
+  "rightOption",
+]);
+
+const PTT_CONFIG_SCHEMA = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("none") }),
+  z.object({
+    kind: z.literal("modifierOnly"),
+    modifiers: z.array(PTT_MODIFIER_SCHEMA).min(1),
+  }),
+  z.object({
+    kind: z.literal("key"),
+    keyCode: z.number().int().nonnegative(),
+    code: z.string().optional(),
+    label: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("modifierKey"),
+    modifiers: z.array(PTT_MODIFIER_SCHEMA).min(1),
+    keyCode: z.number().int().nonnegative(),
+    code: z.string().optional(),
+    label: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal("mouseButton"),
+    button: z.number().int().nonnegative(),
+  }),
+]) satisfies z.ZodType<PttConfig>;
+
+const PTT_EVENT_SCHEMA = z.object({
+  state: z.enum(["down", "up"]),
+});
+
 const HOTKEY_RESULT_SCHEMA = z.object({
+  enabled: z.boolean(),
+});
+
+const PTT_RESULT_SCHEMA = z.object({
   enabled: z.boolean(),
 });
 
@@ -66,6 +140,13 @@ let supervisorOptionsForTesting: Partial<
 const getPlatform = (): NodeJS.Platform =>
   platformForTesting ?? process.platform;
 
+const NONE_PTT_CONFIG: PttConfig = { kind: "none" };
+const DEFAULT_PTT_CONFIG: PttConfig = {
+  kind: "modifierOnly",
+  modifiers: ["function"],
+};
+const PTT_HOTKEY_SETTING_KEY = "ptt";
+
 export const getMacHelperPath = (): string => {
   if (app.isPackaged) {
     return path.join(process.resourcesPath, "bin", "vellum-mac-helper");
@@ -83,6 +164,51 @@ const makeClient = (): MacHelperClient =>
   });
 
 let client = makeClient();
+
+const normalizePttConfig = (config: PttConfig): PttConfig => {
+  switch (config.kind) {
+    case "modifierOnly":
+      return {
+        kind: "modifierOnly",
+        modifiers: Array.from(new Set(config.modifiers)).sort(),
+      };
+    case "modifierKey":
+      return {
+        ...config,
+        modifiers: Array.from(new Set(config.modifiers)).sort(),
+      };
+    default:
+      return config;
+  }
+};
+
+const pttConfigsEqual = (a: PttConfig, b: PttConfig): boolean =>
+  JSON.stringify(normalizePttConfig(a)) ===
+  JSON.stringify(normalizePttConfig(b));
+
+const parseStoredPttConfig = (raw: unknown): PttConfig => {
+  const parsed = PTT_CONFIG_SCHEMA.safeParse(raw);
+  return parsed.success ? normalizePttConfig(parsed.data) : DEFAULT_PTT_CONFIG;
+};
+
+const readPttConfig = (): PttConfig =>
+  parseStoredPttConfig(readSetting("hotkeys")?.[PTT_HOTKEY_SETTING_KEY]);
+
+const writePttConfig = (config: PttConfig): PttConfig => {
+  const normalized = normalizePttConfig(config);
+  const next = { ...(readSetting("hotkeys") ?? {}) };
+  next[PTT_HOTKEY_SETTING_KEY] = normalized;
+  writeSetting("hotkeys", next);
+  return normalized;
+};
+
+const broadcastPttConfig = (): void => {
+  const config = readPttConfig();
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.webContents.isDestroyed()) continue;
+    win.webContents.send("vellum:ptt:configChanged", config);
+  }
+};
 
 const fnPushToTalk = async (
   enable: boolean,
@@ -102,6 +228,34 @@ const fnPushToTalk = async (
   }
 };
 
+const setNativePttConfig = async (
+  config: PttConfig,
+): Promise<PttRegistrationResult> => {
+  const normalized = normalizePttConfig(config);
+  try {
+    const result = await client.call("ptt.setConfig", { config: normalized });
+    const parsed = PTT_RESULT_SCHEMA.safeParse(result);
+    if (!parsed.success) {
+      return { ok: false, reason: "mac helper returned invalid PTT result" };
+    }
+    const expectedEnabled = normalized.kind !== "none";
+    if (parsed.data.enabled !== expectedEnabled) {
+      return {
+        ok: false,
+        reason: expectedEnabled
+          ? "mac helper did not enable push-to-talk"
+          : "mac helper did not disable push-to-talk",
+      };
+    }
+    return { ok: true, enabled: parsed.data.enabled, config: normalized };
+  } catch (err) {
+    return {
+      ok: false,
+      reason: err instanceof Error ? err.message : String(err),
+    };
+  }
+};
+
 const ping = async (): Promise<"pong"> => {
   const result = await client.call("ping");
   if (result !== "pong") {
@@ -113,6 +267,10 @@ const ping = async (): Promise<"pong"> => {
 interface HotkeyOwner {
   webContents: WebContents;
   cleanup: () => void;
+}
+
+interface PttOwner extends HotkeyOwner {
+  config: PttConfig;
 }
 
 // The renderer that most recently enabled dictation partials — the recording
@@ -157,6 +315,14 @@ let helperRegistrationSync: Promise<FnPushToTalkResult> | null = null;
 let restoreHotkeyAfterRestart = false;
 let restoreHotkeyInFlight = false;
 let pttIsDown = false;
+
+const pttOwners = new Map<number, PttOwner>();
+let activePttOwnerId: number | null = null;
+let helperPttConfig: PttConfig = NONE_PTT_CONFIG;
+let helperPttSync: Promise<PttRegistrationResult> | null = null;
+let restorePttAfterRestart = false;
+let restorePttInFlight = false;
+let nativePttIsDown = false;
 
 const shouldRegisterHelper = (): boolean => hotkeyOwners.size > 0;
 
@@ -294,6 +460,142 @@ const sendSyntheticHotkeyUpIfNeeded = (): void => {
   sendHotkeyEventToOwner({ kind: "fnPushToTalk", state: "up" });
 };
 
+const newestPttOwnerId = (): number | null => {
+  let id: number | null = null;
+  for (const [ownerId, owner] of pttOwners) {
+    if (!owner.webContents.isDestroyed()) id = ownerId;
+  }
+  return id;
+};
+
+const desiredPttConfig = (): PttConfig => {
+  const ownerId = activePttOwnerId ?? newestPttOwnerId();
+  const owner = ownerId !== null ? pttOwners.get(ownerId) : null;
+  return owner && !owner.webContents.isDestroyed()
+    ? owner.config
+    : NONE_PTT_CONFIG;
+};
+
+const removePttOwner = (webContentsId: number): void => {
+  const owner = pttOwners.get(webContentsId);
+  if (!owner) return;
+  owner.cleanup();
+  pttOwners.delete(webContentsId);
+  if (activePttOwnerId === webContentsId) {
+    activePttOwnerId = newestPttOwnerId();
+  }
+};
+
+const addOrUpdatePttOwner = (
+  webContents: WebContents,
+  config: PttConfig,
+): void => {
+  const id = webContents.id;
+  const existing = pttOwners.get(id);
+  if (existing) {
+    existing.config = config;
+    activePttOwnerId = id;
+    return;
+  }
+
+  const win = BrowserWindow.fromWebContents(webContents);
+  const markActive = () => {
+    if (pttOwners.has(id)) activePttOwnerId = id;
+  };
+  const handleDestroyed = () => {
+    removePttOwner(id);
+    void syncPttRegistration();
+  };
+
+  webContents.once("destroyed", handleDestroyed);
+  win?.on("focus", markActive);
+
+  pttOwners.set(id, {
+    webContents,
+    config,
+    cleanup: () => {
+      webContents.off("destroyed", handleDestroyed);
+      win?.off("focus", markActive);
+    },
+  });
+  activePttOwnerId = id;
+};
+
+const setHelperPttConfig = async (
+  config: PttConfig,
+): Promise<PttRegistrationResult> => {
+  const result = await setNativePttConfig(config);
+  if (!result.ok) return result;
+
+  helperPttConfig = result.config;
+  log.info(
+    result.enabled
+      ? `[mac-helper] enabled push-to-talk (${result.config.kind})`
+      : "[mac-helper] disabled push-to-talk",
+  );
+  return result;
+};
+
+const syncPttRegistration = (): Promise<PttRegistrationResult> => {
+  if (helperPttSync) return helperPttSync;
+
+  const sync = (async (): Promise<PttRegistrationResult> => {
+    let desired = desiredPttConfig();
+    while (!pttConfigsEqual(helperPttConfig, desired)) {
+      const result = await setHelperPttConfig(desired);
+      if (!result.ok) return result;
+      desired = desiredPttConfig();
+    }
+    return {
+      ok: true,
+      enabled: helperPttConfig.kind !== "none",
+      config: helperPttConfig,
+    };
+  })();
+  helperPttSync = sync;
+  void sync.finally(() => {
+    if (helperPttSync === sync) helperPttSync = null;
+  });
+  return sync;
+};
+
+const configurePttForOwner = async (
+  webContents: WebContents,
+  config: PttConfig,
+): Promise<PttRegistrationResult> => {
+  const normalized = normalizePttConfig(config);
+  if (normalized.kind === "none") {
+    removePttOwner(webContents.id);
+  } else {
+    addOrUpdatePttOwner(webContents, normalized);
+  }
+  const result = await syncPttRegistration();
+  if (!result.ok && normalized.kind !== "none") {
+    log.warn(`[mac-helper] failed to configure push-to-talk: ${result.reason}`);
+    removePttOwner(webContents.id);
+    void syncPttRegistration();
+  }
+  return result;
+};
+
+const sendPttEventToOwner = (event: PttEvent): void => {
+  nativePttIsDown = event.state === "down";
+  const ownerId = activePttOwnerId ?? newestPttOwnerId();
+  const activeOwner = ownerId !== null ? pttOwners.get(ownerId) : null;
+  const owner =
+    activeOwner && !activeOwner.webContents.isDestroyed()
+      ? activeOwner
+      : pttOwners.get(newestPttOwnerId() ?? -1);
+  if (!owner || owner.webContents.isDestroyed()) return;
+  owner.webContents.send("vellum:ptt:state", event);
+};
+
+const sendSyntheticPttUpIfNeeded = (): void => {
+  if (!nativePttIsDown) return;
+  nativePttIsDown = false;
+  sendPttEventToOwner({ state: "up" });
+};
+
 const sendHelperStateToRenderers = (state: MacHelperState): void => {
   for (const win of BrowserWindow.getAllWindows()) {
     if (win.webContents.isDestroyed()) continue;
@@ -326,21 +628,50 @@ const restoreHotkeyRegistrationIfNeeded = async (): Promise<void> => {
   }
 };
 
+const restorePttRegistrationIfNeeded = async (): Promise<void> => {
+  if (
+    !restorePttAfterRestart ||
+    restorePttInFlight ||
+    helperPttConfig.kind !== "none" ||
+    pttOwners.size === 0
+  ) {
+    return;
+  }
+
+  restorePttInFlight = true;
+  const result = await syncPttRegistration();
+  restorePttInFlight = false;
+  if (result.ok) {
+    restorePttAfterRestart = !result.enabled;
+    if (result.enabled) {
+      log.info("[mac-helper] restored push-to-talk after helper restart");
+    }
+  } else {
+    log.warn(`[mac-helper] failed to restore push-to-talk: ${result.reason}`);
+  }
+};
+
 const handleHelperState = (state: MacHelperState): void => {
   sendHelperStateToRenderers(state);
   if (state.status === "running") {
     void restoreHotkeyRegistrationIfNeeded();
+    void restorePttRegistrationIfNeeded();
     return;
   }
 
   if (helperRegistered && hotkeyOwners.size > 0) {
     restoreHotkeyAfterRestart = true;
   }
+  if (helperPttConfig.kind !== "none" && pttOwners.size > 0) {
+    restorePttAfterRestart = true;
+  }
   helperRegistered = false;
+  helperPttConfig = NONE_PTT_CONFIG;
   // The partials session lived in the dead helper process; the renderer's
   // session simply continues without live text.
   dictationPartialsOwner = null;
   sendSyntheticHotkeyUpIfNeeded();
+  sendSyntheticPttUpIfNeeded();
 };
 
 const restartHelper = (): HelperRestartResult => {
@@ -358,8 +689,10 @@ const restartHelper = (): HelperRestartResult => {
 
 let installed = false;
 let unsubscribeHotkeyEvents: (() => void) | null = null;
+let unsubscribePttEvents: (() => void) | null = null;
 let unsubscribeHelperState: (() => void) | null = null;
 let unsubscribeDictationPartials: (() => void) | null = null;
+let unsubscribePttConfigChanges: (() => void) | null = null;
 
 export const installHotkeyHelper = (): void => {
   if (installed) return;
@@ -370,6 +703,13 @@ export const installHotkeyHelper = (): void => {
     HOTKEY_EVENT_SCHEMA,
     (event) => {
       sendHotkeyEventToOwner(event);
+    },
+  );
+  unsubscribePttEvents = client.onNotification(
+    "ptt.event",
+    PTT_EVENT_SCHEMA,
+    (event) => {
+      sendPttEventToOwner(event);
     },
   );
   unsubscribeDictationPartials = client.onNotification(
@@ -384,6 +724,18 @@ export const installHotkeyHelper = (): void => {
   handle("vellum:helper:ping", z.tuple([]), () => ping());
   handle("vellum:helper:state:get", z.tuple([]), () => client.getState());
   handle("vellum:helper:restart", z.tuple([]), () => restartHelper());
+
+  handle("vellum:ptt:getConfig", z.tuple([]), () => readPttConfig());
+  handle(
+    "vellum:ptt:setConfig",
+    z.tuple([PTT_CONFIG_SCHEMA]),
+    ([config]) => writePttConfig(config),
+  );
+  handle(
+    "vellum:ptt:configure",
+    z.tuple([PTT_CONFIG_SCHEMA]),
+    ([config], event) => configurePttForOwner(event.sender, config),
+  );
 
   handle(
     "vellum:helper:hotkey:fnPushToTalk",
@@ -406,6 +758,15 @@ export const installHotkeyHelper = (): void => {
       params: { enable: false },
     });
   });
+
+  unsubscribePttConfigChanges = onSettingChange("hotkeys", (next, previous) => {
+    const nextConfig = parseStoredPttConfig(next?.[PTT_HOTKEY_SETTING_KEY]);
+    const previousConfig = parseStoredPttConfig(
+      previous?.[PTT_HOTKEY_SETTING_KEY],
+    );
+    if (pttConfigsEqual(nextConfig, previousConfig)) return;
+    broadcastPttConfig();
+  });
 };
 
 export const __resetForTesting = (): void => {
@@ -417,16 +778,28 @@ export const __resetForTesting = (): void => {
   restoreHotkeyAfterRestart = false;
   restoreHotkeyInFlight = false;
   pttIsDown = false;
+  helperPttConfig = NONE_PTT_CONFIG;
+  helperPttSync = null;
+  restorePttAfterRestart = false;
+  restorePttInFlight = false;
+  nativePttIsDown = false;
   unsubscribeHotkeyEvents?.();
   unsubscribeHotkeyEvents = null;
+  unsubscribePttEvents?.();
+  unsubscribePttEvents = null;
   unsubscribeHelperState?.();
   unsubscribeHelperState = null;
   unsubscribeDictationPartials?.();
   unsubscribeDictationPartials = null;
+  unsubscribePttConfigChanges?.();
+  unsubscribePttConfigChanges = null;
   dictationPartialsOwner = null;
   for (const owner of hotkeyOwners.values()) owner.cleanup();
   hotkeyOwners.clear();
   activeHotkeyOwnerId = null;
+  for (const owner of pttOwners.values()) owner.cleanup();
+  pttOwners.clear();
+  activePttOwnerId = null;
   client.resetForTesting();
   client = makeClient();
 };

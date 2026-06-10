@@ -67,6 +67,9 @@ final class MacHelper: @unchecked Sendable {
     // Bumped on every dictation.setPartials so a pending speech-authorization
     // callback can tell the session it was starting has since been stopped.
     private var dictationGeneration = 0
+    private lazy var pttMonitor = PttMonitor { [weak self] state in
+        self?.writeNotification(method: "ptt.event", params: ["state": state])
+    }
 
     init(isDisclaimed: Bool) {
         self.isDisclaimed = isDisclaimed
@@ -90,6 +93,13 @@ final class MacHelper: @unchecked Sendable {
                 )
             }
             return try self.setFnPushToTalk(enable: enable)
+        }
+        router.register("ptt.setConfig") { [weak self] params in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            let config = try parsePttConfig(params)
+            return try self.setPttConfig(config)
         }
         router.register("dictation.setPartials") { [weak self] params in
             guard let self else {
@@ -280,6 +290,10 @@ final class MacHelper: @unchecked Sendable {
         }
     }
 
+    private func setPttConfig(_ config: PttConfig) throws -> [String: Any] {
+        ["enabled": try pttMonitor.setConfig(config)]
+    }
+
     private func registerFnHotkey() throws {
         if !handlerRefs.isEmpty {
             return
@@ -391,6 +405,7 @@ final class MacHelper: @unchecked Sendable {
         dictationGeneration += 1
         dictationSession?.stop()
         dictationSession = nil
+        pttMonitor.stop()
         unregisterFnHotkey()
     }
 

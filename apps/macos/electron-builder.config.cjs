@@ -64,6 +64,8 @@ module.exports = {
       CFBundleIconName: "AppIcon",
       NSMicrophoneUsageDescription:
         "Vellum uses the microphone to record voice input for chat.",
+      NSInputMonitoringUsageDescription:
+        "Vellum monitors your configured push-to-talk key or mouse button while you use other apps.",
       NSAppleEventsUsageDescription:
         "Vellum uses Automation to paste dictated voice input into the app you are using.",
       NSUserNotificationAlertStyle: "alert",

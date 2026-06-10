@@ -104,8 +104,38 @@ export interface HotkeyEvent {
   state: HotkeyEventState;
 }
 
+export type PttModifier =
+  | "function"
+  | "control"
+  | "shift"
+  | "option"
+  | "command"
+  | "rightCommand"
+  | "rightOption";
+
+export type PttConfig =
+  | { kind: "none" }
+  | { kind: "modifierOnly"; modifiers: PttModifier[] }
+  | { kind: "key"; keyCode: number; code?: string; label?: string }
+  | {
+      kind: "modifierKey";
+      modifiers: PttModifier[];
+      keyCode: number;
+      code?: string;
+      label?: string;
+    }
+  | { kind: "mouseButton"; button: number };
+
+export interface PttEvent {
+  state: HotkeyEventState;
+}
+
 export type FnPushToTalkResult =
   | { ok: true; enabled: boolean }
+  | { ok: false; reason: string };
+
+export type PttRegistrationResult =
+  | { ok: true; enabled: boolean; config: PttConfig }
   | { ok: false; reason: string };
 
 // Mirrors `DictationPartialsResult` / `DictationPartialEvent` in
@@ -324,6 +354,21 @@ export interface VellumBridge {
   featureFlags: {
     /** Publish the renderer's feature-flag map to main (fire-and-forget). */
     set(flags: Record<string, boolean>): void;
+  };
+  ptt: {
+    /** Read the structured push-to-talk activator from settings.hotkeys.ptt. */
+    getConfig(): Promise<PttConfig>;
+    /** Persist the structured push-to-talk activator to settings.hotkeys.ptt. */
+    setConfig(config: PttConfig): Promise<PttConfig>;
+    /**
+     * Arm or disarm native monitoring for this renderer. Main routes native
+     * PTT events to the active renderer owner.
+     */
+    configure(config: PttConfig): Promise<PttRegistrationResult>;
+    /** Subscribe to native PTT down/up states. */
+    on(callback: (event: PttEvent) => void): () => void;
+    /** Subscribe to settings changes for the persisted PTT config. */
+    onConfigChange(callback: (config: PttConfig) => void): () => void;
   };
   helper: {
     ping(): Promise<"pong">;
@@ -694,6 +739,35 @@ const bridge: VellumBridge = {
   featureFlags: {
     set: (flags: Record<string, boolean>): void => {
       ipcRenderer.send("vellum:featureFlags:set", flags);
+    },
+  },
+  ptt: {
+    getConfig: (): Promise<PttConfig> =>
+      ipcRenderer.invoke("vellum:ptt:getConfig") as Promise<PttConfig>,
+    setConfig: (config: PttConfig): Promise<PttConfig> =>
+      ipcRenderer.invoke("vellum:ptt:setConfig", config) as Promise<PttConfig>,
+    configure: (config: PttConfig): Promise<PttRegistrationResult> =>
+      ipcRenderer.invoke(
+        "vellum:ptt:configure",
+        config,
+      ) as Promise<PttRegistrationResult>,
+    on: (callback) => {
+      const handler = (_event: IpcRendererEvent, payload: PttEvent) => {
+        callback(payload);
+      };
+      ipcRenderer.on("vellum:ptt:state", handler);
+      return () => {
+        ipcRenderer.off("vellum:ptt:state", handler);
+      };
+    },
+    onConfigChange: (callback) => {
+      const handler = (_event: IpcRendererEvent, payload: PttConfig) => {
+        callback(payload);
+      };
+      ipcRenderer.on("vellum:ptt:configChanged", handler);
+      return () => {
+        ipcRenderer.off("vellum:ptt:configChanged", handler);
+      };
     },
   },
   helper: {

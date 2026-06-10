@@ -1,43 +1,50 @@
 import { ArrowUpRight, Info } from "lucide-react";
 import {
-    useCallback,
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
-    type KeyboardEvent as ReactKeyboardEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { Link } from "react-router";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
+import { Input } from "@vellumai/design-library/components/input";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { DetailCard } from "@/components/detail-card";
 import {
-    getLocalSetting,
-    removeLocalSetting,
-    setLocalSetting,
+  getLocalSetting,
+  removeLocalSetting,
+  setLocalSetting,
 } from "@/utils/local-settings";
 import {
-    CTRL_PTT_ACTIVATOR,
-    FN_PTT_ACTIVATOR,
-    LS_PTT_ACTIVATION_KEY,
-    activatorDisplayName,
-    activatorsEqual,
-    modifierLabel,
-    parseActivator,
-    serializeActivator,
-    sortModifiers,
-    type PTTActivator,
-    type PTTModifier,
+  CTRL_PTT_ACTIVATOR,
+  FN_PTT_ACTIVATOR,
+  NONE_PTT_ACTIVATOR,
+  activatorDisplayName,
+  activatorsEqual,
+  isDisabledPttActivator,
+  keyActivatorFromEvent,
+  modifierLabel,
+  sortModifiers,
+  type PTTActivator,
+  type PTTModifier,
 } from "@/utils/ptt-activator";
 import { routes } from "@/utils/routes";
 import {
-    LS_VOICE_INPUT_DEVICE,
-    getPreferredInputDeviceId,
+  LS_VOICE_INPUT_DEVICE,
+  getPreferredInputDeviceId,
 } from "@/utils/voice-input-device";
-import { canConfigureFnPushToTalk } from "@/runtime/hotkey";
+import {
+  getLocalPushToTalkConfig,
+  getPushToTalkConfig,
+  onPushToTalkConfigChange,
+  setPushToTalkConfig,
+  supportsNativePushToTalk,
+} from "@/runtime/hotkey";
 
 const LS_CONVERSATION_TIMEOUT = "vellum:voice:conversationTimeoutSeconds";
 
@@ -60,6 +67,26 @@ const FN_PTT_PRESET: { label: string; activator: PTTActivator } = {
   label: "Fn",
   activator: FN_PTT_ACTIVATOR,
 };
+
+const RIGHT_CMD_PTT_PRESET: { label: string; activator: PTTActivator } = {
+  label: "Right Cmd",
+  activator: { kind: "modifierOnly", modifiers: ["rightCommand"] },
+};
+
+const MOUSE_4_PTT_PRESET: { label: string; activator: PTTActivator } = {
+  label: "Mouse 4",
+  activator: { kind: "mouseButton", button: 4 },
+};
+
+type PttKind = PTTActivator["kind"];
+
+const PTT_KIND_OPTIONS: ReadonlyArray<{ label: string; value: PttKind }> = [
+  { label: "None", value: "none" },
+  { label: "Modifier only", value: "modifierOnly" },
+  { label: "Key", value: "key" },
+  { label: "Modifier + Key", value: "modifierKey" },
+  { label: "Mouse button", value: "mouseButton" },
+];
 
 const CONVERSATION_TIMEOUT_OPTIONS = [
   { label: "5 seconds", value: "5" },
@@ -221,34 +248,80 @@ function MicrophoneCard() {
   );
 }
 
+function defaultActivatorForKind(
+  kind: PttKind,
+  nativePttConfigurable: boolean,
+): PTTActivator {
+  switch (kind) {
+    case "none":
+      return NONE_PTT_ACTIVATOR;
+    case "modifierOnly":
+      return nativePttConfigurable ? FN_PTT_ACTIVATOR : CTRL_PTT_ACTIVATOR;
+    case "key":
+      return { kind: "key", keyCode: 49, code: "Space", label: "Space" };
+    case "modifierKey":
+      return {
+        kind: "modifierKey",
+        modifiers: ["control"],
+        keyCode: 49,
+        code: "Space",
+        label: "Space",
+      };
+    case "mouseButton":
+      return { kind: "mouseButton", button: 4 };
+  }
+}
+
 function PushToTalkCard() {
-  const fnPushToTalkConfigurable = canConfigureFnPushToTalk();
-  const [activator, setActivator] = useState<PTTActivator>(() => {
-    const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
-    return raw
-      ? parseActivator(raw, { preserveFunction: fnPushToTalkConfigurable })
-      : fnPushToTalkConfigurable
-        ? FN_PTT_PRESET.activator
-        : { kind: "off" };
-  });
+  const nativePttConfigurable = supportsNativePushToTalk();
+  const [activator, setActivator] = useState<PTTActivator>(() =>
+    getLocalPushToTalkConfig(),
+  );
   const [isRecording, setIsRecording] = useState(false);
   const [pendingModifiers, setPendingModifiers] = useState<PTTModifier[]>([]);
   const recordingZoneRef = useRef<HTMLDivElement | null>(null);
   const nonModifierPressedRef = useRef(false);
+  const saveSequenceRef = useRef(0);
+  const selectedKind = activator.kind;
   const pttPresets = useMemo(
     () =>
-      fnPushToTalkConfigurable ? [FN_PTT_PRESET, ...PTT_PRESETS] : PTT_PRESETS,
-    [fnPushToTalkConfigurable],
+      nativePttConfigurable
+        ? [
+            FN_PTT_PRESET,
+            RIGHT_CMD_PTT_PRESET,
+            MOUSE_4_PTT_PRESET,
+            ...PTT_PRESETS,
+          ]
+        : PTT_PRESETS,
+    [nativePttConfigurable],
   );
 
-  const pttEnabled = activator.kind !== "off";
-  const showFocusedTabNote = pttEnabled && !fnPushToTalkConfigurable;
+  const pttEnabled = !isDisabledPttActivator(activator);
+  const showFocusedTabNote = pttEnabled && !nativePttConfigurable;
 
   const selectActivator = useCallback((next: PTTActivator) => {
+    const sequence = saveSequenceRef.current + 1;
+    saveSequenceRef.current = sequence;
     setActivator(next);
-    setLocalSetting(LS_PTT_ACTIVATION_KEY, serializeActivator(next));
+    void setPushToTalkConfig(next).then((saved) => {
+      if (saveSequenceRef.current === sequence) setActivator(saved);
+    });
     setIsRecording(false);
     setPendingModifiers([]);
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    void getPushToTalkConfig().then((config) => {
+      if (!disposed) setActivator(config);
+    });
+    const unsubscribe = onPushToTalkConfigChange((config) => {
+      setActivator(config);
+    });
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
   }, []);
 
   const beginRecording = useCallback(() => {
@@ -269,16 +342,28 @@ function PushToTalkCard() {
   const collectModifiers = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>): PTTModifier[] => {
       const modifiers: PTTModifier[] = [];
-      if (fnPushToTalkConfigurable && event.getModifierState("Fn")) {
+      if (nativePttConfigurable && event.getModifierState("Fn")) {
         modifiers.push("function");
       }
       if (event.ctrlKey) modifiers.push("control");
-      if (event.altKey) modifiers.push("option");
+      if (event.altKey) {
+        modifiers.push(
+          event.key === "Alt" && event.location === 2
+            ? "rightOption"
+            : "option",
+        );
+      }
       if (event.shiftKey) modifiers.push("shift");
-      if (event.metaKey) modifiers.push("command");
+      if (event.metaKey) {
+        modifiers.push(
+          event.key === "Meta" && event.location === 2
+            ? "rightCommand"
+            : "command",
+        );
+      }
       return modifiers;
     },
-    [fnPushToTalkConfigurable],
+    [nativePttConfigurable],
   );
 
   const handleCaptureKeyDown = useCallback(
@@ -299,7 +384,7 @@ function PushToTalkCard() {
         key === "Shift" ||
         key === "Meta" ||
         key === "Fn";
-      if (isModifierOnly) {
+      if (selectedKind === "modifierOnly" && isModifierOnly) {
         setPendingModifiers(
           modifiers.includes("function")
             ? FN_PTT_ACTIVATOR.modifiers
@@ -308,16 +393,27 @@ function PushToTalkCard() {
         return;
       }
 
-      if (modifiers.includes("function")) {
-        selectActivator(FN_PTT_ACTIVATOR);
+      if (isModifierOnly) {
         return;
       }
 
       nonModifierPressedRef.current = true;
-      const label = key.length === 1 ? key.toUpperCase() : key;
-      selectActivator({ kind: "key", label, modifiers });
+      if (selectedKind === "key") {
+        const keyActivator = keyActivatorFromEvent(event.nativeEvent, []);
+        if (keyActivator) selectActivator(keyActivator);
+        return;
+      }
+      if (selectedKind === "modifierKey") {
+        const keyActivator = keyActivatorFromEvent(
+          event.nativeEvent,
+          modifiers,
+        );
+        if (keyActivator?.kind === "modifierKey") {
+          selectActivator(keyActivator);
+        }
+      }
     },
-    [cancelRecording, collectModifiers, selectActivator],
+    [cancelRecording, collectModifiers, selectActivator, selectedKind],
   );
 
   const handleCaptureKeyUp = useCallback(
@@ -342,14 +438,24 @@ function PushToTalkCard() {
       }
 
       const remaining = collectModifiers(event);
-      if (remaining.length === 0 && pendingModifiers.length > 0) {
+      if (
+        selectedKind === "modifierOnly" &&
+        remaining.length === 0 &&
+        pendingModifiers.length > 0
+      ) {
         selectActivator({
           kind: "modifierOnly",
           modifiers: pendingModifiers,
         });
       }
     },
-    [collectModifiers, isRecording, pendingModifiers, selectActivator],
+    [
+      collectModifiers,
+      isRecording,
+      pendingModifiers,
+      selectActivator,
+      selectedKind,
+    ],
   );
 
   useEffect(() => {
@@ -366,6 +472,23 @@ function PushToTalkCard() {
     return () => window.removeEventListener("mousedown", handler);
   }, [cancelRecording, isRecording]);
 
+  const setKind = useCallback(
+    (kind: PttKind) => {
+      if (kind === activator.kind) return;
+      selectActivator(defaultActivatorForKind(kind, nativePttConfigurable));
+    },
+    [activator.kind, nativePttConfigurable, selectActivator],
+  );
+
+  const updateMouseButton = useCallback(
+    (raw: string) => {
+      const button = Number(raw);
+      if (!Number.isInteger(button) || button < 0) return;
+      selectActivator({ kind: "mouseButton", button });
+    },
+    [selectActivator],
+  );
+
   const isCustom =
     pttEnabled &&
     !pttPresets.some((p) => activatorsEqual(p.activator, activator));
@@ -380,23 +503,33 @@ function PushToTalkCard() {
           checked={pttEnabled}
           onChange={(next: boolean) => {
             if (next) {
-              if (activator.kind === "off") {
+              if (isDisabledPttActivator(activator)) {
                 selectActivator(
-                  fnPushToTalkConfigurable
-                    ? FN_PTT_PRESET.activator
-                    : CTRL_PTT_ACTIVATOR,
+                  defaultActivatorForKind(
+                    "modifierOnly",
+                    nativePttConfigurable,
+                  ),
                 );
               }
             } else {
-              selectActivator({ kind: "off" });
+              selectActivator(NONE_PTT_ACTIVATOR);
             }
           }}
           label="Enable Push to Talk"
         />
 
+        <div className="max-w-xs">
+          <Dropdown<PttKind>
+            options={PTT_KIND_OPTIONS}
+            value={selectedKind}
+            onChange={setKind}
+            aria-label="Push to Talk activation type"
+          />
+        </div>
+
         {pttEnabled && (
-          <div className="flex flex-col gap-2">
-            <span className={labelClasses}>Activation Key:</span>
+          <div className="flex flex-col gap-3">
+            <span className={labelClasses}>Activator:</span>
             <div
               ref={recordingZoneRef}
               tabIndex={isRecording ? 0 : -1}
@@ -415,25 +548,41 @@ function PushToTalkCard() {
                   />
                 );
               })}
-              {isRecording ? (
-                <ActivationKeyOption
-                  label={
-                    pendingModifiers.length > 0
-                      ? modifierLabel(pendingModifiers)
-                      : "Press any key…"
-                  }
-                  selected
-                  recording
-                  onClick={cancelRecording}
-                />
-              ) : (
-                <ActivationKeyOption
-                  label={isCustom ? activatorDisplayName(activator) : "Custom"}
-                  selected={isCustom}
-                  onClick={beginRecording}
-                />
+              {selectedKind !== "mouseButton" && (
+                isRecording ? (
+                  <ActivationKeyOption
+                    label={
+                      pendingModifiers.length > 0
+                        ? modifierLabel(pendingModifiers)
+                        : selectedKind === "modifierOnly"
+                          ? "Press modifier..."
+                          : "Press key..."
+                    }
+                    selected
+                    recording
+                    onClick={cancelRecording}
+                  />
+                ) : (
+                  <ActivationKeyOption
+                    label={isCustom ? activatorDisplayName(activator) : "Custom"}
+                    selected={isCustom}
+                    onClick={beginRecording}
+                  />
+                )
               )}
             </div>
+
+            {selectedKind === "mouseButton" && (
+              <Input
+                type="number"
+                min={0}
+                step={1}
+                value={activator.kind === "mouseButton" ? activator.button : 4}
+                onChange={(event) => updateMouseButton(event.target.value)}
+                label="Mouse button"
+                wrapperClassName="max-w-[180px]"
+              />
+            )}
 
             {showFocusedTabNote && (
               <div className="flex items-start gap-1 pt-1 text-body-small-default text-[var(--content-quiet)]">

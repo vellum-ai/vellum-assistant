@@ -15,7 +15,7 @@ import Store, { type Schema } from "electron-store";
  * to share this file's strict schema.
  */
 export interface AppSettings {
-  hotkeys: Record<string, string>;
+  hotkeys: Record<string, string | Record<string, unknown>>;
   theme: "light" | "dark" | "system";
   featureFlags: Record<string, boolean>;
 }
@@ -23,7 +23,12 @@ export interface AppSettings {
 const schema: Schema<AppSettings> = {
   hotkeys: {
     type: "object",
-    additionalProperties: { type: "string" },
+    additionalProperties: {
+      anyOf: [
+        { type: "string" },
+        { type: "object", additionalProperties: true },
+      ],
+    },
     default: {},
   },
   theme: {

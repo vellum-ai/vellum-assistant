@@ -116,8 +116,38 @@ export interface HotkeyEvent {
   state: HotkeyEventState;
 }
 
+export type PttModifier =
+  | "function"
+  | "control"
+  | "shift"
+  | "option"
+  | "command"
+  | "rightCommand"
+  | "rightOption";
+
+export type PttConfig =
+  | { kind: "none" }
+  | { kind: "modifierOnly"; modifiers: PttModifier[] }
+  | { kind: "key"; keyCode: number; code?: string; label?: string }
+  | {
+      kind: "modifierKey";
+      modifiers: PttModifier[];
+      keyCode: number;
+      code?: string;
+      label?: string;
+    }
+  | { kind: "mouseButton"; button: number };
+
+export interface PttEvent {
+  state: HotkeyEventState;
+}
+
 export type FnPushToTalkResult =
   | { ok: true; enabled: boolean }
+  | { ok: false; reason: string };
+
+export type PttRegistrationResult =
+  | { ok: true; enabled: boolean; config: PttConfig }
   | { ok: false; reason: string };
 
 /**
@@ -299,6 +329,13 @@ declare global {
       };
       featureFlags?: {
         set(flags: Record<string, boolean>): void;
+      };
+      ptt?: {
+        getConfig(): Promise<PttConfig>;
+        setConfig(config: PttConfig): Promise<PttConfig>;
+        configure(config: PttConfig): Promise<PttRegistrationResult>;
+        on(callback: (event: PttEvent) => void): () => void;
+        onConfigChange(callback: (config: PttConfig) => void): () => void;
       };
       helper?: {
         ping?(): Promise<"pong">;

@@ -188,9 +188,13 @@ The preload script exposes a typed `window.vellum` API to the renderer:
   transport seam is [`apps/web/src/runtime/local-mode-host.ts`](../web/src/runtime/local-mode-host.ts),
   which selects this bridge on Electron and the dev-server `/assistant/__local/*`
   middleware on web/dev so both hosts honor the same contract.
-- `helper.hotkey.fnPushToTalk(enable)` — starts or stops the native helper
-  that captures the Fn key globally for Push to Talk, with
-  `helper.hotkey.onEvent(callback)` streaming `down` / `up` notifications.
+- `ptt.getConfig()` / `ptt.setConfig(config)` / `ptt.configure(config)` —
+  reads, writes, and activates the structured Push to Talk trigger stored in
+  `settings.hotkeys.ptt` (`none`, modifier-only, key, modifier+key, or mouse
+  button). `ptt.on(callback)` streams native `down` / `up` notifications from
+  the helper while the app is in the background.
+- `helper.hotkey.fnPushToTalk(enable)` — legacy Fn-only Push to Talk bridge,
+  retained for older renderer callers during the generic PTT rollout.
 - `helper.ping()` — health-checks the native helper over JSON-RPC stdio.
 - `auth.*` — typed stubs that reject with "not implemented yet" until the
   corresponding feature tickets land.

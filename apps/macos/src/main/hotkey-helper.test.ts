@@ -94,6 +94,35 @@ mock.module("./app-origin", () => ({
   resolveAllowedOrigin: () => ({ protocol: "app:", host: "vellum.ai" }),
 }));
 
+type HotkeysSetting = Record<string, string | Record<string, unknown>>;
+
+let hotkeysSetting: HotkeysSetting = {};
+const settingsListeners = new Set<
+  (newValue: HotkeysSetting, oldValue: HotkeysSetting) => void
+>();
+
+mock.module("./settings", () => ({
+  readSetting: (key: string) => (key === "hotkeys" ? hotkeysSetting : null),
+  writeSetting: (key: string, value: unknown) => {
+    if (key !== "hotkeys") return;
+    const oldValue = hotkeysSetting;
+    hotkeysSetting = value as HotkeysSetting;
+    for (const listener of settingsListeners) {
+      listener(hotkeysSetting, oldValue);
+    }
+  },
+  onSettingChange: (
+    key: string,
+    callback: (newValue: HotkeysSetting, oldValue: HotkeysSetting) => void,
+  ) => {
+    if (key !== "hotkeys") return () => undefined;
+    settingsListeners.add(callback);
+    return () => {
+      settingsListeners.delete(callback);
+    };
+  },
+}));
+
 Object.defineProperty(process, "resourcesPath", {
   value: "/mock/resources",
   writable: true,
@@ -119,6 +148,24 @@ const invokeFnPushToTalkFrom = (enable: boolean, sender: FakeWebContents) =>
     enable,
   ) as Promise<unknown>;
 
+const invokePttGetConfig = () =>
+  handlers["vellum:ptt:getConfig"]({ sender: defaultSender }) as unknown;
+
+const invokePttSetConfig = (config: unknown) =>
+  handlers["vellum:ptt:setConfig"](
+    { sender: defaultSender },
+    config,
+  ) as unknown;
+
+const invokePttConfigure = (
+  config: unknown,
+  sender: FakeWebContents = defaultSender,
+) =>
+  handlers["vellum:ptt:configure"](
+    { sender },
+    config,
+  ) as Promise<unknown>;
+
 const invokePing = () =>
   handlers["vellum:helper:ping"]({ sender: defaultSender }) as Promise<unknown>;
 
@@ -141,6 +188,8 @@ beforeEach(() => {
   exists = true;
   appState.isPackaged = false;
   appState.appPath = "/repo/apps/macos";
+  hotkeysSetting = {};
+  settingsListeners.clear();
   nextWebContentsId = 1;
   defaultSender = makeWebContents();
 });
@@ -170,6 +219,9 @@ describe("installHotkeyHelper", () => {
     expect(handlers["vellum:helper:ping"]).toBeDefined();
     expect(handlers["vellum:helper:state:get"]).toBeDefined();
     expect(handlers["vellum:helper:restart"]).toBeDefined();
+    expect(handlers["vellum:ptt:getConfig"]).toBeDefined();
+    expect(handlers["vellum:ptt:setConfig"]).toBeDefined();
+    expect(handlers["vellum:ptt:configure"]).toBeDefined();
     expect(handlers["vellum:helper:hotkey:fnPushToTalk"]).toBeDefined();
   });
 
@@ -279,6 +331,74 @@ describe("installHotkeyHelper", () => {
     expect(await pending).toEqual({ ok: true, enabled: true });
   });
 
+  test("reads and writes structured push-to-talk config", () => {
+    installHotkeyHelper();
+
+    expect(invokePttGetConfig()).toEqual({
+      kind: "modifierOnly",
+      modifiers: ["function"],
+    });
+
+    expect(invokePttSetConfig({ kind: "mouseButton", button: 4 })).toEqual({
+      kind: "mouseButton",
+      button: 4,
+    });
+    expect(hotkeysSetting.ptt).toEqual({ kind: "mouseButton", button: 4 });
+    expect(invokePttGetConfig()).toEqual({ kind: "mouseButton", button: 4 });
+  });
+
+  test("configures generic push-to-talk through the helper process", async () => {
+    installHotkeyHelper();
+    const pending = invokePttConfigure({ kind: "mouseButton", button: 4 });
+
+    expect(spawnCalls[0]?.[0]).toBe(
+      "/repo/apps/macos/resources/vellum-mac-helper",
+    );
+    expect(lastChild?.stdin.writes[0]).toContain("\"jsonrpc\":\"2.0\"");
+    expect(lastChild?.stdin.writes[0]).toContain("\"method\":\"ptt.setConfig\"");
+    expect(lastChild?.stdin.writes[0]).toContain("\"kind\":\"mouseButton\"");
+    expect(lastChild?.stdin.writes[0]).toContain("\"button\":4");
+
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"enabled\":true}}\n",
+      ),
+    );
+
+    expect(await pending).toEqual({
+      ok: true,
+      enabled: true,
+      config: { kind: "mouseButton", button: 4 },
+    });
+
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        "{\"jsonrpc\":\"2.0\",\"method\":\"ptt.event\",\"params\":{\"state\":\"down\"}}\n",
+      ),
+    );
+
+    expect(defaultSender.send).toHaveBeenCalledWith("vellum:ptt:state", {
+      state: "down",
+    });
+
+    const disabled = invokePttConfigure({ kind: "none" });
+    expect(lastChild?.stdin.writes.at(-1)).toContain("\"kind\":\"none\"");
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"enabled\":false}}\n",
+      ),
+    );
+
+    expect(await disabled).toEqual({
+      ok: true,
+      enabled: false,
+      config: { kind: "none" },
+    });
+  });
+
   test("restarts the helper after a crash", async () => {
     __setSupervisorOptionsForTesting({
       initialBackoffMs: 1,
@@ -327,6 +447,37 @@ describe("installHotkeyHelper", () => {
       "\"method\":\"hotkey.fnPushToTalk\"",
     );
     expect(lastChild?.stdin.writes[0]).toContain("\"enable\":true");
+  });
+
+  test("restores generic push-to-talk after a helper crash", async () => {
+    __setSupervisorOptionsForTesting({
+      initialBackoffMs: 1,
+      maxBackoffMs: 1,
+    });
+    installHotkeyHelper();
+
+    const pending = invokePttConfigure({ kind: "mouseButton", button: 4 });
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"enabled\":true}}\n",
+      ),
+    );
+    expect(await pending).toEqual({
+      ok: true,
+      enabled: true,
+      config: { kind: "mouseButton", button: 4 },
+    });
+
+    const crashed = lastChild;
+    crashed?.emit("close", 1, null);
+    await wait(5);
+
+    expect(spawnCalls).toHaveLength(2);
+    expect(lastChild).not.toBe(crashed);
+    expect(lastChild?.stdin.writes[0]).toContain("\"method\":\"ptt.setConfig\"");
+    expect(lastChild?.stdin.writes[0]).toContain("\"kind\":\"mouseButton\"");
+    expect(lastChild?.stdin.writes[0]).toContain("\"button\":4");
   });
 
   test("maps JSON-RPC helper errors to hotkey results", async () => {

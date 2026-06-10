@@ -5,6 +5,7 @@ import { type RefObject } from "react";
 import {
   CTRL_PTT_ACTIVATOR,
   LS_PTT_ACTIVATION_KEY,
+  parseActivator,
   serializeActivator,
 } from "@/utils/ptt-activator";
 import {
@@ -43,6 +44,24 @@ afterEach(() => {
 });
 
 describe("usePushToTalk", () => {
+  test("migrates legacy label-only key activators", () => {
+    expect(
+      parseActivator(
+        JSON.stringify({
+          kind: "key",
+          label: "K",
+          modifiers: ["control"],
+        }),
+      ),
+    ).toEqual({
+      kind: "modifierKey",
+      modifiers: ["control"],
+      keyCode: 40,
+      code: "KeyK",
+      label: "K",
+    });
+  });
+
   test("starts modifier-only PTT from a focused editable target", async () => {
     localStorage.setItem(
       LS_PTT_ACTIVATION_KEY,
@@ -68,13 +87,18 @@ describe("usePushToTalk", () => {
   test("keeps key activators disabled inside editable targets", async () => {
     localStorage.setItem(
       LS_PTT_ACTIVATION_KEY,
-      serializeActivator({ kind: "key", label: "K", modifiers: [] }),
+      serializeActivator({
+        kind: "key",
+        keyCode: 40,
+        code: "KeyK",
+        label: "K",
+      }),
     );
     const target = { start: mock(() => {}), stop: mock(() => {}) };
     renderPushToTalk(target);
     const textarea = focusedTextarea();
 
-    fireEvent.keyDown(textarea, { key: "k" });
+    fireEvent.keyDown(textarea, { key: "k", code: "KeyK" });
 
     await act(async () => {
       await wait(PTT_HOLD_DELAY_MS + 25);

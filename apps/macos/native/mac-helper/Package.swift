@@ -18,6 +18,7 @@ let package = Package(
                 .linkedFramework("AppKit"),
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("Carbon"),
+                .linkedFramework("CoreGraphics"),
                 .linkedFramework("Speech"),
             ]
         ),
