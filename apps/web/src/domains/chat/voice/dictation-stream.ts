@@ -121,6 +121,11 @@ export function startDictationStream(
   const ingressUrl = getSelfHostedIngressUrl();
   const token = getSelfHostedActorToken();
   if (!ingressUrl || !token || !isPcmCaptureSupported()) {
+    // Expected on cloud-hosted assistants and plain browsers — log once
+    // per session attempt so a missing-partials report is diagnosable.
+    console.info(
+      "dictation-stream: skipping (no self-hosted ingress/token or no AudioWorklet)",
+    );
     return null;
   }
 
@@ -171,7 +176,10 @@ export function startDictationStream(
     if (closed) return;
     void capture.start().then((result) => {
       // Mic denied / device busy: no partials, batch capture unaffected.
-      if (!result.ok) teardown();
+      if (!result.ok) {
+        console.warn("dictation-stream: PCM capture failed", result.error);
+        teardown();
+      }
     });
   });
 
@@ -203,8 +211,14 @@ export function startDictationStream(
         }
         return;
       // Includes the structured "streaming not supported for provider"
-      // error — the session degrades to batch-only, silently.
+      // error — the session degrades to batch-only.
       case "error":
+        console.warn(
+          "dictation-stream: server error event",
+          (parsed as { message?: string }).message ?? event.data,
+        );
+        teardown();
+        return;
       case "closed":
         teardown();
         return;
@@ -213,7 +227,16 @@ export function startDictationStream(
     }
   });
 
-  ws.addEventListener("close", teardown);
+  ws.addEventListener("close", (event) => {
+    // A close before `ready` means the session never delivered a partial —
+    // surface why (CSP-blocked sockets land here with code 1006).
+    if (!live && !closed) {
+      console.warn(
+        `dictation-stream: socket closed before ready (code ${event.code})`,
+      );
+    }
+    teardown();
+  });
   ws.addEventListener("error", teardown);
 
   return {
