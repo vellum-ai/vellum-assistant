@@ -4211,7 +4211,10 @@ paths:
     patch:
       operationId: config_patch
       summary: Patch config
-      description: Deep-merge a partial JSON object into the settings.json configuration.
+      description:
+        "Deep-merge a partial JSON object into the settings.json configuration. `llm.profileOverrides` fragments
+        are applied directly with null-preserving semantics: a null label/status persists as the stored clear sentinel,
+        while a null entry (or map) clears it."
       tags:
         - config
       responses:
