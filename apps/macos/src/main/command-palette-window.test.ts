@@ -417,6 +417,16 @@ describe("dispatchMenuCommand", () => {
     expect(source.webContents.send).not.toHaveBeenCalled();
   });
 
+  test("closes the focused palette when the Command Palette accelerator is pressed again", () => {
+    openCommandPaletteWindow();
+    const palette = created[0]!.win;
+
+    dispatchMenuCommand({ kind: "commandPalette" });
+
+    expect(palette.close).toHaveBeenCalledTimes(1);
+    expect(palette.isDestroyed()).toBe(true);
+  });
+
   test("keeps other menu commands on the focused renderer command stream", () => {
     const source = makeFocusedSource();
     focusedWindow = source;

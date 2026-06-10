@@ -83,7 +83,7 @@ const commandPalettePosition = (): { x: number; y: number } => {
   };
 };
 
-const closeCommandPaletteWindow = (): void => {
+export const closeCommandPaletteWindow = (): void => {
   const win = getFloatingWindow(COMMAND_PALETTE_KIND);
   if (win && !win.isDestroyed()) {
     win.close();

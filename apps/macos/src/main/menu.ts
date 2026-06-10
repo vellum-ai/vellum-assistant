@@ -9,6 +9,7 @@ import {
   type VellumCommand,
 } from "./commands";
 import {
+  closeCommandPaletteWindow,
   isCommandPaletteWindowFocused,
   openCommandPaletteWindow,
 } from "./command-palette-window";
@@ -33,6 +34,10 @@ const isDeveloperMenuEnabled = (): boolean => {
 
 export const dispatchMenuCommand = (command: VellumCommand): void => {
   if (command.kind === "commandPalette") {
+    if (isCommandPaletteWindowFocused()) {
+      closeCommandPaletteWindow();
+      return;
+    }
     openCommandPaletteWindow();
     return;
   }
