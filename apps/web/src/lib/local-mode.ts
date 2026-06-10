@@ -195,6 +195,10 @@ export async function syncPlatformAssistantsToLockfile(
   assistants: Array<{ id: string; name?: string; is_local: boolean; created: string }>,
   organizationId?: string,
 ): Promise<void> {
+  // Without a resolved org we can't scope the replace; a full wipe here would
+  // drop other orgs' platform entries. Skip — a later sync re-runs with the org.
+  if (organizationId == null) return;
+
   const platformAssistants = assistants
     .filter((a) => !a.is_local)
     .map((a) => ({
