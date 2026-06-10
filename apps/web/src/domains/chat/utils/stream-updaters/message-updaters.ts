@@ -85,7 +85,12 @@ function appendSegmentIntoRow(
     orderType === "text"
       ? { type: "text", text: segmentText }
       : { type: "thinking", thinking: segmentText };
-  if (coalesce) {
+  // Overwrite the trailing block only when it is this segment's block. A
+  // reconstructed/server projection omits empty or fully-consumed segments
+  // (normalizeContentBlocks), so contentBlocks can be shorter than
+  // contentOrder and its tail may belong to an earlier entry — appending then
+  // backfills the previously-absent block instead of clobbering a neighbour.
+  if (coalesce && blocks[blocks.length - 1]?.type === orderType) {
     blocks[blocks.length - 1] = block;
   } else {
     blocks.push(block);
