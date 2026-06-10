@@ -6,7 +6,7 @@ import { handle, on } from "./ipc";
 
 /**
  * System-wide dictation overlay — a floating, click-through panel pinned
- * bottom-center of the active display that shows the user's words live while
+ * top-center of the active display that shows the user's words live while
  * they dictate via push-to-talk into another app. Matches the native Swift
  * client's `DictationOverlayWindow`: a small pill that expands with partial
  * transcription during recording, then walks the processing → done / error
@@ -27,16 +27,16 @@ const OVERLAY_KIND = "dictation-overlay";
 const OVERLAY_PATH = "/floating/dictation-overlay";
 
 // The window is a fixed-size transparent canvas larger than the visible
-// pill: the page renders the pill bottom-centered and sized to content, with
+// pill: the page renders the pill top-centered and sized to content, with
 // padding so its CSS shadow has room to paint (the window itself draws no
 // shadow — `hasShadow` would outline the invisible canvas rect).
 const OVERLAY_WIDTH = 480;
 const OVERLAY_HEIGHT = 160;
 
-// The page pads the pill by 16 px (`p-4`); offset the window so the pill's
-// bottom edge lands 28 px above the work-area bottom.
-const CANVAS_BOTTOM_INSET = 16;
-const PILL_BOTTOM_OFFSET = 28;
+// The page pads the pill by 16 px (`p-4`); align the transparent canvas with
+// the top of the work area so the visible pill lands 16 px below the menu bar.
+const CANVAS_TOP_INSET = 16;
+const PILL_TOP_OFFSET = 16;
 
 /** How long the success state stays up before the overlay hides. */
 export const DONE_HIDE_MS = 800;
@@ -69,7 +69,6 @@ const dictationOverlayMessageSchema = z.discriminatedUnion("kind", [
 ]);
 
 export type DictationOverlayDeps = {
-  isVellumFocused: () => boolean;
   showOverlay: () => void;
   hideOverlay: () => void;
   forwardState: (state: DictationOverlayState) => void;
@@ -79,19 +78,17 @@ export type DictationOverlayDeps = {
 
 /**
  * Session state machine, separated from the window plumbing so the
- * suppression and auto-hide rules are unit-testable (same deps-injection
- * shape as `textInsertion.ts`).
+ * auto-hide rules are unit-testable (same deps-injection shape as
+ * `textInsertion.ts`).
  *
  * A session begins on the first displayable state after idle and ends when
- * the overlay hides. Sessions that begin while a Vellum window is focused
- * are suppressed entirely: the composer already shows interim text inline,
- * mirroring the Swift client suppressing the overlay for
- * chat-composer-origin dictation.
+ * the overlay hides. It is shown for both in-app and global dictation so the
+ * recording treatment stays consistent with the native macOS dictation HUD.
  */
 export const createDictationOverlayController = (
   deps: DictationOverlayDeps,
 ): { handleMessage: (message: DictationOverlayMessage) => void } => {
-  let session: "none" | "visible" | "suppressed" = "none";
+  let session: "none" | "visible" = "none";
   let hideTimer: unknown = null;
 
   const clearHideTimer = (): void => {
@@ -119,19 +116,8 @@ export const createDictationOverlayController = (
     }
 
     if (session === "none") {
-      if (deps.isVellumFocused()) {
-        session = "suppressed";
-        return;
-      }
       session = "visible";
       deps.showOverlay();
-    }
-
-    if (session === "suppressed") {
-      if (message.kind === "done" || message.kind === "error") {
-        session = "none";
-      }
-      return;
     }
 
     clearHideTimer();
@@ -171,13 +157,7 @@ export const positionDictationOverlayInWorkArea = (workArea: {
   height: number;
 }): { x: number; y: number } => ({
   x: Math.round(workArea.x + (workArea.width - OVERLAY_WIDTH) / 2),
-  y: Math.round(
-    workArea.y +
-      workArea.height -
-      OVERLAY_HEIGHT -
-      PILL_BOTTOM_OFFSET +
-      CANVAS_BOTTOM_INSET,
-  ),
+  y: Math.round(workArea.y + PILL_TOP_OFFSET - CANVAS_TOP_INSET),
 });
 
 const overlayPosition = (): { x: number; y: number } => {
@@ -228,9 +208,6 @@ export const installDictationOverlay = (): void => {
   installed = true;
 
   const controller = createDictationOverlayController({
-    // Same focus test `textInsertion.ts` uses to decide composer-vs-front-app
-    // insertion, so the overlay suppression agrees with where the text lands.
-    isVellumFocused: () => BrowserWindow.getFocusedWindow() !== null,
     showOverlay,
     hideOverlay,
     forwardState: sendState,

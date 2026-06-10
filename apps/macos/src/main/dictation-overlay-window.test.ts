@@ -10,7 +10,6 @@ import {
 
 type Harness = {
   controller: ReturnType<typeof createDictationOverlayController>;
-  setFocused: (focused: boolean) => void;
   flushTimers: () => void;
   pendingTimerDelays: () => number[];
   showOverlay: ReturnType<typeof mock>;
@@ -18,8 +17,7 @@ type Harness = {
   forwarded: DictationOverlayState[];
 };
 
-const createHarness = ({ focused = false }: { focused?: boolean } = {}): Harness => {
-  let isFocused = focused;
+const createHarness = (): Harness => {
   const timers = new Map<number, { callback: () => void; ms: number }>();
   let nextTimerId = 1;
   const showOverlay = mock(() => undefined);
@@ -27,7 +25,6 @@ const createHarness = ({ focused = false }: { focused?: boolean } = {}): Harness
   const forwarded: DictationOverlayState[] = [];
 
   const controller = createDictationOverlayController({
-    isVellumFocused: () => isFocused,
     showOverlay,
     hideOverlay,
     forwardState: (state) => {
@@ -45,9 +42,6 @@ const createHarness = ({ focused = false }: { focused?: boolean } = {}): Harness
 
   return {
     controller,
-    setFocused: (value) => {
-      isFocused = value;
-    },
     flushTimers: () => {
       const pending = [...timers.values()];
       timers.clear();
@@ -85,33 +79,13 @@ describe("createDictationOverlayController", () => {
     expect(h.hideOverlay).not.toHaveBeenCalled();
   });
 
-  test("suppresses the whole session when a Vellum window is focused at start", () => {
-    const h = createHarness({ focused: true });
-
-    h.controller.handleMessage({ kind: "recording", transcription: "" });
-    h.controller.handleMessage({ kind: "recording", transcription: "hi" });
-    h.controller.handleMessage({ kind: "processing" });
-    h.controller.handleMessage({ kind: "done" });
-    h.controller.handleMessage({ kind: "dismiss" });
-
-    expect(h.showOverlay).not.toHaveBeenCalled();
-    expect(h.forwarded).toEqual([]);
-
-    // The suppressed session ended on `done`; a later unfocused session
-    // shows normally.
-    h.setFocused(false);
-    h.controller.handleMessage({ kind: "recording", transcription: "" });
-    expect(h.showOverlay).toHaveBeenCalledTimes(1);
-    expect(h.forwarded).toEqual([{ kind: "recording", transcription: "" }]);
-  });
-
-  test("focus is only evaluated at session start", () => {
+  test("keeps forwarding updates throughout a visible session", () => {
     const h = createHarness();
 
     h.controller.handleMessage({ kind: "recording", transcription: "" });
-    h.setFocused(true);
     h.controller.handleMessage({ kind: "recording", transcription: "still showing" });
 
+    expect(h.showOverlay).toHaveBeenCalledTimes(1);
     expect(h.forwarded).toHaveLength(2);
   });
 
@@ -191,7 +165,7 @@ describe("createDictationOverlayController", () => {
 });
 
 describe("positionDictationOverlayInWorkArea", () => {
-  test("positions the transparent overlay canvas bottom-center of the display work area", () => {
+  test("positions the transparent overlay canvas top-center of the display work area", () => {
     expect(
       positionDictationOverlayInWorkArea({
         x: 100,
@@ -201,7 +175,7 @@ describe("positionDictationOverlayInWorkArea", () => {
       }),
     ).toEqual({
       x: 580,
-      y: 778,
+      y: 50,
     });
   });
 });

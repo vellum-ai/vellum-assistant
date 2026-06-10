@@ -22,9 +22,6 @@ let latestVoiceInputProps: VoiceInputButtonProps | null = null;
 let nextTextInsertionStatus: TextInsertionStatus = "unavailable";
 const insertedTexts: string[] = [];
 let nextDictationResult: { mode: "dictation"; text: string } | null = null;
-const showTranscriptionOverlayMock = mock(
-  async (_state: { transcript: string }) => undefined,
-);
 const toastErrorMock = mock((_message: string) => undefined);
 
 mock.module("@/domains/chat/components/voice-input-button", () => ({
@@ -69,10 +66,6 @@ mock.module("@/runtime/text-insertion", () => ({
   openTextInsertionSettings: async () => undefined,
 }));
 
-mock.module("@/runtime/transcription-overlay", () => ({
-  showTranscriptionOverlay: showTranscriptionOverlayMock,
-}));
-
 mock.module("@vellumai/design-library/components/toast", () => ({
   toast: { error: toastErrorMock },
 }));
@@ -96,7 +89,6 @@ afterEach(() => {
   nextTextInsertionStatus = "unavailable";
   nextDictationResult = null;
   insertedTexts.length = 0;
-  showTranscriptionOverlayMock.mockClear();
   toastErrorMock.mockClear();
   useComposerStore.getState().setInput("");
   useComposerStore.getState().fullReset();
@@ -106,7 +98,7 @@ afterEach(() => {
 });
 
 describe("GlobalPushToTalkBridge", () => {
-  test("shows the cleaned final transcript after successful front-app insertion", async () => {
+  test("inserts the cleaned final transcript into the front app", async () => {
     nextTextInsertionStatus = "inserted";
     nextDictationResult = { mode: "dictation", text: "cleaned global text" };
     const voiceInput = renderBridge();
@@ -116,14 +108,11 @@ describe("GlobalPushToTalkBridge", () => {
     });
 
     expect(insertedTexts).toEqual(["cleaned global text"]);
-    expect(showTranscriptionOverlayMock).toHaveBeenCalledWith({
-      transcript: "cleaned global text",
-    });
     expect(useComposerStore.getState().input).toBe("");
     expect(toastErrorMock).not.toHaveBeenCalled();
   });
 
-  test("shows the final transcript when front-app insertion fails and soft-lands in composer", async () => {
+  test("soft-lands the final transcript in the composer when front-app insertion fails", async () => {
     nextTextInsertionStatus = "blocked";
     const voiceInput = renderBridge();
 
@@ -132,20 +121,8 @@ describe("GlobalPushToTalkBridge", () => {
     });
 
     expect(insertedTexts).toEqual(["fallback text"]);
-    expect(showTranscriptionOverlayMock).toHaveBeenCalledWith({
-      transcript: "fallback text",
-    });
     expect(useComposerStore.getState().input).toBe("fallback text");
     expect(toastErrorMock).toHaveBeenCalledTimes(1);
   });
 
-  test("does not show the final overlay for empty transcripts", async () => {
-    const voiceInput = renderBridge();
-
-    await act(async () => {
-      await voiceInput.onTranscript("   ");
-    });
-
-    expect(showTranscriptionOverlayMock).not.toHaveBeenCalled();
-  });
 });

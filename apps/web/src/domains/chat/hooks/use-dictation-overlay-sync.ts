@@ -6,7 +6,7 @@ import { setDictationOverlayState } from "@/runtime/dictation-overlay";
 
 /**
  * Mirrors the dictation lifecycle to the Electron system-wide overlay — the
- * floating panel pinned bottom-center of the screen that shows the user's words
+ * floating panel pinned top-center of the screen that shows the user's words
  * live while they dictate via push-to-talk into another app.
  *
  * Domain hook per the Electron conventions (`docs/ELECTRON.md`): the chat
@@ -22,9 +22,9 @@ import { setDictationOverlayState } from "@/runtime/dictation-overlay";
  * fallback on every other route (Settings, onboarding, …). A second
  * mounted instance would publish duplicate messages racing this one.
  *
- * The main process decides visibility: sessions that start while a Vellum
- * window is focused are suppressed there (the composer already shows
- * interim text inline), so this hook publishes unconditionally.
+ * The main process owns visibility. The Electron shell shows the same
+ * top-center recording overlay for both in-app and global dictation, so this
+ * hook publishes unconditionally.
  *
  * `dictationInsertionError` exists because front-app insertion failures
  * (automation denied / paste blocked) flag an error and then still

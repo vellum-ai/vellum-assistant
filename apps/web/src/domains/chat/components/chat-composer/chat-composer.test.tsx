@@ -32,6 +32,11 @@ mock.module("@/hooks/use-is-mobile", () => ({
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
 
+let mockIsElectron = false;
+mock.module("@/runtime/is-electron", () => ({
+  isElectron: () => mockIsElectron,
+}));
+
 // Live-voice integration mocks. The composer mounts `LiveVoiceButton` (which
 // self-gates on `voice-mode`) and reads live-voice session state via the
 // `useLiveVoiceStore` per-field selectors for the transcript surface +
@@ -122,6 +127,7 @@ mock.module("@/domains/chat/voice/voice-recording-store", () => ({
 }));
 
 function resetLiveVoiceMocks() {
+  mockIsElectron = false;
   mockVoiceMode = false;
   mockLiveVoiceState = "idle";
   mockLivePartial = "";
@@ -779,6 +785,24 @@ describe("ChatComposer — live-voice integration", () => {
 
     // THEN the live-voice start affordance is disabled so it can't open a
     // second mic/voice session alongside the dictation recorder
+    const liveVoice = getByLabelText("Start voice mode") as HTMLButtonElement;
+    expect(liveVoice.disabled).toBe(true);
+  });
+
+  test("electron dictation uses the system overlay instead of the inline composer preview", () => {
+    // GIVEN Electron is hosting the composer and dictation is processing.
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockIsElectron = true;
+    mockVoiceMode = true;
+    mockLiveVoiceState = "idle";
+    mockVoicePhase = "processing";
+
+    // WHEN the composer renders
+    const { getByLabelText, queryByLabelText } = renderVoiceComposer();
+
+    // THEN the shared top-center dictation overlay owns the visual treatment,
+    // so the composer-specific preview is absent while mutual exclusion stays.
+    expect(queryByLabelText("Transcribing")).toBeNull();
     const liveVoice = getByLabelText("Start voice mode") as HTMLButtonElement;
     expect(liveVoice.disabled).toBe(true);
   });

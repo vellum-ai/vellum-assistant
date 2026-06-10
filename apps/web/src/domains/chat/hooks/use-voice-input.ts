@@ -15,7 +15,6 @@ import {
   insertTextIntoFrontApp,
   openTextInsertionSettings,
 } from "@/runtime/text-insertion";
-import { showTranscriptionOverlay } from "@/runtime/transcription-overlay";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -151,10 +150,6 @@ export function useVoiceInput({
       if (dictationResult?.mode === "dictation" && dictationResult.text) {
         insertText = dictationResult.text;
       }
-      if (insertText.trim()) {
-        void showTranscriptionOverlay({ transcript: insertText });
-      }
-
       const frontAppInsertion = await insertTextIntoFrontApp(insertText);
       if (frontAppInsertion.status === "inserted") {
         return;

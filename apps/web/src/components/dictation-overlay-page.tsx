@@ -9,7 +9,7 @@ import type { DictationOverlayState } from "@/runtime/is-electron";
 
 /**
  * Live dictation pill rendered inside the Electron dictation overlay
- * BrowserWindow — a click-through, non-activating panel pinned bottom-center
+ * BrowserWindow — a click-through, non-activating panel pinned top-center
  * of the active display while the user dictates via push-to-talk into
  * another app. The Electron port of the native Swift client's
  * `DictationOverlayWindow`: a status row (state icon + label), compact
@@ -47,7 +47,7 @@ export function DictationOverlayPage() {
   const audioLevel = state.kind === "recording" ? (state.audioLevel ?? 0) : 0;
 
   return (
-    <div className="flex h-screen w-screen items-end justify-center bg-transparent p-4">
+    <div className="flex h-screen w-screen items-start justify-center bg-transparent p-4">
       <div className="flex w-[min(28rem,calc(100vw-2rem))] flex-col gap-1 rounded-xl border border-[var(--border-default)] bg-[var(--surface-base)] px-4 py-2.5 shadow-lg">
         <div className="flex min-w-0 items-center gap-2">
           <StateIcon state={state} />
@@ -59,7 +59,7 @@ export function DictationOverlayPage() {
           )}
         </div>
         {transcription && (
-          // Bottom-anchored two-line window: the transcript grows as words
+          // Bottom-anchored two-line text: the transcript grows as words
           // stream in and the newest words are the ones worth showing — a
           // line-clamp would freeze on the first two lines instead.
           <div className="flex max-h-7 flex-col justify-end overflow-hidden">

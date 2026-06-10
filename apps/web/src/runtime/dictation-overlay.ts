@@ -2,7 +2,7 @@
  * Runtime wrapper for the dictation overlay bridge surface.
  *
  * The Electron main process owns a system-wide, click-through panel pinned
- * bottom-center of the active display that shows the user's words live while
+ * top-center of the active display that shows the user's words live while
  * they dictate via push-to-talk into another app (the Electron port of the
  * native Swift client's `DictationOverlayWindow`).
  *
