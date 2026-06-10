@@ -181,6 +181,7 @@ interface HatchArgs {
   configValues: Record<string, string>;
   flagEnvVars: Record<string, string>;
   analyze: boolean;
+  disablePlatform: boolean;
 }
 
 function parseArgs(): HatchArgs {
@@ -188,6 +189,8 @@ function parseArgs(): HatchArgs {
     process.argv.slice(3),
   );
   const flagEnvVars = { ...readAmbientFlagEnvVars(), ...cliFlagVars };
+  const disablePlatformAmbient = process.env.VELLUM_DISABLE_PLATFORM?.trim().toLowerCase();
+  let disablePlatform = disablePlatformAmbient === "true" || disablePlatformAmbient === "1";
   let species: Species = DEFAULT_SPECIES;
   let detached = false;
   let keepAlive = false;
@@ -232,6 +235,9 @@ function parseArgs(): HatchArgs {
       );
       console.log(
         "  --analyze                 Emit a structured hatch-timing log line on stdout",
+      );
+      console.log(
+        "  --disable-platform        Suppress all outbound platform API calls",
       );
       process.exit(0);
     } else if (arg === "-d") {
@@ -293,11 +299,13 @@ function parseArgs(): HatchArgs {
       const value = next.slice(eqIndex + 1);
       configValues[key] = value;
       i++;
+    } else if (arg === "--disable-platform") {
+      disablePlatform = true;
     } else if (VALID_SPECIES.includes(arg as Species)) {
       species = arg as Species;
     } else {
       console.error(
-        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --watch, --source <path>, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>, --config <key=value>, --flag <key=value>, --analyze`,
+        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --watch, --source <path>, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>, --config <key=value>, --flag <key=value>, --analyze, --disable-platform`,
       );
       process.exit(1);
     }
@@ -314,6 +322,7 @@ function parseArgs(): HatchArgs {
     configValues,
     flagEnvVars,
     analyze,
+    disablePlatform,
   };
 }
 
@@ -549,7 +558,13 @@ export async function hatch(): Promise<void> {
     configValues,
     flagEnvVars,
     analyze,
+    disablePlatform,
   } = parseArgs();
+
+  if (disablePlatform) {
+    process.env.VELLUM_DISABLE_PLATFORM = "true";
+    flagEnvVars.VELLUM_DISABLE_PLATFORM = "true";
+  }
 
   if (watch && remote !== "local" && remote !== "docker") {
     console.error(

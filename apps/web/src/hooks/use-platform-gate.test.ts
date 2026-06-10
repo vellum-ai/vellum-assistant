@@ -2,12 +2,13 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
 const isLocalModeMock = mock(() => false);
+const isPlatformDisabledMock = mock(() => false);
 mock.module("@/lib/local-mode", () => ({
   isLocalMode: isLocalModeMock,
+  isPlatformDisabled: isPlatformDisabledMock,
 }));
 
 import { useAuthStore } from "@/stores/auth-store";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import type { AssistantState } from "@/assistant/types";
 import {
@@ -17,7 +18,6 @@ import {
 } from "@/hooks/use-platform-gate";
 
 const initialAuthState = useAuthStore.getState();
-const initialFlagState = useAssistantFeatureFlagStore.getState();
 const initialLifecycleState = useAssistantLifecycleStore.getState();
 
 function setLifecycle(assistantState: AssistantState) {
@@ -26,8 +26,8 @@ function setLifecycle(assistantState: AssistantState) {
 
 beforeEach(() => {
   isLocalModeMock.mockImplementation(() => false);
+  isPlatformDisabledMock.mockImplementation(() => false);
   useAuthStore.setState(initialAuthState, true);
-  useAssistantFeatureFlagStore.setState(initialFlagState, true);
   useAssistantLifecycleStore.setState(initialLifecycleState, true);
 });
 
@@ -48,32 +48,18 @@ describe("usePlatformGate — default (standard pattern)", () => {
     expect(result.current).toBe("disabled");
   });
 
-  test('returns "disabled" in local mode before flag hydration', () => {
+  test('returns "full" in local mode when logged in and platform not disabled', () => {
     isLocalModeMock.mockImplementation(() => true);
     useAuthStore.setState({ platformSession: "present" });
-    useAssistantFeatureFlagStore.setState({ hasHydrated: false });
-    const { result } = renderHook(() => usePlatformGate());
-    expect(result.current).toBe("disabled");
-  });
-
-  test('returns "full" in local mode when hydrated, logged in, and flag ON', () => {
-    isLocalModeMock.mockImplementation(() => true);
-    useAuthStore.setState({ platformSession: "present" });
-    useAssistantFeatureFlagStore.setState({
-      hasHydrated: true,
-      platformFeaturesInLocalMode: true,
-    } as Partial<ReturnType<typeof useAssistantFeatureFlagStore.getState>>);
+    isPlatformDisabledMock.mockImplementation(() => false);
     const { result } = renderHook(() => usePlatformGate());
     expect(result.current).toBe("full");
   });
 
-  test('returns "gated" in local mode when platform features flag is OFF', () => {
+  test('returns "gated" in local mode when VELLUM_DISABLE_PLATFORM is set', () => {
     isLocalModeMock.mockImplementation(() => true);
     useAuthStore.setState({ platformSession: "present" });
-    useAssistantFeatureFlagStore.setState({
-      hasHydrated: true,
-      platformFeaturesInLocalMode: false,
-    } as Partial<ReturnType<typeof useAssistantFeatureFlagStore.getState>>);
+    isPlatformDisabledMock.mockImplementation(() => true);
     const { result } = renderHook(() => usePlatformGate());
     expect(result.current).toBe("gated");
   });
@@ -135,31 +121,13 @@ describe("usePlatformGate — { platformHostedOnly: true }", () => {
     expect(result.current).toBe("full");
   });
 
-  test('ignores platformFeaturesInLocalMode flag when active assistant is platform-hosted', () => {
-    // The flag gates the daemon-side API interceptor in local mode —
+  test('ignores VELLUM_DISABLE_PLATFORM when active assistant is platform-hosted', () => {
+    // The env var gates the daemon-side API interceptor in local mode —
     // it has no bearing on UI that targets a platform-hosted assistant.
     isLocalModeMock.mockImplementation(() => true);
     setLifecycle({ kind: "active", isLocal: false });
     useAuthStore.setState({ platformSession: "present" });
-    useAssistantFeatureFlagStore.setState({
-      hasHydrated: true,
-      platformFeaturesInLocalMode: false,
-    } as Partial<ReturnType<typeof useAssistantFeatureFlagStore.getState>>);
-    const { result } = renderHook(() =>
-      usePlatformGate({ platformHostedOnly: true }),
-    );
-    expect(result.current).toBe("full");
-  });
-
-  test('does not gate on hydration state for platform-hosted-only branch', () => {
-    // Pre-hydration in local mode used to return "disabled" via the
-    // standard fall-through. The platform-hosted-only branch must
-    // bypass the hydration check entirely — the active assistant's
-    // hosting is the only signal that matters.
-    isLocalModeMock.mockImplementation(() => true);
-    setLifecycle({ kind: "active", isLocal: false });
-    useAuthStore.setState({ platformSession: "present" });
-    useAssistantFeatureFlagStore.setState({ hasHydrated: false });
+    isPlatformDisabledMock.mockImplementation(() => true);
     const { result } = renderHook(() =>
       usePlatformGate({ platformHostedOnly: true }),
     );

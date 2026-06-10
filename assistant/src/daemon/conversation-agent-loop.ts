@@ -32,15 +32,10 @@ import {
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import type { ContextWindowConfig } from "../config/types.js";
 import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
 } from "../context/post-turn-tool-result-truncation.js";
-import {
-  estimatePromptTokens,
-  getCalibrationProviderKey,
-} from "../context/token-estimator.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import {
   clearSentryConversationContext,
@@ -74,10 +69,8 @@ import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import {
   createInitialReducerState,
-  reduceContextOverflow,
   type ReducerState,
 } from "../plugins/defaults/compaction/context-overflow-reducer.js";
-import { computeCorrectedOverflowTarget } from "../plugins/defaults/compaction/corrected-target.js";
 import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -425,10 +418,6 @@ export async function runAgentLoopImpl(
   const resolveCurrentMaxInputTokens = (): number => {
     refreshCurrentProfileState();
     return currentEffectiveContextWindow.maxInputTokens;
-  };
-  const resolveCurrentContextWindowConfig = (): ContextWindowConfig => {
-    refreshCurrentProfileState();
-    return currentContextWindowConfig;
   };
   const resolveCurrentContextBudget = (): {
     overflowRecovery: EffectiveContextWindow["overflowRecovery"];
@@ -798,14 +787,16 @@ export async function runAgentLoopImpl(
 
     // Unified `<turn_context>` actor input for this turn (model-facing grounding
     // metadata; the conversation runtime context remains the source for policy
-    // gating). Resolved once at turn start and threaded per call site (like
-    // `modelProfileKey`) so post-compaction re-injection receives it as an
-    // explicit hook input rather than re-deriving it from live state that can
-    // flip mid-turn.
+    // gating). Resolved once at turn start and reused by the orchestrator's
+    // post-rejection convergence re-injection rather than re-derived from live
+    // state that can flip mid-turn. Frozen onto the conversation so the
+    // post-compaction hook re-emits this same value instead of re-resolving
+    // against contact/member registry state that may have drifted mid-turn.
     const actorContext = resolveTurnInboundActorContext(
       ctx.trustContext,
       ctx.assistantId,
     );
+    ctx.currentTurnInboundActorContext = actorContext;
 
     // Surface long gaps between user messages so the model can acknowledge
     // the absence naturally. Gated at >12h to avoid noisy injection during
@@ -908,15 +899,12 @@ export async function runAgentLoopImpl(
     );
     let runMessages = finalUserPromptCtx.latestMessages;
 
-    // Reducer state, tool-token budget, and calibration provider key consumed
-    // by the post-rejection convergence loop further down. The tool-token
-    // budget is resolved once per turn (the resolved tool set is stable across
-    // the turn); the calibration key matches the key recorded by `handleUsage`
-    // for wrapper providers (OpenRouter routing to Anthropic → key is
-    // `"anthropic"`).
+    // Mirror of the manager's turn-scoped overflow-recovery ladder state, used
+    // by the post-rejection convergence driver below to gate its bounded rung
+    // loop. Reset at the turn boundary so a new turn starts the ladder fresh
+    // from the emergency rung.
     let reducerState: ReducerState | undefined;
-    const toolTokenBudget = ctx.agentLoop.getToolTokenBudget(runMessages);
-    const estimationProviderName = getCalibrationProviderKey(ctx.provider);
+    ctx.contextWindowManager.resetOverflowRecovery();
 
     const shouldGenerateTitle = isReplaceableTitle(
       getConversation(ctx.conversationId)?.title ?? null,
@@ -988,7 +976,6 @@ export async function runAgentLoopImpl(
           compactInPlace,
           isNonInteractive,
           modelProfileKey,
-          actorContext,
         });
       lastRunAppendedNewMessages = appendedNewMessages;
       lastRunNewMessages = newMessages;
@@ -1154,71 +1141,34 @@ export async function runAgentLoopImpl(
       }
 
       // When the provider reveals the actual token count in its error
-      // message (e.g. "242201 tokens > 200000"), use it to correct the
-      // compaction target. The estimator may significantly underestimate
-      // (e.g. estimated 185k but actual was 242k), so using the
-      // uncorrected preflightBudget would still be too high. Passes the raw
-      // error so ContextOverflowError.actualTokens can short-circuit the
-      // string-regex path for proxy-rewrapped untyped errors.
+      // message (e.g. "242201 tokens > 200000"), the manager uses it to
+      // correct the compaction target — the estimator can significantly
+      // undercount, so the uncorrected preflight budget would still be too
+      // high. Passes the raw error so `ContextOverflowError.actualTokens` can
+      // short-circuit the string-regex path for proxy-rewrapped untyped
+      // errors.
       const actualTokens = parseActualTokensFromError(
         state.contextTooLargeError,
       );
-      const estimatedTokensAtOverflow = estimatePromptTokens(
-        ctx.messages,
-        ctx.systemPrompt,
-        {
-          providerName: estimationProviderName,
-          toolTokenBudget,
-        },
-      );
-      const convergenceBudget = resolveCurrentContextBudget();
-      const { targetTokens: correctedTarget, estimationErrorRatio } =
-        computeCorrectedOverflowTarget({
-          preflightBudget: convergenceBudget.preflightBudget,
-          actualTokens,
-          estimatedTokens: estimatedTokensAtOverflow,
-        });
-      if (estimationErrorRatio != null) {
-        rlog.warn(
-          {
-            phase: "convergence",
-            actualTokens,
-            estimatedTokens: estimatedTokensAtOverflow,
-            estimationErrorRatio: estimationErrorRatio.toFixed(2),
-            preflightBudget: convergenceBudget.preflightBudget,
-            correctedTarget,
-          },
-          "Adjusting compaction target based on observed estimation error",
-        );
-      }
 
       // ── Bounded context-overflow convergence driver ─────────────────
       // The compaction plugin's reduction ladder owns every rung: the
       // emergency summarize-around-last-tool-pair, the middle tiers (forced
       // compaction, tool-result truncation, media stubbing, injection
-      // downgrade), and the terminal auto-compress of the latest turn. This
-      // driver applies one rung per iteration, re-injects, and re-runs the
-      // agent loop until the context fits or the ladder is exhausted. The
-      // overflow policy decides whether the terminal auto-compress rung is
-      // permitted; the ladder never makes that policy call itself.
+      // downgrade), and the terminal auto-compress of the latest turn. The
+      // manager owns the rung selection, the reducer state, and the corrected
+      // target it derives from its own calibrated estimate; this driver only
+      // applies one rung per iteration, re-injects, and re-runs the agent loop
+      // until the context fits or the ladder is exhausted. The overflow policy
+      // decides whether the terminal auto-compress rung is permitted; the
+      // ladder never makes that policy call itself.
+      const { overflowRecovery } = resolveCurrentContextBudget();
       const overflowAction = resolveOverflowAction({
-        overflowRecovery: convergenceBudget.overflowRecovery,
+        overflowRecovery,
         isInteractive: isInteractiveResolved,
       });
-      const reducerConfig = {
-        providerName: estimationProviderName,
-        systemPrompt: ctx.systemPrompt,
-        contextWindow: resolveCurrentContextWindowConfig(),
-        targetTokens: correctedTarget,
-        toolTokenBudget,
-        conversationId: ctx.conversationId,
-        overrideProfile: resolveCurrentOverrideProfile() ?? null,
-        actorTrustClass: resolveTurnActorTrustClass(ctx),
-        previousEstimatedInputTokens: estimatedTokensAtOverflow,
-        maxMiddleTierAttempts: convergenceBudget.overflowRecovery.maxAttempts,
-        allowAutoCompressLatestTurn:
-          overflowAction === "auto_compress_latest_turn",
-      };
+      const allowAutoCompressLatestTurn =
+        overflowAction === "auto_compress_latest_turn";
 
       // Safety backstop against a reduction ladder that never reports
       // exhaustion: the ladder can apply at most the emergency rung, the
@@ -1226,7 +1176,7 @@ export async function runAgentLoopImpl(
       // well-behaved reducer always sets `exhausted` within this many steps.
       // The cap only guards against a misbehaving reducer; it never truncates a
       // legitimate escalation.
-      const maxConvergenceRungs = reducerConfig.maxMiddleTierAttempts + 2;
+      const maxConvergenceRungs = overflowRecovery.maxAttempts + 2;
       let convergenceRungs = 0;
 
       while (
@@ -1248,10 +1198,14 @@ export async function runAgentLoopImpl(
           requestId: reqId,
         });
         const convergenceCompactionBasis = ctx.messages;
-        const step = await reduceContextOverflow(
+        const step = await ctx.contextWindowManager.reduceOverflowOneRung(
           convergenceCompactionBasis,
-          reducerConfig,
-          reducerState,
+          {
+            actualTokens,
+            allowAutoCompressLatestTurn,
+            overrideProfile: resolveCurrentOverrideProfile() ?? null,
+            actorTrustClass: resolveTurnActorTrustClass(ctx),
+          },
           abortController.signal,
         );
 

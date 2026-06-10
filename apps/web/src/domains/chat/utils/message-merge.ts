@@ -10,6 +10,7 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
       am.role !== bm.role ||
       am.timestamp !== bm.timestamp ||
       JSON.stringify(am.mergedMessageIds) !== JSON.stringify(bm.mergedMessageIds) ||
+      JSON.stringify(am.contentBlocks) !== JSON.stringify(bm.contentBlocks) ||
       JSON.stringify(am.surfaces) !== JSON.stringify(bm.surfaces) ||
       JSON.stringify(am.textSegments) !== JSON.stringify(bm.textSegments) ||
       JSON.stringify(am.contentOrder) !== JSON.stringify(bm.contentOrder) ||
@@ -26,6 +27,7 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
       "id",
       "mergedMessageIds",
       "role",
+      "contentBlocks",
       "surfaces",
       "textSegments",
       "contentOrder",
@@ -53,42 +55,6 @@ function mergeStringArrays(
 ): string[] | undefined {
   const merged = [...new Set([...(current ?? []), ...(incoming ?? [])])];
   return merged.length > 0 ? merged : undefined;
-}
-
-/**
- * Merge locally-accumulated thinking segments with the server's snapshot,
- * keeping the longer text at each position and appending any extra trailing
- * segments from either side.
- *
- * The live SSE stream is normally ahead of the server's periodic snapshot, so
- * reconciliation defaults to the local copy. But thinking deltas that arrive
- * while the stream is torn down (e.g. the tab is backgrounded and the stream
- * reconnects mid-turn) are never replayed, leaving the local block truncated.
- * Picking the longer text per index lets the local copy stay ahead during
- * normal streaming while healing a truncated block once the server's snapshot
- * carries the fuller reasoning. Position alignment is preserved so the row's
- * `contentOrder` thinking ids keep resolving to the right segment.
- */
-export function mergeThinkingSegments(
-  local: string[] | undefined,
-  server: string[] | undefined,
-): string[] | undefined {
-  if (!local || local.length === 0) return server;
-  if (!server || server.length === 0) return local;
-  const length = Math.max(local.length, server.length);
-  const merged: string[] = [];
-  for (let i = 0; i < length; i++) {
-    const localSegment = local[i];
-    const serverSegment = server[i];
-    if (localSegment == null) {
-      merged.push(serverSegment!);
-    } else if (serverSegment == null) {
-      merged.push(localSegment);
-    } else {
-      merged.push(serverSegment.length > localSegment.length ? serverSegment : localSegment);
-    }
-  }
-  return merged;
 }
 
 /**
@@ -239,6 +205,17 @@ function foldAdjacentAssistant(
     survivor.thinkingSegments,
     donor.thinkingSegments,
   );
+  // Concatenate the unified block projections in the same survivor→donor order
+  // as the positional arrays. Blocks embed their full referents (no positional
+  // ids), so unlike `contentOrder` they need no offset remap — the donor's
+  // blocks simply append after the survivor's. Every row reaching the fold has
+  // been normalized (`normalizeContentBlocks`), so its blocks already span its
+  // own `thinkingSegments`; concatenating two such rows keeps the merged row in
+  // lockstep, and the block-first reader resolves each thinking index from the
+  // right side.
+  const contentBlocks = survivor.contentBlocks
+    ? [...survivor.contentBlocks, ...(donor.contentBlocks ?? [])]
+    : donor.contentBlocks;
 
   // Donor's id becomes a merged alias on the survivor so subsequent
   // reconcile / SSE lookups by donor id still resolve to the survivor.
@@ -258,6 +235,7 @@ function foldAdjacentAssistant(
   if (surfaces) merged.surfaces = surfaces;
   if (attachments) merged.attachments = attachments;
   if (thinkingSegments) merged.thinkingSegments = thinkingSegments;
+  if (contentBlocks) merged.contentBlocks = contentBlocks;
   if (mergedMessageIds) merged.mergedMessageIds = mergedMessageIds;
   // metadata / slackMessage / timestamp come from the survivor (older
   // anchor) via the spread — matches the backend's
@@ -275,7 +253,7 @@ function foldAdjacentAssistant(
  * The backend's read-side merge only sees rows within one paginated
  * page. When a long turn spans N pages, the backend produces N display
  * messages — each anchored on its page's oldest assistant row — and the
- * client's dedupe-by-id pass can't reconcile them because the anchors
+ * client's id-keyed reconciler can't merge them because the anchors
  * have distinct ids. Walking adjacency once on the client closes that
  * gap: identical to what the backend would have produced if it had all
  * the rows in one query.

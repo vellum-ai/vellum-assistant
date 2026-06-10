@@ -435,6 +435,17 @@ function makeCtx(
       updateConfig: () => {},
       shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
       maybeCompact: async () => ({ compacted: false }),
+      resetOverflowRecovery: () => {},
+      reduceOverflowOneRung: async (msgs: Message[]) => ({
+        messages: msgs,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: ["forced_compaction"],
+          injectionMode: "full",
+          exhausted: true,
+        },
+        estimatedTokens: 1000,
+      }),
     } as unknown as Conversation["contextWindowManager"],
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,

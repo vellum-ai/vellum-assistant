@@ -14,6 +14,7 @@ import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, LLMConfig } from "../config/schemas/llm.js";
 import {
+  NOW_SCRATCHPAD_STRIP_PREFIXES,
   stripSpotlightInjections,
   stripUserTextBlocksByPrefix,
 } from "../context/strip-injections.js";
@@ -676,12 +677,7 @@ function injectVoiceCallControlContext(
 
 /** Strip `<NOW.md>` blocks injected by the `now-md` default injector. */
 export function stripNowScratchpad(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, [
-    // Shared prefix catches both the current tag and any pre-line-limit
-    // variant that may linger in in-flight histories during a rolling deploy.
-    "<NOW.md Always keep this up to date",
-    "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
-  ]);
+  return stripUserTextBlocksByPrefix(messages, NOW_SCRATCHPAD_STRIP_PREFIXES);
 }
 
 /**

@@ -284,14 +284,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "provider-zai",
-      "scope": "assistant",
-      "key": "provider-zai",
-      "label": "z.ai Provider",
-      "description": "Enable the z.ai (Zhipu AI) provider and its GLM models in the provider picker and model selection UI",
-      "defaultEnabled": false
-    },
-    {
       "id": "velvet-theme",
       "scope": "client",
       "key": "velvet-theme",
@@ -378,14 +370,6 @@
       "label": "Memory Router Playground",
       "description": "Expose the developer-only Memory Router Playground tab in macOS Settings and the /assistant/memory-router-playground web page for dry-running v4 router config overrides against the live page index. Dev-only; default off.",
       "defaultEnabled": false
-    },
-    {
-      "id": "platform-features-in-local-mode",
-      "scope": "assistant",
-      "key": "platform-features-in-local-mode",
-      "label": "Platform Features in Local Mode",
-      "description": "When enabled, the assistant can call the Vellum platform API from local mode. When disabled, all platform API clients in the daemon, gateway, CES, and web UI no-op with a debug log instead of making outbound requests.",
-      "defaultEnabled": true
     },
     {
       "id": "memory-v3-shadow",

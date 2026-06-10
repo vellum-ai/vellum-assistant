@@ -32,7 +32,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { unwrapMemoryBlock } from "../../../../memory/memory-marker.js";
 import { migrateAddMemoryV3Selections } from "../../../../memory/migrations/268-add-memory-v3-selections.js";
-import { migrateAddMemoryV3EverInjected } from "../../../../memory/migrations/275-add-memory-v3-ever-injected.js";
+import { migrateAddMemoryV3EverInjected } from "../../../../memory/migrations/277-add-memory-v3-ever-injected.js";
 import * as schema from "../../../../memory/schema.js";
 import type { InjectionBlock } from "../../../types.js";
 import type { OrchestrateResult } from "../orchestrate.js";

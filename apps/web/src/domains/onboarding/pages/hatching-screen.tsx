@@ -3,7 +3,7 @@ import * as Sentry from "@sentry/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { getAssistant, hatchAssistant } from "@/assistant/api";
+import { getAssistant, getAssistantHealthz, hatchAssistant, type Assistant } from "@/assistant/api";
 import { fetchCharacterTraits, saveCharacterTraits } from "@/assistant/avatar-api";
 import {
     isPlatformHostedDisabled,
@@ -24,7 +24,9 @@ import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { hatchLocalAssistant } from "@/runtime/local-mode-host";
 import { isNativePlatform } from "@/runtime/native-auth";
+import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
 import { useAuthStore } from "@/stores/auth-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { CharacterTraits } from "@/types/avatar";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
@@ -142,6 +144,7 @@ export function HatchingScreen() {
     let navigateTimer: ReturnType<typeof setTimeout> | null = null;
     let readyPollTimer: ReturnType<typeof setTimeout> | null = null;
     const pollStartMs = Date.now();
+    let hatchedAssistantId: string | undefined;
 
     const pinnedVersion = readSelectedVersion();
 
@@ -283,6 +286,14 @@ export function HatchingScreen() {
             } catch (err) {
               captureError(err, { context: "onboarding_apply_provider_key" });
             }
+            useResolvedAssistantsStore.getState().upsertFromApi({
+              id: result.assistantId,
+              name: result.assistantId,
+              status: "active",
+              is_local: true,
+              created: new Date().toISOString(),
+            } as Assistant);
+            void selectPlatformAssistant(result.assistantId);
           }
 
           handleHatchReady();
@@ -303,6 +314,9 @@ export function HatchingScreen() {
         const result = await platformHatchPromise;
         platformHatchPromise = null;
         if (cancelled) return;
+        if (result.ok) {
+          hatchedAssistantId = result.data.id;
+        }
         if (!result.ok) {
           Sentry.captureMessage("Onboarding hatch request failed", {
             level: "warning",
@@ -353,12 +367,21 @@ export function HatchingScreen() {
         return;
       }
       try {
-        const result = await getAssistant();
+        let result = await getAssistant(hatchedAssistantId);
         if (cancelled) return;
+        // If the hatched ID 404s (e.g. stale after refresh, or backend
+        // assigned a different ID), fall back to list-based discovery.
+        if (hatchedAssistantId && !result.ok && result.status === 404) {
+          hatchedAssistantId = undefined;
+          result = await getAssistant();
+          if (cancelled) return;
+        }
         const next = resolveAssistantLifecycleState(result);
         if (next.kind === "active") {
           if (result.ok) {
             const assistantId = result.data.id;
+            useResolvedAssistantsStore.getState().upsertFromApi(result.data);
+            void selectPlatformAssistant(assistantId);
             fetchCharacterTraits(assistantId).then((existing) => {
               if (existing) return;
               return saveCharacterTraits(assistantId, hatchTraits);
@@ -373,6 +396,28 @@ export function HatchingScreen() {
                 hatchedAt: new Date().toISOString(),
               });
             }
+
+            // Wait for the daemon to be reachable before navigating.
+            // The platform may report "active" before the pod is
+            // fully ready to serve requests.
+            transitionPhase("connecting");
+            while (!cancelled) {
+              try {
+                const health = await getAssistantHealthz(assistantId);
+                if (health.ok) break;
+              } catch {
+                // Daemon not reachable yet
+              }
+              if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
+                setError("Your assistant is taking longer than expected. Please try again.");
+                return;
+              }
+              await new Promise<void>(resolve => {
+                pollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
+              });
+              pollTimer = null;
+            }
+            if (cancelled) return;
           }
 
           handleHatchReady();

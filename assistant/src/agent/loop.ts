@@ -10,12 +10,12 @@ import {
   estimateToolsTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
-import type { InboundActorContext } from "../daemon/conversation-runtime-assembly.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
+  PostCompactContext,
   PostModelCallContext,
   PostToolUseContext,
   PreModelCallContext,
@@ -23,9 +23,6 @@ import type {
 } from "../plugin-api/types.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
-import postCompact, {
-  type PostCompactContext,
-} from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { CompactionCircuitEvent } from "../plugins/types.js";
 import { normalizeThinkingConfigForWire } from "../providers/thinking-config.js";
@@ -313,7 +310,7 @@ export type AgentEvent =
        * immediately before re-injection — whether or not the pipeline actually
        * compacted. The daemon's event dispatcher always commits `basis` (the
        * stripped pre-compaction history) as the conversation's durable message
-       * state, so re-injection ({@link postCompact}) re-applies
+       * state, so re-injection (the post-compaction hook) re-applies
        * injections onto the stripped base rather than stacking on top of the
        * still-injected messages. When `result.compacted` is set it
        * additionally commits the durable compaction result (DB-record fields,
@@ -457,8 +454,8 @@ export interface AgentLoopRunOptions {
    * Trust classification and channel identity for the turn's inbound actor,
    * supplied by the caller as the turn-start snapshot. Read only on the
    * mid-loop in-place compaction path — to scope the compactor's image
-   * manifest (guardian-only attachments are excluded for untrusted actors) and
-   * forwarded to {@link postCompact}. Callers without a meaningful actor (agent
+   * manifest (guardian-only attachments are excluded for untrusted actors).
+   * Callers without a meaningful actor (agent
    * wakes, standalone unit tests) pass an `unknown`-class snapshot so the
    * compactor fail-closes to excluding guardian-only attachments.
    */
@@ -490,7 +487,7 @@ export interface AgentLoopRunOptions {
    * proactive turn-start compaction the orchestrator would otherwise perform
    * inline before `run()` — as well as before each tool-use re-entry. When the
    * gate trips it compacts the running history in place, re-applying runtime
-   * injections via the default post-compaction hook ({@link postCompact}), and
+   * injections via the default post-compaction hook ({@link HOOKS.POST_COMPACT}), and
    * continues instead of yielding `exitReason = "budget"`.
    *
    * The first-call pass honors the compaction circuit breaker and proceeds with
@@ -505,7 +502,7 @@ export interface AgentLoopRunOptions {
   /**
    * Whether the in-flight turn has no human present to answer clarification
    * questions. Resolved once by the orchestrator at turn start and forwarded to
-   * {@link postCompact} so post-compaction
+   * the post-compaction hook so post-compaction
    * re-injection uses the turn-start snapshot rather than re-reading mutable
    * client/headless state mid-turn. Defaults to `false` when omitted.
    */
@@ -513,22 +510,12 @@ export interface AgentLoopRunOptions {
   /**
    * The turn's resolved inference-profile key, or `null` when the active
    * profile is unchanged since the last notified one. Forwarded to
-   * {@link postCompact}, which renders the `model_profile:` label from it so
+   * the post-compaction hook, which renders the `model_profile:` label from it so
    * post-compaction re-injection re-emits the turn-start profile rather than
    * re-deriving the change-detected value (which flips once the notification is
    * persisted mid-turn). Defaults to `null` when omitted.
    */
   modelProfileKey?: string | null;
-  /**
-   * Inbound actor identity and trust fields for the unified `<turn_context>`
-   * block, or `null` on guardian turns. Resolved once by the orchestrator at
-   * turn start via the actor-trust resolver, whose contact/member registry
-   * inputs can be mutated mid-turn by contact tools, and forwarded to
-   * {@link postCompact} so post-compaction
-   * re-injection re-emits the turn-start value rather than re-resolving it.
-   * Defaults to `null` when omitted.
-   */
-  actorContext?: InboundActorContext | null;
 }
 
 /**
@@ -717,7 +704,6 @@ export class AgentLoop {
     overrideProfile: string | null,
     isNonInteractive: boolean,
     modelProfileKey: string | null,
-    actorContext: InboundActorContext | null,
   ): Promise<Message[] | null> {
     await onEvent({ type: "context_compacting" });
     // Strip runtime injections so the compactor summarizes the raw persistent
@@ -772,15 +758,16 @@ export class AgentLoop {
       history: compactResult.compacted ? compactResult.messages : rawHistory,
       requestId,
       conversationId: this.conversationId,
-      trust,
       isNonInteractive,
       modelProfileKey,
-      actorContext,
     };
-    // The hook writes the re-injected history back onto the context; read it
-    // from there once the hook settles.
-    await postCompact(postCompactCtx);
-    return postCompactCtx.history;
+    // The hook chain writes the re-injected history back onto the context;
+    // read it from there once the chain settles.
+    const finalPostCompactCtx = await runHook(
+      HOOKS.POST_COMPACT,
+      postCompactCtx,
+    );
+    return finalPostCompactCtx.history;
   }
 
   async run(options: AgentLoopRunOptions): Promise<AgentLoopRunResult> {
@@ -798,7 +785,6 @@ export class AgentLoop {
       compactInPlace = false,
       isNonInteractive = false,
       modelProfileKey = null,
-      actorContext = null,
     } = options;
     let history = [...messages];
     // Index into `history` where this run's appended output begins. It starts
@@ -926,7 +912,6 @@ export class AgentLoop {
                   resolveEffectiveOverrideProfile() ?? null,
                   isNonInteractive,
                   modelProfileKey,
-                  actorContext,
                 );
                 if (compacted) {
                   history = compacted;

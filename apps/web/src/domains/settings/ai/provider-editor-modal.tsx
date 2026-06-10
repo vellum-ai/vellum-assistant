@@ -60,7 +60,6 @@ export interface ProviderEditorContentProps {
   connection?: ProviderConnection;
   assistantId: string;
   existingNames: string[];
-  chatgptSubscriptionEnabled?: boolean;
   onSave: (connection: ProviderConnection) => void;
   onCancel: () => void;
 }
@@ -70,7 +69,6 @@ export function ProviderEditorContent({
   connection,
   assistantId,
   existingNames,
-  chatgptSubscriptionEnabled = false,
   onSave,
   onCancel,
 }: ProviderEditorContentProps) {
@@ -355,7 +353,6 @@ export function ProviderEditorContent({
         variant="modal"
         assistantId={assistantId}
         existingNames={existingNames}
-        chatgptSubscriptionEnabled={chatgptSubscriptionEnabled}
         defaultProviderType={provider}
         defaultAuthType={createAuthTypeSeed}
         onCreated={onSave}

@@ -174,7 +174,7 @@ const { getSqliteFrom } = await import("../../db-connection.js");
 const { migrateActivationState } =
   await import("../../migrations/232-activation-state.js");
 const { migrateAddMemoryV3EverInjected } =
-  await import("../../migrations/275-add-memory-v3-ever-injected.js");
+  await import("../../migrations/277-add-memory-v3-ever-injected.js");
 const { getActiveSlugs: getV3ActiveSlugs, recordInjected: recordV3Injected } =
   await import("../../../plugins/defaults/memory-v3-shadow/ever-injected-store.js");
 const schema = await import("../../schema.js");

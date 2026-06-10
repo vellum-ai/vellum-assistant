@@ -19,7 +19,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { migrateAddMemoryV3EverInjected } from "../../../memory/migrations/275-add-memory-v3-ever-injected.js";
+import { migrateAddMemoryV3EverInjected } from "../../../memory/migrations/277-add-memory-v3-ever-injected.js";
 import * as schema from "../../../memory/schema.js";
 
 const realDb = { ...(await import("../../../memory/db-connection.js")) };

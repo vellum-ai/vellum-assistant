@@ -7,6 +7,7 @@ import type {
   AgentHatchInput,
   AgentMessage,
   BaseAgent,
+  ConfirmationDecision,
   WorkspaceFileWrite,
 } from "../adapter";
 import type { Profile } from "../profile";
@@ -476,6 +477,27 @@ export class VellumAgent implements BaseAgent {
       message.content,
     ]);
     assertSuccess(result, `send message to ${this.id}`);
+  }
+
+  /**
+   * Resolve a pending tool confirmation the agent raised. A hatched
+   * assistant runs headless with no interactive approver, so any tool
+   * above the auto-approve risk threshold stalls on a pending
+   * `confirmation_request` until something answers it. Runners that
+   * auto-approve during a turn call this on each such event so the turn
+   * can proceed. Routes through the gateway via `vellum confirm`.
+   */
+  async confirm(input: ConfirmationDecision): Promise<void> {
+    this.assertHatched();
+    const result = await this.runner.run(this.cliCommand, [
+      "confirm",
+      this.id,
+      "--request-id",
+      input.requestId,
+      "--decision",
+      input.decision,
+    ]);
+    assertSuccess(result, `confirm ${input.requestId} for ${this.id}`);
   }
 
   async runSetupCommand(command: TestSetupCommand): Promise<void> {

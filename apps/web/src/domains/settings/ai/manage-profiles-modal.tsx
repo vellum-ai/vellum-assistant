@@ -45,7 +45,6 @@ export function ManageProfilesModal({
   } = useDaemonConfigQuery();
   const configMutation = useDaemonConfigMutation();
 
-  const chatgptSubscriptionAuth = useAssistantFeatureFlagStore.use.chatgptSubscriptionAuth();
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<ProfileWithName | null>(null);
 
@@ -166,7 +165,6 @@ export function ManageProfilesModal({
         existingNames={existingNames}
         connections={connections}
         assistantId={assistantId}
-        chatgptSubscriptionEnabled={chatgptSubscriptionAuth}
         onSave={handleEditorSave}
         onCancel={() => {
           setEditorOpen(false);
