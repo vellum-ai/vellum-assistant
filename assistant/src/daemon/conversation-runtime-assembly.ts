@@ -1823,7 +1823,7 @@ export interface RuntimeInjectionOptions {
    * {@link Injector}s — it is the one turn-identity field that cannot be
    * recovered from the live conversation, so callers must supply it.
    */
-  requestId?: string;
+  requestId?: string | null;
   /**
    * Conversation the turn is scoped to. Drives the live-conversation lookup
    * that sources every self-resolved per-turn field, and is forwarded onto

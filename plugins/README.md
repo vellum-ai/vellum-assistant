@@ -130,13 +130,18 @@ filename becomes the hook key. **One hook per file.**
 The hook signature is:
 
 ```ts
-type PluginHookFn<TCtx> = (ctx: TCtx) => Promise<TCtx | void>;
+type PluginHookFn<TCtx> = (ctx: TCtx) => Promise<Partial<TCtx> | void>;
 ```
 
-The polymorphic return shape means a hook can either **mutate `ctx`
-in place and return `void`** or **return a new ctx** — the runtime
-forwards whichever the chain settles on to the next plugin, and
-ultimately to the assistant's agent loop.
+The return shape means a hook can either **mutate `ctx` in place and
+return `void`** or **return a partial ctx** — the runtime merges the
+returned fields onto the threaded context (keys you return overwrite,
+everything else is preserved), then forwards the merged ctx to the next
+plugin, and ultimately to the assistant's agent loop. Returning a partial
+lets a hook edit just the subset of fields it cares about. Because an
+omitted key means "keep the existing value", context fields are always
+required and use `| null` (never `| undefined`) for empty values, so a
+missing key is never confused with an explicit clear.
 
 ### `init`
 

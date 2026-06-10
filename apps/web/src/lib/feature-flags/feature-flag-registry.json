@@ -60,6 +60,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "workspace-tools-watcher",
+      "scope": "assistant",
+      "key": "workspace-tools-watcher",
+      "label": "Workspace tools file watcher",
+      "description": "Hot-reload workspace tool overrides under `<workspaceDir>/tools/` by watching the directory and re-registering tools as files change. When disabled, workspace tools still load from disk once at daemon startup, but live edits require a restart to take effect.",
+      "defaultEnabled": false
+    },
+    {
       "id": "settings-developer-nav",
       "scope": "assistant",
       "key": "settings-developer-nav",
