@@ -168,6 +168,7 @@ function lockfileMiddleware(
           result = replacePlatformAssistants(
             lockfilePaths,
             body.platformAssistants as Array<Record<string, unknown>>,
+            body.organizationId as string | undefined,
           );
         } else {
           result = upsertLockfileAssistant(

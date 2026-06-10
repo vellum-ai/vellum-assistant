@@ -202,7 +202,10 @@ export async function syncPlatformAssistantsToLockfile(
       ...(organizationId != null && { organizationId }),
     }));
 
-  const result = await replacePlatformAssistantsHost(platformAssistants);
+  const result = await replacePlatformAssistantsHost(
+    platformAssistants,
+    organizationId,
+  );
   if (result.ok) {
     commitLockfile(result.lockfile);
   }

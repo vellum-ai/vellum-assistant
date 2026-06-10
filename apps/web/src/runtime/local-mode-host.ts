@@ -154,23 +154,27 @@ export async function saveLockfileAssistantHost(
 }
 
 /**
- * Replace every platform (`cloud === "vellum"`) assistant in the lockfile with
- * the provided set, preserving local assistants. Same never-throw contract as
- * `saveLockfileAssistantHost`.
+ * Replace the platform (`cloud === "vellum"`) assistants in the lockfile with
+ * the provided set, preserving local assistants. When `organizationId` is
+ * given, only that org's platform entries are replaced — other orgs' entries
+ * are preserved; omitting it does the legacy full replace. Same never-throw
+ * contract as `saveLockfileAssistantHost`.
  */
 export async function replacePlatformAssistantsHost(
   platformAssistants: Array<Record<string, unknown>>,
+  organizationId?: string,
 ): Promise<LockfileWriteResult> {
   if (isElectron()) {
     return window.vellum!.localMode.replacePlatformAssistants(
       platformAssistants,
+      organizationId,
     );
   }
 
   const res = await fetch("/assistant/__local/lockfile", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ syncPlatform: true, platformAssistants }),
+    body: JSON.stringify({ syncPlatform: true, platformAssistants, organizationId }),
   });
   return res.json() as Promise<LockfileWriteResult>;
 }
