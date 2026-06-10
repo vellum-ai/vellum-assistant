@@ -2062,7 +2062,7 @@ jobs:
       - name: Upload Electron update artifacts to GCS
         run: |
           ENVIRONMENT="dev"
-          BUCKET="vellum-dev-releases"
+          BUCKET="vellum-ai-dev-releases"
           MANIFEST_NAME="${ENVIRONMENT}-mac.yml"
 
           for ARCH in arm64 x64; do
