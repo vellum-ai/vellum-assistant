@@ -166,8 +166,6 @@ describe("vellum:localMode:hatch handler", () => {
       cliInstallerState.bundledBunPath,
       ["run", cliInstallerState.cliBinPath, "hatch", "openclaw"],
     ]);
-    // Routed through ensureCliInstalled so the PATH-wrapper locator is
-    // refreshed even on the already-installed path.
     expect(ensureCliInstalledMock).toHaveBeenCalledTimes(1);
   });
 

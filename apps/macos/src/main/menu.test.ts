@@ -20,11 +20,15 @@ const buildFromTemplateMock = mock((template: TemplateItem[]) => ({
 }));
 const setApplicationMenuMock = mock((_menu: unknown) => undefined);
 
+// Mutable so tests can flip packaged/dev; the CLI path items only exist in
+// packaged builds, so packaged is the default here.
+const electronApp = {
+  name: "Vellum Electron",
+  isPackaged: true,
+};
+
 mock.module("electron", () => ({
-  app: {
-    name: "Vellum Electron",
-    isPackaged: false,
-  },
+  app: electronApp,
   Menu: {
     buildFromTemplate: buildFromTemplateMock,
     setApplicationMenu: setApplicationMenuMock,
@@ -139,6 +143,7 @@ const SHADOWED_LABEL = "⚠ vellum is shadowed by another install";
 installApplicationMenu();
 
 beforeEach(async () => {
+  electronApp.isPackaged = true;
   getCliPathInstallStateMock.mockReset();
   getCliPathInstallStateMock.mockResolvedValue({ kind: "not-installed" });
   // Settle any pending refresh kicked off by installApplicationMenu before
@@ -230,6 +235,28 @@ describe("CLI path menu items", () => {
     expect(callOrder).toEqual(["uninstall-flow", "detect"]);
     expect(buildFromTemplateMock.mock.calls.length).toBe(buildsBefore + 1);
     expect(appMenuLabels()).toContain(INSTALL_LABEL);
+  });
+});
+
+describe("CLI path menu items in unpackaged builds", () => {
+  test("shows neither item and never spawns detection", async () => {
+    electronApp.isPackaged = false;
+    await refreshCliPathMenuState();
+    expect(getCliPathInstallStateMock).not.toHaveBeenCalled();
+    expect(appMenuLabels()).not.toContain(INSTALL_LABEL);
+    expect(appMenuLabels()).not.toContain(UNINSTALL_LABEL);
+  });
+
+  test("hides Uninstall even when a prior detection found an install", async () => {
+    await setStateAndRefresh({ kind: "installed", inPath: true });
+    expect(appMenuLabels()).toContain(UNINSTALL_LABEL);
+
+    electronApp.isPackaged = false;
+    getCliPathInstallStateMock.mockClear();
+    await refreshCliPathMenuState();
+    expect(getCliPathInstallStateMock).not.toHaveBeenCalled();
+    expect(appMenuLabels()).not.toContain(INSTALL_LABEL);
+    expect(appMenuLabels()).not.toContain(UNINSTALL_LABEL);
   });
 });
 

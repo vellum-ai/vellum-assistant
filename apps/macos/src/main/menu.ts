@@ -40,10 +40,12 @@ const state: MenuState = {
 let cliPathState: CliPathInstallState | null = null;
 
 export const refreshCliPathMenuState = async (): Promise<void> => {
-  try {
-    cliPathState = await getCliPathInstallState();
-  } catch {
-    cliPathState = null;
+  if (app.isPackaged) {
+    try {
+      cliPathState = await getCliPathInstallState();
+    } catch {
+      cliPathState = null;
+    }
   }
   applyMenu();
 };
@@ -60,6 +62,8 @@ const cliPathFlowItem = (
 });
 
 const cliPathItems = (): MenuItemConstructorOptions[] => {
+  // Only packaged builds manage the shared ~/.local/bin/vellum wrapper.
+  if (!app.isPackaged) return [];
   const kind = cliPathState?.kind;
   if (kind === "installed" || kind === "shadowed") {
     return [
@@ -317,6 +321,9 @@ export const installApplicationMenu = (): void => {
   applyMenu();
 
   // Detect the vellum CLI install state asynchronously so menu setup never
-  // waits on (or breaks from) login-shell PATH resolution.
-  void refreshCliPathMenuState();
+  // waits on (or breaks from) login-shell PATH resolution. Packaged-only:
+  // dev builds neither show the items nor spawn the detection shell.
+  if (app.isPackaged) {
+    void refreshCliPathMenuState();
+  }
 };
