@@ -24,7 +24,12 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
-import { isLocalMode, isLocalAssistant, isPlatformAssistant } from "@/lib/local-mode";
+import {
+  isLocalMode,
+  isLocalAssistant,
+  isPlatformAssistant,
+  reconcileSelectedAssistant,
+} from "@/lib/local-mode";
 import { useLockfileStore } from "@/stores/lockfile-store";
 import type { Lockfile } from "@/runtime/local-mode-host";
 import type { Assistant } from "@/generated/api/types.gen";
@@ -223,6 +228,9 @@ if (isLocalMode()) {
   useLockfileStore.subscribe((state) => {
     if (state.lockfile) {
       useResolvedAssistantsStoreBase.getState().setFromLockfile(state.lockfile);
+      // Drop a stale tab-local selection (e.g. a retired assistant) now that
+      // the lockfile registry has changed.
+      reconcileSelectedAssistant();
     }
   });
 }

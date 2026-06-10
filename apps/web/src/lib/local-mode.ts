@@ -297,6 +297,21 @@ export function clearSelectedAssistant(): void {
   removeLocalSetting(SELECTED_ASSISTANT_STORAGE_KEY);
 }
 
+/**
+ * Reconcile the tab-local selection cache against the lockfile registry: if the
+ * selected id no longer names a lockfile entry, clear it so `getSelectedAssistant`
+ * falls back to `getActiveAssistant`. No-op when there is no tab-local selection —
+ * resolution is left to `getActiveAssistant`.
+ */
+export function reconcileSelectedAssistant(): void {
+  const selectedId = getLocalSetting(SELECTED_ASSISTANT_STORAGE_KEY, "");
+  if (!selectedId) return;
+  const present = getLockfile().assistants.some(
+    (a) => a.assistantId === selectedId,
+  );
+  if (!present) clearSelectedAssistant();
+}
+
 // ---------------------------------------------------------------------------
 // URL helpers
 // ---------------------------------------------------------------------------
