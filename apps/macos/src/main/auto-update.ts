@@ -12,6 +12,8 @@ const ENVIRONMENT: string =
     ? __VELLUM_ENVIRONMENT__
     : "production";
 
+const BUCKET_ENV = ENVIRONMENT === "production" ? "prod" : ENVIRONMENT;
+
 type UpdateStatus =
   | "idle"
   | "checking"
@@ -60,7 +62,7 @@ export const installAutoUpdate = (): void => {
   autoUpdater.allowDowngrade = false;
   autoUpdater.setFeedURL({
     provider: "generic",
-    url: `https://storage.googleapis.com/vellum-${ENVIRONMENT}-releases/mac-electron/${process.arch}/`,
+    url: `https://storage.googleapis.com/vellum-${BUCKET_ENV}-releases/mac-electron/${process.arch}/`,
   });
 
   autoUpdater.on("checking-for-update", () => {
