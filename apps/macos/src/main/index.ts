@@ -58,6 +58,7 @@ import {
 import { installApplicationMenu } from "./menu";
 import { installNativeAuth } from "./native-auth";
 import { installConnectivityProbe } from "./connectivity-probe";
+import { installMicAccessIpc } from "./mic-access";
 import { installNotifications } from "./notifications";
 import { installPermissionHandler } from "./permissions";
 import { installPowerEvents } from "./power-events";
@@ -322,6 +323,7 @@ app
     installBundleFlow();
     onFileOpen(handleBundleFile);
     installPermissionHandler();
+    installMicAccessIpc();
     installCsp();
     installHotkeysIpc();
     installFeatureFlagsIpc();

@@ -20,6 +20,7 @@ import {
     type SttFailureReason,
 } from "@/domains/chat/voice/stt-api";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
+import { requestMicAccess } from "@/runtime/mic-permission";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { voiceInputAudioConstraints } from "@/utils/voice-input-device";
@@ -495,6 +496,22 @@ export const VoiceInputButton = forwardRef<
     if (!mimeType) {
       onError?.("service-not-allowed");
       vsFail("service-not-allowed");
+      return;
+    }
+
+    // OS-level (TCC) mic gate, Electron only: fires the one-shot system
+    // prompt while the grant is undetermined, and fails fast with the
+    // System Settings affordance once the user has denied — macOS never
+    // re-prompts a denied app, so the getUserMedia below could never
+    // recover on its own. `null` means no bridge (web / Capacitor), where
+    // getUserMedia itself drives the OS prompt.
+    const nativeMicGrant = await requestMicAccess();
+    if (cancelledStartRef.current || mediaRecorderRef.current) {
+      return;
+    }
+    if (nativeMicGrant === false) {
+      onError?.("not-allowed-system");
+      vsFail("not-allowed-system");
       return;
     }
 

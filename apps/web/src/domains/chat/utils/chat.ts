@@ -133,6 +133,8 @@ const VOICE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   "service-not-allowed": "Microphone access was blocked.",
   "not-allowed-permanent":
     "Microphone is blocked in your browser settings. Click the lock icon in your address bar and allow microphone access, then reload.",
+  "not-allowed-system":
+    "Microphone access for Vellum is turned off in System Settings. Allow it under Privacy & Security → Microphone, then try again.",
   "audio-capture":
     "No microphone detected. Connect a microphone and try again.",
   network:
@@ -175,6 +177,14 @@ export function isMicPermissionError(code: string | null): boolean {
 
 export function isTextInsertionPermissionError(code: string | null): boolean {
   return code === "dictation-automation-denied";
+}
+
+/**
+ * OS-level (TCC) mic denial — macOS never re-prompts a denied app, so the
+ * UI offers a System Settings deep-link instead of a re-prompt.
+ */
+export function isMicSystemPermissionError(code: string | null): boolean {
+  return code === "not-allowed-system";
 }
 
 const BACKGROUND_CONVERSATION_SOURCES: ReadonlySet<string> = new Set([

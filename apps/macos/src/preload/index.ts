@@ -238,6 +238,15 @@ export type TextInsertionResult =
   | { status: "automation-denied" }
   | { status: "blocked" };
 
+// Mirror of `MicAccessStatus` in `apps/macos/src/main/mic-access.ts` (kept
+// inline for the same three-TS-project reason as `VellumCommand`).
+export type MicAccessStatus =
+  | "not-determined"
+  | "granted"
+  | "denied"
+  | "restricted"
+  | "unknown";
+
 /**
  * Event main broadcasts to the renderer when the user clicks a
  * notification body or an action button. Mirror of
@@ -306,6 +315,17 @@ export interface VellumBridge {
   text: {
     insertIntoFrontApp(text: string): Promise<TextInsertionResult>;
     openAutomationSettings(): Promise<void>;
+  };
+  mic: {
+    /** Current OS-level (TCC) microphone grant. */
+    getStatus(): Promise<MicAccessStatus>;
+    /**
+     * One-shot OS microphone prompt (macOS): prompts while the state is
+     * not-determined, otherwise resolves with the recorded grant.
+     */
+    request(): Promise<boolean>;
+    /** Deep-link System Settings → Privacy & Security → Microphone. */
+    openSettings(): Promise<void>;
   };
   auth: {
     startOAuth(options: {
@@ -683,6 +703,14 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke(
         "vellum:text:openAutomationSettings",
       ) as Promise<void>,
+  },
+  mic: {
+    getStatus: (): Promise<MicAccessStatus> =>
+      ipcRenderer.invoke("vellum:mic:getStatus") as Promise<MicAccessStatus>,
+    request: (): Promise<boolean> =>
+      ipcRenderer.invoke("vellum:mic:request") as Promise<boolean>,
+    openSettings: (): Promise<void> =>
+      ipcRenderer.invoke("vellum:mic:openSettings") as Promise<void>,
   },
   auth: {
     startOAuth: (options: {

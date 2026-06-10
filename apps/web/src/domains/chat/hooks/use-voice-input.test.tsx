@@ -25,6 +25,24 @@ mock.module("@/runtime/native-auth", () => ({
   useIsNativePlatform: () => false,
 }));
 
+// OS-level (TCC) mic bridge. Defaults mirror the web/Capacitor case (no
+// bridge → null) so the pre-existing tests exercise the web fallback path.
+type MicAccessStatus =
+  | "not-determined"
+  | "granted"
+  | "denied"
+  | "restricted"
+  | "unknown";
+let nextMicAccessStatus: MicAccessStatus | null = null;
+let nextMicAccessGrant: boolean | null = null;
+const openMicSettingsSpy = mock(async () => undefined);
+
+mock.module("@/runtime/mic-permission", () => ({
+  getMicAccessStatus: async () => nextMicAccessStatus,
+  requestMicAccess: async () => nextMicAccessGrant,
+  openMicSettings: openMicSettingsSpy,
+}));
+
 mock.module("@/domains/chat/components/mic-permission-primer", () => ({
   shouldShowMicPrimer: () => false,
 }));
@@ -74,6 +92,9 @@ afterEach(() => {
   nextTextInsertionStatus = "unavailable";
   nextDictationResult = null;
   insertedTexts.length = 0;
+  nextMicAccessStatus = null;
+  nextMicAccessGrant = null;
+  openMicSettingsSpy.mockClear();
 });
 
 describe("useVoiceInput", () => {
@@ -120,4 +141,68 @@ describe("useVoiceInput", () => {
     expect(hook.result.current.voiceError).toBe("dictation-automation-denied");
   });
 
+});
+
+describe("useVoiceInput — handleRetryMicPermission (OS/TCC branch)", () => {
+  test("OS denial maps to the System Settings error", async () => {
+    nextMicAccessStatus = "denied";
+    const { hook } = renderVoiceInput();
+
+    await act(async () => {
+      await hook.result.current.handleRetryMicPermission();
+    });
+
+    expect(hook.result.current.voiceError).toBe("not-allowed-system");
+  });
+
+  test("undetermined OS state fires the one-shot prompt and clears on grant", async () => {
+    nextMicAccessStatus = "not-determined";
+    nextMicAccessGrant = true;
+    const { hook } = renderVoiceInput();
+
+    await act(async () => {
+      hook.result.current.setVoiceError("not-allowed");
+    });
+    await act(async () => {
+      await hook.result.current.handleRetryMicPermission();
+    });
+
+    expect(hook.result.current.voiceError).toBeNull();
+  });
+
+  test("undetermined OS state maps a refused prompt to the System Settings error", async () => {
+    nextMicAccessStatus = "not-determined";
+    nextMicAccessGrant = false;
+    const { hook } = renderVoiceInput();
+
+    await act(async () => {
+      await hook.result.current.handleRetryMicPermission();
+    });
+
+    expect(hook.result.current.voiceError).toBe("not-allowed-system");
+  });
+
+  test("OS grant clears the error without touching getUserMedia", async () => {
+    nextMicAccessStatus = "granted";
+    const { hook } = renderVoiceInput();
+
+    await act(async () => {
+      hook.result.current.setVoiceError("not-allowed");
+    });
+    await act(async () => {
+      await hook.result.current.handleRetryMicPermission();
+    });
+
+    expect(hook.result.current.voiceError).toBeNull();
+  });
+
+  test("handleOpenMicSettings deep-links System Settings", async () => {
+    const { hook } = renderVoiceInput();
+
+    await act(async () => {
+      await hook.result.current.handleOpenMicSettings();
+    });
+
+    expect(openMicSettingsSpy).toHaveBeenCalledTimes(1);
+  });
 });

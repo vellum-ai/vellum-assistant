@@ -12,6 +12,11 @@ import { postDictation } from "@/domains/chat/voice/dictation-api";
 import { registerPushToTalkTarget } from "@/domains/chat/voice/push-to-talk-target";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import {
+  getMicAccessStatus,
+  openMicSettings,
+  requestMicAccess,
+} from "@/runtime/mic-permission";
+import {
   insertTextIntoFrontApp,
   openTextInsertionSettings,
 } from "@/runtime/text-insertion";
@@ -42,6 +47,8 @@ export interface UseVoiceInputReturn {
   setVoiceError: (code: string | null) => void;
   /** Open macOS Automation settings for external-app dictation paste. */
   handleOpenTextInsertionSettings: () => Promise<void>;
+  /** Open macOS Privacy & Security → Microphone settings (TCC denial recovery). */
+  handleOpenMicSettings: () => Promise<void>;
   /** Whether the mic-permission primer dialog is open. */
   showPrimer: boolean;
   /**
@@ -202,7 +209,28 @@ export function useVoiceInput({
     primerResolveRef.current = null;
   }, []);
 
+  const handleOpenMicSettings = useCallback(() => openMicSettings(), []);
+
   const handleRetryMicPermission = useCallback(async () => {
+    // Electron: the OS (TCC) grant governs — the Permissions API and
+    // getUserMedia below can't re-prompt once macOS records a denial.
+    // "unknown" falls through to the web checks (Windows reports it for
+    // states it can't read).
+    const nativeStatus = await getMicAccessStatus();
+    if (nativeStatus && nativeStatus !== "unknown") {
+      if (nativeStatus === "granted") {
+        setVoiceError(null);
+        return;
+      }
+      if (nativeStatus === "not-determined") {
+        const granted = await requestMicAccess();
+        setVoiceError(granted ? null : "not-allowed-system");
+        return;
+      }
+      setVoiceError("not-allowed-system");
+      return;
+    }
+
     try {
       // Check permission state via Permissions API when available.
       // If the user permanently denied access, skip getUserMedia
@@ -249,6 +277,7 @@ export function useVoiceInput({
     clearVoiceError,
     setVoiceError,
     handleOpenTextInsertionSettings,
+    handleOpenMicSettings,
     showPrimer,
     handleVoiceBeforeStart,
     handleVoiceTranscript,

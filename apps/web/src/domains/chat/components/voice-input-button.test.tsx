@@ -53,6 +53,13 @@ mock.module("@/utils/voice-input-device", () => ({
   voiceInputAudioConstraints: () => true,
 }));
 
+// OS-level (TCC) mic gate. Default null = no bridge (web/Capacitor), so the
+// rest of the suite exercises the plain getUserMedia path.
+let nextNativeMicGrant: boolean | null = null;
+mock.module("@/runtime/mic-permission", () => ({
+  requestMicAccess: async () => nextNativeMicGrant,
+}));
+
 // Capture the command handler map the component registers so tests can
 // deliver the escape monitor's `cancelDictation` relay directly (the real
 // hook is an Electron IPC subscription and no-ops in this environment).
@@ -244,5 +251,50 @@ describe("VoiceInputButton — session breadcrumb", () => {
     expect(crumb.data.finalLength).toBe("hello world".length);
     expect(crumb.data.durationMs).toBeGreaterThanOrEqual(0);
     expect(typeof crumb.data.locale).toBe("string");
+  });
+});
+
+describe("VoiceInputButton — OS mic gate", () => {
+  beforeEach(() => {
+    postSttTranscribeSpy.mockClear();
+    useVoiceRecordingStore.getState().reset();
+  });
+
+  afterEach(() => {
+    cleanup();
+    nextNativeMicGrant = null;
+    useVoiceRecordingStore.getState().reset();
+  });
+
+  test("OS-level denial blocks recording with the System Settings error", async () => {
+    nextNativeMicGrant = false;
+    const onTranscript = mock(async (_text: string) => {});
+    const onError = mock((_code: string | null) => {});
+    render(
+      <VoiceInputButton
+        assistantId="assistant-1"
+        onTranscript={onTranscript}
+        onError={onError}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Start voice input" }));
+
+    await waitFor(() => {
+      expect(useVoiceRecordingStore.getState().phase).toBe("error");
+    });
+    expect(useVoiceRecordingStore.getState().errorCode).toBe(
+      "not-allowed-system",
+    );
+    expect(onError).toHaveBeenCalledWith("not-allowed-system");
+    expect(onTranscript).not.toHaveBeenCalled();
+  });
+
+  test("OS-level grant proceeds to a normal recording session", async () => {
+    nextNativeMicGrant = true;
+    const onTranscript = mock(async (_text: string) => {});
+    await startSession(onTranscript);
+
+    expect(useVoiceRecordingStore.getState().phase).toBe("recording");
   });
 });

@@ -245,6 +245,7 @@ export function ChatMainPanel({
     clearVoiceError,
     setVoiceError,
     handleOpenTextInsertionSettings,
+    handleOpenMicSettings,
     showPrimer,
     handleVoiceBeforeStart,
     handleVoiceTranscript,
@@ -790,6 +791,7 @@ export function ChatMainPanel({
         onClearVoiceError={clearVoiceError}
         onRetryMicPermission={handleRetryMicPermission}
         onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
+        onOpenMicSettings={handleOpenMicSettings}
         textStateNoticesSlot={textStateNoticesJsx}
       />
     ),

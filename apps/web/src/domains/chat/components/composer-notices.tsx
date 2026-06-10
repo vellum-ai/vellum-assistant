@@ -6,6 +6,7 @@ import { MissingApiKeyBanner } from "@/domains/chat/components/missing-api-key-b
 import {
   formatVoiceError,
   isMicPermissionError,
+  isMicSystemPermissionError,
   isTextInsertionPermissionError,
 } from "@/domains/chat/utils/chat";
 import { Button, Notice } from "@vellumai/design-library";
@@ -51,6 +52,8 @@ export interface ComposerNoticesProps {
   onRetryMicPermission?: () => void;
   /** Opens macOS Automation settings for external-app dictation paste. */
   onOpenTextInsertionSettings?: () => void | Promise<void>;
+  /** Opens macOS Privacy & Security → Microphone settings (TCC denial recovery). */
+  onOpenMicSettings?: () => void | Promise<void>;
 
   /**
    * Pre-rendered disk-pressure banner from the chat page, or `null` when
@@ -97,6 +100,7 @@ export function ComposerNotices({
   onClearVoiceError,
   onRetryMicPermission,
   onOpenTextInsertionSettings,
+  onOpenMicSettings,
   diskPressureBanner,
   billingBannerSlot,
   showMissingApiKeyBanner,
@@ -108,6 +112,17 @@ export function ComposerNotices({
   assistantId,
   onMaintenanceExited,
 }: ComposerNoticesProps) {
+  // Both settings-recoverable denials render the same "Open Settings"
+  // action; only the deep-link target differs (Privacy → Microphone vs
+  // Privacy → Automation).
+  const openVoiceSettings =
+    isMicSystemPermissionError(voiceError ?? null) && onOpenMicSettings
+      ? onOpenMicSettings
+      : isTextInsertionPermissionError(voiceError ?? null) &&
+          onOpenTextInsertionSettings
+        ? onOpenTextInsertionSettings
+        : undefined;
+
   return (
     <>
       {textStateNoticesSlot}
@@ -132,13 +147,12 @@ export function ComposerNotices({
                 >
                   Allow Microphone
                 </Button>
-              ) : isTextInsertionPermissionError(voiceError) &&
-                onOpenTextInsertionSettings ? (
+              ) : openVoiceSettings ? (
                 <Button
                   variant="outlined"
                   size="compact"
                   onClick={() => {
-                    void onOpenTextInsertionSettings();
+                    void openVoiceSettings();
                   }}
                 >
                   Open Settings

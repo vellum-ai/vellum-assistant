@@ -211,6 +211,18 @@ export type ElectronTextInsertionResult =
   | { status: "blocked" };
 
 /**
+ * Renderer-side mirror of `MicAccessStatus` in
+ * `apps/macos/src/main/mic-access.ts` — the OS-level (TCC) microphone
+ * grant, distinct from the web `getUserMedia` permission.
+ */
+export type MicAccessStatus =
+  | "not-determined"
+  | "granted"
+  | "denied"
+  | "restricted"
+  | "unknown";
+
+/**
  * Main → renderer event when the user interacts with a native
  * notification. Mirror of `NotificationActionEvent` in
  * `apps/macos/src/main/notifications.ts`.
@@ -297,6 +309,13 @@ declare global {
       text?: {
         insertIntoFrontApp(text: string): Promise<ElectronTextInsertionResult>;
         openAutomationSettings(): Promise<void>;
+      };
+      // Optional: older Electron shells predate the OS-level (TCC) mic
+      // bridge. Callers must guard on presence.
+      mic?: {
+        getStatus(): Promise<MicAccessStatus>;
+        request(): Promise<boolean>;
+        openSettings(): Promise<void>;
       };
       // Optional: an older preload predates the hotkeys/featureFlags channels.
       // The macOS app and web bundle don't release together, so a newer
