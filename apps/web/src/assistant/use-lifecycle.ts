@@ -17,39 +17,18 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantQuery } from "@/assistant/queries";
+import { resolveSelectedAssistantId } from "@/assistant/selection";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { isLocalMode } from "@/lib/local-mode";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { isAuthenticated, type SessionStatus } from "@/stores/session-status";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import {
-  assistantsValidForOrg,
-  useResolvedAssistantsStore,
-  type ResolvedAssistant,
-} from "@/stores/resolved-assistants-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 
 interface UseAssistantLifecycleOptions {
   sessionStatus: SessionStatus;
   hasPlatformSession: boolean;
-}
-
-/**
- * Drop a per-org selection the resolved list already shows is wrong-org.
- * A candidate is kept if it has no resolved entry yet (unknown id — let
- * the 404 net handle it) or its entry survives `assistantsValidForOrg`.
- * A known entry owned by a different org resolves to null up front.
- */
-export function resolveSelectedPlatformAssistantId(
-  candidateId: string | null,
-  assistants: ResolvedAssistant[],
-  currentOrganizationId: string | null,
-): string | null {
-  if (candidateId === null) return null;
-  const entry = assistants.find((a) => a.id === candidateId);
-  if (!entry) return candidateId;
-  const valid = assistantsValidForOrg(assistants, currentOrganizationId);
-  return valid.some((a) => a.id === candidateId) ? candidateId : null;
 }
 
 export function useAssistantLifecycle({
@@ -74,28 +53,20 @@ export function useAssistantLifecycle({
     isOrgReady;
 
   // Which platform assistant the user has selected, gated by the
-  // multi-platform-assistant flag. When the flag is off (or no
-  // selection) this stays null, so the resolution falls back to the
-  // default first-listed assistant — identical to the
-  // pre-multi-assistant behavior.
+  // multi-platform-assistant flag. When the flag is off this stays null,
+  // so the resolution falls back to the default first-listed assistant —
+  // identical to the pre-multi-assistant behavior. Subscribe to the cache
+  // and resolved list so the hook re-renders when either changes, then
+  // resolve through the unified resolver (per-org cache → validate for org
+  // → lockfile activeAssistant → first valid).
   const multiAssistantEnabled =
     useClientFeatureFlagStore.use.multiPlatformAssistant();
-  const byOrg =
-    useResolvedAssistantsStore.use.selectedPlatformAssistantByOrg();
-  const assistants = useResolvedAssistantsStore.use.assistants();
-  const candidatePlatformAssistantId =
-    multiAssistantEnabled &&
-    !isGatewayAuthMode() &&
-    currentOrganizationId
-      ? (byOrg[currentOrganizationId] ?? null)
+  useResolvedAssistantsStore.use.selectedPlatformAssistantByOrg();
+  useResolvedAssistantsStore.use.assistants();
+  const selectedPlatformAssistantId =
+    multiAssistantEnabled && !isGatewayAuthMode() && currentOrganizationId
+      ? resolveSelectedAssistantId(currentOrganizationId)
       : null;
-  // A selection the resolved list already attributes to another org is
-  // dropped here, before the API can 404 on it.
-  const selectedPlatformAssistantId = resolveSelectedPlatformAssistantId(
-    candidatePlatformAssistantId,
-    assistants,
-    currentOrganizationId,
-  );
 
   const { data: assistantResult } = useAssistantQuery({
     enabled: shouldQueryServer,

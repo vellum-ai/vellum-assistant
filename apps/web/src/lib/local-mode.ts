@@ -293,6 +293,16 @@ export function getSelectedAssistant(): LockfileAssistant | undefined {
   return getActiveAssistant();
 }
 
+/**
+ * The raw tab-local selection id, or null — without the `activeAssistant`
+ * fallback that `getSelectedAssistant` folds in. Callers that resolve the
+ * lockfile active through their own validation must use this so a stale active
+ * id isn't mistaken for a deliberate tab pick.
+ */
+export function getTabLocalSelectedAssistantId(): string | null {
+  return getLocalSetting(SELECTED_ASSISTANT_STORAGE_KEY, "") || null;
+}
+
 export function setSelectedAssistantId(id: string): void {
   setLocalSetting(SELECTED_ASSISTANT_STORAGE_KEY, id);
 }
