@@ -13,7 +13,7 @@
 
 import {
   getActiveAssistant,
-  getSelectedAssistant,
+  getTabLocalSelectedAssistantId,
   setActiveLockfileAssistant,
 } from "@/lib/local-mode";
 import {
@@ -26,8 +26,10 @@ import { useOrganizationStore } from "@/stores/organization-store";
  * Resolve the selected assistant id for the active org.
  *
  * Order:
- *   1. Candidate from the cache — the per-org platform selection, or, for a
- *      local assistant, the tab-local pick (`getSelectedAssistant`).
+ *   1. Candidate from the cache — the per-org platform selection, or the raw
+ *      tab-local pick. NOT the lockfile `activeAssistant`: that is only reached
+ *      via the validated fallback (step 3), so a stale active id can't slip
+ *      through the unknown-id pass-through and 404-loop forever.
  *   2. Keep the candidate only if it is valid for the org. An unknown id (no
  *      resolved entry yet) passes through unchanged — the lifecycle 404 net
  *      covers ids the client can't see.
@@ -43,7 +45,7 @@ export function resolveSelectedAssistantId(
 
   const candidate =
     (activeOrgId ? selectedPlatformAssistantByOrg[activeOrgId] : null) ??
-    getSelectedAssistant()?.assistantId ??
+    getTabLocalSelectedAssistantId() ??
     null;
 
   if (candidate !== null) {

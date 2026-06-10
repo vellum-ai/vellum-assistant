@@ -19,7 +19,7 @@ const ORG_B = "org-b";
 // Mutable fixtures the mocks read so each test can stage its own world.
 let assistants: ResolvedAssistant[] = [];
 let selectedPlatformAssistantByOrg: Record<string, string> = {};
-let selectedLocal: LockfileAssistant | undefined;
+let tabLocalId: string | null = null;
 let activeLocal: LockfileAssistant | undefined;
 
 mock.module("@/stores/resolved-assistants-store", () => ({
@@ -29,7 +29,7 @@ mock.module("@/stores/resolved-assistants-store", () => ({
   },
 }));
 mock.module("@/lib/local-mode", () => ({
-  getSelectedAssistant: () => selectedLocal,
+  getTabLocalSelectedAssistantId: () => tabLocalId,
   getActiveAssistant: () => activeLocal,
   setActiveLockfileAssistant: async () => {},
 }));
@@ -58,7 +58,7 @@ function lockfileAssistant(assistantId: string): LockfileAssistant {
 beforeEach(() => {
   assistants = [];
   selectedPlatformAssistantByOrg = {};
-  selectedLocal = undefined;
+  tabLocalId = null;
   activeLocal = undefined;
 });
 
@@ -96,5 +96,19 @@ describe("resolveSelectedAssistantId", () => {
     assistants = [platformAssistant("asst-1", ORG_A)];
     selectedPlatformAssistantByOrg = { [ORG_A]: "asst-unknown" };
     expect(resolveSelectedAssistantId(ORG_A)).toBe("asst-unknown");
+  });
+
+  test("a tab-local pick is used when there is no per-org cache", () => {
+    assistants = [platformAssistant("asst-1", ORG_A)];
+    tabLocalId = "asst-1";
+    expect(resolveSelectedAssistantId(ORG_A)).toBe("asst-1");
+  });
+
+  test("a stale lockfile active with no resolved entry is NOT passed through", () => {
+    // Regression: the lockfile active must go through validation, not the
+    // unknown-id pass-through — otherwise a stale active 404-loops forever.
+    assistants = [platformAssistant("asst-1", ORG_A)];
+    activeLocal = lockfileAssistant("asst-stale");
+    expect(resolveSelectedAssistantId(ORG_A)).toBe("asst-1");
   });
 });

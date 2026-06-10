@@ -14,7 +14,7 @@ const setActiveLockfileAssistantMock = mock(async (_id: string) => {});
 
 mock.module("@/lib/local-mode", () => ({
   setActiveLockfileAssistant: setActiveLockfileAssistantMock,
-  getSelectedAssistant: () => undefined,
+  getTabLocalSelectedAssistantId: () => null,
   getActiveAssistant: () => undefined,
 }));
 mock.module("@/stores/resolved-assistants-store", () => ({
