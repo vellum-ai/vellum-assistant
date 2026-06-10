@@ -8,9 +8,13 @@ import {
   dispatchToFocused,
   type VellumCommand,
 } from "./commands";
-import { openCommandPaletteWindow } from "./command-palette-window";
+import {
+  isCommandPaletteWindowFocused,
+  openCommandPaletteWindow,
+} from "./command-palette-window";
 import { areChromeDevToolsEnabled } from "./devtools";
 import { handle } from "./ipc";
+import { dispatchToMain } from "./main-window";
 import { onSettingChange, readSetting } from "./settings";
 import { readOnboardingActive } from "./window-state";
 
@@ -30,6 +34,10 @@ const isDeveloperMenuEnabled = (): boolean => {
 export const dispatchMenuCommand = (command: VellumCommand): void => {
   if (command.kind === "commandPalette") {
     openCommandPaletteWindow();
+    return;
+  }
+  if (isCommandPaletteWindowFocused()) {
+    dispatchToMain(command);
     return;
   }
   dispatchToFocused(command);
@@ -74,7 +82,7 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
           label: "Settings\u2026",
           ...acceleratorOption("openSettings"),
           enabled: !readOnboardingActive(),
-          click: () => dispatchToFocused({ kind: "openSettings" }),
+          click: () => dispatchMenuCommand({ kind: "openSettings" }),
         },
         { type: "separator" },
         { role: "services" },
@@ -82,7 +90,7 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
         {
           label: "Log Out",
           enabled: state.hasPlatformSession,
-          click: () => dispatchToFocused({ kind: "logout" }),
+          click: () => dispatchMenuCommand({ kind: "logout" }),
         },
         { type: "separator" },
         { role: "hide" },
@@ -118,7 +126,7 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
         {
           label: "Find\u2026",
           ...acceleratorOption("find"),
-          click: () => dispatchToFocused({ kind: "find" }),
+          click: () => dispatchMenuCommand({ kind: "find" }),
         },
       ],
     },
@@ -160,11 +168,11 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
             submenu: [
               {
                 label: "Replay Onboarding",
-                click: () => dispatchToFocused({ kind: "replayOnboarding" }),
+                click: () => dispatchMenuCommand({ kind: "replayOnboarding" }),
               },
               {
                 label: "Preview PreChat",
-                click: () => dispatchToFocused({ kind: "previewPrechat" }),
+                click: () => dispatchMenuCommand({ kind: "previewPrechat" }),
               },
               ...(!app.isPackaged
                 ? [
@@ -186,7 +194,7 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
       submenu: [
         {
           label: "Send Feedback\u2026",
-          click: () => dispatchToFocused({ kind: "shareFeedback" }),
+          click: () => dispatchMenuCommand({ kind: "shareFeedback" }),
         },
         { type: "separator" },
         {

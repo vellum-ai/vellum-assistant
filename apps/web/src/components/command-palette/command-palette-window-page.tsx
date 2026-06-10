@@ -1,241 +1,148 @@
-import {
-  Home,
-  MessageSquare,
-  PanelLeft,
-  Send,
-  Settings,
-  SquarePen,
-  StepBack,
-  StepForward,
-  VolumeX,
-} from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type KeyboardEvent,
-} from "react";
+import { useCallback, useMemo } from "react";
 
 import {
   CommandPalette,
   type CommandPaletteItemData,
-  type CommandPaletteSection,
 } from "@/components/command-palette/command-palette";
+import { useCommandPaletteSections } from "@/domains/chat/hooks/use-command-palette-sections";
+import { useConversationListQuery } from "@/hooks/conversation-queries";
+import { getSelectedAssistant } from "@/lib/local-mode";
 import {
   dismissCommandPaletteWindow,
   selectCommandPaletteCommand,
 } from "@/runtime/command-palette-window";
 import type { VellumCommand } from "@/runtime/is-electron";
+import { useOrganizationStore } from "@/stores/organization-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
-interface WindowPaletteAction extends CommandPaletteItemData {
-  command: VellumCommand;
-  keywords: string[];
-}
+const noop = (): void => undefined;
+const noopNavigate = (_to: string | number): void => undefined;
 
-const ACTIONS: WindowPaletteAction[] = [
-  {
-    id: "action-new-conversation",
-    icon: SquarePen,
-    title: "New Conversation",
-    shortcutHint: "⌘N",
-    command: { kind: "newConversation" },
-    keywords: ["chat", "thread", "compose"],
-  },
-  {
-    id: "action-current-conversation",
-    icon: MessageSquare,
-    title: "Current Conversation",
-    shortcutHint: "⌘⇧N",
-    command: { kind: "currentConversation" },
-    keywords: ["chat", "focus", "composer"],
-  },
-  {
-    id: "action-home",
-    icon: Home,
-    title: "Home",
-    shortcutHint: "⌘⇧H",
-    command: { kind: "home" },
-    keywords: ["dashboard", "start"],
-  },
-  {
-    id: "action-settings",
-    icon: Settings,
-    title: "Settings",
-    shortcutHint: "⌘,",
-    command: { kind: "openSettings" },
-    keywords: ["preferences", "configuration"],
-  },
-  {
-    id: "action-toggle-sidebar",
-    icon: PanelLeft,
-    title: "Toggle Sidebar",
-    shortcutHint: "⌘\\",
-    command: { kind: "sidebarToggle" },
-    keywords: ["navigation", "rail"],
-  },
-  {
-    id: "action-previous-conversation",
-    icon: StepBack,
-    title: "Previous Conversation",
-    shortcutHint: "⌘↑",
-    command: { kind: "previousConversation" },
-    keywords: ["back", "chat", "thread"],
-  },
-  {
-    id: "action-next-conversation",
-    icon: StepForward,
-    title: "Next Conversation",
-    shortcutHint: "⌘↓",
-    command: { kind: "nextConversation" },
-    keywords: ["forward", "chat", "thread"],
-  },
-  {
-    id: "action-mark-current-unread",
-    icon: VolumeX,
-    title: "Mark Current as Unread",
-    shortcutHint: "⌘⇧U",
-    command: { kind: "markCurrentUnread" },
-    keywords: ["attention", "notification"],
-  },
-  {
-    id: "action-feedback",
-    icon: Send,
-    title: "Share Feedback",
-    command: { kind: "shareFeedback" },
-    keywords: ["support", "report"],
-  },
-];
-
-const normalize = (value: string): string =>
-  value.toLowerCase().replace(/\s+/g, " ").trim();
-
-const fuzzyIncludes = (haystack: string, needle: string): boolean => {
-  let cursor = 0;
-  for (const char of needle) {
-    cursor = haystack.indexOf(char, cursor);
-    if (cursor === -1) return false;
-    cursor += 1;
+const commandForItem = (item: CommandPaletteItemData): VellumCommand | null => {
+  switch (item.id) {
+    case "action-new-conversation":
+      return { kind: "newConversation" };
+    case "action-current-conversation":
+      return { kind: "currentConversation" };
+    case "action-settings":
+      return { kind: "openSettings" };
+    case "action-library":
+      return { kind: "openLibrary" };
+    case "action-intelligence":
+      return { kind: "openIdentity" };
+    case "action-back":
+      return { kind: "navigateBack" };
+    case "action-forward":
+      return { kind: "navigateForward" };
+    case "action-zoom-in":
+      return { kind: "zoomIn" };
+    case "action-zoom-out":
+      return { kind: "zoomOut" };
+    case "action-actual-size":
+      return { kind: "actualSize" };
+    default:
+      if (item.id.startsWith("conv-")) {
+        return {
+          kind: "openConversation",
+          conversationId: item.id.slice("conv-".length),
+        };
+      }
+      if (item.id.startsWith("search-conv-")) {
+        return {
+          kind: "openConversation",
+          conversationId: item.id.slice("search-conv-".length),
+        };
+      }
+      if (
+        item.id.startsWith("search-schedule-") ||
+        item.id.startsWith("search-contact-")
+      ) {
+        return { kind: "openIdentity" };
+      }
+      return null;
   }
-  return true;
 };
-
-const actionMatches = (action: WindowPaletteAction, query: string): boolean => {
-  const normalizedQuery = normalize(query);
-  if (!normalizedQuery) return true;
-
-  const haystack = normalize(
-    [action.title, action.subtitle, ...action.keywords].filter(Boolean).join(" "),
-  );
-  return normalizedQuery
-    .split(" ")
-    .every((token) => haystack.includes(token) || fuzzyIncludes(haystack, token));
-};
-
-const toPaletteItem = (action: WindowPaletteAction): CommandPaletteItemData => ({
-  id: action.id,
-  icon: action.icon,
-  title: action.title,
-  subtitle: action.subtitle,
-  shortcutHint: action.shortcutHint,
-});
 
 export function CommandPaletteWindowPage() {
-  const [query, setQuery] = useState("");
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const assistants = useResolvedAssistantsStore.use.assistants();
+  const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const selectedPlatformAssistantByOrg =
+    useResolvedAssistantsStore.use.selectedPlatformAssistantByOrg();
+  const currentOrganizationId =
+    useOrganizationStore.use.currentOrganizationId();
+  const selectedAssistant = useMemo(
+    () => {
+      const localSelected = getSelectedAssistant();
+      if (localSelected) {
+        return {
+          id: localSelected.assistantId,
+          name: localSelected.name,
+        };
+      }
 
-  const filteredActions = useMemo(
-    () => ACTIONS.filter((action) => actionMatches(action, query)),
-    [query],
-  );
-
-  useEffect(() => {
-    setSelectedIndex((current) =>
-      Math.min(current, Math.max(filteredActions.length - 1, 0)),
-    );
-  }, [filteredActions.length]);
-
-  const sections = useMemo((): CommandPaletteSection[] => {
-    if (filteredActions.length === 0) {
-      return [];
-    }
-    return [
-      {
-        id: "actions",
-        label: "Actions",
-        items: filteredActions.map(toPaletteItem),
-      },
-    ];
-  }, [filteredActions]);
-
-  const selectAction = useCallback(
-    (index: number) => {
-      const action = filteredActions[index];
-      if (!action) return;
-      void selectCommandPaletteCommand(action.command);
+      const selectedPlatformAssistantId =
+        currentOrganizationId == null
+          ? null
+          : selectedPlatformAssistantByOrg[currentOrganizationId];
+      const selectedId =
+        activeAssistantId ??
+        selectedPlatformAssistantId ??
+        (assistants.length === 1 ? assistants[0]?.id : null);
+      if (!selectedId) return null;
+      return (
+        assistants.find((assistant) => assistant.id === selectedId) ?? null
+      );
     },
-    [filteredActions],
+    [
+      activeAssistantId,
+      assistants,
+      currentOrganizationId,
+      selectedPlatformAssistantByOrg,
+    ],
   );
+  const assistantId = selectedAssistant?.id ?? null;
+  const { conversations } = useConversationListQuery(assistantId, true);
 
   const handleItemSelect = useCallback(
     (item: CommandPaletteItemData) => {
-      const index = filteredActions.findIndex((action) => action.id === item.id);
-      if (index !== -1) {
-        selectAction(index);
+      const command = commandForItem(item);
+      if (command) {
+        void selectCommandPaletteCommand(command);
       }
     },
-    [filteredActions, selectAction],
+    [],
   );
 
-  const handleKeyDown = useCallback(
-    (event: KeyboardEvent) => {
-      if (event.key === "k" && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
+  const { commandPalette, mergedSections, handleItemSelect: selectItem } =
+    useCommandPaletteSections({
+      assistantId,
+      assistantName: selectedAssistant?.name,
+      conversations,
+      activeConversationId: undefined,
+      startNewConversation: noop,
+      switchConversation: noop,
+      navigate: noopNavigate,
+      navigateToSettings: noop,
+      isOpen: true,
+      onClose: () => {
         void dismissCommandPaletteWindow();
-        return;
-      }
-
-      switch (event.key) {
-        case "ArrowDown":
-          event.preventDefault();
-          setSelectedIndex((current) =>
-            Math.min(current + 1, Math.max(filteredActions.length - 1, 0)),
-          );
-          break;
-        case "ArrowUp":
-          event.preventDefault();
-          setSelectedIndex((current) => Math.max(current - 1, 0));
-          break;
-        case "Enter":
-          event.preventDefault();
-          selectAction(selectedIndex);
-          break;
-        case "Escape":
-          event.preventDefault();
-          void dismissCommandPaletteWindow();
-          break;
-      }
-    },
-    [filteredActions.length, selectAction, selectedIndex],
-  );
+      },
+      onItemSelect: handleItemSelect,
+    });
 
   return (
     <div className="h-screen w-screen bg-transparent">
       <CommandPalette
         isOpen
         surface="window"
-        onClose={() => {
-          void dismissCommandPaletteWindow();
-        }}
-        query={query}
-        onQueryChange={(value) => {
-          setQuery(value);
-          setSelectedIndex(0);
-        }}
-        selectedIndex={selectedIndex}
-        sections={sections}
-        onItemSelect={handleItemSelect}
-        onKeyDown={handleKeyDown}
+        onClose={commandPalette.close}
+        query={commandPalette.query}
+        onQueryChange={commandPalette.setQuery}
+        selectedIndex={commandPalette.selectedIndex}
+        sections={mergedSections}
+        isSearching={commandPalette.isSearching}
+        onItemSelect={selectItem}
+        onKeyDown={commandPalette.handleKeyDown}
       />
     </div>
   );

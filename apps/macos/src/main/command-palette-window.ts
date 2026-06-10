@@ -43,6 +43,13 @@ const payloadlessCommandKindSchema = z.enum([
   "popOut",
   "previousConversation",
   "nextConversation",
+  "openLibrary",
+  "openIdentity",
+  "navigateBack",
+  "navigateForward",
+  "zoomIn",
+  "zoomOut",
+  "actualSize",
   "createAssistant",
   "cancelActiveAction",
   "replayOnboarding",
@@ -53,10 +60,11 @@ const payloadlessCommandKindSchema = z.enum([
 const commandPaletteDispatchCommandSchema: z.ZodType<CommandPaletteDispatchCommand> =
   z.union([
     z.object({ kind: payloadlessCommandKindSchema }),
+    z.object({ kind: z.literal("openConversation"), conversationId: z.string() }),
     z.object({ kind: z.literal("selectAssistant"), assistantId: z.string() }),
     z.object({ kind: z.literal("retireAssistant"), assistantId: z.string() }),
     z.object({ kind: z.literal("quickInputSubmit"), message: z.string() }),
-  ]);
+  ]) as z.ZodType<CommandPaletteDispatchCommand>;
 
 const focusedDisplayWorkArea = (): Electron.Rectangle => {
   const focused = BrowserWindow.getFocusedWindow();
@@ -114,6 +122,12 @@ export const openCommandPaletteWindow = (): void => {
   if (!existing) {
     wireCloseHandlers(win);
   }
+};
+
+export const isCommandPaletteWindowFocused = (): boolean => {
+  const focused = BrowserWindow.getFocusedWindow();
+  const palette = getFloatingWindow(COMMAND_PALETTE_KIND);
+  return Boolean(focused && palette && focused === palette);
 };
 
 export const selectCommandPaletteCommand = async (

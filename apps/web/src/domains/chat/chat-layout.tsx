@@ -445,6 +445,36 @@ export function ChatLayout() {
       const next = conversations[idx + 1];
       if (next) handleSelectConversation(next.conversationId);
     },
+    openConversation: (command) => {
+      if (command.kind === "openConversation") {
+        handleSelectConversation(command.conversationId);
+      }
+    },
+    openLibrary: () => {
+      void navigate(routes.library.root);
+    },
+    openIdentity: () => {
+      void navigate(routes.identity);
+    },
+    navigateBack: () => {
+      navigate(-1);
+    },
+    navigateForward: () => {
+      navigate(1);
+    },
+    zoomIn: () => {
+      document.body.style.zoom = String(
+        parseFloat(document.body.style.zoom || "1") + 0.1,
+      );
+    },
+    zoomOut: () => {
+      document.body.style.zoom = String(
+        Math.max(0.5, parseFloat(document.body.style.zoom || "1") - 0.1),
+      );
+    },
+    actualSize: () => {
+      document.body.style.zoom = "1";
+    },
     popOut: () => {
       if (!activeConversationId) {
         return;
@@ -651,4 +681,3 @@ export function ChatLayout() {
     </>
   );
 }
-

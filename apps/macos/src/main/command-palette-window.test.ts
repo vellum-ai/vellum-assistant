@@ -372,6 +372,14 @@ describe("installCommandPaletteWindow", () => {
       { kind: "home" },
     ]);
     expect(dispatchToMainMock).toHaveBeenCalledWith({ kind: "home" });
+
+    await ipcHandlers.get("vellum:commandPalette:select")?.([
+      { kind: "openConversation", conversationId: "conv-123" },
+    ]);
+    expect(dispatchToMainMock).toHaveBeenCalledWith({
+      kind: "openConversation",
+      conversationId: "conv-123",
+    });
   });
 });
 
@@ -419,5 +427,18 @@ describe("dispatchMenuCommand", () => {
     expect(source.webContents.send).toHaveBeenCalledWith("vellum:command", {
       kind: "newConversation",
     });
+  });
+
+  test("routes non-palette menu commands to the main window while the palette is focused", () => {
+    openCommandPaletteWindow();
+    const palette = created[0]!.win;
+
+    dispatchMenuCommand({ kind: "openSettings" });
+
+    expect(palette.webContents.send).not.toHaveBeenCalledWith(
+      "vellum:command",
+      { kind: "openSettings" },
+    );
+    expect(dispatchToMainMock).toHaveBeenCalledWith({ kind: "openSettings" });
   });
 });
