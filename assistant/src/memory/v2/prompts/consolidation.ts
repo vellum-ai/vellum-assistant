@@ -37,6 +37,10 @@ export const CUTOFF_PLACEHOLDER = "{{CUTOFF}}";
  * for the assistant — on a v2-only install the instruction would have the
  * agent curate a file nothing reads, under premises ("kept in reach every
  * turn", "the hot set") that are false there.
+ *
+ * New flag-gated sections must follow this placeholder pattern and be
+ * registered in consolidation-prompt-flag-gating-guard.test.ts, which blocks
+ * gated content from reaching the default (all-gates-off) rendering.
  */
 export const CORE_PAGES_PLACEHOLDER = "{{CORE_PAGES_SECTION}}";
 
