@@ -350,20 +350,16 @@ export function useConversationActions({
         });
       }
 
-      try {
-        const res = await daemonClient.post({
-          url: "/v1/assistants/{assistant_id}/conversations/seen/bulk",
-          path: { assistant_id: assistantId },
-          body: {
-            conversationIds: unread.map((c) => c.conversationId),
-          },
-          headers: { "Content-Type": "application/json" },
-        });
+      const bulkRes = await daemonClient.post({
+        url: "/v1/assistants/{assistant_id}/conversations/seen/bulk",
+        path: { assistant_id: assistantId },
+        body: {
+          conversationIds: unread.map((c) => c.conversationId),
+        },
+        headers: { "Content-Type": "application/json" },
+      });
 
-        if (res.response?.status === 404) {
-          throw new Error("bulk endpoint not available");
-        }
-      } catch {
+      if (bulkRes.response?.status === 404) {
         // Fallback: old daemon without bulk endpoint.
         const { abortedAt, succeeded } = await batchExecute(
           unread,
@@ -390,6 +386,8 @@ export function useConversationActions({
             { context: "markAllReadInGroup", bestEffort: true },
           );
         }
+      } else if (bulkRes.error) {
+        throw bulkRes.error;
       }
       void invalidateConversationQueries(queryClient, assistantId);
     },
@@ -429,20 +427,16 @@ export function useConversationActions({
         }
       }
 
-      try {
-        const res = await daemonClient.post({
-          url: "/v1/assistants/{assistant_id}/conversations/archive/bulk",
-          path: { assistant_id: assistantId },
-          body: {
-            conversationIds: groupConversations.map((c) => c.conversationId),
-          },
-          headers: { "Content-Type": "application/json" },
-        });
+      const bulkRes = await daemonClient.post({
+        url: "/v1/assistants/{assistant_id}/conversations/archive/bulk",
+        path: { assistant_id: assistantId },
+        body: {
+          conversationIds: groupConversations.map((c) => c.conversationId),
+        },
+        headers: { "Content-Type": "application/json" },
+      });
 
-        if (res.response?.status === 404) {
-          throw new Error("bulk endpoint not available");
-        }
-      } catch {
+      if (bulkRes.response?.status === 404) {
         // Fallback: old daemon without bulk endpoint.
         const { abortedAt, succeeded } = await batchExecute(
           groupConversations,
@@ -471,6 +465,8 @@ export function useConversationActions({
             { context: "archiveAllInGroup", bestEffort: true },
           );
         }
+      } else if (bulkRes.error) {
+        throw bulkRes.error;
       }
       void invalidateConversationQueries(queryClient, assistantId);
     },
