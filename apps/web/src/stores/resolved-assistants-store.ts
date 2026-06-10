@@ -35,6 +35,9 @@ export interface ResolvedAssistant {
   hatchedAt?: string;
   isLocal: boolean;
   isPlatformHosted: boolean;
+  /** Owning org for platform entries; only the lockfile carries it, so
+   *  API-sourced entries leave this undefined. */
+  organizationId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -126,9 +129,13 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
           hatchedAt: a.hatchedAt,
           isLocal: isLocalAssistant(a),
           isPlatformHosted: isPlatformAssistant(a),
+          organizationId: a.organizationId,
         })),
       }),
 
+    // The platform `Assistant` API carries no org field, so API-sourced
+    // entries intentionally leave `organizationId` undefined (unlike
+    // `setFromLockfile`). Don't "fix" this by inventing an org here.
     setFromApi: (assistants) =>
       set({
         assistants: assistants.map((a) => ({
