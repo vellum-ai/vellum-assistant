@@ -1410,9 +1410,9 @@ export class AgentLoop {
           producedVisibleTextThisRun = true;
         }
 
-        // Replacement content a `stop` hook asked the loop to surface in place
-        // of an otherwise user-invisible turn (e.g. a refusal rewritten into an
-        // apology). Applied after `finalizeAssistantMessage` below.
+        // Content a `stop` hook rewrote the turn into, replacing an otherwise
+        // user-invisible turn (e.g. a refusal rewritten into an apology).
+        // Applied after `finalizeAssistantMessage` below.
         let stopRewrittenContent: ContentBlock[] | undefined;
 
         if (toolUseBlocks.length === 0) {
@@ -1430,7 +1430,11 @@ export class AgentLoop {
             logger: rlog,
           };
           const finalStopCtx = await runHook(HOOKS.STOP, stopCtx);
-          stopRewrittenContent = finalStopCtx.rewrittenContent;
+          // A hook rewrites the turn by replacing `responseContent`; detect it
+          // by identity against the model's original output.
+          if (finalStopCtx.responseContent !== response.content) {
+            stopRewrittenContent = [...finalStopCtx.responseContent];
+          }
 
           if (finalStopCtx.decision === "continue") {
             // The loop owns the retry budget: a hook always asks to continue

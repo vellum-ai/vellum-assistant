@@ -7,8 +7,8 @@
  * 1. **Refusal stop.** The provider returned `stopReason === "refusal"` with no
  *    visible text (Anthropic's safety classifier zeroed the response) and no
  *    earlier turn this run already delivered visible text. The hook rewrites
- *    the turn into a plain-text apology (`REFUSAL_FALLBACK_TEXT`) via
- *    {@link StopContext.rewrittenContent} and lets the turn end. A retry is
+ *    the turn into a plain-text apology (`REFUSAL_FALLBACK_TEXT`) by replacing
+ *    {@link StopContext.responseContent} and lets the turn end. A retry is
  *    deliberately not attempted: a safety-classifier refusal re-fires on a
  *    re-query, so the canned message is the intended terminal response.
  * 2. **Empty turn after tool use.** The turn produced no visible text, follows
@@ -112,7 +112,7 @@ const stop: PluginHookFn<StopContext> = async (ctx) => {
     !turnHasVisibleText &&
     !priorAssistantHadVisibleText
   ) {
-    ctx.rewrittenContent = [{ type: "text", text: REFUSAL_FALLBACK_TEXT }];
+    ctx.responseContent = [{ type: "text", text: REFUSAL_FALLBACK_TEXT }];
     return;
   }
 

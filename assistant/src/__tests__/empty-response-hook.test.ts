@@ -186,10 +186,10 @@ describe("empty-response stop hook — default decisions", () => {
     // WHEN the hook runs.
     await stop(ctx);
 
-    // THEN it lets the turn end and rewrites it to the user-facing fallback,
-    // without nudging the model.
+    // THEN it lets the turn end and rewrites the turn content to the
+    // user-facing fallback, without nudging the model.
     expect(ctx.decision).toBe("stop");
-    expect(ctx.rewrittenContent).toEqual([
+    expect(ctx.responseContent).toEqual([
       { type: "text", text: REFUSAL_FALLBACK_TEXT },
     ]);
     expect(ctx.messages).toEqual([]);
@@ -209,9 +209,9 @@ describe("empty-response stop hook — default decisions", () => {
     // WHEN the hook runs.
     await stop(ctx);
 
-    // THEN it stops and rewrites the turn to the fallback.
+    // THEN it stops and rewrites the turn content to the fallback.
     expect(ctx.decision).toBe("stop");
-    expect(ctx.rewrittenContent).toEqual([
+    expect(ctx.responseContent).toEqual([
       { type: "text", text: REFUSAL_FALLBACK_TEXT },
     ]);
   });
@@ -227,9 +227,11 @@ describe("empty-response stop hook — default decisions", () => {
     // WHEN the hook runs.
     await stop(ctx);
 
-    // THEN the decision stays at stop and the turn is left untouched.
+    // THEN the decision stays at stop and the turn content is left untouched.
     expect(ctx.decision).toBe("stop");
-    expect(ctx.rewrittenContent).toBeUndefined();
+    expect(ctx.responseContent).toEqual([
+      { type: "text", text: "partial answer" },
+    ]);
   });
 
   test("refusal after a visible reply this run → stop, no rewrite", async () => {
@@ -248,7 +250,7 @@ describe("empty-response stop hook — default decisions", () => {
     // THEN the refusal is left as-is — no fallback is stacked beneath the
     // earlier reply.
     expect(ctx.decision).toBe("stop");
-    expect(ctx.rewrittenContent).toBeUndefined();
+    expect(ctx.responseContent).toEqual([]);
   });
 
   test("refusal beats the post-tool-empty nudge", async () => {
@@ -263,10 +265,10 @@ describe("empty-response stop hook — default decisions", () => {
     // WHEN the hook runs.
     await stop(ctx);
 
-    // THEN refusal wins: the turn is rewritten to the fallback and the model is
-    // not nudged.
+    // THEN refusal wins: the turn content is rewritten to the fallback and the
+    // model is not nudged.
     expect(ctx.decision).toBe("stop");
-    expect(ctx.rewrittenContent).toEqual([
+    expect(ctx.responseContent).toEqual([
       { type: "text", text: REFUSAL_FALLBACK_TEXT },
     ]);
     expect(ctx.messages).toEqual([priorToolUseTurn]);
