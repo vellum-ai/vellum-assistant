@@ -15,10 +15,6 @@ import {
   ToolCallBlock,
   UserMessage,
 } from "@/domains/settings/components/panels/doctor-chat-blocks";
-import {
-  assistantsDoctorSessionsDestroy,
-  assistantsMaintenanceModeExitCreate,
-} from "@/generated/api/sdk.gen";
 import { DoctorAvatar } from "@/domains/settings/components/panels/doctor-avatar";
 import {
   type ChatEntry,
@@ -28,7 +24,10 @@ import {
   mapPersistedStatusToPanelStatus,
   selectLatestHistorySession,
 } from "@/domains/settings/components/panels/doctor-history";
-import { useDoctorSession } from "@/domains/settings/components/panels/use-doctor-session";
+import {
+  teardownSession,
+  useDoctorSession,
+} from "@/domains/settings/components/panels/use-doctor-session";
 import { useDoctorSSE } from "@/domains/settings/components/panels/use-doctor-sse";
 import {
   assistantsDoctorHistoryListOptions,
@@ -214,35 +213,25 @@ export function DoctorPanel() {
     historyDetailQuery.error,
   ]);
 
-  // Reset all doctor state when active assistant changes (e.g. user switches
-  // assistant via the app-level selector while this panel is open). Without this,
-  // an existing SSE stream + sessionId would remain keyed to the old assistant.
+  // Reset all doctor state when active assistant changes.
   const prevAssistantIdRef = useRef(assistantId);
   useEffect(() => {
     if (prevAssistantIdRef.current === assistantId) return;
     const oldAssistantId = prevAssistantIdRef.current;
     prevAssistantIdRef.current = assistantId;
-    abort();
 
-    // Best-effort server-side cleanup for the old session so the previous
-    // assistant doesn't stay stuck in maintenance/doctor mode.
-    if (sessionId && oldAssistantId) {
-      assistantsDoctorSessionsDestroy({
-        path: { assistant_id: oldAssistantId, session_id: sessionId },
-        throwOnError: false,
-      }).catch(() => {});
-      assistantsMaintenanceModeExitCreate({
-        path: { assistant_id: oldAssistantId },
-        throwOnError: false,
-      }).catch(() => {});
-    }
+    teardownSession({
+      assistantId: oldAssistantId,
+      sessionId,
+      abort,
+      setSessionId,
+      setSessionStatus,
+      setPendingApproval,
+      setPendingBackup,
+    });
 
     setEntries([]);
-    setSessionId(null);
-    setSessionStatus("idle");
     setThinking(false);
-    setPendingApproval(false);
-    setPendingBackup(false);
     setInputValue("");
     setSelectedHistorySessionId(null);
     setAppliedHistorySessionId(null);

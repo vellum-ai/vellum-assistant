@@ -1,7 +1,6 @@
 import { useCallback, useState } from "react";
 
-import type { ChatEntry } from "@/domains/settings/components/panels/doctor-history";
-import { APPROVAL_RESPONSES } from "@/domains/settings/components/panels/doctor-api";
+import type { ChatEntry, NewChatEntry } from "@/domains/settings/components/panels/doctor-history";
 import {
   assistantsDoctorSessionsCreate,
   assistantsDoctorSessionsDestroy,
@@ -10,15 +9,76 @@ import {
 } from "@/generated/api/sdk.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
 const DOCTOR_GREETING =
   "Hi! I'm the Doctor. State the nature of the issue you're experiencing with your assistant and I'll help diagnose and fix it.";
+
+export const APPROVAL_RESPONSES = new Set([
+  "approve",
+  "approve all exec",
+  "approve all future exec commands",
+  "approve_all_exec",
+  "deny",
+]);
+
+// ---------------------------------------------------------------------------
+// Shared teardown helper (DRY: used by endSession, restartSession, and
+// the assistant-change effect in DoctorPanel)
+// ---------------------------------------------------------------------------
+
+export interface TeardownArgs {
+  assistantId: string;
+  sessionId: string | null;
+  abort: () => void;
+  setSessionId: (id: string | null) => void;
+  setSessionStatus: (s: "idle" | "active" | "completed" | "error") => void;
+  setPendingApproval: (v: boolean) => void;
+  setPendingBackup: (v: boolean) => void;
+}
+
+export function teardownSession(args: TeardownArgs): void {
+  const {
+    assistantId,
+    sessionId,
+    abort,
+    setSessionId,
+    setSessionStatus,
+    setPendingApproval,
+    setPendingBackup,
+  } = args;
+
+  abort();
+
+  if (sessionId && assistantId) {
+    assistantsDoctorSessionsDestroy({
+      path: { assistant_id: assistantId, session_id: sessionId },
+      throwOnError: false,
+    }).catch(() => {});
+    assistantsMaintenanceModeExitCreate({
+      path: { assistant_id: assistantId },
+      throwOnError: false,
+    }).catch(() => {});
+  }
+
+  setSessionId(null);
+  setSessionStatus("idle");
+  setPendingApproval(false);
+  setPendingBackup(false);
+}
+
+// ---------------------------------------------------------------------------
+// Hook
+// ---------------------------------------------------------------------------
 
 interface UseDoctorSessionArgs {
   assistantId: string;
   sessionId: string | null;
   setSessionId: (id: string | null) => void;
   setSessionStatus: (s: "idle" | "active" | "completed" | "error") => void;
-  appendEntry: (entry: Omit<ChatEntry, "id" | "timestamp">) => void;
+  appendEntry: (entry: NewChatEntry) => void;
   setEntries: React.Dispatch<React.SetStateAction<ChatEntry[]>>;
   setThinking: (v: boolean) => void;
   setPendingApproval: (v: boolean) => void;
@@ -83,8 +143,6 @@ export function useDoctorSession(args: UseDoctorSessionArgs) {
       setSessionId(sessId);
       setSessionStatus("active");
 
-      // Append greeting BEFORE connecting SSE so fast events
-      // don't appear above the greeting.
       setEntries([{ kind: "assistant", content: DOCTOR_GREETING, id: "greeting", timestamp: Date.now() }]);
       connectSSE(assistantId, sessId);
     } catch (error) {
@@ -107,48 +165,31 @@ export function useDoctorSession(args: UseDoctorSessionArgs) {
   const endSession = useCallback(async () => {
     setEnding(true);
     try {
-      abort();
-
-      if (sessionId && assistantId) {
-        assistantsDoctorSessionsDestroy({
-          path: { assistant_id: assistantId, session_id: sessionId },
-          throwOnError: false,
-        }).catch(() => {});
-
-        assistantsMaintenanceModeExitCreate({
-          path: { assistant_id: assistantId },
-          throwOnError: false,
-        }).catch(() => {});
-      }
-
-      setSessionId(null);
-      setSessionStatus("idle");
-      setPendingApproval(false);
-      setPendingBackup(false);
+      teardownSession({
+        assistantId,
+        sessionId,
+        abort,
+        setSessionId,
+        setSessionStatus,
+        setPendingApproval,
+        setPendingBackup,
+      });
     } finally {
       setEnding(false);
     }
   }, [sessionId, assistantId, abort, setSessionId, setSessionStatus, setPendingApproval, setPendingBackup]);
 
   const restartSession = useCallback(async () => {
-    abort();
-
-    if (sessionId && assistantId) {
-      assistantsDoctorSessionsDestroy({
-        path: { assistant_id: assistantId, session_id: sessionId },
-        throwOnError: false,
-      }).catch(() => {});
-      assistantsMaintenanceModeExitCreate({
-        path: { assistant_id: assistantId },
-        throwOnError: false,
-      }).catch(() => {});
-    }
-
-    setSessionId(null);
-    setSessionStatus("idle");
+    teardownSession({
+      assistantId,
+      sessionId,
+      abort,
+      setSessionId,
+      setSessionStatus,
+      setPendingApproval,
+      setPendingBackup,
+    });
     setEntries([]);
-    setPendingApproval(false);
-    setPendingBackup(false);
     setSelectedHistorySessionId(null);
     setAppliedHistorySessionId(null);
   }, [

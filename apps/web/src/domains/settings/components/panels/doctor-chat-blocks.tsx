@@ -17,7 +17,12 @@ import { useEffect, useRef, useState } from "react";
 import { MarkdownMessage } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 
-import { type ChatEntry } from "@/domains/settings/components/panels/doctor-history";
+import type {
+  ApprovalMeta,
+  BackupPromptMeta,
+  ChatEntry,
+  ToolCallMeta,
+} from "@/domains/settings/components/panels/doctor-history";
 
 // ---------------------------------------------------------------------------
 // MessageCopyButton
@@ -75,20 +80,14 @@ export function MessageCopyButton({ text }: { text: string }) {
 // ToolCallBlock
 // ---------------------------------------------------------------------------
 
-export function ToolCallBlock({ entry }: { entry: ChatEntry }) {
+export function ToolCallBlock({
+  entry,
+}: {
+  entry: ChatEntry & { kind: "tool_call"; meta: ToolCallMeta };
+}) {
   const [expanded, setExpanded] = useState(false);
-  const toolName =
-    typeof entry.meta?.toolName === "string" ? entry.meta.toolName : "tool";
-  const input =
-    entry.meta?.input &&
-    typeof entry.meta.input === "object" &&
-    !Array.isArray(entry.meta.input)
-      ? (entry.meta.input as Record<string, unknown>)
-      : undefined;
-  const result =
-    typeof entry.meta?.result === "string" ? entry.meta.result : undefined;
-  const isError = entry.meta?.isError === true;
-  const isRunning = entry.meta?.status === "running";
+  const { toolName, input, result, isError, status } = entry.meta;
+  const isRunning = status === "running";
 
   const statusLabel = isRunning
     ? "Running 1 step"
@@ -98,7 +97,7 @@ export function ToolCallBlock({ entry }: { entry: ChatEntry }) {
 
   const canExpand =
     !isRunning &&
-    (result !== undefined || (input && Object.keys(input).length > 0));
+    (result !== undefined || Object.keys(input).length > 0);
 
   return (
     <div className="my-1 w-full">
@@ -158,21 +157,20 @@ export function ToolCallBlock({ entry }: { entry: ChatEntry }) {
             <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--content-disabled)]">
               Technical Details
             </div>
-            {input &&
-              Object.entries(input).map(([key, value]) => (
-                <div key={key} className="mt-0.5">
-                  <span className="text-body-medium-default text-[var(--content-default)]">
-                    {key}:
-                  </span>{" "}
-                  <span className="text-body-medium-lighter text-[var(--content-tertiary)]">
-                    {typeof value === "string"
-                      ? value.length > 200
-                        ? value.slice(0, 200) + "..."
-                        : value
-                      : JSON.stringify(value)}
-                  </span>
-                </div>
-              ))}
+            {Object.entries(input).map(([key, value]) => (
+              <div key={key} className="mt-0.5">
+                <span className="text-body-medium-default text-[var(--content-default)]">
+                  {key}:
+                </span>{" "}
+                <span className="text-body-medium-lighter text-[var(--content-tertiary)]">
+                  {typeof value === "string"
+                    ? value.length > 200
+                      ? value.slice(0, 200) + "..."
+                      : value
+                    : JSON.stringify(value)}
+                </span>
+              </div>
+            ))}
           </div>
 
           {result !== undefined && (
@@ -216,20 +214,11 @@ export function ApprovalBlock({
   onRespond,
   disabled,
 }: {
-  entry: ChatEntry;
+  entry: ChatEntry & { kind: "approval"; meta: ApprovalMeta };
   onRespond: (response: string) => void;
   disabled: boolean;
 }) {
-  const toolName =
-    typeof entry.meta?.toolName === "string" ? entry.meta.toolName : "tool";
-  const description =
-    typeof entry.meta?.description === "string" ? entry.meta.description : "";
-  const input =
-    entry.meta?.input &&
-    typeof entry.meta.input === "object" &&
-    !Array.isArray(entry.meta.input)
-      ? (entry.meta.input as Record<string, unknown>)
-      : undefined;
+  const { toolName, description, input } = entry.meta;
   const [showDetails, setShowDetails] = useState(false);
 
   const hasDetails = !!toolName || !!description || !!input;
@@ -324,12 +313,11 @@ export function BackupPromptBlock({
   onRespond,
   disabled,
 }: {
-  entry: ChatEntry;
+  entry: ChatEntry & { kind: "backup_prompt"; meta: BackupPromptMeta };
   onRespond: (response: string) => void;
   disabled: boolean;
 }) {
-  const toolName =
-    typeof entry.meta?.toolName === "string" ? entry.meta.toolName : "tool";
+  const { toolName } = entry.meta;
 
   return (
     <div className="rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] p-4">
