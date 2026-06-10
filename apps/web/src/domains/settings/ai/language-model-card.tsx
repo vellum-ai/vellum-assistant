@@ -140,11 +140,10 @@ export function LanguageModelCard() {
               </div>
               <Button
                 variant="outlined"
-                size="compact"
+                size="regular"
                 onClick={() => setManageProfilesOpen(true)}
               >
-                <Plus className="h-3.5 w-3.5" />
-                Create
+                + Create
               </Button>
             </div>
             {queryComplexityRoutingEnabled && effectiveActiveProfile === AUTO_PROFILE_NAME && (
