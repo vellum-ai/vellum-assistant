@@ -3,8 +3,10 @@
  * hand-edited to invalid JSON) is quarantined by the loader, which
  * logs an error with a remediation hint and falls through to the
  * default-config path so startup proceeds. These tests verify that
- * loadConfig() / loadRawConfig() never throw on corrupt input, and
- * that the corrupt file is preserved for debugging.
+ * loadConfig() / loadRawConfig() / getConfigReadOnly() never throw on
+ * corrupt input, and that the corrupt file is preserved for debugging
+ * (quarantined by the writing loaders; left in place by the read-only
+ * accessor).
  */
 
 import {
@@ -19,6 +21,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
+  getConfigReadOnly,
   invalidateConfigCache,
   loadConfig,
   loadRawConfig,
@@ -248,4 +251,69 @@ describe("loadRawConfig corrupt-file recovery", () => {
       );
     },
   );
+});
+
+describe("getConfigReadOnly corrupt-file recovery", () => {
+  beforeEach(() => {
+    resetWorkspace();
+    setStorePathForTesting(join(WORKSPACE_DIR, "keys.enc"));
+    invalidateConfigCache();
+  });
+
+  afterEach(() => {
+    setStorePathForTesting(null);
+    invalidateConfigCache();
+  });
+
+  test("returns defaults on unparseable config.json without side effects", () => {
+    writeFileSync(CONFIG_PATH, '{"provider": "anthropic", "mo');
+
+    // Must not throw — this runs during CLI program construction.
+    const config = getConfigReadOnly();
+
+    expect(config).toBeDefined();
+    expect(config.memory).toBeDefined();
+    expect(listQuarantinedFiles()).toHaveLength(0);
+    expect(readFileSync(CONFIG_PATH, "utf-8")).toBe(
+      '{"provider": "anthropic", "mo',
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // Top-level shape guard — JSON.parse succeeds on `null`, primitives, and
+  // arrays, but `validateWithBuiltinProfiles` requires a plain-object root
+  // (its profile merge would TypeError otherwise). The read-only accessor
+  // must fall back to defaults like the parse-error path, and — unlike
+  // loadConfig() — must NOT quarantine: it stays side-effect-free.
+  // ---------------------------------------------------------------------------
+
+  test.each([
+    ["null at the top level", "null"],
+    ["a JSON number", "42"],
+    ["a JSON string", '"hello"'],
+    ["a JSON boolean", "true"],
+    ["a JSON array", '["provider", "anthropic"]'],
+  ])(
+    "returns defaults when config.json contains %s, without quarantining",
+    (_label, jsonText) => {
+      writeFileSync(CONFIG_PATH, jsonText);
+
+      // Must not throw — CLI program construction depends on this.
+      const config = getConfigReadOnly();
+
+      expect(config).toBeDefined();
+      expect(config.memory).toBeDefined();
+      expect(listQuarantinedFiles()).toHaveLength(0);
+      expect(readFileSync(CONFIG_PATH, "utf-8")).toBe(jsonText);
+    },
+  );
+
+  test("returns the parsed config when config.json is a valid object", () => {
+    const customDataDir = join(WORKSPACE_DIR, "custom-data");
+    writeFileSync(CONFIG_PATH, JSON.stringify({ dataDir: customDataDir }));
+
+    const config = getConfigReadOnly();
+    expect(config.dataDir).toBe(customDataDir);
+    expect(listQuarantinedFiles()).toHaveLength(0);
+  });
 });

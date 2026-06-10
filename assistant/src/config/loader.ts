@@ -1099,7 +1099,9 @@ export function getConfig(): AssistantConfig {
 /**
  * Read-only config accessor: returns the current config without creating
  * directories or writing files. Reads config.json if it exists on disk;
- * returns schema defaults otherwise. Unlike `getConfig()` / `loadConfig()`,
+ * returns schema defaults otherwise — and also when the file is unparseable
+ * or its top-level value is not a plain object (corrupt files are left in
+ * place, never quarantined). Unlike `getConfig()` / `loadConfig()`,
  * this never calls `ensureDataDir()` or writes a default config to disk,
  * making it safe to call during CLI program construction before the
  * workspace-existence check runs.
@@ -1111,11 +1113,25 @@ export function getConfigReadOnly(): AssistantConfig {
   const configPath = getConfigPath();
   let fileConfig: Record<string, unknown> = {};
   if (existsSync(configPath)) {
+    let parsed: unknown;
     try {
-      fileConfig = JSON.parse(readFileSync(configPath, "utf-8"));
+      parsed = JSON.parse(readFileSync(configPath, "utf-8"));
     } catch {
       return cloneDefaultConfig();
     }
+    if (!isPlainObject(parsed)) {
+      // Same top-level-shape contract as `loadConfig`: a `null`, primitive,
+      // or array would TypeError inside `validateWithBuiltinProfiles`
+      // (`ensurePlainObjectAt(raw, "llm")`). Fall back to defaults like the
+      // parse-error path above — but never quarantine here: this accessor
+      // must stay read-only and side-effect-free; `loadConfig` owns
+      // quarantining on the next full load.
+      log.warn(
+        `config.json must contain a JSON object at the top level; got ${describeJsonShape(parsed)} — using defaults`,
+      );
+      return cloneDefaultConfig();
+    }
+    fileConfig = parsed;
   }
 
   return validateWithBuiltinProfiles(fileConfig);
