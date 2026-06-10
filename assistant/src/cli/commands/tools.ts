@@ -68,7 +68,7 @@ Examples:
           const response = await cliIpcCall<ToolsGetResponse>(
             "tools_get",
             opts.conversation
-              ? { conversationId: opts.conversation }
+              ? { queryParams: { conversationId: opts.conversation } }
               : undefined,
           );
           if (!response.ok) {

@@ -208,6 +208,15 @@ export class Conversation {
   /** @internal */ eventBus = new EventBus<AssistantDomainEvents>();
   /** @internal */ workingDir: string;
   /** @internal */ allowedToolNames?: Set<string>;
+  /**
+   * Durable copy of the full tool set resolved on the most recent turn,
+   * kept for read-only inventory queries. Unlike {@link allowedToolNames}
+   * — the per-turn execution gate the agent loop clears at turn teardown —
+   * this survives between turns so a query against an idle conversation
+   * still reports the skill/MCP tools it gained over its lifecycle.
+   * @internal
+   */
+  lastResolvedToolNames?: Set<string>;
   /** @internal */ diskPressureCleanupModeActive?: boolean;
   /** @internal */ toolsDisabledDepth = 0;
   /** @internal */ preactivatedSkillIds?: string[];
@@ -1774,14 +1783,15 @@ export class Conversation {
   /**
    * The set of tool names available to this conversation as of its most
    * recent turn — including skill/MCP tools registered over the
-   * conversation's lifecycle. Read from the snapshot the agent loop's
-   * `resolveTools` callback computed on the last turn; before the first
-   * turn it falls back to the core tool set. This is a pure read: it does
-   * not re-run `resolveTools`, which has registry/projection side effects
+   * conversation's lifecycle. Reads the durable {@link lastResolvedToolNames}
+   * snapshot the `resolveTools` callback records each turn (which, unlike the
+   * per-turn `allowedToolNames` gate, is not cleared at turn teardown); before
+   * the first turn it falls back to the core tool set. This is a pure read: it
+   * does not re-run `resolveTools`, which has registry/projection side effects
    * that must not fire outside a turn.
    */
   getRegisteredToolNames(): Set<string> {
-    return new Set(this.allowedToolNames ?? this.coreToolNames);
+    return new Set(this.lastResolvedToolNames ?? this.coreToolNames);
   }
 
   // ── History ──────────────────────────────────────────────────────

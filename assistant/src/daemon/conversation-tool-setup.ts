@@ -307,6 +307,12 @@ export interface SkillProjectionContext {
   readonly skillProjectionCache: SkillProjectionCache;
   readonly coreToolNames: Set<string>;
   allowedToolNames?: Set<string>;
+  /**
+   * Durable copy of the full tool set resolved on the most recent turn, used
+   * by read-only inventory queries. Set alongside {@link allowedToolNames}
+   * but, unlike that per-turn execution gate, never cleared at turn teardown.
+   */
+  lastResolvedToolNames?: Set<string>;
   /** When > 0, the resolveTools callback returns no tools at all. */
   toolsDisabledDepth: number;
   /** Channel capabilities — read lazily per turn for conditional tool filtering. */
@@ -610,6 +616,11 @@ export function createResolveToolsCallback(
       if (excluded.has(name)) continue;
       turnAllowed.add(name);
     }
+    // Record the full resolved inventory durably for read-only queries before
+    // any degraded-mode narrowing below — `allowedToolNames` is the per-turn
+    // execution gate (cleared at teardown and restricted under disk pressure),
+    // whereas this snapshot answers "what tools does this conversation have".
+    ctx.lastResolvedToolNames = turnAllowed;
     if (ctx.diskPressureCleanupModeActive === true) {
       const cleanupDefs = allBaseDefs.filter((d) =>
         isDiskPressureCleanupToolName(d.name),
