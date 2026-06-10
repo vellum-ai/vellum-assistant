@@ -133,6 +133,15 @@ export type DictationOverlayMessage =
   | DictationOverlayState
   | { kind: "dismiss" };
 
+// Mirrors `TranscriptionOverlayState` in
+// `apps/macos/src/main/transcription-overlay-window.ts` (kept inline for the
+// same three-TS-project reason as `VellumCommand`).
+export interface TranscriptionOverlayState {
+  transcript: string;
+  createdAt: number;
+  autoDismissMs: number;
+}
+
 export type HelperState =
   | { status: "idle" }
   | { status: "starting"; attempt: number }
@@ -610,6 +619,22 @@ export interface VellumBridge {
      */
     getState(): Promise<DictationOverlayState | null>;
   };
+  transcriptionOverlay: {
+    /** Show the final transcript overlay without focusing it. */
+    show(state: TranscriptionOverlayState): Promise<void>;
+    /** Dismiss the final transcript overlay if it is visible. */
+    dismiss(): Promise<void>;
+    /**
+     * Subscribe to final transcript overlay state. Only the standalone overlay
+     * renderer (`/floating/transcription`) consumes this.
+     */
+    onState(callback: (state: TranscriptionOverlayState) => void): () => void;
+    /**
+     * Read the latest final transcript overlay state, or null when no overlay
+     * session is active.
+     */
+    getState(): Promise<TranscriptionOverlayState | null>;
+  };
   popout: {
     /**
      * Open (or focus) a pop-out window for a conversation. Main creates an
@@ -970,6 +995,31 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke(
         "vellum:dictationOverlay:getState",
       ) as Promise<DictationOverlayState | null>,
+  },
+  transcriptionOverlay: {
+    show: (state: TranscriptionOverlayState): Promise<void> =>
+      ipcRenderer.invoke(
+        "vellum:transcriptionOverlay:show",
+        state,
+      ) as Promise<void>,
+    dismiss: (): Promise<void> =>
+      ipcRenderer.invoke("vellum:transcriptionOverlay:dismiss") as Promise<void>,
+    onState: (callback) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        payload: TranscriptionOverlayState,
+      ) => {
+        callback(payload);
+      };
+      ipcRenderer.on("vellum:transcriptionOverlay:state", handler);
+      return () => {
+        ipcRenderer.off("vellum:transcriptionOverlay:state", handler);
+      };
+    },
+    getState: (): Promise<TranscriptionOverlayState | null> =>
+      ipcRenderer.invoke(
+        "vellum:transcriptionOverlay:getState",
+      ) as Promise<TranscriptionOverlayState | null>,
   },
   popout: {
     open: (conversationId: string): Promise<void> =>

@@ -150,6 +150,17 @@ export type DictationOverlayMessage =
   | DictationOverlayState
   | { kind: "dismiss" };
 
+/**
+ * Renderer-side mirror of `TranscriptionOverlayState` in
+ * `apps/macos/src/main/transcription-overlay-window.ts` — inline for the same
+ * reason as `VellumCommand`.
+ */
+export interface TranscriptionOverlayState {
+  transcript: string;
+  createdAt: number;
+  autoDismissMs: number;
+}
+
 export type HelperState =
   | { status: "idle" }
   | { status: "starting"; attempt: number }
@@ -426,6 +437,16 @@ declare global {
           callback: (state: DictationOverlayState) => void,
         ): () => void;
         getState(): Promise<DictationOverlayState | null>;
+      };
+      // Optional: older Electron shells predate the final transcription
+      // overlay channel.
+      transcriptionOverlay?: {
+        show(state: TranscriptionOverlayState): Promise<void>;
+        dismiss(): Promise<void>;
+        onState(
+          callback: (state: TranscriptionOverlayState) => void,
+        ): () => void;
+        getState(): Promise<TranscriptionOverlayState | null>;
       };
       // Optional: older Electron shells predate the notifications channel.
       notifications?: {

@@ -126,6 +126,11 @@ export const routeTree = [
     // rolling Electron/web updates.
     { path: "/assistant/dictation-overlay", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/dictation-overlay-page").then((m) => m.DictationOverlayPage) } },
 
+    // Transcription overlay — final transcript surface rendered inside the
+    // Electron transcription floating BrowserWindow. Standalone, outside
+    // auth middleware and RootLayout, so the transparent overlay loads fast.
+    { path: "/assistant/floating/transcription", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/transcription-overlay-page").then((m) => m.TranscriptionOverlayPage) } },
+
     // Assistant routes — auth-protected app with layout
     {
       path: "/assistant",
