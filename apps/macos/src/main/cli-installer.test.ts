@@ -35,6 +35,7 @@ const existsSyncByPath: Record<string, boolean> = {};
 let readdirSyncReturn: Array<{ name: string; isDirectory: () => boolean }> = [];
 let readdirSyncError: Error | null = null;
 let writeFileSyncError: Error | null = null;
+const chmodSyncCalls: Array<[string, number]> = [];
 const mkdirSyncCalls: Array<[string, object]> = [];
 const rmSyncCalls: Array<[string, object]> = [];
 const copyFileSyncCalls: Array<[string, string]> = [];
@@ -44,6 +45,10 @@ const renameSyncCalls: Array<[string, string]> = [];
 const fsCallOrder: string[] = [];
 
 mock.module("node:fs", () => ({
+  chmodSync: (p: string, mode: number) => {
+    chmodSyncCalls.push([p, mode]);
+    fsCallOrder.push(`chmodSync:${p}`);
+  },
   copyFileSync: (src: string, dst: string) => {
     copyFileSyncCalls.push([src, dst]);
   },
@@ -92,6 +97,7 @@ const {
   getBundledBunPath,
   getCliLocatorPath,
   shQuote,
+  writeFileAtomicSync,
   writeCliLocator,
   buildInstallEnv,
   isCliInstalled,
@@ -111,6 +117,7 @@ afterEach(() => {
   readdirSyncReturn.length = 0;
   readdirSyncError = null;
   writeFileSyncError = null;
+  chmodSyncCalls.length = 0;
   mkdirSyncCalls.length = 0;
   rmSyncCalls.length = 0;
   copyFileSyncCalls.length = 0;
@@ -160,6 +167,29 @@ describe("shQuote", () => {
 
   test("escapes embedded single quotes", () => {
     expect(shQuote("/Users/o'brien/bin")).toBe("'/Users/o'\\''brien/bin'");
+  });
+});
+
+// --- writeFileAtomicSync ---
+
+describe("writeFileAtomicSync", () => {
+  test("writes the temp file then renames it into place", () => {
+    writeFileAtomicSync("/x/file", "content");
+
+    expect(writeFileSyncCalls).toEqual([["/x/file.tmp", "content"]]);
+    expect(renameSyncCalls).toEqual([["/x/file.tmp", "/x/file"]]);
+    expect(chmodSyncCalls).toHaveLength(0);
+  });
+
+  test("chmods the temp file before the rename when a mode is given", () => {
+    writeFileAtomicSync("/x/file", "content", 0o755);
+
+    expect(chmodSyncCalls).toEqual([["/x/file.tmp", 0o755]]);
+    expect(fsCallOrder).toEqual([
+      "writeFileSync:/x/file.tmp",
+      "chmodSync:/x/file.tmp",
+      "renameSync:/x/file",
+    ]);
   });
 });
 

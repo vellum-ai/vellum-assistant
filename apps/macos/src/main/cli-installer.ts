@@ -1,6 +1,7 @@
 import { app } from "electron";
 import { spawn } from "node:child_process";
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
   mkdirSync,
@@ -47,6 +48,18 @@ export function shQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
+/** Atomically write `content` via tmp-file + rename, optionally chmod'd. */
+export function writeFileAtomicSync(
+  filePath: string,
+  content: string,
+  mode?: number,
+): void {
+  const tmpPath = `${filePath}.tmp`;
+  writeFileSync(tmpPath, content);
+  if (mode !== undefined) chmodSync(tmpPath, mode);
+  renameSync(tmpPath, filePath);
+}
+
 /**
  * Atomically write the locator file the `~/.local/bin/vellum` wrapper
  * sources to find the bundled bun and the current CLI bin. Refreshed on
@@ -68,9 +81,7 @@ export function writeCliLocator(): void {
       `VELLUM_BUN=${shQuote(getBundledBunPath())}\n` +
       `VELLUM_CLI_BIN=${shQuote(getCliBinPath())}\n`;
 
-    const tmpPath = `${locatorPath}.tmp`;
-    writeFileSync(tmpPath, content);
-    renameSync(tmpPath, locatorPath);
+    writeFileAtomicSync(locatorPath, content);
   } catch (err) {
     log.error("[cli-installer] failed to write CLI locator:", err);
   }

@@ -1,16 +1,19 @@
 import {
-  chmodSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
-  renameSync,
+  realpathSync,
   rmSync,
-  writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
-import { getCliLocatorPath, shQuote } from "./cli-installer";
-import { findExecutablesInPath, resolveShellPath } from "./shell-path";
+import { getCliLocatorPath, shQuote, writeFileAtomicSync } from "./cli-installer";
+import {
+  findExecutablesInPath,
+  resolveShellPath,
+  splitPathEntries,
+} from "./shell-path";
 
 /** Ownership/migration marker embedded in every wrapper we write. */
 export const WRAPPER_MARKER = "# vellum-cli-wrapper v1";
@@ -54,18 +57,28 @@ export function buildWrapperScript(): string {
 export type WrapperOwnership = "ours" | "foreign" | "absent";
 
 /**
- * Classify what sits at the wrapper path. Unreadable-but-present files and
- * marker-less symlink targets (e.g. an npm prefix pointed at `~/.local`)
- * read as `foreign` so we never clobber them.
+ * Classify what sits at the wrapper path. Anything present that can't be
+ * read or lacks the marker — unreadable files, dangling symlinks,
+ * marker-less symlink targets (e.g. an npm prefix pointed at `~/.local`) —
+ * reads as `foreign` so we never clobber it. Only a true no-entry is
+ * `absent`; lstat is used so dangling symlinks still count as present.
  */
 export function readWrapperOwnership(): WrapperOwnership {
-  let content: string;
+  const wrapperPath = getWrapperPath();
+
   try {
-    content = readFileSync(getWrapperPath(), "utf8");
+    lstatSync(wrapperPath);
   } catch (err) {
     return (err as NodeJS.ErrnoException).code === "ENOENT"
       ? "absent"
       : "foreign";
+  }
+
+  let content: string;
+  try {
+    content = readFileSync(wrapperPath, "utf8");
+  } catch {
+    return "foreign";
   }
   return content.includes(WRAPPER_MARKER) ? "ours" : "foreign";
 }
@@ -77,17 +90,12 @@ export function readWrapperOwnership(): WrapperOwnership {
 export function installWrapper(opts: {
   overwriteForeign: boolean;
 }): "installed" | "needs-overwrite-confirmation" {
-  mkdirSync(getWrapperDir(), { recursive: true });
-
   if (readWrapperOwnership() === "foreign" && !opts.overwriteForeign) {
     return "needs-overwrite-confirmation";
   }
 
-  const wrapperPath = getWrapperPath();
-  const tmpPath = `${wrapperPath}.tmp`;
-  writeFileSync(tmpPath, buildWrapperScript());
-  chmodSync(tmpPath, 0o755);
-  renameSync(tmpPath, wrapperPath);
+  mkdirSync(getWrapperDir(), { recursive: true });
+  writeFileAtomicSync(getWrapperPath(), buildWrapperScript(), 0o755);
   return "installed";
 }
 
@@ -95,34 +103,46 @@ export type CliPathInstallState =
   | { kind: "not-installed" }
   | { kind: "foreign-file" }
   | { kind: "installed"; inPath: boolean }
-  | { kind: "shadowed"; shadowedBy: string };
+  // `inPath` is optional only so sibling-owned test fixtures keep compiling;
+  // getCliPathInstallState always populates it.
+  | { kind: "shadowed"; shadowedBy: string; inPath?: boolean };
 
-// Shell PATH entries are already $HOME-expanded; only trailing slashes vary.
-function stripTrailingSlashes(dir: string): string {
-  return dir.replace(/\/+$/, "");
+function realpathOr(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
 }
 
 /**
  * Determine how the `vellum` command resolves on the user's login-shell
  * PATH. `shadowed` means another executable wins over our wrapper (e.g. an
- * npm-global install earlier in PATH). Never throws — shell PATH resolution
- * degrades gracefully.
+ * npm-global install earlier in PATH); symlink/case variants that resolve
+ * to the wrapper itself don't count. Never throws — when login-shell PATH
+ * resolution fails, degrades to `installed` with `inPath: false` rather
+ * than reporting states the fallback PATH can't actually attest to.
  */
 export async function getCliPathInstallState(): Promise<CliPathInstallState> {
   const ownership = readWrapperOwnership();
   if (ownership === "absent") return { kind: "not-installed" };
   if (ownership === "foreign") return { kind: "foreign-file" };
 
-  const shellPath = await resolveShellPath();
-  const [firstHit] = findExecutablesInPath("vellum", shellPath);
-  if (firstHit !== undefined && firstHit !== getWrapperPath()) {
-    return { kind: "shadowed", shadowedBy: firstHit };
-  }
+  const { path: shellPath, reliable } = await resolveShellPath();
+  if (!reliable) return { kind: "installed", inPath: false };
 
-  const wrapperDir = getWrapperDir();
-  const inPath = shellPath
-    .split(":")
-    .some((entry) => stripTrailingSlashes(entry) === wrapperDir);
+  const wrapperPath = getWrapperPath();
+  const [firstHit] = findExecutablesInPath("vellum", shellPath);
+  const firstHitIsWrapper =
+    firstHit !== undefined &&
+    (firstHit === wrapperPath || realpathOr(firstHit) === realpathOr(wrapperPath));
+
+  const inPath =
+    firstHitIsWrapper || splitPathEntries(shellPath).includes(getWrapperDir());
+
+  if (firstHit !== undefined && !firstHitIsWrapper) {
+    return { kind: "shadowed", shadowedBy: firstHit, inPath };
+  }
   return { kind: "installed", inPath };
 }
 

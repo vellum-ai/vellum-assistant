@@ -37,6 +37,11 @@ mock.module("node:os", () => ({
 
 // Track fs calls so tests can assert on them.
 let readFileSyncResult: string | Error | null = null;
+// "auto" mirrors readFileSync presence; "exists" forces a present entry
+// (e.g. a dangling symlink whose readFileSync still throws ENOENT).
+let lstatSyncBehavior: "auto" | "exists" = "auto";
+// Symlink resolution map; paths not present throw (like realpathSync).
+const realpathMap: Record<string, string> = {};
 const mkdirSyncCalls: Array<[string, object]> = [];
 const writeFileSyncCalls: Array<[string, string]> = [];
 const chmodSyncCalls: Array<[string, number]> = [];
@@ -50,13 +55,20 @@ const enoent = () => {
 };
 
 mock.module("node:fs", () => ({
-  // Used by the cli-installer module evaluated as a dependency.
+  // Used by the cli-installer and shell-path modules evaluated as deps.
+  accessSync: () => {},
+  constants: { X_OK: 1 },
   copyFileSync: () => {},
   existsSync: () => false,
   readdirSync: () => [],
   // Used by cli-path-installer.
   chmodSync: (p: string, mode: number) => {
     chmodSyncCalls.push([p, mode]);
+  },
+  lstatSync: (_p: string) => {
+    if (lstatSyncBehavior === "exists") return {};
+    if (readFileSyncResult === null) throw enoent();
+    return {};
   },
   mkdirSync: (p: string, opts: object) => {
     mkdirSyncCalls.push([p, opts]);
@@ -65,6 +77,11 @@ mock.module("node:fs", () => ({
     if (readFileSyncResult === null) throw enoent();
     if (readFileSyncResult instanceof Error) throw readFileSyncResult;
     return readFileSyncResult;
+  },
+  realpathSync: (p: string) => {
+    const resolved = realpathMap[p];
+    if (resolved === undefined) throw enoent();
+    return resolved;
   },
   renameSync: (src: string, dst: string) => {
     renameSyncCalls.push([src, dst]);
@@ -79,14 +96,19 @@ mock.module("node:fs", () => ({
 
 // Controlled per-test; reset in afterEach.
 let shellPathValue = "";
+let shellPathReliable = true;
 let shellPathHits: string[] = [];
 let resolveShellPathCalls = 0;
 const findExecutablesCalls: Array<[string, string]> = [];
 
+// Spread the real module so `splitPathEntries` keeps its production
+// behavior; only the spawning/probing functions are faked.
+const realShellPath = await import("./shell-path");
 mock.module("./shell-path", () => ({
+  ...realShellPath,
   resolveShellPath: async () => {
     resolveShellPathCalls += 1;
-    return shellPathValue;
+    return { path: shellPathValue, reliable: shellPathReliable };
   },
   findExecutablesInPath: (name: string, pathValue: string) => {
     findExecutablesCalls.push([name, pathValue]);
@@ -111,12 +133,15 @@ const locatorPath = `${userDataPath}/cli/locator.sh`;
 
 afterEach(() => {
   readFileSyncResult = null;
+  lstatSyncBehavior = "auto";
+  for (const key of Object.keys(realpathMap)) delete realpathMap[key];
   mkdirSyncCalls.length = 0;
   writeFileSyncCalls.length = 0;
   chmodSyncCalls.length = 0;
   renameSyncCalls.length = 0;
   rmSyncCalls.length = 0;
   shellPathValue = "";
+  shellPathReliable = true;
   shellPathHits = [];
   resolveShellPathCalls = 0;
   findExecutablesCalls.length = 0;
@@ -162,7 +187,7 @@ describe("buildWrapperScript", () => {
 
 describe("readWrapperOwnership", () => {
   test("returns absent when no file exists at the wrapper path", () => {
-    readFileSyncResult = null; // readFileSync throws ENOENT
+    readFileSyncResult = null; // lstatSync and readFileSync throw ENOENT
     expect(readWrapperOwnership()).toBe("absent");
   });
 
@@ -187,6 +212,13 @@ describe("readWrapperOwnership", () => {
     readFileSyncResult = eacces;
     expect(readWrapperOwnership()).toBe("foreign");
   });
+
+  test("returns foreign for a dangling symlink (lstat exists, read ENOENT)", () => {
+    lstatSyncBehavior = "exists";
+    readFileSyncResult = null; // readFileSync follows the link → ENOENT
+
+    expect(readWrapperOwnership()).toBe("foreign");
+  });
 });
 
 // --- installWrapper ---
@@ -206,14 +238,26 @@ describe("installWrapper", () => {
     expect(renameSyncCalls).toEqual([[`${wrapperPath}.tmp`, wrapperPath]]);
   });
 
-  test("returns needs-overwrite-confirmation for a foreign file without touching it", () => {
+  test("returns needs-overwrite-confirmation for a foreign file without touching the fs", () => {
     readFileSyncResult = "#!/bin/sh\necho not ours\n";
 
     const result = installWrapper({ overwriteForeign: false });
 
     expect(result).toBe("needs-overwrite-confirmation");
+    expect(mkdirSyncCalls).toHaveLength(0);
     expect(writeFileSyncCalls).toHaveLength(0);
     expect(chmodSyncCalls).toHaveLength(0);
+    expect(renameSyncCalls).toHaveLength(0);
+  });
+
+  test("requires confirmation for a dangling foreign symlink instead of clobbering it", () => {
+    lstatSyncBehavior = "exists";
+    readFileSyncResult = null;
+
+    const result = installWrapper({ overwriteForeign: false });
+
+    expect(result).toBe("needs-overwrite-confirmation");
+    expect(writeFileSyncCalls).toHaveLength(0);
     expect(renameSyncCalls).toHaveLength(0);
   });
 
@@ -254,6 +298,14 @@ describe("uninstallWrapper", () => {
 
   test("refuses to delete a foreign file", () => {
     readFileSyncResult = "#!/bin/sh\necho not ours\n";
+
+    expect(uninstallWrapper()).toBe("not-ours");
+    expect(rmSyncCalls).toHaveLength(0);
+  });
+
+  test("refuses to delete a dangling foreign symlink", () => {
+    lstatSyncBehavior = "exists";
+    readFileSyncResult = null;
 
     expect(uninstallWrapper()).toBe("not-ours");
     expect(rmSyncCalls).toHaveLength(0);
@@ -309,7 +361,7 @@ describe("getCliPathInstallState", () => {
     });
   });
 
-  test("returns shadowed with the winning path when another vellum precedes the wrapper", async () => {
+  test("returns shadowed with inPath true when another vellum precedes the wrapper", async () => {
     readFileSyncResult = buildWrapperScript();
     shellPathValue = `/opt/homebrew/bin:${wrapperDir}:/usr/bin:/bin`;
     shellPathHits = ["/opt/homebrew/bin/vellum", wrapperPath];
@@ -317,6 +369,45 @@ describe("getCliPathInstallState", () => {
     expect(await getCliPathInstallState()).toEqual({
       kind: "shadowed",
       shadowedBy: "/opt/homebrew/bin/vellum",
+      inPath: true,
+    });
+  });
+
+  test("returns shadowed with inPath false when the wrapper dir is not in PATH", async () => {
+    readFileSyncResult = buildWrapperScript();
+    shellPathValue = "/opt/homebrew/bin:/usr/bin:/bin";
+    shellPathHits = ["/opt/homebrew/bin/vellum"];
+
+    expect(await getCliPathInstallState()).toEqual({
+      kind: "shadowed",
+      shadowedBy: "/opt/homebrew/bin/vellum",
+      inPath: false,
+    });
+  });
+
+  test("does not report shadowed when the first hit symlinks to the wrapper", async () => {
+    readFileSyncResult = buildWrapperScript();
+    shellPathValue = `${mockHome}/bin:/usr/bin:/bin`;
+    shellPathHits = [`${mockHome}/bin/vellum`]; // ~/bin -> ~/.local/bin
+    realpathMap[`${mockHome}/bin/vellum`] = wrapperPath;
+    realpathMap[wrapperPath] = wrapperPath;
+
+    expect(await getCliPathInstallState()).toEqual({
+      kind: "installed",
+      inPath: true,
+    });
+  });
+
+  test("still reports shadowed when realpath resolution fails (string-compare fallback)", async () => {
+    readFileSyncResult = buildWrapperScript();
+    shellPathValue = `/opt/homebrew/bin:${wrapperDir}`;
+    shellPathHits = ["/opt/homebrew/bin/vellum", wrapperPath];
+    // realpathMap left empty → realpathSync throws for both sides.
+
+    expect(await getCliPathInstallState()).toEqual({
+      kind: "shadowed",
+      shadowedBy: "/opt/homebrew/bin/vellum",
+      inPath: true,
     });
   });
 
@@ -340,5 +431,20 @@ describe("getCliPathInstallState", () => {
       kind: "installed",
       inPath: true,
     });
+  });
+
+  test("unreliable fallback PATH degrades to installed/inPath:false without shadow probing", async () => {
+    readFileSyncResult = buildWrapperScript();
+    shellPathReliable = false;
+    // The buildInstallEnv fallback always prepends the wrapper dir and may
+    // contain shadow candidates — none of it is evidence of the real PATH.
+    shellPathValue = `${wrapperDir}:/opt/homebrew/bin:/usr/bin`;
+    shellPathHits = ["/opt/homebrew/bin/vellum", wrapperPath];
+
+    expect(await getCliPathInstallState()).toEqual({
+      kind: "installed",
+      inPath: false,
+    });
+    expect(findExecutablesCalls).toHaveLength(0);
   });
 });

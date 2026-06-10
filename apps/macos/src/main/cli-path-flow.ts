@@ -5,6 +5,7 @@
  */
 import { clipboard, dialog } from "electron";
 
+import { ensureCliInstalled } from "./cli-installer";
 import {
   getCliPathInstallState,
   getWrapperPath,
@@ -13,6 +14,9 @@ import {
 } from "./cli-path-installer";
 
 const PATH_EXPORT_LINE = 'export PATH="$HOME/.local/bin:$PATH"';
+
+const errorMessage = (err: unknown): string =>
+  err instanceof Error ? err.message : "Unknown error";
 
 async function confirmReplaceForeignFile(): Promise<boolean> {
   const { response } = await dialog.showMessageBox({
@@ -29,23 +33,33 @@ async function confirmReplaceForeignFile(): Promise<boolean> {
   return response === 0;
 }
 
+// Copies the export line and returns the matching dialog instructions.
+function copyPathExportHelp(): string {
+  clipboard.writeText(PATH_EXPORT_LINE);
+  return (
+    "~/.local/bin isn't in your shell's PATH. The line to add to your " +
+    "shell profile has been copied to your clipboard."
+  );
+}
+
 async function showInstallSuccessDialog(): Promise<void> {
   const state = await getCliPathInstallState();
   const wrapperPath = getWrapperPath();
 
   let detail: string;
   if (state.kind === "installed" && !state.inPath) {
-    clipboard.writeText(PATH_EXPORT_LINE);
     detail =
       `The vellum command is installed at ${wrapperPath}, but ` +
-      "~/.local/bin isn't in your shell's PATH. The line to add to your " +
-      "shell profile has been copied to your clipboard.";
+      copyPathExportHelp();
   } else if (state.kind === "shadowed") {
     detail =
       `The vellum command is installed at ${wrapperPath}, but another ` +
       `"vellum" was found at ${state.shadowedBy} (likely installed via ` +
       "npm) and will take precedence in your terminal. Run " +
       '"npm uninstall -g vellum" to use the app-managed version.';
+    if (!state.inPath) {
+      detail += ` Also, ${copyPathExportHelp()}`;
+    }
   } else {
     // `installed` in PATH, plus a defensive default for anything else.
     detail =
@@ -62,23 +76,25 @@ async function showInstallSuccessDialog(): Promise<void> {
 
 export async function runInstallCliCommandFlow(): Promise<void> {
   try {
-    const state = await getCliPathInstallState();
-    let overwriteForeign = false;
-    if (state.kind === "foreign-file") {
-      if (!(await confirmReplaceForeignFile())) return;
-      overwriteForeign = true;
-    }
-
-    if (installWrapper({ overwriteForeign }) === "needs-overwrite-confirmation") {
-      // Race: the file became foreign between the state check and install.
+    if (installWrapper({ overwriteForeign: false }) === "needs-overwrite-confirmation") {
       if (!(await confirmReplaceForeignFile())) return;
       installWrapper({ overwriteForeign: true });
     }
 
+    try {
+      await ensureCliInstalled();
+    } catch (err) {
+      throw new Error(
+        `The vellum command was installed at ${getWrapperPath()}, but ` +
+          `downloading the CLI runtime failed: ${errorMessage(err)}. It will be ` +
+          'retried the next time it\'s needed — or run "Install vellum ' +
+          'Command" again to retry now.',
+      );
+    }
+
     await showInstallSuccessDialog();
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    dialog.showErrorBox("Failed to install vellum command", message);
+    dialog.showErrorBox("Failed to install vellum command", errorMessage(err));
   }
 }
 
@@ -115,7 +131,6 @@ export async function runUninstallCliCommandFlow(): Promise<void> {
     } as const;
     await dialog.showMessageBox(resultDialogs[uninstallWrapper()]);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    dialog.showErrorBox("Failed to uninstall vellum command", message);
+    dialog.showErrorBox("Failed to uninstall vellum command", errorMessage(err));
   }
 }
