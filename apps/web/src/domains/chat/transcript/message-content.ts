@@ -9,20 +9,10 @@
 import type {
   ConversationContentBlock,
   ConversationMessageToolCall,
+  ConversationSurfaceBlock,
+  ConversationTextBlock,
+  ConversationThinkingBlock,
 } from "@vellumai/assistant-api";
-
-type ConversationThinkingBlock = Extract<
-  ConversationContentBlock,
-  { type: "thinking" }
->;
-type ConversationTextBlock = Extract<
-  ConversationContentBlock,
-  { type: "text" }
->;
-type ConversationSurfaceBlock = Extract<
-  ConversationContentBlock,
-  { type: "surface" }
->;
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { Surface } from "@/domains/chat/types/types";
