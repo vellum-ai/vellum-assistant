@@ -839,9 +839,10 @@ export class AgentLoop {
     } = options;
     let history = [...messages];
     // Index into `history` where this run's appended output begins. It starts
-    // after the input and resets to the compacted base whenever the loop
-    // compacts in place, so `history.slice(newMessagesStart)` is always exactly
-    // what the loop produced since the last (re-injected) base.
+    // after the input and resets to the new base whenever the loop rewrites the
+    // history in place (compaction re-injection, ordering deep-repair), so
+    // `history.slice(newMessagesStart)` is always exactly what the loop produced
+    // since the last base.
     let newMessagesStart = history.length;
     let producedVisibleTextThisRun = false;
     let toolUseTurns = 0;
@@ -1885,6 +1886,10 @@ export class AgentLoop {
         ) {
           orderingRepairAttempted = true;
           history = deepRepairHistory(history).messages;
+          // Deep repair removes and merges messages anywhere in the history,
+          // so the prior input boundary no longer maps onto the new array; the
+          // re-normalized history is the base the retry's output appends after.
+          newMessagesStart = history.length;
           rlog.warn(
             { turn: toolUseTurns, messageCount: history.length },
             "Provider ordering error — recovering via history deep-repair",

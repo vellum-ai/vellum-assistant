@@ -427,6 +427,48 @@ describe("AgentLoop", () => {
     expect(events.filter((e) => e.type === "error")).toHaveLength(1);
   });
 
+  test("reports only the retry's output as new messages when deep-repair shrinks the base", async () => {
+    // The wrapper reconstructs the persisted transcript from the loop's
+    // `newMessages` tail, so after `deepRepairHistory` removes a base message
+    // the new-message boundary must track the re-normalized history — otherwise
+    // the recovered assistant response is sliced off and lost.
+
+    // GIVEN an input whose leading assistant message deep-repair strips, a
+    // provider that rejects the first call on ordering grounds, then succeeds
+    const leadingAssistantMessage: Message = {
+      role: "assistant",
+      content: [{ type: "text", text: "stale leading turn" }],
+    };
+    const { provider } = createMockProvider([
+      new Error(
+        "tool_result blocks that are not immediately after a tool_use block",
+      ),
+      textResponse("recovered"),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs
+    const { history, newMessages } = await loop.run({
+      messages: [leadingAssistantMessage, userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN deep-repair dropped the leading assistant from the base, and
+    // `newMessages` is exactly the retry's appended response
+    expect(history).toEqual([
+      userMessage,
+      { role: "assistant", content: [{ type: "text", text: "recovered" }] },
+    ]);
+    expect(newMessages).toEqual([
+      { role: "assistant", content: [{ type: "text", text: "recovered" }] },
+    ]);
+  });
+
   // 6. Abort signal — verify the loop respects AbortSignal
   test("stops when abort signal is triggered before provider call", async () => {
     const controller = new AbortController();
