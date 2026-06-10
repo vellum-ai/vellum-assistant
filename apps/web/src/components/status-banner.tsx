@@ -117,6 +117,11 @@ function useAssistantBannerConfig(): BannerConfig | null {
     useAssistantLifecycleStore.use.operationalStatusAssistantId();
   const assistantId = operationalStatusAssistantId ?? activeAssistantId;
   const statusQuery = useAssistantOperationalStatus(assistantId);
+  const {
+    data: operationalStatus,
+    isError: operationalStatusIsError,
+    refetch: refetchOperationalStatus,
+  } = statusQuery;
   const [isExitingMaintenanceMode, setIsExitingMaintenanceMode] =
     useState(false);
   const [maintenanceModeExitError, setMaintenanceModeExitError] = useState<
@@ -140,7 +145,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
       }
 
       await Promise.allSettled([
-        statusQuery.refetch(),
+        refetchOperationalStatus(),
         lifecycleService.checkAssistant(),
       ]);
     } catch (err) {
@@ -151,7 +156,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
     } finally {
       setIsExitingMaintenanceMode(false);
     }
-  }, [assistantId, isExitingMaintenanceMode, statusQuery.refetch]);
+  }, [assistantId, isExitingMaintenanceMode, refetchOperationalStatus]);
 
   if (electron && connectivityState === "device-offline") {
     return {
@@ -182,15 +187,15 @@ function useAssistantBannerConfig(): BannerConfig | null {
     };
   }
 
-  if (statusQuery.isError) {
+  if (operationalStatusIsError) {
     return {
       tone: "error",
       title: "Assistant status is unavailable",
     };
   }
 
-  const operationalBanner = operationalStatusBannerConfig(statusQuery.data);
-  if (statusQuery.data?.state !== "maintenance_mode" || !operationalBanner) {
+  const operationalBanner = operationalStatusBannerConfig(operationalStatus);
+  if (operationalStatus?.state !== "maintenance_mode" || !operationalBanner) {
     return operationalBanner;
   }
 
