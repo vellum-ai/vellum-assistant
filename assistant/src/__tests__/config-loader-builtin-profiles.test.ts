@@ -129,12 +129,7 @@ function readConfigFromDisk(): Record<string, unknown> {
 }
 
 function templateEntry(name: string): ProfileEntry {
-  const template = MANAGED_PROFILE_TEMPLATES[name]!;
-  return materializeProfile(
-    template,
-    template.provider,
-    template.connectionName,
-  );
+  return materializeProfile(MANAGED_PROFILE_TEMPLATES[name]!);
 }
 
 // ---------------------------------------------------------------------------

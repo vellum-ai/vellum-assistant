@@ -26,7 +26,7 @@ export interface ProfilePickerEntry {
  * Manage Profiles modal, and the per-call-site override picker.
  *
  * Mirrors `AUTO_PROFILE_KEY` in
- * `assistant/src/config/seed-inference-profiles.ts`.
+ * `assistant/src/config/builtin-inference-profiles.ts`.
  */
 export const AUTO_PROFILE_NAME = "auto";
 

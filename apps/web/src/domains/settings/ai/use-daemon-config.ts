@@ -14,7 +14,7 @@
 
 import { useCallback, useMemo } from "react";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { CallSiteOverrideDraft, DaemonConfig, DaemonConfigPatch, ProfileEntry } from "@/domains/settings/ai/ai-types";
 import { applyConfigPatch, assertProvisionSuccess, buildOrderedProfiles, snapshotPatchedFields } from "@/domains/settings/ai/ai-utils";
@@ -116,6 +116,21 @@ export function useDaemonConfigQuery() {
 // ---------------------------------------------------------------------------
 
 /**
+ * Invalidate the daemon config query so every consumer refetches the
+ * server's authoritative state. Used by `useDaemonConfigMutation` on settle
+ * and by callers that write config through other endpoints (e.g. the PUT
+ * profile route in ManageProfilesModal).
+ */
+export function invalidateDaemonConfig(
+  queryClient: QueryClient,
+  assistantId: string,
+): void {
+  void queryClient.invalidateQueries({
+    queryKey: assistantDaemonConfigQueryKey(assistantId),
+  });
+}
+
+/**
  * Mutation hook for daemon config patches.
  *
  * Wraps `configPatch` with optimistic cache updates and auto-invalidation:
@@ -164,10 +179,7 @@ export function useDaemonConfigMutation() {
       }
     },
     onSettled: (result) => {
-      const idToInvalidate = result?.resolvedId ?? assistantId;
-      void queryClient.invalidateQueries({
-        queryKey: assistantDaemonConfigQueryKey(idToInvalidate),
-      });
+      invalidateDaemonConfig(queryClient, result?.resolvedId ?? assistantId);
     },
   });
 }

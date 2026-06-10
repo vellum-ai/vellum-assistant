@@ -9,21 +9,20 @@ import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getLogger } from "../util/logger.js";
 import {
-  AUTO_PROFILE_KEY,
   type BuiltinProfileDefinition,
   MANAGED_PROFILE_NAMES,
   MANAGED_PROFILE_TEMPLATES,
   materializeProfile,
 } from "./builtin-inference-profiles.js";
-import { loadRawConfig, saveRawConfig } from "./loader.js";
+import {
+  isPlatformDeployment,
+  loadRawConfig,
+  saveRawConfig,
+} from "./loader.js";
 import {
   DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
   type ProfileEntry,
 } from "./schemas/llm.js";
-
-// Re-exported so existing importers of the seeder keep working; the canonical
-// home for built-in profile definitions is `builtin-inference-profiles.ts`.
-export { AUTO_PROFILE_KEY, MANAGED_PROFILE_NAMES };
 
 const log = getLogger("seed-inference-profiles");
 
@@ -135,12 +134,9 @@ export function seedInferenceProfiles(
   }
   const profiles = llm.profiles as Record<string, Record<string, unknown>>;
 
-  const isPlatform =
-    process.env.IS_PLATFORM === "true" || process.env.IS_PLATFORM === "1";
-
   // BYOK mode = off-platform installs (the user brings their own provider
   // API key).
-  const isByokMode = !isPlatform;
+  const isByokMode = !isPlatformDeployment();
 
   // The personal connection a BYOK hatch will create (step 2), determined up
   // front because the status-override and activeProfile steps both depend on

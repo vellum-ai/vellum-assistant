@@ -20,12 +20,12 @@ import {
 } from "./assistant-feature-flags.js";
 import {
   AUTO_PROFILE_KEY,
-  type BuiltinProfileOverride,
   isSeedDefaultBuiltinLabel,
   MANAGED_PROFILE_NAMES,
   resolveBuiltinProfiles,
 } from "./builtin-inference-profiles.js";
 import { AssistantConfigSchema } from "./schema.js";
+import type { ProfileOverrideEntry } from "./schemas/llm.js";
 import type { AssistantConfig } from "./types.js";
 
 export { API_KEY_PROVIDERS } from "../providers/provider-secret-catalog.js";
@@ -122,7 +122,7 @@ function cloneDefaultConfig(): AssistantConfig {
  * IS_PLATFORM is set by the Vellum platform launcher; local, Docker, and
  * bare-metal assistants are unaffected.
  */
-function isPlatformDeployment(): boolean {
+export function isPlatformDeployment(): boolean {
   return process.env.IS_PLATFORM === "true" || process.env.IS_PLATFORM === "1";
 }
 
@@ -394,9 +394,9 @@ export function applyBuiltinProfiles(raw: Record<string, unknown>): void {
   const profiles = ensurePlainObjectAt(llm, "profiles");
   const profileOverrides = readPlainObject(llm.profileOverrides) ?? {};
 
-  const overrides: Record<string, BuiltinProfileOverride> = {};
+  const overrides: Record<string, ProfileOverrideEntry> = {};
   for (const name of MANAGED_PROFILE_NAMES) {
-    const entry: BuiltinProfileOverride = {};
+    const entry: ProfileOverrideEntry = {};
     // Lower precedence: label/status carried on a still-materialized entry.
     collectBuiltinOverrideFields(profiles[name], entry);
     // A stale label equal to a seed default is a seeder artifact, not user
@@ -468,7 +468,7 @@ export function applyBuiltinProfiles(raw: Record<string, unknown>): void {
  */
 function collectBuiltinOverrideFields(
   value: unknown,
-  into: BuiltinProfileOverride,
+  into: ProfileOverrideEntry,
 ): void {
   const obj = readPlainObject(value);
   if (!obj) return;
@@ -801,7 +801,7 @@ export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult
       delete providedProfiles[name];
       if (!entry) continue;
 
-      const override: BuiltinProfileOverride = {};
+      const override: ProfileOverrideEntry = {};
       collectBuiltinOverrideFields(entry, override);
       const droppedKeys = Object.keys(entry).filter(
         (key) => !(key in override),

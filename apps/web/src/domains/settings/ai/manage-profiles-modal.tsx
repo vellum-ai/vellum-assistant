@@ -15,10 +15,9 @@ import { ProfileListItem } from "@/domains/settings/ai/manage-profiles-list-item
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import { gateAutoProfile } from "@/domains/settings/ai/profile-pickers";
 import { filterFlaggedConnections } from "@/domains/settings/ai/provider-connections-client";
-import { useDaemonConfigMutation, useDaemonConfigQuery } from "@/domains/settings/ai/use-daemon-config";
+import { invalidateDaemonConfig, useDaemonConfigMutation, useDaemonConfigQuery } from "@/domains/settings/ai/use-daemon-config";
 import { inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { configLlmProfilesByNamePut } from "@/generated/daemon/sdk.gen";
-import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -94,11 +93,7 @@ export function ManageProfilesModal({
         body: override,
         throwOnError: true,
       });
-      // Replicate `useDaemonConfigMutation`'s settle-time invalidation so
-      // every consumer of the config query refetches the updated profile.
-      void queryClient.invalidateQueries({
-        queryKey: assistantDaemonConfigQueryKey(assistantId),
-      });
+      invalidateDaemonConfig(queryClient, assistantId);
       setEditorOpen(false);
       setEditingProfile(null);
       return;

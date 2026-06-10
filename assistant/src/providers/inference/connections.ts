@@ -361,7 +361,7 @@ const CANONICAL_CONNECTIONS: Array<{
  *     null on subsequent boots so pre-seed installs pick up the default; a non-null
  *     user-customized label is preserved (see `seedCanonicalConnections`).
  *
- * Mirrors `MANAGED_PROFILE_NAMES` (config/seed-inference-profiles.ts).
+ * Mirrors `MANAGED_PROFILE_NAMES` (config/builtin-inference-profiles.ts).
  */
 export const MANAGED_CONNECTION_NAMES: ReadonlySet<string> = new Set(
   CANONICAL_CONNECTIONS.map((c) => c.name),
@@ -415,4 +415,3 @@ export function seedCanonicalConnections(db: DrizzleDb): void {
       .run();
   }
 }
-

@@ -17,7 +17,7 @@ export interface ProfilePickerEntry {
 
 /**
  * Name of the meta-"auto" profile seeded by the daemon. Mirrors
- * `AUTO_PROFILE_KEY` in `assistant/src/config/seed-inference-profiles.ts`
+ * `AUTO_PROFILE_KEY` in `assistant/src/config/builtin-inference-profiles.ts`
  * and `AUTO_PROFILE_NAME` in `@/assistant/profile-pickers`.
  */
 export const AUTO_PROFILE_NAME = "auto";
