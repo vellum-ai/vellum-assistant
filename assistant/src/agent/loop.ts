@@ -19,6 +19,7 @@ import { HOOKS } from "../plugin-api/constants.js";
 import type {
   PostCompactContext,
   PostModelCallContext,
+  PostModelCallDecision,
   PostToolUseContext,
   PreModelCallContext,
   StopContext,
@@ -382,6 +383,19 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
 };
 
 const MAX_STOP_CONTINUE_RETRIES = 1;
+
+/**
+ * Per-run backstop on `post-model-call`-driven retries. A recovery hook that
+ * sets `decision: "continue"` re-issues the provider call; this bounds the
+ * total such re-issues across a run so a misbehaving hook can't spin forever.
+ *
+ * It is a backstop, not the primary guard: each recovery class owns a
+ * one-shot per-conversation bound that stops it repeating within a turn, so
+ * the legitimate ceiling is one continue per class (empty-response nudge,
+ * ordering repair, image downscale). This sits above that sum to leave
+ * headroom while still catching pathological alternation between classes.
+ */
+const MAX_POST_MODEL_CALL_CONTINUES = 5;
 
 const MAX_TOKENS_STOP_REASONS = new Set([
   "length",
@@ -837,6 +851,7 @@ export class AgentLoop {
     let producedVisibleTextThisRun = false;
     let toolUseTurns = 0;
     let stopContinueRetries = 0;
+    let postModelCallContinues = 0;
     let lastLlmCallTime = 0;
     let exitReason: ExitReason | null = null;
     // Armed at the end of a tool-use iteration so the budget gate runs at the
@@ -1335,44 +1350,64 @@ export class AgentLoop {
           streamingPending = "";
         }
 
-        // Run the `post-model-call` hook on a finalized message and, when
-        // output was deferred, emit the finalized text once (with sensitive-output
-        // substitution applied, matching the live stream). Fail-open: the hook
-        // receives a clone, so a throw — even mid in-place mutation — leaves the
-        // original message intact.
+        // Run the `post-model-call` hook on a finalized message. Fail-open: the
+        // hook receives a clone, so a throw — even mid in-place mutation —
+        // leaves the original message intact and the outcome resolves to
+        // `"stop"`.
+        //
+        // Returns the finalized message alongside the chain's retry `decision`
+        // and resulting `messages`. The caller honors `decision` only at an
+        // actionable outcome (a no-tool stop boundary); other call sites take
+        // the finalized message and ignore the decision. Deferred output is not
+        // emitted here — the caller emits it via `emitDeferredAssistantText`
+        // once it has decided to keep the turn, so a re-queried reply isn't
+        // streamed-then-discarded.
         const finalizeAssistantMessage = async (
           message: Message,
-        ): Promise<Message> => {
-          let finalized = message;
+        ): Promise<{
+          finalized: Message;
+          decision: PostModelCallDecision;
+          messages: Message[];
+        }> => {
           try {
             const ctx: PostModelCallContext = {
               conversationId: this.conversationId,
               callSite: callSite ?? null,
               content: structuredClone(message.content),
+              messages: [...history],
               stopReason: response.stopReason,
+              decision: "stop",
               logger: rlog,
             };
             const result = await runHook(HOOKS.POST_MODEL_CALL, ctx);
-            finalized = { role: "assistant", content: result.content };
+            return {
+              finalized: { role: "assistant", content: result.content },
+              decision: result.decision,
+              messages: result.messages,
+            };
           } catch (assistantMessageError) {
             rlog.error(
               { err: assistantMessageError },
               "post-model-call hook failed — keeping the original content",
             );
-            finalized = message;
+            return { finalized: message, decision: "stop", messages: history };
           }
-          if (deferAssistantOutput) {
-            // The persisted message keeps sensitive-output placeholders; the
-            // stream shows real values — substitute before emitting.
-            const finalText = applySubstitutions(
-              assistantTextOf(finalized.content),
-              substitutionMap,
-            );
-            if (finalText.length > 0) {
-              onEvent({ type: "text_delta", text: finalText });
-            }
+        };
+
+        // Emit a deferred turn's finalized assistant text once. When a turn
+        // defers its live stream, nothing reached the client during streaming;
+        // this replays the finalized (post-transform) text, with sensitive-output
+        // substitution applied to match what the live stream would have shown.
+        // No-op when the turn didn't defer. Call only for a turn being kept.
+        const emitDeferredAssistantText = (content: ContentBlock[]): void => {
+          if (!deferAssistantOutput) return;
+          const finalText = applySubstitutions(
+            assistantTextOf(content),
+            substitutionMap,
+          );
+          if (finalText.length > 0) {
+            onEvent({ type: "text_delta", text: finalText });
           }
-          return finalized;
         };
 
         // Build the assistant message with placeholder-only text.
@@ -1422,10 +1457,13 @@ export class AgentLoop {
           // Run the hook on the truncated reply so output-filter plugins still
           // see it, and so a deferred turn gets its synthetic final emit (the
           // live stream was suppressed; without this the client would see nothing).
-          const safeAssistantMessage = await finalizeAssistantMessage({
-            role: "assistant",
-            content: safeContent,
-          });
+          // The retry decision is ignored here: a max-tokens stop is terminal.
+          const { finalized: safeAssistantMessage } =
+            await finalizeAssistantMessage({
+              role: "assistant",
+              content: safeContent,
+            });
+          emitDeferredAssistantText(safeAssistantMessage.content);
           history.push(safeAssistantMessage);
           await onEvent({
             type: "max_tokens_reached",
@@ -1505,11 +1543,43 @@ export class AgentLoop {
           }
         }
 
-        // Run the `post-model-call` hook + emit any deferred final text.
-        // On a no-tool turn this point is reached only after the `stop` hook
-        // resolves to "stop" (a `continue` already re-queried above), so a
-        // re-queried reply is never transformed-then-discarded.
-        assistantMessage = await finalizeAssistantMessage(assistantMessage);
+        // Run the `post-model-call` hook: transform the finalized reply and
+        // surface its retry decision.
+        const {
+          finalized: finalizedAssistantMessage,
+          decision: postModelCallDecision,
+          messages: postModelCallMessages,
+        } = await finalizeAssistantMessage(assistantMessage);
+        assistantMessage = finalizedAssistantMessage;
+
+        // At the no-tool stop boundary the retry decision is actionable: a
+        // recovery hook may repair history and ask to re-query (a tool-bearing
+        // turn already continues, so its decision is ignored). A re-query
+        // adopts the hook's `messages` and discards this turn rather than
+        // persisting it; the per-run backstop keeps a misbehaving hook from
+        // spinning forever.
+        if (
+          toolUseBlocks.length === 0 &&
+          postModelCallDecision === "continue"
+        ) {
+          if (postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES) {
+            postModelCallContinues++;
+            rlog.warn(
+              { turn: toolUseTurns, retry: postModelCallContinues },
+              "post-model-call requested a retry — re-querying the model",
+            );
+            history = postModelCallMessages;
+            continue;
+          }
+          rlog.warn(
+            { turn: toolUseTurns, retries: postModelCallContinues },
+            "post-model-call retry backstop reached — accepting the turn",
+          );
+        }
+
+        // The turn is being kept: replay any deferred final text (skipped above
+        // when a retry discarded the turn).
+        emitDeferredAssistantText(assistantMessage.content);
 
         // Apply a `stop` hook's rewrite of the turn (e.g. a provider `refusal`
         // that zeroed the response, rewritten into a user-facing apology). The
@@ -1853,21 +1923,63 @@ export class AgentLoop {
           continue;
         }
 
-        // A provider rejection is also a stop moment: the loop has nothing more
-        // to produce this turn unless a `stop` hook recovers it. Run the chain
-        // with the rejection attached so a recovery hook (history-repair on an
-        // ordering violation) can re-normalize the history and request a retry;
-        // hooks that only act on a real response ignore the error stop. A
-        // `"continue"` decision re-issues the call with the hook's repaired
-        // history; otherwise the rejection falls through to the error path.
+        // A provider rejection is a model-call outcome: the loop has nothing
+        // more to produce this turn unless a recovery hook repairs the history
+        // and asks to retry. Run the `post-model-call` hook with the rejection
+        // attached — a recovery hook (e.g. history-repair on an ordering
+        // violation) can re-normalize the history and set `decision` to
+        // `"continue"` to re-issue the call; hooks that only act on a real
+        // reply ignore the rejection. The same per-run backstop bounds these
+        // error-driven retries as the success-path ones. The chain is run
+        // fail-open: a hook throw surfaces the original rejection.
         //
         // Confined to genuine provider rejections: a throw from elsewhere in
-        // the turn body (tool execution, the success-path stop chain,
-        // post-model-call hooks) is not a provider stop, and re-entering the
-        // stop chain on a stop-hook failure could re-throw from the same hook
-        // and bypass the generic error handling below.
+        // the turn body (tool execution, the success-path stop/post-model-call
+        // hooks) is not a provider stop, so it falls straight through to the
+        // error path below.
         const err = error instanceof Error ? error : new Error(String(error));
         if (error === providerCallError) {
+          const errorOutcomeCtx: PostModelCallContext = {
+            conversationId: this.conversationId,
+            callSite: callSite ?? null,
+            content: [],
+            messages: [...history],
+            stopReason: null,
+            error: err,
+            decision: "stop",
+            logger: rlog,
+          };
+          let errorOutcome: PostModelCallContext = errorOutcomeCtx;
+          try {
+            errorOutcome = await runHook(
+              HOOKS.POST_MODEL_CALL,
+              errorOutcomeCtx,
+            );
+          } catch (postModelCallError) {
+            rlog.error(
+              { err: postModelCallError },
+              "post-model-call hook failed on a provider rejection — surfacing the original error",
+            );
+          }
+          if (
+            errorOutcome.decision === "continue" &&
+            postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES
+          ) {
+            postModelCallContinues++;
+            history = errorOutcome.messages;
+            // A recovery hook rewrites the history anywhere (deep repair merges
+            // and drops messages), so the prior input boundary no longer maps
+            // onto the new array; the repaired history is the base the retry's
+            // output appends after.
+            newMessagesStart = history.length;
+            continue;
+          }
+
+          // A provider rejection is also a stop moment for hooks that still
+          // recover at the stop boundary. Run the chain with the rejection
+          // attached; a `"continue"` re-issues the call with the hook's
+          // repaired history, otherwise the rejection falls through to the
+          // error path.
           const errorStopCtx: StopContext = {
             conversationId: this.conversationId,
             messages: [...history],
