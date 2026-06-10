@@ -1,7 +1,4 @@
-import {
-  buildVellumHeaders,
-  buildVellumMutatingHeaders,
-} from "@/lib/auth/request-headers";
+import { buildVellumHeaders } from "@/lib/auth/request-headers";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 
 // ---------------------------------------------------------------------------
@@ -72,27 +69,8 @@ export function parseDoctorEvent(raw: string): DoctorEvent | null {
 }
 
 // ---------------------------------------------------------------------------
-// API helpers
+// SSE helpers
 // ---------------------------------------------------------------------------
-
-export function doctorBasePath(assistantId: string): string {
-  return `/v1/assistants/${assistantId}/doctor`;
-}
-
-export async function doctorFetch(
-  url: string,
-  init?: RequestInit,
-): Promise<Response> {
-  const headers = await buildVellumMutatingHeaders({
-    "Content-Type": "application/json",
-  });
-
-  return fetch(url, {
-    ...init,
-    headers: { ...headers, ...init?.headers },
-    credentials: "include",
-  });
-}
 
 export function buildDoctorSSEHeaders(): Record<string, string> {
   return buildVellumHeaders({

@@ -3,7 +3,6 @@ import { useCallback, useRef } from "react";
 import type { ChatEntry } from "@/domains/settings/components/panels/doctor-history";
 import {
   buildDoctorSSEHeaders,
-  doctorBasePath,
   parseDoctorEvent,
 } from "@/domains/settings/components/panels/doctor-api";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -52,7 +51,7 @@ export function useDoctorSSE(callbacks: DoctorSSECallbacks) {
       const controller = new AbortController();
       controllerRef.current = controller;
 
-      const url = `${doctorBasePath(assistantId)}/sessions/${sessionId}/events/`;
+      const url = `/v1/assistants/${assistantId}/doctor/sessions/${sessionId}/events/`;
       let streamEndedTerminally = false;
 
       const isCurrentStream = () => controllerRef.current === controller;

@@ -1,23 +1,14 @@
 import { useCallback, useState } from "react";
 
 import type { ChatEntry } from "@/domains/settings/components/panels/doctor-history";
+import { APPROVAL_RESPONSES } from "@/domains/settings/components/panels/doctor-api";
 import {
-  APPROVAL_RESPONSES,
-  doctorBasePath,
-  doctorFetch,
-} from "@/domains/settings/components/panels/doctor-api";
-import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
+  assistantsDoctorSessionsCreate,
+  assistantsDoctorSessionsDestroy,
+  assistantsDoctorSessionsMessagesCreate,
+  assistantsMaintenanceModeExitCreate,
+} from "@/generated/api/sdk.gen";
 import { captureError } from "@/lib/sentry/capture-error";
-
-/**
- * Parse the session_id from the doctor session creation response.
- * Returns null on malformed responses.
- */
-function parseSessionId(data: unknown): string | null {
-  if (typeof data !== "object" || data === null) return null;
-  const obj = data as Record<string, unknown>;
-  return typeof obj.session_id === "string" ? obj.session_id : null;
-}
 
 const DOCTOR_GREETING =
   "Hi! I'm the Doctor. State the nature of the issue you're experiencing with your assistant and I'll help diagnose and fix it.";
@@ -65,39 +56,28 @@ export function useDoctorSession(args: UseDoctorSessionArgs) {
     if (!assistantId) return;
     setStarting(true);
     try {
-      const response = await doctorFetch(
-        `${doctorBasePath(assistantId)}/sessions/`,
-        { method: "POST" },
-      );
+      const { data, error, response } = await assistantsDoctorSessionsCreate({
+        path: { assistant_id: assistantId },
+        throwOnError: false,
+      });
 
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        if (response.status === 429) {
+      if (!response?.ok || error || !data) {
+        if (response?.status === 429) {
           appendEntry({
             kind: "error",
             content:
-              body.error ||
               "You've used all of your available Doctor sessions for this month. Please try again next month.",
           });
           return;
         }
         appendEntry({
           kind: "error",
-          content: `Failed to start session: ${body.detail || body.error || response.statusText}`,
+          content: `Failed to start session: ${response?.statusText ?? "unknown error"}`,
         });
         return;
       }
 
-      const data: unknown = await response.json();
-      const sessId = parseSessionId(data);
-      if (!sessId) {
-        appendEntry({
-          kind: "error",
-          content: "Failed to start session: unexpected response format",
-        });
-        return;
-      }
-
+      const sessId = data.session_id;
       setSelectedHistorySessionId(null);
       setAppliedHistorySessionId(null);
       setSessionId(sessId);
@@ -130,14 +110,10 @@ export function useDoctorSession(args: UseDoctorSessionArgs) {
       abort();
 
       if (sessionId && assistantId) {
-        try {
-          await doctorFetch(
-            `${doctorBasePath(assistantId)}/sessions/${sessionId}/`,
-            { method: "DELETE" },
-          );
-        } catch {
-          // Best effort cleanup
-        }
+        assistantsDoctorSessionsDestroy({
+          path: { assistant_id: assistantId, session_id: sessionId },
+          throwOnError: false,
+        }).catch(() => {});
 
         assistantsMaintenanceModeExitCreate({
           path: { assistant_id: assistantId },
@@ -158,14 +134,10 @@ export function useDoctorSession(args: UseDoctorSessionArgs) {
     abort();
 
     if (sessionId && assistantId) {
-      try {
-        await doctorFetch(
-          `${doctorBasePath(assistantId)}/sessions/${sessionId}/`,
-          { method: "DELETE" },
-        );
-      } catch {
-        // Best effort
-      }
+      assistantsDoctorSessionsDestroy({
+        path: { assistant_id: assistantId, session_id: sessionId },
+        throwOnError: false,
+      }).catch(() => {});
       assistantsMaintenanceModeExitCreate({
         path: { assistant_id: assistantId },
         throwOnError: false,
@@ -206,25 +178,15 @@ export function useDoctorSession(args: UseDoctorSessionArgs) {
       }
 
       try {
-        const resp = await doctorFetch(
-          `${doctorBasePath(assistantId)}/sessions/${sessionId}/messages/`,
-          {
-            method: "POST",
-            body: JSON.stringify({ content: text }),
-          },
-        );
-        if (!resp.ok) {
-          const body: unknown = await resp.json().catch(() => ({}));
-          const detail =
-            body &&
-            typeof body === "object" &&
-            "detail" in body &&
-            typeof (body as Record<string, unknown>).detail === "string"
-              ? (body as Record<string, unknown>).detail
-              : resp.statusText;
+        const { error, response } = await assistantsDoctorSessionsMessagesCreate({
+          path: { assistant_id: assistantId, session_id: sessionId },
+          body: { content: text },
+          throwOnError: false,
+        });
+        if (!response?.ok || error) {
           appendEntry({
             kind: "error",
-            content: `Failed to send message: ${detail}`,
+            content: `Failed to send message: ${response?.statusText ?? "unknown error"}`,
           });
         } else {
           setThinking(true);

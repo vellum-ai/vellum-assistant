@@ -16,9 +16,9 @@ import {
   UserMessage,
 } from "@/domains/settings/components/panels/doctor-chat-blocks";
 import {
-  doctorBasePath,
-  doctorFetch,
-} from "@/domains/settings/components/panels/doctor-api";
+  assistantsDoctorSessionsDestroy,
+  assistantsMaintenanceModeExitCreate,
+} from "@/generated/api/sdk.gen";
 import { DoctorAvatar } from "@/domains/settings/components/panels/doctor-avatar";
 import {
   type ChatEntry,
@@ -34,7 +34,6 @@ import {
   assistantsDoctorHistoryListOptions,
   assistantsDoctorHistoryRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
-import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -228,10 +227,10 @@ export function DoctorPanel() {
     // Best-effort server-side cleanup for the old session so the previous
     // assistant doesn't stay stuck in maintenance/doctor mode.
     if (sessionId && oldAssistantId) {
-      doctorFetch(
-        `${doctorBasePath(oldAssistantId)}/sessions/${sessionId}/`,
-        { method: "DELETE" },
-      ).catch(() => {});
+      assistantsDoctorSessionsDestroy({
+        path: { assistant_id: oldAssistantId, session_id: sessionId },
+        throwOnError: false,
+      }).catch(() => {});
       assistantsMaintenanceModeExitCreate({
         path: { assistant_id: oldAssistantId },
         throwOnError: false,
