@@ -357,23 +357,93 @@ export const ConversationMessageSchema = z.object({
    */
   role: z.enum(["user", "assistant"]),
   /**
-   * Flat plain-text body (joined text segments). Redundant with
-   * `textSegments`/`contentOrder` for clients that render from the positional
-   * arrays (web, CLI), but the legacy Swift macOS client reads `content`
-   * directly and drops any history row missing it (its
-   * `HistoryReconstructionService` skips rows with empty text). The serializer
-   * always emits it — do not remove without updating that client.
+   * @deprecated Superseded by `contentBlocks`. Flat plain-text body (joined
+   * text segments). Redundant with `textSegments`/`contentOrder` for clients
+   * that render from the positional arrays (web, CLI), but the legacy Swift
+   * macOS client reads `content` directly and drops any history row missing it
+   * (its `HistoryReconstructionService` skips rows with empty text). The
+   * serializer always emits it — do not remove without updating that client.
    */
-  content: z.string().optional(),
+  content: z
+    .string()
+    .meta({
+      deprecated: true,
+      description:
+        "Deprecated: superseded by contentBlocks. Flat plain-text body (joined text segments).",
+    })
+    .optional(),
   /** Display timestamp as an ISO-8601 string. */
   timestamp: z.string(),
+  /**
+   * Flat list of attachment metadata for the row. Not yet supersedable by
+   * `contentBlocks`: `renderHistoryContent` emits an `attachment` content
+   * block only for file-block refs with an inline placement, so orphan rows
+   * (unmatched ids, count mismatch, no DB rows — see `alignAttachments`) ship
+   * here alone. Kept non-deprecated until `contentBlocks` reaches attachment
+   * parity, so clients that migrate off the positional arrays don't drop those
+   * chips.
+   */
   attachments: z.array(ConversationMessageAttachmentSchema),
-  toolCalls: z.array(ConversationMessageToolCallSchema).optional(),
-  surfaces: z.array(ConversationMessageSurfaceSchema).optional(),
-  textSegments: z.array(z.string()).optional(),
-  thinkingSegments: z.array(z.string()).optional(),
-  /** Positional `"<type>:<index>"` content ordering (e.g. `"text:0"`, `"thinking:1"`). */
-  contentOrder: z.array(z.string()).optional(),
+  /**
+   * @deprecated Superseded by `contentBlocks` (the `tool_use` variant). Flat
+   * list of tool calls for the row.
+   */
+  toolCalls: z
+    .array(ConversationMessageToolCallSchema)
+    .meta({
+      deprecated: true,
+      description:
+        "Deprecated: superseded by contentBlocks (the tool_use variant). Flat list of tool calls.",
+    })
+    .optional(),
+  /**
+   * @deprecated Superseded by `contentBlocks` (the `surface` variant). Flat
+   * list of surfaces for the row.
+   */
+  surfaces: z
+    .array(ConversationMessageSurfaceSchema)
+    .meta({
+      deprecated: true,
+      description:
+        "Deprecated: superseded by contentBlocks (the surface variant). Flat list of surfaces.",
+    })
+    .optional(),
+  /**
+   * @deprecated Superseded by `contentBlocks`. Text split by tool-call
+   * boundaries; positional sibling of `contentOrder`.
+   */
+  textSegments: z
+    .array(z.string())
+    .meta({
+      deprecated: true,
+      description:
+        "Deprecated: superseded by contentBlocks. Text segments split by tool-call boundaries.",
+    })
+    .optional(),
+  /**
+   * @deprecated Superseded by `contentBlocks`. Reasoning text extracted from
+   * thinking blocks; positional sibling of `contentOrder`.
+   */
+  thinkingSegments: z
+    .array(z.string())
+    .meta({
+      deprecated: true,
+      description:
+        "Deprecated: superseded by contentBlocks. Reasoning text extracted from thinking blocks.",
+    })
+    .optional(),
+  /**
+   * @deprecated Superseded by `contentBlocks`. Positional
+   * `"<type>:<index>"` content ordering (e.g. `"text:0"`, `"thinking:1"`).
+   */
+  contentOrder: z
+    .array(z.string())
+    .meta({
+      deprecated: true,
+      description:
+        'Deprecated: superseded by contentBlocks. Positional "<type>:<index>" content ordering (e.g. "text:0", "thinking:1").',
+    })
+    .optional(),
   /**
    * Unified ordered content blocks — the display-ready projection of the
    * row's model-native content. Ships alongside the positional

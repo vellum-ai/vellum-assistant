@@ -42,6 +42,22 @@ export interface VoiceRecordingState {
   phase: VoiceRecordingPhase;
   /** Error code when `phase === "error"`, `null` otherwise. */
   errorCode: string | null;
+  /**
+   * Live interim transcript while `phase === "recording"`, published by the
+   * recording `VoiceInputButton` instance (streaming STT or Web Speech).
+   * Global so window-level consumers — the Electron dictation overlay sync —
+   * see partials regardless of which button instance (chat composer or the
+   * global push-to-talk fallback) owns the session.
+   */
+  interimTranscript: string;
+  /**
+   * Front-app insertion failure (`dictation-automation-denied` /
+   * `dictation-paste-blocked`) flagged during the current session. The
+   * session still finalizes into `done` — the transcript soft-lands in the
+   * composer — but the dictation overlay must show the error rather than a
+   * success check. Cleared on the next `startRecording`.
+   */
+  dictationInsertionError: string | null;
 }
 
 export interface VoiceRecordingActions {
@@ -50,6 +66,8 @@ export interface VoiceRecordingActions {
   finalize: () => void;
   fail: (code: string) => void;
   reset: () => void;
+  setInterimTranscript: (text: string) => void;
+  flagDictationInsertionError: (code: string) => void;
 }
 
 export type VoiceRecordingStore = VoiceRecordingState & VoiceRecordingActions;
@@ -84,15 +102,22 @@ function clearDismissTimer() {
 const useVoiceRecordingStoreBase = create<VoiceRecordingStore>()((set) => ({
   phase: "idle",
   errorCode: null,
+  interimTranscript: "",
+  dictationInsertionError: null,
 
   startRecording: () => {
     clearDismissTimer();
-    set({ phase: "recording", errorCode: null });
+    set({
+      phase: "recording",
+      errorCode: null,
+      interimTranscript: "",
+      dictationInsertionError: null,
+    });
   },
 
   stopRecording: () => {
     clearDismissTimer();
-    set({ phase: "processing", errorCode: null });
+    set({ phase: "processing", errorCode: null, interimTranscript: "" });
   },
 
   finalize: () => {
@@ -115,7 +140,20 @@ const useVoiceRecordingStoreBase = create<VoiceRecordingStore>()((set) => ({
 
   reset: () => {
     clearDismissTimer();
-    set({ phase: "idle", errorCode: null });
+    set({
+      phase: "idle",
+      errorCode: null,
+      interimTranscript: "",
+      dictationInsertionError: null,
+    });
+  },
+
+  setInterimTranscript: (text: string) => {
+    set({ interimTranscript: text });
+  },
+
+  flagDictationInsertionError: (code: string) => {
+    set({ dictationInsertionError: code });
   },
 }));
 

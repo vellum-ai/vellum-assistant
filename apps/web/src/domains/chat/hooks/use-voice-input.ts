@@ -157,8 +157,14 @@ export function useVoiceInput({
       }
       if (frontAppInsertion.status === "automation-denied") {
         setVoiceError("dictation-automation-denied");
+        useVoiceRecordingStore
+          .getState()
+          .flagDictationInsertionError("dictation-automation-denied");
       } else if (frontAppInsertion.status === "blocked") {
         setVoiceError("dictation-paste-blocked");
+        useVoiceRecordingStore
+          .getState()
+          .flagDictationInsertionError("dictation-paste-blocked");
       }
 
       setInput((current: string) => {

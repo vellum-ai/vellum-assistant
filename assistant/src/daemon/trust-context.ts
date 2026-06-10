@@ -6,6 +6,7 @@
  */
 import type { ChannelId } from "../channels/types.js";
 import { isHttpAuthDisabled } from "../config/env.js";
+import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 
 export interface TrustContext {
@@ -80,4 +81,26 @@ export function resolveTrustClass(
 ): TrustClass {
   if (isHttpAuthDisabled()) return "guardian";
   return trustContext?.trustClass ?? "unknown";
+}
+
+/**
+ * Whether personal-memory content may be surfaced for the actor described by
+ * `trustContext`: the gate admits guardian-class actors and internal/local
+ * flows (including turns with no trust context), and blocks remote untrusted
+ * actors — see {@link shouldExposePersonalMemory} for the rationale.
+ *
+ * This is THE personal-memory trust gate. Every surface that exposes private
+ * user content — the v2 dynamic/static `<memory>` layers, PKB context, NOW.md,
+ * memory-v3 cards/spotlight, and the `loadFromDb` rehydration of persisted
+ * memory blocks — must call this one helper so the exposure rule cannot drift
+ * between copies. It folds in {@link resolveTrustClass} so the dev-bypass
+ * (HTTP auth disabled → guardian) applies uniformly at every call site.
+ */
+export function isPersonalMemoryAllowed(
+  trustContext: TrustContext | undefined,
+): boolean {
+  return shouldExposePersonalMemory({
+    sourceChannel: trustContext?.sourceChannel,
+    isTrustedActor: resolveTrustClass(trustContext) === "guardian",
+  });
 }

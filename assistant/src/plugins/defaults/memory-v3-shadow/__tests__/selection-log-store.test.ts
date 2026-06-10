@@ -151,15 +151,17 @@ describe("getMemoryV3SelectionForInspector", () => {
   });
 
   test("maps source/pinned and renders the <memory> block", async () => {
+    // The second row carries a retired free-text source label (the column is
+    // permissive); the inspector passes it through verbatim.
     seed("conv-4", 1, [
       { slug: "domain-a/page-1", source: "edge", pinned: true },
-      { slug: "domain-b/page-2", source: "carry-forward", pinned: false },
+      { slug: "domain-b/page-2", source: "legacy-carry", pinned: false },
     ]);
 
     const log = await getMemoryV3SelectionForInspector("conv-4", 1);
     expect(log?.selections).toEqual([
       { slug: "domain-a/page-1", source: "edge", pinned: true },
-      { slug: "domain-b/page-2", source: "carry-forward", pinned: false },
+      { slug: "domain-b/page-2", source: "legacy-carry", pinned: false },
     ]);
     expect(log?.injectedText).toContain("<memory>");
     expect(log?.injectedText).toContain("body for domain-a/page-1");
@@ -188,20 +190,21 @@ describe("summarizeSelections", () => {
       { slug: "domain-a/page-1", source: "needle" },
       { slug: "domain-b/page-2", source: "edge" },
     ]);
-    // Turn 2: page-1 re-selected (needle) + page-2 carried forward.
+    // Turn 2: page-1 re-selected (needle) + page-2 re-surfaced by edge.
     seed("conv-a", 2, [
       { slug: "domain-a/page-1", source: "needle", pinned: true },
-      { slug: "domain-b/page-2", source: "carry-forward" },
+      { slug: "domain-b/page-2", source: "edge" },
     ]);
     // A different conversation must not bleed into the aggregate.
     seed("conv-b", 1, [{ slug: "domain-c/page-9", source: "dense" }]);
 
     const summary = summarizeSelections("conv-a");
     expect(summary.bySource).toEqual({
+      core: 0,
+      hot: 0,
       needle: 2,
       dense: 0,
-      edge: 1,
-      "carry-forward": 1,
+      edge: 2,
     });
     expect(summary.turns).toBe(2);
     // page-1 and page-2 — distinct across the two turns.
@@ -210,14 +213,21 @@ describe("summarizeSelections", () => {
 
   test("returns zeroed counts for a conversation with no rows", () => {
     expect(summarizeSelections("conv-none")).toEqual({
-      bySource: { needle: 0, dense: 0, edge: 0, "carry-forward": 0 },
+      bySource: {
+        core: 0,
+        hot: 0,
+        needle: 0,
+        dense: 0,
+        edge: 0,
+      },
       turns: 0,
       distinctSlugs: 0,
     });
   });
 
   test("ignores unknown/free-text historical source labels in bySource but counts the turn", () => {
-    // A pre-lane historical row with a legacy label (column is free-text).
+    // A pre-lane historical row with a legacy label (column is free-text) —
+    // retired labels like the old per-turn carry source land here too.
     seed("conv-c", 1, [
       { slug: "domain-a/page-1", source: "l1+l2" },
       { slug: "domain-a/page-2", source: "needle" },

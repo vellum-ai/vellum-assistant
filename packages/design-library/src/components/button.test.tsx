@@ -90,6 +90,24 @@ describe("Button rendering", () => {
     expect(html).toContain('data-testid="only-icon"');
   });
 
+  test("asChild + iconOnly renders the slotted element with the icon inside it", () => {
+    const html = renderToStaticMarkup(
+      <Button
+        asChild
+        iconOnly={<svg data-testid="only-icon" aria-hidden />}
+        aria-label="New conversation"
+      >
+        <a href="/new" />
+      </Button>,
+    );
+    expect(html).toContain("<a");
+    expect(html).toContain('href="/new"');
+    expect(html).toContain('aria-label="New conversation"');
+    expect(html).not.toContain("<button");
+    expect(html).toContain('data-testid="only-icon"');
+    expect(html).toContain("p-0");
+  });
+
   test("iconOnly applies square dimensions for regular size (h-8 w-8)", () => {
     const html = renderToStaticMarkup(
       <Button iconOnly={<svg />} aria-label="a" />,

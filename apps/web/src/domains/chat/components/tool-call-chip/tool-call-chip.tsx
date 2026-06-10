@@ -53,7 +53,7 @@ export interface ToolCallChipProps {
   ) => void | Promise<void>;
   onAllowAndCreateRule?: (toolCall: ChatMessageToolCall) => void | Promise<void>;
   /** When true, skip the outer header row ("Running 1 step") and render
-   *  the sub-item row + details directly. Used inside ActivityRunCard
+   *  the sub-item row + details directly. Used inside MultiActivityGroup
    *  to avoid double-nesting. */
   embedded?: boolean;
 }

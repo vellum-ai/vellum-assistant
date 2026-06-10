@@ -87,6 +87,23 @@ export function isLocalMode(): boolean {
   return !PLATFORM_MODE_TRUTHY.has(raw.toLowerCase());
 }
 
+export function isPlatformDisabled(): boolean {
+  const config = (
+    window as unknown as {
+      __VELLUM_CONFIG__?: { disablePlatform?: boolean };
+    }
+  ).__VELLUM_CONFIG__;
+  if (config?.disablePlatform != null) return !!config.disablePlatform;
+
+  const raw = import.meta.env.VITE_VELLUM_DISABLE_PLATFORM;
+  if (raw) {
+    const v = raw.toLowerCase();
+    return v === "true" || v === "1";
+  }
+
+  return false;
+}
+
 export async function loadLockfile(): Promise<Lockfile> {
   try {
     const data = await loadLockfileHost();
@@ -130,7 +147,7 @@ export function getLockfile(): Lockfile {
  * cache only advances once the on-disk write succeeds.
  */
 export async function saveLockfileAssistant(
-  assistant: { assistantId: string; cloud: string; runtimeUrl: string; hatchedAt: string },
+  assistant: { assistantId: string; name?: string; cloud: string; runtimeUrl: string; hatchedAt: string },
 ): Promise<void> {
   const result = await saveLockfileAssistantHost(
     assistant,
@@ -166,12 +183,13 @@ export async function setActiveLockfileAssistant(
  * current set from the API. Removes stale entries and adds new ones atomically.
  */
 export async function syncPlatformAssistantsToLockfile(
-  assistants: Array<{ id: string; is_local: boolean; created: string }>,
+  assistants: Array<{ id: string; name?: string; is_local: boolean; created: string }>,
 ): Promise<void> {
   const platformAssistants = assistants
     .filter((a) => !a.is_local)
     .map((a) => ({
       assistantId: a.id,
+      ...(a.name != null && { name: a.name }),
       cloud: "vellum",
       runtimeUrl: getPlatformRuntimeUrl(),
       hatchedAt: a.created,

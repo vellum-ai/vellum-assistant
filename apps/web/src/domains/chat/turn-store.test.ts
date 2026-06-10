@@ -1352,7 +1352,7 @@ describe("shouldShowThinkingIndicator", () => {
 
   test("hidden once the live message has reasoning content (inline link owns it)", () => {
     // Same thinking phase as above, but the live assistant message has emitted
-    // reasoning — an inline ThoughtProcessLink is now showing the loading state,
+    // reasoning — an inline SingleActivity is now showing the loading state,
     // so the standalone dots row defers to avoid two competing indicators.
     const afterTool = applyEvents(INITIAL_TURN_STATE, [
       { type: "USER_SEND_REQUESTED", turnId: "t-1" },

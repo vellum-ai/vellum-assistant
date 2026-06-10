@@ -10,7 +10,7 @@ import {
 } from "./commands";
 import { areChromeDevToolsEnabled } from "./devtools";
 import { handle } from "./ipc";
-import { onSettingChange } from "./settings";
+import { onSettingChange, readSetting } from "./settings";
 import { readOnboardingActive } from "./window-state";
 
 interface MenuState {
@@ -21,9 +21,15 @@ const state: MenuState = {
   hasPlatformSession: false,
 };
 
+const isDeveloperMenuEnabled = (): boolean => {
+  const flags = readSetting("featureFlags");
+  return flags?.["developer-menu-items"] === true;
+};
+
 const buildTemplate = (): MenuItemConstructorOptions[] => {
   const isDev = !app.isPackaged;
   const chromeDevToolsEnabled = areChromeDevToolsEnabled();
+  const developerMenuEnabled = isDeveloperMenuEnabled();
 
   const fileItem = (
     label: string,
@@ -138,6 +144,34 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
         { role: "front" },
       ],
     },
+    ...(developerMenuEnabled
+      ? [
+          {
+            label: "Developer",
+            submenu: [
+              {
+                label: "Replay Onboarding",
+                click: () => dispatchToFocused({ kind: "replayOnboarding" }),
+              },
+              {
+                label: "Preview PreChat",
+                click: () => dispatchToFocused({ kind: "previewPrechat" }),
+              },
+              ...(!app.isPackaged
+                ? [
+                    { type: "separator" as const },
+                    {
+                      label: "Component Gallery",
+                      click: () => {
+                        void shell.openExternal("http://localhost:6007");
+                      },
+                    },
+                  ]
+                : []),
+            ],
+          } satisfies MenuItemConstructorOptions,
+        ]
+      : []),
     {
       role: "help",
       submenu: [
@@ -191,6 +225,12 @@ export const installApplicationMenu = (): void => {
   // Rebuild the menu when hotkey settings change so accelerators update
   // immediately without requiring an app restart.
   onSettingChange("hotkeys", () => {
+    applyMenu();
+  });
+
+  // Rebuild the menu when feature flags change so the Developer submenu
+  // appears or disappears without requiring an app restart.
+  onSettingChange("featureFlags", () => {
     applyMenu();
   });
 

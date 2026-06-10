@@ -18,12 +18,6 @@ final class SoundManager {
     /// Current sound configuration, fetched from the gateway.
     private(set) var config: SoundsConfig = .defaultConfig
 
-    /// Cached feature flag store used to check the "sounds" flag without disk I/O.
-    /// Set via `start(featureFlagStore:)` so `play(_:)` reads from memory instead
-    /// of calling `AssistantFeatureFlagResolver.isEnabled()` (which performs
-    /// synchronous file reads on the main thread).
-    @ObservationIgnored private var featureFlagStore: AssistantFeatureFlagStore?
-
     /// Serial background queue for audio playback. `NSSound.play()` can block the
     /// calling thread for 2000ms+ during audio subsystem initialization
     /// (`AudioQueueXPC_Bridge::Start` → XPC sync dispatch → mutex lock). Routing all
@@ -112,9 +106,7 @@ final class SoundManager {
 
     // MARK: - Lifecycle
 
-    func start(featureFlagStore: AssistantFeatureFlagStore? = nil) {
-        self.featureFlagStore = featureFlagStore
-
+    func start() {
         // Reload sounds config on every daemon (re)connect. The daemon
         // only broadcasts sounds_config_updated on file mutations, so
         // without this hook the config would stay at `.defaultConfig`
@@ -350,11 +342,6 @@ final class SoundManager {
 
     /// Plays the sound associated with the given event, respecting global and per-event toggles.
     func play(_ event: SoundEvent) {
-        // Use the cached store when available (zero disk I/O); fall back to
-        // the static resolver only if start() was called without a store.
-        let soundsEnabled = featureFlagStore?.isEnabled("sounds")
-            ?? AssistantFeatureFlagResolver.isEnabled("sounds")
-        guard soundsEnabled else { return }
         guard config.globalEnabled else { return }
 
         let eventConfig = config.config(for: event)

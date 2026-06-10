@@ -194,6 +194,90 @@ describe("useAssistantAvatar", () => {
     second.unmount();
   });
 
+  test("null components (transport failure) retries instead of caching a broken avatar", async () => {
+    // GIVEN the avatar state endpoint succeeds with a character avatar
+    fetchAvatarState.mockResolvedValue(characterState);
+    // AND the character-components endpoint fails transiently
+    fetchCharacterComponents.mockResolvedValueOnce(null as unknown as CharacterComponents);
+    // AND components succeed on the retry
+    fetchCharacterComponents.mockResolvedValueOnce(components);
+
+    // WHEN the hook mounts with retry enabled
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: 1, retryDelay: 0 } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    const { result } = renderHook(() => useAssistantAvatar("asst-1"), { wrapper });
+
+    // THEN the query retries and resolves with the successful components
+    await waitFor(() => {
+      expect(result.current.components).toEqual(components);
+    });
+
+    // AND the character traits are preserved from the successful state fetch
+    expect(result.current.traits).toEqual(traits);
+    // AND components were fetched twice (initial failure + retry)
+    expect(fetchCharacterComponents).toHaveBeenCalledTimes(2);
+  });
+
+  test("null components preserves cached avatar on refetch instead of blanking", async () => {
+    // GIVEN a character avatar was previously fetched and cached
+    fetchAvatarState.mockResolvedValue(characterState);
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    const first = renderHook(() => useAssistantAvatar("asst-1"), { wrapper });
+    await waitFor(() => {
+      expect(first.result.current.traits).toEqual(traits);
+    });
+    first.unmount();
+
+    // WHEN the character-components endpoint fails on a subsequent refetch
+    fetchCharacterComponents.mockResolvedValue(null as unknown as CharacterComponents);
+    await queryClient.invalidateQueries({ queryKey: avatarQueryKey("asst-1") });
+
+    const second = renderHook(() => useAssistantAvatar("asst-1"), { wrapper });
+    await waitFor(() => {
+      expect(fetchCharacterComponents).toHaveBeenCalledTimes(2);
+    });
+
+    // THEN the cached character avatar is preserved (not blanked to "V")
+    expect(second.result.current.traits).toEqual(traits);
+    expect(second.result.current.components).toEqual(components);
+    second.unmount();
+  });
+
+  test("image avatar renders successfully even when components fail", async () => {
+    // GIVEN the avatar state is an uploaded image
+    fetchAvatarState.mockResolvedValue(imageState);
+    // AND the image fetch succeeds
+    fetchAvatarImageUrl.mockResolvedValue("blob:avatar-image");
+    // AND the character-components endpoint fails
+    fetchCharacterComponents.mockResolvedValue(null as unknown as CharacterComponents);
+
+    // WHEN the hook mounts
+    const { result } = renderHook(() => useAssistantAvatar("asst-1"), {
+      wrapper: createWrapper(),
+    });
+
+    // THEN the custom image URL is returned (not thrown away)
+    await waitFor(() => {
+      expect(result.current.customImageUrl).toBe("blob:avatar-image");
+    });
+
+    // AND components is null but that's fine — ChatAvatar renders via <img>
+    expect(result.current.components).toBeNull();
+    expect(result.current.traits).toBeNull();
+  });
+
   test("pre-manifest assistants infer character traits from the sidecar files", async () => {
     useAssistantIdentityStore.getState().setIdentity("test-asst", "0.8.6");
     fetchCharacterTraits.mockResolvedValueOnce(traits);

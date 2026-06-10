@@ -53,6 +53,7 @@ interface ClientCatalogModel {
   longContextPricingThresholdTokens?: number;
   longContextMode?: "native-model" | "provider-request-option" | "unsupported";
   supportsThinking?: boolean;
+  adaptiveThinkingOnly?: boolean;
   supportsCaching?: boolean;
   supportsVision?: boolean;
   supportsToolUse?: boolean;
@@ -194,6 +195,9 @@ describe("LLM catalog parity: daemon vs client", () => {
         );
         expect(clientModel.longContextMode).toBe(daemonModel.longContextMode);
         expect(clientModel.supportsThinking).toBe(daemonModel.supportsThinking);
+        expect(clientModel.adaptiveThinkingOnly).toBe(
+          daemonModel.adaptiveThinkingOnly,
+        );
         expect(clientModel.supportsCaching).toBe(daemonModel.supportsCaching);
         expect(clientModel.supportsVision).toBe(daemonModel.supportsVision);
         expect(clientModel.supportsToolUse).toBe(daemonModel.supportsToolUse);

@@ -41,6 +41,45 @@ function resolveConversationId(
 }
 
 /**
+ * Mark a conversation as processing in response to an SSE turn signal
+ * (`assistant_turn_start`, or the first `assistant_text_delta` when the
+ * start event was dropped on a reconnect).
+ *
+ * Patches the cached conversation row's `isProcessing` to `true` so
+ * 0.8.8+ clients can read `conversation.isProcessing` as the single
+ * source of truth — the symmetric counterpart to the terminal handlers'
+ * `isProcessing: false` patch. The patch is guarded on the current cached
+ * value so a long run of text deltas doesn't rewrite the cache (and
+ * re-render its readers) on every chunk.
+ *
+ * Also seeds the client optimistic mirror (`processingConversationIds`),
+ * which older daemons that omit `isProcessing` on the wire still rely on.
+ * The mirror is seeded with the cached `latestAssistantMessageAt` so
+ * attention tracking has a baseline to graduate against — without it,
+ * switching away from an SSE-only turn would immediately graduate
+ * (comparing `number !== undefined`) and drop the sidebar processing
+ * affordance while the assistant is still running.
+ */
+function markConversationProcessingFromStream(
+  ctx: StreamHandlerContext,
+  conversationId: string,
+): void {
+  const cached = findConversation(
+    ctx.queryClient,
+    ctx.assistantId,
+    conversationId,
+  );
+  if (cached?.isProcessing !== true) {
+    patchConversation(ctx.queryClient, ctx.assistantId, conversationId, {
+      isProcessing: true,
+    });
+  }
+  useConversationStore
+    .getState()
+    .markConversationProcessing(conversationId, cached?.latestAssistantMessageAt);
+}
+
+/**
  * Apply an `assistant_turn_start` event.
  *
  * The daemon emits this from event zero of each LLM call in a turn,
@@ -58,26 +97,10 @@ export function handleAssistantTurnStart(
 
   // Mark the conversation as processing the moment the daemon emits its
   // first start signal. Covers external-channel turns (Slack/Telegram)
-  // where the local `useSendMessage` flow never ran, and serves as a
-  // belt-and-suspenders fallback against pre-0.8.7 daemons that don't
-  // surface `conversation.isProcessing` on the wire.
-  //
-  // Seed `processingSnapshots` with the cached conversation's
-  // `latestAssistantMessageAt` so attention tracking has a baseline to
-  // graduate against. Without this seed, switching away from an
-  // SSE-only turn would immediately graduate (comparing `number !==
-  // undefined`) and drop the sidebar processing affordance while the
-  // assistant is still running.
+  // where the local `useSendMessage` flow never ran.
   const convId = resolveConversationId(event, ctx);
   if (convId) {
-    const cached = findConversation(
-      ctx.queryClient,
-      ctx.assistantId,
-      convId,
-    );
-    useConversationStore
-      .getState()
-      .markConversationProcessing(convId, cached?.latestAssistantMessageAt);
+    markConversationProcessingFromStream(ctx, convId);
   }
 }
 
@@ -89,21 +112,12 @@ export function handleAssistantTextDelta(
   ctx.turnActions.onTextDelta();
 
   // First delta on a conversation that never saw `assistant_turn_start`
-  // (e.g. pre-B3 daemons, or the start event being dropped on a
-  // reconnect) still needs to flip the badge on. Idempotent — no-op
-  // when the conversation is already marked processing AND the snapshot
-  // is already seeded. See `handleAssistantTurnStart` for the snapshot
-  // rationale.
+  // (e.g. the start event being dropped on a reconnect) still needs to
+  // flip processing on. Idempotent — see
+  // `markConversationProcessingFromStream`.
   const convId = resolveConversationId(event, ctx);
   if (convId) {
-    const cached = findConversation(
-      ctx.queryClient,
-      ctx.assistantId,
-      convId,
-    );
-    useConversationStore
-      .getState()
-      .markConversationProcessing(convId, cached?.latestAssistantMessageAt);
+    markConversationProcessingFromStream(ctx, convId);
   }
 
   ctx.setMessages((prev) => {

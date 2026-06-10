@@ -6,18 +6,19 @@
  * most authoritative for each field:
  *   1. The locally installed copy under `<workspacePluginsDir>/<name>/`, when
  *      present — its `package.json` and `README.md` are read straight off disk.
- *   2. The curated `experimental/plugins/marketplace.json` entry, for external
+ *   2. The curated `plugins/marketplace.json` entry, for external
  *      ecosystem plugins (description / homepage / license / pinned source).
- *   3. The plugin's own repository at the pinned ref (first-party
- *      `experimental/plugins/<name>/` or the external `owner/repo[/path]`),
+ *   3. The plugin's own external repository at the pinned `owner/repo[/path]`,
  *      fetched via the GitHub Contents API for the README and any
  *      `package.json` fields the manifest doesn't carry.
  *
- * Name-collision precedence matches {@link ./search-plugins} and
- * {@link ./install-from-github}: a marketplace entry owns its name, so the
+ * The `source` field is the marketplace entry's pinned origin when one claims
+ * the name, otherwise `null` — an installed copy with no catalog entry has no
+ * advertised origin. Name-collision precedence matches {@link ./search-plugins}
+ * and {@link ./install-from-github}: a marketplace entry owns its name, so the
  * detail page advertises the external source the catalog and installer use. A
- * same-named `experimental/plugins/<name>/` directory is that plugin's adapter
- * stub, not a standalone first-party plugin, so it does not override the claim.
+ * same-named `plugins/<name>/` directory is that plugin's adapter stub, not a
+ * standalone plugin, so it does not override the claim.
  *
  * Designed for direct programmatic use with an injected `fetch`, mirroring the
  * sibling plugin libraries.
@@ -37,10 +38,6 @@ import {
   type MarketplaceEntry,
 } from "./plugin-marketplace.js";
 import type { PluginMatchSource } from "./search-plugins.js";
-
-const PLUGIN_SOURCE_OWNER = "vellum-ai";
-const PLUGIN_SOURCE_REPO = "vellum-assistant";
-const PLUGIN_SOURCE_PATH_PREFIX = "experimental/plugins";
 
 /** Recognised README filenames, matched case-insensitively against a listing. */
 const README_RE = /^readme(\.md|\.markdown)?$/i;
@@ -91,8 +88,11 @@ export interface PluginDetails {
   readonly license: string | null;
   /** Resolved version (installed copy first, then repo `package.json`); `null` when unknown. */
   readonly version: string | null;
-  /** Discriminated origin, mirroring the catalog's {@link PluginMatchSource}. */
-  readonly source: PluginMatchSource;
+  /**
+   * Pinned origin, mirroring the catalog's {@link PluginMatchSource}; `null`
+   * when an installed copy has no marketplace entry to advertise an origin.
+   */
+  readonly source: PluginMatchSource | null;
   /** README markdown, or `null` when the plugin ships none. */
   readonly readme: string | null;
   /** Git ref the catalog metadata / README were resolved at. */
@@ -114,8 +114,8 @@ export class PluginDetailsNotFoundError extends Error {
  * Resolve the detail view for {@link opts.name}.
  *
  * Throws {@link PluginDetailsNotFoundError} when the name is neither installed
- * locally nor present in the catalog (first-party directory or marketplace
- * entry). Network failures while enriching from GitHub degrade to the fields
+ * locally nor present in the marketplace catalog. Network failures while
+ * enriching from GitHub degrade to the fields
  * already known from disk / the manifest rather than failing the whole view —
  * a detail page that renders metadata without a README beats a hard error.
  */
@@ -132,40 +132,24 @@ export async function getPluginDetails(
 
   const marketplaceEntry = await findMarketplaceEntry(name, ref, fetchFn);
 
-  // A marketplace entry owns its name (the same-named in-repo directory, if
-  // any, is its adapter stub) — so only probe the first-party directory when
-  // the name is unclaimed, which also spares a GitHub request in the common
-  // external case.
-  const firstPartyEntries =
-    marketplaceEntry === null
-      ? await listDirSafe(
-          PLUGIN_SOURCE_OWNER,
-          PLUGIN_SOURCE_REPO,
-          `${PLUGIN_SOURCE_PATH_PREFIX}/${name}`,
-          ref,
-          fetchFn,
-        )
-      : null;
-  const firstPartyExists = firstPartyEntries !== null;
-
-  if (!local.installed && !firstPartyExists && !marketplaceEntry) {
+  if (!local.installed && !marketplaceEntry) {
     throw new PluginDetailsNotFoundError(name, ref);
   }
 
-  const useExternal = marketplaceEntry !== null;
-
-  const source: PluginMatchSource = useExternal
+  const source: PluginMatchSource | null = marketplaceEntry
     ? {
         kind: "github",
-        repo: marketplaceEntry!.source.repo,
-        ref: marketplaceEntry!.source.ref,
-        ...(marketplaceEntry!.source.path
-          ? { path: marketplaceEntry!.source.path }
+        repo: marketplaceEntry.source.repo,
+        ref: marketplaceEntry.source.ref,
+        ...(marketplaceEntry.source.path
+          ? { path: marketplaceEntry.source.path }
           : {}),
       }
-    : { kind: "first-party" };
+    : null;
 
-  const remote = await readRemotePlugin(source, firstPartyEntries, fetchFn);
+  const remote = source
+    ? await readRemotePlugin(source, fetchFn)
+    : { manifest: emptyManifest(), readme: null };
 
   const readme = local.readme ?? remote.readme;
 
@@ -244,39 +228,25 @@ interface RemotePlugin {
 }
 
 /**
- * Fetch README + `package.json` from the plugin's repository.
+ * Fetch README + `package.json` from the plugin's external repository.
  *
- * For a first-party plugin the listing is the in-repo directory the caller
- * already fetched at the catalog ref (passed through to avoid a duplicate
- * request). For an external plugin we list its `owner/repo[/path]` directory
- * fresh at the plugin's own pinned `source.ref`.
+ * Lists the plugin's `owner/repo[/path]` directory fresh at its own pinned
+ * `source.ref` — the detail page must describe the same artifact the installer
+ * resolves from `source.ref`, even when that differs from the catalog ref
+ * (`main`).
  */
 async function readRemotePlugin(
   source: PluginMatchSource,
-  firstPartyEntries: readonly GitHubContentEntry[] | null,
   fetchFn: FetchLike,
 ): Promise<RemotePlugin> {
-  let owner: string;
-  let repo: string;
-  let entries: readonly GitHubContentEntry[] | null;
-
-  if (source.kind === "github") {
-    [owner, repo] = source.repo.split("/", 2) as [string, string];
-    // Read the external repo at its pinned ref, not the assistant catalog ref —
-    // the detail page must describe the same artifact the installer resolves
-    // from `source.ref`, even when that differs from the catalog ref (`main`).
-    entries = await listDirSafe(
-      owner,
-      repo,
-      source.path ?? "",
-      source.ref,
-      fetchFn,
-    );
-  } else {
-    owner = PLUGIN_SOURCE_OWNER;
-    repo = PLUGIN_SOURCE_REPO;
-    entries = firstPartyEntries;
-  }
+  const [owner, repo] = source.repo.split("/", 2) as [string, string];
+  const entries = await listDirSafe(
+    owner,
+    repo,
+    source.path ?? "",
+    source.ref,
+    fetchFn,
+  );
 
   if (!entries) {
     return { manifest: emptyManifest(), readme: null };

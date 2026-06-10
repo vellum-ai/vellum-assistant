@@ -123,7 +123,7 @@ mock.module(
   }),
 );
 
-mock.module("../daemon/context-overflow-policy.js", () => ({
+mock.module("../plugins/defaults/compaction/overflow-policy.js", () => ({
   resolveOverflowAction: () => "fail_gracefully",
 }));
 
@@ -264,6 +264,7 @@ mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
     },
   }),
   deepRepairHistory: (msgs: Message[]) => ({ messages: msgs, stats: {} }),
+  isRepairableOrderingError: () => false,
 }));
 
 mock.module("../daemon/conversation-usage.js", () => ({
@@ -329,10 +330,6 @@ mock.module("../daemon/conversation-error.js", () => ({
     ...classified,
   }),
   isContextTooLarge: () => false,
-}));
-
-mock.module("../daemon/conversation-slash.js", () => ({
-  isProviderOrderingError: () => false,
 }));
 
 mock.module("../util/truncate.js", () => ({
@@ -435,6 +432,17 @@ function makeCtx(
       updateConfig: () => {},
       shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
       maybeCompact: async () => ({ compacted: false }),
+      resetOverflowRecovery: () => {},
+      reduceOverflowOneRung: async (msgs: Message[]) => ({
+        messages: msgs,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: ["forced_compaction"],
+          injectionMode: "full",
+          exhausted: true,
+        },
+        estimatedTokens: 1000,
+      }),
     } as unknown as Conversation["contextWindowManager"],
     contextCompactedMessageCount: 0,
     contextCompactedAt: null,

@@ -14,7 +14,7 @@ Scope is deliberately tight: we recognize only
   - `GET api.github.com/repos/vellum-ai/vellum-assistant/contents/<path>?ref=<ref>`
   - `GET raw.githubusercontent.com/vellum-ai/vellum-assistant/<ref>/<path>`
 
-and only when `<path>` is rooted under `experimental/plugins/`. The
+and only when `<path>` is rooted under `plugins/`. The
 assistant's CLI plugin loader (`assistant/src/cli/lib/install-from-github.ts`)
 hits exactly these two endpoints; anything else from the assistant
 falls through and gets dropped by the iptables DROP-default policy.
@@ -35,7 +35,7 @@ from urllib.parse import unquote, urlsplit
 
 PLUGIN_OWNER = "vellum-ai"
 PLUGIN_REPO = "vellum-assistant"
-PLUGIN_PATH_PREFIX = "experimental/plugins"
+PLUGIN_PATH_PREFIX = "plugins"
 
 
 def _safe_join(fixtures_dir: str, relative: str) -> Optional[str]:
@@ -102,7 +102,7 @@ def handle_contents_api(
     """Mock `GET api.github.com/repos/<owner>/<repo>/contents/<path>?ref=<ref>`.
 
     Returns:
-        - 404 + JSON for paths outside `experimental/plugins/`, missing
+        - 404 + JSON for paths outside `plugins/`, missing
           targets, or escape attempts.
         - 200 + JSON array for directories (one entry per child).
         - 200 + JSON object for a single file (matches GitHub's actual
@@ -126,7 +126,7 @@ def handle_contents_api(
 
     repo_path = unquote(match.group(1))
 
-    # Only serve paths under experimental/plugins/. The install loader
+    # Only serve paths under plugins/. The install loader
     # never asks for anything else, and refusing other paths up front
     # keeps the mock's surface minimal.
     if not (
@@ -177,7 +177,7 @@ def handle_raw_api(
     """Mock `GET raw.githubusercontent.com/<owner>/<repo>/<ref>/<path>`.
 
     Returns:
-        - 404 for paths outside `experimental/plugins/`, missing files,
+        - 404 for paths outside `plugins/`, missing files,
           escape attempts, or non-file targets.
         - 200 + raw file bytes for matching files.
         - `None` when the URL doesn't match the raw API for

@@ -9,6 +9,7 @@
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
+import type { ConversationContentBlock } from "@vellumai/assistant-api";
 import type {
   AllowlistOption,
   DirectoryScopeOption,
@@ -27,9 +28,31 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
+ * Insert or update the `tool_use` block carrying `toolCall` (matched by id),
+ * so the `contentBlocks` projection stays in lockstep with the positional
+ * `toolCalls` array as the call streams from start through result.
+ */
+function upsertToolUseBlock(
+  blocks: ConversationContentBlock[] | undefined,
+  toolCall: ChatMessageToolCall,
+): ConversationContentBlock[] {
+  const next = [...(blocks ?? [])];
+  const existingIdx = next.findIndex(
+    (b) => b.type === "tool_use" && b.toolCall.id === toolCall.id,
+  );
+  if (existingIdx === -1) {
+    next.push({ type: "tool_use", toolCall });
+  } else {
+    next[existingIdx] = { type: "tool_use", toolCall };
+  }
+  return next;
+}
+
+/**
  * Fold a tool call into the assistant row at `idx`, either updating the
  * existing entry (same `toolCall.id`) or appending a new one with a
- * matching `contentOrder` entry.
+ * matching `contentOrder` entry. The `contentBlocks` `tool_use` entry is
+ * upserted in lockstep so a live row matches its re-ingested history shape.
  */
 function upsertToolCallIntoRow(
   prev: DisplayMessage[],
@@ -44,11 +67,13 @@ function upsertToolCallIntoRow(
 
   if (existingIdx !== -1) {
     const updatedToolCalls = [...(row.toolCalls ?? [])];
-    updatedToolCalls[existingIdx] = {
-      ...updatedToolCalls[existingIdx]!,
-      ...toolCall,
+    const merged = { ...updatedToolCalls[existingIdx]!, ...toolCall };
+    updatedToolCalls[existingIdx] = merged;
+    updated[idx] = {
+      ...row,
+      toolCalls: updatedToolCalls,
+      contentBlocks: upsertToolUseBlock(row.contentBlocks, merged),
     };
-    updated[idx] = { ...row, toolCalls: updatedToolCalls };
     return updated;
   }
 
@@ -59,6 +84,7 @@ function upsertToolCallIntoRow(
       ...(row.contentOrder ?? []),
       { type: "toolCall", id: toolCall.id },
     ],
+    contentBlocks: upsertToolUseBlock(row.contentBlocks, toolCall),
   };
   return updated;
 }
@@ -101,6 +127,7 @@ export function upsertToolCall(
       role: "assistant" as const,
       toolCalls: [toolCall],
       contentOrder: [{ type: "toolCall", id: toolCall.id }],
+      contentBlocks: [{ type: "tool_use", toolCall }],
       timestamp: Date.now(),
     },
   ];
@@ -132,6 +159,12 @@ export function applyToolResult(
      * after the active turn ends and `liveWebActivity` is cleared.
      */
     activityMetadata?: ToolActivityMetadata;
+    /**
+     * Server-stamped completion time (ms). Keeps the final duration on the
+     * same clock as the daemon-stamped `startedAt`; falls back to the local
+     * clock for older daemons that omit it.
+     */
+    completedAt?: number;
   },
 ): DisplayMessage[] {
   let msgIdx = -1;
@@ -167,7 +200,7 @@ export function applyToolResult(
   if (!existingTc) return prev;
 
   const updatedToolCalls = [...msg.toolCalls!];
-  updatedToolCalls[tcIdx] = {
+  const updatedTc = {
     ...existingTc,
     result: opts.result,
     isError: opts.isError,
@@ -183,10 +216,15 @@ export function applyToolResult(
     ...(opts.activityMetadata !== undefined
       ? { activityMetadata: opts.activityMetadata }
       : {}),
-    completedAt: Date.now(),
+    completedAt: opts.completedAt ?? Date.now(),
   };
+  updatedToolCalls[tcIdx] = updatedTc;
 
   const updated = [...prev];
-  updated[msgIdx] = { ...msg, toolCalls: updatedToolCalls };
+  updated[msgIdx] = {
+    ...msg,
+    toolCalls: updatedToolCalls,
+    contentBlocks: upsertToolUseBlock(msg.contentBlocks, updatedTc),
+  };
   return updated;
 }

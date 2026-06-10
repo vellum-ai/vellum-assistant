@@ -1,24 +1,19 @@
 /**
  * Install a plugin by name from the canonical GitHub source.
  *
- * A name resolves to one of two sources, materialized into
- * `<workspacePluginsDir>/<name>/` so the daemon discovers it on next start:
- *   1. A whitelisted external ecosystem plugin, when the name matches an entry
- *      in the curated `experimental/plugins/marketplace.json` manifest. The
- *      pinned `owner/repo[/path]@ref` (see {@link ./plugin-marketplace}) is
- *      fetched with a shallow `git` clone at that ref — one network operation
- *      regardless of repo size, immune to GitHub's unauthenticated API
- *      rate-limit, and recording the exact resolved commit for provenance.
- *      When we curate an adapter stub for the plugin (an
- *      `experimental/plugins/<name>/` directory in this repo with a
- *      `scripts.postinstall` command), the stub is overlaid onto the clone and
- *      its postinstall runs to translate a foreign-ecosystem layout into the
- *      shape Vellum's loader runs (see {@link applyAdapterStub}).
- *   2. Otherwise the first-party convention
- *      `vellum-ai/vellum-assistant/experimental/plugins/<name>/` at the
- *      configured ref, fetched via the GitHub Contents API (a small handful of
- *      in-repo files — cloning the whole monorepo to install one would be
- *      wasteful).
+ * A name resolves to a whitelisted external ecosystem plugin — an entry in the
+ * curated `plugins/marketplace.json` manifest. The pinned
+ * `owner/repo[/path]@ref` (see {@link ./plugin-marketplace}) is fetched with a
+ * shallow `git` clone at that ref — one network operation regardless of repo
+ * size, immune to GitHub's unauthenticated API rate-limit, and recording the
+ * exact resolved commit for provenance — and materialized into
+ * `<workspacePluginsDir>/<name>/` so the daemon discovers it on next start.
+ *
+ * When we curate an adapter stub for the plugin (a `plugins/<name>/` directory
+ * in this repo with a `scripts.postinstall` command), the stub is overlaid
+ * onto the clone and its postinstall runs to translate a foreign-ecosystem
+ * layout into the shape Vellum's loader runs (see {@link applyAdapterStub}). A
+ * name with no marketplace entry is a not-found.
  *
  * Designed for direct programmatic use. The CLI command
  * `assistant plugins install <name>` is a thin wrapper that supplies
@@ -47,6 +42,8 @@ import { ensureBun } from "../../util/bun-runtime.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import {
   fetchMarketplaceEntries,
+  MarketplaceFetchError,
+  type ResolvedPluginSource,
   resolveMarketplaceSource,
 } from "./plugin-marketplace.js";
 
@@ -54,7 +51,7 @@ const execFileAsync = promisify(execFile);
 
 const PLUGIN_SOURCE_OWNER = "vellum-ai";
 const PLUGIN_SOURCE_REPO = "vellum-assistant";
-const PLUGIN_SOURCE_PATH_PREFIX = "experimental/plugins";
+const PLUGIN_SOURCE_PATH_PREFIX = "plugins";
 /** Default git ref to fetch from when callers don't override. */
 export const DEFAULT_PLUGIN_REF = "main";
 
@@ -130,7 +127,7 @@ export interface InstallPluginResult {
   readonly target: string;
   readonly fileCount: number;
   readonly ref: string;
-  /** Resolved commit SHA for git-cloned external sources; null for first-party (no clone). */
+  /** Resolved commit SHA the external source was cloned at; null when it could not be read. */
   readonly commit: string | null;
 }
 
@@ -214,8 +211,6 @@ function isTransientUpstreamStatus(res: Response): boolean {
 
 /** Resolved GitHub coordinates a plugin name is fetched from. */
 interface PluginFetchSource {
-  /** Whether the plugin lives in our monorepo or an external whitelisted repo. */
-  readonly kind: "first-party" | "external";
   readonly owner: string;
   readonly repo: string;
   /** Repo-relative directory holding the plugin root; `""` = repo root. */
@@ -230,54 +225,42 @@ function sourceLabel(source: PluginFetchSource): string {
     : `${source.owner}/${source.repo}`;
 }
 
-/** First-party `experimental/plugins/<name>` coordinates at a given ref. */
-function firstPartySource(name: string, ref: string): PluginFetchSource {
-  return {
-    kind: "first-party",
-    owner: PLUGIN_SOURCE_OWNER,
-    repo: PLUGIN_SOURCE_REPO,
-    rootPath: `${PLUGIN_SOURCE_PATH_PREFIX}/${name}`,
-    ref,
-  };
-}
-
 /**
- * Resolve a plugin name to concrete GitHub coordinates.
+ * Resolve a plugin name to the concrete GitHub coordinates of its pinned
+ * marketplace entry, or `null` when no entry claims the name.
  *
- * A name claimed by the curated marketplace resolves to its pinned external
- * repo; any other name resolves to the first-party `experimental/plugins/<name>`
- * convention. The marketplace is external-only by construction — a same-named
- * `experimental/plugins/<name>` directory is the plugin's optional *adapter
- * stub* (a curated `package.json` + postinstall script overlaid onto the clone
- * to translate it into Vellum's shape; see {@link applyAdapterStub}), not a
- * standalone first-party plugin. So letting the marketplace win the name is
- * what makes the stub apply to the external clone, and the search catalog
- * surfaces the same name as external — install and search stay in agreement.
+ * The marketplace is external-only by construction — a same-named
+ * `plugins/<name>` directory is the plugin's optional *adapter stub* (a curated
+ * `package.json` + postinstall script overlaid onto the clone to translate it
+ * into Vellum's shape; see {@link applyAdapterStub}), not a standalone plugin.
  *
- * A missing or malformed manifest degrades to first-party resolution — the
- * whitelist is supplementary and must never block installing a first-party
- * plugin. An external name then surfaces a clear not-found error downstream.
+ * A transient marketplace failure (rate-limit / 5xx) surfaces as a retryable
+ * {@link PluginSourceUnavailableError}; a malformed manifest propagates as a
+ * hard error, since the marketplace is the source of truth for what is
+ * installable.
  */
 async function resolvePluginSource(
   name: string,
   marketplaceRef: string,
   fetchFn: FetchLike,
-): Promise<PluginFetchSource> {
-  let resolved = null;
+): Promise<PluginFetchSource | null> {
+  let resolved: ResolvedPluginSource | null;
   try {
     const entries = await fetchMarketplaceEntries(
       { fetch: fetchFn },
       { ref: marketplaceRef },
     );
     resolved = resolveMarketplaceSource(name, entries);
-  } catch {
-    // Degrade to first-party resolution below.
+  } catch (err) {
+    if (err instanceof MarketplaceFetchError && err.transient) {
+      throw new PluginSourceUnavailableError(err.message, err.status ?? 503);
+    }
+    throw err;
   }
 
-  if (!resolved) return firstPartySource(name, marketplaceRef);
+  if (!resolved) return null;
 
   return {
-    kind: "external",
     owner: resolved.owner,
     repo: resolved.repo,
     rootPath: resolved.path,
@@ -288,7 +271,7 @@ async function resolvePluginSource(
 /**
  * Reject plugin names that could escape the canonical source path or the
  * install target. The source convention is a flat namespace under
- * `experimental/plugins/`, so a legitimate name is a single path segment
+ * `plugins/`, so a legitimate name is a single path segment
  * built from kebab-case alphanumerics.
  *
  * Exported so callers (e.g. the CLI input prompt) can validate up front
@@ -344,6 +327,13 @@ export async function installPlugin(
   const force = opts.force ?? false;
 
   const source = await resolvePluginSource(name, marketplaceRef, deps.fetch);
+  if (!source) {
+    throw new PluginNotFoundError(
+      name,
+      marketplaceRef,
+      "plugins/marketplace.json",
+    );
+  }
   const ref = source.ref;
 
   const pluginsDir = deps.workspacePluginsDir ?? getWorkspacePluginsDir();
@@ -374,52 +364,20 @@ export async function installPlugin(
   let fileCount: number;
   let commit: string | null = null;
   try {
-    if (source.kind === "external") {
-      const cloned = await copyExternalViaGit(
-        source,
-        stagingDir,
-        deps.runGit ?? defaultGitRunner,
-      );
-      fileCount = cloned.fileCount;
-      commit = cloned.commit;
-      // An external clone is often a foreign-ecosystem plugin (e.g. a Claude
-      // Code plugin) that the Vellum loader can't run as-is. When we curate an
-      // adapter stub for it, overlay the stub and run its transform so the
-      // materialized tree is a valid Vellum plugin. Raw clones (no stub) are
-      // left untouched.
-      if (fileCount > 0) {
-        await applyAdapterStub(name, marketplaceRef, stagingDir, deps);
-      }
-    } else {
-      fileCount = await copyDir(
-        source.owner,
-        source.repo,
-        source.rootPath,
-        ref,
-        stagingDir,
-        deps.fetch,
-      );
-      // We only land in the first-party branch for this name when the
-      // marketplace lookup returned no claim. A *healthy* marketplace that
-      // claims the name routes to the external+adapter branch above; reaching
-      // here for a directory that is actually an adapter stub (declares a
-      // `scripts.postinstall`) therefore means the marketplace failed to load
-      // (rate-limit / 5xx / malformed) and we degraded past it. A stub has no
-      // hooks/tools of its own — it only transforms an external clone — so
-      // installing it alone would materialize a non-functional plugin. Fail
-      // loudly and retryably instead of silently shipping a broken plugin.
-      // Genuine first-party plugins (no postinstall) install normally.
-      if (
-        fileCount > 0 &&
-        resolvePostinstallScript(name, stagingDir) !== null
-      ) {
-        throw new PluginPostinstallError(
-          name,
-          "resolved to a first-party adapter stub, but its marketplace entry " +
-            "could not be read to locate the external source it adapts — the " +
-            "marketplace lookup likely failed transiently. Retry the install.",
-        );
-      }
+    const cloned = await copyExternalViaGit(
+      source,
+      stagingDir,
+      deps.runGit ?? defaultGitRunner,
+    );
+    fileCount = cloned.fileCount;
+    commit = cloned.commit;
+    // An external clone is often a foreign-ecosystem plugin (e.g. a Claude
+    // Code plugin) that the Vellum loader can't run as-is. When we curate an
+    // adapter stub for it, overlay the stub and run its transform so the
+    // materialized tree is a valid Vellum plugin. Raw clones (no stub) are
+    // left untouched.
+    if (fileCount > 0) {
+      await applyAdapterStub(name, marketplaceRef, stagingDir, deps);
     }
   } catch (err) {
     rmSync(stagingDir, { recursive: true, force: true });
@@ -546,7 +504,7 @@ const POSTINSTALL_TIMEOUT_MS = 60_000;
  * Overlay our curated adapter stub onto a freshly cloned external plugin and
  * run its postinstall transform, returning whether a transform ran.
  *
- * The stub lives at `experimental/plugins/<name>/` in our own repo and carries
+ * The stub lives at `plugins/<name>/` in our own repo and carries
  * a `package.json` (with a `scripts.postinstall` adapter command) plus the
  * adapter script it names. We fetch it via the Contents API — a couple of
  * small files, well within the rate limit — and copy it over the clone so the
@@ -910,7 +868,7 @@ function writeInstallManifest(
   const manifest = {
     name,
     source: {
-      kind: source.kind,
+      kind: "github",
       owner: source.owner,
       repo: source.repo,
       path: source.rootPath || undefined,
@@ -926,13 +884,14 @@ function writeInstallManifest(
 }
 
 /**
- * Recursively copy a first-party plugin directory via the GitHub Contents API.
+ * Recursively copy a curated adapter stub directory via the GitHub Contents API.
  *
- * First-party plugins live in our own monorepo as a small handful of files, so
- * the per-directory walk stays well within the unauthenticated rate limit —
- * and avoids cloning the entire repository just to install one plugin. Returns
- * the number of files written; zero means the directory doesn't exist at this
- * ref, which the caller maps to a not-found error.
+ * An adapter stub lives in our own monorepo at `plugins/<name>/` as a small
+ * handful of files (a `package.json` + postinstall script), so the
+ * per-directory walk stays well within the unauthenticated rate limit — and
+ * avoids cloning the entire repository just to overlay it. Returns the number
+ * of files written; zero means no stub exists at this ref, in which case the
+ * external clone is installed as-is.
  */
 async function copyDir(
   owner: string,

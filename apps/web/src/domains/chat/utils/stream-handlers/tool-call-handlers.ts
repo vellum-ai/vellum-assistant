@@ -21,7 +21,7 @@ export function handleToolUseStart(
     id: toolCallId,
     name: event.toolName,
     input: event.input,
-    startedAt: Date.now(),
+    startedAt: event.startedAt ?? Date.now(),
   };
   ctx.setMessages((prev) => {
     const next = upsertToolCall(prev, newToolCall, event.messageId);
@@ -66,6 +66,7 @@ export function handleToolResult(
       riskScopeOptions: event.riskScopeOptions,
       riskDirectoryScopeOptions: event.riskDirectoryScopeOptions,
       activityMetadata: event.activityMetadata,
+      completedAt: event.completedAt,
     }),
   );
 }

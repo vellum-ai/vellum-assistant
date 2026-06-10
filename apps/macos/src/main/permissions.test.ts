@@ -88,6 +88,24 @@ describe("permission policy", () => {
     ).toBe(false);
   });
 
+  test("allows clipboard-sanitized-write from the app renderer", () => {
+    expect(
+      shouldGrantPermissionRequest("clipboard-sanitized-write", {
+        mediaTypes: [],
+        securityOrigin: "app://vellum.ai",
+      }),
+    ).toBe(true);
+  });
+
+  test("denies clipboard-sanitized-write from untrusted origins", () => {
+    expect(
+      shouldGrantPermissionRequest("clipboard-sanitized-write", {
+        mediaTypes: [],
+        securityOrigin: "https://example.com",
+      }),
+    ).toBe(false);
+  });
+
   test("allows matching audio permission checks", () => {
     expect(
       shouldGrantPermissionCheck("media", "app://vellum.ai", {
@@ -101,6 +119,18 @@ describe("permission policy", () => {
       shouldGrantPermissionCheck("media", "app://vellum.ai", {
         mediaType: "video",
       }),
+    ).toBe(false);
+  });
+
+  test("allows clipboard-sanitized-write checks from the app renderer", () => {
+    expect(
+      shouldGrantPermissionCheck("clipboard-sanitized-write", "app://vellum.ai", {}),
+    ).toBe(true);
+  });
+
+  test("denies clipboard-sanitized-write checks from untrusted origins", () => {
+    expect(
+      shouldGrantPermissionCheck("clipboard-sanitized-write", "https://example.com", {}),
     ).toBe(false);
   });
 

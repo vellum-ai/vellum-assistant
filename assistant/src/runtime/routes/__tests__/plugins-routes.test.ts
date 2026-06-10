@@ -369,8 +369,12 @@ describe("GET /v1/plugins/search", () => {
       catalog(ref, [
         {
           name: "simple-memory",
-          path: "experimental/plugins/simple-memory",
-          source: { kind: "first-party" },
+          path: "github:vellum-ai/simple-memory@ed09a4c01bf18e4ac8859faee94cb65c7cbd1ca3",
+          source: {
+            kind: "github",
+            repo: "vellum-ai/simple-memory",
+            ref: "ed09a4c01bf18e4ac8859faee94cb65c7cbd1ca3",
+          },
         },
         {
           name: "caveman",
@@ -402,8 +406,12 @@ describe("GET /v1/plugins/search", () => {
       matches: [
         {
           name: "simple-memory",
-          path: "experimental/plugins/simple-memory",
-          source: { kind: "first-party" },
+          path: "github:vellum-ai/simple-memory@ed09a4c01bf18e4ac8859faee94cb65c7cbd1ca3",
+          source: {
+            kind: "github",
+            repo: "vellum-ai/simple-memory",
+            ref: "ed09a4c01bf18e4ac8859faee94cb65c7cbd1ca3",
+          },
         },
       ],
     });
@@ -458,7 +466,7 @@ describe("GET /v1/plugins/search", () => {
   test("PluginCatalogUnavailableError → ServiceUnavailableError (503)", async () => {
     getCatalogSpy.mockImplementation(async () => {
       throw new PluginCatalogUnavailableError(
-        "GitHub contents listing failed for experimental/plugins @ main: HTTP 403",
+        "GitHub contents listing failed for plugins @ main: HTTP 403",
         403,
       );
     });
@@ -489,8 +497,12 @@ describe("GET /v1/plugins/search", () => {
     const frozenMatches = Object.freeze([
       Object.freeze({
         name: "a",
-        path: "experimental/plugins/a",
-        source: { kind: "first-party" } as const,
+        path: "github:acme/a@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        source: {
+          kind: "github",
+          repo: "acme/a",
+          ref: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        } as const,
       }),
     ]) as readonly PluginSearchMatch[];
     getCatalogSpy.mockImplementation(async (ref) =>
@@ -506,7 +518,11 @@ describe("GET /v1/plugins/search", () => {
       result.matches.push({
         name: "b",
         path: "x",
-        source: { kind: "first-party" },
+        source: {
+          kind: "github",
+          repo: "acme/b",
+          ref: "cccccccccccccccccccccccccccccccccccccccc",
+        },
       }),
     ).not.toThrow();
   });
@@ -620,7 +636,11 @@ function pluginDetails(overrides: Partial<PluginDetails> = {}): PluginDetails {
     homepage: overrides.homepage ?? null,
     license: overrides.license ?? null,
     version: overrides.version ?? null,
-    source: overrides.source ?? { kind: "first-party" },
+    source: overrides.source ?? {
+      kind: "github",
+      repo: "JuliusBrussee/caveman",
+      ref: "63a91ecadbf4c4719a4602a5abb00883f9966034",
+    },
     readme: overrides.readme ?? null,
     ref: overrides.ref ?? "main",
   };
@@ -766,8 +786,8 @@ describe("POST /v1/plugins/install", () => {
 
   test("ignores a caller-supplied ref and pins to the curated default", async () => {
     // Security boundary: installing from an unreviewed ref (a PR branch,
-    // fork ref, ...) could load attacker-controlled marketplace/first-party
-    // code, so the HTTP route never honors a body `ref` — it always resolves
+    // fork ref, ...) could load attacker-controlled marketplace code, so the
+    // HTTP route never honors a body `ref` — it always resolves
     // against the curated default ref.
     installSpy.mockImplementation(async (opts) => ({
       name: opts.name,

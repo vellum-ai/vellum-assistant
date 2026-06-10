@@ -26,6 +26,7 @@
           "longContextPricingThresholdTokens": 200000,
           "longContextMode": "native-model",
           "supportsThinking": true,
+          "adaptiveThinkingOnly": true,
           "supportsCaching": true,
           "supportsVision": true,
           "supportsToolUse": true,
@@ -675,6 +676,7 @@
           "longContextPricingThresholdTokens": 200000,
           "longContextMode": "native-model",
           "supportsThinking": true,
+          "adaptiveThinkingOnly": true,
           "supportsCaching": true,
           "supportsVision": true,
           "supportsToolUse": true,
@@ -1037,6 +1039,22 @@
           "pricing": {
             "inputPer1mTokens": 0.6,
             "outputPer1mTokens": 2.5
+          }
+        },
+        {
+          "id": "minimax/minimax-m3",
+          "displayName": "MiniMax M3",
+          "contextWindowTokens": 524288,
+          "maxOutputTokens": 512000,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": false,
+          "supportsVision": true,
+          "supportsToolUse": true,
+          "pricing": {
+            "inputPer1mTokens": 0.3,
+            "outputPer1mTokens": 1.2
           }
         },
         {

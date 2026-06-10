@@ -29,8 +29,14 @@ import { type Plugin, PluginExecutionError } from "../types.js";
 import compactionPkg from "./compaction/package.json" with { type: "json" };
 import emptyResponseStop from "./empty-response/hooks/stop.js";
 import emptyResponsePkg from "./empty-response/package.json" with { type: "json" };
+import historyRepairStop from "./history-repair/hooks/stop.js";
 import historyRepairUserPromptSubmit from "./history-repair/hooks/user-prompt-submit.js";
 import historyRepairPkg from "./history-repair/package.json" with { type: "json" };
+import { resetRepairStateStoreForTests } from "./history-repair/repair-state-store.js";
+import imageRecoveryStop from "./image-recovery/hooks/stop.js";
+import { resetImageRecoveryStoreForTests } from "./image-recovery/image-recovery-state-store.js";
+import imageRecoveryPkg from "./image-recovery/package.json" with { type: "json" };
+import memoryRetrievalPostCompact from "./memory-retrieval/hooks/post-compact.js";
 import memoryRetrievalUserPromptSubmit from "./memory-retrieval/hooks/user-prompt-submit.js";
 import memoryRetrievalPkg from "./memory-retrieval/package.json" with { type: "json" };
 import memoryV3PostCompact from "./memory-v3-shadow/hooks/post-compact.js";
@@ -73,12 +79,13 @@ export const defaultEmptyResponsePlugin: Plugin = {
 };
 
 /**
- * `memory-retrieval` — a `user-prompt-submit` hook that runs memory-graph
- * retrieval and assembles the turn's runtime injections (the unified
+ * `memory-retrieval` — assembles the turn's runtime injections (the unified
  * `<turn_context>` block, Slack chronological transcript, NOW.md / PKB /
- * memory-v2 / workspace blocks). Registered first in the chain so later
- * `user-prompt-submit` hooks (history repair, title) see the fully
- * memory-injected history.
+ * memory-v2 / workspace blocks) via two hooks: `user-prompt-submit` runs
+ * memory-graph retrieval and the initial injection, and `post-compact`
+ * re-applies the injections onto the compacted history after a mid-turn
+ * compaction. Registered first in the chain so later `user-prompt-submit`
+ * hooks (history repair, title) see the fully memory-injected history.
  */
 export const defaultMemoryRetrievalPlugin: Plugin = {
   manifest: {
@@ -87,13 +94,16 @@ export const defaultMemoryRetrievalPlugin: Plugin = {
   },
   hooks: {
     "user-prompt-submit": memoryRetrievalUserPromptSubmit,
+    "post-compact": memoryRetrievalPostCompact,
   },
 };
 
 /**
- * `history-repair` — a `user-prompt-submit` hook that normalizes the working
- * message history (tool-use/tool-result pairing, role alternation) before the
- * agent loop hands it to the provider.
+ * `history-repair` — normalizes the working message history (tool-use/tool-result
+ * pairing, role alternation). The `user-prompt-submit` hook normalizes the
+ * history before each provider call; the `stop` hook handles the error stop
+ * where the provider rejected the call on an ordering violation, deep-repairing
+ * the history and asking the loop to retry.
  */
 export const defaultHistoryRepairPlugin: Plugin = {
   manifest: {
@@ -102,6 +112,24 @@ export const defaultHistoryRepairPlugin: Plugin = {
   },
   hooks: {
     "user-prompt-submit": historyRepairUserPromptSubmit,
+    stop: historyRepairStop,
+  },
+};
+
+/**
+ * `image-recovery` — a `stop` hook that recovers from a provider
+ * image-too-large rejection. It downscales the oversized image blocks in the
+ * working history and asks the loop to retry, and persists the same downgrade
+ * durably so the rejected image cannot rehydrate from the stored row and
+ * re-reject on later turns. Bounded to one pass per turn.
+ */
+export const defaultImageRecoveryPlugin: Plugin = {
+  manifest: {
+    name: imageRecoveryPkg.name,
+    version: imageRecoveryPkg.version,
+  },
+  hooks: {
+    stop: imageRecoveryStop,
   },
 };
 
@@ -181,6 +209,7 @@ function getAllDefaultPlugins(): readonly Plugin[] {
     defaultEmptyResponsePlugin,
     defaultToolErrorPlugin,
     defaultHistoryRepairPlugin,
+    defaultImageRecoveryPlugin,
     defaultCompactionPlugin,
     defaultTitleGeneratePlugin,
     memoryV3ShadowPlugin,
@@ -223,5 +252,7 @@ export function registerDefaultPlugins(): void {
  */
 export function resetPluginRegistryAndRegisterDefaults(): void {
   resetPluginRegistryForTests();
+  resetRepairStateStoreForTests();
+  resetImageRecoveryStoreForTests();
   registerDefaultPlugins();
 }

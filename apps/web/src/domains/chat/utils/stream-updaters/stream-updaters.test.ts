@@ -26,6 +26,7 @@ import {
 import {
   messageText as text,
   textBody as seg,
+  textBodyWithBlocks as segWithBlocks,
 } from "@/domains/chat/utils/message-test-helpers";
 
 function makeAssistantMsg(
@@ -230,6 +231,33 @@ describe("appendTextDelta", () => {
     expect(text(state[1]!)).toBe("Hello world");
   });
 
+  it("backfills a skipped block instead of clobbering a neighbour when coalescing onto a short projection", () => {
+    // GIVEN a reconcile race lands a row whose contentBlocks projection is
+    // shorter than its contentOrder — normalizeContentBlocks drops the empty
+    // trailing text segment, so the only block is the leading thinking one
+    const reserved = makeAssistantMsg({
+      id: "row-A",
+      thinkingSegments: ["reasoning"],
+      textSegments: [""],
+      contentOrder: [
+        { type: "thinking", id: "0" },
+        { type: "text", id: "0" },
+      ],
+      contentBlocks: [{ type: "thinking", thinking: "reasoning" }],
+    });
+
+    // WHEN a text delta coalesces onto that now-populated text segment
+    const result = appendTextDelta([userMsg, reserved], "Hello", "row-A");
+
+    // THEN the trailing thinking block is preserved and the text block is
+    // backfilled, rather than the thinking block being overwritten
+    const row = result[1]!;
+    expect(row.textSegments).toEqual(["Hello"]);
+    expect(row.contentBlocks).toEqual([
+      { type: "thinking", thinking: "reasoning" },
+      { type: "text", text: "Hello" },
+    ]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -291,7 +319,10 @@ describe("finalizeMessageComplete", () => {
   });
 
   it("finalizes a streaming assistant tail and keeps tail.id (anchor preservation)", () => {
-    const msg = makeAssistantMsg({ id: "bubble-anchor", ...seg("hello world") });
+    const msg = makeAssistantMsg({
+      id: "bubble-anchor",
+      ...seg("hello world"),
+    });
     const result = finalizeMessageComplete([userMsg, msg], {
       type: "message_complete",
       conversationId: "c-1",
@@ -448,7 +479,12 @@ describe("upsertToolCall", () => {
     const msg = makeAssistantMsg({
       toolCalls: [{ id: "tc-1", name: "old_name", input: {} }],
     });
-    const updatedTc = { id: "tc-1", name: "web_search", input: {} as Record<string, unknown>, status: "running" as const };
+    const updatedTc = {
+      id: "tc-1",
+      name: "web_search",
+      input: {} as Record<string, unknown>,
+      status: "running" as const,
+    };
     const result = upsertToolCall([msg], updatedTc);
 
     expect(result[0]!.toolCalls).toHaveLength(1);
@@ -738,6 +774,54 @@ describe("applyToolResult — activityMetadata", () => {
 });
 
 // ---------------------------------------------------------------------------
+// applyToolResult — completedAt clock source
+// ---------------------------------------------------------------------------
+
+describe("applyToolResult — completedAt", () => {
+  function msgWithRunningCall(): DisplayMessage {
+    return makeAssistantMsg({
+      toolCalls: [
+        { id: "tc-1", name: "bash", input: { command: "ls" }, startedAt: 1000 },
+      ],
+      contentOrder: [{ type: "toolCall", id: "tc-1" }],
+    });
+  }
+
+  it("uses the server-stamped completedAt so it shares the daemon clock with startedAt", () => {
+    // GIVEN a running tool started at the daemon's clock (1000)
+    // WHEN a result carries the daemon completion time
+    const result = applyToolResult([msgWithRunningCall()], {
+      toolUseId: "tc-1",
+      result: "ok",
+      completedAt: 4200,
+    });
+
+    // THEN the tool call ends on that same clock (duration stays 3.2s)
+    expect(result[0]!.toolCalls![0]!.completedAt).toBe(4200);
+  });
+
+  it("falls back to the local clock when the daemon omits completedAt", () => {
+    // GIVEN a result from an older daemon with no completion time
+    const before = Date.now();
+
+    // WHEN the result is applied
+    const result = applyToolResult([msgWithRunningCall()], {
+      toolUseId: "tc-1",
+      result: "ok",
+    });
+
+    // THEN the completion is stamped from the local clock
+    expect(typeof result[0]!.toolCalls![0]!.completedAt).toBe("number");
+    expect(result[0]!.toolCalls![0]!.completedAt).toBeGreaterThanOrEqual(
+      before,
+    );
+    expect(result[0]!.toolCalls![0]!.completedAt).toBeLessThanOrEqual(
+      Date.now(),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // finalizeOnIdle — multi-message coverage
 // ---------------------------------------------------------------------------
 
@@ -746,17 +830,13 @@ describe("finalizeOnIdle", () => {
     const msg1 = makeAssistantMsg({
       id: "a1",
       ...seg(""),
-      toolCalls: [
-        { id: "tc-1", name: "web_search", input: {} },
-      ],
+      toolCalls: [{ id: "tc-1", name: "web_search", input: {} }],
       contentOrder: [{ type: "toolCall", id: "tc-1" }],
     });
     const msg2 = makeAssistantMsg({
       id: "a2",
       ...seg("some text"),
-      toolCalls: [
-        { id: "tc-2", name: "web_fetch", input: {} },
-      ],
+      toolCalls: [{ id: "tc-2", name: "web_fetch", input: {} }],
       contentOrder: [{ type: "toolCall", id: "tc-2" }],
     });
     const result = finalizeOnIdle([userMsg, msg1, msg2]);
@@ -804,15 +884,11 @@ describe("finalizeOnIdle", () => {
     // row's position.
     const msgA = makeAssistantMsg({
       id: "a-1",
-      toolCalls: [
-        { id: "tc-old", name: "bash", input: {} },
-      ],
+      toolCalls: [{ id: "tc-old", name: "bash", input: {} }],
     });
     const msgB = makeAssistantMsg({
       id: "a-2",
-      toolCalls: [
-        { id: "tc-new", name: "web_search", input: {} },
-      ],
+      toolCalls: [{ id: "tc-new", name: "web_search", input: {} }],
     });
     const result = finalizeOnIdle([msgA, msgB]);
 
@@ -832,17 +908,13 @@ describe("applyToolResult — cross-message matching", () => {
     const msg1 = makeAssistantMsg({
       id: "a1",
       ...seg(""),
-      toolCalls: [
-        { id: "tc-early", name: "web_search", input: {} },
-      ],
+      toolCalls: [{ id: "tc-early", name: "web_search", input: {} }],
       contentOrder: [{ type: "toolCall", id: "tc-early" }],
     });
     const msg2 = makeAssistantMsg({
       id: "a2",
       ...seg("some later text"),
-      toolCalls: [
-        { id: "tc-later", name: "bash", input: {} },
-      ],
+      toolCalls: [{ id: "tc-later", name: "bash", input: {} }],
       contentOrder: [{ type: "toolCall", id: "tc-later" }],
     });
     const result = applyToolResult([userMsg, msg1, msg2], {
@@ -861,16 +933,12 @@ describe("applyToolResult — cross-message matching", () => {
     const msg1 = makeAssistantMsg({
       id: "a1",
       ...seg(""),
-      toolCalls: [
-        { id: "tc-1", name: "web_search", input: {} },
-      ],
+      toolCalls: [{ id: "tc-1", name: "web_search", input: {} }],
     });
     const msg2 = makeAssistantMsg({
       id: "a2",
       ...seg(""),
-      toolCalls: [
-        { id: "tc-2", name: "bash", input: {} },
-      ],
+      toolCalls: [{ id: "tc-2", name: "bash", input: {} }],
     });
     const result = applyToolResult([userMsg, msg1, msg2], {
       result: "done",
@@ -883,9 +951,7 @@ describe("applyToolResult — cross-message matching", () => {
 
   it("falls back to last running tool call when toolUseId does not match any message", () => {
     const msg = makeAssistantMsg({
-      toolCalls: [
-        { id: "tc-1", name: "bash", input: {} },
-      ],
+      toolCalls: [{ id: "tc-1", name: "bash", input: {} }],
     });
     const result = applyToolResult([msg], {
       toolUseId: "nonexistent-id",
@@ -917,7 +983,7 @@ describe("applyUserMessageEcho", () => {
     expect(result[1]).toEqual({
       id: "msg-server-1",
       role: "user",
-      ...seg("from another device"),
+      ...segWithBlocks("from another device"),
       timestamp: result[1]!.timestamp,
     });
   });
@@ -1053,7 +1119,13 @@ describe("applyUserMessageEcho", () => {
      */
     // GIVEN one optimistic user row and no nonce on either side
     const prev: DisplayMessage[] = [
-      { id: "client-uuid", role: "user", ...seg("hello"), isOptimistic: true, timestamp: 1 },
+      {
+        id: "client-uuid",
+        role: "user",
+        ...seg("hello"),
+        isOptimistic: true,
+        timestamp: 1,
+      },
     ];
 
     // WHEN the echo arrives without a clientMessageId
@@ -1162,6 +1234,34 @@ describe("appendThinkingDelta", () => {
       { type: "thinking", id: "0" },
       { type: "text", id: "0" },
       { type: "thinking", id: "1" },
+    ]);
+  });
+
+  it("backfills a skipped block instead of clobbering a neighbour when coalescing onto a short projection", () => {
+    // GIVEN a reconcile race lands a row whose contentBlocks projection is
+    // shorter than its contentOrder — normalizeContentBlocks drops the empty
+    // trailing thinking segment, so the only block is the leading text one
+    const reserved = makeAssistantMsg({
+      id: "row-A",
+      textSegments: ["answer"],
+      thinkingSegments: [""],
+      contentOrder: [
+        { type: "text", id: "0" },
+        { type: "thinking", id: "0" },
+      ],
+      contentBlocks: [{ type: "text", text: "answer" }],
+    });
+
+    // WHEN a thinking delta coalesces onto that now-populated thinking segment
+    const result = appendThinkingDelta([userMsg, reserved], "reason", "row-A");
+
+    // THEN the trailing text block is preserved and the thinking block is
+    // backfilled, rather than the text block being overwritten
+    const row = result[1]!;
+    expect(row.thinkingSegments).toEqual(["reason"]);
+    expect(row.contentBlocks).toEqual([
+      { type: "text", text: "answer" },
+      { type: "thinking", thinking: "reason" },
     ]);
   });
 

@@ -521,34 +521,3 @@ export default async function init(_ctx: unknown): Promise<void> {}
     expect(registeredNames()).not.toContain("hanging-init");
   });
 });
-
-describe("loadExternalPlugin — end-to-end @vellumai/simple-memory", () => {
-  test("loads the in-tree simple-memory plugin", async () => {
-    // Resolve the real on-disk plugin from the worktree. This double-acts
-    // as the loader's contract test against the canonical Phase 0 plugin
-    // and exercises the relative `../src/state.js` imports inside the
-    // plugin's surface files.
-    const pluginDir = join(
-      import.meta.dir,
-      "..",
-      "..",
-      "..",
-      "experimental",
-      "plugins",
-      "simple-memory",
-    );
-
-    await loadExternalPlugin(pluginDir);
-
-    const registered = getRegisteredPlugins().find(
-      (p) => p.manifest.name === "simple-memory",
-    );
-    expect(registered).toBeDefined();
-    expect(typeof registered?.hooks?.init).toBe("function");
-    expect(typeof registered?.hooks?.shutdown).toBe("function");
-    const toolNames = (registered?.tools ?? [])
-      .map((t) => (t as { name: string }).name)
-      .sort();
-    expect(toolNames).toEqual(["recall", "remember"]);
-  });
-});

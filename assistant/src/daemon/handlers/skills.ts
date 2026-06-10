@@ -314,9 +314,11 @@ function deriveKind(
 ): SlimSkillResponse["kind"] {
   if (source === "bundled") return "bundled";
   if (source === "catalog") return "catalog";
-  // Plugin-contributed skills are framework-provided like bundled skills —
+  // Plugin-resident skills are framework-provided like bundled skills —
   // expose them under the same "bundled" kind so the UI doesn't invent a
-  // new category that existing clients don't know how to render.
+  // new category that existing clients don't know how to render. Attribution
+  // to the owning plugin rides on the separate `pluginName` field, derived
+  // from the skill's `owner` descriptor.
   if (source === "plugin") return "bundled";
   return "installed"; // managed, workspace, extra
 }
@@ -359,6 +361,7 @@ function toSlimSkillResponse(
     kind,
     status,
     category,
+    pluginName: summary.owner?.kind === "plugin" ? summary.owner.id : undefined,
   } as const;
 
   switch (origin) {
@@ -712,6 +715,7 @@ export async function getSkill(
     origin: slim.origin,
     status: slim.status,
     category: slim.category,
+    pluginName: slim.pluginName,
   };
   return { skill: detail };
 }

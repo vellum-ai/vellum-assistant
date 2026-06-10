@@ -287,6 +287,41 @@ describe("AssistantSideMenu · footer slot behavior", () => {
   });
 });
 
+describe("AssistantSideMenu · new conversation affordance", () => {
+  const baseProps = {
+    assistantId: "asst-1",
+    collapsed: false,
+    variant: "rail" as const,
+    conversations: [makeConversation({ conversationId: "a", title: "Alpha" })],
+    onSelectConversation: () => {},
+  };
+
+  test("renders the pencil as a link when a href generator is supplied", () => {
+    const html = renderToStaticMarkup(
+      createElement(AssistantSideMenu, {
+        ...baseProps,
+        onStartNewConversation: () => {},
+        getNewConversationHref: () => "/assistant/conversations/draft-xyz",
+      }),
+    );
+
+    expect(html).toContain('aria-label="New conversation"');
+    expect(html).toContain('href="/assistant/conversations/draft-xyz"');
+  });
+
+  test("falls back to a plain button when no href generator is supplied", () => {
+    const html = renderToStaticMarkup(
+      createElement(AssistantSideMenu, {
+        ...baseProps,
+        onStartNewConversation: () => {},
+      }),
+    );
+
+    expect(html).toContain('aria-label="New conversation"');
+    expect(html).not.toContain("/assistant/conversations/");
+  });
+});
+
 describe("AssistantSideMenu · overlay close affordance", () => {
   test("renders an X close button on overlay variant only", () => {
     const conversations = [

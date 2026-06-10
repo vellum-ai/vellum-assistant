@@ -119,6 +119,9 @@ export async function initializeProvidersAndTools(
   }
 
   await initializeProviders(config);
+  // initializeTools() also loads workspace tool overrides from
+  // `<workspaceDir>/tools/` once core tools have settled, so they own
+  // their names before the MCP / plugin registrations below run.
   await initializeTools();
 
   // Start MCP servers and register their tools

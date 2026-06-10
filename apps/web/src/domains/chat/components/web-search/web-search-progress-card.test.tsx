@@ -398,7 +398,7 @@ describe("WebSearchProgressCard — header layout", () => {
     // pill inside its parent flex column (TranscriptMessageBody uses
     // `items-start`), instead of matching the surrounding chat content width.
     // The outer wrapper must carry `w-full` so the card fills the available
-    // turn-content width like the legacy `ActivityRunCard` does.
+    // turn-content width like the legacy `MultiActivityGroup` does.
     const { getByTestId } = render(
       <WebSearchProgressCard
         currentStepTitle="Searched the web"

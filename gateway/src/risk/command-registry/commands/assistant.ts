@@ -240,6 +240,8 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "task queue run",
   "telemetry",
   "telemetry flush",
+  "tools",
+  "tools list",
   "trust",
   "trust list",
   "tts",

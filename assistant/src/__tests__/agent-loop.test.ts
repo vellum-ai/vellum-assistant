@@ -6,7 +6,9 @@ import type {
   CheckpointInfo,
 } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
+import { REFUSAL_FALLBACK_TEXT } from "../plugins/defaults/empty-response/hooks/stop.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
+import { registerPlugin } from "../plugins/registry.js";
 import type {
   ContentBlock,
   Message,
@@ -14,6 +16,7 @@ import type {
   ProviderResponse,
   ToolDefinition,
 } from "../providers/types.js";
+import { ContextOverflowError } from "../providers/types.js";
 import {
   createMockProvider,
   textResponse,
@@ -309,6 +312,268 @@ describe("AgentLoop", () => {
     expect(
       (errorEvents[0] as { type: "error"; error: Error }).error.message,
     ).toBe("API rate limit exceeded");
+  });
+
+  // 5b. Reactive context-overflow recovery
+  //
+  // When recovery is enabled the loop calibrates the estimator from the
+  // rejection, loops back, and the budget gate forwards the overflow signal
+  // into the compaction plugin's reduction ladder. That manager-owned path —
+  // single-rung recovery, multi-rung escalation, and the terminal
+  // `context_too_large` / `budget_yield_unrecovered` exit on exhaustion — is
+  // exercised end-to-end against a manager harness in
+  // `conversation-agent-loop-overflow.test.ts`. Loop-level coverage against a
+  // manager-store stub lands with the suite migration.
+  test.todo(
+    "drives the reduction ladder on a context-overflow rejection",
+    () => {},
+  );
+
+  test("surfaces a context-overflow error when recovery is unavailable", async () => {
+    /**
+     * Overflow recovery is gated on the budget gate being active. When it is
+     * disabled (e.g. agent wakes pass `overflowRecovery.enabled = false`, or no
+     * context window resolves) there is no ladder to drive, so a context
+     * overflow surfaces as an error on the first call rather than looping.
+     */
+
+    // GIVEN a provider that rejects every call as too large and a loop with no
+    // overflow-recovery budget gate
+    const { provider, calls } = createMockProvider([
+      new ContextOverflowError("prompt is too long", "mock", {
+        actualTokens: 250_000,
+      }),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+    const events: AgentEvent[] = [];
+
+    // WHEN the loop runs
+    await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN it surfaced the error on the first call without retrying
+    expect(calls).toHaveLength(1);
+    expect(events.filter((e) => e.type === "error")).toHaveLength(1);
+  });
+
+  // 5c. Reactive ordering-error recovery
+  //
+  // When the provider rejects a call because the history violates
+  // tool-use/tool-result pairing or role-alternation rules, the loop runs
+  // `deepRepairHistory` directly and re-issues the call. It is bounded to a
+  // single repair pass per provider call, so a second consecutive ordering
+  // rejection falls through to the error path instead of looping forever.
+  test("repairs the history and re-issues on a provider ordering rejection", async () => {
+    // GIVEN a provider that rejects the first call with an ordering error and
+    // succeeds on the retry
+    const { provider, calls } = createMockProvider([
+      new Error(
+        "tool_result blocks that are not immediately after a tool_use block",
+      ),
+      textResponse("recovered"),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+    const events: AgentEvent[] = [];
+
+    // WHEN the loop runs
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN it re-issued the call after repairing, surfaced no error, and
+    // appended the recovered assistant response
+    expect(calls).toHaveLength(2);
+    expect(events.filter((e) => e.type === "error")).toHaveLength(0);
+    expect(history[history.length - 1]).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "recovered" }],
+    });
+  });
+
+  test("surfaces an ordering error after a single repair fails to recover", async () => {
+    // GIVEN a provider that rejects every call with an ordering error
+    const { provider, calls } = createMockProvider([
+      new Error("tool_use_id provided without a matching tool_result"),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+    const events: AgentEvent[] = [];
+
+    // WHEN the loop runs
+    await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN it repaired once, re-issued once, then surfaced the error rather
+    // than retrying again
+    expect(calls).toHaveLength(2);
+    expect(events.filter((e) => e.type === "error")).toHaveLength(1);
+  });
+
+  test("reports only the retry's output as new messages when deep-repair shrinks the base", async () => {
+    // The wrapper reconstructs the persisted transcript from the loop's
+    // `newMessages` tail, so after `deepRepairHistory` removes a base message
+    // the new-message boundary must track the re-normalized history — otherwise
+    // the recovered assistant response is sliced off and lost.
+
+    // GIVEN an input whose leading assistant message deep-repair strips, a
+    // provider that rejects the first call on ordering grounds, then succeeds
+    const leadingAssistantMessage: Message = {
+      role: "assistant",
+      content: [{ type: "text", text: "stale leading turn" }],
+    };
+    const { provider } = createMockProvider([
+      new Error(
+        "tool_result blocks that are not immediately after a tool_use block",
+      ),
+      textResponse("recovered"),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs
+    const { history, newMessages } = await loop.run({
+      messages: [leadingAssistantMessage, userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN deep-repair dropped the leading assistant from the base, and
+    // `newMessages` is exactly the retry's appended response
+    expect(history).toEqual([
+      userMessage,
+      { role: "assistant", content: [{ type: "text", text: "recovered" }] },
+    ]);
+    expect(newMessages).toEqual([
+      { role: "assistant", content: [{ type: "text", text: "recovered" }] },
+    ]);
+  });
+
+  test("repairs a fresh ordering rejection on a later run after a prior run left the bound spent", async () => {
+    // The ordering-repair bound is owned by the history-repair plugin's
+    // per-conversation state. A run scopes that bound, so the loop clears it on
+    // entry — otherwise a direct `run` caller that bypasses the daemon
+    // orchestrator (e.g. an agent wake) inherits a spent bound from a prior run
+    // on the same conversation and surfaces a repairable rejection instead of
+    // repairing it.
+
+    // GIVEN a first run that rejects on ordering grounds, repairs once, then
+    // rejects again — ending with the bound spent and the error surfaced
+    const { provider: firstProvider, calls: firstCalls } = createMockProvider([
+      new Error("tool_use_id provided without a matching tool_result"),
+      new Error("tool_use_id provided without a matching tool_result"),
+    ]);
+    const conversationId = "ordering-bound-across-runs";
+    const firstLoop = new AgentLoop({
+      provider: firstProvider,
+      systemPrompt: "system",
+      conversationId,
+    });
+    const firstEvents: AgentEvent[] = [];
+    await firstLoop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(firstEvents),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+    expect(firstCalls).toHaveLength(2);
+    expect(firstEvents.filter((e) => e.type === "error")).toHaveLength(1);
+
+    // AND a second run on the same conversation whose first call rejects on
+    // ordering grounds, then succeeds on the retry
+    const { provider: secondProvider, calls: secondCalls } = createMockProvider(
+      [
+        new Error(
+          "tool_result blocks that are not immediately after a tool_use block",
+        ),
+        textResponse("recovered"),
+      ],
+    );
+    const secondLoop = new AgentLoop({
+      provider: secondProvider,
+      systemPrompt: "system",
+      conversationId,
+    });
+    const secondEvents: AgentEvent[] = [];
+
+    // WHEN the second run executes
+    const { history } = await secondLoop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(secondEvents),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN it repaired and re-issued (the bound did not leak across runs),
+    // surfaced no error, and appended the recovered response
+    expect(secondCalls).toHaveLength(2);
+    expect(secondEvents.filter((e) => e.type === "error")).toHaveLength(0);
+    expect(history[history.length - 1]).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "recovered" }],
+    });
+  });
+
+  test("a stop-hook throw on a successful stop surfaces through the error path without re-entering the stop chain", async () => {
+    // The error-stop recovery is confined to genuine provider rejections. A
+    // throw from the success-path stop chain must not re-enter that chain (the
+    // same hook would throw again and escape the loop, bypassing the generic
+    // error handling) — it must fall through to the standard error path.
+
+    // GIVEN a registered stop hook that always throws, and a provider that
+    // returns a successful no-tool response (a successful stop)
+    registerPlugin({
+      manifest: { name: "throwing-stop", version: "0.0.1" },
+      hooks: {
+        stop: async () => {
+          throw new Error("stop hook boom");
+        },
+      },
+    });
+    const { provider, calls } = createMockProvider([textResponse("done")]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+    const events: AgentEvent[] = [];
+
+    // WHEN the loop runs
+    let rejected = false;
+    await loop
+      .run({
+        messages: [userMessage],
+        onEvent: collectEvents(events),
+        trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      })
+      .catch(() => {
+        rejected = true;
+      });
+
+    // THEN the loop handled the throw via the error path (it did not reject),
+    // surfaced exactly one error, and did not re-issue the call
+    expect(rejected).toBe(false);
+    expect(calls).toHaveLength(1);
+    expect(events.filter((e) => e.type === "error")).toHaveLength(1);
   });
 
   // 6. Abort signal — verify the loop respects AbortSignal
@@ -1036,7 +1301,7 @@ describe("AgentLoop", () => {
       toolExecutor: toolExecutor,
     });
 
-    const onCheckpoint = (): CheckpointDecision => "budget";
+    const onCheckpoint = (): CheckpointDecision => "handoff";
 
     const { history } = await loop.run({
       messages: [userMessage],
@@ -1235,7 +1500,7 @@ describe("AgentLoop", () => {
     const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
       checkpoints.push(checkpoint);
       // Yield on turn 3 (0-indexed)
-      return checkpoint.turnIndex === 3 ? "budget" : "continue";
+      return checkpoint.turnIndex === 3 ? "handoff" : "continue";
     };
 
     const events: AgentEvent[] = [];
@@ -1308,7 +1573,7 @@ describe("AgentLoop", () => {
 
     const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
       // Yield on the second turn (turnIndex 1)
-      return checkpoint.turnIndex === 1 ? "budget" : "continue";
+      return checkpoint.turnIndex === 1 ? "handoff" : "continue";
     };
 
     const { history } = await loop.run({
@@ -2114,12 +2379,23 @@ describe("AgentLoop", () => {
     );
     expect(messageCompletes).toHaveLength(2);
 
-    // The last assistant message in history is the empty one
+    // An organic empty `end_turn` (not a refusal) is left as-is — the fallback
+    // is refusal-specific, so the exhausted empty turn stays empty.
     const lastAssistant = [...history]
       .reverse()
       .find((m) => m.role === "assistant");
     expect(lastAssistant).toBeDefined();
     expect(lastAssistant!.content).toEqual([]);
+
+    // AND no fallback text is streamed for a non-refusal empty turn.
+    const textDeltas = events.filter((e) => e.type === "text_delta");
+    expect(
+      textDeltas.some(
+        (e) =>
+          (e as { type: "text_delta"; text: string }).text ===
+          REFUSAL_FALLBACK_TEXT,
+      ),
+    ).toBe(false);
   });
 
   test("does not retry empty response on first turn (no prior tool use)", async () => {
@@ -2146,7 +2422,189 @@ describe("AgentLoop", () => {
 
     // Should NOT retry — this is the first turn with no tool use history
     expect(calls).toHaveLength(1);
-    expect(history).toHaveLength(2); // user + empty assistant
+    // user + assistant; an organic empty `end_turn` is left as-is (the fallback
+    // is refusal-specific), so the empty turn stays empty.
+    expect(history).toHaveLength(2);
+    expect(history[1].content).toEqual([]);
+  });
+
+  // Refusal stop boundary — the provider zeroed the response with
+  // `stopReason: "refusal"`. The default `stop` hook rewrites the empty turn
+  // into a user-facing fallback (no retry — a safety-classifier refusal
+  // re-fires on a re-query), and the loop persists + streams it rather than the
+  // empty assistant bubble the user would otherwise see.
+  test("rewrites a refusal into a user-facing fallback without retrying", async () => {
+    // GIVEN a provider that refuses (empty content, stopReason "refusal").
+    const refusalResponse: ProviderResponse = {
+      content: [],
+      model: "mock-model",
+      usage: { inputTokens: 10, outputTokens: 0 },
+      stopReason: "refusal",
+    };
+    const { provider, calls } = createMockProvider([
+      refusalResponse,
+      refusalResponse,
+    ]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs.
+    const events: AgentEvent[] = [];
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the loop calls the provider once: the refusal is rewritten in place
+    // with no nudge-driven retry.
+    expect(calls).toHaveLength(1);
+
+    // AND the user-visible assistant turn is the fallback, not an empty bubble.
+    const lastAssistant = [...history]
+      .reverse()
+      .find((m) => m.role === "assistant");
+    expect(lastAssistant!.content).toEqual([
+      { type: "text", text: REFUSAL_FALLBACK_TEXT },
+    ]);
+
+    // AND the fallback is streamed so the client renders it.
+    const textDeltas = events.filter((e) => e.type === "text_delta");
+    expect(
+      textDeltas.some(
+        (e) =>
+          (e as { type: "text_delta"; text: string }).text ===
+          REFUSAL_FALLBACK_TEXT,
+      ),
+    ).toBe(true);
+  });
+
+  // The fallback must not pile a spurious apology beneath a real answer: when
+  // an earlier turn this run already produced visible text (text alongside a
+  // tool call), a refusal on the trailing turn after the tool result must not
+  // rewrite the turn even though a refusal would normally trigger it.
+  test("does not substitute a fallback when the run already produced visible text", async () => {
+    // GIVEN a first turn with text + a tool call, then a refusal after the
+    // tool result.
+    const textPlusToolUse: ProviderResponse = {
+      content: [
+        { type: "text", text: "Here is your answer." },
+        {
+          type: "tool_use",
+          id: "t1",
+          name: "read_file",
+          input: { path: "/a" },
+        },
+      ],
+      model: "mock-model",
+      usage: { inputTokens: 10, outputTokens: 5 },
+      stopReason: "tool_use",
+    };
+    const refusalResponse: ProviderResponse = {
+      content: [],
+      model: "mock-model",
+      usage: { inputTokens: 10, outputTokens: 0 },
+      stopReason: "refusal",
+    };
+    const { provider } = createMockProvider([textPlusToolUse, refusalResponse]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: async () => ({ content: "data", isError: false }),
+    });
+
+    // WHEN the loop runs.
+    const events: AgentEvent[] = [];
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN no fallback text is emitted or persisted — the real answer stands
+    // alone and the trailing empty turn stays empty.
+    const fallbackEmitted = events.some(
+      (e) =>
+        e.type === "text_delta" &&
+        (e as { type: "text_delta"; text: string }).text ===
+          REFUSAL_FALLBACK_TEXT,
+    );
+    expect(fallbackEmitted).toBe(false);
+    const fallbackInHistory = history.some(
+      (m) =>
+        m.role === "assistant" &&
+        m.content.some(
+          (b) =>
+            b.type === "text" &&
+            "text" in b &&
+            (b as { text: string }).text === REFUSAL_FALLBACK_TEXT,
+        ),
+    );
+    expect(fallbackInHistory).toBe(false);
+  });
+
+  // A native web-search turn lands at the stop boundary with no `tool_use` and
+  // no visible text, but with `stopReason: "end_turn"` (not a refusal) and
+  // `server_tool_use`/`web_search_tool_result` blocks that render the search
+  // card. Because the fallback is refusal-specific, it must not fire here and
+  // the server-tool blocks must persist untouched.
+  test("does not substitute a fallback for a server-tool turn with no text", async () => {
+    // GIVEN a turn carrying only native web-search blocks (no text, no
+    // client-side tool_use).
+    const serverToolBlocks: ContentBlock[] = [
+      {
+        type: "server_tool_use",
+        id: "srv1",
+        name: "web_search",
+        input: { query: "weather" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srv1",
+        content: [{ title: "result" }],
+      },
+    ];
+    const webSearchResponse: ProviderResponse = {
+      content: serverToolBlocks,
+      model: "mock-model",
+      usage: { inputTokens: 10, outputTokens: 5 },
+      stopReason: "end_turn",
+    };
+    const { provider, calls } = createMockProvider([webSearchResponse]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs.
+    const events: AgentEvent[] = [];
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the provider is called once (no nudge for a non-refusal turn) and
+    // the server-tool blocks are persisted untouched, with no fallback added.
+    expect(calls).toHaveLength(1);
+    const lastAssistant = [...history]
+      .reverse()
+      .find((m) => m.role === "assistant");
+    expect(lastAssistant!.content).toEqual(serverToolBlocks);
+
+    const fallbackEmitted = events.some(
+      (e) =>
+        e.type === "text_delta" &&
+        (e as { type: "text_delta"; text: string }).text ===
+          REFUSAL_FALLBACK_TEXT,
+    );
+    expect(fallbackEmitted).toBe(false);
   });
 
   // PR 6: callSite threading from AgentLoop.run() into provider config.

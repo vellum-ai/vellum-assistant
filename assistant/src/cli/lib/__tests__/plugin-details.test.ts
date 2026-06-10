@@ -33,7 +33,7 @@ function fileEntry(name: string, downloadUrl: string): ContentEntry {
 }
 
 interface FixtureConfig {
-  /** Manifest object served at `experimental/plugins/marketplace.json`. Omit for 404. */
+  /** Manifest object served at `plugins/marketplace.json`. Omit for 404. */
   marketplace?: unknown;
   /** Directory listings keyed by `<owner>/<repo>[/<path>]`. Missing key → 404. */
   listings?: Record<string, ContentEntry[]>;
@@ -124,8 +124,7 @@ describe("getPluginDetails", () => {
           },
         ],
       },
-      // AND no first-party directory for the name (404), but the external repo
-      // root lists a README and package.json
+      // AND the external repo root lists a README and package.json
       listings: {
         "example-org/caveman": [
           fileEntry("README.md", "raw://caveman/readme"),
@@ -190,9 +189,7 @@ describe("getPluginDetails", () => {
       }
       if (url.includes("/contents")) {
         const ref = new URL(url).searchParams.get("ref") ?? "";
-        const key = url.includes("example-org/caveman")
-          ? "external"
-          : "first-party";
+        const key = url.includes("example-org/caveman") ? "external" : "other";
         contentsRefs.set(key, ref);
         if (key === "external") {
           return new Response(
@@ -218,17 +215,15 @@ describe("getPluginDetails", () => {
     expect(contentsRefs.get("external")).toBe(
       "2222222222222222222222222222222222222222",
     );
-    // AND the marketplace entry owns the name, so the first-party directory is
-    // never probed (its same-named in-repo dir would be the adapter stub)
-    expect(contentsRefs.has("first-party")).toBe(false);
+    // AND the pinned external repo is the only contents request — no other
+    // GitHub lookups are made for the name
+    expect(contentsRefs.has("other")).toBe(false);
     // AND the README from the pinned ref is surfaced
     expect(details.readme).toContain("Caveman");
   });
 
-  test("a marketplace entry owns a name shared by an in-repo stub dir", async () => {
-    // GIVEN a marketplace entry for "simple-memory"
-    // AND a same-named in-repo directory — caveman-style, this is the plugin's
-    // adapter stub, not a standalone first-party plugin
+  test("resolves the external marketplace source for an uninstalled plugin", async () => {
+    // GIVEN a marketplace entry for "simple-memory" and no installed copy
     const fetch = makeFetch({
       marketplace: {
         name: "vellum",
@@ -257,8 +252,7 @@ describe("getPluginDetails", () => {
       { fetch, workspacePluginsDir: workspace },
     );
 
-    // THEN the external marketplace source is used — the stub dir is an
-    // adapter overlay for the clone, so it does not override the claim
+    // THEN the external marketplace source is used
     expect(details.source).toEqual({
       kind: "github",
       repo: "example-org/simple-memory",
@@ -314,7 +308,7 @@ describe("getPluginDetails", () => {
   });
 
   test("throws PluginDetailsNotFoundError when nothing claims the name", async () => {
-    // GIVEN no install, no first-party directory, and an empty marketplace
+    // GIVEN no installed copy and an empty marketplace
     const fetch = makeFetch({
       marketplace: { name: "vellum", plugins: [] },
     });

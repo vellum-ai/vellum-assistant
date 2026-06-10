@@ -15,9 +15,8 @@ import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-mes
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
 import { SubagentInlineProgressCard } from "@/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
-import { ThoughtProcessLink } from "@/domains/chat/components/thought-process-link/thought-process-link";
-import { InlineToolLink } from "@/domains/chat/components/inline-activity-link/inline-tool-link";
-import { ActivityRunCard } from "@/domains/chat/components/activity-run-card/activity-run-card";
+import { SingleActivity } from "@/domains/chat/components/single-activity/single-activity";
+import { MultiActivityGroup } from "@/domains/chat/components/multi-activity-group/multi-activity-group";
 import {
   WEB_TOOL_NAMES,
   type ToolCallCardItem,
@@ -46,7 +45,6 @@ import {
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 
 export interface OpenRuleEditorContext {
   toolName: string;
@@ -170,7 +168,7 @@ function lookupSubagentEntriesForMessage(
  * Positional fallback: the caller owns the `claimed` Set so it persists
  * across every invocation within a single message — that's what stops two
  * non-consecutive spawn tool-call groups (each producing a separate
- * `ActivityRunCard` mount) from both pulling the same first unclaimed
+ * `MultiActivityGroup` mount) from both pulling the same first unclaimed
  * entry and rendering duplicate cards. The by-id matches also feed `claimed`
  * so a later positional match can't re-pick an already-anchored entry.
  */
@@ -206,31 +204,6 @@ function resolveSpawnedSubagentIds(
   }
 
   return ids;
-}
-
-function shouldAutoExpandToolCallGroup({
-  isCurrentGroup,
-  isStreaming,
-  toolCalls,
-}: {
-  isCurrentGroup: boolean;
-  isStreaming: boolean;
-  toolCalls: ChatMessageToolCall[];
-}): boolean {
-  if (!isCurrentGroup) {
-    return false;
-  }
-  // While the turn streams, the message's last content group stays open for the
-  // whole turn — so a trailing tool-call card is visible until the model starts
-  // writing the answer below it, at which point the text group becomes last and
-  // the card collapses. Outside a stream (history) it only expands while a tool
-  // is running, which keeps completed turns collapsed and compact.
-  if (isStreaming) {
-    return true;
-  }
-  return toolCalls.some(
-    (toolCall) => isToolCallRunning(toolCall),
-  );
 }
 
 function fallbackRoleLabel(
@@ -612,7 +585,7 @@ export function TranscriptMessageBody({
     // only ever come from the assistant — user messages have no tool calls.
     //
     // Contiguous thinking + tool-call entries merge into one combined
-    // `ActivityRunCard` (or a compact inline link for lone thinking / lone
+    // `MultiActivityGroup` (or a compact inline link for lone thinking / lone
     // simple tools). Task-progress and other surfaces render inline in
     // position.
     const mergedGroups = groupMessageActivityRuns(message);
@@ -654,7 +627,7 @@ export function TranscriptMessageBody({
       // Single-tool-inline: a lone run that resolves to exactly ONE simple
       // renderable tool — no thinking, no web rich-rendering, no inline
       // confirmation UI. Render the compact inline chip instead of the boxed
-      // card (mirrors the lone `ThoughtProcessLink`).
+      // card (mirrors the lone thinking `SingleActivity`).
       const loneTool =
         cardItems.length === 1 &&
         cardItems[0]?.kind === "toolCall" &&
@@ -666,7 +639,7 @@ export function TranscriptMessageBody({
       if (loneTool) {
         return (
           <Fragment key={`m-activity-${gi}`}>
-            <InlineToolLink toolCall={loneTool} />
+            <SingleActivity variant="tool" toolCall={loneTool} />
             {renderInlineSubagentCards(groupToolCalls)}
           </Fragment>
         );
@@ -675,14 +648,9 @@ export function TranscriptMessageBody({
         return (
           <Fragment key={`m-activity-${gi}`}>
             <div className="w-full">
-              <ActivityRunCard
+              <MultiActivityGroup
                 toolCalls={groupToolCalls}
                 items={cardItems}
-                autoExpand={shouldAutoExpandToolCallGroup({
-                  isCurrentGroup: isLastGroup,
-                  isStreaming,
-                  toolCalls: renderableToolCalls,
-                })}
                 onOpenRuleEditor={onOpenRuleEditor}
                 onConfirmationSubmit={onConfirmationSubmit}
                 onAllowAndCreateRule={onAllowAndCreateRule}
@@ -695,13 +663,14 @@ export function TranscriptMessageBody({
         );
       }
       // No renderable tool call — render the combined thinking as a minimal
-      // inline `ThoughtProcessLink` that opens the full reasoning in the side
-      // drawer, plus any spawn cards.
+      // inline thinking `SingleActivity` that opens the full reasoning in the
+      // side drawer, plus any spawn cards.
       const combinedThinking = thinkingContents.join("\n");
       return (
         <Fragment key={`m-activity-${gi}`}>
           {combinedThinking && (
-            <ThoughtProcessLink
+            <SingleActivity
+              variant="thinking"
               content={combinedThinking}
               isStreaming={isStreaming && isLastGroup}
             />
@@ -766,7 +735,7 @@ export function TranscriptMessageBody({
   if (message.contentOrder && message.contentOrder.length > 0) {
     const textSegmentsArr = message.textSegments ?? [];
     // Buffer consecutive `thinking` ids so a run of reasoning renders as a
-    // single `ThoughtProcessLink` (matching the interleaved path and macOS
+    // single thinking `SingleActivity` (matching the interleaved path and macOS
     // grouping). The buffer is flushed before any non-thinking entry and once
     // more after the loop. A trailing run reads as still-streaming only while
     // the row is actually live; a completed turn that ends in reasoning
@@ -782,8 +751,8 @@ export function TranscriptMessageBody({
       const thinkingContent = resolveThinkingContent(message, ids);
       // While streaming, render even before reasoning text lands so the link is
       // the single thinking affordance from the start; once settled an empty
-      // run has nothing to show. `ThoughtProcessLink` itself no-ops when
-      // `content` is empty and not streaming.
+      // run has nothing to show. The thinking `SingleActivity` itself no-ops
+      // when `content` is empty and not streaming.
       if (!thinkingContent && !isStreaming) {
         return;
       }
@@ -791,7 +760,8 @@ export function TranscriptMessageBody({
         type: "thinking",
         node: (
           <div key={`thinking-${ids[0]}`} className="w-full">
-            <ThoughtProcessLink
+            <SingleActivity
+              variant="thinking"
               content={thinkingContent}
               isStreaming={isStreaming}
             />
@@ -852,7 +822,7 @@ export function TranscriptMessageBody({
     message.toolCalls?.filter((tc) => !isSuppressedUiTool(tc)) ?? [];
   // Render the legacy tool card only when a renderable (non-spawn) tool call
   // exists. A spawn-only legacy turn has no renderable step —
-  // `ActivityRunCard` filters the spawns out and renders nothing — so
+  // `MultiActivityGroup` filters the spawns out and renders nothing — so
   // wrapping it in the flex child would emit a stray empty `gap-2` gap before
   // the inline subagent cards.
   const hasRenderableLegacyToolCall = legacyToolCalls.some(
@@ -874,13 +844,8 @@ export function TranscriptMessageBody({
           <>
             {hasRenderableLegacyToolCall && (
               <div className="w-full">
-                <ActivityRunCard
+                <MultiActivityGroup
                   toolCalls={legacyToolCalls}
-                  autoExpand={shouldAutoExpandToolCallGroup({
-                    isCurrentGroup: !hasVisibleLegacyContent,
-                    isStreaming,
-                    toolCalls: legacyToolCalls,
-                  })}
                   onOpenRuleEditor={onOpenRuleEditor}
                   onConfirmationSubmit={onConfirmationSubmit}
                   onAllowAndCreateRule={onAllowAndCreateRule}

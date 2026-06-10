@@ -2,7 +2,7 @@
  * Memory v3 — `memory_v3_maintain` job handler.
  *
  * A flag-gated, best-effort self-maintenance pass over the v3 section dense
- * store and the in-memory lanes. It runs three independent stages, in order:
+ * store and the in-memory lanes. It runs four independent stages, in order:
  *
  *   1. **Section re-embed** — diff the page index by `modifiedAt` against the
  *      last successful pass (the high-water mark below), and for every page that
@@ -22,7 +22,12 @@
  *      (it only names live pages), so without this its section points would
  *      linger in Qdrant and the dense lane could still surface the deleted page.
  *      Synthetic capability rows are in the page index, so they are never pruned.
- *   3. **Lane invalidation** — `invalidateLanes()` so the next turn rebuilds the
+ *   3. **Core-set validation** — load the maintainer-curated core set
+ *      (`memory/core-pages.md`) and report entries whose page no longer exists
+ *      in the page index (dangling slugs) via the log + outcome. The file is
+ *      maintainer-owned, so this stage NEVER edits it — the maintainer fixes
+ *      dangling entries at the next consolidation pass.
+ *   4. **Lane invalidation** — `invalidateLanes()` so the next turn rebuilds the
  *      in-memory section index, needle, and edge graph from the freshly-updated
  *      pages.
  *
@@ -35,8 +40,8 @@
  *
  * Dependency-injectable: `deps` lets tests substitute the page-index reader,
  * section builder, dense-store ops (including the prune-stage
- * `listSectionArticles`/`listIndexedSlugs` collaborators), and `invalidateLanes`
- * without process-global module mocks.
+ * `listSectionArticles`/`listIndexedSlugs` collaborators), the core-set loader,
+ * and `invalidateLanes` without process-global module mocks.
  */
 
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
@@ -50,7 +55,8 @@ import { getPageIndex } from "../../../memory/v2/page-index.js";
 import { readPage } from "../../../memory/v2/page-store.js";
 import { getLogger } from "../../../util/logger.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
-import { capabilityOrDiskBody } from "./capabilities.js";
+import { capabilityOrDiskBody, isCapabilitySlug } from "./capabilities.js";
+import { loadCoreSet as realLoadCoreSet } from "./core-set.js";
 import {
   deleteSectionsForArticle as realDeleteSectionsForArticle,
   ensureSectionCollection as realEnsureSectionCollection,
@@ -126,6 +132,12 @@ export interface MaintainJobDeps {
    * from this set. Includes synthetic capability rows so they are never pruned.
    */
   listIndexedSlugs: () => Promise<Slug[]>;
+  /**
+   * The maintainer-curated core set from `memory/core-pages.md`. The validation
+   * stage diffs it against the live page-index slugs and REPORTS dangling
+   * entries only — the file is maintainer-owned and is never edited here.
+   */
+  loadCoreSet: () => Slug[];
   /** Drop the memoized v3 lanes so the next turn rebuilds them. */
   invalidateLanes: () => void;
   /** Active assistant config (for the dense-store/embedding calls). */
@@ -140,7 +152,12 @@ export interface MaintainJobDeps {
  * collection-ensure step rather than the change-delta machinery.
  */
 export interface BackfillJobDeps {
-  /** All page-index slugs, including synthetic skill/CLI capability rows. */
+  /**
+   * All page-index slugs, including synthetic skill/CLI capability rows.
+   * Called once at the start and once after the main loop — the second call
+   * catches capability rows whose startup seed had not yet listed them in the
+   * index when the first snapshot was taken.
+   */
   selectAllPages: () => Promise<Slug[]>;
   /** Create the section collection if absent before the first upsert. */
   ensureSectionCollection: typeof realEnsureSectionCollection;
@@ -188,6 +205,12 @@ export interface MaintainOutcome {
   pruned: number;
   /** Prune deletes that threw (and were contained). */
   pruneFailures: number;
+  /**
+   * Core-set entries (`memory/core-pages.md`) whose page no longer exists in
+   * the page index. Reported for the maintainer to fix at the next
+   * consolidation pass — the file itself is never mutated.
+   */
+  danglingCoreSlugs: Slug[];
   /** Whether the in-memory lanes were invalidated. */
   invalidated: boolean;
   /** Stages that threw (and were contained). */
@@ -284,6 +307,7 @@ function defaultDeps(config: AssistantConfig): MaintainJobDeps {
     commitEmbedHighWater,
     listSectionArticles: () => realListSectionArticles(config),
     listIndexedSlugs: () => selectAllPagesFromWorkspace(workspaceDir),
+    loadCoreSet: () => realLoadCoreSet(workspaceDir),
     invalidateLanes: realInvalidateLanes,
     config,
   };
@@ -393,6 +417,22 @@ async function pruneDeletedPages(
  * checkpoint is held (not advanced): a failed page was delete-then-upsert'd and
  * so has no sections, and advancing past its mtime would hide it from the
  * incremental selector forever — holding the mark lets the next pass re-embed it.
+ *
+ * Capability rows get an extra guard. Their stores (skill/CLI caches) are
+ * seeded fire-and-forget at daemon startup, so a backfill fired shortly after a
+ * restart can race the seed in two ways: (a) the rows are missing from the page
+ * index entirely when `selectAllPages` snapshots it, so they are silently
+ * absent from the work list; (b) the rows are listed but their content cache is
+ * still cold, so they render `""` — and the section chunker synthesizes a junk
+ * one-line head section from the bare slug, which would be embedded as if it
+ * were real content. Both end with capabilities effectively missing from the
+ * dense lane while the pass reports zero failures. So: a capability row whose
+ * body resolves empty is skipped without deleting its existing points (never
+ * replace good points with a blank), the page index is re-enumerated after the
+ * main loop (which spans long enough for the startup seed to finish) to pick up
+ * late-appearing capability rows, cold rows are retried, and any capability row
+ * that still resolves empty counts as a failure — holding the checkpoint and
+ * surfacing in the outcome instead of silently succeeding.
  */
 export async function backfillAllSections(
   config: AssistantConfig,
@@ -407,29 +447,65 @@ export async function backfillAllSections(
   let articles = 0;
   let sections = 0;
   let failures = 0;
-  for (const slug of slugs) {
+
+  // "cold" is only reported for capability rows whose body resolves empty —
+  // their store has not seeded yet. Real pages never report cold: an empty
+  // on-disk body legitimately replaces the page's sections.
+  const embedOne = async (
+    slug: Slug,
+  ): Promise<"embedded" | "cold" | "failed"> => {
     try {
+      if (isCapabilitySlug(slug)) {
+        const body = await deps.readPageBody(slug);
+        if (body.trim().length === 0) return "cold";
+      }
       const index = await deps.buildSectionIndex([slug], deps.readPageBody);
       await deps.deleteSectionsForArticle(deps.config, slug);
       await deps.upsertSections(deps.config, index.sections);
       articles += 1;
       sections += index.sections.length;
+      return "embedded";
     } catch (err) {
       failures += 1;
       log.warn(
         { slug, err: err instanceof Error ? err.message : String(err) },
         "memory-v3 backfill: page embed failed (non-fatal)",
       );
+      return "failed";
+    }
+  };
+
+  const coldCapabilities: Slug[] = [];
+  for (const slug of slugs) {
+    if ((await embedOne(slug)) === "cold") coldCapabilities.push(slug);
+  }
+
+  // Late-capability sweep + cold retry. The main loop spans minutes on a real
+  // corpus, so the startup-seeded capability stores have typically warmed by
+  // now: re-enumerate the index to catch capability rows that were not listed
+  // yet at snapshot time, and retry the ones that rendered cold. A row that
+  // still resolves empty is a real failure.
+  const processed = new Set(slugs);
+  const lateCapabilities = (await deps.selectAllPages()).filter(
+    (slug) => isCapabilitySlug(slug) && !processed.has(slug),
+  );
+  for (const slug of [...coldCapabilities, ...lateCapabilities]) {
+    if ((await embedOne(slug)) === "cold") {
+      failures += 1;
+      log.warn(
+        { slug },
+        "memory-v3 backfill: capability row still empty after retry (capability store not seeded?) — re-run backfill-sections once the store seeds",
+      );
     }
   }
 
   // Advance the maintain high-water mark only when every page embedded cleanly,
   // so the next incremental pass deltas from here rather than re-embedding
-  // everything. A failed page was delete-then-upsert'd, so it now has no
-  // sections; advancing past its mtime would hide it from `computeChangedPages`
-  // forever. Holding the checkpoint keeps failed pages above the mark so the
-  // next pass re-embeds them — re-embedding the succeeded pages too is
-  // idempotent and cheap.
+  // everything. A thrown failure was delete-then-upsert'd (it now has no
+  // sections) and an empty capability row was never embedded at all; advancing
+  // past them would hide them from `computeChangedPages` forever. Holding the
+  // checkpoint keeps failed pages above the mark so the next pass re-embeds
+  // them — re-embedding the succeeded pages too is idempotent and cheap.
   if (failures === 0) {
     deps.commitEmbedHighWater(startedAtMs);
   } else {
@@ -463,6 +539,7 @@ export async function maintainJob(
     reembedFailures: 0,
     pruned: 0,
     pruneFailures: 0,
+    danglingCoreSlugs: [],
     invalidated: false,
     failures: [],
   };
@@ -527,7 +604,35 @@ export async function maintainJob(
     );
   }
 
-  // Stage 3: rebuild section index + needle + edge graph on the next turn.
+  // Stage 3: validate the maintainer-curated core set. Diff `core-pages.md`
+  // entries against the live page-index slugs and REPORT dangling entries
+  // (pages that were renamed or deleted) through the log + outcome — the file
+  // is maintainer-owned, so it is never auto-edited; the maintainer fixes it at
+  // the next consolidation pass. No hot/core recompute is needed in this job:
+  // the lanes (including the core and hot prefixes) are computed at lane init,
+  // and the invalidateLanes() stage below already forces a next-turn rebuild —
+  // that rebuild IS the consolidation-cadence refresh.
+  try {
+    const coreSlugs = deps.loadCoreSet();
+    if (coreSlugs.length > 0) {
+      const live = new Set(await deps.listIndexedSlugs());
+      outcome.danglingCoreSlugs = coreSlugs.filter((slug) => !live.has(slug));
+      if (outcome.danglingCoreSlugs.length > 0) {
+        log.warn(
+          { dangling: outcome.danglingCoreSlugs },
+          "memory-v3 maintain: core-pages.md lists pages missing from the index — review the file at the next consolidation",
+        );
+      }
+    }
+  } catch (err) {
+    outcome.failures.push("core-validate");
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "memory-v3 maintain: core-set validation failed (non-fatal)",
+    );
+  }
+
+  // Stage 4: rebuild section index + needle + edge graph on the next turn.
   try {
     deps.invalidateLanes();
     outcome.invalidated = true;
@@ -545,6 +650,7 @@ export async function maintainJob(
       reembedFailures: outcome.reembedFailures,
       pruned: outcome.pruned,
       pruneFailures: outcome.pruneFailures,
+      danglingCoreSlugs: outcome.danglingCoreSlugs,
       invalidated: outcome.invalidated,
       failures: outcome.failures,
     },

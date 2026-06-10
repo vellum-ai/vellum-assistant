@@ -99,6 +99,7 @@ mock.module("@/lib/local-mode", () => ({
 
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => mockIsNativePlatform,
+  isOAuthFlowInFlight: () => false,
   installSessionCookies: installSessionCookiesMock,
   waitForNativeSessionCookie: async () => {},
 }));
@@ -142,6 +143,11 @@ mock.module("@/lib/auth/session-cleanup", () => ({
 
 mock.module("@/stores/organization-store", () => ({
   clearOrganization: clearOrganizationMock,
+  useOrganizationStore: {
+    getState: () => ({
+      fetchOrganizations: async () => {},
+    }),
+  },
 }));
 
 // Don't mock `@/lib/event-bus` — bun's `mock.module` is process-
@@ -301,14 +307,14 @@ describe("auth store onboarding flag reconciliation", () => {
     mockListAssistantsResult = {
       ok: true,
       status: 200,
-      data: [{ id: "assistant-3", is_local: false, created: "2026-06-05T00:00:00Z" }],
+      data: [{ id: "assistant-3", name: "My Assistant", is_local: false, created: "2026-06-05T00:00:00Z" }],
     };
 
     await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
 
     expect(listAssistantsMock).toHaveBeenCalled();
     expect(syncPlatformAssistantsToLockfileMock).toHaveBeenCalledWith([
-      { id: "assistant-3", is_local: false, created: "2026-06-05T00:00:00Z" },
+      { id: "assistant-3", name: "My Assistant", is_local: false, created: "2026-06-05T00:00:00Z" },
     ]);
   });
 

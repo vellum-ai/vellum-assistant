@@ -62,9 +62,9 @@ function formatHeaderElapsed(secs: number): string {
  * counter. Returns null when `startedAt` is not available.
  *
  * @param mode
- *   - `"step"`: per-tool row duration (always 1 decimal, e.g. "3.2s").
- *     Only returns a value when completed (macOS hides per-tool duration
- *     while running).
+ *   - `"step"`: per-tool row duration. While running, shows a live
+ *     integer-seconds counter (e.g. "5s", "1m 3s"); on completion, shows
+ *     the precise final duration (1 decimal < 60s, e.g. "3.2s").
  *   - `"header"`: card header elapsed (integer seconds, e.g. "15s").
  *     Hidden until >= 5 seconds have elapsed (macOS convention).
  */
@@ -77,15 +77,17 @@ export function useElapsedTime(
   const [now, setNow] = useState(Date.now);
 
   useEffect(() => {
-    if (startedAt === undefined || completed || mode === "step") return;
+    if (startedAt === undefined || completed) return;
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
-  }, [startedAt, completed, mode]);
+  }, [startedAt, completed]);
 
   if (startedAt === undefined) return null;
 
   if (mode === "step") {
-    if (!completed || completedAt === undefined) return null;
+    if (!completed)
+      return formatHeaderElapsed(Math.max(0, now - startedAt) / 1000);
+    if (completedAt === undefined) return null;
     return formatStepDuration((completedAt - startedAt) / 1000);
   }
 

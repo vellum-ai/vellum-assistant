@@ -9,7 +9,7 @@
  *     injection is bit-for-bit identical — the only difference is the
  *     side-effect telemetry write.
  *   - `memory-v3-live`: live injection. The injector (`memoryV3Injector` in
- *     `./injector.ts`) additionally renders the working-set selection into a
+ *     `./injector.ts`) additionally renders this turn's selections into a
  *     `<memory>` block and returns it at v2's dynamic-memory placement
  *     (`after-memory-prefix`). Selections are still logged.
  *   - both OFF: orchestration is skipped entirely.
@@ -17,8 +17,8 @@
  * On each turn (either flag on):
  *   1. Lazy-init the v3 lanes ONCE across the whole process (section index,
  *      section-grain BM25 needle, dense lane config, link-graph edge graph,
- *      carry-forward working set), memoizing the init promise so concurrent
- *      first turns share a single build.
+ *      curated core set, frecency hot set), memoizing the init promise so
+ *      concurrent first turns share a single build.
  *   2. Build a {@link MemoryRoutingTurn} from the conversation's recent messages.
  *   3. Run {@link orchestrate} and record its selection set to
  *      `memory_v3_selections` with a best-effort lane attribution.
@@ -46,8 +46,11 @@ import {
 } from "../../../util/platform.js";
 import { stripCommentLines } from "../../../util/strip-comment-lines.js";
 import { capabilityOrDiskBody } from "./capabilities.js";
+import { renderCard } from "./card.js";
+import { loadCoreSet } from "./core-set.js";
 import type { EdgeGraph } from "./edge.js";
 import { buildEdgeGraph } from "./edge.js";
+import { computeHotSet } from "./hot-set.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import { orchestrate } from "./orchestrate.js";
 import { ensureSectionCollection } from "./section-dense-store.js";
@@ -60,7 +63,6 @@ import {
   type SelectionSource,
   type Slug,
 } from "./types.js";
-import { WorkingSet } from "./working-set.js";
 
 export const MEMORY_V3_SHADOW = "memory-v3-shadow" as const;
 export const MEMORY_V3_LIVE = "memory-v3-live" as const;
@@ -71,10 +73,12 @@ const log = getLogger("memory-v3-shadow");
 const RECENT_CONTEXT_MESSAGES = 6;
 
 /**
- * The lazily-built, process-lifetime v3 lanes. The working set is stateful
- * (carry-forward across turns), so it is intentionally shared across every
- * shadow turn rather than rebuilt per turn — that is the whole point of the
- * carry-forward lane.
+ * The lazily-built, process-lifetime v3 lanes. The core and hot sets are
+ * computed here (not per turn) because they are the candidate pool's STABLE
+ * PREFIX — recomputing them mid-conversation would reorder the prefix and bust
+ * the selector's KV cache. Lane memoization is the recompute cadence:
+ * `invalidateLanes()` (called by the maintain job at consolidation) forces a
+ * rebuild on the next turn.
  */
 export interface ShadowLanes {
   sectionIndex: SectionIndex;
@@ -83,8 +87,19 @@ export interface ShadowLanes {
    *  collection. */
   denseConfig: AssistantConfig;
   edgeGraph: EdgeGraph;
-  workingSet: WorkingSet;
+  /** Curated core set in file order, filtered to pages in the section index. */
+  coreSlugs: string[];
+  /** Frecency hot set in score order: core excluded, filtered to pages in the
+   *  section index. */
+  hotSlugs: string[];
+  /** Pre-rendered FULL cards for the stable-prefix (core+hot) slugs, keyed by
+   *  slug. Frozen at lane build so the selector's stable prefix is
+   *  byte-identical across turns until the next invalidation. */
+  prefixCards: Map<Slug, string>;
 }
+
+/** Milliseconds per day — converts `hotSet.halfLifeDays` config to ms. */
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Memoized init promise. Caching the PROMISE (not the resolved value) means
@@ -151,11 +166,49 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
 
   const sectionIndex = await buildSectionIndex(slugs, pageBody);
   const needle = buildSectionNeedle(sectionIndex);
+
+  // The stable-prefix lanes. Core is the maintainer-curated file (file order
+  // preserved — it is the prefix's stable sort), filtered to pages that exist
+  // in the live section index so a dangling entry can never reach the pool.
+  // Hot is the frecency top-K over `memory_v3_selections` with core excluded
+  // (hot never duplicates core), filtered the same way — selection rows can
+  // outlive their pages. Both are recomputed only on lane invalidation (the
+  // consolidation cadence), keeping the prefix stable between rebuilds.
+  const coreSlugs = loadCoreSet(getWorkspaceDir()).filter((slug) =>
+    sectionIndex.byArticle.has(slug),
+  );
+  const hotSlugs = computeHotSet(
+    { db: getDb() },
+    {
+      k: config.memory.v3.hotSet.k,
+      halfLifeMs: config.memory.v3.hotSet.halfLifeDays * DAY_MS,
+      now: Date.now(),
+      excludeSlugs: new Set(coreSlugs),
+    },
+  )
+    .map((entry) => entry.slug)
+    .filter((slug) => sectionIndex.byArticle.has(slug));
+
+  // Pre-render the stable-prefix cards ONCE per lane build: the selector's
+  // stable prefix must be byte-identical across turns to ride the provider KV
+  // cache, so the cards are frozen here (lane invalidation at consolidation is
+  // the recompute point) instead of being re-read per turn. Capability slugs
+  // render their capability content; disk pages render raw (frontmatter +
+  // body) so `kind: index` pages surface their `links:` map in the card TOC.
+  const prefixCards = new Map<Slug, string>();
+  for (const slug of [...coreSlugs, ...hotSlugs]) {
+    const raw = await capabilityOrDiskBody(
+      slug,
+      async (s) => (await loadPage(s))?.raw ?? "",
+    );
+    prefixCards.set(slug, renderCard(slug, raw));
+  }
+
   const edgeGraph = await buildEdgeGraph(pageIndex.entries, pageRaw, {
     hubDegree: config.memory.v3.edge.hubDegree,
   });
   // Ensuring the dense collection is best-effort: the needle + edge lanes and
-  // carry-forward are in-memory and independent of Qdrant, so a Qdrant outage
+  // the core/hot prefix are in-memory and independent of Qdrant, so a Qdrant outage
   // must NOT reject lane init (which would return `null` from observeTurn and
   // disable ALL of v3, plus poison the memoized lanes until invalidation). On
   // failure we log and continue with the dense lane degraded — denseLane already
@@ -170,17 +223,14 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     );
   }
 
-  const workingSet = new WorkingSet(
-    config.memory.v3.workingSet.maxPages,
-    config.memory.v3.workingSet.evictWindow,
-  );
-
   return {
     sectionIndex,
     needle,
     denseConfig: config,
     edgeGraph,
-    workingSet,
+    coreSlugs,
+    hotSlugs,
+    prefixCards,
   };
 }
 
@@ -273,33 +323,31 @@ interface SelectionRow {
 }
 
 /**
- * Map an orchestrate result onto telemetry rows with precise per-lane source
- * attribution.
- *
- * - A current selection is tagged with the candgen lane that FIRST surfaced its
- *   page this turn — `result.laneBySlug` (`"needle"` / `"dense"` / `"edge"`),
- *   recorded at pool-build time. (`"needle"` is the fallback if a selected slug
- *   is somehow absent from the lane map, which should not happen since every
- *   pooled candidate is recorded there.)
- * - A slug in `finalInjection` but NOT re-selected this turn → `"carry-forward"`.
+ * Map an orchestrate result onto telemetry rows with per-lane source
+ * attribution, by pool position: a selection of a stable-prefix page is
+ * attributed `"core"` / `"hot"` (the lane that placed it in the pool), and any
+ * other selection is attributed the finder lane that FIRST surfaced it
+ * (`"needle"` / `"dense"` / `"edge"`, recorded at pool-build time). A finder
+ * hit on a core/hot page therefore still logs as core/hot — the prefix is
+ * where the candidate lived. (`"needle"` is the fallback if a selected slug is
+ * somehow absent from every lane, which should not happen since every pooled
+ * candidate comes from one.)
  */
 export function attributeSelections(result: OrchestrateResult): SelectionRow[] {
-  const rows: SelectionRow[] = [];
-  const seen = new Set<Slug>();
-  for (const sel of result.currentSelections) {
-    seen.add(sel.slug);
-    rows.push({
-      slug: sel.slug,
-      source: result.laneBySlug.get(sel.slug) ?? "needle",
-      pinned: sel.pinned ? 1 : 0,
-    });
-  }
-  for (const slug of result.finalInjection) {
-    if (seen.has(slug)) continue;
-    seen.add(slug);
-    rows.push({ slug, source: "carry-forward", pinned: 0 });
-  }
-  return rows;
+  const core = new Set<Slug>(result.lanes.core);
+  const hot = new Set<Slug>(result.lanes.hot);
+  const finderLane = new Map(
+    result.lanes.finder.map((c) => [c.slug, c.lane] as const),
+  );
+  return result.selections.map((sel) => ({
+    slug: sel.slug,
+    source: core.has(sel.slug)
+      ? ("core" as const)
+      : hot.has(sel.slug)
+        ? ("hot" as const)
+        : (finderLane.get(sel.slug) ?? "needle"),
+    pinned: sel.pinned ? 1 : 0,
+  }));
 }
 
 /** Write the attributed selection rows to `memory_v3_selections`. */
@@ -345,7 +393,9 @@ export async function observeTurn(
       needle: lanes.needle,
       denseConfig: lanes.denseConfig,
       edgeGraph: lanes.edgeGraph,
-      workingSet: lanes.workingSet,
+      coreSlugs: lanes.coreSlugs,
+      hotSlugs: lanes.hotSlugs,
+      prefixCards: lanes.prefixCards,
       needleK: v3.needleK,
       denseK: v3.denseK,
       edgeSeeds: v3.edge.seedCount,

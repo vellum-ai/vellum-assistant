@@ -35,6 +35,7 @@ import {
     navigateToConversation,
     navigateToNewConversation,
 } from "@/domains/chat/utils/conversation-navigation";
+import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { haptic } from "@/utils/haptics";
 
 import {
@@ -45,7 +46,6 @@ import { openPopoutWindow } from "@/runtime/popout-window";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAuthStore } from "@/stores/auth-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { Conversation } from "@/types/conversation-types";
@@ -127,7 +127,6 @@ export function ChatLayout() {
   // inherits a populated sidebar on direct navigation — not just /assistant.
   // TanStack Query handles dedup with any other consumer using the same key.
   const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
-  const homePageEnabled = useClientFeatureFlagStore.use.homePage();
   const { conversations } = useConversationListQuery(
     assistantId,
     isAssistantActive,
@@ -168,11 +167,8 @@ export function ChatLayout() {
 
 
   // Home page unread indicator — drives the red dot on the Home button in
-  // the layout header. Gated on the homePage feature flag so the hook
-  // doesn't fire its query when the home route is disabled.
-  const { hasUnreadHome } = useHomeUnreadBadge(
-    homePageEnabled ? assistantId : null,
-  );
+  // the layout header.
+  const { hasUnreadHome } = useHomeUnreadBadge(assistantId);
 
   // Mirror the unread count + signed-in flag into the Electron Dock
   // (no-op off Electron). Uses the conversation list this layout
@@ -314,6 +310,13 @@ export function ChatLayout() {
       navigateToNewConversation(navigate, opts);
     },
     [navigate],
+  );
+
+  // A fresh draft URL per call so the sidebar pencil can render as a link and
+  // each open-in-new-tab gesture lands on its own draft conversation.
+  const getNewConversationHref = useCallback(
+    () => routes.conversation(createDraftConversationId()),
+    [],
   );
 
   const {
@@ -513,6 +516,7 @@ export function ChatLayout() {
       attentionConversationIds={attentionConversationIds}
       onSelectConversation={handleSelectConversation}
       onStartNewConversation={startNewConversation}
+      getNewConversationHref={getNewConversationHref}
       isIntelligenceActive={isIdentityActive}
       onOpenIntelligence={handleOpenIdentity}
       isLibraryActive={isLibraryActive}

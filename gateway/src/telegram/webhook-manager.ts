@@ -34,7 +34,7 @@ async function registerManagedTelegramCallbackRoute(
 ): Promise<string | undefined> {
   if (!arePlatformFeaturesEnabled()) {
     log.debug(
-      "platform-features-in-local-mode is disabled — skipping managed Telegram callback registration",
+      "Platform features disabled — skipping managed Telegram callback registration",
     );
     return undefined;
   }

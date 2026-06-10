@@ -16,6 +16,7 @@ import { installAutoUpdate } from "./auto-update";
 import { APP_HOST, APP_PROTOCOL, BUNDLES_DIR_NAME, VELLUMAPP_PROTOCOL } from "./app-config";
 import { resolveAllowedOrigin } from "./app-origin";
 import { installCsp } from "./csp";
+import { getDeviceId } from "./device-id";
 import { handleSync } from "./ipc";
 import { resolveAppProtocolPath } from "./app-protocol";
 import { registerVellumAppProtocol } from "./vellumapp-protocol";
@@ -29,6 +30,7 @@ import {
 import { handleBundleFile, installBundleFlow } from "./bundle-flow";
 import { handleFileOpen, installFileOpen, onFileOpen } from "./file-open";
 import { installAvatarIpc } from "./avatar";
+import { installDictationOverlay } from "./dictation-overlay-window";
 import { installDock } from "./dock";
 import { installEscapeMonitor } from "./escape-monitor";
 import { installFeatureFlagsIpc } from "./feature-flags";
@@ -257,6 +259,11 @@ const resolvedConfig = resolveLocalConfigFromEnv(process.env);
 handleSync("vellum:config:get", () => ({
   webUrl: resolvedConfig.webUrl,
   platformUrl: resolvedConfig.platformUrl,
+  disablePlatform:
+    ["true", "1"].includes(
+      (process.env.VELLUM_DISABLE_PLATFORM ?? "").toLowerCase(),
+    ) || undefined,
+  deviceId: getDeviceId(),
 }));
 
 /**
@@ -321,6 +328,7 @@ app
     installTextInsertionIpc();
     installApplicationMenu();
     installQuickInput();
+    installDictationOverlay();
     installPopoutWindows();
     installGlobalShortcuts();
     // Register the avatar channel before the Dock and Tray install so their

@@ -84,6 +84,9 @@ describe("maintainJob", () => {
       // dedicated prune tests below override both collaborators.
       listSectionArticles: async () => [],
       listIndexedSlugs: async () => [],
+      // Core-validation stage off by default: empty core set ⇒ nothing to
+      // check. The dedicated core tests below override this.
+      loadCoreSet: () => [],
       invalidateLanes: () => {
         calls.invalidate += 1;
       },
@@ -271,6 +274,68 @@ describe("maintainJob", () => {
     expect(calls.invalidate).toBe(1);
   });
 
+  test("reports dangling core entries without mutating anything", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    // The core file lists a live page, a renamed/deleted page, and a synthetic
+    // capability slug; only the missing page is reported. The stage is
+    // report-only: no deletes, no upserts, and the maintainer-owned file is
+    // untouched (the injected loader is read-only by construction).
+    const { deps: d, calls } = deps({
+      loadCoreSet: () => ["page-live", "page-gone", "skills/example"],
+      listIndexedSlugs: async () => ["page-live", "skills/example"],
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    expect(outcome.danglingCoreSlugs).toEqual(["page-gone"]);
+    expect(outcome.failures).toEqual([]);
+    // Report-only: the dangling entry triggered no dense-store mutation.
+    expect(calls.deleted).toEqual([]);
+    expect(calls.upserted).toEqual([]);
+    // The pass still invalidates the lanes.
+    expect(calls.invalidate).toBe(1);
+  });
+
+  test("reports nothing when every core entry is still in the index", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    const { deps: d } = deps({
+      loadCoreSet: () => ["page-a", "page-b"],
+      listIndexedSlugs: async () => ["page-a", "page-b", "page-c"],
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+    expect(outcome.danglingCoreSlugs).toEqual([]);
+  });
+
+  test("an empty core set skips validation entirely", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    let indexReads = 0;
+    const { deps: d } = deps({
+      loadCoreSet: () => [],
+      listIndexedSlugs: async () => {
+        indexReads += 1;
+        return [];
+      },
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+    expect(outcome.danglingCoreSlugs).toEqual([]);
+    // The prune stage reads the index once; the core stage adds no second read.
+    expect(indexReads).toBe(1);
+  });
+
+  test("a thrown core-validation stage is contained and does not abort lane invalidation", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
+    const { deps: d, calls } = deps({
+      loadCoreSet: () => {
+        throw new Error("core boom");
+      },
+    });
+    const outcome = await maintainJob(JOB, CONFIG, d);
+
+    expect(outcome.failures).toContain("core-validate");
+    expect(outcome.danglingCoreSlugs).toEqual([]);
+    expect(calls.invalidate).toBe(1);
+    expect(outcome.invalidated).toBe(true);
+  });
+
   test("a thrown prune stage is contained and does not abort lane invalidation", async () => {
     setOverridesForTesting({ [FLAG_SHADOW]: true });
     const { deps: d, calls } = deps({
@@ -452,5 +517,100 @@ describe("backfillAllSections", () => {
     // hide it from the incremental selector forever. Holding the mark lets the
     // next pass re-embed it.
     expect(calls.committed).toEqual([]);
+  });
+
+  test("capability row that renders empty embeds on the post-loop retry once the store seeds", async () => {
+    // Models the startup race: the skill store is cold when the main loop
+    // reaches the capability row (renders ""), and has seeded by the time the
+    // retry pass runs.
+    let skillReads = 0;
+    const readPageBody = async (slug: Slug): Promise<string> => {
+      if (slug === "skills/example") {
+        skillReads += 1;
+        return skillReads === 1
+          ? ""
+          : "# Skill: example\nexample capability body";
+      }
+      return `body for ${slug}`;
+    };
+
+    const { deps: d, calls } = deps({
+      selectAllPages: async () => ["skills/example", "page-a"],
+      readPageBody,
+    });
+    const outcome = await backfillAllSections(CONFIG, d);
+
+    // The cold row was skipped without building on the first pass, then built
+    // and embedded on the retry.
+    expect(calls.built).toEqual([["page-a"], ["skills/example"]]);
+    // The cold render never deleted the row's existing points; the retry did.
+    expect(calls.deleted).toEqual(["page-a", "skills/example"]);
+    expect(
+      calls.upserted.flat().filter((s) => s.article === "skills/example")
+        .length,
+    ).toBeGreaterThan(0);
+    expect(outcome.articles).toBe(2);
+    expect(outcome.failures).toBe(0);
+    expect(calls.committed).toEqual([4242]);
+  });
+
+  test("capability row still empty after retry is a failure: never deleted, checkpoint HELD", async () => {
+    const { deps: d, calls } = deps({
+      selectAllPages: async () => ["page-a", "skills/example"],
+      readPageBody: async (slug) =>
+        slug === "skills/example" ? "" : `body for ${slug}`,
+    });
+    const outcome = await backfillAllSections(CONFIG, d);
+
+    // The empty render must never wipe previously-good points with nothing.
+    expect(calls.deleted).toEqual(["page-a"]);
+    expect(
+      calls.upserted.flat().filter((s) => s.article === "skills/example"),
+    ).toEqual([]);
+    expect(outcome.articles).toBe(1);
+    expect(outcome.failures).toBe(1);
+    expect(calls.committed).toEqual([]);
+  });
+
+  test("capability row missing from the first index snapshot is swept up after the main loop", async () => {
+    // Models the other face of the startup race: the capability store had not
+    // listed its rows in the page index yet when `selectAllPages` first ran,
+    // and has by the time the pass re-enumerates.
+    let listCalls = 0;
+    const { deps: d, calls } = deps({
+      selectAllPages: async () => {
+        listCalls += 1;
+        return listCalls === 1 ? ["page-a"] : ["page-a", "skills/example"];
+      },
+      readPageBody: async (slug) =>
+        slug === "skills/example"
+          ? "# Skill: example\nexample capability body"
+          : `body for ${slug}`,
+    });
+    const outcome = await backfillAllSections(CONFIG, d);
+
+    expect(listCalls).toBe(2);
+    // Only the late CAPABILITY row is swept in; page-a is not re-embedded.
+    expect(calls.built).toEqual([["page-a"], ["skills/example"]]);
+    expect(calls.deleted).toEqual(["page-a", "skills/example"]);
+    expect(outcome.articles).toBe(2);
+    expect(outcome.failures).toBe(0);
+    expect(calls.committed).toEqual([4242]);
+  });
+
+  test("a real page with an empty body still empties its sections (capability guard does not apply)", async () => {
+    const { deps: d, calls } = deps({
+      selectAllPages: async () => ["page-empty"],
+      readPageBody: async () => "",
+    });
+    const outcome = await backfillAllSections(CONFIG, d);
+
+    // Existing behavior for on-disk pages: an empty body still replaces the
+    // page's sections (the chunker synthesizes a minimal head section) — only
+    // capability rows treat an empty body as "store not seeded".
+    expect(calls.deleted).toEqual(["page-empty"]);
+    expect(outcome.articles).toBe(1);
+    expect(outcome.failures).toBe(0);
+    expect(calls.committed).toEqual([4242]);
   });
 });

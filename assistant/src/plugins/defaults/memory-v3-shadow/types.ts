@@ -11,6 +11,26 @@ export type Slug = string;
 export const MEMORY_V3_BLOCK_ID = "memory-v3" as const;
 
 /**
+ * `meta` key under which the v3 cards block carries its attachment-commit
+ * callback. The injector defers its everInjected-store write (and the
+ * prune-valve schedule) into this callback; runtime assembly invokes it only
+ * when the turn's tail is a user message — the same gate as metadata capture
+ * — so a block that silently fails to attach never claims its cards in the
+ * dedup store. Shared between the producer (`injector.ts`) and the consumer
+ * (`conversation-runtime-assembly.ts`) so a rename is a compile error on both
+ * sides instead of a silent never-commit.
+ */
+export const MEMORY_V3_COMMIT_META_KEY = "memoryV3Commit" as const;
+
+/**
+ * Injection-block id for the v3 ephemeral `<memory_spotlight>` block (the
+ * current window's matched sections, re-rendered at the user tail each turn).
+ * Distinct from {@link MEMORY_V3_BLOCK_ID}: the spotlight never participates
+ * in v2 suppression and is never persisted to message metadata.
+ */
+export const MEMORY_V3_SPOTLIGHT_BLOCK_ID = "memory-v3-spotlight" as const;
+
+/**
  * A single section of a page: the lead (text before the first `## heading`,
  * ordinal 0) or a heading-delimited block. Over-long sections are split into
  * multiple ordered `Section`s, each with its own consecutive `ordinal`, so each
@@ -40,13 +60,6 @@ export interface SelectedPage {
   pinned: boolean;
 }
 
-export interface WorkingSetEntry {
-  slug: Slug;
-  selectedAtTurn: number;
-  pinned: boolean;
-  lastSeenTurn: number;
-}
-
 export interface MemoryRoutingTurn {
   conversationId: string;
   turnNumber: number;
@@ -68,25 +81,29 @@ export interface MemoryRoutingTurn {
  * exactly one place and the runtime list (used for telemetry roll-ups and
  * source validation) can never drift from the type.
  *
+ * `core` / `hot` are the stable-prefix lanes (curated core set, frecency hot
+ * set); `needle` / `dense` / `edge` are the per-turn finder lanes.
+ *
  * The `memory_v3_selections.source` column is free-text, so tightening this set
- * needs no migration: any historical rows with older labels still read back
- * fine via the permissive `z.string()` row schema.
+ * needs no migration: any historical rows with retired labels (e.g. the old
+ * per-turn carry source) still read back fine via the permissive `z.string()`
+ * row schema — they just don't aggregate into a named bucket.
  */
 export const SELECTION_SOURCES = [
+  "core",
+  "hot",
   "needle",
   "dense",
   "edge",
-  "carry-forward",
 ] as const;
 
 export type SelectionSource = (typeof SELECTION_SOURCES)[number];
 
 /**
- * The candidate-generation lanes — the strict subset of {@link SelectionSource}
- * a pooled candidate can be tagged with at pool-build time. (`carry-forward` is
- * the one source assigned later, by the orchestrator's working-set union, not by
- * a candgen lane.) Defined as `Exclude<SelectionSource, "carry-forward">` so it
- * can never drift from {@link SELECTION_SOURCES}: adding a lane there widens this
- * automatically.
+ * The per-turn finder lanes — the strict subset of {@link SelectionSource} a
+ * finder candidate can be tagged with at pool-build time. (`core` / `hot` are
+ * assigned by stable-prefix membership, not by a finder.) Defined via
+ * `Exclude` so it can never drift from {@link SELECTION_SOURCES}: adding a
+ * finder lane there widens this automatically.
  */
-export type CandidateLane = Exclude<SelectionSource, "carry-forward">;
+export type FinderLane = Exclude<SelectionSource, "core" | "hot">;

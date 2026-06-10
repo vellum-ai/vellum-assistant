@@ -47,6 +47,18 @@ export interface WorkspaceFileWrite {
   content: string;
 }
 
+/**
+ * Input for `BaseAgent.confirm`. Resolves a pending tool confirmation
+ * the agent raised (via a `confirmation_request` event) when a tool
+ * exceeded its auto-approve risk threshold.
+ */
+export interface ConfirmationDecision {
+  /** The `requestId` carried on the `confirmation_request` event. */
+  requestId: string;
+  /** Whether to approve or reject the pending tool call. */
+  decision: "allow" | "deny";
+}
+
 export interface BaseAgent {
   readonly id: string;
   readonly conversationKey: string;
@@ -75,4 +87,12 @@ export interface BaseAgent {
    * throws a clear error if it's missing.
    */
   newConversation?(): Promise<void>;
+  /**
+   * Resolve a pending tool confirmation the agent raised. Optional
+   * capability: species whose tools never gate on confirmation (or that
+   * run with everything auto-approved) may omit it. Runners that auto
+   * approve `confirmation_request` events in a headless run check for
+   * this method and skip approval when it's absent.
+   */
+  confirm?(input: ConfirmationDecision): Promise<void>;
 }
