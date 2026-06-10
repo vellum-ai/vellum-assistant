@@ -15,6 +15,7 @@ import { enqueueMemoryRetrospectiveIfEnabled } from "../memory/memory-retrospect
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { disposeContextWindowManager } from "../plugins/defaults/compaction/manager-store.js";
+import { disposeRepairState } from "../plugins/defaults/history-repair/repair-state-store.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import {
   isUntrustedTrustClass,
@@ -244,9 +245,10 @@ export function disposeConversation(ctx: DisposeContext): void {
   ctx.workspaceTopLevelContext = null;
   // The compaction module owns the per-conversation ContextWindowManager, so
   // teardown releases it directly. Moving this behind a compaction-plugin hook
-  // would let the module own disposal end-to-end, but the per-turn `stop` hook 
+  // would let the module own disposal end-to-end, but the per-turn `stop` hook
   // would first require relocating the manager's only
   // cross-turn state — `nonPersistedPrefixCount` — off the manager so a
   // per-turn dispose/rebuild stays correct.
   disposeContextWindowManager(ctx.conversationId);
+  disposeRepairState(ctx.conversationId);
 }
