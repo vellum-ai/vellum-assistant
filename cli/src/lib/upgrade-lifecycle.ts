@@ -147,20 +147,6 @@ export function buildUpgradeCommitMessage(options: {
 }
 
 /**
- * Environment variable keys that are set by CLI run arguments and should
- * not be replayed from a captured container environment during upgrades
- * or rollbacks. Shared between upgrade.ts and rollback.ts.
- */
-export const CONTAINER_ENV_EXCLUDE_KEYS: ReadonlySet<string> = new Set([
-  "CES_SERVICE_TOKEN",
-  "GUARDIAN_BOOTSTRAP_SECRET",
-  "VELLUM_ASSISTANT_NAME",
-  "RUNTIME_HTTP_HOST",
-  "PATH",
-  "ACTOR_TOKEN_SIGNING_KEY",
-]);
-
-/**
  * Capture environment variables from a running Docker container so they
  * can be replayed onto the replacement container after upgrade.
  */
@@ -623,10 +609,11 @@ export async function performDockerRollback(
     `   Captured ${Object.keys(capturedEnv).length} env var(s) from ${res.assistantContainer}\n`,
   );
 
-  // Capture GUARDIAN_BOOTSTRAP_SECRET from the gateway container (it is only
-  // set on gateway, not assistant) so it persists across container restarts.
+  // Capture the gateway container env so flag overrides replay onto the new
+  // gateway, and pluck GUARDIAN_BOOTSTRAP_SECRET (only set on gateway).
   const gatewayEnv = await captureContainerEnv(res.gatewayContainer);
   const bootstrapSecret = gatewayEnv["GUARDIAN_BOOTSTRAP_SECRET"];
+  const extraGatewayEnv = buildReplayEnv(gatewayEnv, "gateway");
 
   const cesServiceToken =
     capturedEnv["CES_SERVICE_TOKEN"] || randomBytes(32).toString("hex");
@@ -634,19 +621,7 @@ export async function performDockerRollback(
   const signingKey =
     capturedEnv["ACTOR_TOKEN_SIGNING_KEY"] || randomBytes(32).toString("hex");
 
-  // Build extra env vars, excluding keys managed by buildServiceRunArgs
-  const envKeysSetByRunArgs = new Set(CONTAINER_ENV_EXCLUDE_KEYS);
-  for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
-    if (process.env[envVar]) {
-      envKeysSetByRunArgs.add(envVar);
-    }
-  }
-  const extraAssistantEnv: Record<string, string> = {};
-  for (const [key, value] of Object.entries(capturedEnv)) {
-    if (!envKeysSetByRunArgs.has(key)) {
-      extraAssistantEnv[key] = value;
-    }
-  }
+  const extraAssistantEnv = buildReplayEnv(capturedEnv, "assistant");
 
   // Parse gateway port from entry's runtimeUrl
   let gatewayPort = GATEWAY_INTERNAL_PORT;
@@ -719,6 +694,7 @@ export async function performDockerRollback(
       bootstrapSecret,
       cesServiceToken,
       extraAssistantEnv,
+      extraGatewayEnv,
       gatewayPort,
       imageTags: targetImageTags,
       instanceName,
@@ -836,6 +812,7 @@ export async function performDockerRollback(
             bootstrapSecret,
             cesServiceToken,
             extraAssistantEnv,
+            extraGatewayEnv,
             gatewayPort,
             imageTags: currentImageRefs,
             instanceName,
