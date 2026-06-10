@@ -202,9 +202,10 @@ export function ChatComposer({
     active: voicePhase === "recording",
     stream: voiceStream,
   });
+  const setVoiceAudioLevel = useVoiceRecordingStore.use.setAudioLevel();
   useEffect(() => {
-    useVoiceRecordingStore.getState().setAudioLevel(amplitude);
-  }, [amplitude]);
+    setVoiceAudioLevel(amplitude);
+  }, [amplitude, setVoiceAudioLevel]);
   const showVoiceInput =
     voiceInputRef !== undefined && onVoiceTranscript !== undefined;
 

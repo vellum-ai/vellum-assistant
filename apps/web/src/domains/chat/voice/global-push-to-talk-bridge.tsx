@@ -51,11 +51,12 @@ export function GlobalPushToTalkBridge({
     active: voicePhase === "recording" && voiceStream !== null,
     stream: voiceStream,
   });
+  const setVoiceAudioLevel = useVoiceRecordingStore.use.setAudioLevel();
 
   useEffect(() => {
     if (!voiceStream) return;
-    useVoiceRecordingStore.getState().setAudioLevel(amplitude);
-  }, [amplitude, voiceStream]);
+    setVoiceAudioLevel(amplitude);
+  }, [amplitude, voiceStream, setVoiceAudioLevel]);
 
   useNativePushToTalkRegistration();
 
