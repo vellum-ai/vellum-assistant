@@ -44,7 +44,9 @@ It learns how you work, remembers what matters, and acts before you ask. Yours t
 
 ## Quick demo
 
-https://github.com/user-attachments/assets/009bd0ae-95ac-4cf3-81bc-d54cd8631583
+<p align="center">
+  <img src="assets/quick-demo.gif" alt="Vellum Assistant demo" width="100%">
+</p>
 
 ---
 
