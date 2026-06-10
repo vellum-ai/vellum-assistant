@@ -107,6 +107,22 @@ function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
   } = useLlmContext(assistantId, conversationId, messageId);
 
   const logs = useMemo(() => data?.logs ?? [], [data?.logs]);
+  // Conversation-wide context. In conversation mode this is the same
+  // query as `data` (identical key, deduped by TanStack Query). In
+  // message mode it supplies the conversation-wide call numbering so a
+  // scoped turn keeps showing "Call 12" instead of renumbering from 1.
+  const { data: conversationData } = useLlmContext(
+    assistantId,
+    conversationId,
+    null,
+  );
+  const conversationLogs = conversationData?.logs;
+  const callNumbers = useMemo<ReadonlyMap<string, number> | undefined>(() => {
+    if (!messageId || !conversationLogs?.length) return undefined;
+    return new Map(conversationLogs.map((log, index) => [log.id, index + 1]));
+  }, [messageId, conversationLogs]);
+  const conversationCallCount =
+    messageId && conversationLogs ? conversationLogs.length : undefined;
   const [searchParams] = useSearchParams();
   const callIdParam = searchParams.get("callId");
 
@@ -165,6 +181,8 @@ function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
             buildCallHref={buildCallHref}
             assistantId={assistantId}
             conversationId={conversationId}
+            callNumbers={callNumbers}
+            conversationCallCount={conversationCallCount}
           />
         )}
       </div>
@@ -190,6 +208,16 @@ function Header({
   const queryClient = useQueryClient();
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+
+  const { data: scopeMessages } = useConversationMessageList(
+    assistantId,
+    conversationId,
+  );
+  const turnPosition = useMemo(
+    () =>
+      messageId ? findTurnPosition(scopeMessages ?? [], messageId) : null,
+    [scopeMessages, messageId],
+  );
 
   const canExport = Boolean(assistantId && context && context.logs.length > 0);
 
@@ -256,6 +284,7 @@ function Header({
           <ScopeSubtitle
             conversationId={conversationId}
             messageId={messageId}
+            turnPosition={turnPosition}
           />
         </div>
         <div className="order-2 ml-auto flex items-center gap-3 md:order-3 md:ml-0">
@@ -313,11 +342,13 @@ function Header({
 interface ScopeSubtitleProps {
   conversationId: string;
   messageId: string | null;
+  turnPosition: TurnPosition | null;
 }
 
 function ScopeSubtitle({
   conversationId,
   messageId,
+  turnPosition,
 }: ScopeSubtitleProps): ReactNode {
   void conversationId;
   if (messageId) {
@@ -331,7 +362,10 @@ function ScopeSubtitle({
           style={{ color: "var(--content-default)" }}
         >
           <MessageSquare size={12} aria-hidden />
-          Scoped to one message · <code>{shortMessageId(messageId)}</code>
+          {turnPosition
+            ? `Scoped to turn ${turnPosition.index} of ${turnPosition.count} · `
+            : "Scoped to one message · "}
+          <code>{shortMessageId(messageId)}</code>
         </span>
       </p>
     );
@@ -457,6 +491,41 @@ function shortMessageId(messageId: string): string {
   return messageId.length > 12 ? `${messageId.slice(0, 8)}…` : messageId;
 }
 
+interface TurnPosition {
+  /** 1-based position of the turn among the conversation's user turns. */
+  index: number;
+  /** Total number of user turns in the conversation. */
+  count: number;
+}
+
+/**
+ * Locates the turn containing `messageId` within the transcript. The
+ * scoped id is normally a turn-head user message, but deep links may
+ * carry an assistant message id — those resolve to the user message
+ * that heads their turn. Returns `null` when the id isn't in the list.
+ */
+function findTurnPosition(
+  messages: ConversationMessage[],
+  messageId: string,
+): TurnPosition | null {
+  const seen = new Set<string>();
+  const userIds: string[] = [];
+  let headId: string | null = null;
+  for (const m of messages) {
+    const id = m.id;
+    if (id && m.role === "user" && !seen.has(id)) {
+      seen.add(id);
+      userIds.push(id);
+    }
+    if (id === messageId && !headId) {
+      headId = m.role === "user" ? id : (userIds[userIds.length - 1] ?? null);
+    }
+  }
+  if (!headId) return null;
+  const index = userIds.indexOf(headId);
+  return index === -1 ? null : { index: index + 1, count: userIds.length };
+}
+
 interface LoadedProps {
   logs: LLMRequestLogEntry[];
   context: LlmContextResponse | undefined;
@@ -465,6 +534,8 @@ interface LoadedProps {
   buildCallHref: (logId: string) => string;
   assistantId: string | undefined;
   conversationId: string;
+  callNumbers: ReadonlyMap<string, number> | undefined;
+  conversationCallCount: number | undefined;
 }
 
 function Loaded({
@@ -475,6 +546,8 @@ function Loaded({
   buildCallHref,
   assistantId,
   conversationId,
+  callNumbers,
+  conversationCallCount,
 }: LoadedProps): ReactNode {
   const [tab, setTab] = useState<InspectorTab>("overview");
 
@@ -491,6 +564,7 @@ function Loaded({
           logs={logs}
           selectedLogId={selectedLogId}
           buildCallHref={buildCallHref}
+          callNumbers={callNumbers}
         />
       </aside>
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -502,6 +576,8 @@ function Loaded({
             logs={logs}
             selectedLogId={selectedLogId}
             buildCallHref={buildCallHref}
+            callNumbers={callNumbers}
+            conversationCallCount={conversationCallCount}
           />
         </div>
         <TabBar selected={tab} onSelect={setTab} />
