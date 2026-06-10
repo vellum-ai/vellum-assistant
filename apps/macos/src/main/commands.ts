@@ -32,6 +32,7 @@ export type VellumCommand =
   | { kind: "cancelActiveAction" }
   | { kind: "replayOnboarding" }
   | { kind: "previewPrechat" }
+  | { kind: "replayHatchFailure" }
   | { kind: "openComponentGallery" };
 
 export type VellumCommandKind = VellumCommand["kind"];
@@ -68,6 +69,7 @@ export const DEFAULT_ACCELERATORS: Record<VellumCommandKind, string> = {
   cancelActiveAction: "",
   replayOnboarding: "",
   previewPrechat: "",
+  replayHatchFailure: "",
   openComponentGallery: "",
 };
 

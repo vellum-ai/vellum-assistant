@@ -51,6 +51,7 @@ export type VellumCommand =
   | { kind: "cancelActiveAction" }
   | { kind: "replayOnboarding" }
   | { kind: "previewPrechat" }
+  | { kind: "replayHatchFailure" }
   | { kind: "openComponentGallery" };
 
 /**
