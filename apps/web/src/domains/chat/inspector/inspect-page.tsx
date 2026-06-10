@@ -21,11 +21,13 @@ import { normalizeContentBlocks } from "@/domains/chat/api/messages";
 import { useAuthStore, useIsSessionInitializing } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import type {
+  ConversationContentBlock,
   ConversationMessage,
-  ConversationTextBlock,
   LlmContextResponse,
   LLMRequestLogEntry,
 } from "@vellumai/assistant-api";
+
+type ConversationTextBlock = Extract<ConversationContentBlock, { type: "text" }>;
 import { Button } from "@vellumai/design-library";
 
 import { CallRail } from "./components/call-rail";
