@@ -25,6 +25,7 @@ import type {
 } from "../plugin-api/types.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
+import { resetRepairState } from "../plugins/defaults/history-repair/repair-state-store.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { CompactionCircuitEvent } from "../plugins/types.js";
 import { normalizeThinkingConfigForWire } from "../providers/thinking-config.js";
@@ -867,6 +868,15 @@ export class AgentLoop {
     let overflowAutoCompressApplied = false;
     const rlog = requestId ? log.child({ requestId }) : log;
 
+    // Clear the history-repair plugin's per-conversation ordering-repair bound
+    // at the start of every run so each run begins able to deep-repair. The
+    // bound is owned by the plugin but reset here because a run is the unit it
+    // scopes to: direct callers (e.g. agent wakes invoking `run` outside the
+    // daemon orchestrator) would otherwise inherit a spent bound from a prior
+    // run on the same conversation and surface a repairable ordering rejection
+    // instead of repairing it.
+    resetRepairState(this.conversationId);
+
     // Resolve the inference-profile override that applies right now. The
     // optional resolver lets a turn observe a confirmed mid-turn profile switch
     // before the next model call; absent a resolver the turn-start value holds.
@@ -903,6 +913,12 @@ export class AgentLoop {
       );
 
       let toolUseBlocks: Extract<ContentBlock, { type: "tool_use" }>[] = [];
+      // The provider rejection thrown by this iteration's call, if any. Set in
+      // the inner provider catch and read by the outer catch to confine
+      // error-stop recovery to genuine provider rejections — a throw from
+      // elsewhere in the turn body (tool execution, the success-path stop
+      // chain, post-model-call hooks) must not re-enter the stop chain.
+      let providerCallError: unknown;
 
       try {
         // ── Pre-call budget gate ─────────────────────────────────────
@@ -1300,8 +1316,14 @@ export class AgentLoop {
                   : this.provider.name,
             });
           }
+          providerCallError = llmCallError;
           throw llmCallError;
         }
+
+        // The call succeeded, so any prior ordering repair stuck. Clear the
+        // plugin's repair bound so a later turn's fresh ordering rejection can
+        // repair again rather than being treated as an exhausted retry.
+        resetRepairState(this.conversationId);
 
         const providerDurationMs = Date.now() - providerStart;
 
@@ -1853,25 +1875,33 @@ export class AgentLoop {
         // hooks that only act on a real response ignore the error stop. A
         // `"continue"` decision re-issues the call with the hook's repaired
         // history; otherwise the rejection falls through to the error path.
+        //
+        // Confined to genuine provider rejections: a throw from elsewhere in
+        // the turn body (tool execution, the success-path stop chain,
+        // post-model-call hooks) is not a provider stop, and re-entering the
+        // stop chain on a stop-hook failure could re-throw from the same hook
+        // and bypass the generic error handling below.
         const err = error instanceof Error ? error : new Error(String(error));
-        const errorStopCtx: StopContext = {
-          conversationId: this.conversationId,
-          messages: [...history],
-          responseContent: [],
-          stopReason: null,
-          error: err,
-          decision: "stop",
-          logger: rlog,
-        };
-        const finalErrorStopCtx = await runHook(HOOKS.STOP, errorStopCtx);
-        if (finalErrorStopCtx.decision === "continue") {
-          history = finalErrorStopCtx.messages;
-          // A recovery hook rewrites the history anywhere (deep repair merges
-          // and drops messages), so the prior input boundary no longer maps
-          // onto the new array; the repaired history is the base the retry's
-          // output appends after.
-          newMessagesStart = history.length;
-          continue;
+        if (error === providerCallError) {
+          const errorStopCtx: StopContext = {
+            conversationId: this.conversationId,
+            messages: [...history],
+            responseContent: [],
+            stopReason: null,
+            error: err,
+            decision: "stop",
+            logger: rlog,
+          };
+          const finalErrorStopCtx = await runHook(HOOKS.STOP, errorStopCtx);
+          if (finalErrorStopCtx.decision === "continue") {
+            history = finalErrorStopCtx.messages;
+            // A recovery hook rewrites the history anywhere (deep repair merges
+            // and drops messages), so the prior input boundary no longer maps
+            // onto the new array; the repaired history is the base the retry's
+            // output appends after.
+            newMessagesStart = history.length;
+            continue;
+          }
         }
 
         rlog.error(

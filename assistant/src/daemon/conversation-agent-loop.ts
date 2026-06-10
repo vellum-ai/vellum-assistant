@@ -67,7 +67,6 @@ import {
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
-import { resetRepairState } from "../plugins/defaults/history-repair/repair-state-store.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
@@ -848,9 +847,6 @@ export async function runAgentLoopImpl(
     // Reset the manager's turn-scoped overflow-recovery ladder at the turn
     // boundary so a new turn starts the ladder fresh from the emergency rung.
     ctx.contextWindowManager.resetOverflowRecovery();
-    // Clear the history-repair plugin's one-shot ordering-repair flag so a new
-    // turn's ordering rejection can deep-repair afresh.
-    resetRepairState(ctx.conversationId);
 
     const shouldGenerateTitle = isReplaceableTitle(
       getConversation(ctx.conversationId)?.title ?? null,
