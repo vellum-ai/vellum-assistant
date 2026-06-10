@@ -34,6 +34,7 @@ final class PttMonitor {
     private var config: PttConfig = .none
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+    private var pressedModifierKeyCodes = Set<Int64>()
     private var pressedModifiers = Set<PttModifier>()
     private var isDown = false
     private var pendingActivationTimer: Timer?
@@ -72,6 +73,7 @@ final class PttMonitor {
             eventTap = nil
         }
         pressedModifiers.removeAll()
+        pressedModifierKeyCodes.removeAll()
     }
 
     fileprivate func handle(type: CGEventType, event: CGEvent) {
@@ -141,14 +143,10 @@ final class PttMonitor {
     }
 
     private func handleFlagsChanged(_ event: CGEvent) {
-        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-        if let modifier = modifierForKeyCode(keyCode) {
-            if modifierIsDown(modifier, flags: event.flags) {
-                pressedModifiers.insert(modifier)
-            } else {
-                pressedModifiers.remove(modifier)
-            }
-        }
+        updatePressedModifiers(
+            changedKeyCode: event.getIntegerValueField(.keyboardEventKeycode),
+            flags: event.flags
+        )
 
         switch config {
         case let .modifierOnly(required):
@@ -170,15 +168,39 @@ final class PttMonitor {
                 emitUp()
             }
         case let .modifierKey(required, _):
-            if !modifierRequirementIsSatisfied(required) {
+            let satisfied = modifierRequirementIsSatisfied(required)
+            if !satisfied {
                 cancelPendingActivation()
             }
-            if isDown, !modifierRequirementIsSatisfied(required) {
+            if isDown, !satisfied {
                 emitUp()
             }
         default:
             break
         }
+    }
+
+    private func updatePressedModifiers(
+        changedKeyCode: Int64,
+        flags: CGEventFlags
+    ) {
+        if let modifier = modifierForKeyCode(changedKeyCode) {
+            if pressedModifierKeyCodes.contains(changedKeyCode) {
+                pressedModifierKeyCodes.remove(changedKeyCode)
+            } else if modifierIsDown(modifier, flags: flags) {
+                pressedModifierKeyCodes.insert(changedKeyCode)
+            }
+        } else {
+            pressedModifierKeyCodes = pressedModifierKeyCodes.filter { code in
+                guard let modifier = modifierForKeyCode(code) else {
+                    return false
+                }
+                return modifierIsDown(modifier, flags: flags)
+            }
+        }
+        pressedModifiers = Set(
+            pressedModifierKeyCodes.compactMap { modifierForKeyCode($0) }
+        )
     }
 
     private func handleKeyDown(_ event: CGEvent) {

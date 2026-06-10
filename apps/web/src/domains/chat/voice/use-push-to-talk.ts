@@ -216,6 +216,10 @@ export function usePushToTalk(
           holdingRef.current = false;
           return;
         }
+        if (activeRef.current) {
+          holdingRef.current = false;
+          return;
+        }
         holdingRef.current = false;
         startActiveTarget("dom");
       }, PTT_HOLD_DELAY_MS);
