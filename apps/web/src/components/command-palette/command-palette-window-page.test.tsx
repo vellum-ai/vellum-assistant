@@ -66,6 +66,16 @@ mock.module("@/lib/local-mode", () => ({
   setActiveLockfileAssistant: async () => undefined,
 }));
 
+mock.module("@/lib/auth/gateway-session", () => ({
+  isGatewayAuthMode: () => false,
+}));
+
+mock.module("@/stores/client-feature-flag-store", () => ({
+  useClientFeatureFlagStore: {
+    use: { multiPlatformAssistant: () => true },
+  },
+}));
+
 mock.module("@/stores/auth-store", () => {
   const useAuthStore = () => null;
   useAuthStore.use = {
