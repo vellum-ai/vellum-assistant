@@ -1,6 +1,7 @@
 import { hatchAssistant, listAssistants } from "@/assistant/api";
 import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
 import { syncPlatformAssistantsToLockfile } from "@/lib/local-mode";
+import { useOrganizationStore } from "@/stores/organization-store";
 import { extractErrorMessage } from "@/utils/api-errors";
 
 export type CreatePlatformAssistantResult =
@@ -39,7 +40,10 @@ export async function createPlatformAssistant(
   try {
     const remaining = await listAssistants();
     if (remaining.ok) {
-      await syncPlatformAssistantsToLockfile(remaining.data);
+      await syncPlatformAssistantsToLockfile(
+        remaining.data,
+        useOrganizationStore.getState().currentOrganizationId ?? undefined,
+      );
     }
   } catch {
     // non-fatal

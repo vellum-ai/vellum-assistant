@@ -29,6 +29,7 @@ import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
 import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
 import { useAuthStore } from "@/stores/auth-store";
+import { useOrganizationStore } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { CharacterTraits } from "@/types/avatar";
 import { extractErrorMessage } from "@/utils/api-errors";
@@ -263,6 +264,8 @@ export function HatchingScreen() {
                 cloud: "vellum",
                 runtimeUrl: getPlatformRuntimeUrl(),
                 hatchedAt: new Date().toISOString(),
+                organizationId:
+                  useOrganizationStore.getState().currentOrganizationId ?? undefined,
               });
             }
             handleHatchReady();
@@ -464,6 +467,8 @@ export function HatchingScreen() {
                 cloud: "vellum",
                 runtimeUrl: getPlatformRuntimeUrl(),
                 hatchedAt: new Date().toISOString(),
+                organizationId:
+                  useOrganizationStore.getState().currentOrganizationId ?? undefined,
               });
             }
 
