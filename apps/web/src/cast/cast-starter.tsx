@@ -10,10 +10,11 @@
  * hands a fully-built character to the rest of the flow.
  */
 
-import { ChevronLeft, ChevronRight, Dices, Pencil } from "lucide-react";
-import { memo, useCallback, useMemo, useState } from "react";
+import { ChevronLeft, ChevronRight, Pencil } from "lucide-react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LayoutGroup, motion } from "motion/react";
 
+import { BlinkingAvatar } from "@/cast/cast-avatar";
 import {
   COMPONENTS,
   buildCharacter,
@@ -106,9 +107,11 @@ function cycle(i: number, n: number, dir: 1 | -1): number {
 export function CastStarter({
   resume,
   onChoose,
+  onCustomizing,
 }: {
   resume?: StarterResume | null;
   onChoose: (character: CastCharacter, name: string) => void;
+  onCustomizing?: (active: boolean) => void;
 }) {
   // null → roster line-up; a body index → customizing that starter. `resume`
   // (set when returning from a later beat) reopens straight into the card.
@@ -135,9 +138,10 @@ export function CastStarter({
     // Carry over the color shown on the tapped card so the preview matches it.
     setColorIndex(STARTER_COLOR_INDEX[i]);
     setName(buildCharacter(BODIES[i].id, EYES[DEFAULT_EYE_INDEX].id, COLORS[STARTER_COLOR_INDEX[i]].id).name);
-  }, []);
+    onCustomizing?.(true);
+  }, [onCustomizing]);
 
-  const handleRandomize = useCallback(() => {
+  const _handleRandomize = useCallback(() => {
     // Walk each axis a deterministic, well-mixed step — no Math.random in Cast.
     setBodyIndex((b) => ((b ?? 0) + 3) % BODIES.length);
     setEyeIndex((e) => (e + 4) % EYES.length);
@@ -154,15 +158,25 @@ export function CastStarter({
     onChoose(character, name.trim() || character.name);
   }, [bodyIndex, eyeIndex, colorIndex, name, onChoose]);
 
-  const previewSvg = useMemo(() => {
-    if (bodyIndex === null) return "";
-    return composeSvg(
-      COMPONENTS,
-      BODIES[bodyIndex].id,
-      EYES[eyeIndex].id,
-      COLORS[colorIndex].id,
-      280,
-    );
+  // A counter that increments on every attribute change, used to trigger a pop.
+  const changeCount = useRef(0);
+  const [popKey, setPopKey] = useState(0);
+  const prevBody = useRef(bodyIndex);
+  const prevEye = useRef(eyeIndex);
+  const prevColor = useRef(colorIndex);
+
+  useEffect(() => {
+    if (
+      prevBody.current !== bodyIndex ||
+      prevEye.current !== eyeIndex ||
+      prevColor.current !== colorIndex
+    ) {
+      changeCount.current += 1;
+      setPopKey(changeCount.current);
+      prevBody.current = bodyIndex;
+      prevEye.current = eyeIndex;
+      prevColor.current = colorIndex;
+    }
   }, [bodyIndex, eyeIndex, colorIndex]);
 
   // The pedestal whose avatar has been lifted into the open card (empty slot).
@@ -176,7 +190,7 @@ export function CastStarter({
         <div className="cast-starter__view">
           <header className="cast-starter__header">
             <h1 className="cast-panel__title">Choose your assistant</h1>
-            <p className="cast-panel__subtitle">Pick one, then make it yours.</p>
+            <p className="cast-panel__subtitle">You can always change this later.</p>
           </header>
 
           <div className="cast-roster">
@@ -194,47 +208,53 @@ export function CastStarter({
         </div>
 
         {bodyIndex !== null && (
-          <div className="cast-customize__layer">
-            <motion.div
-              className="cast-customize__scrim"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.2 }}
-              onClick={() => setBodyIndex(null)}
-            />
-            <motion.div
-              className="cast-customize"
-              initial={{ opacity: 0, scale: 0.96 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+          <motion.div
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 6,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              height: "100dvh",
+              padding: "0 20px",
+              background: "radial-gradient(120% 90% at 50% 0%, var(--surface-lift) 0%, var(--surface-base) 60%, var(--cast-shroud) 100%)",
+            }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+          >
+            <button
+              className="cast-back"
+              onClick={() => { setBodyIndex(null); onCustomizing?.(false); }}
+              aria-label="Back to the line-up"
             >
-              <button
-                className="cast-customize__back"
-                onClick={() => setBodyIndex(null)}
-                aria-label="Back to the line-up"
+              ‹
+            </button>
+
+            <NameField value={name} onChange={setName} />
+
+            <div style={{ width: 140, height: 140, marginTop: 24, marginBottom: 56 }}>
+              <motion.div
+                key={popKey}
+                layoutId={pickedId ? `starter-${pickedId}` : undefined}
+                style={{ width: "100%", height: "100%" }}
+                initial={popKey > 0 ? { scale: 1.12 } : false}
+                animate={{ scale: 1 }}
+                transition={{ type: "spring", stiffness: 400, damping: 15 }}
               >
-                ‹
-              </button>
-
-              <div className="cast-customize__stage">
-                <div className="cast-customize__disc" />
-                <motion.div
-                  layoutId={pickedId ? `starter-${pickedId}` : undefined}
-                  className="cast-customize__avatar"
-                  aria-hidden
-                  dangerouslySetInnerHTML={{ __html: previewSvg }}
+                <BlinkingAvatar
+                  bodyShapeId={BODIES[bodyIndex].id}
+                  eyeStyleId={EYES[eyeIndex].id}
+                  colorId={COLORS[colorIndex].id}
+                  size={280}
                 />
-              </div>
+              </motion.div>
+            </div>
 
-              <NameField value={name} onChange={setName} />
-
-              <div className="cast-controls">
-                <CycleRow
-                  label="Body"
-                  value={BODIES[bodyIndex].id}
-                  onPrev={() => setBodyIndex(cycle(bodyIndex, BODIES.length, -1))}
-                  onNext={() => setBodyIndex(cycle(bodyIndex, BODIES.length, 1))}
-                />
+            <div className="cast-thisthat">
+              <div className="cast-thisthat__row">
                 <CycleRow
                   label="Eyes"
                   value={EYES[eyeIndex].id}
@@ -249,27 +269,16 @@ export function CastStarter({
                   onNext={() => setColorIndex(cycle(colorIndex, COLORS.length, 1))}
                 />
               </div>
-
-              <div className="cast-customize__actions">
-                <button
-                  type="button"
-                  className="cast-randomize"
-                  onClick={handleRandomize}
-                  aria-label="Randomize"
-                >
-                  <Dices className="cast-randomize__icon" />
-                  Randomize
-                </button>
-                <button
-                  type="button"
-                  className="cast-customize__continue"
-                  onClick={handleContinue}
-                >
-                  Continue
-                </button>
-              </div>
-            </motion.div>
-          </div>
+              <button
+                type="button"
+                className="cast-customize__continue"
+                style={{ width: "100%", marginTop: 14 }}
+                onClick={handleContinue}
+              >
+                That's me →
+              </button>
+            </div>
+          </motion.div>
         )}
       </LayoutGroup>
     </div>
@@ -392,7 +401,7 @@ function CycleRow({
         </button>
         <span className="cast-control__value">
           {swatch && <span className="cast-control__swatch" style={{ background: swatch }} />}
-          {value}
+          {!swatch && value}
         </span>
         <button
           type="button"

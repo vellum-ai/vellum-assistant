@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import { CheckCircle2, Loader2, Send, Smartphone } from "lucide-react";
 
 import { CastAvatar } from "@/cast/cast-avatar";
-import { buildCharacter } from "@/cast/cast-roster";
+import { buildCharacter, type CastCharacter } from "@/cast/cast-roster";
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -46,24 +46,18 @@ interface Tool {
   providerKey: string;
   name: string;
   benefit: string;
+  reward: number;
   /** Canned "real signal" line Vela streams once the tool is connected. */
   signal: string;
 }
 
-// First PRIMARY_TOOL_COUNT show by default; the rest reveal via "Show more".
-const PRIMARY_TOOL_COUNT = 4;
-
 const TOOLS: Tool[] = [
-  { id: "google", providerKey: "google", name: "Google", benefit: "Email, calendar, and Drive in one.", signal: "Calendar's in. Monday's stacked — two real conflicts at 12:30 and 2pm." },
-  { id: "notion", providerKey: "notion", name: "Notion", benefit: "Docs and projects, work and personal.", signal: "Notion's connected. Found your roadmap and three half-finished specs." },
-  { id: "github", providerKey: "github", name: "GitHub", benefit: "Repos, PRs, and reviews.", signal: "GitHub's in. 4 PRs are waiting on your review; one's been open a week." },
-  { id: "linear", providerKey: "linear", name: "Linear", benefit: "Issues and cycles — your real workflow.", signal: "Linear's wired up. 7 issues in this cycle, 2 already overdue." },
-  { id: "twitter", providerKey: "twitter", name: "Twitter", benefit: "Posts and direct messages.", signal: "Twitter's in. Three DMs unopened — one from someone you follow back." },
-  { id: "asana", providerKey: "asana", name: "Asana", benefit: "Tasks and projects.", signal: "Asana's connected. 5 tasks due this week, 2 already late." },
-  { id: "discord", providerKey: "discord", name: "Discord", benefit: "Communities, gaming, side projects.", signal: "Discord's connected. Two servers buzzing — someone @'d you in #general." },
-  { id: "hubspot", providerKey: "hubspot", name: "HubSpot", benefit: "CRM contacts and deals.", signal: "HubSpot's in. Two deals slipped to next quarter — worth a nudge." },
-  { id: "outlook", providerKey: "outlook", name: "Outlook", benefit: "Email and calendar, the Microsoft way.", signal: "Outlook's in. Your week's mapped — a 9am tomorrow you might've forgotten." },
-  { id: "todoist", providerKey: "todoist", name: "Todoist", benefit: "Tasks and projects.", signal: "Todoist's connected. 12 tasks overdue — want me to triage?" },
+  { id: "google", providerKey: "google", name: "Google", benefit: "Calendar + Gmail, always in view", reward: 5, signal: "Calendar's in. Monday's stacked — two real conflicts at 12:30 and 2pm." },
+  { id: "notion", providerKey: "notion", name: "Notion", benefit: "Docs and specs, searchable", reward: 5, signal: "Notion's connected. Found your roadmap and three half-finished specs." },
+  { id: "linear", providerKey: "linear", name: "Linear", benefit: "Issues and cycles I can track", reward: 5, signal: "Linear's wired up. 7 issues in this cycle, 2 already overdue." },
+  { id: "drive", providerKey: "drive", name: "Drive", benefit: "Files and folders on tap", reward: 5, signal: "Drive's connected. Your shared folders are in — that deck from Friday is the latest." },
+  { id: "github", providerKey: "github", name: "GitHub", benefit: "Repos, PRs, and reviews", reward: 5, signal: "GitHub's in. 4 PRs are waiting on your review; one's been open a week." },
+  { id: "slack", providerKey: "slack", name: "Slack", benefit: "Threads and DMs that matter", reward: 5, signal: "Slack's connected. Two threads pinged you directly this morning." },
 ];
 
 interface TakeOption {
@@ -81,24 +75,14 @@ const TAKE: TakeOption[] = [
   { id: "telegram", icon: "telegram", name: "Bring me to Telegram", benefit: "Reach me from any chat", reward: 65, confirm: "Telegram's linked. Message me there and I'll answer like I'm right here." },
 ];
 
-// ---------------------------------------------------------------------------
-// Scripted lines
-// ---------------------------------------------------------------------------
-
-const FIRST_LINE = "The more I see, the more useful I get.\n\nOpen the doors. I'll do the rest.";
-// Auto-transition into the "where do you want me" beat after tools resolves.
-const TOOLS_TRANSITION = "That's my senses online. One more thing: where do you want me?";
-const SKIP_TRANSITION =
-  "No rush — we can wire those up later. One more thing: where do you want me?";
-const CLOSE_LINE =
-  "Okay, I'm set up. I know your role, I've got senses, I can reach you on the go. Let's go.";
+const TOTAL_CREDITS = 100;
 
 // ---------------------------------------------------------------------------
 // Conversation entries (messages + inline interactive widgets)
 // ---------------------------------------------------------------------------
 
 type Entry =
-  | { id: string; kind: "msg"; message: DisplayMessage; turnStart?: boolean }
+  | { id: string; kind: "msg"; message: DisplayMessage }
   | { id: string; kind: "tools"; resolved: boolean }
   | { id: string; kind: "connect"; tool: Tool; state: "connecting" | "connected" }
   | { id: string; kind: "take"; resolved: boolean; pickedId: string | null }
@@ -114,6 +98,16 @@ function asstMsg(id: string, text: string): DisplayMessage {
   };
 }
 
+function userMsg(id: string, text: string): DisplayMessage {
+  return {
+    id,
+    role: "user",
+    textSegments: [text],
+    contentOrder: [{ type: "text", id: "0" }],
+    timestamp: now(),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Presentational pieces
 // ---------------------------------------------------------------------------
@@ -122,9 +116,11 @@ function asstMsg(id: string, text: string): DisplayMessage {
 const FocusRow = memo(function FocusRow({
   message,
   isStreaming,
+  assistantName = ASSISTANT_NAME,
 }: {
   message: DisplayMessage;
   isStreaming: boolean;
+  assistantName?: string;
 }) {
   const [expandedToolCallIds] = useState(() => new Set<string>());
   const [expandedCardIds] = useState(() => new Map<string, boolean>());
@@ -132,7 +128,7 @@ const FocusRow = memo(function FocusRow({
   return (
     <TranscriptMessageBody
       message={message}
-      assistantDisplayName={ASSISTANT_NAME}
+      assistantDisplayName={assistantName}
       expandedToolCallIds={expandedToolCallIds}
       expandedCardIds={expandedCardIds}
       expandedThinkingKeys={expandedThinkingKeys}
@@ -179,10 +175,7 @@ function ToolGrid({
   onSkip: () => void;
 }) {
   const [sel, setSel] = useState<Set<string>>(() => new Set());
-  const [showAll, setShowAll] = useState(false);
   const selected = TOOLS.filter((t) => sel.has(t.id));
-  // Show all on resolve so chosen tools beyond the first four stay visible.
-  const visible = showAll || resolved ? TOOLS : TOOLS.slice(0, PRIMARY_TOOL_COUNT);
 
   function toggle(id: string) {
     if (resolved) return;
@@ -198,7 +191,7 @@ function ToolGrid({
     <div className="cast-focus__turn cast-block">
       <div className="cast-picker">
         <div className="cast-grid">
-          {visible.map((t) => (
+          {TOOLS.map((t) => (
             <button
               key={t.id}
               type="button"
@@ -213,18 +206,10 @@ function ToolGrid({
                 <span className="cast-tile__name">{t.name}</span>
                 <span className="cast-tile__benefit">{t.benefit}</span>
               </span>
+              <span className="cast-tile__reward">+{t.reward}</span>
             </button>
           ))}
         </div>
-        {!resolved && TOOLS.length > PRIMARY_TOOL_COUNT && (
-          <button
-            type="button"
-            className="cast-picker__more"
-            onClick={() => setShowAll((s) => !s)}
-          >
-            {showAll ? "Show less" : "Show more"}
-          </button>
-        )}
         {!resolved && (
           <div className="cast-picker__actions">
             <button
@@ -275,6 +260,7 @@ function TakeTiles({
               <span className="cast-tile__name">{o.name}</span>
               <span className="cast-tile__benefit">{o.benefit}</span>
             </span>
+            <span className="cast-tile__reward">+{o.reward}</span>
           </button>
         ))}
       </div>
@@ -286,20 +272,32 @@ function TakeTiles({
 // Orchestrator
 // ---------------------------------------------------------------------------
 
-export function CastChatSandbox() {
+export interface CastChatSandboxProps {
+  assistantName?: string;
+  character?: CastCharacter;
+  initialCredits?: number;
+  firstPillLabel?: string;
+  bare?: boolean;
+}
+
+export function CastChatSandbox({
+  assistantName = ASSISTANT_NAME,
+  character,
+  initialCredits = 5,
+  firstPillLabel = "Pick a role",
+  bare = false,
+}: CastChatSandboxProps) {
+  const avatarChar = character ?? LIL_DUDE;
   const [entries, setEntries] = useState<Entry[]>([]);
   const [streaming, setStreaming] = useState(false);
+  const [beat, setBeat] = useState<"idle" | "tools" | "take">("idle");
   const [toolsDone, setToolsDone] = useState(false);
   const [takeDone, setTakeDone] = useState(false);
+  const [earned, setEarned] = useState(initialCredits); // pre-completed first pill
 
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const anchorRef = useRef<HTMLDivElement>(null);
-  const endRef = useRef<HTMLDivElement>(null);
-  const startedRef = useRef(false);
-  const connectedRef = useRef(false); // did the tools beat connect anything?
-  const takeStartedRef = useRef(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const seededRef = useRef(false);
   const closedRef = useRef(false);
-  const spacerRef = useRef<HTMLDivElement>(null);
 
   // ---- primitives ----
   const sleep = (ms: number) =>
@@ -307,11 +305,51 @@ export function CastChatSandbox() {
       setTimeout(resolve, ms);
     });
 
-  // `turnStart` messages open a new section — they get scrolled to the top of
-  // the conversation (real-chat "latest turn pinned to top").
-  async function streamAssistant(text: string, turnStart = false) {
+  // Seed an opening line once.
+  useEffect(() => {
+    if (seededRef.current) return;
+    seededRef.current = true;
     const id = nid();
-    setEntries((prev) => [...prev, { id, kind: "msg", message: asstMsg(id, ""), turnStart }]);
+    setEntries([
+      {
+        id,
+        kind: "msg",
+        message: asstMsg(
+          id,
+          `Hey — I'm ${assistantName}. Two quick things and I'm ready to work. Use the pills below.`,
+        ),
+      },
+    ]);
+  }, []);
+
+  // Keep the latest turn in view.
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [entries]);
+
+  // Once both beats resolve, play the closing line + Start chatting button.
+  useEffect(() => {
+    if (!toolsDone || !takeDone || closedRef.current) return;
+    closedRef.current = true;
+    void (async () => {
+      await sleep(BEAT_GAP_MS);
+      await streamAssistant(
+        "Okay, I'm set up. I know your role, I've got senses, I can reach you on the go. Let's go.",
+      );
+      setEntries((prev) => [...prev, { id: nid(), kind: "close" }]);
+    })();
+    // streamAssistant/sleep are stable scripted helpers; only the beat flags matter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toolsDone, takeDone]);
+
+  function pushUser(text: string) {
+    const id = nid();
+    setEntries((prev) => [...prev, { id, kind: "msg", message: userMsg(id, text) }]);
+  }
+
+  async function streamAssistant(text: string) {
+    const id = nid();
+    setEntries((prev) => [...prev, { id, kind: "msg", message: asstMsg(id, "") }]);
     setStreaming(true);
     await sleep(TTFT_MS);
     const words = text.split(" ");
@@ -330,91 +368,21 @@ export function CastChatSandbox() {
     setStreaming(false);
   }
 
-  // Size the trailing spacer to exactly fill the viewport below the current
-  // section (anchor → end): enough for a turn-start message to reach the top,
-  // but no extra, so content can't be over-scrolled out of the frame. Returns
-  // the section's pixel height.
-  function sizeSpacer(): number {
-    const sc = scrollRef.current;
-    const spacer = spacerRef.current;
-    const anchor = anchorRef.current;
-    const end = endRef.current;
-    if (!sc) return 0;
-    const sectionH = anchor && end ? end.offsetTop - anchor.offsetTop : 0;
-    if (spacer) spacer.style.minHeight = `${Math.max(0, sc.clientHeight - sectionH)}px`;
-    return sectionH;
+  // ---- Connect tools beat ----
+  async function startTools() {
+    if (beat !== "idle" || streaming || toolsDone) return;
+    setBeat("tools");
+    pushUser("Connect me to the outside world.");
+    await streamAssistant(
+      "I do my best work when I'm connected to the tools you use. Pick whichever you want.",
+    );
+    setEntries((prev) => [...prev, { id: nid(), kind: "tools", resolved: false }]);
   }
 
-  // Keep the spacer fitted on resize.
-  useEffect(() => {
-    const onResize = () => sizeSpacer();
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
-
-  // Scroll behaviour: a turn-start message pins to the TOP (pushing prior
-  // content up). Continuations keep the anchor pinned while the section fits the
-  // viewport; once it overflows we follow the bottom so streamed content stays
-  // in view.
-  useEffect(() => {
-    const sc = scrollRef.current;
-    if (!sc) return;
-    const sectionH = sizeSpacer();
-    const anchor = anchorRef.current;
-    const end = endRef.current;
-    const last = entries[entries.length - 1];
-
-    if (last && last.kind === "msg" && last.turnStart && anchor) {
-      anchor.scrollIntoView({ behavior: "smooth", block: "start" });
-      return;
-    }
-    if (anchor && end && sectionH <= sc.clientHeight) return;
-    end?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [entries]);
-
-  // On load: Vela opens, then the integration grid drops in directly below.
-  useEffect(() => {
-    if (startedRef.current) return;
-    startedRef.current = true;
-    void (async () => {
-      await streamAssistant(FIRST_LINE, true);
-      setEntries((prev) => [...prev, { id: nid(), kind: "tools", resolved: false }]);
-    })();
-    // streamAssistant is a stable scripted helper; run once on mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Tools resolved → auto-transition message + the handoff tiles. Both done →
-  // the close line + Start chatting button. No pills — the flow drives itself.
-  useEffect(() => {
-    if (toolsDone && takeDone) {
-      if (closedRef.current) return;
-      closedRef.current = true;
-      void (async () => {
-        await sleep(BEAT_GAP_MS);
-        await streamAssistant(CLOSE_LINE, true);
-        setEntries((prev) => [...prev, { id: nid(), kind: "close" }]);
-      })();
-      return;
-    }
-    if (toolsDone && !takeStartedRef.current) {
-      takeStartedRef.current = true;
-      void (async () => {
-        await sleep(BEAT_GAP_MS);
-        await streamAssistant(connectedRef.current ? TOOLS_TRANSITION : SKIP_TRANSITION, true);
-        setEntries((prev) => [...prev, { id: nid(), kind: "take", resolved: false, pickedId: null }]);
-      })();
-    }
-    // Helpers are stable; only the beat flags drive these transitions.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toolsDone, takeDone]);
-
-  // ---- Connect tools beat ----
   async function finishTools(gridId: string, selected: Tool[]) {
     setEntries((prev) =>
       prev.map((e) => (e.kind === "tools" && e.id === gridId ? { ...e, resolved: true } : e)),
     );
-    connectedRef.current = selected.length > 0;
     if (selected.length === 0) {
       await streamAssistant("Going in light. You can hook me up later.");
     } else {
@@ -428,14 +396,24 @@ export function CastChatSandbox() {
             e.kind === "connect" && e.id === cardId ? { ...e, state: "connected" } : e,
           ),
         );
+        setEarned((c) => c + tool.reward);
         await sleep(BEAT_GAP_MS);
         await streamAssistant(tool.signal);
       }
     }
     setToolsDone(true);
+    setBeat("idle");
   }
 
   // ---- Take me with you beat ----
+  async function startTake() {
+    if (beat !== "idle" || streaming || takeDone) return;
+    setBeat("take");
+    pushUser("Take me with you.");
+    await streamAssistant("Good. I want to be where you are. Pick a way.");
+    setEntries((prev) => [...prev, { id: nid(), kind: "take", resolved: false, pickedId: null }]);
+  }
+
   async function pickTake(tilesId: string, option: TakeOption) {
     setEntries((prev) =>
       prev.map((e) =>
@@ -444,9 +422,11 @@ export function CastChatSandbox() {
           : e,
       ),
     );
+    setEarned((c) => c + option.reward);
     await sleep(BEAT_GAP_MS);
     await streamAssistant(option.confirm);
     setTakeDone(true);
+    setBeat("idle");
   }
 
   function onStart() {
@@ -454,42 +434,43 @@ export function CastChatSandbox() {
     console.log("[Cast] Start chatting");
   }
 
-  // Three-step progress: role (always done) + the two beats.
-  const completed = 1 + (toolsDone ? 1 : 0) + (takeDone ? 1 : 0);
+  const pills = [
+    { label: firstPillLabel, credits: initialCredits, done: true, disabled: true, onClick: noop },
+    {
+      label: "Connect tools",
+      credits: 30,
+      done: toolsDone,
+      disabled: toolsDone || beat !== "idle" || streaming,
+      onClick: startTools,
+    },
+    {
+      label: "Take me with you",
+      credits: 65,
+      done: takeDone,
+      disabled: takeDone || beat !== "idle" || streaming,
+      onClick: startTake,
+    },
+  ];
 
-  // Only the last message streams; the avatar rides under the latest reply.
+  // Avatar rides under the most recent assistant reply.
   const lastMsgId = [...entries].reverse().find((e) => e.kind === "msg")?.id;
-  const lastReplyId = [...entries]
-    .reverse()
-    .find((e) => e.kind === "msg" && e.message.role === "assistant")?.id;
-  // The latest section-opening message — the one pinned to the top.
-  const anchorId = [...entries].reverse().find((e) => e.kind === "msg" && e.turnStart)?.id;
+  const lastEntry = entries[entries.length - 1];
+  const showAvatar = lastEntry?.kind === "msg" && lastEntry.message.role === "assistant";
 
-  return (
-    // Dark-only, like the rest of Cast — semantic tokens resolve to dark here.
-    <div className="cast-stage" data-theme="dark">
-      <div className="cast-panel cast-focus">
+  // Dark-only, like the rest of Cast — semantic tokens resolve to dark here.
+  const panel = (
+    <div className="cast-panel cast-focus">
         <header className="cast-focus__header">
-          <h1 className="cast-focus__title">Show me around</h1>
-          {/* Thin progress: one dot per step (role + 2 beats), spread wide. */}
-          <div className="cast-focus__progress" aria-hidden>
-            {[0, 1, 2].map((i) => (
-              <span key={i} className={`cast-focus__pdot${i < completed ? " is-on" : ""}`} />
-            ))}
-          </div>
+          <h1 className="cast-focus__title">Help me be the best</h1>
         </header>
 
-        <div className="cast-focus__scroll" ref={scrollRef}>
+        <div className="cast-focus__scroll">
           <div className="cast-focus__col">
             {entries.map((e) => {
               if (e.kind === "msg") {
                 return (
-                  <div
-                    className="cast-focus__turn"
-                    key={e.id}
-                    ref={e.id === anchorId ? anchorRef : undefined}
-                  >
-                    <FocusRow message={e.message} isStreaming={streaming && e.id === lastMsgId} />
+                  <div className="cast-focus__turn" key={e.id}>
+                    <FocusRow message={e.message} isStreaming={streaming && e.id === lastMsgId} assistantName={assistantName} />
                   </div>
                 );
               }
@@ -529,21 +510,37 @@ export function CastChatSandbox() {
                 </div>
               );
             })}
-            {/* Presenter rides under the whole latest response block, left-aligned. */}
-            {lastReplyId && (
-              <div className="cast-focus__presenter" aria-hidden>
-                <CastAvatar character={LIL_DUDE} />
+            {showAvatar && (
+              <div className="cast-focus__avatar" aria-hidden>
+                <CastAvatar character={avatarChar} />
               </div>
             )}
-            {/* End of real content — "follow the bottom" targets this, above the
-                spacer, so streamed continuations stay in view. */}
-            <div ref={endRef} />
-            {/* Spacer (height set imperatively) lets a turn-start message reach
-                the top without letting content over-scroll out of the frame. */}
-            <div className="cast-focus__spacer" ref={spacerRef} aria-hidden />
+            <div ref={bottomRef} />
           </div>
         </div>
-      </div>
+
+        <footer className="cast-focus__footer">
+          <div className="cast-focus__journey">
+            {pills.map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                className={`cast-focus__step${p.done ? " is-done" : ""}`}
+                disabled={p.disabled}
+                onClick={p.onClick}
+              >
+                <span className="cast-focus__step-dot">{p.done ? "✓" : ""}</span>
+                <span className="cast-focus__step-label">{p.label}</span>
+                <span className="cast-focus__step-credits">+{p.credits}</span>
+              </button>
+            ))}
+            <span className="cast-focus__credits">
+              {earned}/{TOTAL_CREDITS} credits
+            </span>
+          </div>
+        </footer>
     </div>
   );
+
+  return bare ? panel : <div className="cast-stage" data-theme="dark">{panel}</div>;
 }

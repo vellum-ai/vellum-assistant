@@ -39,6 +39,7 @@ export const routes = {
    */
   bundleConfirm: r("/assistant/bundle/confirm"),
   quickInput: r("/assistant/quick-input"),
+  interactiveSetup: r("/assistant/interactive-setup"),
   conversation: (key: string) => dyn(r("/assistant/conversations"), key),
   /**
    * LLM-context inspector for a single conversation. The conversation id

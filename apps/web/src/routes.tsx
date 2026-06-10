@@ -104,6 +104,10 @@ export const routeTree = [
     // `/assistant/cast`. Slated to fold into onboarding later.
     { path: "/assistant/cast", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/cast-page-route").then((m) => m.CastPageRoute) } },
 
+    // Interactive setup — unified cast + chat sandbox journey. Same standalone
+    // & public pattern (no auth, no chrome) as Cast and This/That.
+    { path: "/assistant/interactive-setup", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/interactive-setup-route").then((m) => m.InteractiveSetupRoute) } },
+
     // This/That — standalone & public (same sibling-of-`/assistant` pattern as
     // Cast), so the "This or That" selections (`cast-style.tsx`) can be iterated
     // in isolation at `/assistant/this-that` without auth or app chrome.

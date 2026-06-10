@@ -52,8 +52,9 @@
 
 .cast-panel__title {
   margin: 0;
-  font-size: 22px;
-  font-weight: 650;
+  font-family: "Instrument Serif", var(--font-serif), serif;
+  font-size: clamp(2rem, 1rem + 2.4vw, 3rem);
+  font-weight: 400;
   letter-spacing: -0.01em;
 }
 
@@ -61,6 +62,212 @@
   margin: 6px 0 0;
   font-size: 13px;
   color: var(--content-secondary);
+}
+
+/* Instrument Serif — local font for editorial headings */
+@font-face {
+  font-family: "Instrument Serif";
+  src: url("/fonts/InstrumentSerif-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ---- Login screen (two-column: form | visual) ---- */
+
+.cast-login {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  overflow: hidden;
+}
+
+/* Left column — logo at top, form centered */
+.cast-login__left {
+  flex: 0 0 42%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 48px;
+}
+.cast-login__logo {
+  flex: none;
+}
+.cast-login__form {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  max-width: 360px;
+  width: 100%;
+  gap: 0;
+}
+.cast-login__title {
+  margin: 0 0 12px;
+  font-family: "Instrument Serif", var(--font-serif), serif;
+  font-size: clamp(2.1rem, 1rem + 2.8vw, 3.75rem);
+  font-weight: 400;
+  font-style: normal;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  color: var(--content-default);
+}
+.cast-login__rotating {
+  display: inline-block;
+  position: relative;
+  text-align: center;
+  vertical-align: baseline;
+  overflow: hidden;
+}
+.cast-login__rotating-sizer {
+  display: block;
+  height: 0;
+  visibility: hidden;
+  white-space: nowrap;
+}
+.cast-login__title em {
+  display: block;
+  font-style: normal;
+  color: #46c178;
+  white-space: nowrap;
+}
+.cast-login__subtitle {
+  margin: 0 0 32px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--content-secondary);
+}
+.cast-login__buttons {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+.cast-login__btn {
+  width: 100%;
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 13px 18px;
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-lg);
+  background: var(--surface-hover);
+  color: var(--content-default);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+.cast-login__btn:hover {
+  background: var(--surface-active);
+  border-color: var(--border-element);
+  transform: translateY(-1px);
+}
+.cast-login__btn:active {
+  transform: translateY(0) scale(0.985);
+}
+/* "Most used" corner badge on the Google button */
+.cast-login__btn {
+  position: relative;
+}
+.cast-login__tag {
+  position: absolute;
+  top: -8px;
+  right: -6px;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--content-secondary);
+  background: var(--surface-active);
+  border: 1px solid var(--border-subtle);
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  line-height: 1.4;
+  pointer-events: none;
+}
+.cast-login__footer {
+  margin: 0;
+  font-size: 13px;
+  color: var(--content-secondary);
+}
+.cast-login__link {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--content-default);
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color 140ms ease;
+}
+.cast-login__link:hover {
+  color: var(--primary-base);
+}
+.cast-login__download {
+  appearance: none;
+  background: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 24px;
+  padding: 10px 20px;
+  border: 1px solid var(--content-default);
+  border-radius: var(--radius-lg);
+  color: var(--content-default);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.cast-login__download:hover {
+  background: color-mix(in srgb, var(--content-default) 10%, transparent);
+}
+
+/* Right column — video */
+.cast-login__right {
+  flex: 1 1 0;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+  padding: 40px 40px 40px 0;
+}
+.cast-login__video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--radius-xl);
+}
+
+/* Collapse to single-column on narrow viewports */
+@media (max-width: 768px) {
+  .cast-login {
+    flex-direction: column;
+  }
+  .cast-login__left {
+    flex: 1;
+    padding: 32px 28px;
+    align-items: center;
+  }
+  .cast-login__logo {
+    align-self: flex-start;
+  }
+  .cast-login__form {
+    /* already centered */
+  }
+  .cast-login__right {
+    display: none;
+  }
 }
 
 /* ---- Beat 1: the crowd on a tilted ground plane ---- */
@@ -367,9 +574,11 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
 }
 .cast-starter__header {
-  padding: var(--app-spacing-xl) var(--app-spacing-xl) 6px;
+  flex: none;
+  padding: 0 var(--app-spacing-xl) 36px;
   text-align: center;
   z-index: 2;
 }
@@ -377,24 +586,17 @@
 /* the Pokémon-style line-up: one card per body shape, on a lit pedestal —
    exactly two rows of five, centered in the remaining space (no scroll) */
 .cast-roster {
-  flex: 1;
-  min-height: 0;
+  flex: none;
   width: 100%;
   max-width: 720px;
   margin: 0 auto;
-  padding: 0 24px 40px;
+  padding: 20px 24px 0;
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   gap: 4px;
-  align-content: center;
   justify-items: center;
-  overflow-y: auto;
-  scrollbar-width: none;
+  overflow: visible;
 }
-.cast-roster::-webkit-scrollbar {
-  display: none;
-}
-
 .cast-roster__card {
   position: relative;
   appearance: none;
@@ -412,7 +614,6 @@
 .cast-roster__card:hover,
 .cast-roster__card:focus-visible {
   transform: translateY(-6px);
-  background: color-mix(in srgb, var(--surface-hover) 55%, transparent);
 }
 .cast-roster__disc {
   position: absolute;
@@ -439,60 +640,23 @@
   height: 100%;
 }
 
-/* the card overlays the line-up (which stays visible behind a scrim) rather
-   than replacing it with a new page */
-.cast-customize__layer {
+/* full-screen customization view (replaces the roster) */
+.cast-customize__fullscreen {
   position: absolute;
   inset: 0;
   z-index: 6;
-  display: grid;
-  place-items: center;
-  padding: 20px;
-}
-.cast-customize__scrim {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-}
-
-/* the chosen starter sits in a contained card — the same controls the avatar
-   modal uses, but a focused panel rather than a full-page takeover */
-.cast-customize {
-  position: relative;
-  z-index: 1;
-  width: min(380px, calc(100% - 40px));
-  max-height: calc(100dvh - 96px);
-  padding: 22px 22px 20px;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 18px;
-  background: var(--surface-overlay);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-xl);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
-  overflow-y: auto;
-  scrollbar-width: none;
+  padding: 40px 20px;
+  background: radial-gradient(120% 90% at 50% 0%, var(--surface-lift) 0%, var(--surface-base) 60%, var(--cast-shroud) 100%);
 }
-.cast-customize::-webkit-scrollbar {
-  display: none;
-}
-.cast-customize__back {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  appearance: none;
-  border: none;
-  background: var(--surface-hover);
-  color: var(--content-secondary);
-  width: 30px;
-  height: 30px;
-  border-radius: var(--radius-pill);
-  cursor: pointer;
-  font-size: 16px;
-  line-height: 1;
-}
-.cast-customize__back:hover {
-  background: var(--surface-active);
+.cast-customize__fullscreen .cast-controls,
+.cast-customize__fullscreen .cast-customize__actions {
+  width: 100%;
+  max-width: 620px;
 }
 .cast-customize__stage {
   position: relative;
@@ -573,15 +737,18 @@
 }
 .cast-customize__name-input {
   align-self: center;
-  width: 72%;
+  width: auto;
+  min-width: 80px;
+  max-width: 200px;
   text-align: center;
   font-size: 22px;
   font-weight: 660;
   letter-spacing: -0.01em;
   color: var(--content-default);
-  background: var(--surface-sunken);
-  border: 1px solid var(--border-element);
-  border-radius: var(--radius-md);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid var(--border-element);
+  border-radius: 0;
   padding: 4px 10px;
   outline: none;
 }
@@ -592,6 +759,35 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.cast-controls--inline {
+  flex-direction: row;
+  gap: 14px;
+}
+.cast-controls--inline .cast-control,
+.cast-thisthat__row .cast-control {
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 132px;
+  padding: 20px;
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-xl);
+}
+.cast-controls--inline .cast-control__cycle,
+.cast-thisthat__row .cast-control__cycle {
+  justify-content: center;
+}
+.cast-controls--inline .cast-control__label,
+.cast-thisthat__row .cast-control__label {
+  text-align: center;
+}
+.cast-controls--inline .cast-control__value,
+.cast-thisthat__row .cast-control__value {
+  font-size: 22px;
+  font-weight: 640;
 }
 .cast-control {
   display: flex;
@@ -683,20 +879,18 @@
   height: 16px;
 }
 .cast-customize__continue {
-  flex: 1;
   appearance: none;
   border: none;
-  background: var(--primary-base);
-  color: var(--content-inset);
+  background: none;
+  color: var(--content-secondary);
   font-size: 15px;
-  font-weight: 640;
-  padding: 13px;
-  border-radius: var(--radius-lg);
+  font-weight: 600;
+  padding: 12px 0;
   cursor: pointer;
-  transition: background 140ms ease;
+  transition: color 140ms ease;
 }
 .cast-customize__continue:hover {
-  background: var(--primary-hover);
+  color: var(--content-default);
 }
 
 @media (max-width: 560px) {
@@ -864,8 +1058,9 @@
 .cast-thisthat__title {
   margin: 0;
   text-align: center;
-  font-size: 19px;
-  font-weight: 600;
+  font-family: "Instrument Serif", var(--font-serif), serif;
+  font-size: clamp(2rem, 1rem + 2.4vw, 3rem);
+  font-weight: 400;
   letter-spacing: -0.01em;
   color: var(--content-default);
   text-shadow: 0 2px 12px color-mix(in srgb, var(--cast-shroud) 70%, transparent);
@@ -873,17 +1068,223 @@
 .cast-thisthat__asker {
   display: block;
   margin-bottom: 6px;
+  font-family: var(--font-sans), system-ui, sans-serif;
   font-size: 11px;
   font-weight: 560;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--content-tertiary);
 }
+.cast-thisthat__sub {
+  display: block;
+  margin-top: 10px;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--content-secondary);
+}
+/* Brain expand — prompt + drop card after picking a provider */
+.cast-brain-expand {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.cast-brain-expand__step {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+.cast-brain-expand__num {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  background: var(--surface-active);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--content-secondary);
+}
+.cast-brain-expand__step-body {
+  flex: 1;
+  min-width: 0;
+}
+.cast-brain-expand__label {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--content-secondary);
+  line-height: 26px;
+}
+.cast-brain-expand__prompt {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+}
+.cast-brain-expand__text {
+  flex: 1;
+  margin: 0;
+  padding: 14px 16px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--content-secondary);
+  font-family: var(--font-mono, monospace);
+}
+.cast-brain-expand__copy {
+  flex: none;
+  appearance: none;
+  border: none;
+  border-left: 1px solid var(--border-subtle);
+  padding: 0 18px;
+  background: var(--surface-hover);
+  color: var(--content-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.cast-brain-expand__copy:hover {
+  background: var(--surface-active);
+  color: var(--content-default);
+}
+
+.cast-brain-expand__drop {
+  padding: 32px 20px;
+  border: 2px dashed var(--border-subtle);
+  border-radius: var(--radius-xl);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 200ms ease, background 200ms ease;
+}
+.cast-brain-expand__drop:hover:not(.is-dropped) {
+  border-color: var(--border-element);
+}
+.cast-brain-expand__drop.is-dragging {
+  border-color: #46c178;
+  background: color-mix(in srgb, #46c178 8%, transparent);
+}
+.cast-brain-expand__drop.is-dropped {
+  border-style: solid;
+  border-color: #46c178;
+  background: color-mix(in srgb, #46c178 6%, transparent);
+  padding: 20px;
+}
+.cast-brain-expand__drop-hint {
+  font-size: 14px;
+  color: var(--content-tertiary);
+}
+.cast-brain-expand__drop-done {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 700;
+  color: #46c178;
+}
+
+/* Brain connected — collapsed card after file upload */
+.cast-brain-connected {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+.cast-brain-connected__credits {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: var(--radius-xl);
+  padding: 3px 8px;
+  z-index: 1;
+}
+.cast-brain-connected__card {
+  min-height: 132px;
+  width: 100%;
+  border: 1px solid var(--border-base);
+  background: var(--surface-hover);
+  border-radius: var(--radius-xl);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.cast-brain-connected__label {
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: var(--content-default);
+}
+.cast-brain-connected__tag {
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: var(--radius-xl);
+  padding: 3px 8px;
+}
+
+/* Celebration — confetti + credits overlay */
+.cast-celebration {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 80px 40px;
+  pointer-events: none;
+  animation: cast-celebration-fade 3s ease forwards;
+}
+.cast-celebration__confetti {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.cast-celebration__piece {
+  position: absolute;
+  top: -10px;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  animation: cast-confetti-fall linear forwards;
+}
+@keyframes cast-confetti-fall {
+  0%   { transform: translateY(0) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+}
+.cast-celebration__text {
+  margin: 0;
+  font-family: "Instrument Serif", var(--font-serif), serif;
+  font-size: clamp(2rem, 1.5rem + 2vw, 3.5rem);
+  font-weight: 400;
+  color: #46c178;
+  text-shadow: 0 4px 30px rgba(70, 193, 120, 0.4);
+  transform: rotate(-12deg);
+}
+@keyframes cast-celebration-fade {
+  0%, 70% { opacity: 1; }
+  100%    { opacity: 0; }
+}
+
 .cast-thisthat__row {
   width: 100%;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 14px;
+}
+.cast-thisthat__row--triple {
+  grid-template-columns: 1fr 1fr 1fr;
 }
 
 .cast-vs {
@@ -898,7 +1299,7 @@
   justify-content: center;
   text-align: center;
   font-size: 22px;
-  font-weight: 640;
+  font-weight: 500;
   letter-spacing: -0.01em;
   line-height: 1.25;
   color: var(--content-default);
@@ -908,6 +1309,94 @@
 .cast-vs:hover {
   background: var(--surface-active);
   border-color: var(--border-element);
+}
+
+/* Memory list — checklist in the bottom-left during This/That phases */
+.cast-memory-list {
+  position: absolute;
+  bottom: 28px;
+  left: 28px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0;
+  max-width: 300px;
+  background: none;
+  border: none;
+}
+.cast-memory-list__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--content-tertiary);
+}
+.cast-memory-list__entries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cast-memory-list__entry {
+  position: relative;
+  padding-left: 22px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--content-default);
+  line-height: 1.5;
+  white-space: nowrap;
+  transition: color 300ms ease;
+  text-shadow: 0 1px 8px color-mix(in srgb, var(--cast-shroud) 60%, transparent);
+}
+.cast-memory-list__entry::before {
+  position: absolute;
+  left: 0;
+  font-weight: 700;
+  transition: color 300ms ease;
+}
+.cast-memory-list__entry.is-done::before {
+  content: "✓";
+  color: #46c178;
+}
+.cast-memory-list__entry.is-pending {
+  color: var(--content-tertiary);
+}
+.cast-memory-list__entry.is-pending::before {
+  content: "○";
+  color: var(--content-tertiary);
+}
+/* currently typing — show a filled dot */
+.cast-memory-list__entry:not(.is-done):not(.is-pending)::before {
+  content: "●";
+  color: var(--content-secondary);
+}
+.cast-memory-list__credits {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #46c178;
+}
+.cast-memory-list__cursor {
+  animation: cast-cursor-blink 0.6s steps(1) infinite;
+  color: var(--content-tertiary);
+}
+@keyframes cast-cursor-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
+
+/* Gaze down + periodic blink for ToneChoice avatar */
+@keyframes cast-gaze-blink {
+  0%, 100% { transform: translateY(4px) scaleY(1); }
+  24%      { transform: translateY(4px) scaleY(1); }
+  26%      { transform: translateY(4px) scaleY(0.1); }
+  28%      { transform: translateY(4px) scaleY(1); }
+  74%      { transform: translateY(4px) scaleY(1); }
+  76%      { transform: translateY(4px) scaleY(0.1); }
+  78%      { transform: translateY(4px) scaleY(1); }
 }
 
 .cast-thisthat__dots {
@@ -2135,6 +2624,112 @@
 }
 .cast-picker__skip:hover {
   color: var(--content-secondary);
+}
+
+/* Handle / email setup — subdomain input */
+.cast-handle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.cast-handle__field {
+  display: inline-flex;
+  align-items: baseline;
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-pill);
+  background: var(--surface-hover);
+  padding: 12px 18px;
+  gap: 0;
+  transition: border-color 160ms ease;
+  white-space: nowrap;
+}
+.cast-handle__field:focus-within {
+  border-color: var(--border-element);
+}
+/* Shared type style for the address parts */
+.cast-handle__input,
+.cast-handle__suffix {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-family: inherit;
+  line-height: 1;
+}
+.cast-handle__input {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--content-default);
+  outline: none;
+}
+.cast-handle__input::placeholder {
+  color: var(--content-tertiary);
+  font-weight: 500;
+}
+.cast-handle__suffix {
+  color: var(--content-tertiary);
+  user-select: none;
+}
+
+/* Handoff screen — transition to chat sandbox */
+.cast-handoff {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 24px;
+}
+.cast-handoff__heading {
+  margin: 0;
+  font-family: "Instrument Serif", var(--font-serif), serif;
+  font-size: clamp(1.4rem, 0.8rem + 1.6vw, 2.2rem);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--content-default);
+  text-align: center;
+  max-width: 380px;
+  line-height: 1.3;
+}
+.cast-handoff__tasks {
+  list-style: none;
+  margin: 28px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 340px;
+}
+.cast-handoff__task {
+  padding: 14px 18px;
+  border-radius: var(--radius-xl);
+  background: var(--surface-hover);
+  border: 1px solid var(--border-subtle);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--content-default);
+  text-align: center;
+}
+.cast-handoff__cta {
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--content-secondary);
+  font-size: 15px;
+  font-weight: 600;
+  padding: 12px 0;
+  margin-top: 18px;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+.cast-handoff__cta:hover {
+  color: var(--content-default);
 }
 
 /* Standalone This/That page — completion panel. */
