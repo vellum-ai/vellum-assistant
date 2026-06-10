@@ -499,7 +499,19 @@ export function ProviderCreateForm({
     return (
       <div className="space-y-4">
         {body}
-        <div className="flex justify-end gap-2">{footer}</div>
+        <div className="flex gap-2">
+          <Button
+            variant="primary"
+            size="compact"
+            disabled={!canSave || saving || isSavingKey}
+            onClick={() => void handleSave()}
+          >
+            {saving ? "Saving…" : "Create"}
+          </Button>
+          <Button variant="ghost" size="compact" onClick={onCancel}>
+            Cancel
+          </Button>
+        </div>
       </div>
     );
   }

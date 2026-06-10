@@ -744,7 +744,7 @@ function ProfileEditorModalInner({
       )}
 
       {creatingProvider ? (
-        <div className="rounded-lg border border-[var(--border-active)] p-4">
+        <div className="rounded-xl border border-[var(--border-base)] p-4">
           <div className="mb-4">
             <Typography variant="body-medium-default" as="p" className="text-[var(--content-default)]">
               Create New Provider
