@@ -3,6 +3,7 @@ import * as Sentry from "@sentry/node";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import { recordEstimate } from "../context/estimator-calibration.js";
 import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import {
   estimatePromptTokensRaw,
@@ -11,6 +12,7 @@ import {
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
+import { parseActualTokensFromError } from "../daemon/parse-actual-tokens-from-error.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
 import { HOOKS } from "../plugin-api/constants.js";
@@ -35,6 +37,7 @@ import type {
   ToolDefinition,
   ToolResultContent,
 } from "../providers/types.js";
+import { isContextOverflowError } from "../providers/types.js";
 import type { SensitiveOutputBinding } from "../tools/sensitive-output-placeholders.js";
 import {
   applyStreamingSubstitution,
@@ -53,6 +56,15 @@ const MID_LOOP_YIELD_THRESHOLD_RATIO = 0.85;
 /** In-context message count above which the budget gate raises the safety-margin floor. */
 const LONG_HISTORY_MESSAGE_THRESHOLD = 50;
 const LONG_HISTORY_SAFETY_MARGIN_FLOOR = 0.15;
+
+/**
+ * Consecutive context-overflow rejections the loop recovers from in place
+ * before letting the error propagate. Each recovery calibrates the estimator
+ * from the provider's real token count and re-fires the budget gate, which
+ * compacts before the next call; the cap stops an unbounded
+ * reject → compact → reject cycle when compaction cannot get under the limit.
+ */
+const MAX_REACTIVE_OVERFLOW_RETRIES = 2;
 
 export interface AgentLoopConfig {
   maxTokens: number;
@@ -805,6 +817,14 @@ export class AgentLoop {
     // prior post-call placement, plus the first call when
     // `compactInPlace` is set (the primary run's turn-start compaction).
     let budgetGateArmed = compactInPlace;
+    // Raw pre-send estimate for the most recent provider call, captured so the
+    // overflow catch can calibrate the estimator against the provider's actual
+    // token count. Reset to the success path's value on every call.
+    let lastPreSendEstimatedTokens = 0;
+    // Consecutive context-overflow rejections recovered in place this run,
+    // reset after any successful provider call. Bounded by
+    // MAX_REACTIVE_OVERFLOW_RETRIES.
+    let reactiveOverflowRetries = 0;
     const rlog = requestId ? log.child({ requestId }) : log;
 
     // Resolve the inference-profile override that applies right now. The
@@ -1078,6 +1098,7 @@ export class AgentLoop {
             toolTokenBudget,
           },
         );
+        lastPreSendEstimatedTokens = preSendEstimatedTokens;
         rlog.info({ turn: toolUseTurns }, "LLM call start");
 
         // Sanitize the outbound history right before sending: drop accumulated
@@ -1245,6 +1266,10 @@ export class AgentLoop {
           }
           throw llmCallError;
         }
+
+        // The call fit — clear the reactive-overflow budget so a later
+        // independent overflow this run gets its own recovery attempts.
+        reactiveOverflowRetries = 0;
 
         const providerDurationMs = Date.now() - providerStart;
 
@@ -1716,6 +1741,42 @@ export class AgentLoop {
           await emitExit("aborted_via_error");
           break;
         }
+
+        // Reactive context-overflow recovery. The provider rejected the call
+        // because the prompt exceeded its window — ground truth the estimator
+        // under-counted. Fold the provider's actual token count into the
+        // per-provider calibration so the next iteration's budget gate sees a
+        // corrected (higher) estimate, crosses its threshold, and compacts in
+        // place before re-issuing the call. Bounded so an overflow that
+        // compaction cannot resolve falls through to the error path below
+        // instead of looping forever.
+        if (isContextOverflowError(error)) {
+          const actualTokens = parseActualTokensFromError(error);
+          if (
+            actualTokens !== null &&
+            reactiveOverflowRetries < MAX_REACTIVE_OVERFLOW_RETRIES
+          ) {
+            reactiveOverflowRetries++;
+            recordEstimate(
+              getCalibrationProviderKey(this.provider),
+              "",
+              lastPreSendEstimatedTokens,
+              actualTokens,
+            );
+            budgetGateArmed = true;
+            rlog.warn(
+              {
+                turn: toolUseTurns,
+                attempt: reactiveOverflowRetries,
+                estimated: lastPreSendEstimatedTokens,
+                actualTokens,
+              },
+              "Context too large — calibrated estimator and re-running to compact",
+            );
+            continue;
+          }
+        }
+
         const err = error instanceof Error ? error : new Error(String(error));
         rlog.error(
           { err, turn: toolUseTurns, messageCount: history.length },

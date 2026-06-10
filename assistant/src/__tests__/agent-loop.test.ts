@@ -14,6 +14,7 @@ import type {
   ProviderResponse,
   ToolDefinition,
 } from "../providers/types.js";
+import { ContextOverflowError } from "../providers/types.js";
 import {
   createMockProvider,
   textResponse,
@@ -309,6 +310,106 @@ describe("AgentLoop", () => {
     expect(
       (errorEvents[0] as { type: "error"; error: Error }).error.message,
     ).toBe("API rate limit exceeded");
+  });
+
+  // 5b. Reactive context-overflow recovery
+  test("recovers from a context-overflow rejection by re-running the call", async () => {
+    /**
+     * The provider rejects the first call with `context_too_large`; the loop
+     * should calibrate the estimator from the error and re-run instead of
+     * surfacing an error, succeeding on the retry.
+     */
+
+    // GIVEN a provider that rejects the first call as too large, then succeeds
+    const { provider, calls } = createMockProvider([
+      new ContextOverflowError("prompt is too long", "mock", {
+        actualTokens: 250_000,
+      }),
+      textResponse("recovered"),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+    const events: AgentEvent[] = [];
+
+    // WHEN the loop runs
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the call was retried and the recovery response landed in history
+    expect(calls).toHaveLength(2);
+    expect(history).toHaveLength(2);
+    expect(history[1].content).toEqual([{ type: "text", text: "recovered" }]);
+
+    // AND no error event was emitted — the overflow was handled in-loop
+    expect(events.filter((e) => e.type === "error")).toHaveLength(0);
+  });
+
+  test("surfaces the overflow error after exhausting reactive retries", async () => {
+    /**
+     * When every re-run still overflows, the loop must stop retrying after a
+     * bounded number of attempts and surface the error rather than looping
+     * forever.
+     */
+
+    // GIVEN a provider that rejects every call as too large
+    const { provider, calls } = createMockProvider([
+      new ContextOverflowError("prompt is too long", "mock", {
+        actualTokens: 250_000,
+      }),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+    const events: AgentEvent[] = [];
+
+    // WHEN the loop runs
+    await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN it tried the initial call plus the bounded retries, then gave up
+    expect(calls).toHaveLength(3);
+    expect(events.filter((e) => e.type === "error")).toHaveLength(1);
+  });
+
+  test("does not retry an overflow with no recoverable token count", async () => {
+    /**
+     * Without a parseable actual-token count there is nothing to calibrate
+     * against, so the loop surfaces the error immediately instead of
+     * re-running blindly.
+     */
+
+    // GIVEN an overflow error carrying neither a typed count nor a parseable one
+    const { provider, calls } = createMockProvider([
+      new ContextOverflowError("context window exceeded", "mock"),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+    const events: AgentEvent[] = [];
+
+    // WHEN the loop runs
+    await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN it surfaced the error on the first call without retrying
+    expect(calls).toHaveLength(1);
+    expect(events.filter((e) => e.type === "error")).toHaveLength(1);
   });
 
   // 6. Abort signal — verify the loop respects AbortSignal
