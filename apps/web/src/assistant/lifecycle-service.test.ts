@@ -206,9 +206,51 @@ describe("lifecycleService — server state projection", () => {
     expect(
       useResolvedAssistantsStore.getState().activeAssistantId,
     ).toBe("asst-local-1");
+    expect(
+      useAssistantLifecycleStore.getState().operationalStatusAssistantId,
+    ).toBeNull();
     expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
       "self_hosted",
     );
+  });
+
+  test("self_hosted result clears a previously published operational-status polling id", async () => {
+    getAssistantMock
+      .mockImplementationOnce(async () => ({
+        ok: true,
+        status: 200,
+        data: {
+          id: "asst-1",
+          status: "active",
+          is_local: false,
+          maintenance_mode: { enabled: false },
+        },
+      }))
+      .mockImplementationOnce(async () => ({
+        ok: true,
+        status: 200,
+        data: {
+          id: "asst-local-1",
+          status: "active",
+          is_local: true,
+          ingress_url: "https://gateway.example/path",
+          platform_actor_token: "tok",
+        },
+      }));
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+
+    await lifecycleService.checkAssistant();
+    expect(
+      useAssistantLifecycleStore.getState().operationalStatusAssistantId,
+    ).toBe("asst-1");
+
+    await lifecycleService.checkAssistant();
+    expect(
+      useAssistantLifecycleStore.getState().operationalStatusAssistantId,
+    ).toBeNull();
   });
 });
 describe("lifecycleService — bootstrap branches", () => {

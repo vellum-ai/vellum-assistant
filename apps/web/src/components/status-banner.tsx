@@ -109,6 +109,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const operationalStatusAssistantId =
     useAssistantLifecycleStore.use.operationalStatusAssistantId();
+  const assistantState = useAssistantLifecycleStore.use.assistantState();
   const assistantId = operationalStatusAssistantId ?? activeAssistantId;
   const statusQuery = useAssistantOperationalStatus(assistantId);
 
@@ -146,6 +147,17 @@ function useAssistantBannerConfig(): BannerConfig | null {
       tone: "error",
       title: "Assistant status is unavailable",
     };
+  }
+
+  // When the lifecycle already reports maintenance mode, the actionable
+  // Recovery Mode card (`MaintenanceModeBanner` in composer-notices) is
+  // the single maintenance surface — don't stack a second notice on it.
+  if (
+    statusQuery.data?.state === "maintenance_mode" &&
+    assistantState.kind === "active" &&
+    assistantState.maintenanceMode?.enabled === true
+  ) {
+    return null;
   }
 
   return operationalStatusBannerConfig(statusQuery.data);
