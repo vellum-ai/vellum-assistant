@@ -34,6 +34,27 @@ export interface TelemetryEventBase {
   assistant_version: string | null;
 }
 
+/**
+ * Base for telemetry events that occur in the context of a model call.
+ * Standardizes model attribution across event types — field names/shapes
+ * mirror the existing llm_usage event so downstream consumers (dbt, admin
+ * charts) can join/group consistently.
+ *
+ * `provider`/`model` are nullable on the wire because rows persisted before
+ * the attribution columns existed, and rows whose attribution resolution
+ * failed, must still ship; the platform serializer accepts null.
+ */
+export interface ModelTelemetryEventBase extends TelemetryEventBase {
+  /** Provider serving the call, e.g. "anthropic", "fireworks". */
+  provider: string | null;
+  /** Model id active for the call, e.g. "claude-fable-5". */
+  model: string | null;
+  /** Inference profile slug. Null when no profile applied. */
+  inference_profile: string | null;
+  /** How the profile was attributed (same enum as llm_usage). */
+  inference_profile_source: UsageAttributionProfileSource | null;
+}
+
 /** LLM usage event — one per provider API call. */
 export interface LlmUsageTelemetryEvent extends TelemetryEventBase {
   type: "llm_usage";
@@ -225,10 +246,48 @@ export interface AuthFallbackTelemetryEvent extends TelemetryEventBase {
   window_end: number;
 }
 
+/**
+ * Tool-executed event — one per tool invocation. Carries NO tool
+ * args/inputs or result contents (customer PII per ToS) — payload sizes
+ * and metadata only; no raw error messages. Identity/attribution come
+ * from the upload envelope per the per-event-wins contract. Distinct
+ * from the `tool_execution` permission-audit event, which it
+ * complements, not replaces.
+ */
+export interface ToolExecutedTelemetryEvent extends ModelTelemetryEventBase {
+  type: "tool_executed";
+  tool_name: string;
+  status: "fulfilled" | "errored";
+  duration_ms: number;
+  /** Serialized tool-argument size in bytes. Null when unknown. */
+  arg_bytes: number | null;
+  /** Serialized tool-result size in bytes. Null when unknown. */
+  result_bytes: number | null;
+  conversation_id: string | null;
+}
+
+/**
+ * Skill-loaded event — one per skill load. Emitted only for
+ * Vellum-produced skills (bundled, or managed with vellum origin).
+ * Metadata only — no skill output or conversation content.
+ */
+export interface SkillLoadedTelemetryEvent extends ModelTelemetryEventBase {
+  type: "skill_loaded";
+  skill_name: string;
+  /**
+   * ISO 8601 timestamp — the catalog's `updatedAt`, effectively the
+   * skill version. Null when the catalog carries no timestamp.
+   */
+  skill_updated_at: string | null;
+  conversation_id: string | null;
+}
+
 /** Discriminated union of all telemetry event types. */
 export type TelemetryEvent =
   | LlmUsageTelemetryEvent
   | TurnTelemetryEvent
   | LifecycleTelemetryEvent
   | OnboardingTelemetryEvent
-  | AuthFallbackTelemetryEvent;
+  | AuthFallbackTelemetryEvent
+  | ToolExecutedTelemetryEvent
+  | SkillLoadedTelemetryEvent;
