@@ -290,7 +290,7 @@ export function PreChatFlow() {
     : resolveWebSteps({
         paredDown: paredDownPrechat,
         canOfferPriorAssistants,
-        canOfferGoogleStep,
+        canOfferGoogleStep: isPreview ? false : canOfferGoogleStep,
         hasGoogleTool,
         showIOSAppStep,
       });
