@@ -3,10 +3,11 @@
 Workspace tool overrides let the operator replace a core assistant tool (or
 add a brand-new one) by dropping a single file under their
 `<workspaceDir>/tools/` directory. The override survives assistant restarts,
-takes effect during the same startup phase as core tool initialization, is
-hot-reloaded by a filesystem watcher (no restart required after the initial
-boot), and is recoverable: removing the file restores the original core
-behavior.
+takes effect during the same startup phase as core tool initialization,
+and is recoverable: removing the file restores the original core behavior.
+When the `workspace-tools-watcher` feature flag is enabled, overrides are
+also hot-reloaded by a filesystem watcher (no restart required after the
+initial boot).
 
 This page explains the file convention, lifecycle position, and the
 "single canonical source per name" invariant the design is built around.
@@ -139,10 +140,17 @@ DaemonServer.start()
 
 Workspace tools register _after_ core tools and _before_ every other
 extension surface during the initial scan so that every subsequent
-registration sees the workspace tool as already-owned. The filesystem
-watcher then runs for the lifetime of the assistant, picking up
-add/change/delete events on `<workspaceDir>/tools/` and reconciling the
-registry without requiring a restart.
+registration sees the workspace tool as already-owned. The initial scan
+(`loadWorkspaceTools()`) always runs, so workspace tools load from disk
+at every boot regardless of the flag.
+
+The filesystem watcher is gated on the `workspace-tools-watcher` feature
+flag (default off). When enabled, it runs for the lifetime of the
+assistant, picking up add/change/delete events on `<workspaceDir>/tools/`
+and reconciling the registry without requiring a restart. When disabled,
+no watch loop is mounted and live edits to `<workspaceDir>/tools/` take
+effect only on the next daemon restart. The flag is read at startup, so
+toggling it takes effect on restart rather than mid-process.
 
 The watcher debounces per filename stem and reconciles by re-deriving
 the world from disk ("given what's on disk right now for `<stem>.*`,

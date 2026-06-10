@@ -30,7 +30,10 @@
  * ## Lifecycle position
  *
  * Started after the initial `loadWorkspaceTools()` scan completes
- * during daemon startup. Stopped on assistant shutdown alongside the
+ * during daemon startup, gated on the `workspace-tools-watcher` feature
+ * flag — when the flag is off the initial scan still runs but no watch
+ * loop is mounted, so workspace tools load from disk once and live edits
+ * need a restart. Stopped on assistant shutdown alongside the
  * other long-lived watchers. Stoppage during shutdown does not
  * unregister tools — those go away with the process; the watcher's
  * only job is to keep the registry fresh while the assistant is up.
@@ -38,6 +41,8 @@
 
 import { existsSync, type FSWatcher, watch } from "node:fs";
 
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { getConfig } from "../config/loader.js";
 import {
   getCoreToolOverride,
   getTool,
@@ -56,6 +61,15 @@ import { getLogger } from "../util/logger.js";
 import { getWorkspaceToolsDir } from "../util/platform.js";
 
 const log = getLogger("workspace-tools-watcher");
+
+/**
+ * Gates the dynamic hot-reload path. When disabled, workspace tools still
+ * load from disk once at daemon startup via {@link loadWorkspaceTools}; only
+ * the live watch → re-registration loop is suppressed. Read at its point of
+ * use in {@link WorkspaceToolsWatcher.start} so a daemon restart picks up a
+ * changed value.
+ */
+const WORKSPACE_TOOLS_WATCHER_FLAG = "workspace-tools-watcher" as const;
 
 /**
  * Wait this long after the last fs event for a given stem before
@@ -85,6 +99,11 @@ export class WorkspaceToolsWatcher {
     WorkspaceToolsWatcher.singleton = null;
   }
 
+  /** Test-only — whether a live `fs.watch` loop is currently mounted. */
+  isWatchingForTests(): boolean {
+    return this.watcher !== null;
+  }
+
   private watcher: FSWatcher | null = null;
   private debouncer = new DebouncerMap({
     defaultDelayMs: RECONCILE_DEBOUNCE_MS,
@@ -103,6 +122,14 @@ export class WorkspaceToolsWatcher {
 
   start(): void {
     if (this.watcher) return;
+    if (
+      !isAssistantFeatureFlagEnabled(WORKSPACE_TOOLS_WATCHER_FLAG, getConfig())
+    ) {
+      log.debug(
+        "Workspace tools watcher disabled by feature flag; workspace tools load from disk at startup only (restart required to pick up edits)",
+      );
+      return;
+    }
     const toolsDir = getWorkspaceToolsDir();
     if (!existsSync(toolsDir)) {
       log.debug(
