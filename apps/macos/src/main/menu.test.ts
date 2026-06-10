@@ -9,6 +9,7 @@ import type { CliPathInstallState } from "./cli-path-installer";
 type TemplateItem = {
   label?: string;
   role?: string;
+  type?: string;
   enabled?: boolean;
   click?: () => void | Promise<void>;
   submenu?: TemplateItem[];
@@ -105,9 +106,11 @@ const runInstallCliCommandFlowMock = mock(async () => {
 const runUninstallCliCommandFlowMock = mock(async () => {
   callOrder.push("uninstall-flow");
 });
+const isCliPathFlowInFlightMock = mock(() => false);
 mock.module("./cli-path-flow", () => ({
   runInstallCliCommandFlow: runInstallCliCommandFlowMock,
   runUninstallCliCommandFlow: runUninstallCliCommandFlowMock,
+  isCliPathFlowInFlight: isCliPathFlowInFlightMock,
 }));
 
 const { installApplicationMenu, refreshCliPathMenuState } = await import(
@@ -152,8 +155,16 @@ beforeEach(async () => {
   buildFromTemplateMock.mockClear();
   setApplicationMenuMock.mockClear();
   getCliPathInstallStateMock.mockClear();
-  runInstallCliCommandFlowMock.mockClear();
-  runUninstallCliCommandFlowMock.mockClear();
+  runInstallCliCommandFlowMock.mockReset();
+  runInstallCliCommandFlowMock.mockImplementation(async () => {
+    callOrder.push("install-flow");
+  });
+  runUninstallCliCommandFlowMock.mockReset();
+  runUninstallCliCommandFlowMock.mockImplementation(async () => {
+    callOrder.push("uninstall-flow");
+  });
+  isCliPathFlowInFlightMock.mockReset();
+  isCliPathFlowInFlightMock.mockImplementation(() => false);
   callOrder.length = 0;
 });
 
@@ -194,6 +205,7 @@ describe("CLI path menu items", () => {
     await setStateAndRefresh({
       kind: "shadowed",
       shadowedBy: "/usr/local/bin/vellum",
+      inPath: true,
     });
     expect(appMenuLabels()).toContain(UNINSTALL_LABEL);
     expect(appMenuLabels()).not.toContain(INSTALL_LABEL);
@@ -214,8 +226,9 @@ describe("CLI path menu items", () => {
     expect(runInstallCliCommandFlowMock).toHaveBeenCalledTimes(1);
     expect(getCliPathInstallStateMock).toHaveBeenCalledTimes(1);
     expect(callOrder).toEqual(["install-flow", "detect"]);
-    // The rebuild reflects the new state: Install flipped to Uninstall.
-    expect(buildFromTemplateMock.mock.calls.length).toBe(buildsBefore + 1);
+    // Two rebuilds: the immediate in-flight render, then the final one
+    // reflecting the new state: Install flipped to Uninstall.
+    expect(buildFromTemplateMock.mock.calls.length).toBe(buildsBefore + 2);
     expect(appMenuLabels()).toContain(UNINSTALL_LABEL);
   });
 
@@ -233,8 +246,54 @@ describe("CLI path menu items", () => {
     expect(runUninstallCliCommandFlowMock).toHaveBeenCalledTimes(1);
     expect(getCliPathInstallStateMock).toHaveBeenCalledTimes(1);
     expect(callOrder).toEqual(["uninstall-flow", "detect"]);
-    expect(buildFromTemplateMock.mock.calls.length).toBe(buildsBefore + 1);
+    expect(buildFromTemplateMock.mock.calls.length).toBe(buildsBefore + 2);
     expect(appMenuLabels()).toContain(INSTALL_LABEL);
+  });
+
+  test("renders the CLI path item disabled while a flow is in flight", async () => {
+    isCliPathFlowInFlightMock.mockReturnValue(true);
+    await setStateAndRefresh({ kind: "not-installed" });
+    expect(appMenuItem(INSTALL_LABEL)?.enabled).toBe(false);
+  });
+
+  test("clicking Install immediately re-renders the item disabled, re-enabling after the flow", async () => {
+    await setStateAndRefresh({ kind: "not-installed" });
+    let release!: () => void;
+    runInstallCliCommandFlowMock.mockImplementation(() => {
+      isCliPathFlowInFlightMock.mockReturnValue(true);
+      return new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    });
+
+    const clicking = appMenuItem(INSTALL_LABEL)?.click?.();
+    // The synchronous re-render shows the item disabled mid-flow.
+    expect(appMenuItem(INSTALL_LABEL)?.enabled).toBe(false);
+
+    isCliPathFlowInFlightMock.mockReturnValue(false);
+    release();
+    await clicking;
+    expect(appMenuItem(INSTALL_LABEL)?.enabled).toBe(true);
+  });
+});
+
+describe("app submenu separators", () => {
+  const hasAdjacentSeparators = (items: TemplateItem[]): boolean =>
+    items.some(
+      (item, i) =>
+        item.type === "separator" && items[i - 1]?.type === "separator",
+    );
+
+  test("no adjacent separators when CLI items are present", async () => {
+    await setStateAndRefresh({ kind: "installed", inPath: true });
+    expect(hasAdjacentSeparators(appSubmenu())).toBe(false);
+  });
+
+  test("no adjacent separators when CLI items are hidden (dev build)", async () => {
+    electronApp.isPackaged = false;
+    await refreshCliPathMenuState();
+    expect(appMenuLabels()).not.toContain(INSTALL_LABEL);
+    expect(hasAdjacentSeparators(appSubmenu())).toBe(false);
   });
 });
 

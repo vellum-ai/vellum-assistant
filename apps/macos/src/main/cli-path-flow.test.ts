@@ -54,9 +54,11 @@ mock.module("./cli-path-installer", () => ({
   getWrapperDir: () => "/Users/test/.local/bin",
 }));
 
-const { runInstallCliCommandFlow, runUninstallCliCommandFlow } = await import(
-  "./cli-path-flow"
-);
+const {
+  runInstallCliCommandFlow,
+  runUninstallCliCommandFlow,
+  isCliPathFlowInFlight,
+} = await import("./cli-path-flow");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -261,5 +263,51 @@ describe("runUninstallCliCommandFlow", () => {
       "Failed to uninstall vellum command",
       "eperm",
     );
+  });
+});
+
+describe("flow re-entrancy guard", () => {
+  // Parks the install flow at the (unbounded) CLI download step.
+  const parkInstallFlow = () => {
+    let release!: () => void;
+    ensureCliInstalledMock.mockImplementation(
+      () => new Promise<void>((resolve) => { release = resolve; }),
+    );
+    const flow = runInstallCliCommandFlow();
+    return { flow, release: () => release() };
+  };
+
+  test("a second install invocation during an in-flight flow is a no-op", async () => {
+    const { flow, release } = parkInstallFlow();
+    expect(isCliPathFlowInFlight()).toBe(true);
+
+    await runInstallCliCommandFlow();
+    expect(installWrapperMock).toHaveBeenCalledTimes(1);
+
+    release();
+    await flow;
+    expect(isCliPathFlowInFlight()).toBe(false);
+    expect(installWrapperMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("uninstall is blocked while an install flow is in flight (shared guard)", async () => {
+    const { flow, release } = parkInstallFlow();
+
+    await runUninstallCliCommandFlow();
+    expect(uninstallWrapperMock).not.toHaveBeenCalled();
+    expect(showMessageBoxMock).not.toHaveBeenCalled();
+
+    release();
+    await flow;
+  });
+
+  test("the guard is released after a failing flow", async () => {
+    ensureCliInstalledMock.mockRejectedValue(new Error("offline"));
+    await runInstallCliCommandFlow();
+    expect(isCliPathFlowInFlight()).toBe(false);
+
+    ensureCliInstalledMock.mockResolvedValue(undefined);
+    await runInstallCliCommandFlow();
+    expect(installWrapperMock).toHaveBeenCalledTimes(2);
   });
 });

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { openAboutWindow } from "./about";
 import { checkForUpdates } from "./auto-update";
 import {
+  isCliPathFlowInFlight,
   runInstallCliCommandFlow,
   runUninstallCliCommandFlow,
 } from "./cli-path-flow";
@@ -55,8 +56,12 @@ const cliPathFlowItem = (
   flow: () => Promise<void>,
 ): MenuItemConstructorOptions => ({
   label,
+  enabled: !isCliPathFlowInFlight(),
   click: async () => {
-    await flow();
+    const flowDone = flow();
+    // Re-render immediately so the item is disabled while the flow runs.
+    applyMenu();
+    await flowDone;
     await refreshCliPathMenuState();
   },
 });
@@ -108,6 +113,7 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
   const isDev = !app.isPackaged;
   const chromeDevToolsEnabled = areChromeDevToolsEnabled();
   const developerMenuEnabled = isDeveloperMenuEnabled();
+  const cliItems = cliPathItems();
 
   const fileItem = (
     label: string,
@@ -146,8 +152,8 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
           click: () => dispatchMenuCommand({ kind: "openSettings" }),
         },
         { type: "separator" },
-        ...cliPathItems(),
-        { type: "separator" },
+        ...cliItems,
+        ...(cliItems.length > 0 ? [{ type: "separator" as const }] : []),
         { role: "services" },
         { type: "separator" },
         {
@@ -321,9 +327,7 @@ export const installApplicationMenu = (): void => {
   applyMenu();
 
   // Detect the vellum CLI install state asynchronously so menu setup never
-  // waits on (or breaks from) login-shell PATH resolution. Packaged-only:
-  // dev builds neither show the items nor spawn the detection shell.
-  if (app.isPackaged) {
-    void refreshCliPathMenuState();
-  }
+  // waits on (or breaks from) login-shell PATH resolution; packaged-only
+  // gating lives inside refreshCliPathMenuState.
+  void refreshCliPathMenuState();
 };

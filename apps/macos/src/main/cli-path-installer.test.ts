@@ -57,6 +57,7 @@ const enoent = () => {
 mock.module("node:fs", () => ({
   // Used by the cli-installer and shell-path modules evaluated as deps.
   accessSync: () => {},
+  statSync: () => ({ isFile: () => true }),
   constants: { X_OK: 1 },
   copyFileSync: () => {},
   existsSync: () => false,
@@ -94,9 +95,9 @@ mock.module("node:fs", () => ({
   },
 }));
 
-// Controlled per-test; reset in afterEach.
-let shellPathValue = "";
-let shellPathReliable = true;
+// Controlled per-test; reset in afterEach. Null mirrors "could not
+// reliably determine the login-shell PATH".
+let shellPathValue: string | null = "";
 let shellPathHits: string[] = [];
 let resolveShellPathCalls = 0;
 const findExecutablesCalls: Array<[string, string]> = [];
@@ -108,7 +109,7 @@ mock.module("./shell-path", () => ({
   ...realShellPath,
   resolveShellPath: async () => {
     resolveShellPathCalls += 1;
-    return { path: shellPathValue, reliable: shellPathReliable };
+    return shellPathValue;
   },
   findExecutablesInPath: (name: string, pathValue: string) => {
     findExecutablesCalls.push([name, pathValue]);
@@ -141,7 +142,6 @@ afterEach(() => {
   renameSyncCalls.length = 0;
   rmSyncCalls.length = 0;
   shellPathValue = "";
-  shellPathReliable = true;
   shellPathHits = [];
   resolveShellPathCalls = 0;
   findExecutablesCalls.length = 0;
@@ -433,12 +433,9 @@ describe("getCliPathInstallState", () => {
     });
   });
 
-  test("unreliable fallback PATH degrades to installed/inPath:false without shadow probing", async () => {
+  test("null shell PATH degrades to installed/inPath:false without shadow probing", async () => {
     readFileSyncResult = buildWrapperScript();
-    shellPathReliable = false;
-    // The buildInstallEnv fallback always prepends the wrapper dir and may
-    // contain shadow candidates — none of it is evidence of the real PATH.
-    shellPathValue = `${wrapperDir}:/opt/homebrew/bin:/usr/bin`;
+    shellPathValue = null;
     shellPathHits = ["/opt/homebrew/bin/vellum", wrapperPath];
 
     expect(await getCliPathInstallState()).toEqual({
