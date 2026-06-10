@@ -121,6 +121,24 @@ describe("createResolveToolsCallback — config.tools.exclude", () => {
     ).toEqual(["bash", "file_read"]);
   });
 
+  test("memory.enabled=false hides remember but keeps recall available", () => {
+    const stub: Partial<AssistantConfig> = {
+      memory: { enabled: false } as AssistantConfig["memory"],
+      tools: { exclude: [] },
+    };
+    getConfigSpy = spyOn(configLoader, "getConfig").mockReturnValue(
+      stub as AssistantConfig,
+    );
+    const resolver = createResolveToolsCallback(
+      [def("remember"), def("recall"), def("file_read")],
+      makeCtx(),
+    );
+
+    const names = resolver!([]).map((d) => d.name);
+
+    expect(names).toEqual(["recall", "file_read"]);
+  });
+
   test("excluded tool stays excluded under disk-pressure cleanup mode", () => {
     // `bash` is a cleanup-safe tool and would normally survive cleanup mode;
     // the exclude filter must still suppress it.

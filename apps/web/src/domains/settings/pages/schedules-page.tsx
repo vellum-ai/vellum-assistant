@@ -393,9 +393,6 @@ export function SchedulesPage() {
         onToggleHeartbeat={(enabled) =>
           void systemTasks.handleToggle("heartbeat", enabled)
         }
-        onToggleConsolidation={(enabled) =>
-          void systemTasks.handleToggle("consolidation", enabled)
-        }
       />
 
       {oneTime.length > 0 && (

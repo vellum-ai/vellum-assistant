@@ -78,7 +78,7 @@ const { RecentRunsCard } = await import(
 const { ScheduleRow } = await import(
   "@/domains/settings/components/schedule-row"
 );
-const { SystemTaskRow } = await import(
+const { SystemTaskRow, SystemTasksSection } = await import(
   "@/domains/settings/components/system-tasks-section"
 );
 const { SystemTaskDetailView } = await import(
@@ -536,28 +536,36 @@ describe("system task toggles", () => {
     expect(screen.queryByRole("button", { name: /run now/i })).toBeNull();
   });
 
-  test("toggling a system task pauses automatic runs without restoring Run now", () => {
+  test("consolidation never renders an automatic-run toggle", () => {
     const toggleCalls: boolean[] = [];
 
     render(
-      createElement(SystemTaskRow, {
-        name: "Consolidation",
-        subtitle: "Every 4 hr",
-        enabled: true,
-        nextRunAt: null,
-        lastRunAt: null,
-        usage: readySystemTaskUsage,
-        showToggle: true,
-        onClick: () => {},
-        onToggle: (enabled: boolean) => {
+      createElement(SystemTasksSection, {
+        heartbeatConfig: undefined,
+        consolidationConfig: {
+          available: true,
+          enabled: true,
+          intervalMs: 4 * 60 * 60_000,
+          nextRunAt: null,
+          lastRunAt: null,
+          success: true,
+        },
+        heartbeatUsage: readySystemTaskUsage,
+        consolidationUsage: readySystemTaskUsage,
+        isLoading: false,
+        hasError: false,
+        onRetry: () => {},
+        onSelectHeartbeat: () => {},
+        onSelectConsolidation: () => {},
+        showSystemTaskToggles: true,
+        onToggleHeartbeat: (enabled: boolean) => {
           toggleCalls.push(enabled);
         },
       }),
     );
 
-    fireEvent.click(screen.getByLabelText("Toggle Consolidation"));
-
-    expect(toggleCalls).toEqual([false]);
+    expect(screen.queryByLabelText("Toggle Consolidation")).toBeNull();
+    expect(toggleCalls).toEqual([]);
     expect(screen.queryByRole("button", { name: /run now/i })).toBeNull();
   });
 });

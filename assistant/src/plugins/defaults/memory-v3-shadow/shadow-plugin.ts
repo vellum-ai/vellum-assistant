@@ -386,6 +386,7 @@ export async function observeTurn(
     if (!turn) return null;
 
     const cfg = getConfig();
+    if (cfg.memory.enabled === false) return null;
     const lanes = await getLanes(cfg);
     const v3 = cfg.memory.v3;
     const result = await orchestrate(turn, {
@@ -427,6 +428,8 @@ export async function runShadowObservation(
   conversationId: string,
   turnIndex: number,
 ): Promise<void> {
-  if (!isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, getConfig())) return;
+  const config = getConfig();
+  if (config.memory.enabled === false) return;
+  if (!isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config)) return;
   await observeTurn(conversationId, turnIndex);
 }

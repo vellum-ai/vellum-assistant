@@ -30,7 +30,7 @@ interface SystemTaskRowProps {
   usage: ScheduleRowUsage;
   showToggle: boolean;
   onClick: () => void;
-  onToggle: (enabled: boolean) => void;
+  onToggle?: (enabled: boolean) => void;
 }
 
 export function SystemTaskRow({
@@ -87,7 +87,7 @@ export function SystemTaskRow({
           <ChevronRight className="h-4 w-4 text-[var(--content-tertiary)]" />
         </div>
       </button>
-      {showToggle ? (
+      {showToggle && onToggle ? (
         <Toggle
           checked={enabled}
           onChange={onToggle}
@@ -114,7 +114,6 @@ interface SystemTasksSectionProps {
   onSelectConsolidation: () => void;
   showSystemTaskToggles: boolean;
   onToggleHeartbeat: (enabled: boolean) => void;
-  onToggleConsolidation: (enabled: boolean) => void;
 }
 
 export function SystemTasksSection({
@@ -129,7 +128,6 @@ export function SystemTasksSection({
   onSelectConsolidation,
   showSystemTaskToggles,
   onToggleHeartbeat,
-  onToggleConsolidation,
 }: SystemTasksSectionProps) {
   const showHeartbeat = heartbeatConfig != null;
   const showConsolidation = consolidationConfig?.available === true;
@@ -181,9 +179,8 @@ export function SystemTasksSection({
               nextRunAt={consolidationConfig.nextRunAt}
               lastRunAt={consolidationConfig.lastRunAt}
               usage={consolidationUsage}
-              showToggle={showSystemTaskToggles}
+              showToggle={false}
               onClick={onSelectConsolidation}
-              onToggle={onToggleConsolidation}
             />
           ) : null}
           {hasError ? (
@@ -205,5 +202,3 @@ export function SystemTasksSection({
     </DetailCard>
   );
 }
-
-
