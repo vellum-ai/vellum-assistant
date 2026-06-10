@@ -103,13 +103,19 @@ export interface MoveToGroupTarget {
 
 /**
  * The fixed set of persisted system groups a conversation can be moved to.
+ *
  * Slack is intentionally omitted because it is a derived origin section, not
  * a group arbitrary conversations can join.
+ *
+ * Scheduled and Background are also omitted: the sidebar no longer renders
+ * those sections, so offering them as move targets would let a user move a
+ * conversation into a bucket with no visible section to recover it from — the
+ * row would simply vanish (`groupConversations` still filters those groupIds
+ * out of recents). Conversations classified as scheduled/background by
+ * `getEffectiveGroupId` therefore have no self-target to exclude here.
  */
 const SYSTEM_MOVE_TARGETS: readonly MoveToGroupTarget[] = [
   { id: "system:pinned", name: "Pinned" },
-  { id: "system:scheduled", name: "Scheduled" },
-  { id: "system:background", name: "Background" },
   { id: "system:all", name: "Recents" },
 ];
 

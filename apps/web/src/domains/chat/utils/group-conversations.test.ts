@@ -184,10 +184,10 @@ describe("groupConversations · bucket routing", () => {
     });
 
     expect(getEffectiveGroupId(conversation)).toBe("system:slack");
+    // Scheduled/Background are no longer move targets — those sidebar sections
+    // were removed, so moving a row there would hide it with no way back.
     expect(buildMoveToGroupTargets(conversation).map((g) => g.id)).toEqual([
       "system:pinned",
-      "system:scheduled",
-      "system:background",
       "system:all",
     ]);
   });
