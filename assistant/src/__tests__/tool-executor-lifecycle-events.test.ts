@@ -597,6 +597,61 @@ describe("ToolExecutor lifecycle events", () => {
     expect(errorEvent.attribution).toBeNull();
   });
 
+  test("stamps attribution on pre-execution gate error events (unknown tool)", async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    const result = await executor.execute(
+      "unknown_tool",
+      { test: true },
+      makeContext(events, { attribution: testAttribution }),
+    );
+
+    expect(result.isError).toBe(true);
+    const errorEvent = events.find((event) => event.type === "error");
+    if (errorEvent?.type !== "error") throw new Error("Expected error event");
+    expect(errorEvent.errorMessage).toContain("Unknown tool: unknown_tool");
+    expect(errorEvent.attribution).toEqual(testAttribution);
+  });
+
+  test("missing attribution yields null on pre-execution gate error events", async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    const result = await executor.execute(
+      "unknown_tool",
+      { test: true },
+      makeContext(events),
+    );
+
+    expect(result.isError).toBe(true);
+    const errorEvent = events.find((event) => event.type === "error");
+    if (errorEvent?.type !== "error") throw new Error("Expected error event");
+    expect(errorEvent.attribution).toBeNull();
+  });
+
+  test("stamps attribution on the aborted pre-execution gate error event", async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await executor.execute(
+      "file_read",
+      { path: "README.md" },
+      makeContext(events, {
+        attribution: testAttribution,
+        signal: controller.signal,
+      }),
+    );
+
+    expect(result).toEqual({ content: "Cancelled", isError: true });
+    const errorEvent = events.find((event) => event.type === "error");
+    if (errorEvent?.type !== "error") throw new Error("Expected error event");
+    expect(errorEvent.errorMessage).toBe("Cancelled");
+    expect(errorEvent.attribution).toEqual(testAttribution);
+  });
+
   test("skill tool with sandbox execution_target resolves to sandbox executionTarget", async () => {
     const events: ToolLifecycleEvent[] = [];
     const executor = new ToolExecutor(makePrompter());
