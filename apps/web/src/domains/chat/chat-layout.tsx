@@ -35,12 +35,14 @@ import {
     navigateToConversation,
     navigateToNewConversation,
 } from "@/domains/chat/utils/conversation-navigation";
+import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { haptic } from "@/utils/haptics";
 
 import {
     useConversationGroupsQuery,
     useConversationListQuery,
 } from "@/hooks/conversation-queries";
+import { isElectron } from "@/runtime/is-electron";
 import { openPopoutWindow } from "@/runtime/popout-window";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -493,6 +495,26 @@ export function ChatLayout() {
     [navigate],
   );
 
+  const handleOpenInNewWindow = useCallback(
+    (conversation: Conversation) => {
+      if (isElectron()) {
+        void openPopoutWindow(conversation.conversationId);
+      } else {
+        window.open(routes.conversation(conversation.conversationId), "_blank");
+      }
+    },
+    [],
+  );
+
+  const handleNewConversationInNewWindow = useCallback(() => {
+    const draftId = createDraftConversationId();
+    if (isElectron()) {
+      void openPopoutWindow(draftId);
+    } else {
+      window.open(routes.conversation(draftId), "_blank");
+    }
+  }, []);
+
   const renderSideMenu = (args: SideMenuRenderArgs): ReactNode => (
     <AssistantSideMenu
       assistantId={assistantId ?? ""}
@@ -526,6 +548,8 @@ export function ChatLayout() {
       onDeleteGroup={handleDeleteGroup}
       onMarkAllReadInGroup={handleMarkAllReadInGroup}
       onArchiveAllInGroup={handleArchiveAllInGroup}
+      onOpenInNewWindow={handleOpenInNewWindow}
+      onNewConversationInNewWindow={handleNewConversationInNewWindow}
       onInspect={showLlmInspector ? handleInspectConversation : undefined}
       footerAction={
         <PreferencesMenu

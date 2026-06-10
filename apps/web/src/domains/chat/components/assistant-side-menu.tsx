@@ -4,6 +4,7 @@ import {
     ChevronDown,
     ChevronRight,
     Clock,
+    ExternalLink,
     Hash,
     Layers,
     LayoutGrid,
@@ -62,6 +63,7 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onOpenApp?: (appId: string) => void;
   activeAppId?: string;
   onStartNewConversation?: () => void;
+  onNewConversationInNewWindow?: () => void;
   footerAction?: ReactNode;
   onClose?: () => void;
 
@@ -140,6 +142,7 @@ export function AssistantSideMenu({
   onOpenApp,
   activeAppId,
   onStartNewConversation,
+  onNewConversationInNewWindow,
   footerAction,
   onPinConversation,
   onRenameConversation,
@@ -319,7 +322,7 @@ export function AssistantSideMenu({
 
   // --- Header actions ---
 
-  const headerActions = onStartNewConversation ? (
+  const newConversationButton = onStartNewConversation ? (
     <Button
       variant="ghost"
       size="compact"
@@ -330,6 +333,20 @@ export function AssistantSideMenu({
       onClick={() => { onStartNewConversation(); onClose?.(); }}
     />
   ) : null;
+
+  const headerActions = newConversationButton && onNewConversationInNewWindow ? (
+    <ContextMenu.Root>
+      <ContextMenu.Trigger>{newConversationButton}</ContextMenu.Trigger>
+      <ContextMenu.Content>
+        <ContextMenu.Item
+          leftIcon={<ExternalLink size={14} />}
+          onSelect={onNewConversationInNewWindow}
+        >
+          New Conversation in New Window
+        </ContextMenu.Item>
+      </ContextMenu.Content>
+    </ContextMenu.Root>
+  ) : newConversationButton;
 
   // --- Flat conversation list renderer ---
 
