@@ -13,11 +13,10 @@ let requestedOperationalStatusAssistantId: string | null | undefined;
 let operationalStatusQueryMock: {
   data: { state: string } | null | undefined;
   isError: boolean;
-  refetch: () => void;
+  refetch?: () => void;
 } = {
   data: null,
   isError: false,
-  refetch: () => {},
 };
 let StatusBanner: ComponentType<{ className?: string }>;
 
@@ -62,7 +61,10 @@ mock.module("@/assistant/operational-status", () => ({
     status?.state === "active",
   useAssistantOperationalStatus: (assistantId: string | null) => {
     requestedOperationalStatusAssistantId = assistantId;
-    return operationalStatusQueryMock;
+    return {
+      ...operationalStatusQueryMock,
+      refetch: operationalStatusQueryMock.refetch ?? (() => {}),
+    };
   },
 }));
 
@@ -119,7 +121,6 @@ beforeEach(() => {
   operationalStatusQueryMock = {
     data: null,
     isError: false,
-    refetch: () => {},
   };
 });
 
