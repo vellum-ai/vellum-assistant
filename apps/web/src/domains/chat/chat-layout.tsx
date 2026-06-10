@@ -52,7 +52,7 @@ import type { Conversation } from "@/types/conversation-types";
 import { requestComposerFocus } from "./composer-focus";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
-import { OfflineBanner } from "@/components/offline-banner";
+import { StatusBanner } from "@/components/status-banner";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-palette-orchestrator";
@@ -568,7 +568,7 @@ export function ChatLayout() {
         />
       )}
 
-      {!isPopout && <OfflineBanner />}
+      {!isPopout && <StatusBanner />}
 
       {isMobile ? (
         <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
@@ -644,5 +644,4 @@ export function ChatLayout() {
     </>
   );
 }
-
 

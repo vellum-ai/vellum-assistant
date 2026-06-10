@@ -17,7 +17,7 @@ let operationalStatusQueryMock: {
   data: null,
   isError: false,
 };
-let OfflineBanner: ComponentType<{ className?: string }>;
+let StatusBanner: ComponentType<{ className?: string }>;
 
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => isNativePlatformMock,
@@ -87,7 +87,7 @@ mock.module("@vellumai/design-library/components/button", () => ({
 }));
 
 beforeAll(async () => {
-  ({ OfflineBanner } = await import("@/components/offline-banner"));
+  ({ StatusBanner } = await import("@/components/status-banner"));
 });
 
 
@@ -105,9 +105,9 @@ beforeEach(() => {
   };
 });
 
-describe("OfflineBanner", () => {
+describe("StatusBanner", () => {
   test("renders nothing on web without an operational status", () => {
-    const html = renderToStaticMarkup(<OfflineBanner />);
+    const html = renderToStaticMarkup(<StatusBanner />);
     expect(html).toBe("");
   });
 
@@ -117,7 +117,7 @@ describe("OfflineBanner", () => {
       isError: false,
     };
 
-    const html = renderToStaticMarkup(<OfflineBanner />);
+    const html = renderToStaticMarkup(<StatusBanner />);
 
     expect(html).toBe("");
   });
@@ -128,7 +128,7 @@ describe("OfflineBanner", () => {
       isError: false,
     };
 
-    const html = renderToStaticMarkup(<OfflineBanner />);
+    const html = renderToStaticMarkup(<StatusBanner />);
 
     expect(html).toContain("Assistant is restarting");
     expect(html).toContain('data-tone="warning"');
@@ -138,7 +138,7 @@ describe("OfflineBanner", () => {
     activeAssistantIdMock = "assistant-active";
     operationalStatusAssistantIdMock = "assistant-operation";
 
-    renderToStaticMarkup(<OfflineBanner />);
+    renderToStaticMarkup(<StatusBanner />);
 
     expect(requestedOperationalStatusAssistantId).toBe("assistant-operation");
   });
@@ -149,7 +149,7 @@ describe("OfflineBanner", () => {
       isError: false,
     };
 
-    const html = renderToStaticMarkup(<OfflineBanner />);
+    const html = renderToStaticMarkup(<StatusBanner />);
 
     expect(html).toContain("Assistant is crash looping");
     expect(html).toContain('data-tone="error"');
@@ -161,7 +161,7 @@ describe("OfflineBanner", () => {
       isError: false,
     };
 
-    const sleepingHtml = renderToStaticMarkup(<OfflineBanner />);
+    const sleepingHtml = renderToStaticMarkup(<StatusBanner />);
 
     expect(sleepingHtml).toContain("Assistant is sleeping");
     expect(sleepingHtml).toContain('data-tone="neutral"');
@@ -171,7 +171,7 @@ describe("OfflineBanner", () => {
       isError: false,
     };
 
-    const maintenanceHtml = renderToStaticMarkup(<OfflineBanner />);
+    const maintenanceHtml = renderToStaticMarkup(<StatusBanner />);
 
     expect(maintenanceHtml).toContain("Assistant is in maintenance mode");
     expect(maintenanceHtml).toContain('data-tone="info"');
@@ -183,7 +183,7 @@ describe("OfflineBanner", () => {
       isError: true,
     };
 
-    const html = renderToStaticMarkup(<OfflineBanner />);
+    const html = renderToStaticMarkup(<StatusBanner />);
 
     expect(html).toContain("Assistant status is unavailable");
     expect(html).toContain('data-tone="error"');
@@ -193,7 +193,7 @@ describe("OfflineBanner", () => {
     test("renders nothing when connected and operational status is healthy", () => {
       isNativePlatformMock = true;
       connectedMock = true;
-      const html = renderToStaticMarkup(<OfflineBanner />);
+      const html = renderToStaticMarkup(<StatusBanner />);
       expect(html).toBe("");
     });
 
@@ -205,7 +205,7 @@ describe("OfflineBanner", () => {
         isError: false,
       };
 
-      const html = renderToStaticMarkup(<OfflineBanner />);
+      const html = renderToStaticMarkup(<StatusBanner />);
 
       expect(html).toContain("offline");
       expect(html).not.toContain("crash looping");
@@ -216,7 +216,7 @@ describe("OfflineBanner", () => {
     test("renders nothing when online and operational status is healthy", () => {
       isElectronMock = true;
       connectivityStateMock = "online";
-      const html = renderToStaticMarkup(<OfflineBanner />);
+      const html = renderToStaticMarkup(<StatusBanner />);
       expect(html).toBe("");
     });
 
@@ -228,7 +228,7 @@ describe("OfflineBanner", () => {
         isError: false,
       };
 
-      const html = renderToStaticMarkup(<OfflineBanner />);
+      const html = renderToStaticMarkup(<StatusBanner />);
 
       expect(html).toContain("offline");
       expect(html).not.toContain("crash looping");
@@ -242,7 +242,7 @@ describe("OfflineBanner", () => {
         isError: false,
       };
 
-      const html = renderToStaticMarkup(<OfflineBanner />);
+      const html = renderToStaticMarkup(<StatusBanner />);
 
       expect(html).toContain("Trying to reach Vellum");
       expect(html).toContain("Retry now");
@@ -252,7 +252,7 @@ describe("OfflineBanner", () => {
     test("does not render backend-unreachable connectivity state outside Electron", () => {
       connectivityStateMock = "backend-unreachable";
 
-      const html = renderToStaticMarkup(<OfflineBanner />);
+      const html = renderToStaticMarkup(<StatusBanner />);
 
       expect(html).toBe("");
     });

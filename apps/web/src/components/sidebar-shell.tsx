@@ -3,7 +3,7 @@ import { type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { Button, Typography } from "@vellumai/design-library";
 
-import { OfflineBanner } from "@/components/offline-banner";
+import { StatusBanner } from "@/components/status-banner";
 import { isElectron } from "@/runtime/is-electron";
 import { routes } from "@/utils/routes";
 
@@ -99,7 +99,7 @@ export function SidebarShell({
         <div className="h-10 w-10 shrink-0" aria-hidden="true" />
       </div>
 
-      <OfflineBanner className="px-0 pt-0" />
+      <StatusBanner className="px-0 pt-0" />
 
       {/* Card chrome — desktop only */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:rounded-[12px] md:border md:border-[var(--border-base)] md:bg-[var(--surface-overlay)]">

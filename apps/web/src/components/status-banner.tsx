@@ -151,7 +151,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
   return operationalStatusBannerConfig(statusQuery.data);
 }
 
-export function OfflineBanner({ className }: { className?: string }) {
+export function StatusBanner({ className }: { className?: string }) {
   const banner = useAssistantBannerConfig();
 
   return banner ? <BannerNotice banner={banner} className={className} /> : null;
