@@ -500,6 +500,10 @@ describe("config loader — built-in inference profile merge", () => {
   });
 
   test("a pure read writes nothing back to config.json", () => {
+    // Off-platform: on-platform loads with embeddings provider=auto write the
+    // managed-Gemini defaults migration, which is orthogonal to the built-in
+    // profile merge under test here.
+    process.env.IS_PLATFORM = "false";
     writeConfig({
       llm: {
         profiles: {
