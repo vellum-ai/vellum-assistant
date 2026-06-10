@@ -1104,23 +1104,6 @@ export class AgentLoop {
         const providerStart = Date.now();
         lastLlmCallTime = providerStart;
 
-        // Compute the pre-send estimate against the full in-memory
-        // history — matching what upstream callers of
-        // `estimatePromptTokens` (preflight, mid-loop checkpoints, the
-        // window manager) see. We use the RAW estimate (before applying
-        // the existing correction) so the calibrator learns the true
-        // bias against provider ground truth instead of ratcheting a
-        // feedback loop against its own corrected output.
-        const toolTokenBudget =
-          currentTools.length > 0 ? estimateToolsTokens(currentTools) : 0;
-        const preSendEstimatedTokens = estimatePromptTokensRaw(
-          history,
-          turnSystemPrompt,
-          {
-            providerName: getCalibrationProviderKey(this.provider),
-            toolTokenBudget,
-          },
-        );
         rlog.info({ turn: toolUseTurns }, "LLM call start");
 
         // Sanitize the outbound history right before sending: stub stale
@@ -1128,6 +1111,31 @@ export class AgentLoop {
         // AX-tree snapshots, and convert historical web-search results to
         // text. See {@link preModelCallSanitize}.
         const providerHistory = preModelCallSanitize(history, conversationDir);
+
+        // Compute the pre-send estimate against the sanitized outbound
+        // history — the exact payload `sendMessage` transmits — so the
+        // calibrator records (estimate, actual) pairs that describe the
+        // same request. The full in-memory history can be far larger than
+        // the outbound projection (stale oversized tool results are
+        // stubbed), and training the process-global EWMA on that gap would
+        // make it underestimate ordinary requests in every conversation.
+        // Upstream estimate sites (preflight, mid-loop checkpoints, the
+        // window manager) still measure the full history and so over-count
+        // by the stub savings — conservative for the overflow gate. We use
+        // the RAW estimate (before applying the existing correction) so
+        // the calibrator learns the true bias against provider ground
+        // truth instead of ratcheting a feedback loop against its own
+        // corrected output.
+        const toolTokenBudget =
+          currentTools.length > 0 ? estimateToolsTokens(currentTools) : 0;
+        const preSendEstimatedTokens = estimatePromptTokensRaw(
+          providerHistory,
+          turnSystemPrompt,
+          {
+            providerName: getCalibrationProviderKey(this.provider),
+            toolTokenBudget,
+          },
+        );
 
         // A `pre-model-call` hook (below) can defer this turn's assistant
         // output; when set, the live text stream is held so an
