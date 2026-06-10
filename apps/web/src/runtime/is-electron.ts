@@ -120,6 +120,36 @@ export type FnPushToTalkResult =
   | { ok: true; enabled: boolean }
   | { ok: false; reason: string };
 
+/**
+ * Renderer-side mirror of `DictationPartialsResult` / `DictationPartialEvent`
+ * in `apps/macos/src/main/hotkey-helper.ts` — inline for the same reason as
+ * `VellumCommand`.
+ */
+export type DictationPartialsResult =
+  | { ok: true; enabled: boolean }
+  | { ok: false; reason: string };
+
+export interface DictationPartialEvent {
+  text: string;
+}
+
+/**
+ * States the system-wide dictation overlay can display, plus the explicit
+ * dismiss message. Renderer-side mirror of `DictationOverlayState` /
+ * `DictationOverlayMessage` in
+ * `apps/macos/src/main/dictation-overlay-window.ts` — inline for the same
+ * reason as `VellumCommand`.
+ */
+export type DictationOverlayState =
+  | { kind: "recording"; transcription: string }
+  | { kind: "processing" }
+  | { kind: "done" }
+  | { kind: "error"; message: string };
+
+export type DictationOverlayMessage =
+  | DictationOverlayState
+  | { kind: "dismiss" };
+
 export type HelperState =
   | { status: "idle" }
   | { status: "starting"; attempt: number }
@@ -279,6 +309,13 @@ declare global {
           fnPushToTalk(enable: boolean): Promise<FnPushToTalkResult>;
           onEvent(callback: (event: HotkeyEvent) => void): () => void;
         };
+        // Optional: older Electron shells predate the dictation channel.
+        dictation?: {
+          setPartials(enable: boolean): Promise<DictationPartialsResult>;
+          onPartial(
+            callback: (event: DictationPartialEvent) => void,
+          ): () => void;
+        };
       };
       commands: {
         on(callback: (command: VellumCommand) => void): () => void;
@@ -381,6 +418,14 @@ declare global {
       quickInput?: {
         submit(message: string): Promise<void>;
         dismiss(): Promise<void>;
+      };
+      // Optional: older Electron shells predate the dictation overlay channel.
+      dictationOverlay?: {
+        setState(state: DictationOverlayMessage): void;
+        onState(
+          callback: (state: DictationOverlayState) => void,
+        ): () => void;
+        getState(): Promise<DictationOverlayState | null>;
       };
       // Optional: older Electron shells predate the notifications channel.
       notifications?: {

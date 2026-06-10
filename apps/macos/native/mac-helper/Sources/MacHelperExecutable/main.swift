@@ -1,8 +1,10 @@
 import AppKit
+import AVFoundation
 import Carbon
 import Darwin
 import Foundation
 import MacHelperCore
+import Speech
 
 private let hotkeySignature = OSType(0x564C_464E) // "VLFN"
 private let fnHotkeyId = EventHotKeyID(signature: hotkeySignature, id: 1)
@@ -54,10 +56,21 @@ private func isFnHotkeyEvent(_ event: EventRef) -> Bool {
 }
 
 final class MacHelper: @unchecked Sendable {
+    /// Whether this process re-exec'd with TCC responsibility disclaimed —
+    /// the precondition for safely prompting for privacy permissions.
+    let isDisclaimed: Bool
     private var hotkeyRef: EventHotKeyRef?
     private var handlerRefs: [EventHandlerRef] = []
     private var isFnDown = false
     private let outputLock = NSLock()
+    private var dictationSession: DictationPartialsSession?
+    // Bumped on every dictation.setPartials so a pending speech-authorization
+    // callback can tell the session it was starting has since been stopped.
+    private var dictationGeneration = 0
+
+    init(isDisclaimed: Bool) {
+        self.isDisclaimed = isDisclaimed
+    }
 
     private lazy var router: JsonRpcRouter = {
         let router = JsonRpcRouter()
@@ -77,6 +90,20 @@ final class MacHelper: @unchecked Sendable {
                 )
             }
             return try self.setFnPushToTalk(enable: enable)
+        }
+        router.register("dictation.setPartials") { [weak self] params in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            guard
+                let object = params as? [String: Any],
+                let enable = object["enable"] as? Bool
+            else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "dictation.setPartials requires enable"
+                )
+            }
+            return self.setDictationPartials(enable: enable)
         }
         return router
     }()
@@ -147,6 +174,100 @@ final class MacHelper: @unchecked Sendable {
 
     private func handleCommand(_ line: String) {
         writeLine(router.handle(line: line))
+    }
+
+    /// Start/stop local speech-recognition partials (`dictation.partial`
+    /// notifications). The renderer enables this for the dictation overlay
+    /// whenever daemon streaming STT is unreachable.
+    private func setDictationPartials(enable: Bool) -> [String: Any] {
+        dictationGeneration += 1
+        dictationSession?.stop()
+        dictationSession = nil
+
+        guard enable else {
+            return ["enabled": false]
+        }
+
+        let speechStatus = SFSpeechRecognizer.authorizationStatus()
+        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+
+        if speechStatus == .authorized, micStatus == .authorized {
+            return startDictationSession()
+        }
+        if speechStatus == .denied || speechStatus == .restricted {
+            return ["enabled": false, "reason": "speech-recognition-denied"]
+        }
+        if micStatus == .denied || micStatus == .restricted {
+            return ["enabled": false, "reason": "microphone-denied"]
+        }
+
+        // A privacy request from a process whose TCC-responsible ancestor
+        // lacks the usage strings is a SIGABRT, not a denial. Only prompt
+        // when this process runs disclaimed (its own embedded Info.plist is
+        // the one TCC consults); otherwise degrade to no partials.
+        guard isDisclaimed else {
+            return ["enabled": false, "reason": "permissions-not-promptable"]
+        }
+
+        // First use: prompt for whichever permissions are undetermined and
+        // start late once granted — the renderer simply receives partials
+        // from that point on.
+        let generation = dictationGeneration
+        requestSpeechIfNeeded { [weak self] speechGranted in
+            guard speechGranted else { return }
+            Self.requestMicIfNeeded { micGranted in
+                guard micGranted else { return }
+                DispatchQueue.main.async {
+                    guard
+                        let self,
+                        generation == self.dictationGeneration
+                    else { return }
+                    _ = self.startDictationSession()
+                }
+            }
+        }
+        return ["enabled": true, "authorizing": true]
+    }
+
+    private func requestSpeechIfNeeded(
+        _ completion: @escaping @Sendable (Bool) -> Void
+    ) {
+        if SFSpeechRecognizer.authorizationStatus() == .authorized {
+            completion(true)
+            return
+        }
+        SFSpeechRecognizer.requestAuthorization { status in
+            completion(status == .authorized)
+        }
+    }
+
+    private static func requestMicIfNeeded(
+        _ completion: @escaping @Sendable (Bool) -> Void
+    ) {
+        if AVCaptureDevice.authorizationStatus(for: .audio) == .authorized {
+            completion(true)
+            return
+        }
+        AVCaptureDevice.requestAccess(for: .audio) { granted in
+            completion(granted)
+        }
+    }
+
+    private func startDictationSession() -> [String: Any] {
+        let session = DictationPartialsSession { [weak self] text in
+            self?.writeNotification(
+                method: "dictation.partial",
+                params: ["text": text]
+            )
+        }
+        do {
+            try session.start()
+            dictationSession = session
+            return ["enabled": true]
+        } catch {
+            log("dictation partials failed to start: \(error.localizedDescription)")
+            return ["enabled": false, "reason": error.localizedDescription]
+        }
     }
 
     private func setFnPushToTalk(enable: Bool) throws -> [String: Any] {
@@ -267,6 +388,9 @@ final class MacHelper: @unchecked Sendable {
     }
 
     private func shutdown() {
+        dictationGeneration += 1
+        dictationSession?.stop()
+        dictationSession = nil
         unregisterFnHotkey()
     }
 
@@ -303,7 +427,8 @@ private enum HelperError: LocalizedError {
     }
 }
 
-let helper = MacHelper()
+let disclaimed = ensureDisclaimedResponsibility()
+let helper = MacHelper(isDisclaimed: disclaimed)
 MainActor.assumeIsolated {
     helper.run()
 }
