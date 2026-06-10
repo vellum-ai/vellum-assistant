@@ -408,7 +408,7 @@ export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>;
 export type Tool = Required<ToolDefinition>;
 
 /** The kind of extension that owns a tool. Core tools have no owner. */
-export type OwnerKind = "skill" | "mcp" | "plugin";
+export type OwnerKind = "skill" | "mcp" | "plugin" | "workspace";
 
 /**
  * Identifies which extension owns a tool (skill / plugin / MCP server).
@@ -417,6 +417,6 @@ export type OwnerKind = "skill" | "mcp" | "plugin";
  */
 export interface OwnerInfo {
   kind: OwnerKind;
-  /** ID of the owning extension (skill id / plugin name / MCP server id). */
+  /** ID of the owning extension (skill id / plugin name / MCP server id / workspace path). */
   id: string;
 }

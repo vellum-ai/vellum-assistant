@@ -8,9 +8,10 @@
  * prompt list — drop every prior injection / repair / overflow rewrite".
  *
  * Mutation-style (returns `void`) by deliberate choice: it exercises the
- * in-place transformation half of {@link PluginHookFn}'s polymorphic
- * return shape (`Promise<TCtx | void>`). A functional implementation
- * would return `{ ...ctx, latestMessages: [...ctx.originalMessages] }`.
+ * in-place transformation half of {@link PluginHookFn}'s return shape
+ * (`Promise<Partial<TCtx> | void>`). A functional implementation would
+ * return just the field it edits — `{ latestMessages: [...ctx.originalMessages] }`
+ * — which the runtime merges onto the threaded context.
  *
  * Convention: default export is the function the harness invokes.
  */

@@ -6,6 +6,7 @@ import type {
   CheckpointInfo,
 } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
+import { REFUSAL_FALLBACK_TEXT } from "../plugins/defaults/empty-response/hooks/stop.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type {
   ContentBlock,
@@ -2229,12 +2230,23 @@ describe("AgentLoop", () => {
     );
     expect(messageCompletes).toHaveLength(2);
 
-    // The last assistant message in history is the empty one
+    // An organic empty `end_turn` (not a refusal) is left as-is — the fallback
+    // is refusal-specific, so the exhausted empty turn stays empty.
     const lastAssistant = [...history]
       .reverse()
       .find((m) => m.role === "assistant");
     expect(lastAssistant).toBeDefined();
     expect(lastAssistant!.content).toEqual([]);
+
+    // AND no fallback text is streamed for a non-refusal empty turn.
+    const textDeltas = events.filter((e) => e.type === "text_delta");
+    expect(
+      textDeltas.some(
+        (e) =>
+          (e as { type: "text_delta"; text: string }).text ===
+          REFUSAL_FALLBACK_TEXT,
+      ),
+    ).toBe(false);
   });
 
   test("does not retry empty response on first turn (no prior tool use)", async () => {
@@ -2261,7 +2273,189 @@ describe("AgentLoop", () => {
 
     // Should NOT retry — this is the first turn with no tool use history
     expect(calls).toHaveLength(1);
-    expect(history).toHaveLength(2); // user + empty assistant
+    // user + assistant; an organic empty `end_turn` is left as-is (the fallback
+    // is refusal-specific), so the empty turn stays empty.
+    expect(history).toHaveLength(2);
+    expect(history[1].content).toEqual([]);
+  });
+
+  // Refusal stop boundary — the provider zeroed the response with
+  // `stopReason: "refusal"`. The default `stop` hook rewrites the empty turn
+  // into a user-facing fallback (no retry — a safety-classifier refusal
+  // re-fires on a re-query), and the loop persists + streams it rather than the
+  // empty assistant bubble the user would otherwise see.
+  test("rewrites a refusal into a user-facing fallback without retrying", async () => {
+    // GIVEN a provider that refuses (empty content, stopReason "refusal").
+    const refusalResponse: ProviderResponse = {
+      content: [],
+      model: "mock-model",
+      usage: { inputTokens: 10, outputTokens: 0 },
+      stopReason: "refusal",
+    };
+    const { provider, calls } = createMockProvider([
+      refusalResponse,
+      refusalResponse,
+    ]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs.
+    const events: AgentEvent[] = [];
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the loop calls the provider once: the refusal is rewritten in place
+    // with no nudge-driven retry.
+    expect(calls).toHaveLength(1);
+
+    // AND the user-visible assistant turn is the fallback, not an empty bubble.
+    const lastAssistant = [...history]
+      .reverse()
+      .find((m) => m.role === "assistant");
+    expect(lastAssistant!.content).toEqual([
+      { type: "text", text: REFUSAL_FALLBACK_TEXT },
+    ]);
+
+    // AND the fallback is streamed so the client renders it.
+    const textDeltas = events.filter((e) => e.type === "text_delta");
+    expect(
+      textDeltas.some(
+        (e) =>
+          (e as { type: "text_delta"; text: string }).text ===
+          REFUSAL_FALLBACK_TEXT,
+      ),
+    ).toBe(true);
+  });
+
+  // The fallback must not pile a spurious apology beneath a real answer: when
+  // an earlier turn this run already produced visible text (text alongside a
+  // tool call), a refusal on the trailing turn after the tool result must not
+  // rewrite the turn even though a refusal would normally trigger it.
+  test("does not substitute a fallback when the run already produced visible text", async () => {
+    // GIVEN a first turn with text + a tool call, then a refusal after the
+    // tool result.
+    const textPlusToolUse: ProviderResponse = {
+      content: [
+        { type: "text", text: "Here is your answer." },
+        {
+          type: "tool_use",
+          id: "t1",
+          name: "read_file",
+          input: { path: "/a" },
+        },
+      ],
+      model: "mock-model",
+      usage: { inputTokens: 10, outputTokens: 5 },
+      stopReason: "tool_use",
+    };
+    const refusalResponse: ProviderResponse = {
+      content: [],
+      model: "mock-model",
+      usage: { inputTokens: 10, outputTokens: 0 },
+      stopReason: "refusal",
+    };
+    const { provider } = createMockProvider([textPlusToolUse, refusalResponse]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor: async () => ({ content: "data", isError: false }),
+    });
+
+    // WHEN the loop runs.
+    const events: AgentEvent[] = [];
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN no fallback text is emitted or persisted — the real answer stands
+    // alone and the trailing empty turn stays empty.
+    const fallbackEmitted = events.some(
+      (e) =>
+        e.type === "text_delta" &&
+        (e as { type: "text_delta"; text: string }).text ===
+          REFUSAL_FALLBACK_TEXT,
+    );
+    expect(fallbackEmitted).toBe(false);
+    const fallbackInHistory = history.some(
+      (m) =>
+        m.role === "assistant" &&
+        m.content.some(
+          (b) =>
+            b.type === "text" &&
+            "text" in b &&
+            (b as { text: string }).text === REFUSAL_FALLBACK_TEXT,
+        ),
+    );
+    expect(fallbackInHistory).toBe(false);
+  });
+
+  // A native web-search turn lands at the stop boundary with no `tool_use` and
+  // no visible text, but with `stopReason: "end_turn"` (not a refusal) and
+  // `server_tool_use`/`web_search_tool_result` blocks that render the search
+  // card. Because the fallback is refusal-specific, it must not fire here and
+  // the server-tool blocks must persist untouched.
+  test("does not substitute a fallback for a server-tool turn with no text", async () => {
+    // GIVEN a turn carrying only native web-search blocks (no text, no
+    // client-side tool_use).
+    const serverToolBlocks: ContentBlock[] = [
+      {
+        type: "server_tool_use",
+        id: "srv1",
+        name: "web_search",
+        input: { query: "weather" },
+      },
+      {
+        type: "web_search_tool_result",
+        tool_use_id: "srv1",
+        content: [{ title: "result" }],
+      },
+    ];
+    const webSearchResponse: ProviderResponse = {
+      content: serverToolBlocks,
+      model: "mock-model",
+      usage: { inputTokens: 10, outputTokens: 5 },
+      stopReason: "end_turn",
+    };
+    const { provider, calls } = createMockProvider([webSearchResponse]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs.
+    const events: AgentEvent[] = [];
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the provider is called once (no nudge for a non-refusal turn) and
+    // the server-tool blocks are persisted untouched, with no fallback added.
+    expect(calls).toHaveLength(1);
+    const lastAssistant = [...history]
+      .reverse()
+      .find((m) => m.role === "assistant");
+    expect(lastAssistant!.content).toEqual(serverToolBlocks);
+
+    const fallbackEmitted = events.some(
+      (e) =>
+        e.type === "text_delta" &&
+        (e as { type: "text_delta"; text: string }).text ===
+          REFUSAL_FALLBACK_TEXT,
+    );
+    expect(fallbackEmitted).toBe(false);
   });
 
   // PR 6: callSite threading from AgentLoop.run() into provider config.

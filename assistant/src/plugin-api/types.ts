@@ -42,11 +42,19 @@ export interface PluginLogger {
 // ─── Hook function ───────────────────────────────────────────────────────────
 
 /**
- * A plugin lifecycle hook. Receives a per-lifecycle context shape and
- * may return either a transformed context or `void`. Today's runtime
- * consumes only the resolved-or-rejected nature of the promise; the
- * `TCtx` return is reserved for hooks that fan a transformed context out
- * to downstream plugins (e.g. `user-prompt-submit`).
+ * A plugin lifecycle hook. Receives a per-lifecycle context shape and may
+ * either mutate `ctx` in place (returning `void`) or return a *partial*
+ * context whose fields are merged onto the threaded context — only the keys
+ * it returns are overwritten, every other field is preserved. Returning a
+ * partial lets a hook edit just the subset of fields it cares about without
+ * having to re-specify the rest. The merged context is threaded to the next
+ * hook in the chain (e.g. `user-prompt-submit`).
+ *
+ * Because an omitted key means "keep the existing value", every field on a
+ * context shape is required (no `?`-optional or `| undefined` members): a
+ * present key always carries a concrete value, so "absent from the returned
+ * partial" is never ambiguous with "explicitly cleared". Fields that can be
+ * empty model that with `| null`, not `| undefined`.
  *
  * Each known hook key has a documented context shape:
  *   - `init` — {@link PluginInitContext}
@@ -57,7 +65,9 @@ export interface PluginLogger {
  *   - `stop` — {@link StopContext}
  *   - `post-model-call` — {@link PostModelCallContext}
  */
-export type PluginHookFn<TCtx = unknown> = (ctx: TCtx) => Promise<TCtx | void>;
+export type PluginHookFn<TCtx = unknown> = (
+  ctx: TCtx,
+) => Promise<Partial<TCtx> | void>;
 
 // ─── Init context ────────────────────────────────────────────────────────────
 
@@ -226,7 +236,7 @@ export interface PostCompactContext {
    * re-applied blocks are attributed to the originating request; it is fixed
    * for the turn and cannot be recovered from the message history.
    */
-  readonly requestId: string | undefined;
+  readonly requestId: string | null;
   /** Conversation ID the turn being compacted is scoped to. */
   readonly conversationId: string;
   /**
@@ -301,9 +311,9 @@ export interface PostToolUseContext {
    * a separate block *after* emitting the tool_result, so it reaches the model
    * without polluting the client-facing or persisted tool output. Mirrors
    * Claude Code's PostToolUse `hookSpecificOutput.additionalContext` and the
-   * singular of Codex's `additional_contexts`. Unset means no extra context.
+   * singular of Codex's `additional_contexts`. `null` means no extra context.
    */
-  additionalContext?: string;
+  additionalContext: string | null;
   /**
    * The model's context-window size in tokens. Plugins derive their own
    * character budget from this (e.g. a share of the window) rather than
@@ -368,13 +378,20 @@ export interface StopContext {
    * Content blocks of the assistant turn that triggered the stop. Guaranteed
    * to contain no `tool_use` blocks — the hook only fires at the boundary
    * where the model stopped requesting tools.
+   *
+   * Writable: a hook may rewrite the turn by assigning new content — e.g. the
+   * default empty-response plugin replaces a provider `refusal` (which zeroes
+   * the response) with a plain-text apology. The loop persists the final value
+   * and streams any text not already emitted live (nothing streams live for a
+   * turn the model left empty), so a rewrite reaches the user. Later hooks in
+   * the chain observe the rewritten content.
    */
-  readonly responseContent: ReadonlyArray<ContentBlock>;
+  responseContent: ReadonlyArray<ContentBlock>;
   /**
    * Provider-reported stop reason for the assistant turn (e.g. `"refusal"`,
-   * `"end_turn"`). `null`/`undefined` when the provider didn't report one.
+   * `"end_turn"`). `null` when the provider didn't report one.
    */
-  readonly stopReason: string | null | undefined;
+  readonly stopReason: string | null;
   /**
    * Seeded to `"stop"`. A hook sets it to `"continue"` to force another loop
    * iteration; later hooks in the chain may override it.
@@ -407,14 +424,14 @@ export interface PreModelCallContext {
   readonly conversationId: string;
   /**
    * The call site this provider call serves — `"mainAgent"` for the user-facing
-   * reply, or a background/utility site. Omitted by call sites that don't tag one.
+   * reply, or a background/utility site. `null` for call sites that don't tag one.
    */
-  readonly callSite?: LLMCallSite;
+  readonly callSite: LLMCallSite | null;
   /**
    * The system prompt about to be sent. A hook may replace it (e.g. strip or
    * append a section); the loop sends the resulting value.
    */
-  systemPrompt: string | undefined;
+  systemPrompt: string | null;
   /**
    * Seeded `false`. When a hook sets it `true`, the loop suppresses this turn's
    * live assistant `text_delta` stream; a `post-model-call` hook is then
@@ -447,15 +464,15 @@ export interface PreModelCallContext {
 export interface PostModelCallContext {
   /** Conversation ID the message belongs to. */
   readonly conversationId: string;
-  /** The call site this message serves — `"mainAgent"` for the user-facing reply. */
-  readonly callSite?: LLMCallSite;
+  /** The call site this message serves — `"mainAgent"` for the user-facing reply; `null` when untagged. */
+  readonly callSite: LLMCallSite | null;
   /**
    * The finalized message content. Mutable — transform the text blocks and leave
    * `tool_use` (and other non-text blocks) intact.
    */
   content: ContentBlock[];
-  /** Provider-reported stop reason for the turn, when reported. */
-  readonly stopReason: string | null | undefined;
+  /** Provider-reported stop reason for the turn; `null` when not reported. */
+  readonly stopReason: string | null;
   /** Logger scoped to the current turn (tag structured fields with `{ plugin }`). */
   readonly logger: PluginLogger;
 }
