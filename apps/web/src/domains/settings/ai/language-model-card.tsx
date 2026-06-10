@@ -121,20 +121,32 @@ export function LanguageModelCard() {
             <label className="block text-body-small-default text-[var(--content-tertiary)]">
               Default Profile
             </label>
-            <Dropdown
-              value={effectiveActiveProfile ?? ""}
-              onChange={(val) => {
-                setDraftActiveProfile(val === "" ? null : val);
-              }}
-              placeholder="Select a default profile…"
-              options={defaultProfilePickerEntries.map((p) => ({
-                value: p.name,
-                label:
-                  p.name === AUTO_PROFILE_NAME
-                    ? "Automatically switch between profiles"
-                    : profilePickerLabel(p),
-              }))}
-            />
+            <div className="flex items-center gap-2">
+              <div className="min-w-0 flex-1">
+                <Dropdown
+                  value={effectiveActiveProfile ?? ""}
+                  onChange={(val) => {
+                    setDraftActiveProfile(val === "" ? null : val);
+                  }}
+                  placeholder="Select a default profile…"
+                  options={defaultProfilePickerEntries.map((p) => ({
+                    value: p.name,
+                    label:
+                      p.name === AUTO_PROFILE_NAME
+                        ? "Automatically switch between profiles"
+                        : profilePickerLabel(p),
+                  }))}
+                />
+              </div>
+              <Button
+                variant="outlined"
+                size="compact"
+                onClick={() => setManageProfilesOpen(true)}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Create
+              </Button>
+            </div>
             {queryComplexityRoutingEnabled && effectiveActiveProfile === AUTO_PROFILE_NAME && (
               <div className="flex items-center gap-2 rounded-lg bg-[var(--surface-warning-subtle)] px-3 py-2">
                 <span className="text-body-small-default text-[var(--content-warning)]">
