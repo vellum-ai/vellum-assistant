@@ -26,8 +26,6 @@ import type {
   LlmContextResponse,
   LLMRequestLogEntry,
 } from "@vellumai/assistant-api";
-
-type ConversationTextBlock = Extract<ConversationContentBlock, { type: "text" }>;
 import { Button } from "@vellumai/design-library";
 
 import { CallRail } from "./components/call-rail";
@@ -445,7 +443,7 @@ function buildMessageScopeOptions(messages: ConversationMessage[]): ScopeOption[
     if (!id || seen.has(id)) continue;
     seen.add(id);
     const firstTextBlock = normalizeContentBlocks(m)?.find(
-      (b): b is ConversationTextBlock => b.type === "text",
+      (b): b is Extract<ConversationContentBlock, { type: "text" }> => b.type === "text",
     );
     const preview = previewContent(firstTextBlock?.text);
     const roleLabel = m.role === "assistant" ? "Assistant" : "User";

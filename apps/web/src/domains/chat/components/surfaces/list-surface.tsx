@@ -70,7 +70,7 @@ export function ListSurface({ surface, onAction }: ListSurfaceProps) {
                   <span
                     className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors ${
                       isSelected
-                        ? "border-forest-600 bg-forest-600 text-white"
+                        ? "border-[var(--primary-base)] bg-[var(--primary-base)] text-[var(--content-inset)]"
                         : "border-[var(--border-element)]"
                     } ${selectionMode === "single" ? "rounded-full" : "rounded"}`}
                   >

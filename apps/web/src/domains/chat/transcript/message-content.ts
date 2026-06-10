@@ -247,7 +247,7 @@ export function resolveThinkingContent(
   ids: string[],
 ): string {
   const thinkingBlocks = message.contentBlocks?.filter(
-    (b): b is ConversationThinkingBlock =>
+    (b): b is Extract<ConversationContentBlock, { type: "thinking" }> =>
       b.type === "thinking",
   );
   return ids
@@ -279,7 +279,7 @@ export function resolveThinkingTiming(
   ids: string[],
 ): ThinkingTiming {
   const thinkingBlocks = message.contentBlocks?.filter(
-    (b): b is ConversationThinkingBlock =>
+    (b): b is Extract<ConversationContentBlock, { type: "thinking" }> =>
       b.type === "thinking",
   );
   if (!thinkingBlocks) return {};
