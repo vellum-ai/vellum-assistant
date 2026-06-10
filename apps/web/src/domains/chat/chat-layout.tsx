@@ -42,6 +42,7 @@ import {
     useConversationGroupsQuery,
     useConversationListQuery,
 } from "@/hooks/conversation-queries";
+import { openCommandPaletteWindow } from "@/runtime/command-palette-window";
 import { openPopoutWindow } from "@/runtime/popout-window";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -420,7 +421,13 @@ export function ChatLayout() {
       void navigate(routes.home);
     },
     commandPalette: () => {
-      useCommandPaletteStore.getState().toggle();
+      void openCommandPaletteWindow()
+        .then((opened) => {
+          if (!opened) useCommandPaletteStore.getState().toggle();
+        })
+        .catch(() => {
+          useCommandPaletteStore.getState().toggle();
+        });
     },
     previousConversation: () => {
       if (!activeConversationId || conversations.length === 0) return;
@@ -644,5 +651,4 @@ export function ChatLayout() {
     </>
   );
 }
-
 

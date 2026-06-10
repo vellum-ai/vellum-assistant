@@ -419,6 +419,13 @@ declare global {
         submit(message: string): Promise<void>;
         dismiss(): Promise<void>;
       };
+      // Optional: older Electron shells predate the standalone command palette
+      // window channel. Fall back to the in-page palette when absent.
+      commandPalette?: {
+        open(): Promise<void>;
+        dismiss(): Promise<void>;
+        select(command: VellumCommand): Promise<void>;
+      };
       // Optional: older Electron shells predate the dictation overlay channel.
       dictationOverlay?: {
         setState(state: DictationOverlayMessage): void;

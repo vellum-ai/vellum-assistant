@@ -30,6 +30,7 @@ import {
 import { handleBundleFile, installBundleFlow } from "./bundle-flow";
 import { handleFileOpen, installFileOpen, onFileOpen } from "./file-open";
 import { installAvatarIpc } from "./avatar";
+import { installCommandPaletteWindow } from "./command-palette-window";
 import { installDictationOverlay } from "./dictation-overlay-window";
 import { installDock } from "./dock";
 import { installEscapeMonitor } from "./escape-monitor";
@@ -326,6 +327,7 @@ app
     installAutoUpdate();
     installFeedbackIpc();
     installTextInsertionIpc();
+    installCommandPaletteWindow();
     installApplicationMenu();
     installQuickInput();
     installDictationOverlay();

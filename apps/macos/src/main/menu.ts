@@ -8,6 +8,7 @@ import {
   dispatchToFocused,
   type VellumCommand,
 } from "./commands";
+import { openCommandPaletteWindow } from "./command-palette-window";
 import { areChromeDevToolsEnabled } from "./devtools";
 import { handle } from "./ipc";
 import { onSettingChange, readSetting } from "./settings";
@@ -26,6 +27,14 @@ const isDeveloperMenuEnabled = (): boolean => {
   return flags?.["developer-menu-items"] === true;
 };
 
+export const dispatchMenuCommand = (command: VellumCommand): void => {
+  if (command.kind === "commandPalette") {
+    openCommandPaletteWindow();
+    return;
+  }
+  dispatchToFocused(command);
+};
+
 const buildTemplate = (): MenuItemConstructorOptions[] => {
   const isDev = !app.isPackaged;
   const chromeDevToolsEnabled = areChromeDevToolsEnabled();
@@ -37,7 +46,7 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
   ): MenuItemConstructorOptions => ({
     label,
     ...acceleratorOption(command.kind),
-    click: () => dispatchToFocused(command),
+    click: () => dispatchMenuCommand(command),
   });
 
   return [
