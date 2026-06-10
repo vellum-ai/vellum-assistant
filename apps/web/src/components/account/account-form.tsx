@@ -49,7 +49,7 @@ export function AccountForm({
         <button
           type="submit"
           disabled={isSubmitting}
-          className="mt-2 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-[var(--primary-base)] px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-[var(--primary-hover)] disabled:cursor-wait disabled:opacity-50"
+          className="mt-2 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-[var(--primary-base)] px-6 py-3 text-sm font-medium text-[var(--content-inset)] transition-colors hover:bg-[var(--primary-hover)] disabled:cursor-wait disabled:opacity-50"
         >
           {isSubmitting ? submittingLabel : submitLabel}
           {ARROW_ICON}

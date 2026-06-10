@@ -62,7 +62,7 @@ export function AccountPage() {
             type="button"
             onClick={() => void handleSignIn()}
             disabled={signingIn}
-            className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-[var(--primary-base)] px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-[var(--primary-hover)] disabled:opacity-50"
+            className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-[var(--primary-base)] px-6 py-3 text-sm font-medium text-[var(--content-inset)] transition-colors hover:bg-[var(--primary-hover)] disabled:opacity-50"
           >
             Sign in
           </button>
@@ -80,7 +80,7 @@ export function AccountPage() {
       <div className="flex flex-col items-center gap-4">
         <Link
           to={routes.assistant}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--primary-base)] px-6 py-3 text-sm font-medium text-white no-underline transition-colors hover:bg-[var(--primary-hover)]"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--primary-base)] px-6 py-3 text-sm font-medium text-[var(--content-inset)] no-underline transition-colors hover:bg-[var(--primary-hover)]"
         >
           Go to your assistant
         </Link>

@@ -304,7 +304,7 @@ function UnitToggle({
         onClick={() => onToggle(true)}
         className={`px-2 py-0.5 text-body-small-default transition-colors ${
           useFahrenheit
-            ? "bg-[var(--primary-base)] text-white"
+            ? "bg-[var(--primary-base)] text-[var(--content-inset)]"
             : "bg-transparent text-[var(--content-quiet)]"
         }`}
       >
@@ -315,7 +315,7 @@ function UnitToggle({
         onClick={() => onToggle(false)}
         className={`px-2 py-0.5 text-body-small-default transition-colors ${
           !useFahrenheit
-            ? "bg-[var(--primary-base)] text-white"
+            ? "bg-[var(--primary-base)] text-[var(--content-inset)]"
             : "bg-transparent text-[var(--content-quiet)]"
         }`}
       >

@@ -168,7 +168,7 @@ function ChatAvatarComponent({
 
   return (
     <motion.div
-      className={`flex items-center justify-center rounded-full bg-[var(--primary-base)] text-white ${className ?? ""}`}
+      className={`flex items-center justify-center rounded-full bg-[var(--primary-base)] text-[var(--content-inset)] ${className ?? ""}`}
       style={{ ...wrapperStyle, fontSize: size * 0.45 }}
       onClick={handleClick}
       initial={initial}
