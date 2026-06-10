@@ -60,6 +60,7 @@ import { installPowerEvents } from "./power-events";
 import { installConnectivityIpc, installStatusIpc } from "./status";
 import { installTextInsertionIpc } from "./textInsertion";
 import { installTray } from "./tray";
+import { installTranscriptionOverlay } from "./transcription-overlay-window";
 import { hardenedWebPreferences } from "./windows";
 
 // Dev-only: override the workspace `name` (`@vellumai/macos`) so the
@@ -331,6 +332,7 @@ app
     installApplicationMenu();
     installQuickInput();
     installDictationOverlay();
+    installTranscriptionOverlay();
     installPopoutWindows();
     installGlobalShortcuts();
     // Register the avatar channel before the Dock and Tray install so their

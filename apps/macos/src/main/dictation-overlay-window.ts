@@ -6,7 +6,7 @@ import { handle, on } from "./ipc";
 
 /**
  * System-wide dictation overlay — a floating, click-through panel pinned
- * top-center of the active display that shows the user's words live while
+ * bottom-center of the active display that shows the user's words live while
  * they dictate via push-to-talk into another app. Matches the native Swift
  * client's `DictationOverlayWindow`: a small pill that expands with partial
  * transcription during recording, then walks the processing → done / error
@@ -24,20 +24,19 @@ import { handle, on } from "./ipc";
  */
 
 const OVERLAY_KIND = "dictation-overlay";
-const OVERLAY_PATH = "/dictation-overlay";
+const OVERLAY_PATH = "/floating/dictation-overlay";
 
 // The window is a fixed-size transparent canvas larger than the visible
-// pill: the page renders the pill top-centered and sized to content, with
+// pill: the page renders the pill bottom-centered and sized to content, with
 // padding so its CSS shadow has room to paint (the window itself draws no
 // shadow — `hasShadow` would outline the invisible canvas rect).
 const OVERLAY_WIDTH = 480;
 const OVERLAY_HEIGHT = 160;
 
 // The page pads the pill by 16 px (`p-4`); offset the window so the pill's
-// top edge lands 20 px below the work-area top — the Swift overlay's
-// position (NSPanel origin `visibleFrame.maxY - 60` for a 40 pt panel).
-const CANVAS_TOP_INSET = 16;
-const PILL_TOP_OFFSET = 20;
+// bottom edge lands 28 px above the work-area bottom.
+const CANVAS_BOTTOM_INSET = 16;
+const PILL_BOTTOM_OFFSET = 28;
 
 /** How long the success state stays up before the overlay hides. */
 export const DONE_HIDE_MS = 800;
@@ -47,7 +46,7 @@ export const ERROR_HIDE_MS = 3000;
 
 /** States the overlay renderer can display. */
 export type DictationOverlayState =
-  | { kind: "recording"; transcription: string }
+  | { kind: "recording"; transcription: string; audioLevel?: number }
   | { kind: "processing" }
   | { kind: "done" }
   | { kind: "error"; message: string };
@@ -58,7 +57,11 @@ export type DictationOverlayMessage =
   | { kind: "dismiss" };
 
 const dictationOverlayMessageSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("recording"), transcription: z.string() }),
+  z.object({
+    kind: z.literal("recording"),
+    transcription: z.string(),
+    audioLevel: z.number().min(0).max(1).optional(),
+  }),
   z.object({ kind: z.literal("processing") }),
   z.object({ kind: z.literal("done") }),
   z.object({ kind: z.literal("error"), message: z.string() }),
@@ -161,14 +164,26 @@ const sendState = (state: DictationOverlayState): void => {
   }
 };
 
+export const positionDictationOverlayInWorkArea = (workArea: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}): { x: number; y: number } => ({
+  x: Math.round(workArea.x + (workArea.width - OVERLAY_WIDTH) / 2),
+  y: Math.round(
+    workArea.y +
+      workArea.height -
+      OVERLAY_HEIGHT -
+      PILL_BOTTOM_OFFSET +
+      CANVAS_BOTTOM_INSET,
+  ),
+});
+
 const overlayPosition = (): { x: number; y: number } => {
   const cursor = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(cursor);
-  const { x, y, width } = display.workArea;
-  return {
-    x: Math.round(x + (width - OVERLAY_WIDTH) / 2),
-    y: Math.round(y + PILL_TOP_OFFSET - CANVAS_TOP_INSET),
-  };
+  return positionDictationOverlayInWorkArea(display.workArea);
 };
 
 const ensureOverlayWindow = (): BrowserWindow => {

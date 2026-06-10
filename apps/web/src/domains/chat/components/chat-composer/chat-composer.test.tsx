@@ -108,12 +108,15 @@ mock.module("@/domains/chat/components/voice-input-button", () => ({
 // (cross-domain `voice` store) to derive its `isVoiceActive` signal. Mock it
 // via `mock.module` (rather than importing the store) so the `chat` test stays
 // free of cross-domain coupling, matching the live-voice mocks above. Only the
-// `.use.phase()` selector is consumed by the composer.
+// `.use.phase()` and `.use.setAudioLevel()` selectors are consumed by the
+// composer.
 let mockVoicePhase = "idle";
+const setAudioLevelSpy = mock((_level: number) => undefined);
 mock.module("@/domains/chat/voice/voice-recording-store", () => ({
   useVoiceRecordingStore: {
     use: {
       phase: () => mockVoicePhase,
+      setAudioLevel: () => setAudioLevelSpy,
     },
   },
 }));
@@ -125,6 +128,7 @@ function resetLiveVoiceMocks() {
   mockLiveFinal = "";
   mockLiveAssistant = "";
   mockVoicePhase = "idle";
+  setAudioLevelSpy.mockClear();
   liveStartSpy.mockClear();
   liveStopSpy.mockClear();
 }
