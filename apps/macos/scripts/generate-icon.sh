@@ -282,6 +282,7 @@ rm -rf "$(dirname "$ICON_BUNDLE_DIR")"
 if [ "$ACTOOL_SUCCESS" = "1" ]; then
     echo "generate-icon: wrote $OUTPUT_DIR/Assets.car ($VELLUM_ENVIRONMENT)"
 else
-    echo "generate-icon: WARNING: actool failed to produce Assets.car; Electron app will use .icns only." >&2
-    echo "generate-icon: actool output: $ACTOOL_OUTPUT" >&2
+    echo "generate-icon: actool failed to produce Assets.car after all attempts:" >&2
+    echo "$ACTOOL_OUTPUT" >&2
+    exit 1
 fi
