@@ -407,6 +407,9 @@ describe("InspectPage — dual-mode chrome", () => {
     // messages" returns to conversation mode.
     expect(html).toContain("Filter to message:");
     expect(html).toContain("All messages");
+    // Even with no message list loaded, the select stays enabled so
+    // "All messages" can always clear the message scope.
+    expect(html).not.toContain('disabled=""');
     expect(html).not.toContain("View all conversation calls");
   });
 

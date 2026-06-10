@@ -397,7 +397,7 @@ function ScopeControls({
           const next = event.target.value;
           navigateToScope(next || null);
         }}
-        disabled={options.length === 0}
+        disabled={options.length === 0 && !messageId}
       >
         <option value="">All messages</option>
         {options.map((opt) => (
