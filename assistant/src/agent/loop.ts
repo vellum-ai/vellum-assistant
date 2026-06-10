@@ -10,6 +10,10 @@ import {
   estimateToolsTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
+import {
+  spoolOversizedToolResults,
+  stubStaleOversizedToolResults,
+} from "../context/tool-result-spool.js";
 import type { InboundActorContext } from "../daemon/conversation-runtime-assembly.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import type { TrustContext } from "../daemon/trust-context.js";
@@ -584,6 +588,14 @@ export interface AgentLoopConstructorOptions {
    * post-compaction re-injection resolve the live conversation through.
    */
   conversationId: string;
+  /**
+   * Resolve the conversation's on-disk directory, used to spool oversized
+   * tool results to `.tool-results/` at result time and stub stale copies
+   * out of outbound requests. Returns `null` while the directory cannot be
+   * resolved (e.g. the conversation row is not yet persisted); the loop then
+   * skips spooling and the post-turn truncation pass covers the turn instead.
+   */
+  resolveConversationDir?: () => string | null;
 }
 
 export class AgentLoop {
@@ -605,6 +617,9 @@ export class AgentLoop {
    */
   private readonly conversationId: string;
 
+  /** See {@link AgentLoopConstructorOptions.resolveConversationDir}. */
+  private readonly resolveConversationDir: (() => string | null) | null;
+
   /**
    * Loop-held compaction circuit breaker. The loop has a 1:1 lifetime with its
    * conversation, so it is the source of truth for the cross-turn failure
@@ -624,6 +639,7 @@ export class AgentLoop {
       resolveTools,
       resolveSystemPrompt,
       conversationId,
+      resolveConversationDir,
     } = options;
     this.provider = provider;
     this.systemPrompt = systemPrompt;
@@ -633,6 +649,7 @@ export class AgentLoop {
     this.resolveSystemPrompt = resolveSystemPrompt ?? null;
     this.toolExecutor = toolExecutor ?? null;
     this.conversationId = conversationId;
+    this.resolveConversationDir = resolveConversationDir ?? null;
     this.compactionCircuit = new CompactionCircuit(this.conversationId);
   }
 
@@ -818,6 +835,19 @@ export class AgentLoop {
     // `compactInPlace` is set (the primary run's turn-start compaction).
     let budgetGateArmed = compactInPlace;
     const rlog = requestId ? log.child({ requestId }) : log;
+
+    // Conversation directory for the tool-result spool/stub pipeline.
+    // Resolved once per run; `null` disables both halves for this run and
+    // the post-turn truncation pass covers the turn instead.
+    let conversationDir: string | null = null;
+    try {
+      conversationDir = this.resolveConversationDir?.() ?? null;
+    } catch (err) {
+      rlog.warn(
+        { err },
+        "Resolving conversation dir for tool-result spooling failed (non-fatal)",
+      );
+    }
 
     // Resolve the inference-profile override that applies right now. The
     // optional resolver lets a turn observe a confirmed mid-turn profile switch
@@ -1093,10 +1123,11 @@ export class AgentLoop {
         );
         rlog.info({ turn: toolUseTurns }, "LLM call start");
 
-        // Sanitize the outbound history right before sending: drop accumulated
-        // media, collapse old AX-tree snapshots, and convert historical
-        // web-search results to text. See {@link preModelCallSanitize}.
-        const providerHistory = preModelCallSanitize(history);
+        // Sanitize the outbound history right before sending: stub stale
+        // oversized tool results, drop accumulated media, collapse old
+        // AX-tree snapshots, and convert historical web-search results to
+        // text. See {@link preModelCallSanitize}.
+        const providerHistory = preModelCallSanitize(history, conversationDir);
 
         // A `pre-model-call` hook (below) can defer this turn's assistant
         // output; when set, the live text stream is held so an
@@ -1618,6 +1649,29 @@ export class AgentLoop {
           }
         }
 
+        // Spool oversized results to `.tool-results/` now — at result time,
+        // not turn end — so the model can read the full content from disk
+        // within this same turn, and later provider calls can swap the inline
+        // copy for a stub (see `stubStaleOversizedToolResults` in
+        // {@link preModelCallSanitize}). The blocks joining history keep
+        // their full content; this only writes the files.
+        if (conversationDir) {
+          const toolNameByUseId = new Map(
+            toolUseBlocks.map((tu) => [tu.id, tu.name]),
+          );
+          try {
+            spoolOversizedToolResults(resultBlocks, {
+              conversationDir,
+              toolNameById: (id) => toolNameByUseId.get(id),
+            });
+          } catch (err) {
+            rlog.warn(
+              { err, turn: toolUseTurns },
+              "Spooling oversized tool results to disk failed (non-fatal)",
+            );
+          }
+        }
+
         // Emit tool_result events AFTER truncation so downstream consumers
         // (e.g. session persistence) receive the truncated content.
         for (const { toolUse, result } of toolResults) {
@@ -1913,6 +1967,11 @@ function stripOldMediaBlocks(history: Message[]): Message[] {
 /**
  * Sanitize the outbound history immediately before a provider call, bundling
  * the pre-send transforms the loop applies to every request:
+ * - {@link stubStaleOversizedToolResults} swaps oversized tool results that
+ *   the model already consumed for stubs pointing at their spooled
+ *   `.tool-results/` files, so large results (e.g. fetched transcripts) are
+ *   paid for once instead of on every loop iteration. Requires
+ *   `conversationDir`; skipped when `null`.
  * - {@link stripOldMediaBlocks} drops accumulated screenshot/audio bytes from
  *   older tool results — the model saw the media on the turn it was captured.
  * - {@link compactAxTreeHistory} collapses all but the most recent few
@@ -1933,8 +1992,14 @@ function stripOldMediaBlocks(history: Message[]): Message[] {
  * context carries the outbound message list; for now it lives inline next to
  * the provider call it guards.
  */
-export function preModelCallSanitize(history: Message[]): Message[] {
-  const mediaStripped = stripOldMediaBlocks(history);
+export function preModelCallSanitize(
+  history: Message[],
+  conversationDir: string | null = null,
+): Message[] {
+  const staleStubbed = conversationDir
+    ? stubStaleOversizedToolResults(history, conversationDir).messages
+    : history;
+  const mediaStripped = stripOldMediaBlocks(staleStubbed);
   const axCompacted = compactAxTreeHistory(mediaStripped);
   return stripHistoricalWebSearchResults(axCompacted).messages;
 }

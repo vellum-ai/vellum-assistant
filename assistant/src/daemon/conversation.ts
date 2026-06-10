@@ -52,6 +52,7 @@ import {
   resolveOverrideProfile,
   setConversationHistoryStrippedAt,
 } from "../memory/conversation-crud.js";
+import { getResolvedConversationDirPath } from "../memory/conversation-directories.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
@@ -627,6 +628,14 @@ export class Conversation {
       toolExecutor: toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
       resolveSystemPrompt: resolveSystemPromptCallback,
+      resolveConversationDir: () => {
+        const conv = getConversation(this.conversationId);
+        if (!conv) return null;
+        return getResolvedConversationDirPath(
+          this.conversationId,
+          conv.createdAt,
+        );
+      },
     });
     createContextWindowManager({
       provider,

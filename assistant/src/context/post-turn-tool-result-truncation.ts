@@ -37,7 +37,7 @@ export const TRUNCATION_EXEMPT_TOOLS = new Set<string>(["skill_load"]);
  * blocks in assistant messages. A tool_result only carries `tool_use_id`, so
  * this is the only way to recover which tool produced a given result.
  */
-function buildToolNameById(messages: Message[]): Map<string, string> {
+export function buildToolNameById(messages: Message[]): Map<string, string> {
   const byId = new Map<string, string>();
   for (const msg of messages) {
     if (msg.role !== "assistant") continue;
