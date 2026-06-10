@@ -515,38 +515,6 @@ describe("ToolExecutor lifecycle events", () => {
     expect(executed.executionTarget).toBe("sandbox");
   });
 
-  test("stamps context.skillId on lifecycle events for skill-routed calls", async () => {
-    const events: ToolLifecycleEvent[] = [];
-    const executor = new ToolExecutor(makePrompter());
-
-    await executor.execute(
-      "skill_sandbox_tool",
-      { query: "test" },
-      makeContext(events, { skillId: "test-skill" }),
-    );
-
-    expect(events.map((event) => event.type)).toEqual(["start", "executed"]);
-    for (const event of events) {
-      expect(event.skillId).toBe("test-skill");
-    }
-  });
-
-  test("leaves skillId unset on lifecycle events for direct tool calls", async () => {
-    const events: ToolLifecycleEvent[] = [];
-    const executor = new ToolExecutor(makePrompter());
-
-    await executor.execute(
-      "file_read",
-      { path: "README.md" },
-      makeContext(events),
-    );
-
-    expect(events.map((event) => event.type)).toEqual(["start", "executed"]);
-    for (const event of events) {
-      expect(event.skillId).toBeUndefined();
-    }
-  });
-
   test("skill tool with sandbox execution_target resolves to sandbox executionTarget", async () => {
     const events: ToolLifecycleEvent[] = [];
     const executor = new ToolExecutor(makePrompter());

@@ -29,6 +29,16 @@ import type { AssistantState } from "./types";
 interface LifecycleState {
   assistantState: AssistantState;
   /**
+   * Assistant id safe to use for platform operational-status polling.
+   *
+   * During hatch / cleanup, the lifecycle service can know the server
+   * assistant id before it is allowed to publish `activeAssistantId`.
+   * Keeping this id here lets chrome-level diagnostics follow those
+   * non-active phases without making feature code treat the assistant
+   * as active early.
+   */
+  operationalStatusAssistantId: string | null;
+  /**
    * Auto-greet one-shot: set when any hatch path completes, cleared
    * on chat-surface exit conditions (first message arrived, 10s
    * safety, conversation switch) or on terminal lifecycle transitions
@@ -47,6 +57,7 @@ interface LifecycleState {
 
 const useAssistantLifecycleStoreBase = create<LifecycleState>(() => ({
   assistantState: { kind: "loading" },
+  operationalStatusAssistantId: null,
   expectingFirstMessage: false,
 }));
 

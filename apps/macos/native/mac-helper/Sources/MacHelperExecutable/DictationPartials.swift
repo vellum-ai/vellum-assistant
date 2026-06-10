@@ -52,10 +52,11 @@ final class DictationPartialsSession: @unchecked Sendable {
         }
 
         request.shouldReportPartialResults = true
-        // This recognizer is the fallback when daemon STT is unreachable —
-        // often because there's no network at all — so prefer the on-device
-        // model whenever it's installed instead of Apple's server-based
-        // recognition, which would fail offline too.
+        // Pin recognition on-device when the locale has a local model:
+        // dictation audio shouldn't leave the machine, and it keeps the
+        // transcript working offline. Locales without an on-device model
+        // stay on Apple's server path — forcing the flag there would fail
+        // recognition outright instead of degrading.
         if recognizer.supportsOnDeviceRecognition {
             request.requiresOnDeviceRecognition = true
         }

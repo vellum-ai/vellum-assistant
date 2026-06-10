@@ -1,5 +1,5 @@
 /**
- * Tests for the default `empty-response` plugin's `stop` hook.
+ * Tests for the default `empty-response` plugin's `post-model-call` hook.
  *
  * Covers:
  * - The default hook's decision for the canonical cases: empty turn after a
@@ -13,12 +13,17 @@
  *   inbound conversation does not suppress the nudge.
  * - When the hook continues, it appends the nudge as a `user` message to
  *   `messages`.
+ * - The hook owns its retry bound: it nudges at most once per run for a
+ *   conversation, and a terminal outcome clears the bound so the next run
+ *   nudges afresh.
+ * - The hook ignores outcomes it does not own: a provider rejection (it carries
+ *   an `error`) and a tool-bearing turn (the loop continues on its own).
  * - End-to-end through `runHook` + the registry: registering the default
  *   plugin makes the hook fire, and a later-registered user hook chains after
  *   it and can read/override the decision.
  *
- * The loop's actual side-effects (retry-budget cap, history splice, log
- * emission) live in `agent/loop.ts` and are covered by integration tests in
+ * The loop's actual side-effects (per-run backstop, history splice, streamed
+ * output) live in `agent/loop.ts` and are covered by integration tests in
  * `conversation-agent-loop.test.ts` / `agent-loop.test.ts`. This file isolates
  * the hook.
  */
@@ -26,12 +31,16 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { HOOKS } from "../plugin-api/constants.js";
-import type { PluginLogger, StopContext } from "../plugin-api/types.js";
+import type {
+  PluginLogger,
+  PostModelCallContext,
+} from "../plugin-api/types.js";
 import {
   NUDGE_TEXT,
   REFUSAL_FALLBACK_TEXT,
-} from "../plugins/defaults/empty-response/hooks/stop.js";
-import stop from "../plugins/defaults/empty-response/hooks/stop.js";
+} from "../plugins/defaults/empty-response/hooks/post-model-call.js";
+import postModelCall from "../plugins/defaults/empty-response/hooks/post-model-call.js";
+import { resetEmptyResponseNudgeStoreForTests } from "../plugins/defaults/empty-response/nudge-state-store.js";
 import { defaultEmptyResponsePlugin } from "../plugins/defaults/index.js";
 import { runHook } from "../plugins/pipeline.js";
 import {
@@ -68,11 +77,14 @@ function userPrompt(text: string): Message {
   return { role: "user", content: [{ type: "text", text }] };
 }
 
-function makeCtx(overrides: Partial<StopContext> = {}): StopContext {
+function makeCtx(
+  overrides: Partial<PostModelCallContext> = {},
+): PostModelCallContext {
   return {
-    conversationId: "conv-stop",
+    conversationId: "conv-pmc",
+    callSite: "mainAgent",
+    content: [],
     messages: [],
-    responseContent: [],
     stopReason: null,
     decision: "stop",
     logger: noopLogger,
@@ -80,19 +92,23 @@ function makeCtx(overrides: Partial<StopContext> = {}): StopContext {
   };
 }
 
+beforeEach(() => {
+  resetEmptyResponseNudgeStoreForTests();
+});
+
 // ─── Default decisions ───────────────────────────────────────────────────────
 
-describe("empty-response stop hook — default decisions", () => {
+describe("empty-response post-model-call hook — default decisions", () => {
   test("empty turn after a prior tool-use turn → continue with canonical nudge", async () => {
     // GIVEN a run that already issued a tool call, then returned an empty
     // (whitespace-only) assistant turn with no visible text.
     const ctx = makeCtx({
       messages: [priorToolUseTurn],
-      responseContent: [emptyTextBlock],
+      content: [emptyTextBlock],
     });
 
-    // WHEN the default stop hook runs.
-    await stop(ctx);
+    // WHEN the default post-model-call hook runs.
+    await postModelCall(ctx);
 
     // THEN it asks the loop to continue and appends the canonical nudge.
     expect(ctx.decision).toBe("continue");
@@ -106,13 +122,29 @@ describe("empty-response stop hook — default decisions", () => {
     // GIVEN a turn that delivered visible text.
     const ctx = makeCtx({
       messages: [priorToolUseTurn],
-      responseContent: [{ type: "text", text: "here is a summary" }],
+      content: [{ type: "text", text: "here is a summary" }],
     });
 
     // WHEN the hook runs.
-    await stop(ctx);
+    await postModelCall(ctx);
 
     // THEN the decision stays at stop and nothing is appended.
+    expect(ctx.decision).toBe("stop");
+    expect(ctx.messages).toEqual([priorToolUseTurn]);
+  });
+
+  test("tool-bearing turn is ignored — no nudge, no rewrite", async () => {
+    // GIVEN a turn that carries a tool call (the loop continues on its own to
+    // run the tool, so the retry decision is not the hook's to make).
+    const ctx = makeCtx({
+      messages: [priorToolUseTurn],
+      content: [{ type: "tool_use", id: "tu_2", name: "read_file", input: {} }],
+    });
+
+    // WHEN the hook runs.
+    await postModelCall(ctx);
+
+    // THEN it leaves the decision and history untouched.
     expect(ctx.decision).toBe("stop");
     expect(ctx.messages).toEqual([priorToolUseTurn]);
   });
@@ -123,11 +155,11 @@ describe("empty-response stop hook — default decisions", () => {
     // verbatim re-send of text the user already saw.
     const ctx = makeCtx({
       messages: [userPrompt("do X"), priorVisibleTextTurn, priorToolUseTurn],
-      responseContent: [],
+      content: [],
     });
 
     // WHEN the hook runs.
-    await stop(ctx);
+    await postModelCall(ctx);
 
     // THEN the decision stays at stop.
     expect(ctx.decision).toBe("stop");
@@ -144,11 +176,11 @@ describe("empty-response stop hook — default decisions", () => {
         userPrompt("do the next thing"),
         priorToolUseTurn,
       ],
-      responseContent: [],
+      content: [],
     });
 
     // WHEN the hook runs.
-    await stop(ctx);
+    await postModelCall(ctx);
 
     // THEN it continues — the cycle scope sees only the tool-use turn, not the
     // inbound conversation's visible text.
@@ -162,10 +194,10 @@ describe("empty-response stop hook — default decisions", () => {
   test("first model call with no prior turn → stop", async () => {
     // GIVEN an empty first assistant response with no prior turn this run and
     // no refusal — not the pattern the organic-empty-turn nudge guards against.
-    const ctx = makeCtx({ messages: [], responseContent: [] });
+    const ctx = makeCtx({ messages: [], content: [] });
 
     // WHEN the hook runs.
-    await stop(ctx);
+    await postModelCall(ctx);
 
     // THEN the decision stays at stop.
     expect(ctx.decision).toBe("stop");
@@ -179,17 +211,17 @@ describe("empty-response stop hook — default decisions", () => {
     // "refusal"` and no visible text.
     const ctx = makeCtx({
       messages: [],
-      responseContent: [],
+      content: [],
       stopReason: "refusal",
     });
 
     // WHEN the hook runs.
-    await stop(ctx);
+    await postModelCall(ctx);
 
     // THEN it lets the turn end and rewrites the turn content to the
     // user-facing fallback, without nudging the model.
     expect(ctx.decision).toBe("stop");
-    expect(ctx.responseContent).toEqual([
+    expect(ctx.content).toEqual([
       { type: "text", text: REFUSAL_FALLBACK_TEXT },
     ]);
     expect(ctx.messages).toEqual([]);
@@ -200,18 +232,16 @@ describe("empty-response stop hook — default decisions", () => {
     // nothing.
     const ctx = makeCtx({
       messages: [],
-      responseContent: [
-        { type: "thinking", thinking: "...", signature: "sig" },
-      ],
+      content: [{ type: "thinking", thinking: "...", signature: "sig" }],
       stopReason: "refusal",
     });
 
     // WHEN the hook runs.
-    await stop(ctx);
+    await postModelCall(ctx);
 
     // THEN it stops and rewrites the turn content to the fallback.
     expect(ctx.decision).toBe("stop");
-    expect(ctx.responseContent).toEqual([
+    expect(ctx.content).toEqual([
       { type: "text", text: REFUSAL_FALLBACK_TEXT },
     ]);
   });
@@ -220,18 +250,16 @@ describe("empty-response stop hook — default decisions", () => {
     // GIVEN a refusal that still delivered some visible text before refusing —
     // the user has something to see.
     const ctx = makeCtx({
-      responseContent: [{ type: "text", text: "partial answer" }],
+      content: [{ type: "text", text: "partial answer" }],
       stopReason: "refusal",
     });
 
     // WHEN the hook runs.
-    await stop(ctx);
+    await postModelCall(ctx);
 
     // THEN the decision stays at stop and the turn content is left untouched.
     expect(ctx.decision).toBe("stop");
-    expect(ctx.responseContent).toEqual([
-      { type: "text", text: "partial answer" },
-    ]);
+    expect(ctx.content).toEqual([{ type: "text", text: "partial answer" }]);
   });
 
   test("refusal after a visible reply this run → stop, no rewrite", async () => {
@@ -240,17 +268,17 @@ describe("empty-response stop hook — default decisions", () => {
     // result. Rewriting here would stack an apology beneath the real answer.
     const ctx = makeCtx({
       messages: [userPrompt("do X"), priorVisibleTextTurn, priorToolUseTurn],
-      responseContent: [],
+      content: [],
       stopReason: "refusal",
     });
 
     // WHEN the hook runs.
-    await stop(ctx);
+    await postModelCall(ctx);
 
     // THEN the refusal is left as-is — no fallback is stacked beneath the
     // earlier reply.
     expect(ctx.decision).toBe("stop");
-    expect(ctx.responseContent).toEqual([]);
+    expect(ctx.content).toEqual([]);
   });
 
   test("refusal beats the post-tool-empty nudge", async () => {
@@ -258,45 +286,137 @@ describe("empty-response stop hook — default decisions", () => {
     // post-tool-empty branch (a prior tool-use turn with no visible text).
     const ctx = makeCtx({
       messages: [priorToolUseTurn],
-      responseContent: [],
+      content: [],
       stopReason: "refusal",
     });
 
     // WHEN the hook runs.
-    await stop(ctx);
+    await postModelCall(ctx);
 
     // THEN refusal wins: the turn content is rewritten to the fallback and the
     // model is not nudged.
     expect(ctx.decision).toBe("stop");
-    expect(ctx.responseContent).toEqual([
+    expect(ctx.content).toEqual([
       { type: "text", text: REFUSAL_FALLBACK_TEXT },
     ]);
     expect(ctx.messages).toEqual([priorToolUseTurn]);
   });
 
-  test("error stop is ignored — no nudge, no rewrite", async () => {
-    // GIVEN an error stop (a provider rejection ended the turn). The shape
-    // otherwise matches the post-tool-empty nudge case, but no response was
-    // produced, so this plugin must defer to the recovery hooks.
+  test("provider rejection is ignored — no nudge, no rewrite", async () => {
+    // GIVEN a rejection outcome (the call threw before any reply existed). The
+    // shape otherwise matches the post-tool-empty nudge case, but no response
+    // was produced, so this plugin defers to the recovery hooks.
     const ctx = makeCtx({
       messages: [priorToolUseTurn],
-      responseContent: [],
+      content: [],
       error: new Error("provider rejected the request"),
     });
 
     // WHEN the hook runs.
-    await stop(ctx);
+    await postModelCall(ctx);
 
     // THEN it leaves the decision and history untouched — empty-response only
-    // acts on a real (successful) model stop.
+    // acts on a finalized (successful) reply.
     expect(ctx.decision).toBe("stop");
     expect(ctx.messages).toEqual([priorToolUseTurn]);
   });
 });
 
+// ─── One-shot retry bound ────────────────────────────────────────────────────
+
+describe("empty-response post-model-call hook — one-shot bound", () => {
+  test("a second empty turn this run is not nudged again", async () => {
+    // GIVEN the hook already nudged once this run for the conversation.
+    const first = makeCtx({
+      conversationId: "conv-bound",
+      messages: [priorToolUseTurn],
+      content: [],
+    });
+    await postModelCall(first);
+    expect(first.decision).toBe("continue");
+
+    // WHEN a second empty-after-tools turn arrives for the same conversation.
+    const second = makeCtx({
+      conversationId: "conv-bound",
+      messages: [priorToolUseTurn],
+      content: [],
+    });
+    await postModelCall(second);
+
+    // THEN the hook lets the turn end rather than nudging again.
+    expect(second.decision).toBe("stop");
+    expect(second.messages).toEqual([priorToolUseTurn]);
+  });
+
+  test("a provider rejection clears the bound so the next run nudges afresh", async () => {
+    // GIVEN the hook nudged once, then the re-queried call threw a provider
+    // rejection (which the hook does not own, but which ends this turn).
+    const nudged = makeCtx({
+      conversationId: "conv-err-reset",
+      messages: [priorToolUseTurn],
+      content: [],
+    });
+    await postModelCall(nudged);
+    const rejected = makeCtx({
+      conversationId: "conv-err-reset",
+      messages: [priorToolUseTurn],
+      content: [],
+      error: new Error("provider rejected the request"),
+    });
+    await postModelCall(rejected);
+
+    // WHEN a fresh empty-after-tools turn arrives for the same conversation.
+    const next = makeCtx({
+      conversationId: "conv-err-reset",
+      messages: [priorToolUseTurn],
+      content: [],
+    });
+    await postModelCall(next);
+
+    // THEN the bound was cleared on the rejection, so the hook nudges again.
+    expect(next.decision).toBe("continue");
+    expect(next.messages.at(-1)).toEqual({
+      role: "user",
+      content: [{ type: "text", text: NUDGE_TEXT }],
+    });
+  });
+
+  test("a recovered turn clears the bound so the next run nudges afresh", async () => {
+    // GIVEN the hook nudged once, then the run recovered with visible text
+    // (which clears the bound).
+    const nudged = makeCtx({
+      conversationId: "conv-reset",
+      messages: [priorToolUseTurn],
+      content: [],
+    });
+    await postModelCall(nudged);
+    const recovered = makeCtx({
+      conversationId: "conv-reset",
+      messages: [priorToolUseTurn],
+      content: [{ type: "text", text: "here is the summary" }],
+    });
+    await postModelCall(recovered);
+
+    // WHEN a fresh empty-after-tools turn arrives for the same conversation.
+    const next = makeCtx({
+      conversationId: "conv-reset",
+      messages: [priorToolUseTurn],
+      content: [],
+    });
+    await postModelCall(next);
+
+    // THEN the bound was cleared, so the hook nudges again.
+    expect(next.decision).toBe("continue");
+    expect(next.messages.at(-1)).toEqual({
+      role: "user",
+      content: [{ type: "text", text: NUDGE_TEXT }],
+    });
+  });
+});
+
 // ─── Via runHook + registry ──────────────────────────────────────────────────
 
-describe("empty-response stop hook — via runHook", () => {
+describe("empty-response post-model-call hook — via runHook", () => {
   beforeEach(() => {
     resetPluginRegistryForTests();
   });
@@ -305,10 +425,10 @@ describe("empty-response stop hook — via runHook", () => {
     // GIVEN the default empty-response plugin is registered.
     registerPlugin(defaultEmptyResponsePlugin);
 
-    // WHEN the stop chain runs over an empty-after-tools context.
-    const result = await runHook<StopContext>(
-      HOOKS.STOP,
-      makeCtx({ messages: [priorToolUseTurn], responseContent: [] }),
+    // WHEN the post-model-call chain runs over an empty-after-tools context.
+    const result = await runHook<PostModelCallContext>(
+      HOOKS.POST_MODEL_CALL,
+      makeCtx({ messages: [priorToolUseTurn], content: [] }),
     );
 
     // THEN the chain settles on continue with the canonical nudge appended.
@@ -327,7 +447,7 @@ describe("empty-response stop hook — via runHook", () => {
     registerPlugin({
       manifest: { name: "force-stop", version: "0.0.1" },
       hooks: {
-        stop: async (ctx: StopContext) => {
+        "post-model-call": async (ctx: PostModelCallContext) => {
           observedDecision = ctx.decision;
           ctx.decision = "stop";
         },
@@ -335,9 +455,9 @@ describe("empty-response stop hook — via runHook", () => {
     });
 
     // WHEN the chain runs over an empty-after-tools context.
-    const result = await runHook<StopContext>(
-      HOOKS.STOP,
-      makeCtx({ messages: [priorToolUseTurn], responseContent: [] }),
+    const result = await runHook<PostModelCallContext>(
+      HOOKS.POST_MODEL_CALL,
+      makeCtx({ messages: [priorToolUseTurn], content: [] }),
     );
 
     // THEN the user hook saw the default's continue, and its override wins.

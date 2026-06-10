@@ -43,7 +43,6 @@ import {
 import {
   getOrCreateConversation as getOrCreateActiveConversation,
   initConversationLifecycle,
-  setCesClientPromise,
 } from "./conversation-store.js";
 import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 import { parseIdentityFields } from "./handlers/identity.js";
@@ -127,7 +126,6 @@ export class DaemonServer {
         }
         return client;
       });
-      setCesClientPromise(this.cesClientPromise);
     }
   }
 
@@ -376,7 +374,6 @@ export class DaemonServer {
     if (this.cesClientPromise) {
       await this.cesClientPromise.catch(() => undefined);
       this.cesClientPromise = undefined;
-      setCesClientPromise(undefined);
     }
     if (this.cesProcessManager) {
       this.cesProcessManager = undefined;

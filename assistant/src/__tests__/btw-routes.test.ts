@@ -114,7 +114,6 @@ mock.module("../daemon/conversation-store.js", () => ({
   mergeConversationOptions: () => {},
   deleteConversationOptions: () => {},
   clearConversationOptions: () => {},
-  setCesClientPromise: () => {},
 }));
 
 // ---------------------------------------------------------------------------

@@ -2715,7 +2715,7 @@ jobs:
         with:
           name: ${{ matrix.update_artifact_name }}
           path: |
-            apps/macos/dist/latest-mac.yml
+            apps/macos/dist/*-mac.yml
             apps/macos/dist/*.zip
             apps/macos/dist/*.zip.blockmap
           if-no-files-found: warn
@@ -2760,8 +2760,8 @@ jobs:
           MISSING=0
           for ARCH in arm64 x64; do
             DIR="electron-artifacts/${ARCH}"
-            if [ ! -f "$(find "$DIR" -name 'latest-mac.yml' -type f 2>/dev/null | grep -m1 .)" ]; then
-              echo "::error::Missing latest-mac.yml for ${ARCH}"
+            if [ ! -f "$(find "$DIR" -name '*-mac.yml' -type f 2>/dev/null | grep -m1 .)" ]; then
+              echo "::error::Missing update manifest (*-mac.yml) for ${ARCH}"
               MISSING=1
             fi
             if [ -z "$(find "$DIR" -name '*.zip' -type f ! -name '*.blockmap' 2>/dev/null | grep -m1 .)" ]; then
@@ -2796,7 +2796,7 @@ jobs:
               gcloud storage cp "$BM" "gs://${BUCKET}/${PREFIX}/$(basename "$BM")"
             done
 
-            YML=$(find "$ARCH_DIR" -name "latest-mac.yml" -type f | grep -m1 .)
+            YML=$(find "$ARCH_DIR" -name "*-mac.yml" -type f | grep -m1 .)
             [ -n "$YML" ] && gcloud storage cp "$YML" "gs://${BUCKET}/${PREFIX}/${MANIFEST_NAME}"
           done
 
@@ -2870,7 +2870,7 @@ jobs:
       # Only attach Electron DMGs when their update feed was successfully
       # published to GCS. If `upload-electron-updates` was skipped (Electron
       # build failed, or its DMG step succeeded while the update-artifact
-      # step did not), shipping the DMG without a matching `latest-mac.yml`
+      # step did not), shipping the DMG without a matching update manifest
       # would strand installed clients with no path back to auto-update.
       - name: Download Electron DMG artifact (arm64)
         if: ${{ needs.upload-electron-updates.result == 'success' }}

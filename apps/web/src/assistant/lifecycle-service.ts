@@ -131,6 +131,7 @@ class AssistantLifecycleService {
     if (useResolvedAssistantsStore.getState().activeAssistantId !== null) {
       useResolvedAssistantsStore.getState().setActiveAssistantId(null);
     }
+    this.setOperationalStatusAssistantId(null);
     if (this.state.kind !== "loading") {
       this.transition({ kind: "loading" });
     }
@@ -322,6 +323,7 @@ class AssistantLifecycleService {
   ): void {
     const mm = result.data.maintenance_mode;
     setSelfHostedConnection(null);
+    this.setOperationalStatusAssistantId(result.data.id);
     const store = useResolvedAssistantsStore.getState();
     store.upsertFromApi(result.data);
     store.setActiveAssistantId(result.data.id);
@@ -354,6 +356,7 @@ class AssistantLifecycleService {
   private projectSelfHosted(
     result: GetAssistantResult & { ok: true },
   ): void {
+    this.setOperationalStatusAssistantId(null);
     setSelfHostedConnection({
       url: result.data.ingress_url,
       token: result.data.platform_actor_token,
@@ -374,6 +377,7 @@ class AssistantLifecycleService {
       resolvedAssistantId = assistant?.assistantId ?? resolvedAssistantId;
     }
     setSelfHostedConnection({ url: ingressUrl, token: getGatewayToken() });
+    this.setOperationalStatusAssistantId(null);
     useResolvedAssistantsStore
       .getState()
       .setActiveAssistantId(resolvedAssistantId);
@@ -385,6 +389,11 @@ class AssistantLifecycleService {
   ): Promise<void> {
     const generation = this.generation;
     const nextState = resolveAssistantLifecycleState(result);
+    if (result.ok) {
+      this.setOperationalStatusAssistantId(result.data.id);
+    } else {
+      this.setOperationalStatusAssistantId(null);
+    }
 
     if (nextState.kind === "auto_hatch") {
       // No assistant found. Don't hatch or redirect — the navigation
@@ -485,7 +494,10 @@ class AssistantLifecycleService {
     this.state = { kind: "loading" };
     this.generation = 0;
     this.ready = false;
-    useAssistantLifecycleStore.setState({ expectingFirstMessage: false });
+    useAssistantLifecycleStore.setState({
+      expectingFirstMessage: false,
+      operationalStatusAssistantId: null,
+    });
     this.inputs = {
       sessionStatus: "initializing",
       hasPlatformSession: false,
@@ -493,6 +505,18 @@ class AssistantLifecycleService {
     };
     useAssistantLifecycleStore.setState({ assistantState: this.state });
     useResolvedAssistantsStore.setState({ activeAssistantId: null });
+  }
+
+  private setOperationalStatusAssistantId(assistantId: string | null): void {
+    if (
+      useAssistantLifecycleStore.getState().operationalStatusAssistantId ===
+      assistantId
+    ) {
+      return;
+    }
+    useAssistantLifecycleStore.setState({
+      operationalStatusAssistantId: assistantId,
+    });
   }
 }
 

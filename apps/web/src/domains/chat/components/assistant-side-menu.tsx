@@ -4,6 +4,7 @@ import {
     ChevronDown,
     ChevronRight,
     Clock,
+    ExternalLink,
     Hash,
     Layers,
     LayoutGrid,
@@ -62,6 +63,7 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onOpenApp?: (appId: string) => void;
   activeAppId?: string;
   onStartNewConversation?: () => void;
+  onNewConversationInNewWindow?: () => void;
   /**
    * Returns a freshly-minted URL for a brand-new conversation. When provided
    * alongside `onStartNewConversation`, the "New conversation" affordance
@@ -150,6 +152,7 @@ export function AssistantSideMenu({
   onOpenApp,
   activeAppId,
   onStartNewConversation,
+  onNewConversationInNewWindow,
   getNewConversationHref,
   footerAction,
   onPinConversation,
@@ -365,9 +368,9 @@ export function AssistantSideMenu({
     [onStartNewConversation, onClose],
   );
 
-  let headerActions: ReactNode = null;
+  let newConversationButton: ReactNode = null;
   if (onStartNewConversation && newConversationHref != null) {
-    headerActions = (
+    newConversationButton = (
       <Button
         asChild
         variant="ghost"
@@ -386,7 +389,7 @@ export function AssistantSideMenu({
       </Button>
     );
   } else if (onStartNewConversation) {
-    headerActions = (
+    newConversationButton = (
       <Button
         variant="ghost"
         size="compact"
@@ -401,6 +404,20 @@ export function AssistantSideMenu({
       />
     );
   }
+
+  const headerActions = newConversationButton && onNewConversationInNewWindow ? (
+    <ContextMenu.Root>
+      <ContextMenu.Trigger>{newConversationButton}</ContextMenu.Trigger>
+      <ContextMenu.Content>
+        <ContextMenu.Item
+          leftIcon={<ExternalLink size={14} />}
+          onSelect={onNewConversationInNewWindow}
+        >
+          New Conversation in New Window
+        </ContextMenu.Item>
+      </ContextMenu.Content>
+    </ContextMenu.Root>
+  ) : newConversationButton;
 
   // --- Flat conversation list renderer ---
 

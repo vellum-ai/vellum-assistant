@@ -1,10 +1,11 @@
 import { ArrowLeft } from "lucide-react";
 import { type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
+import { Button, Typography } from "@vellumai/design-library";
 
+import { StatusBanner } from "@/components/status-banner";
 import { isElectron } from "@/runtime/is-electron";
 import { routes } from "@/utils/routes";
-import { Button, Typography } from "@vellumai/design-library";
 
 interface SidebarShellProps {
   sidebar: ReactNode;
@@ -98,6 +99,8 @@ export function SidebarShell({
         <div className="h-10 w-10 shrink-0" aria-hidden="true" />
       </div>
 
+      <StatusBanner className="px-0 pt-0" />
+
       {/* Card chrome — desktop only */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:rounded-[12px] md:border md:border-[var(--border-base)] md:bg-[var(--surface-overlay)]">
         {/* Desktop header */}
@@ -114,9 +117,7 @@ export function SidebarShell({
               {title}
             </h1>
           </div>
-          {actions ? (
-            <div className="flex shrink-0 items-center gap-2">{actions}</div>
-          ) : null}
+          <div className="flex shrink-0 items-center gap-2">{actions}</div>
         </div>
 
         {/* Body — sidebar + content */}
