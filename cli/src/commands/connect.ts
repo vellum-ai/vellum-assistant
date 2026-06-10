@@ -1,7 +1,7 @@
 import { connectImport } from "./connect/import.js";
 
 function printUsage(): void {
-  console.log("Usage: vellum connect <subcommand>");
+  console.log("Usage: vellum connect <subcommand> [beta]");
   console.log("");
   console.log("Connect to an assistant paired from another machine.");
   console.log("");

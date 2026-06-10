@@ -84,7 +84,9 @@ function printHelp(): void {
   console.log("  clean    Kill orphaned vellum processes");
   console.log("  client   Connect to a hatched assistant");
   console.log("  confirm  Resolve a pending tool confirmation on an assistant");
-  console.log("  connect  Import an assistant paired from another machine");
+  console.log(
+    "  connect  Import an assistant paired from another machine [beta]",
+  );
   console.log("  devices  List or revoke devices paired to a local assistant");
   console.log("  env      Manage the default CLI environment");
   console.log("  events   Stream events from a running assistant");
@@ -97,7 +99,7 @@ function printHelp(): void {
   console.log("  logout   Log out of the Vellum platform");
   console.log("  message  Send a message to a running assistant");
   console.log(
-    "  pair     Mint a device-scoped token to connect another machine",
+    "  pair     Mint a device-scoped token to connect another machine [beta]",
   );
   console.log(
     "  ps       List assistants (or processes for a specific assistant)",
