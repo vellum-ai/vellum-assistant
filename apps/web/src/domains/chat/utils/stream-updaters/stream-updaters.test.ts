@@ -1237,6 +1237,34 @@ describe("appendThinkingDelta", () => {
     ]);
   });
 
+  it("backfills a skipped block instead of clobbering a neighbour when coalescing onto a short projection", () => {
+    // GIVEN a reconcile race lands a row whose contentBlocks projection is
+    // shorter than its contentOrder — normalizeContentBlocks drops the empty
+    // trailing thinking segment, so the only block is the leading text one
+    const reserved = makeAssistantMsg({
+      id: "row-A",
+      textSegments: ["answer"],
+      thinkingSegments: [""],
+      contentOrder: [
+        { type: "text", id: "0" },
+        { type: "thinking", id: "0" },
+      ],
+      contentBlocks: [{ type: "text", text: "answer" }],
+    });
+
+    // WHEN a thinking delta coalesces onto that now-populated thinking segment
+    const result = appendThinkingDelta([userMsg, reserved], "reason", "row-A");
+
+    // THEN the trailing text block is preserved and the thinking block is
+    // backfilled, rather than the text block being overwritten
+    const row = result[1]!;
+    expect(row.thinkingSegments).toEqual(["reason"]);
+    expect(row.contentBlocks).toEqual([
+      { type: "text", text: "answer" },
+      { type: "thinking", thinking: "reason" },
+    ]);
+  });
+
   it("lands deltas on the row keyed by messageId regardless of tail position", () => {
     // GIVEN a reserved assistant row pulled in by a reconcile race ahead of
     // the first delta
