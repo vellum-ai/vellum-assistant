@@ -160,9 +160,9 @@ function TypewriterLine({ text, onDone }: { text: string; onDone: () => void }) 
 const ALL_STEPS: { step: string; pending: string; credits?: number }[] = [
   { step: "face", pending: "Look & feel" },
   { step: "tone", pending: "Communication style" },
-  { step: "brain", pending: "Context import", credits: 50 },
+  // { step: "brain", pending: "Context import", credits: 50 },
   { step: "reach", pending: "Primary channel", credits: 25 },
-  { step: "email", pending: "Email address" },
+  // { step: "email", pending: "Email address" },
 ];
 
 function MemoryList({
@@ -1574,7 +1574,7 @@ function InteractiveCastFlow({ onComplete }: { onComplete: (data: CastCompletion
               value === "fast"
                 ? "Communication style: concise and direct"
                 : "Communication style: thorough and detailed",
-              "brain",
+              "reach",
             )
           }
           onBack={reopenCustomize}
@@ -1617,10 +1617,10 @@ function InteractiveCastFlow({ onComplete }: { onComplete: (data: CastCompletion
                     return REACH_TOOLS.find((t) => t.key === k)?.label ?? k;
                   }).join(", ")}`
                 : "Tools: skipped",
-              "email",
+              "handoff",
             );
           }}
-          onBack={() => setPhase("brain")}
+          onBack={() => setPhase("tone")}
         />
       )}
 
@@ -1640,7 +1640,7 @@ function InteractiveCastFlow({ onComplete }: { onComplete: (data: CastCompletion
       )}
 
       <AnimatePresence>
-        {((phase === "starter" && customizing) || phase === "tone" || phase === "brain" || phase === "reach" || phase === "email") && (
+        {((phase === "starter" && customizing) || phase === "tone" || phase === "reach") && (
             <MemoryList
               key="memory-list"
               entries={memories}
