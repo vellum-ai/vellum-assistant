@@ -70,6 +70,7 @@ import type {
   AttemptDiagnostic,
   CdpClient,
   CdpClientKind,
+  InternalBrowserMode,
 } from "./cdp-client/types.js";
 import { clearPinnedTab, setPinnedTab } from "./pinned-tabs.js";
 import { checkBrowserRuntime } from "./runtime-check.js";
@@ -226,6 +227,18 @@ const REMEDIATION_HINTS: Record<string, string[]> = {
     "CDP endpoint unreachable. Ensure Chrome is running with --remote-debugging-port.",
     "Verify the configured host:port matches Chrome's DevTools listener.",
     "Consider using browser_mode: 'extension' or 'local' as an alternative.",
+  ],
+  // Host-bridge backend (desktop SSE bridge → user's Chrome debug port)
+  "host-bridge:unreachable": [
+    "Ensure Chrome on the user's machine is on version 146 or higher (chrome://settings/help).",
+    'Ensure "Allow remote debugging for this browser instance" is toggled on at chrome://inspect/#remote-debugging.',
+    "Verify the desktop client is running and has an active SSE connection to the assistant.",
+    "Installing the Vellum Chrome extension is the preferred path and avoids the debug-port requirement.",
+  ],
+  "host-bridge:transport_error": [
+    "The desktop client could not reach Chrome's remote-debugging endpoint on the user's machine.",
+    "Ensure Chrome is running with remote debugging enabled, or install the Vellum Chrome extension (preferred).",
+    "Verify the desktop client is running and connected.",
   ],
   // Local/Playwright backend
   "local:transport_error": [
@@ -390,7 +403,9 @@ function acquireCdpClientWithMode(
   );
   // target_client_id requires the extension proxy path — bypass any sticky
   // backend remembered from prior turns so the explicit target always wins.
-  const effectiveMode: BrowserMode =
+  // InternalBrowserMode because the memo may hold "host-bridge", which is
+  // pinnable by the factory but never user-requestable.
+  const effectiveMode: InternalBrowserMode =
     targetClientId != null
       ? "extension"
       : browserMode === "auto" && rememberedKind !== null
@@ -1383,14 +1398,17 @@ export async function executeBrowserClose(
       };
     }
 
-    // Extension path: the user owns their Chrome tab — we must not
-    // close it. Detach the debugger (so the Chrome debugging banner
-    // clears promptly) and drop the cached snapshot state so stale
+    // Non-local path: the user owns their Chrome tab — we must not
+    // close it. On the extension backend, detach the debugger (so the
+    // Chrome debugging banner clears promptly); other backends have no
+    // Vellum.detach. Either way drop the cached snapshot state so stale
     // eids from prior snapshots cannot be resolved by later tool calls.
-    try {
-      await cdp.send("Vellum.detach", {}, context.signal);
-    } catch {
-      // Tolerate detach failures (already detached, tab closed, etc.)
+    if (cdp.kind === "extension") {
+      try {
+        await cdp.send("Vellum.detach", {}, context.signal);
+      } catch {
+        // Tolerate detach failures (already detached, tab closed, etc.)
+      }
     }
     browserManager.clearSnapshotBackendNodeMap(context.conversationId);
     browserManager.clearPreferredBackendKind(context.conversationId);
@@ -2382,7 +2400,7 @@ async function checkExtensionModeStatus(
 ): Promise<BrowserStatusModeResult> {
   const proxy = HostBrowserProxy.instance;
 
-  if (!proxy.hasExtensionClient()) {
+  if (!proxy.hasExtensionClient(context.sourceActorPrincipalId)) {
     return {
       mode: BROWSER_STATUS_MODE.EXTENSION,
       available: false,
