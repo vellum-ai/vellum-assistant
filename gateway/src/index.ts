@@ -183,6 +183,7 @@ import { contactRoutes } from "./ipc/contact-handlers.js";
 import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
 import { slackThreadRoutes } from "./ipc/slack-thread-handlers.js";
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
+import { webBootstrapRoutes } from "./ipc/web-bootstrap-handlers.js";
 
 import { riskClassificationRoutes } from "./ipc/risk-classification-handlers.js";
 import { createVelayRoutes } from "./ipc/velay-handlers.js";
@@ -1853,9 +1854,7 @@ async function main() {
   let lastRecordActivityTs = 0;
   async function notifyRecordActivity(): Promise<void> {
     if (!arePlatformFeaturesEnabled()) {
-      log.debug(
-        "Platform features disabled — skipping record-activity",
-      );
+      log.debug("Platform features disabled — skipping record-activity");
       return;
     }
 
@@ -2351,6 +2350,7 @@ async function main() {
   // ── IPC server ──
   const ipcServer = new GatewayIpcServer([
     ...featureFlagRoutes,
+    ...webBootstrapRoutes,
     ...contactRoutes,
     ...slackThreadRoutes,
     ...thresholdRoutes,
