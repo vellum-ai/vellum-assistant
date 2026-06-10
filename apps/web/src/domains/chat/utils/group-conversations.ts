@@ -18,7 +18,9 @@ import { isScheduledConversation } from "@/utils/conversation-predicates";
  *   including auto-analysis (reflections). Sub-grouping by `source` is
  *   handled downstream by `backgroundSubGroups.ts`.
  * - `recents` — everything else (foreground, non-pinned), sorted by
- *   `lastMessageAt` descending.
+ *   `lastMessageAt` descending. Background/scheduled conversations with a
+ *   non-null `surfacedAt` (explicitly promoted via the daemon's surface API)
+ *   land here instead of their system buckets.
  *
  * Archived conversations (`archivedAt != null`) are excluded from every
  * bucket.
@@ -79,14 +81,17 @@ function shouldBucketInSlackSection(c: Conversation): boolean {
  *  1. Pinned  -> `"system:pinned"`
  *  2. Custom groupId -> the custom group id
  *  3. Slack -> `"system:slack"` (virtual section, not a move target)
- *  4. Scheduled -> `"system:scheduled"`
- *  5. Background -> `"system:background"`
- *  6. Recents (everything else) -> `"system:all"`
+ *  4. Surfaced (`surfacedAt != null`) -> `"system:all"` (renders in Recents)
+ *  5. Scheduled -> `"system:scheduled"`
+ *  6. Background -> `"system:background"`
+ *  7. Recents (everything else) -> `"system:all"`
  */
 export function getEffectiveGroupId(c: Conversation): string {
   if (isConversationPinned(c)) return "system:pinned";
   if (c.groupId && !c.groupId.startsWith("system:")) return c.groupId;
   if (shouldBucketInSlackSection(c)) return "system:slack";
+  // Surfaced conversations render in Recents, so that's their effective group.
+  if (c.surfacedAt != null) return "system:all";
   if (isScheduledConversation(c)) return "system:scheduled";
   if (isBackground(c)) return "system:background";
   return "system:all";
@@ -218,6 +223,14 @@ export function groupConversations(
 
     if (shouldBucketInSlackSection(c)) {
       slack.push(c);
+      continue;
+    }
+
+    // Explicitly surfaced conversations are promoted into Recents instead
+    // of the Scheduled/Background buckets (normal lastMessageAt sort).
+    // Pinned, custom-group, and Slack precedence above stays as-is.
+    if (c.surfacedAt != null) {
+      recents.push(c);
       continue;
     }
 

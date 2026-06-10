@@ -78,6 +78,7 @@ import {
   migrateConversationLastNotifiedProfile,
   migrateConversationsArchivedAt,
   migrateConversationsLastMessageAt,
+  migrateConversationsSurfacedAt,
   migrateConversationsThreadTypeIndex,
   migrateCreateConversationGraphMemoryState,
   migrateCreateDocumentComments,
@@ -490,6 +491,7 @@ export function initializeDb(): void {
     migrateToolInvocationsSkillId,
     migrateToolInvocationsCreatedAtIdIndex,
     migrateAddMemoryV3EverInjected,
+    migrateConversationsSurfacedAt,
   ];
 
   // Run each migration step, catching and logging individual failures so one

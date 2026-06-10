@@ -6020,6 +6020,8 @@ paths:
                           additionalProperties: false
                         archivedAt:
                           type: number
+                        surfacedAt:
+                          type: number
                         inferenceProfile:
                           type: string
                         isProcessing:
@@ -6381,6 +6383,8 @@ paths:
                         additionalProperties: false
                       archivedAt:
                         type: number
+                      surfacedAt:
+                        type: number
                       inferenceProfile:
                         type: string
                       isProcessing:
@@ -6578,6 +6582,8 @@ paths:
                           - title
                         additionalProperties: false
                       archivedAt:
+                        type: number
+                      surfacedAt:
                         type: number
                       inferenceProfile:
                         type: string
@@ -6987,6 +6993,56 @@ paths:
           required: true
           schema:
             type: string
+  /v1/conversations/{id}/surface:
+    post:
+      operationId: conversations_by_id_surface_post
+      summary: Surface a conversation into Recents
+      description:
+        Explicitly promote a background or scheduled conversation into the default conversation listing (the
+        Recents sidebar grouping), or demote it with surfaced=false. Conversations are never surfaced automatically.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  conversationId:
+                    type: string
+                  surfacedAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description: Epoch-ms timestamp of the promotion, or null when cleared.
+                required:
+                  - ok
+                  - conversationId
+                  - surfacedAt
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                surfaced:
+                  type: boolean
+                  description: true to surface the conversation into Recents, false to clear the promotion.
+              required:
+                - surfaced
+              additionalProperties: false
   /v1/conversations/{id}/unarchive:
     post:
       operationId: conversations_by_id_unarchive_post
@@ -7541,6 +7597,8 @@ paths:
                           - title
                         additionalProperties: false
                       archivedAt:
+                        type: number
+                      surfacedAt:
                         type: number
                       inferenceProfile:
                         type: string

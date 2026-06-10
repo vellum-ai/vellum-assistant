@@ -218,6 +218,9 @@ export function serializeConversationSummary(params: {
     ...(conversation.archivedAt != null
       ? { archivedAt: conversation.archivedAt }
       : {}),
+    ...(conversation.surfacedAt != null
+      ? { surfacedAt: conversation.surfacedAt }
+      : {}),
     ...(conversation.inferenceProfile != null
       ? { inferenceProfile: conversation.inferenceProfile }
       : {}),

@@ -82,7 +82,10 @@ function archiveStatusClause(status: ArchiveStatusFilter) {
  *   excluding background, scheduled, and private rows. `"private"` is excluded
  *   defensively because in-place snapshot restore swaps the SQLite file without
  *   running migrations in-process, so legacy private rows can briefly exist
- *   before migration cleanup deletes them.
+ *   before migration cleanup deletes them. Background/scheduled rows with a
+ *   non-null `surfaced_at` (explicitly promoted via the surface API) are
+ *   included so clients can render them in the Recents grouping without a
+ *   separate fetch.
  * - `"background"` — the background **umbrella**: background *and* scheduled
  *   rows together. The back-compat bucket for the single
  *   `conversationType=background` fetch that older clients (e.g. the macOS app,
@@ -101,7 +104,11 @@ function conversationTypeClause(type: ConversationType) {
   const notSubagent = sql`(${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`;
   switch (type) {
     case "standard":
-      return sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private') AND COALESCE(group_id, 'system:all') NOT IN ('system:background', 'system:scheduled')`;
+      // Surfaced rows (`surfaced_at IS NOT NULL`) are promoted into the
+      // standard listing even when they're background/scheduled. Private rows
+      // stay excluded unconditionally, and subagent runs are excluded from
+      // the surfaced arm so they can never reach the sidebar.
+      return sql`((${conversations.conversationType} NOT IN ('background', 'scheduled', 'private') AND COALESCE(group_id, 'system:all') NOT IN ('system:background', 'system:scheduled')) OR (${conversations.surfacedAt} IS NOT NULL AND ${conversations.conversationType} != 'private' AND ${notSubagent}))`;
     case "background":
       return sql`(${conversations.conversationType} IN ('background', 'scheduled') OR group_id IN ('system:background', 'system:scheduled')) AND ${notSubagent}`;
     case "scheduled":
