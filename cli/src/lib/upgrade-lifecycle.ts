@@ -206,7 +206,7 @@ export function buildReplayEnv(
 }
 
 /** Secrets and replay env derived from the outgoing containers. */
-export interface ReplayState {
+interface ReplayState {
   bootstrapSecret: string | undefined;
   cesServiceToken: string;
   signingKey: string;
@@ -242,8 +242,8 @@ export function buildReplayState(
 
 /**
  * Capture the assistant and gateway container envs and derive the replay
- * state for the replacement containers. Logs env-var counts only, never
- * values.
+ * state for the replacement containers. Logs only the assistant env-var
+ * count (security contract on `buildReplayEnv`).
  */
 export async function captureReplayState(
   res: Pick<

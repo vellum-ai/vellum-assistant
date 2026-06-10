@@ -3,25 +3,16 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { resetHostDeviceIdCache } from "../lib/device-id.js";
 import type { DockerStatefulSetSpec } from "../lib/statefulset.js";
 import { buildReplayEnv, buildReplayState } from "../lib/upgrade-lifecycle.js";
+import { snapshotEnv } from "./helpers/env.js";
 
-const SAVED_ENV_VARS = [
+const restoreEnv = snapshotEnv([
   "VELLUM_PLATFORM_URL",
   "ANTHROPIC_API_KEY",
   "VELLUM_DEVICE_ID",
-] as const;
-const savedEnv: Record<string, string | undefined> = {};
-for (const key of SAVED_ENV_VARS) {
-  savedEnv[key] = process.env[key];
-}
+]);
 
 afterEach(() => {
-  for (const key of SAVED_ENV_VARS) {
-    if (savedEnv[key] === undefined) {
-      delete process.env[key];
-    } else {
-      process.env[key] = savedEnv[key];
-    }
-  }
+  restoreEnv();
   resetHostDeviceIdCache();
 });
 
