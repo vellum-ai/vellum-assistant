@@ -48,6 +48,14 @@ export interface ReconcileLatestHistoryOptions {
   serverSeq: number | null;
   /** Local seq `L` as of before this page is applied. */
   localSeq: number | null;
+  /**
+   * Oldest timestamp across all loaded history pages
+   * (`pagination.oldestLoadedTimestamp`). The snapshot may carry older pages
+   * loaded by scroll-up pagination, so the paginated-out drop boundary must
+   * be the oldest *loaded* page — not the oldest *rendered* row — or every
+   * older-page row would be discarded as out-of-window history.
+   */
+  oldestPageTimestamp?: number | null;
 }
 
 export function reconcileLatestHistorySnapshot(
@@ -58,6 +66,7 @@ export function reconcileLatestHistorySnapshot(
   return reconcileMessagesWithSeq(current, latestHistory, {
     serverSeq: options.serverSeq,
     localSeq: options.localSeq,
+    oldestPageTimestamp: options.oldestPageTimestamp,
   });
 }
 
