@@ -208,7 +208,7 @@ describe("ManageProfilesModal — profile-create success toast (Settings surface
     fireEvent.change(getInputByPlaceholder("e.g. fast-cheap"), {
       target: { value: "my-profile" },
     });
-    fireEvent.change(getInputByPlaceholder("e.g. Fast & Cheap"), {
+    fireEvent.change(getInputByPlaceholder("Name your profile"), {
       target: { value: "My Profile" },
     });
 
