@@ -2,10 +2,15 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import * as localModeHost from "@/runtime/local-mode-host";
 
-const replacePlatformAssistantsHost = mock(async () => ({
-  ok: true,
-  lockfile: { assistants: [], activeAssistant: null },
-}));
+const replacePlatformAssistantsHost = mock(
+  async (
+    _entries: Array<Record<string, unknown>>,
+    _organizationId?: string,
+  ) => ({
+    ok: true as const,
+    lockfile: { assistants: [], activeAssistant: null },
+  }),
+);
 
 mock.module("@/runtime/local-mode-host", () => ({
   ...localModeHost,
