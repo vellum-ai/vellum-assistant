@@ -518,13 +518,16 @@ describe("ToolExecutor lifecycle events", () => {
 
   // ── attribution forwarding tests ──────────────────────────
 
+  // Uses a non-main call site (voice turn) so these tests also prove the
+  // executor forwards the snapshot verbatim — non-main turns must not be
+  // rewritten to the main agent's attribution.
   const testAttribution: UsageAttributionSnapshot = {
-    callSite: "mainAgent",
+    callSite: "callAgent",
     activeProfile: "balanced",
     overrideProfile: null,
-    callSiteProfile: null,
-    appliedProfile: "balanced",
-    profileSource: "active",
+    callSiteProfile: "voice-profile",
+    appliedProfile: "voice-profile",
+    profileSource: "call_site",
     resolvedProvider: "anthropic",
     resolvedModel: "test-model",
     resolvedMixArm: null,

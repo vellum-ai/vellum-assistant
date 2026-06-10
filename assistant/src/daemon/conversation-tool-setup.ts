@@ -68,22 +68,28 @@ export type { ToolSetupContext } from "./tool-setup-types.js";
 /**
  * Resolve the model attribution snapshot for the conversation at invocation
  * time (provider/model/profile that issued the current turn). Mirrors how
- * the main-loop usage path builds its `UsageAttributionInput` — the main
- * agent-loop call site plus the conversation's per-turn override profile —
- * so `profileSource` resolves to `call_site`/`conversation`/`active`/
- * `default` exactly as `llm_usage` records do. The conversation id is
- * threaded as the mix selection seed so mix-profile arms match what the
- * dispatch path actually ran.
+ * the agent-loop usage path builds its `UsageAttributionInput` — the
+ * current turn's call site (`runAgentLoopImpl` sets `ctx.currentCallSite`
+ * from `options.callSite`, defaulting to `mainAgent`) plus the
+ * conversation's per-turn override profile — so `profileSource` resolves
+ * to `call_site`/`conversation`/`active`/`default` exactly as `llm_usage`
+ * records do for the same turn (non-main turns like voice `callAgent` or
+ * `filingAgent` attribute their own call-site config, not the main
+ * agent's). The conversation id is threaded as the mix selection seed so
+ * mix-profile arms match what the dispatch path actually ran.
  *
  * Returns `null` on any failure: attribution is telemetry-only and must
  * never break tool execution (or skill loads, which reuse this helper).
  */
 export function resolveConversationAttribution(
-  ctx: Pick<ToolSetupContext, "conversationId" | "currentTurnOverrideProfile">,
+  ctx: Pick<
+    ToolSetupContext,
+    "conversationId" | "currentCallSite" | "currentTurnOverrideProfile"
+  >,
 ): UsageAttributionSnapshot | null {
   try {
     return resolveUsageAttribution({
-      callSite: "mainAgent",
+      callSite: ctx.currentCallSite ?? "mainAgent",
       overrideProfile: ctx.currentTurnOverrideProfile ?? null,
       selectionSeed: ctx.conversationId,
     });

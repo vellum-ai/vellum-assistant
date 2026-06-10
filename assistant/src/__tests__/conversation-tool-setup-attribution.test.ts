@@ -1,10 +1,10 @@
 /**
  * Tests for conversation model attribution threading in
  * conversation-tool-setup.ts: `resolveConversationAttribution` must mirror
- * the main-loop usage path (mainAgent call site + per-turn override
- * profile), `createToolExecutor` must stamp the snapshot onto the
- * ToolContext handed to the executor, and attribution resolution failures
- * must never break tool execution.
+ * the agent-loop usage path (the current turn's call site — defaulting to
+ * mainAgent — plus the per-turn override profile), `createToolExecutor`
+ * must stamp the snapshot onto the ToolContext handed to the executor, and
+ * attribution resolution failures must never break tool execution.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -214,6 +214,64 @@ describe("resolveConversationAttribution", () => {
     });
   });
 
+  test("attributes non-main turns to the turn call site like the usage path (voice callAgent)", () => {
+    setLlmConfig({
+      default: { provider: "anthropic", model: "model-default" },
+      profiles: {
+        active: { provider: "openai", model: "model-active" },
+        pinned: { provider: "gemini", model: "model-pinned" },
+      },
+      activeProfile: "active",
+      callSites: { callAgent: { profile: "pinned" } },
+    });
+
+    const snapshot = resolveConversationAttribution({
+      conversationId: "conv-test",
+      currentCallSite: "callAgent",
+    });
+
+    // Matches resolveUsageAttribution semantics for non-main call sites:
+    // the call-site profile wins (profileSource "call_site"), not the
+    // workspace active profile the mainAgent path would report.
+    expect(snapshot).toMatchObject({
+      callSite: "callAgent",
+      activeProfile: "active",
+      callSiteProfile: "pinned",
+      appliedProfile: "pinned",
+      profileSource: "call_site",
+      resolvedProvider: "gemini",
+      resolvedModel: "model-pinned",
+    });
+  });
+
+  test("non-main call sites prefer the call-site profile over the conversation override", () => {
+    setLlmConfig({
+      default: { provider: "anthropic", model: "model-default" },
+      profiles: {
+        active: { provider: "openai", model: "model-active" },
+        pinned: { provider: "gemini", model: "model-pinned" },
+      },
+      activeProfile: "active",
+      callSites: { callAgent: { profile: "pinned" } },
+    });
+
+    const snapshot = resolveConversationAttribution({
+      conversationId: "conv-test",
+      currentCallSite: "callAgent",
+      currentTurnOverrideProfile: "active",
+    });
+
+    expect(snapshot).toMatchObject({
+      callSite: "callAgent",
+      overrideProfile: "active",
+      callSiteProfile: "pinned",
+      appliedProfile: "pinned",
+      profileSource: "call_site",
+      resolvedProvider: "gemini",
+      resolvedModel: "model-pinned",
+    });
+  });
+
   test("resolves profileSource default when no profiles apply", () => {
     setLlmConfig({
       default: { provider: "anthropic", model: "model-default" },
@@ -256,6 +314,35 @@ describe("createToolExecutor attribution threading", () => {
       callSite: "mainAgent",
       appliedProfile: "pinned",
       profileSource: "conversation",
+      resolvedProvider: "gemini",
+      resolvedModel: "model-pinned",
+    });
+  });
+
+  test("threads a non-main turn call site (voice callAgent) into the snapshot", async () => {
+    setLlmConfig({
+      default: { provider: "anthropic", model: "model-default" },
+      profiles: {
+        active: { provider: "openai", model: "model-active" },
+        pinned: { provider: "gemini", model: "model-pinned" },
+      },
+      activeProfile: "active",
+      callSites: { callAgent: { profile: "pinned" } },
+    });
+
+    const { executor, calls } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeCtx({ currentCallSite: "callAgent" }),
+    );
+
+    await toolFn("file_read", { path: "/tmp/a" });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].context.attribution).toMatchObject({
+      callSite: "callAgent",
+      appliedProfile: "pinned",
+      profileSource: "call_site",
       resolvedProvider: "gemini",
       resolvedModel: "model-pinned",
     });
