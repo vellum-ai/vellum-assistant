@@ -276,11 +276,11 @@ export function ProviderCreateForm({
 
   const body = (
     <div className="space-y-4">
-      {/* Display Name */}
+      {/* Name */}
       <div className="space-y-1">
         <label className="block text-body-small-default text-[var(--content-tertiary)]">
-          Display Name{" "}
-          <span className="text-[var(--content-disabled)]">(optional)</span>
+          Name{" "}
+          <span className="text-[var(--content-disabled)]">(Optional)</span>
         </label>
         <Input
           value={label}
@@ -404,14 +404,14 @@ export function ProviderCreateForm({
         </>
       )}
 
-      {/* Auth type — hidden until a provider is selected */}
+      {/* Authentication Type — hidden until a provider is selected */}
       {provider !== "" && (
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Auth Type
+            Authentication Type
           </label>
           <Dropdown
-            aria-label="Auth type"
+            aria-label="Authentication Type"
             value={authType}
             onChange={(v) => {
               setAuthType(v as AuthType);

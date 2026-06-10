@@ -227,7 +227,7 @@ describe("ProviderCreateForm submit sequence", () => {
     });
 
     // Select API Key auth so the API Key field renders.
-    selectDropdownOption("Auth type", "API Key");
+    selectDropdownOption("Authentication Type", "API Key");
 
     fireEvent.change(getInputByPlaceholder("Enter your API key"), {
       target: { value: "sk-test-123" },
@@ -311,7 +311,7 @@ describe("ProviderCreateForm submit sequence", () => {
       target: { value: "anthropic-personal" },
     });
 
-    selectDropdownOption("Auth type", "API Key");
+    selectDropdownOption("Authentication Type", "API Key");
     fireEvent.change(getInputByPlaceholder("Enter your API key"), {
       target: { value: "sk-test-123" },
     });
@@ -381,7 +381,7 @@ describe("ProviderCreateForm submit sequence", () => {
     fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
       target: { value: "anthropic-personal" },
     });
-    selectDropdownOption("Auth type", "API Key");
+    selectDropdownOption("Authentication Type", "API Key");
     fireEvent.change(getInputByPlaceholder("Enter your API key"), {
       target: { value: "sk-test-123" },
     });
@@ -412,7 +412,7 @@ describe("ProviderCreateForm submit sequence", () => {
     fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
       target: { value: "anthropic-personal" },
     });
-    selectDropdownOption("Auth type", "API Key");
+    selectDropdownOption("Authentication Type", "API Key");
     fireEvent.change(getInputByPlaceholder("Enter your API key"), {
       target: { value: "sk-test-123" },
     });

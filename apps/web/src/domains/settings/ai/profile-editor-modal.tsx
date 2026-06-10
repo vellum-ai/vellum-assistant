@@ -582,7 +582,7 @@ function ProfileEditorModalInner({
       label={
         <>
           Description{" "}
-          <span className="text-[var(--content-disabled)]">(optional)</span>
+          <span className="text-[var(--content-disabled)]">(Optional)</span>
         </>
       }
       value={description}
@@ -936,7 +936,7 @@ function ProfileEditorModalInner({
               disabled={isInvalid || saving}
               data-testid="modal-save-btn"
             >
-              {saving ? "Saving…" : "Save"}
+              {saving ? "Saving…" : isCreateMode ? "Create" : "Save"}
             </Button>
           </>
         )}

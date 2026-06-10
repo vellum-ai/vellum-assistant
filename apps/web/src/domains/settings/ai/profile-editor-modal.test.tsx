@@ -422,7 +422,7 @@ describe("ProfileEditorModal create mode", () => {
 
     resolveSave();
     await waitFor(() => {
-      expect(getSaveBtn().textContent?.trim()).toBe("Save");
+      expect(getSaveBtn().textContent?.trim()).toBe("Create");
     });
   });
 
