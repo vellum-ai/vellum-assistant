@@ -19,8 +19,7 @@ function okDownloadResult(): DownloadResult {
 }
 
 let downloadRetrieveCalls = 0;
-let downloadRetrieveResult: () => Promise<DownloadResult> = async () =>
-  okDownloadResult();
+let downloadRetrieveResult: () => Promise<DownloadResult>;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -92,7 +91,9 @@ function renderModal(): ReturnType<typeof render> {
 function getDownloadAllButton(
   result: ReturnType<typeof render>,
 ): HTMLButtonElement {
-  return result.getByText("Download all").closest("button")!;
+  return result.getByRole("button", {
+    name: "Download all",
+  }) as HTMLButtonElement;
 }
 
 beforeEach(() => {
