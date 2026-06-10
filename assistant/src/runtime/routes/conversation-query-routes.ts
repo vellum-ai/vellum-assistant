@@ -1297,7 +1297,9 @@ async function handleReplaceInferenceProfile({
  * - Any other present key is stored. A key present with `null` therefore
  *   stores the null sentinel ("explicitly cleared" — it masks any stale
  *   label/status still carried by a transition-state materialized entry at
- *   merge time) whenever the no-override resolution differs from `null`.
+ *   merge time) whenever the no-override resolution isn't already equivalent
+ *   to the cleared state (for `status`, absent and "active" both are — see
+ *   `isRedundantBuiltinOverride`).
  * - An absent key leaves the existing override key untouched.
  * - An entry (or the whole map) left with no keys is deleted.
  *
@@ -1354,8 +1356,17 @@ function isRedundantBuiltinOverride(
   const resolved = baseline?.[key];
   if (value === resolved) return true;
   // `status` has no template default — absence means active — so writing
-  // "active" over an absent default is equally redundant.
-  return key === "status" && value === "active" && resolved === undefined;
+  // "active" over an absent default is equally redundant. The explicit-clear
+  // sentinel `null` also resolves to active behavior at merge time, so it is
+  // redundant against the same baselines (macOS always sends `status: null`
+  // for active profiles, e.g. on a plain label rename). When the baseline
+  // resolves a real lifted status (e.g. a transition-state materialized
+  // "disabled" entry), `null` is NOT redundant — storing it masks the lift.
+  return (
+    key === "status" &&
+    (value === "active" || value === null) &&
+    (resolved === undefined || resolved === "active")
+  );
 }
 
 function handleSearchConversations({ queryParams = {} }: RouteHandlerArgs) {

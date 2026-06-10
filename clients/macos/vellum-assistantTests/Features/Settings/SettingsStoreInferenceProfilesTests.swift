@@ -1078,11 +1078,13 @@ final class SettingsStoreInferenceProfilesTests: XCTestCase {
     }
 
     /// `nil` / whitespace-only `label` and `status` → wire serializes as
-    /// `NSNull` (= JSON null) so the daemon's `patchManagedProfileFields`
-    /// route applies the null-clear sentinel from #30362, deleting the
-    /// `label` / `status` key on disk. The daemon schema change in #30387
-    /// (`.nullable()` on both fields) is what makes this reachable
-    /// end-to-end.
+    /// `NSNull` (= JSON null), the explicit "clear my override" sentinel
+    /// for the PUT profile route. Built-in profiles are code-defined on the
+    /// daemon and only `label`/`status` deviations persist as sparse
+    /// `llm.profileOverrides` entries, so `null` removes the stored
+    /// override key (or is itself stored when it must mask a stale lifted
+    /// value) — see `writeBuiltinProfileOverride` in
+    /// `assistant/src/runtime/routes/conversation-query-routes.ts`.
     func testSetManagedProfilePolicySendsNullForClearedLabelAndStatus() async {
         store.loadInferenceProfiles(config: [
             "llm": [

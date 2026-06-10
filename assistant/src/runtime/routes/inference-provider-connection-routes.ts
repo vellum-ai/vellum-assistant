@@ -234,7 +234,10 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
     );
   }
 
-  const customFields = await parseCustomProviderFields(body, providerResult.data);
+  const customFields = await parseCustomProviderFields(
+    body,
+    providerResult.data,
+  );
 
   const result = createConnection(getDb(), {
     name,
@@ -365,8 +368,10 @@ function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   // Managed connections are write-protected: `seedCanonicalConnections` would
   // re-upsert them on the next daemon boot anyway, so a successful delete here
   // produces a confusing delete → reappear loop. Reject outright. Mirrors
-  // `rejectManagedProfileDeletion` for managed profiles (which are similarly
-  // re-overlaid by `seed-inference-profiles.ts` on boot).
+  // `rejectManagedProfileDeletion` for managed profiles (which are
+  // code-defined and merged into the effective config by
+  // `applyBuiltinProfiles` on every config load, so a delete could never
+  // stick either).
   if (MANAGED_CONNECTION_NAMES.has(name)) {
     throw new BadRequestError(
       `Cannot delete managed connection "${name}". This is a Vellum-managed connection that is re-seeded on every startup.`,

@@ -3555,33 +3555,37 @@ public final class SettingsStore: ObservableObject {
 
     /// Persists the two policy-edit fields (`label`, `status`) for a
     /// managed profile via the `PUT /v1/config/llm/profiles/<name>` route.
-    /// Used by view-mode Save on managed profiles: the daemon's route
-    /// detects `MANAGED_PROFILE_NAMES` and applies a partial overlay (label/
-    /// status only, every other seed field preserved) instead of the full
-    /// UI-replace cycle that `replaceProfile` triggers. Sending any other
-    /// field for a managed name causes the daemon to reject the request
-    /// with a 400 — see `handleReplaceInferenceProfile` in
+    /// Used by view-mode Save on managed profiles: built-in profiles are
+    /// code-defined on the daemon side, so the route persists only the
+    /// user-ownable facets (`label`/`status`) as a sparse entry under
+    /// `llm.profileOverrides` — template fields (provider, model, advanced
+    /// params) are never written. Sending any other field for a managed
+    /// name causes the daemon to reject the request with a 400 — see
+    /// `handleReplaceInferenceProfile` / `writeBuiltinProfileOverride` in
     /// `assistant/src/runtime/routes/conversation-query-routes.ts`.
     ///
-    /// `label` and `status` use a nil-as-clear convention so the wire shape
-    /// matches the daemon's `patchManagedProfileFields` semantics. Both
-    /// `ProfileEntry.label` and `ProfileEntry.status` are now
-    /// `.nullable().optional()` in the daemon Zod schema (landed in #30387 —
-    /// see `assistant/src/config/schemas/llm.ts`), so `null` is the explicit
-    /// "clear this override" sentinel:
-    /// - `nil` / whitespace-only `label` → request body has `label: null`,
-    ///   daemon deletes the `label` key on disk and the profile renders
-    ///   without a custom label (local cache also mirrors `nil`).
-    /// - `nil` / empty `status` → request body has `status: null`, daemon
-    ///   deletes the `status` key on disk; the profile is then considered
+    /// `label` and `status` use a nil-as-clear convention: `null` on the
+    /// wire is the explicit "clear my override" sentinel (both fields are
+    /// `.nullable().optional()` in the daemon Zod schema — see
+    /// `assistant/src/config/schemas/llm.ts`):
+    /// - `nil` / whitespace-only `label` → request body has `label: null`;
+    ///   the daemon removes any stored label override (or stores `null` to
+    ///   mask a stale lifted label) and the profile renders without a
+    ///   custom label (local cache also mirrors `nil`).
+    /// - `nil` / empty `status` → request body has `status: null`; the
+    ///   daemon removes any stored status override, and skips persisting
+    ///   anything when no override exists — the profile is then considered
     ///   active by absence (matches `setProfileStatus`'s local convention).
-    /// - non-nil values are stored verbatim.
+    /// - non-nil values are stored verbatim in the override entry, unless
+    ///   they match the daemon's no-override baseline (redundant values are
+    ///   not persisted, so template relabels keep flowing through).
     ///
     /// On success the local `profiles` cache is patched in place so the UI
     /// reflects the new values without waiting for the next daemon config
     /// push. Only `label` and `status` are touched in the local entry —
     /// every other field on the cached profile (provider, model, advanced
-    /// params) is preserved, mirroring the daemon-side partial overlay.
+    /// params) is preserved, mirroring the daemon-side overrides-only
+    /// persistence.
     @discardableResult
     func setManagedProfilePolicy(
         name: String,
