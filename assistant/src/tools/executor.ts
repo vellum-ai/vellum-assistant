@@ -493,6 +493,15 @@ function emitLifecycleEvent(
     input: sanitizeToolInput(event.toolName, event.input),
   };
 
+  // Stamp model attribution centrally so every executed/error event carries
+  // it — including the pre-execution gate failures (aborted, disk pressure,
+  // unknown/inactive tool) emitted from checkPreExecutionGates(), whose
+  // emission sites don't have to remember to copy it.
+  if (sanitizedEvent.type === "executed" || sanitizedEvent.type === "error") {
+    sanitizedEvent.attribution =
+      sanitizedEvent.attribution ?? context.attribution ?? null;
+  }
+
   try {
     const maybePromise = handler(sanitizedEvent as ToolLifecycleEvent);
     if (maybePromise) {

@@ -34,6 +34,10 @@ import {
   type ToolExecutionResult,
   type ToolLifecycleEventHandler,
 } from "../tools/types.js";
+import {
+  resolveUsageAttribution,
+  type UsageAttributionSnapshot,
+} from "../usage/attribution.js";
 import { getLogger } from "../util/logger.js";
 import {
   projectSkillTools,
@@ -58,6 +62,45 @@ import {
 } from "./switch-inference-profile-tool.js";
 import type { ToolSetupContext } from "./tool-setup-types.js";
 export type { ToolSetupContext } from "./tool-setup-types.js";
+
+// ── resolveConversationAttribution ───────────────────────────────────
+
+/**
+ * Resolve the model attribution snapshot for the conversation at invocation
+ * time (provider/model/profile that issued the current turn). Mirrors how
+ * the agent-loop usage path builds its `UsageAttributionInput` — the
+ * current turn's call site (`runAgentLoopImpl` sets `ctx.currentCallSite`
+ * from `options.callSite`, defaulting to `mainAgent`) plus the
+ * conversation's per-turn override profile — so `profileSource` resolves
+ * to `call_site`/`conversation`/`active`/`default` exactly as `llm_usage`
+ * records do for the same turn (non-main turns like voice `callAgent` or
+ * `filingAgent` attribute their own call-site config, not the main
+ * agent's). The conversation id is threaded as the mix selection seed so
+ * mix-profile arms match what the dispatch path actually ran.
+ *
+ * Returns `null` on any failure: attribution is telemetry-only and must
+ * never break tool execution (or skill loads, which reuse this helper).
+ */
+export function resolveConversationAttribution(
+  ctx: Pick<
+    ToolSetupContext,
+    "conversationId" | "currentCallSite" | "currentTurnOverrideProfile"
+  >,
+): UsageAttributionSnapshot | null {
+  try {
+    return resolveUsageAttribution({
+      callSite: ctx.currentCallSite ?? "mainAgent",
+      overrideProfile: ctx.currentTurnOverrideProfile ?? null,
+      selectionSeed: ctx.conversationId,
+    });
+  } catch (err) {
+    log.debug(
+      { err, conversationId: ctx.conversationId },
+      "Failed to resolve conversation attribution for telemetry (non-fatal)",
+    );
+    return null;
+  }
+}
 
 // ── createToolExecutor ───────────────────────────────────────────────
 
@@ -130,6 +173,7 @@ export function createToolExecutor(
       isPlatformHosted: getIsPlatform(),
       transportInterface: ctx.transportInterface,
       overrideProfile: ctx.currentTurnOverrideProfile,
+      attribution: resolveConversationAttribution(ctx),
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => {
         // Tool context's sendToClient uses a loose { type: string; [key: string]: unknown }
