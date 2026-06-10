@@ -336,7 +336,7 @@ export function Dropdown<T extends string>({
             className={cn(
               "flex items-center gap-2 px-3 py-2 text-body-medium-default transition-colors",
               isDisabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
-              option.separated && "border-b border-[var(--field-border)]",
+              option.separated && "border-b border-[var(--border-element)]",
             )}
             style={{
               background: isHighlighted
