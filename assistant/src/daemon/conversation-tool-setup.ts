@@ -128,7 +128,6 @@ export function createToolExecutor(
       diskPressureCleanupModeActive: ctx.diskPressureCleanupModeActive,
       toolUseId,
       isPlatformHosted: getIsPlatform(),
-      cesClient: ctx.cesClient,
       transportInterface: ctx.transportInterface,
       overrideProfile: ctx.currentTurnOverrideProfile,
       onToolLifecycleEvent: handleToolLifecycleEvent,

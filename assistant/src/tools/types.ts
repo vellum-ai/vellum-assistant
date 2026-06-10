@@ -13,7 +13,6 @@ import { RiskLevel } from "@vellumai/skill-host-contracts";
 import { z } from "zod";
 
 import type { InterfaceId } from "../channels/types.js";
-import type { CesClient } from "../credential-execution/client.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import type { SecretPromptResult } from "../permissions/secret-prompter.js";
 import type { ContentBlock } from "../providers/types.js";
@@ -297,8 +296,6 @@ export interface ToolContext {
   toolUseId?: string;
   /** True when the assistant is running as a platform-managed remote instance. Used to auto-approve sandboxed bash tools. */
   isPlatformHosted?: boolean;
-  /** CES RPC client for credential execution operations. When present, the executor can bridge CES approval flows. */
-  cesClient?: CesClient;
   /**
    * The interface ID of the connected client driving the current turn (e.g.
    * "macos", "chrome-extension"). Browser backend policy uses this to decide
