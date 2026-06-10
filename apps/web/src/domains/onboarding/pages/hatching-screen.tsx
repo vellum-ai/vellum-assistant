@@ -194,11 +194,14 @@ export function HatchingScreen() {
 
     // Persist the random hatch avatar (skipping the save when one already
     // exists) and invalidate the avatar query that feeds the Dock + menu-bar
-    // icons, the favicon, and the in-app avatar. Awaited so the traits land
-    // before the lifecycle activates the assistant and the query runs its first
-    // fetch; the post-save invalidate then closes the race when that fetch
-    // already cached an avatar-less result, since the query holds results with
-    // `staleTime: Infinity` and never refetches on its own.
+    // icons, the favicon, and the in-app avatar. Fire-and-forget: callers do
+    // NOT await it, so onboarding never blocks on the server-side render — it
+    // runs in the background as the user lands in the app. The avatar query
+    // holds results with `staleTime: Infinity` and is disabled until the
+    // assistant activates, so its first fetch can beat the save and cache an
+    // avatar-less result; the post-save invalidate forces a refetch that picks
+    // up the persisted traits, so the icons self-correct within a beat rather
+    // than sticking on the bundled mark.
     //
     // Only call this for a freshly hatched assistant, never for an
     // already-active one: a returning user may have an uploaded/AI image
@@ -329,8 +332,7 @@ export function HatchingScreen() {
               created: new Date().toISOString(),
             } as Assistant);
             void selectPlatformAssistant(result.assistantId);
-            await persistHatchAvatar(result.assistantId);
-            if (cancelled) return;
+            void persistHatchAvatar(result.assistantId);
           }
 
           handleHatchReady();
@@ -422,8 +424,7 @@ export function HatchingScreen() {
             useResolvedAssistantsStore.getState().upsertFromApi(result.data);
             void selectPlatformAssistant(assistantId);
             if (createdFreshAssistant) {
-              await persistHatchAvatar(assistantId);
-              if (cancelled) return;
+              void persistHatchAvatar(assistantId);
             }
             if (isLocalMode()) {
               void saveLockfileAssistant({
