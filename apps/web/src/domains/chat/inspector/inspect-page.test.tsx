@@ -368,13 +368,14 @@ describe("InspectPage — dual-mode chrome", () => {
     expect(html).toContain(
       "Showing every LLM call recorded for this conversation",
     );
-    // Filter dropdown is present with the "All messages" sentinel
-    // and one entry per message in the list.
+    // Filter dropdown is present with the "All messages" sentinel and
+    // one entry per user message (a turn is headed by a user message;
+    // assistant replies map to the same group of LLM calls).
     expect(html).toContain("Filter to message:");
     expect(html).toContain("All messages");
-    expect(html).toContain("1. User · Hello there, how is the inspector");
-    expect(html).toContain(
-      "2. Assistant · Great — we&#x27;re shipping dual-mode chrome right now.",
+    expect(html).toContain("1. Hello there, how is the inspector");
+    expect(html).not.toContain(
+      "Great — we&#x27;re shipping dual-mode chrome right now.",
     );
     // The legacy message-mode "View all calls" button must never appear.
     expect(html).not.toContain("View all conversation calls");
