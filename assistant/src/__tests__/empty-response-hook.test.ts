@@ -1,21 +1,21 @@
 /**
- * Tests for the default `empty-response` plugin's `post-model-call` hook.
+ * Tests for the default `empty-response` plugin's hooks.
  *
  * Covers:
- * - The default hook's decision for the canonical cases: empty turn after a
- *   prior tool-use turn → continue (with the canonical nudge text); visible
- *   text → stop; prior turn already delivered visible text → stop; first model
- *   call with no prior turn → stop; provider refusal → stop with the turn
- *   rewritten to the user-facing fallback; refusal-but-recovered → stop;
- *   refusal after a visible reply this run → stop with no rewrite.
+ * - The `post-model-call` hook's decision for the canonical cases: empty turn
+ *   after a prior tool-use turn → continue (with the canonical nudge text);
+ *   visible text → stop; prior turn already delivered visible text → stop;
+ *   first model call with no prior turn → stop; provider refusal → stop with
+ *   the turn rewritten to the user-facing fallback; refusal-but-recovered →
+ *   stop; refusal after a visible reply this run → stop with no rewrite.
  * - The hook scopes its prior-turn signals to the current response cycle (the
  *   messages after the last genuine user prompt), so visible text from the
  *   inbound conversation does not suppress the nudge.
  * - When the hook continues, it appends the nudge as a `user` message to
  *   `messages`.
- * - The hook owns its retry bound: it nudges at most once per run for a
- *   conversation, and a terminal outcome clears the bound so the next run
- *   nudges afresh.
+ * - The retry bound is split across the two hooks: `post-model-call` marks the
+ *   bound (nudging at most once per run) and the `stop` hook clears it on the
+ *   definitive terminal so the next run nudges afresh.
  * - The hook ignores outcomes it does not own: a provider rejection (it carries
  *   an `error`) and a tool-bearing turn (the loop continues on its own).
  * - End-to-end through `runHook` + the registry: registering the default
@@ -34,13 +34,19 @@ import { HOOKS } from "../plugin-api/constants.js";
 import type {
   PluginLogger,
   PostModelCallContext,
+  StopContext,
 } from "../plugin-api/types.js";
 import {
   NUDGE_TEXT,
   REFUSAL_FALLBACK_TEXT,
 } from "../plugins/defaults/empty-response/hooks/post-model-call.js";
 import postModelCall from "../plugins/defaults/empty-response/hooks/post-model-call.js";
-import { resetEmptyResponseNudgeStoreForTests } from "../plugins/defaults/empty-response/nudge-state-store.js";
+import stop from "../plugins/defaults/empty-response/hooks/stop.js";
+import {
+  isEmptyResponseNudged,
+  markEmptyResponseNudged,
+  resetEmptyResponseNudgeStoreForTests,
+} from "../plugins/defaults/empty-response/nudge-state-store.js";
 import { defaultEmptyResponsePlugin } from "../plugins/defaults/index.js";
 import { runHook } from "../plugins/pipeline.js";
 import {
@@ -348,69 +354,76 @@ describe("empty-response post-model-call hook — one-shot bound", () => {
     expect(second.messages).toEqual([priorToolUseTurn]);
   });
 
-  test("a provider rejection clears the bound so the next run nudges afresh", async () => {
-    // GIVEN the hook nudged once, then the re-queried call threw a provider
-    // rejection (which the hook does not own, but which ends this turn).
+  test("the hook never clears its own bound — clearing is the stop hook's job", async () => {
+    // GIVEN the hook nudged once this run for the conversation.
     const nudged = makeCtx({
-      conversationId: "conv-err-reset",
+      conversationId: "conv-no-self-clear",
       messages: [priorToolUseTurn],
       content: [],
     });
     await postModelCall(nudged);
-    const rejected = makeCtx({
-      conversationId: "conv-err-reset",
-      messages: [priorToolUseTurn],
-      content: [],
-      error: new Error("provider rejected the request"),
-    });
-    await postModelCall(rejected);
 
-    // WHEN a fresh empty-after-tools turn arrives for the same conversation.
-    const next = makeCtx({
-      conversationId: "conv-err-reset",
-      messages: [priorToolUseTurn],
-      content: [],
-    });
-    await postModelCall(next);
+    // WHEN the re-queried call comes back as a provider rejection, then as a
+    // recovered visible-text reply — outcomes that end the turn.
+    await postModelCall(
+      makeCtx({
+        conversationId: "conv-no-self-clear",
+        messages: [priorToolUseTurn],
+        content: [],
+        error: new Error("provider rejected the request"),
+      }),
+    );
+    await postModelCall(
+      makeCtx({
+        conversationId: "conv-no-self-clear",
+        messages: [priorToolUseTurn],
+        content: [{ type: "text", text: "here is the summary" }],
+      }),
+    );
 
-    // THEN the bound was cleared on the rejection, so the hook nudges again.
-    expect(next.decision).toBe("continue");
-    expect(next.messages.at(-1)).toEqual({
-      role: "user",
-      content: [{ type: "text", text: NUDGE_TEXT }],
-    });
+    // THEN the bound stays marked — `post-model-call` only ever marks; the
+    // sibling `stop` hook is what clears it at the turn boundary.
+    expect(isEmptyResponseNudged("conv-no-self-clear")).toBe(true);
+  });
+});
+
+// ─── stop hook (terminal cleanup) ────────────────────────────────────────────
+
+function makeStopCtx(overrides: Partial<StopContext> = {}): StopContext {
+  return {
+    conversationId: "conv-stop",
+    messages: [],
+    exitReason: "no_tool_calls",
+    logger: noopLogger,
+    ...overrides,
+  };
+}
+
+describe("empty-response stop hook — terminal cleanup", () => {
+  test("a terminal stop clears the nudge bound", async () => {
+    // GIVEN a conversation that nudged this run.
+    const conversationId = "conv-stop-clear";
+    markEmptyResponseNudged(conversationId);
+
+    // WHEN the terminal stop hook runs.
+    await stop(makeStopCtx({ conversationId }));
+
+    // THEN the bound is cleared so the next run nudges afresh.
+    expect(isEmptyResponseNudged(conversationId)).toBe(false);
   });
 
-  test("a recovered turn clears the bound so the next run nudges afresh", async () => {
-    // GIVEN the hook nudged once, then the run recovered with visible text
-    // (which clears the bound).
-    const nudged = makeCtx({
-      conversationId: "conv-reset",
-      messages: [priorToolUseTurn],
-      content: [],
-    });
-    await postModelCall(nudged);
-    const recovered = makeCtx({
-      conversationId: "conv-reset",
-      messages: [priorToolUseTurn],
-      content: [{ type: "text", text: "here is the summary" }],
-    });
-    await postModelCall(recovered);
+  test("clears the bound regardless of how the turn ended", async () => {
+    // GIVEN a conversation that nudged this run, ending on an abort rather than
+    // a finalized reply.
+    const conversationId = "conv-stop-abort";
+    markEmptyResponseNudged(conversationId);
 
-    // WHEN a fresh empty-after-tools turn arrives for the same conversation.
-    const next = makeCtx({
-      conversationId: "conv-reset",
-      messages: [priorToolUseTurn],
-      content: [],
-    });
-    await postModelCall(next);
+    // WHEN the terminal stop hook runs for that exit.
+    await stop(makeStopCtx({ conversationId, exitReason: "aborted_pre_call" }));
 
-    // THEN the bound was cleared, so the hook nudges again.
-    expect(next.decision).toBe("continue");
-    expect(next.messages.at(-1)).toEqual({
-      role: "user",
-      content: [{ type: "text", text: NUDGE_TEXT }],
-    });
+    // THEN the bound is still cleared — `stop` is the definitive terminal, so
+    // the next run always nudges afresh.
+    expect(isEmptyResponseNudged(conversationId)).toBe(false);
   });
 });
 

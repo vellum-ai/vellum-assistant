@@ -13,7 +13,7 @@
  * Sites not exercised here (`aborted_via_error`) require deeper provider
  * fakery and are best covered by integration tests.
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type { PostCompactContext } from "@vellumai/plugin-api";
 
@@ -31,7 +31,10 @@ import {
   disposeContextWindowManager,
   getContextWindowManager,
 } from "../plugins/defaults/compaction/manager-store.js";
-import { registerPlugin } from "../plugins/registry.js";
+import {
+  registerPlugin,
+  resetPluginRegistryForTests,
+} from "../plugins/registry.js";
 import type {
   Message,
   Provider,
@@ -49,7 +52,7 @@ import type {
 let postCompactImpl:
   | ((input: PostCompactContext) => Promise<Message[]>)
   | null = null;
-registerPlugin({
+const testPostCompactPlugin = {
   manifest: { name: "test-post-compact", version: "0.0.0" },
   hooks: {
     [HOOKS.POST_COMPACT]: async (input: PostCompactContext): Promise<void> => {
@@ -58,7 +61,7 @@ registerPlugin({
         : input.history;
     },
   },
-});
+};
 
 // ---------------------------------------------------------------------------
 // Helpers (mirrored from agent-loop.test.ts so this file is self-contained)
@@ -169,6 +172,14 @@ function countExitEvents(events: AgentEvent[]): number {
 // ---------------------------------------------------------------------------
 
 describe("AgentLoop exit-reason instrumentation", () => {
+  // Reset the plugin registry to a known state so ambient registrations from
+  // other test files (e.g. the default plugins) cannot leak into the
+  // post-compact hook chain these tests drive.
+  beforeEach(() => {
+    resetPluginRegistryForTests();
+    registerPlugin(testPostCompactPlugin);
+  });
+
   afterEach(() => {
     disposeContextWindowManager("test-conversation");
   });
