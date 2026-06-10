@@ -368,8 +368,15 @@ export interface StopContext {
    * Content blocks of the assistant turn that triggered the stop. Guaranteed
    * to contain no `tool_use` blocks — the hook only fires at the boundary
    * where the model stopped requesting tools.
+   *
+   * Writable: a hook may rewrite the turn by assigning new content — e.g. the
+   * default empty-response plugin replaces a provider `refusal` (which zeroes
+   * the response) with a plain-text apology. The loop persists the final value
+   * and streams any text not already emitted live (nothing streams live for a
+   * turn the model left empty), so a rewrite reaches the user. Later hooks in
+   * the chain observe the rewritten content.
    */
-  readonly responseContent: ReadonlyArray<ContentBlock>;
+  responseContent: ReadonlyArray<ContentBlock>;
   /**
    * Provider-reported stop reason for the assistant turn (e.g. `"refusal"`,
    * `"end_turn"`). `null`/`undefined` when the provider didn't report one.

@@ -388,6 +388,7 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
 };
 
 const MAX_STOP_CONTINUE_RETRIES = 1;
+
 const MAX_TOKENS_STOP_REASONS = new Set([
   "length",
   "max_output_tokens",
@@ -413,6 +414,13 @@ function assistantTextOf(content: ReadonlyArray<ContentBlock>): string {
     if (block.type === "text") text += block.text;
   }
   return text;
+}
+
+/** Whether `content` carries at least one non-empty `text` block. */
+function hasVisibleText(content: ReadonlyArray<ContentBlock>): boolean {
+  return content.some(
+    (block) => block.type === "text" && block.text.trim().length > 0,
+  );
 }
 
 /**
@@ -1434,19 +1442,23 @@ export class AgentLoop {
         // yield to the user. The `stop` hook (below) decides whether to accept
         // the turn or re-query with a follow-up; `priorAssistantHadVisibleText`
         // gates the ops log for the post-tool empty case.
-        const hasVisibleText = response.content.some(
-          (block) => block.type === "text" && block.text.trim().length > 0,
-        );
+        const responseHasVisibleText = hasVisibleText(response.content);
         const priorAssistantHadVisibleText = producedVisibleTextThisRun;
-        if (hasVisibleText) {
+        if (responseHasVisibleText) {
           producedVisibleTextThisRun = true;
         }
 
+        // Content a `stop` hook rewrote the turn into, replacing an otherwise
+        // user-invisible turn (e.g. a refusal rewritten into an apology).
+        // Applied after `finalizeAssistantMessage` below.
+        let stopRewrittenContent: ContentBlock[] | undefined;
+
         if (toolUseBlocks.length === 0) {
           // The model stopped requesting tools — the run's stop boundary. The
-          // `stop` hook decides whether to let the turn end or re-query with a
-          // follow-up turn. It receives the full history and, when it asks to
-          // continue, appends the follow-up turn itself.
+          // `stop` hook decides whether to let the turn end, rewrite it for the
+          // user, or re-query with a follow-up turn. It receives the full
+          // history and, when it asks to continue, appends the follow-up turn
+          // itself.
           const stopCtx: StopContext = {
             conversationId: this.conversationId,
             messages: [...history],
@@ -1456,6 +1468,11 @@ export class AgentLoop {
             logger: rlog,
           };
           const finalStopCtx = await runHook(HOOKS.STOP, stopCtx);
+          // A hook rewrites the turn by replacing `responseContent`; detect it
+          // by identity against the model's original output.
+          if (finalStopCtx.responseContent !== response.content) {
+            stopRewrittenContent = [...finalStopCtx.responseContent];
+          }
 
           if (finalStopCtx.decision === "continue") {
             // The loop owns the retry budget: a hook always asks to continue
@@ -1475,7 +1492,7 @@ export class AgentLoop {
             // for the post-tool empty case so ops dashboards that grep on it
             // keep working.
             if (
-              !hasVisibleText &&
+              !responseHasVisibleText &&
               toolUseTurns > 0 &&
               !priorAssistantHadVisibleText
             ) {
@@ -1492,6 +1509,22 @@ export class AgentLoop {
         // resolves to "stop" (a `continue` already re-queried above), so a
         // re-queried reply is never transformed-then-discarded.
         assistantMessage = await finalizeAssistantMessage(assistantMessage);
+
+        // Apply a `stop` hook's rewrite of the turn (e.g. a provider `refusal`
+        // that zeroed the response, rewritten into a user-facing apology). The
+        // hook decides whether and what to rewrite; the loop owns the I/O —
+        // persisting the new content and streaming a synthetic `text_delta`,
+        // since nothing was emitted live for a turn the model left empty.
+        if (stopRewrittenContent) {
+          assistantMessage = {
+            role: "assistant",
+            content: stopRewrittenContent,
+          };
+          const rewrittenText = assistantTextOf(stopRewrittenContent);
+          if (rewrittenText) {
+            onEvent({ type: "text_delta", text: rewrittenText });
+          }
+        }
 
         history.push(assistantMessage);
         appendedNewMessages = true;
