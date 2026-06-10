@@ -55,8 +55,15 @@ mock.module("@/hooks/conversation-queries", () => ({
 const localSelectedRef = {
   value: null as { assistantId: string; name?: string } | null,
 };
+const tabLocalSelectedRef = { value: null as string | null };
 mock.module("@/lib/local-mode", () => ({
   getSelectedAssistant: () => localSelectedRef.value,
+  getActiveAssistant: () =>
+    resolvedRef.activeAssistantId
+      ? { assistantId: resolvedRef.activeAssistantId }
+      : undefined,
+  getTabLocalSelectedAssistantId: () => tabLocalSelectedRef.value,
+  setActiveLockfileAssistant: async () => undefined,
 }));
 
 mock.module("@/stores/auth-store", () => {
@@ -76,6 +83,9 @@ mock.module("@/stores/organization-store", () => {
   useOrganizationStore.use = {
     currentOrganizationId: () => orgRef.currentOrganizationId,
   };
+  useOrganizationStore.getState = () => ({
+    currentOrganizationId: orgRef.currentOrganizationId,
+  });
   return { useOrganizationStore };
 });
 
@@ -87,7 +97,23 @@ mock.module("@/stores/resolved-assistants-store", () => {
     selectedPlatformAssistantByOrg: () =>
       resolvedRef.selectedPlatformAssistantByOrg,
   };
-  return { useResolvedAssistantsStore };
+  useResolvedAssistantsStore.getState = () => ({
+    assistants: resolvedRef.assistants,
+    selectedPlatformAssistantByOrg: resolvedRef.selectedPlatformAssistantByOrg,
+  });
+  return {
+    useResolvedAssistantsStore,
+    assistantsValidForOrg: (
+      assistants: { organizationId?: string | null; isLocal?: boolean }[],
+      activeOrgId: string | null,
+    ) =>
+      assistants.filter(
+        (a) =>
+          a.isLocal ||
+          a.organizationId == null ||
+          a.organizationId === activeOrgId,
+      ),
+  };
 });
 
 const useCommandPaletteSectionsMock = mock((_params: unknown) => ({
