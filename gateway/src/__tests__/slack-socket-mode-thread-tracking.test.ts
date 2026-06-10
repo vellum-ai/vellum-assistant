@@ -628,6 +628,113 @@ describe("SlackSocketModeClient thread tracking", () => {
     }
   });
 
+  test("tracks the thread when the bot posts the first reply, so later replies are admitted (JARVIS-1086)", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    // Thread parent posted by another bot — never tracked, never ingested.
+    const threadTs = "1700000000.000500";
+
+    try {
+      await resolveSlackUser("U-reply", "xoxb-test");
+
+      // The assistant proactively replies in the thread (e.g. a skill-driven
+      // chat.postMessage). The bot's own message echoes back over Socket
+      // Mode as a plain `message` event authored by the bot user.
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-bot-own-reply",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-bot-own-reply",
+            event: {
+              type: "message",
+              user: "UBOT",
+              text: "proactive triage context for <@U-human>",
+              ts: "1700000000.000600",
+              channel: "C-thread",
+              channel_type: "channel",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      // The bot's own message is never forwarded, but it must arm the
+      // thread so catch-up and the active-thread filter cover it.
+      expect(emitted).toHaveLength(0);
+      expect(store.hasThread(threadTs)).toBe(true);
+
+      // A human follow-up in that thread (no @-mention) is now admitted.
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-human-followup",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-human-followup",
+            event: {
+              type: "message",
+              user: "U-reply",
+              text: "following up in the assistant-initiated thread",
+              ts: "1700000000.000700",
+              channel: "C-thread",
+              channel_type: "channel",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.source.updateId).toBe("Ev-human-followup");
+      expect(emitted[0].threadTs).toBe(threadTs);
+      expect(emitted[0].event.source.threadId).toBe(threadTs);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("does not track bot replies in unrouted channels", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    const threadTs = "1700000000.000800";
+
+    try {
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-bot-unrouted-reply",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-bot-unrouted-reply",
+            event: {
+              type: "message",
+              user: "UBOT",
+              text: "bot reply in a channel with no routing entry",
+              ts: "1700000000.000900",
+              channel: "C-unrouted",
+              channel_type: "channel",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(0);
+      expect(store.hasThread(threadTs)).toBe(false);
+    } finally {
+      rawDb.close();
+    }
+  });
+
   test("accepts unmentioned thread replies after a top-level app mention", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];

@@ -616,6 +616,85 @@ describe("replayMissedEvents", () => {
     }
   });
 
+  test("recovers a missed @-mention in a thread the bot posted to first (JARVIS-1086)", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    client.ws = ws;
+
+    store.setLastSeenTsIfGreater("1700000000.000000");
+
+    // Trace from the ticket: another bot posts the thread parent (never
+    // ingested — bot-authored, top-level), then the assistant posts the
+    // first reply in the thread via chat.postMessage. The bot's own reply
+    // echoes back over the live socket and must arm the thread.
+    const parentTs = "1700000010.000000";
+    client.handleMessage(
+      JSON.stringify({
+        envelope_id: "env-bot-first-reply",
+        type: "events_api",
+        payload: {
+          event_id: "Ev-bot-first-reply",
+          event: {
+            type: "message",
+            user: "UBOT",
+            text: "triage context, looping in <@U-human>",
+            ts: "1700000020.000000",
+            channel: "CROUTED01",
+            channel_type: "channel",
+            thread_ts: parentTs,
+          },
+        },
+      }),
+      ws,
+    );
+    await flushAsyncEventEmission();
+    expect(emitted).toHaveLength(0);
+
+    // The human's @-mention reply lands during a Socket Mode reconnect gap
+    // — it never arrives live. Reconnect catch-up must recover it via
+    // conversations.replies. conversations.history cannot: thread replies
+    // are excluded from channel history.
+    const calls: string[] = [];
+    fetchMock = mock(async (input) => {
+      const url = String(input);
+      calls.push(url);
+      if (
+        url.includes("conversations.replies") &&
+        url.includes(encodeURIComponent(parentTs))
+      ) {
+        return makeHistoryResponse([
+          {
+            type: "message",
+            user: "U-human",
+            text: "model cost falls to someone else <@UBOT>",
+            ts: "1700000060.000000",
+            thread_ts: parentTs,
+          },
+        ]);
+      }
+      return makeHistoryResponse([]);
+    });
+
+    try {
+      await client.replayMissedEvents(ws);
+      await flushAsyncEventEmission();
+
+      expect(calls.some((u) => u.includes("conversations.replies"))).toBe(true);
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.source.updateId).toBe(
+        "replay:CROUTED01:1700000060.000000",
+      );
+      // Mentions are replayed through the app_mention path.
+      const raw = emitted[0].event.raw as { type?: string };
+      expect(raw.type).toBe("app_mention");
+      expect(emitted[0].threadTs).toBe(parentTs);
+    } finally {
+      rawDb.close();
+    }
+  });
+
   test("replays a DM @-mention as type='message' so default-assistant fallback applies", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];

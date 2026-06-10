@@ -659,6 +659,52 @@ export class SlackSocketModeClient {
       !!channelEvent.thread_ts &&
       this.store.hasThread(channelEvent.thread_ts);
 
+    // The bot's own thread replies arrive as plain `message` events and are
+    // never forwarded (every normalizer drops self-authored messages). They
+    // are, however, the only Socket Mode signal that the assistant has
+    // posted into a thread it is not already tracking — e.g. a proactive
+    // chat.postMessage reply under another bot's thread parent, sent via the
+    // slack skill or the daemon's direct Web API delivery. Track the thread
+    // here, before the forwarding filter drops the event, so that:
+    //   1. follow-up replies in the thread (without an @-mention) pass the
+    //      active-thread filter, matching threads entered via app_mention;
+    //   2. reconnect catch-up's thread fan-out covers the thread — Slack's
+    //      conversations.history excludes thread replies, so an @-mention
+    //      that lands during a Socket Mode reconnect gap in an untracked
+    //      thread is otherwise unrecoverable (JARVIS-1086).
+    // Mirrors the app_mention tracking below: only routed events arm a
+    // thread, so unrouted channels don't accumulate active-thread state.
+    const isBotOwnThreadReply =
+      event.type === "message" &&
+      !isMessageChanged &&
+      !isMessageDeleted &&
+      !!this.config.botUserId &&
+      channelEvent.user === this.config.botUserId &&
+      !!channelEvent.thread_ts;
+    if (isBotOwnThreadReply) {
+      const routing = resolveAssistant(
+        this.config.gatewayConfig,
+        channelEvent.channel,
+        channelEvent.user ?? "",
+      );
+      if (!isRejection(routing) && channelEvent.channel) {
+        this.store.trackThread(
+          channelEvent.thread_ts!,
+          channelEvent.channel,
+          ACTIVE_THREAD_TTL_MS,
+        );
+        log.info(
+          {
+            eventId: eventPayload.event_id,
+            channel: channelEvent.channel,
+            threadTs: channelEvent.thread_ts,
+          },
+          "Tracked thread after bot's own thread reply",
+        );
+      }
+      return;
+    }
+
     // Forward reaction events on:
     //   1. messages in tracked bot threads (preserves original behavior), or
     //   2. messages in any channel the bot is subscribed to (a configured
