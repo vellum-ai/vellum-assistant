@@ -50,8 +50,12 @@ export type {
 // changes; this module owns the transport and is the only writer.
 const getCachedLockfile = (): Lockfile | null =>
   useLockfileStore.getState().lockfile;
-const setCachedLockfile = (data: Lockfile): void =>
+const setCachedLockfile = (data: Lockfile): void => {
   useLockfileStore.getState().setLockfile(data);
+  // Single chokepoint for every lockfile update — reconcile here so a removed
+  // assistant never lingers as the tab selection.
+  reconcileSelectedAssistant();
+};
 
 const EMPTY_LOCKFILE: Lockfile = { assistants: [], activeAssistant: null };
 
