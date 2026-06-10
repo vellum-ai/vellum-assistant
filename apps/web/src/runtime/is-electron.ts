@@ -118,6 +118,19 @@ export type FnPushToTalkResult =
   | { ok: false; reason: string };
 
 /**
+ * Renderer-side mirror of `DictationPartialsResult` / `DictationPartialEvent`
+ * in `apps/macos/src/main/hotkey-helper.ts` — inline for the same reason as
+ * `VellumCommand`.
+ */
+export type DictationPartialsResult =
+  | { ok: true; enabled: boolean }
+  | { ok: false; reason: string };
+
+export interface DictationPartialEvent {
+  text: string;
+}
+
+/**
  * States the system-wide dictation overlay can display, plus the explicit
  * dismiss message. Renderer-side mirror of `DictationOverlayState` /
  * `DictationOverlayMessage` in
@@ -292,6 +305,13 @@ declare global {
         hotkey?: {
           fnPushToTalk(enable: boolean): Promise<FnPushToTalkResult>;
           onEvent(callback: (event: HotkeyEvent) => void): () => void;
+        };
+        // Optional: older Electron shells predate the dictation channel.
+        dictation?: {
+          setPartials(enable: boolean): Promise<DictationPartialsResult>;
+          onPartial(
+            callback: (event: DictationPartialEvent) => void,
+          ): () => void;
         };
       };
       commands: {

@@ -108,6 +108,17 @@ export type FnPushToTalkResult =
   | { ok: true; enabled: boolean }
   | { ok: false; reason: string };
 
+// Mirrors `DictationPartialsResult` / `DictationPartialEvent` in
+// `apps/macos/src/main/hotkey-helper.ts` (same three-TS-project reason as
+// `VellumCommand`).
+export type DictationPartialsResult =
+  | { ok: true; enabled: boolean }
+  | { ok: false; reason: string };
+
+export interface DictationPartialEvent {
+  text: string;
+}
+
 // States the system-wide dictation overlay can display, plus the explicit
 // dismiss message. Mirrors `DictationOverlayState` / `DictationOverlayMessage`
 // in `apps/macos/src/main/dictation-overlay-window.ts` (kept inline for the
@@ -330,6 +341,20 @@ export interface VellumBridge {
        * Returns an unsubscribe function.
        */
       onEvent(callback: (event: HotkeyEvent) => void): () => void;
+    };
+    dictation: {
+      /**
+       * Start/stop local speech-recognition partials in the helper. While
+       * enabled, the helper emits `dictation.partial` notifications with the
+       * cumulative transcription — the dictation overlay's live-text source
+       * when daemon streaming STT is unreachable.
+       */
+      setPartials(enable: boolean): Promise<DictationPartialsResult>;
+      /**
+       * Subscribe to partial transcriptions for the enabling renderer.
+       * Returns an unsubscribe function.
+       */
+      onPartial(callback: (event: DictationPartialEvent) => void): () => void;
     };
   };
   commands: {
@@ -702,6 +727,25 @@ const bridge: VellumBridge = {
         ipcRenderer.on("vellum:helper:hotkey:event", handler);
         return () => {
           ipcRenderer.off("vellum:helper:hotkey:event", handler);
+        };
+      },
+    },
+    dictation: {
+      setPartials: (enable: boolean): Promise<DictationPartialsResult> =>
+        ipcRenderer.invoke(
+          "vellum:helper:dictation:setPartials",
+          enable,
+        ) as Promise<DictationPartialsResult>,
+      onPartial: (callback) => {
+        const handler = (
+          _event: IpcRendererEvent,
+          payload: DictationPartialEvent,
+        ) => {
+          callback(payload);
+        };
+        ipcRenderer.on("vellum:helper:dictation:partial", handler);
+        return () => {
+          ipcRenderer.off("vellum:helper:dictation:partial", handler);
         };
       },
     },

@@ -13,6 +13,7 @@ import {
   startDictationStream,
   type DictationStreamHandle,
 } from "@/domains/chat/voice/dictation-stream";
+import { startNativeDictationPartials } from "@/runtime/native-dictation-partials";
 import {
     postSttTranscribe,
     type SttFailureReason,
@@ -259,6 +260,14 @@ export const VoiceInputButton = forwardRef<
   // the authority for the final text.
   const dictationStreamRef = useRef<DictationStreamHandle | null>(null);
 
+  // Native helper speech-recognition partials — the fallback live-text
+  // source when the daemon stream can't start at all (no self-hosted
+  // gateway ingress; platform-managed assistants ride the platform proxy,
+  // which has no WebSocket path). Same role the native recognizer played
+  // in the legacy Swift client.
+  const nativePartialsStopRef = useRef<(() => void) | null>(null);
+  const nativePartialsTextRef = useRef("");
+
   const onStreamReadyRef = useRef(onStreamReady);
   onStreamReadyRef.current = onStreamReady;
 
@@ -302,10 +311,17 @@ export const VoiceInputButton = forwardRef<
     dictationStreamRef.current = null;
   }, []);
 
+  const stopNativePartials = useCallback(() => {
+    nativePartialsStopRef.current?.();
+    nativePartialsStopRef.current = null;
+    nativePartialsTextRef.current = "";
+  }, []);
+
   const stopRecording = useCallback(() => {
     cancelledStartRef.current = true;
     stopSpeechRecognition();
     stopDictationStream();
+    stopNativePartials();
     const recorder = mediaRecorderRef.current;
     if (!recorder) return;
     if (recorder.state !== "inactive") {
@@ -316,7 +332,12 @@ export const VoiceInputButton = forwardRef<
       }
     }
     vsStopRecording();
-  }, [vsStopRecording, stopSpeechRecognition, stopDictationStream]);
+  }, [
+    vsStopRecording,
+    stopSpeechRecognition,
+    stopDictationStream,
+    stopNativePartials,
+  ]);
 
   useEffect(() => {
     if (disabled && recording) {
@@ -329,6 +350,7 @@ export const VoiceInputButton = forwardRef<
       transcribeAbortRef.current?.abort();
       stopSpeechRecognition();
       stopDictationStream();
+      stopNativePartials();
       const recorder = mediaRecorderRef.current;
       if (recorder && recorder.state !== "inactive") {
         try {
@@ -340,7 +362,12 @@ export const VoiceInputButton = forwardRef<
       releaseStream();
       useVoiceRecordingStore.getState().reset();
     };
-  }, [releaseStream, stopSpeechRecognition, stopDictationStream]);
+  }, [
+    releaseStream,
+    stopSpeechRecognition,
+    stopDictationStream,
+    stopNativePartials,
+  ]);
 
   const startRecording = useCallback(async () => {
     if (mediaRecorderRef.current) return;
@@ -393,10 +420,14 @@ export const VoiceInputButton = forwardRef<
             }
           }
           speechAccumulatorRef.current = accumulated + interim;
-          // Streaming STT partials take priority over Web Speech partials
-          // to avoid competing UI updates (the legacy client's rule). The
-          // accumulator above still builds — it stays the batch fallback.
-          if (!dictationStreamRef.current?.isLive()) {
+          // Streaming STT and native helper partials both take priority
+          // over Web Speech partials to avoid competing UI updates (the
+          // legacy client's rule). The accumulator above still builds — it
+          // stays the batch fallback.
+          if (
+            !dictationStreamRef.current?.isLive() &&
+            !nativePartialsTextRef.current
+          ) {
             publishInterim(interim);
           }
         };
@@ -468,6 +499,7 @@ export const VoiceInputButton = forwardRef<
       releaseStream();
       stopSpeechRecognition();
       stopDictationStream();
+      stopNativePartials();
       publishInterim("");
 
       if (erroredRef.current) {
@@ -551,6 +583,7 @@ export const VoiceInputButton = forwardRef<
       releaseStream();
       stopSpeechRecognition();
       stopDictationStream();
+      stopNativePartials();
       onError?.("audio-capture");
       vsFail("audio-capture");
     };
@@ -579,12 +612,32 @@ export const VoiceInputButton = forwardRef<
     }
 
     // Recording is live — open the daemon streaming session for interim
-    // transcripts. Null / later failure means no live partials, nothing
-    // more: the recorder above is untouched.
+    // transcripts. Null / later failure means no live partials from that
+    // source; the recorder above is untouched either way.
     stopDictationStream();
     dictationStreamRef.current = startDictationStream({
       onPartial: publishInterim,
     });
+
+    // No stream possible (no self-hosted gateway ingress) — fall back to
+    // the mac helper's local speech recognizer for live text.
+    stopNativePartials();
+    if (!dictationStreamRef.current) {
+      void startNativeDictationPartials((text) => {
+        nativePartialsTextRef.current = text;
+        if (!dictationStreamRef.current?.isLive()) {
+          publishInterim(text);
+        }
+      }).then((stop) => {
+        if (!stop) return;
+        // The session may have ended while the helper call was in flight.
+        if (!mediaRecorderRef.current) {
+          stop();
+          return;
+        }
+        nativePartialsStopRef.current = stop;
+      });
+    }
   }, [
     assistantId,
     onBeforeStart,
@@ -594,6 +647,7 @@ export const VoiceInputButton = forwardRef<
     releaseStream,
     stopSpeechRecognition,
     stopDictationStream,
+    stopNativePartials,
     vsStartRecording,
     vsStopRecording,
     vsFail,

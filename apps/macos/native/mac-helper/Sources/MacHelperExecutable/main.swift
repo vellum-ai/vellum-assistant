@@ -3,6 +3,7 @@ import Carbon
 import Darwin
 import Foundation
 import MacHelperCore
+import Speech
 
 private let hotkeySignature = OSType(0x564C_464E) // "VLFN"
 private let fnHotkeyId = EventHotKeyID(signature: hotkeySignature, id: 1)
@@ -58,6 +59,10 @@ final class MacHelper: @unchecked Sendable {
     private var handlerRefs: [EventHandlerRef] = []
     private var isFnDown = false
     private let outputLock = NSLock()
+    private var dictationSession: DictationPartialsSession?
+    // Bumped on every dictation.setPartials so a pending speech-authorization
+    // callback can tell the session it was starting has since been stopped.
+    private var dictationGeneration = 0
 
     private lazy var router: JsonRpcRouter = {
         let router = JsonRpcRouter()
@@ -77,6 +82,20 @@ final class MacHelper: @unchecked Sendable {
                 )
             }
             return try self.setFnPushToTalk(enable: enable)
+        }
+        router.register("dictation.setPartials") { [weak self] params in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            guard
+                let object = params as? [String: Any],
+                let enable = object["enable"] as? Bool
+            else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "dictation.setPartials requires enable"
+                )
+            }
+            return self.setDictationPartials(enable: enable)
         }
         return router
     }()
@@ -147,6 +166,59 @@ final class MacHelper: @unchecked Sendable {
 
     private func handleCommand(_ line: String) {
         writeLine(router.handle(line: line))
+    }
+
+    /// Start/stop local speech-recognition partials (`dictation.partial`
+    /// notifications). The renderer enables this for the dictation overlay
+    /// whenever daemon streaming STT is unreachable.
+    private func setDictationPartials(enable: Bool) -> [String: Any] {
+        dictationGeneration += 1
+        dictationSession?.stop()
+        dictationSession = nil
+
+        guard enable else {
+            return ["enabled": false]
+        }
+
+        switch SFSpeechRecognizer.authorizationStatus() {
+        case .authorized:
+            return startDictationSession()
+        case .notDetermined:
+            // First use: prompt (attributed to the host app, which carries
+            // the usage strings) and start late once granted — the renderer
+            // simply receives partials from that point on.
+            let generation = dictationGeneration
+            SFSpeechRecognizer.requestAuthorization { [weak self] status in
+                DispatchQueue.main.async {
+                    guard
+                        let self,
+                        status == .authorized,
+                        generation == self.dictationGeneration
+                    else { return }
+                    _ = self.startDictationSession()
+                }
+            }
+            return ["enabled": true, "authorizing": true]
+        default:
+            return ["enabled": false, "reason": "speech-recognition-denied"]
+        }
+    }
+
+    private func startDictationSession() -> [String: Any] {
+        let session = DictationPartialsSession { [weak self] text in
+            self?.writeNotification(
+                method: "dictation.partial",
+                params: ["text": text]
+            )
+        }
+        do {
+            try session.start()
+            dictationSession = session
+            return ["enabled": true]
+        } catch {
+            log("dictation partials failed to start: \(error.localizedDescription)")
+            return ["enabled": false, "reason": error.localizedDescription]
+        }
     }
 
     private func setFnPushToTalk(enable: Bool) throws -> [String: Any] {
@@ -267,6 +339,9 @@ final class MacHelper: @unchecked Sendable {
     }
 
     private func shutdown() {
+        dictationGeneration += 1
+        dictationSession?.stop()
+        dictationSession = nil
         unregisterFnHotkey()
     }
 
