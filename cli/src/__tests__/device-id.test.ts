@@ -23,15 +23,18 @@ describe("getOrCreateHostDeviceId", () => {
   let tempHome: string;
   let savedXdg: string | undefined;
   let savedEnv: string | undefined;
+  let savedDeviceId: string | undefined;
   let deviceFile: string;
 
   beforeEach(() => {
     savedXdg = process.env.XDG_CONFIG_HOME;
     savedEnv = process.env.VELLUM_ENVIRONMENT;
+    savedDeviceId = process.env.VELLUM_DEVICE_ID;
+    delete process.env.VELLUM_DEVICE_ID;
     tempHome = mkdtempSync(join(tmpdir(), "cli-device-id-test-"));
     process.env.XDG_CONFIG_HOME = tempHome;
     // Non-prod so the resolver targets $XDG_CONFIG_HOME/vellum-dev/
-    // instead of the real ~/.vellum/.
+    // instead of the real ~/.config/vellum/.
     process.env.VELLUM_ENVIRONMENT = "dev";
     deviceFile = join(tempHome, "vellum-dev", "device.json");
     resetHostDeviceIdCache();
@@ -47,6 +50,11 @@ describe("getOrCreateHostDeviceId", () => {
       delete process.env.VELLUM_ENVIRONMENT;
     } else {
       process.env.VELLUM_ENVIRONMENT = savedEnv;
+    }
+    if (savedDeviceId === undefined) {
+      delete process.env.VELLUM_DEVICE_ID;
+    } else {
+      process.env.VELLUM_DEVICE_ID = savedDeviceId;
     }
     rmSync(tempHome, { recursive: true, force: true });
     resetHostDeviceIdCache();
@@ -96,6 +104,13 @@ describe("getOrCreateHostDeviceId", () => {
     const parsed = JSON.parse(readFileSync(deviceFile, "utf-8"));
     expect(parsed.other).toBe("kept");
     expect(parsed.deviceId).toBe(id);
+  });
+
+  test("VELLUM_DEVICE_ID env var wins and skips file access", () => {
+    process.env.VELLUM_DEVICE_ID = "env-device-id";
+
+    expect(getOrCreateHostDeviceId()).toBe("env-device-id");
+    expect(existsSync(deviceFile)).toBe(false);
   });
 
   test("malformed JSON regenerates without throwing", () => {

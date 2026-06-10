@@ -1,13 +1,19 @@
 /**
  * Host device ID resolver.
  *
- * Mirrors the non-containerized branches of
- * `assistant/src/util/device-id.ts` so the CLI resolves the same
- * `device.json` as the assistant, host-mode gateway, and Swift client
- * (`VellumPaths.deviceIdFile`):
- *   - Production: `~/.vellum/device.json` (legacy path — intentionally NOT
- *     the CLI's `getConfigDir()` location of `~/.config/vellum/`).
- *   - Non-production: `$XDG_CONFIG_HOME/vellum-<env>/device.json`.
+ * Resolution order (mirrors `gateway/src/device-id.ts`):
+ *   1. `VELLUM_DEVICE_ID` env var, if set — lets the desktop app hand the
+ *      canonical device id down to the CLI.
+ *   2. `device.json` in the CLI-owned config dir (`getConfigDir()`):
+ *      production → `~/.config/vellum/device.json`, non-production →
+ *      `$XDG_CONFIG_HOME/vellum-<env>/device.json`. Per cli/AGENTS.md, the
+ *      CLI must never touch `~/.vellum/` — that is assistant/gateway-owned
+ *      state.
+ *
+ * Accepted tradeoff: this intentionally does NOT read the legacy
+ * `~/.vellum/device.json`, so a containerized gateway's device id may differ
+ * from a host-mode gateway's on the same machine. Stability matters for LD
+ * feature-flag contexts, not parity with the legacy file.
  *
  * Not to be confused with `guardian-token.ts:computeDeviceId` /
  * `getOrCreatePersistedDeviceId` — those produce the salted-hash Guardian
@@ -16,7 +22,6 @@
 
 import { randomUUID } from "crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "fs";
-import { homedir } from "os";
 import { join } from "path";
 
 import { getConfigDir } from "./environments/paths.js";
@@ -25,21 +30,24 @@ import { getCurrentEnvironment } from "./environments/resolve.js";
 let cached: string | undefined;
 
 function resolveDeviceIdPaths(): { dir: string; file: string } {
-  const env = getCurrentEnvironment();
-  const dir =
-    env.name === "production"
-      ? join(homedir(), ".vellum")
-      : getConfigDir(env);
+  const dir = getConfigDir(getCurrentEnvironment());
   return { dir, file: join(dir, "device.json") };
 }
 
 /**
  * Get the stable device ID for this host machine, creating and persisting
- * one in `device.json` if absent. Never throws: on write failure the
- * generated UUID is still cached and returned for the process lifetime.
+ * one in `device.json` if absent. `VELLUM_DEVICE_ID` takes precedence over
+ * any file. Never throws: on write failure the generated UUID is still
+ * cached and returned for the process lifetime.
  */
 export function getOrCreateHostDeviceId(): string {
   if (cached !== undefined) {
+    return cached;
+  }
+
+  const fromEnv = process.env.VELLUM_DEVICE_ID?.trim();
+  if (fromEnv) {
+    cached = fromEnv;
     return cached;
   }
 
