@@ -38,7 +38,6 @@ function revealLazySectionsIfPendingUnloaded(
 export async function reconcileAttentionKeys(
   assistantId: string,
   queryClient: QueryClient,
-  activeConversationId: string | null,
   opts: { pruneStale: boolean } = { pruneStale: false },
 ): Promise<void> {
   let pendingKeys: Set<string>;
@@ -53,7 +52,10 @@ export async function reconcileAttentionKeys(
 
   revealLazySectionsIfPendingUnloaded(pendingKeys, loadedIds);
 
+  // Read activeConversationId AFTER the await so we use the current
+  // value, not one captured before the network call.
   const state = useConversationStore.getState();
+  const activeConversationId = state.activeConversationId;
 
   if (opts.pruneStale) {
     for (const key of state.attentionConversationIds) {

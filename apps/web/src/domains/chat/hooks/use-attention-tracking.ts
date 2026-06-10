@@ -180,7 +180,7 @@ export function useAttentionTracking({
   // -------------------------------------------------------------------------
   useBusSubscription("sse.opened", ({ cause }) => {
     if (!assistantId || cause === "fresh") return;
-    void reconcileAttentionKeys(assistantId, queryClient, activeConversationId, {
+    void reconcileAttentionKeys(assistantId, queryClient, {
       pruneStale: true,
     });
   });
@@ -195,6 +195,6 @@ export function useAttentionTracking({
     if (!assistantId || conversations.length === 0 || initialAttentionSweepDoneRef.current) return;
     initialAttentionSweepDoneRef.current = true;
 
-    void reconcileAttentionKeys(assistantId, queryClient, activeConversationId);
-  }, [assistantId, conversations, activeConversationId, queryClient]);
+    void reconcileAttentionKeys(assistantId, queryClient);
+  }, [assistantId, conversations, queryClient]);
 }

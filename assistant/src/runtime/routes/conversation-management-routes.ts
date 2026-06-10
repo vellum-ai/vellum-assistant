@@ -374,10 +374,18 @@ function handleArchiveConversationsBulk({
   const archivedIds: string[] = [];
 
   for (const rawId of rawIds) {
-    const conversationId = resolveOrThrow(rawId);
-    const archived = archiveConversation(conversationId);
-    if (archived) {
-      archivedIds.push(conversationId);
+    try {
+      const conversationId = resolveOrThrow(rawId);
+      const archived = archiveConversation(conversationId);
+      if (archived) {
+        archivedIds.push(conversationId);
+      }
+    } catch (err) {
+      log.error(
+        { err, conversationId: rawId },
+        "POST /v1/conversations/archive/bulk: failed for conversation",
+      );
+      // Best-effort: continue with remaining conversations.
     }
   }
 
