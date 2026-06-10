@@ -24689,13 +24689,60 @@ paths:
   /v1/tools:
     get:
       operationId: tools_get
-      summary: List tools
-      description: Return available tool names with their descriptions, risk levels, and categories.
+      summary: List tool names and schemas
+      description:
+        Return available tool names with their input schemas. For tool metadata (description, risk level, category,
+        source), use the tools/list route.
       tags:
         - tools
       responses:
         "200":
           description: Successful response
+  /v1/tools/list:
+    get:
+      operationId: tools_list_get
+      summary: List registered tools with metadata
+      description:
+        Return every registered tool with its description, author-asserted risk level, category, and contributing
+        source (core, skill, plugin, or MCP server).
+      tags:
+        - tools
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tools:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        description:
+                          type: string
+                        riskLevel:
+                          type: string
+                        category:
+                          type: string
+                        source:
+                          type: string
+                          description:
+                            'Tool origin: "core" for built-ins, otherwise "<kind>:<id>" (e.g. "plugin:echo", "skill:my-skill",
+                            "mcp:server").'
+                      required:
+                        - name
+                        - description
+                        - riskLevel
+                        - category
+                        - source
+                      additionalProperties: false
+                required:
+                  - tools
+                additionalProperties: false
   /v1/tools/simulate-permission:
     post:
       operationId: tools_simulatepermission_post
