@@ -1,4 +1,4 @@
-import { BrowserWindow, screen, type Rectangle } from "electron";
+import { BrowserWindow, globalShortcut, screen, type Rectangle } from "electron";
 import { z } from "zod";
 
 import { createFloatingWindow, getFloatingWindow } from "./floating-window";
@@ -14,6 +14,7 @@ import { handle } from "./ipc";
 
 const OVERLAY_KIND = "transcription";
 const OVERLAY_PATH = "/floating/transcription";
+const ESCAPE_ACCELERATOR = "Escape";
 
 const OVERLAY_WIDTH = 520;
 const OVERLAY_HEIGHT = 176;
@@ -67,8 +68,8 @@ export const createTranscriptionOverlayController = (
   const show = (state: TranscriptionOverlayState): void => {
     clearAutoDismissTimer();
     latestState = state;
-    deps.showOverlay();
     deps.forwardState(state);
+    deps.showOverlay();
 
     if (state.autoDismissMs > 0) {
       autoDismissTimer = deps.setTimeout(dismiss, state.autoDismissMs);
@@ -85,6 +86,7 @@ export const createTranscriptionOverlayController = (
 let lastMovedBounds: Rectangle | null = null;
 let trackedWindow: BrowserWindow | null = null;
 let controller: TranscriptionOverlayController | null = null;
+let globalEscapeRegistered = false;
 
 const displayPosition = (): { x: number; y: number } => {
   if (lastMovedBounds) {
@@ -113,6 +115,20 @@ const dismissOverlay = (): void => {
   controller?.dismiss();
 };
 
+const registerGlobalEscapeDismiss = (): void => {
+  if (globalEscapeRegistered) return;
+  globalEscapeRegistered = globalShortcut.register(
+    ESCAPE_ACCELERATOR,
+    dismissOverlay,
+  );
+};
+
+const unregisterGlobalEscapeDismiss = (): void => {
+  if (!globalEscapeRegistered) return;
+  globalShortcut.unregister(ESCAPE_ACCELERATOR);
+  globalEscapeRegistered = false;
+};
+
 const attachWindowLifecycle = (win: BrowserWindow): void => {
   if (trackedWindow === win) return;
   trackedWindow = win;
@@ -132,6 +148,7 @@ const attachWindowLifecycle = (win: BrowserWindow): void => {
     if (trackedWindow === win) {
       trackedWindow = null;
     }
+    unregisterGlobalEscapeDismiss();
     if (controller?.getState()) {
       controller.dismiss();
     }
@@ -163,9 +180,11 @@ const ensureOverlayWindow = (): BrowserWindow => {
 
 const showOverlay = (): void => {
   ensureOverlayWindow();
+  registerGlobalEscapeDismiss();
 };
 
 const hideOverlay = (): void => {
+  unregisterGlobalEscapeDismiss();
   const win = getFloatingWindow(OVERLAY_KIND);
   if (win) {
     win.hide();

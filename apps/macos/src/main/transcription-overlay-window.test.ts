@@ -39,6 +39,17 @@ type HandlerFn = (args: unknown[]) => unknown;
 const appState = { isPackaged: false };
 const created: Array<{ opts: CreateWindowOptions; win: StubWindow }> = [];
 const ipcHandlers = new Map<string, HandlerFn>();
+const windowEvents: string[] = [];
+const globalShortcutHandlers = new Map<string, () => void>();
+const globalShortcutRegisterMock = mock(
+  (accelerator: string, handler: () => void) => {
+    globalShortcutHandlers.set(accelerator, handler);
+    return true;
+  },
+);
+const globalShortcutUnregisterMock = mock((accelerator: string) => {
+  globalShortcutHandlers.delete(accelerator);
+});
 let focusedWindow: { getBounds: () => Bounds; isDestroyed: () => boolean } | null =
   null;
 let displayWorkArea: Bounds = { x: 0, y: 0, width: 1440, height: 900 };
@@ -64,7 +75,11 @@ const makeWindow = (): StubWindow => {
         listener(...args);
       }
     },
-    send: mock((_channel: string, _payload: unknown) => undefined),
+    send: mock((_channel: string, payload: unknown) => {
+      windowEvents.push(
+        `send:${(payload as { transcript?: string }).transcript ?? ""}`,
+      );
+    }),
   };
 
   const win: StubWindow = {
@@ -96,7 +111,9 @@ const makeWindow = (): StubWindow => {
     ),
     show: mock(() => undefined),
     focus: mock(() => undefined),
-    showInactive: mock(() => undefined),
+    showInactive: mock(() => {
+      windowEvents.push("showInactive");
+    }),
     hide: mock(() => undefined),
     loadURL: mock((_url: string) => Promise.resolve()),
   };
@@ -125,6 +142,10 @@ mock.module("electron", () => ({
     getCursorScreenPoint: () => ({ x: 0, y: 0 }),
     getDisplayNearestPoint: () => ({ workArea: displayWorkArea }),
     getDisplayMatching: () => ({ workArea: displayWorkArea }),
+  },
+  globalShortcut: {
+    register: globalShortcutRegisterMock,
+    unregister: globalShortcutUnregisterMock,
   },
 }));
 
@@ -170,6 +191,10 @@ beforeEach(() => {
   }
   created.length = 0;
   createWindowMock.mockClear();
+  windowEvents.length = 0;
+  globalShortcutHandlers.clear();
+  globalShortcutRegisterMock.mockClear();
+  globalShortcutUnregisterMock.mockClear();
   appState.isPackaged = false;
   process.env.VELLUM_DEV_URL = "http://localhost:4242/assistant/";
   focusedWindow = null;
@@ -232,11 +257,15 @@ describe("installTranscriptionOverlay", () => {
     expect(first.win.showInactive).toHaveBeenCalledTimes(2);
     expect(first.win.loadURL).toHaveBeenCalledTimes(1);
     expect(first.win.webContents.send.mock.calls).toEqual([
-      ["vellum:transcriptionOverlay:state", state()],
       [
         "vellum:transcriptionOverlay:state",
         state({ transcript: "A newer transcript." }),
       ],
+    ]);
+    expect(windowEvents).toEqual([
+      "showInactive",
+      "send:A newer transcript.",
+      "showInactive",
     ]);
 
     first.win.emit("closed");
@@ -268,6 +297,27 @@ describe("installTranscriptionOverlay", () => {
 
     expect(preventDefault).toHaveBeenCalledTimes(1);
     expect(win.hide).toHaveBeenCalledTimes(2);
+    expect(invoke("vellum:transcriptionOverlay:getState")).toBeNull();
+  });
+
+  test("global Escape closes the inactive overlay and unregisters on dismiss", () => {
+    invoke("vellum:transcriptionOverlay:show", [state()]);
+    const win = created[0]!.win;
+    const escapeHandler = globalShortcutHandlers.get("Escape");
+
+    if (!escapeHandler) {
+      throw new Error("Expected overlay to register a global Escape handler");
+    }
+
+    expect(globalShortcutRegisterMock.mock.calls).toEqual([
+      ["Escape", escapeHandler],
+    ]);
+
+    escapeHandler();
+
+    expect(win.hide).toHaveBeenCalledTimes(1);
+    expect(globalShortcutUnregisterMock.mock.calls).toEqual([["Escape"]]);
+    expect(globalShortcutHandlers.has("Escape")).toBe(false);
     expect(invoke("vellum:transcriptionOverlay:getState")).toBeNull();
   });
 
