@@ -26,6 +26,12 @@ mock.module("electron", () => ({
   clipboard: { writeText: writeTextMock },
 }));
 
+const ensureCliInstalledMock = mock(async (): Promise<void> => undefined);
+
+mock.module("./cli-installer", () => ({
+  ensureCliInstalled: ensureCliInstalledMock,
+}));
+
 const getCliPathInstallStateMock = mock(
   async (): Promise<CliPathInstallState> => ({
     kind: "installed",
@@ -66,11 +72,13 @@ beforeEach(() => {
   showMessageBoxMock.mockReset();
   showErrorBoxMock.mockClear();
   writeTextMock.mockClear();
+  ensureCliInstalledMock.mockReset();
   getCliPathInstallStateMock.mockReset();
   installWrapperMock.mockReset();
   uninstallWrapperMock.mockReset();
 
   showMessageBoxMock.mockResolvedValue({ response: 0, checkboxChecked: false });
+  ensureCliInstalledMock.mockResolvedValue(undefined);
   setState({ kind: "installed", inPath: true });
   installWrapperMock.mockReturnValue("installed");
   uninstallWrapperMock.mockReturnValue("removed");
@@ -82,7 +90,7 @@ beforeEach(() => {
 
 describe("runInstallCliCommandFlow", () => {
   test("foreign file + Cancel leaves the file untouched", async () => {
-    setState({ kind: "foreign-file" });
+    installWrapperMock.mockReturnValue("needs-overwrite-confirmation");
     showMessageBoxMock.mockResolvedValue({ response: 1, checkboxChecked: false });
 
     await runInstallCliCommandFlow();
@@ -91,18 +99,51 @@ describe("runInstallCliCommandFlow", () => {
     expect(showMessageBoxMock.mock.calls[0]?.[0]?.message).toBe(
       "Replace existing vellum file?",
     );
-    expect(installWrapperMock).not.toHaveBeenCalled();
+    expect(installWrapperMock).toHaveBeenCalledTimes(1);
+    expect(installWrapperMock).toHaveBeenCalledWith({ overwriteForeign: false });
+    expect(ensureCliInstalledMock).not.toHaveBeenCalled();
   });
 
-  test("foreign file + Replace installs with overwriteForeign", async () => {
-    getCliPathInstallStateMock
-      .mockResolvedValueOnce({ kind: "foreign-file" })
-      .mockResolvedValueOnce({ kind: "installed", inPath: true });
+  test("foreign file + Replace retries with overwriteForeign", async () => {
+    installWrapperMock
+      .mockReturnValueOnce("needs-overwrite-confirmation")
+      .mockReturnValueOnce("installed");
 
     await runInstallCliCommandFlow();
 
-    expect(installWrapperMock).toHaveBeenCalledTimes(1);
-    expect(installWrapperMock).toHaveBeenCalledWith({ overwriteForeign: true });
+    expect(installWrapperMock).toHaveBeenCalledTimes(2);
+    expect(installWrapperMock.mock.calls[0]?.[0]).toEqual({
+      overwriteForeign: false,
+    });
+    expect(installWrapperMock.mock.calls[1]?.[0]).toEqual({
+      overwriteForeign: true,
+    });
+    expect(ensureCliInstalledMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("provisions the CLI runtime before showing success", async () => {
+    setState({ kind: "installed", inPath: true });
+
+    await runInstallCliCommandFlow();
+
+    expect(ensureCliInstalledMock).toHaveBeenCalledTimes(1);
+    // State is only checked once, after install, for the success dialog.
+    expect(getCliPathInstallStateMock).toHaveBeenCalledTimes(1);
+    expect(lastDialog()?.message).toBe("Vellum CLI installed");
+  });
+
+  test("CLI runtime download failure reports the wrapper as installed and retryable", async () => {
+    ensureCliInstalledMock.mockRejectedValue(new Error("registry unreachable"));
+
+    await runInstallCliCommandFlow();
+
+    expect(showMessageBoxMock).not.toHaveBeenCalled();
+    expect(showErrorBoxMock).toHaveBeenCalledTimes(1);
+    const [title, message] = showErrorBoxMock.mock.calls[0]!;
+    expect(title).toBe("Failed to install vellum command");
+    expect(message).toContain(`The vellum command was installed at ${WRAPPER_PATH}`);
+    expect(message).toContain("registry unreachable");
+    expect(message).toContain("retried");
   });
 
   test("installed + inPath shows success without touching the clipboard", async () => {
@@ -128,28 +169,34 @@ describe("runInstallCliCommandFlow", () => {
     expect(lastDialog()?.detail).toContain(WRAPPER_PATH);
   });
 
-  test("shadowed names the winning binary and the npm uninstall fix", async () => {
-    setState({ kind: "shadowed", shadowedBy: "/opt/homebrew/bin/vellum" });
+  test("shadowed + inPath names the winning binary and the npm uninstall fix", async () => {
+    setState({
+      kind: "shadowed",
+      shadowedBy: "/opt/homebrew/bin/vellum",
+      inPath: true,
+    });
 
     await runInstallCliCommandFlow();
 
     expect(writeTextMock).not.toHaveBeenCalled();
     expect(lastDialog()?.detail).toContain("/opt/homebrew/bin/vellum");
     expect(lastDialog()?.detail).toContain("npm uninstall -g vellum");
+    expect(lastDialog()?.detail).not.toContain("clipboard");
   });
 
-  test("install race returning needs-overwrite-confirmation re-confirms once", async () => {
-    setState({ kind: "installed", inPath: true });
-    installWrapperMock
-      .mockReturnValueOnce("needs-overwrite-confirmation")
-      .mockReturnValueOnce("installed");
+  test("shadowed without PATH adds the export-line help alongside the npm advice", async () => {
+    setState({
+      kind: "shadowed",
+      shadowedBy: "/opt/homebrew/bin/vellum",
+      inPath: false,
+    });
 
     await runInstallCliCommandFlow();
 
-    expect(installWrapperMock).toHaveBeenCalledTimes(2);
-    expect(installWrapperMock.mock.calls[1]?.[0]).toEqual({
-      overwriteForeign: true,
-    });
+    expect(writeTextMock).toHaveBeenCalledTimes(1);
+    expect(writeTextMock).toHaveBeenCalledWith(PATH_EXPORT_LINE);
+    expect(lastDialog()?.detail).toContain("npm uninstall -g vellum");
+    expect(lastDialog()?.detail).toContain("copied to your clipboard");
   });
 
   test("state check throwing surfaces via showErrorBox without rejecting", async () => {

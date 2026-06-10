@@ -8,19 +8,29 @@ const SHELL_PATH_TIMEOUT_MS = 5_000;
 
 // Wraps the printf'd PATH so it can be isolated from any startup-file
 // output (banners, warnings) the interactive login shell writes first.
-export const PATH_SENTINEL = "__VELLUM_PATH_7f3a__";
+const PATH_SENTINEL = "__VELLUM_PATH_7f3a__";
+
+export interface ShellPathResult {
+  path: string;
+  /**
+   * False when the login shell couldn't be queried and `path` is the
+   * synthesized `buildInstallEnv()` fallback — good enough for spawning
+   * processes, but NOT evidence of what's on the user's real PATH.
+   */
+  reliable: boolean;
+}
 
 // Cached for the process lifetime; caching the promise also dedupes
 // concurrent first calls into a single shell spawn.
-let shellPathPromise: Promise<string> | null = null;
+let shellPathPromise: Promise<ShellPathResult> | null = null;
 
 /** Reset the shell PATH cache. Exposed for testing only. */
 export function _resetShellPathCache(): void {
   shellPathPromise = null;
 }
 
-function fallbackPath(): string {
-  return buildInstallEnv().PATH ?? "";
+function fallbackResult(): ShellPathResult {
+  return { path: buildInstallEnv().PATH ?? "", reliable: false };
 }
 
 /**
@@ -30,16 +40,16 @@ function fallbackPath(): string {
  * ~/.local/bin and package-manager bin dirs, so PATH checks (shadow
  * detection, "is ~/.local/bin in PATH") must use the shell's PATH rather
  * than `process.env.PATH`. Never rejects — on failure or timeout it falls
- * back to the PATH produced by `buildInstallEnv()`.
+ * back to the PATH produced by `buildInstallEnv()`, marked unreliable.
  */
 export function resolveShellPath(
   timeoutMs: number = SHELL_PATH_TIMEOUT_MS,
-): Promise<string> {
+): Promise<ShellPathResult> {
   shellPathPromise ??= queryShellPath(timeoutMs);
   return shellPathPromise;
 }
 
-function queryShellPath(timeoutMs: number): Promise<string> {
+function queryShellPath(timeoutMs: number): Promise<ShellPathResult> {
   return new Promise((resolve) => {
     const shell = process.env.SHELL ?? "/bin/zsh";
 
@@ -50,14 +60,14 @@ function queryShellPath(timeoutMs: number): Promise<string> {
         `printf "${PATH_SENTINEL}%s${PATH_SENTINEL}" "$PATH"`,
       ]);
     } catch {
-      resolve(fallbackPath());
+      resolve(fallbackResult());
       return;
     }
 
     let stdout = "";
     let settled = false;
 
-    const settle = (value: string) => {
+    const settle = (value: ShellPathResult) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -66,18 +76,18 @@ function queryShellPath(timeoutMs: number): Promise<string> {
 
     const timer = setTimeout(() => {
       child.kill();
-      settle(fallbackPath());
+      settle(fallbackResult());
     }, timeoutMs);
 
     child.stdout?.on("data", (data: Buffer) => {
       stdout += data.toString();
     });
 
-    child.on("error", () => settle(fallbackPath()));
+    child.on("error", () => settle(fallbackResult()));
 
     child.on("close", (code: number | null) => {
       const value = code === 0 ? extractSentinelValue(stdout) : null;
-      settle(value || fallbackPath());
+      settle(value ? { path: value, reliable: true } : fallbackResult());
     });
   });
 }
@@ -92,6 +102,24 @@ function extractSentinelValue(stdout: string): string | null {
 }
 
 /**
+ * Split a PATH value into normalized directory entries: trailing slashes
+ * stripped, empty entries skipped, duplicates removed (first wins).
+ */
+export function splitPathEntries(pathValue: string): string[] {
+  const entries: string[] = [];
+  const seen = new Set<string>();
+
+  for (const raw of pathValue.split(":")) {
+    const dir = raw.replace(/\/+$/, "");
+    if (!dir || seen.has(dir)) continue;
+    seen.add(dir);
+    entries.push(dir);
+  }
+
+  return entries;
+}
+
+/**
  * Return absolute paths of every executable named `name` on `pathValue`,
  * preserving PATH precedence order. Empty and duplicate entries are
  * skipped; non-existent or non-executable candidates are ignored.
@@ -101,12 +129,8 @@ export function findExecutablesInPath(
   pathValue: string,
 ): string[] {
   const results: string[] = [];
-  const seen = new Set<string>();
 
-  for (const dir of pathValue.split(":")) {
-    if (!dir || seen.has(dir)) continue;
-    seen.add(dir);
-
+  for (const dir of splitPathEntries(pathValue)) {
     const candidate = path.join(dir, name);
     try {
       accessSync(candidate, constants.X_OK);
