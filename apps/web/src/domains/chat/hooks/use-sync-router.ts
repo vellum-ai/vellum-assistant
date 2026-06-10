@@ -31,7 +31,6 @@ export interface UseSyncRouterOptions {
   assistantId: string | null;
   reachabilityReadyEpoch: number;
   invalidateAvatar: () => void;
-  scheduleConversationListRefetch: () => void;
   reconcileActiveConversation: () => Promise<ActiveConversationMessagesRefreshResult>;
 }
 
@@ -44,7 +43,6 @@ export function useSyncRouter({
   assistantId,
   reachabilityReadyEpoch,
   invalidateAvatar,
-  scheduleConversationListRefetch,
   reconcileActiveConversation,
 }: UseSyncRouterOptions): UseSyncRouterResult {
   const queryClient = useQueryClient();
@@ -93,7 +91,6 @@ export function useSyncRouter({
       invalidateAvatar,
       refreshAssistantIdentity,
       invalidateAssistantIdentityIntro,
-      scheduleConversationListRefetch,
       refreshActiveConversationMessages: reconcileActiveConversation,
     });
     syncRouterRef.current = syncRouter;
@@ -107,7 +104,6 @@ export function useSyncRouter({
     invalidateAvatar,
     refreshAssistantIdentity,
     invalidateAssistantIdentityIntro,
-    scheduleConversationListRefetch,
     reconcileActiveConversation,
   ]);
 

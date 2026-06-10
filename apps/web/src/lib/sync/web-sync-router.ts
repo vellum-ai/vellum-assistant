@@ -29,7 +29,6 @@ export interface WebSyncRouterOptions {
   invalidateAssistantSounds?: () => void;
   invalidateAssistantSchedules?: () => void;
   invalidateApps?: () => void;
-  scheduleConversationListRefetch: () => void;
   refreshActiveConversationMessages: () => Promise<ActiveConversationMessagesRefreshResult>;
 }
 
@@ -82,10 +81,11 @@ export function createWebSyncRouter(
       options.invalidateAssistantSchedules ?? NOOP,
     ),
     registry.register(SYNC_TAGS.appsList, options.invalidateApps ?? NOOP),
-    registry.register(
-      SYNC_TAGS.conversationsList,
-      options.scheduleConversationListRefetch,
-    ),
+    // No-op: RootLayout's `useConversationSync` owns list-level
+    // refetch (it's always mounted). Registering a real handler here
+    // caused duplicate debounced refetches while ChatPage was active.
+    // The no-op keeps the tag out of unknown-tag telemetry.
+    registry.register(SYNC_TAGS.conversationsList, NOOP),
     registry.registerPattern(isConversationMetadataSyncTag, () => {
       // RootLayout's `useConversationSync` owns metadata tags and
       // GET-and-patches the single cached row. Handling the tag here as a

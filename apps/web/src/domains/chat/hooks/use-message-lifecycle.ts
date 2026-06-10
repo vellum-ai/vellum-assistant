@@ -94,7 +94,6 @@ export function useMessageLifecycle({
     assistantId,
     reachabilityReadyEpoch,
     invalidateAvatar: avatarInvalidate,
-    scheduleConversationListRefetch,
     reconcileActiveConversation,
   });
 

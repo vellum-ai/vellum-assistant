@@ -11,6 +11,7 @@ import {
   snapshotConversationCaches,
   type ConversationCacheSnapshot,
 } from "@/utils/conversation-cache";
+import { batchExecute } from "@/utils/batch-execute";
 import {
   conversationsByIdArchivePost,
   conversationsByIdUnarchivePost,
@@ -349,8 +350,9 @@ export function useConversationActions({
       }
 
       try {
-        await Promise.allSettled(
-          unread.map(async (c) => {
+        await batchExecute(
+          unread,
+          async (c) => {
             try {
               await conversationsSeenPost({
                 path: { assistant_id: assistantId },
@@ -361,10 +363,12 @@ export function useConversationActions({
               patchConversation(queryClient, assistantId, c.conversationId, {
                 hasUnseenLatestAssistantMessage: true,
               });
-              captureError(err, { context: "markAllReadInGroup" });
+              throw err;
             }
-          }),
+          },
         );
+      } catch (err) {
+        captureError(err, { context: "markAllReadInGroup" });
       } finally {
         void invalidateConversationQueries(queryClient, assistantId);
       }
@@ -406,8 +410,9 @@ export function useConversationActions({
       }
 
       try {
-        await Promise.allSettled(
-          groupConversations.map(async (c) => {
+        await batchExecute(
+          groupConversations,
+          async (c) => {
             try {
               await conversationsByIdArchivePost({
                 path: {
@@ -420,10 +425,12 @@ export function useConversationActions({
               patchConversation(queryClient, assistantId, c.conversationId, {
                 archivedAt: c.archivedAt,
               });
-              captureError(err, { context: "archiveAllInGroup" });
+              throw err;
             }
-          }),
+          },
         );
+      } catch (err) {
+        captureError(err, { context: "archiveAllInGroup" });
       } finally {
         void invalidateConversationQueries(queryClient, assistantId);
       }
