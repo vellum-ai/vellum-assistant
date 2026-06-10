@@ -147,10 +147,12 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
   // -------------------------------------------------------------------------
   // Built-in label/status edits persist as sparse `llm.profileOverrides`
   // entries; nothing is ever written under `llm.profiles` for a built-in
-  // name. Null is the "explicitly cleared" sentinel: it is stored as-is so
-  // the merge layer masks any stale label/status still carried by a
-  // transition-state materialized entry. An absent key leaves the existing
-  // override key untouched.
+  // name. Null is the "explicitly cleared" sentinel: it is stored when the
+  // merge layer needs it to mask a stale label/status still carried by a
+  // transition-state materialized entry, and otherwise just removes any
+  // stored override key (for `status`, an absent and an "active" baseline
+  // are both already equivalent to cleared). An absent key leaves the
+  // existing override key untouched.
   // -------------------------------------------------------------------------
 
   test("PUT { label: 'X' } lands in profileOverrides, leaving llm.profiles untouched", async () => {
@@ -204,7 +206,7 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     });
   });
 
-  test("PUT { status: null } clears status, leaving other override keys untouched", async () => {
+  test("PUT { status: null } removes the stored status key, leaving other override keys untouched", async () => {
     savedRaw = null;
     rawConfig = {
       llm: {
@@ -222,11 +224,12 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     });
     expect(result).toEqual({ ok: true });
     const saved = savedRaw as unknown as Record<string, any>;
-    // status cleared to the null sentinel; the absent label key left the
-    // existing label override alone.
+    // The materialized entry carries no status, so the no-override baseline
+    // is already active-by-absence: clearing removes the stored "disabled"
+    // key outright rather than storing a redundant null sentinel. The
+    // absent label key left the existing label override alone.
     expect(saved.llm.profileOverrides["quality-optimized"]).toEqual({
       label: "Keep Me",
-      status: null,
     });
   });
 
@@ -245,9 +248,11 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     });
     expect(result).toEqual({ ok: true });
     const saved = savedRaw as unknown as Record<string, any>;
+    // label null masks the template default, so it persists as the
+    // sentinel; status null against an absent baseline just removes the
+    // stored "disabled" key.
     expect(saved.llm.profileOverrides["cost-optimized"]).toEqual({
       label: null,
-      status: null,
     });
   });
 

@@ -916,6 +916,79 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       expect(got.llm.profiles.balanced.label).toBeNull();
     });
 
+    test("macOS-style PUT { label, status: null } persists only the label when no status override exists", async () => {
+      // macOS `setManagedProfilePolicy` always sends both keys, with
+      // `status: null` for an active profile. With no stored status
+      // override and a baseline that resolves active, the null is
+      // redundant — persisting it would store a pointless sentinel on
+      // every label rename.
+      const result = await replaceProfileRoute.handler({
+        pathParams: { name: "balanced" },
+        body: { label: "My Balanced", status: null },
+      });
+
+      expect(result).toEqual({ ok: true });
+      const savedLlm = savedRawConfig?.llm as Record<
+        string,
+        Record<string, Record<string, unknown>>
+      >;
+      expect(savedLlm.profileOverrides.balanced).toEqual({
+        label: "My Balanced",
+      });
+    });
+
+    test("PUT { status: null } removes a stored disabled override instead of storing null", async () => {
+      await replaceProfileRoute.handler({
+        pathParams: { name: "balanced" },
+        body: { status: "disabled" },
+      });
+      const result = await replaceProfileRoute.handler({
+        pathParams: { name: "balanced" },
+        body: { status: null },
+      });
+
+      expect(result).toEqual({ ok: true });
+      // The cleared status was the entry's only key, so the entry (and the
+      // then-empty map) is pruned rather than left holding `status: null`.
+      const savedLlm = savedRawConfig?.llm as Record<string, unknown>;
+      expect(savedLlm.profileOverrides).toBeUndefined();
+
+      // Effective view: back to the no-override baseline (active).
+      const got = (await getConfigRoute.handler({})) as {
+        llm: { profiles: Record<string, Record<string, unknown>> };
+      };
+      expect(got.llm.profiles.balanced.status).toBe("active");
+    });
+
+    test("PUT { status: null } stores the null sentinel when it masks a materialized disabled lift", async () => {
+      // Transition-state install: the materialized entry on disk carries
+      // `status: "disabled"`, which lifts into the no-override baseline.
+      // Here null is NOT redundant — it must be stored to mask the lift.
+      (
+        rawConfigFixture.llm as {
+          profiles: Record<string, Record<string, unknown>>;
+        }
+      ).profiles.balanced.status = "disabled";
+
+      const result = await replaceProfileRoute.handler({
+        pathParams: { name: "balanced" },
+        body: { status: null },
+      });
+
+      expect(result).toEqual({ ok: true });
+      const savedLlm = savedRawConfig?.llm as Record<
+        string,
+        Record<string, Record<string, unknown>>
+      >;
+      expect(savedLlm.profileOverrides.balanced).toEqual({ status: null });
+
+      // Effective view: the sentinel wins over the lifted "disabled".
+      const got = (await getConfigRoute.handler({})) as {
+        llm: { profiles: Record<string, Record<string, unknown>> };
+      };
+      expect(got.llm.profiles.balanced.status).toBeNull();
+    });
+
     test("rejects provider edit on managed profile with disallowed-keys error", async () => {
       // The handler is `async`, so synchronous BadRequest throws still
       // surface as a rejected promise; assert via `.rejects.toThrow`.

@@ -61,6 +61,11 @@ function listQuarantinedFiles(): string[] {
   );
 }
 
+/** Sorted recursive listing of every path under the workspace dir. */
+function snapshotWorkspaceTree(): string[] {
+  return readdirSync(WORKSPACE_DIR, { recursive: true }).map(String).sort();
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -297,6 +302,17 @@ describe("getConfigReadOnly corrupt-file recovery", () => {
     "returns defaults when config.json contains %s, without quarantining",
     (_label, jsonText) => {
       writeFileSync(CONFIG_PATH, jsonText);
+      // The contract also covers the logs dir: the shared `log` is a lazy
+      // proxy whose first call creates `data/logs/` and the day's log file,
+      // so this code path must not log at all. (Under BUN_TEST the logger
+      // routes to stderr, so the snapshot below can't observe a logger
+      // regression directly — it guards every other filesystem side effect
+      // and documents the contract.)
+      rmSync(join(WORKSPACE_DIR, "data", "logs"), {
+        recursive: true,
+        force: true,
+      });
+      const before = snapshotWorkspaceTree();
 
       // Must not throw — CLI program construction depends on this.
       const config = getConfigReadOnly();
@@ -305,6 +321,11 @@ describe("getConfigReadOnly corrupt-file recovery", () => {
       expect(config.memory).toBeDefined();
       expect(listQuarantinedFiles()).toHaveLength(0);
       expect(readFileSync(CONFIG_PATH, "utf-8")).toBe(jsonText);
+      // Side-effect-free: nothing anywhere in the workspace was created,
+      // removed, or renamed — no quarantine, no default-config write, no
+      // data/ or logs dirs.
+      expect(existsSync(join(WORKSPACE_DIR, "data", "logs"))).toBe(false);
+      expect(snapshotWorkspaceTree()).toEqual(before);
     },
   );
 

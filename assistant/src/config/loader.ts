@@ -1122,13 +1122,11 @@ export function getConfigReadOnly(): AssistantConfig {
     if (!isPlainObject(parsed)) {
       // Same top-level-shape contract as `loadConfig`: a `null`, primitive,
       // or array would TypeError inside `validateWithBuiltinProfiles`
-      // (`ensurePlainObjectAt(raw, "llm")`). Fall back to defaults like the
-      // parse-error path above — but never quarantine here: this accessor
-      // must stay read-only and side-effect-free; `loadConfig` owns
-      // quarantining on the next full load.
-      log.warn(
-        `config.json must contain a JSON object at the top level; got ${describeJsonShape(parsed)} — using defaults`,
-      );
+      // (`ensurePlainObjectAt(raw, "llm")`). Fall back to defaults silently,
+      // like the parse-error path above — no logging here: the logger is a
+      // lazy proxy whose first call creates the logs directory and file,
+      // which would violate this accessor's side-effect-free contract.
+      // `loadConfig` owns warning and quarantining on the next full load.
       return cloneDefaultConfig();
     }
     fileConfig = parsed;
