@@ -140,6 +140,18 @@ exports.default = async function afterPack(context) {
   const identity = process.env.CSC_NAME || process.env.APPLE_SIGNING_IDENTITY || "-";
   const timestampFlag = identity === "-" ? "" : " --timestamp";
 
+  // Copy Assets.car into the app bundle if generate-icon.sh produced one.
+  // Assets.car provides the Liquid Glass icon (Tahoe) and rounded raster
+  // fallbacks (pre-Tahoe) via CFBundleIconName, while the .icns serves as
+  // the CFBundleIconFile fallback.
+  const resourcesDir = path.join(contentsDir, "Resources");
+  const assetsCar = path.join(__dirname, "..", "build", "Assets.car");
+  if (fs.existsSync(assetsCar)) {
+    fs.mkdirSync(resourcesDir, { recursive: true });
+    fs.copyFileSync(assetsCar, path.join(resourcesDir, "Assets.car"));
+    console.log("afterPack: copied Assets.car into app bundle");
+  }
+
   // Build and embed Quick Look extensions (.appex).
   const plugInsDir = path.join(contentsDir, "PlugIns");
   const appBundleId = packager.config.appId;
