@@ -673,7 +673,13 @@ function ProfileEditorModalInner({
   // new provider" sentinel. First-run empty state shows ONLY the sentinel.
   const createModeProviderOptions = useMemo(() => {
     const seen = new Set<string>();
-    const opts: { value: string; label: string; separated?: boolean | "above" | "below" }[] = [];
+    const opts: { value: string; label: string; separated?: boolean | "above" | "below" }[] = [
+      {
+        value: CREATE_NEW_PROVIDER_SENTINEL,
+        label: "+ New Connection",
+        separated: "below",
+      },
+    ];
     for (const c of effectiveConnections) {
       if (
         !openAICompatibleEndpointsEnabled &&
@@ -689,72 +695,78 @@ function ProfileEditorModalInner({
         });
       }
     }
-    opts.push({
-      value: CREATE_NEW_PROVIDER_SENTINEL,
-      label: "+ New Connection",
-      separated: "above",
-    });
     return opts;
   }, [effectiveConnections, openAICompatibleEndpointsEnabled]);
 
   const createProviderSection = (
     <div className="space-y-4">
-      <div className="space-y-1">
-        <div className="flex items-center justify-between gap-2">
-          <label
-            id="profile-editor-provider-label"
-            className="block text-body-small-default text-[var(--content-tertiary)]"
-          >
-            Provider
-          </label>
-          {providerMissing && !creatingProvider ? (
-            <span className="rounded-full bg-[var(--surface-warning-subtle)] px-2 py-0.5 text-body-small-default text-[var(--content-warning)]">
-              Pick a provider
-            </span>
+      {!creatingProvider && (
+        <div className="space-y-1">
+          <div className="flex items-center justify-between gap-2">
+            <label
+              id="profile-editor-provider-label"
+              className="block text-body-small-default text-[var(--content-tertiary)]"
+            >
+              Provider
+            </label>
+            {providerMissing ? (
+              <span className="rounded-full bg-[var(--surface-warning-subtle)] px-2 py-0.5 text-body-small-default text-[var(--content-warning)]">
+                Pick a provider
+              </span>
+            ) : null}
+          </div>
+          <Dropdown
+            value={provider}
+            onChange={(next) => {
+              if (next === CREATE_NEW_PROVIDER_SENTINEL) {
+                setCreatingProvider(true);
+                setNewProviderNote(false);
+                return;
+              }
+              handleProviderChange(next);
+            }}
+            placeholder="Select a Provider"
+            aria-labelledby="profile-editor-provider-label"
+            options={createModeProviderOptions}
+          />
+          {newProviderNote ? (
+            <div className="flex items-center gap-2">
+              <Tag tone="positive">Own</Tag>
+              <Typography
+                variant="body-small-default"
+                as="span"
+                className="text-[var(--content-tertiary)]"
+              >
+                New provider connection will show up in the Providers section.
+              </Typography>
+            </div>
           ) : null}
         </div>
-        <Dropdown
-          value={creatingProvider ? CREATE_NEW_PROVIDER_SENTINEL : provider}
-          onChange={(next) => {
-            if (next === CREATE_NEW_PROVIDER_SENTINEL) {
-              setCreatingProvider(true);
-              setNewProviderNote(false);
-              return;
-            }
-            setCreatingProvider(false);
-            handleProviderChange(next);
-          }}
-          placeholder="Select a Provider"
-          aria-labelledby="profile-editor-provider-label"
-          options={createModeProviderOptions}
-        />
-        {newProviderNote ? (
-          <div className="flex items-center gap-2">
-            <Tag tone="positive">Own</Tag>
-            <Typography
-              variant="body-small-default"
-              as="span"
-              className="text-[var(--content-tertiary)]"
-            >
+      )}
+
+      {creatingProvider ? (
+        <div className="rounded-lg border border-[var(--border-active)] p-4">
+          <div className="mb-4">
+            <Typography variant="body-medium-default" as="p" className="text-[var(--content-default)]">
+              Create New Provider
+            </Typography>
+            <Typography variant="body-small-default" as="p" className="text-[var(--content-tertiary)]">
               New provider connection will show up in the Providers section.
             </Typography>
           </div>
-        ) : null}
-      </div>
-
-      {creatingProvider ? (
-        <ProviderCreateForm
-          variant="inline"
-          assistantId={assistantId}
-          existingNames={effectiveConnections.map((c) => c.name)}
-          openAICompatibleEndpointsEnabled={openAICompatibleEndpointsEnabled}
-          chatgptSubscriptionEnabled={chatgptSubscriptionEnabled}
-          defaultProviderType={
-            (provider || undefined) as ConnectionProvider | undefined
-          }
-          onCreated={handleProviderCreated}
-          onCancel={() => setCreatingProvider(false)}
-        />
+          <ProviderCreateForm
+            variant="inline"
+            assistantId={assistantId}
+            existingNames={effectiveConnections.map((c) => c.name)}
+            openAICompatibleEndpointsEnabled={openAICompatibleEndpointsEnabled}
+            chatgptSubscriptionEnabled={chatgptSubscriptionEnabled}
+            defaultProviderType={
+              (provider || undefined) as ConnectionProvider | undefined
+            }
+            onCreated={handleProviderCreated}
+            onCancel={() => setCreatingProvider(false)}
+          />
+        </div>
       ) : (
         <ProfileEditorProviderSection
           provider={provider}
