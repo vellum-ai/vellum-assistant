@@ -41,8 +41,14 @@ const CONVERSATION_LIST_DEBOUNCE_MS = 250;
  * Cap concurrent per-conversation GET requests triggered by metadata
  * sync tags. A mark-all-read on 2000 conversations emits 2000 metadata
  * tags; without a cap every tag fires a GET /v1/conversations/:id in
- * parallel, blowing the 300 req/min rate limit. Excess calls are
- * dropped — the trailing-edge list refetch reconciles anything missed.
+ * parallel, blowing the 300 req/min rate limit.
+ *
+ * Excess calls are dropped. For events that include `conversationsList`
+ * (shape-changing: create, delete, reorder), the debounced list refetch
+ * reconciles dropped rows. For metadata-only events (seen_changed),
+ * dropped rows stay stale until the next reconnect/refetch — acceptable
+ * as a rate-limit guard. The long-term fix is a typed event with inline
+ * state so the client can patch the cache without a GET.
  */
 const MAX_CONCURRENT_ROW_REFRESHES = 6;
 

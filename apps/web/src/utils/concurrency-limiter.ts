@@ -3,9 +3,11 @@
  *
  * Calls beyond the concurrency limit are dropped (not queued) —
  * appropriate for fire-and-forget cache-refresh patterns where a
- * stale request is worse than a skipped one: the next sync_changed
- * event will retry, and the trailing-edge list refetch is the
- * authoritative reconciliation.
+ * stale request is worse than a skipped one. Callers that need
+ * every item processed should use `batchExecute` instead.
+ *
+ * @see batchExecute — bounded-concurrency alternative that queues
+ *   rather than drops.
  */
 export function createConcurrencyLimiter<Args extends unknown[]>(
   fn: (...args: Args) => Promise<void>,
