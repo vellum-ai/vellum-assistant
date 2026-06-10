@@ -362,10 +362,19 @@ function ScopeControls({
     assistantId,
     conversationId,
   );
-  const options = useMemo(
-    () => buildMessageScopeOptions(messages ?? []),
-    [messages],
-  );
+  const options = useMemo(() => {
+    const built = buildMessageScopeOptions(messages ?? []);
+    // Deep links and older entry points may scope to a message that
+    // isn't a turn head (e.g. an assistant message). Keep the select
+    // honest by surfacing that scope as a selectable option.
+    if (messageId && !built.some((opt) => opt.value === messageId)) {
+      built.push({
+        value: messageId,
+        label: `Message ${shortMessageId(messageId)}`,
+      });
+    }
+    return built;
+  }, [messages, messageId]);
 
   const navigateToScope = (nextMessageId: string | null) => {
     const params = new URLSearchParams();
