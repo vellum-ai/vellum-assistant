@@ -23,10 +23,6 @@ It learns how you work, remembers what matters, and acts before you ask. Yours t
 | **Proactivity** | Every hour the assistant re-reads its notes, looks for anything unfinished or due soon, and messages you if something needs attention. Notifications go to the right channel and won't interrupt an active conversation.                                                                          |
 | **Security**    | Actor identity (guardian, trusted, unknown) is resolved once and enforced everywhere; unknown actors can't read memory, trigger tools, or escalate. Credentials live in a separate process and never reach the model. Every tool call runs in a sandbox. The default is to deny.                                                                         |
 
-<p align="center">
-  <img src="assets/what-it-does.png" alt="Memory, identity, proactivity, and security in the Vellum Assistant" width="100%">
-</p>
-
 ---
 
 ## Get started
