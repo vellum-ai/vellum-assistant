@@ -178,6 +178,7 @@ const ensureOverlayWindow = (): BrowserWindow => {
     width: OVERLAY_WIDTH,
     height: OVERLAY_HEIGHT,
     focusOnShow: false,
+    ignoreMouseEvents: true,
     position: overlayPosition,
     browserWindow: {
       movable: false,
@@ -188,9 +189,6 @@ const ensureOverlayWindow = (): BrowserWindow => {
     },
   });
 
-  // Display surface only — clicks fall through to whatever is underneath,
-  // so the transparent canvas margin never intercepts input.
-  win.setIgnoreMouseEvents(true);
   return win;
 };
 

@@ -23,6 +23,7 @@ export interface CreateFloatingWindowOptions {
   focusOnShow?: boolean;
   alwaysOnTopLevel?: AlwaysOnTopLevel;
   visibleOnAllWorkspaces?: boolean;
+  ignoreMouseEvents?: boolean;
   browserWindow?: Omit<
     BrowserWindowConstructorOptions,
     | "webPreferences"
@@ -87,6 +88,7 @@ export const createFloatingWindow = ({
   focusOnShow = false,
   alwaysOnTopLevel = "floating",
   visibleOnAllWorkspaces = true,
+  ignoreMouseEvents = false,
   browserWindow,
   position,
 }: CreateFloatingWindowOptions): BrowserWindow => {
@@ -114,6 +116,9 @@ export const createFloatingWindow = ({
   });
 
   win.setAlwaysOnTop(true, alwaysOnTopLevel);
+  if (ignoreMouseEvents) {
+    win.setIgnoreMouseEvents(true);
+  }
   if (visibleOnAllWorkspaces) {
     win.setVisibleOnAllWorkspaces(true, {
       visibleOnFullScreen: true,

@@ -16,6 +16,7 @@ type StubWindow = {
   setPosition: ReturnType<typeof mock>;
   setAlwaysOnTop: ReturnType<typeof mock>;
   setVisibleOnAllWorkspaces: ReturnType<typeof mock>;
+  setIgnoreMouseEvents: ReturnType<typeof mock>;
   show: ReturnType<typeof mock>;
   focus: ReturnType<typeof mock>;
   showInactive: ReturnType<typeof mock>;
@@ -35,6 +36,7 @@ const makeWindow = (): StubWindow => {
   const webContentsListeners = new Map<string, Listener[]>();
   let destroyed = false;
   let webContentsDestroyed = false;
+  const calls: string[] = [];
 
   const webContents: StubWebContents = {
     on: (event, listener) => {
@@ -65,14 +67,22 @@ const makeWindow = (): StubWindow => {
     },
     setPosition: mock((_x: number, _y: number) => undefined),
     setAlwaysOnTop: mock((_flag: boolean, _level: string) => undefined),
+    setIgnoreMouseEvents: mock((_ignore: boolean) => {
+      calls.push("setIgnoreMouseEvents");
+    }),
     setVisibleOnAllWorkspaces: mock(
       (_visible: boolean, _opts: Record<string, boolean>) => undefined,
     ),
-    show: mock(() => undefined),
+    show: mock(() => {
+      calls.push("show");
+    }),
     focus: mock(() => undefined),
-    showInactive: mock(() => undefined),
+    showInactive: mock(() => {
+      calls.push("showInactive");
+    }),
     loadURL: mock((_url: string) => Promise.resolve()),
   };
+  Object.defineProperty(win, "__calls", { value: calls });
   return win;
 };
 
@@ -250,6 +260,19 @@ describe("createFloatingWindow", () => {
 
     expect(win.setAlwaysOnTop.mock.calls).toEqual([[true, "pop-up-menu"]]);
     expect(win.setVisibleOnAllWorkspaces).not.toHaveBeenCalled();
+  });
+
+  test("applies click-through behavior before showing the window", () => {
+    const win = createFloatingWindow({
+      kind: kind("click-through"),
+      route: "/overlay",
+      width: 100,
+      height: 100,
+      ignoreMouseEvents: true,
+    }) as unknown as StubWindow & { __calls: string[] };
+
+    expect(win.setIgnoreMouseEvents.mock.calls).toEqual([[true]]);
+    expect(win.__calls).toEqual(["setIgnoreMouseEvents", "showInactive"]);
   });
 
   test("drops the singleton reference when the window closes", () => {
