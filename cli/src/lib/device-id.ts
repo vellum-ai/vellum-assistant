@@ -1,23 +1,10 @@
 /**
- * Host device ID resolver.
+ * Host device ID resolver. Resolution order: `VELLUM_DEVICE_ID` env var,
+ * then `device.json` in the CLI-owned config dir (`getConfigDir()`).
  *
- * Resolution order (mirrors `gateway/src/device-id.ts`):
- *   1. `VELLUM_DEVICE_ID` env var, if set — lets the desktop app hand the
- *      canonical device id down to the CLI.
- *   2. `device.json` in the CLI-owned config dir (`getConfigDir()`):
- *      production → `~/.config/vellum/device.json`, non-production →
- *      `$XDG_CONFIG_HOME/vellum-<env>/device.json`. Per cli/AGENTS.md, the
- *      CLI must never touch `~/.vellum/` — that is assistant/gateway-owned
- *      state.
- *
- * Accepted tradeoff: this intentionally does NOT read the legacy
- * `~/.vellum/device.json`, so a containerized gateway's device id may differ
- * from a host-mode gateway's on the same machine. Stability matters for LD
- * feature-flag contexts, not parity with the legacy file.
- *
- * Not to be confused with `guardian-token.ts:computeDeviceId` /
- * `getOrCreatePersistedDeviceId` — those produce the salted-hash Guardian
- * identity, a different concept. Do not merge the two.
+ * Not to be confused with `guardian-token.ts`'s salted-hash Guardian
+ * identity (`computeDeviceId` / `getOrCreatePersistedDeviceId`) — do not
+ * merge the two.
  */
 
 import { randomUUID } from "crypto";

@@ -1,5 +1,3 @@
-import { randomBytes } from "crypto";
-
 import {
   findAssistantByName,
   getActiveAssistant,
@@ -25,10 +23,9 @@ import {
   broadcastUpgradeEvent,
   buildCompleteEvent,
   buildProgressEvent,
-  buildReplayEnv,
   buildStartingEvent,
   buildUpgradeCommitMessage,
-  captureContainerEnv,
+  captureReplayState,
   commitWorkspaceViaGateway,
   fetchCurrentVersion,
   fetchPreviousVersion,
@@ -308,28 +305,13 @@ export async function rollback(): Promise<void> {
       `🔄 Rolling back Docker assistant '${instanceName}' to ${previousVersion}...\n`,
     );
 
-    // Capture current container env
-    console.log("💾 Capturing existing container environment...");
-    const capturedEnv = await captureContainerEnv(res.assistantContainer);
-    console.log(
-      `   Captured ${Object.keys(capturedEnv).length} env var(s) from ${res.assistantContainer}\n`,
-    );
-
-    // Capture the gateway container env so flag overrides replay onto the new
-    // gateway, and pluck GUARDIAN_BOOTSTRAP_SECRET (only set on gateway).
-    const gatewayEnv = await captureContainerEnv(res.gatewayContainer);
-    const bootstrapSecret = gatewayEnv["GUARDIAN_BOOTSTRAP_SECRET"];
-    const extraGatewayEnv = buildReplayEnv(gatewayEnv, "gateway");
-
-    // Extract CES_SERVICE_TOKEN from captured env, or generate fresh one
-    const cesServiceToken =
-      capturedEnv["CES_SERVICE_TOKEN"] || randomBytes(32).toString("hex");
-
-    // Extract or generate the shared JWT signing key.
-    const signingKey =
-      capturedEnv["ACTOR_TOKEN_SIGNING_KEY"] || randomBytes(32).toString("hex");
-
-    const extraAssistantEnv = buildReplayEnv(capturedEnv, "assistant");
+    const {
+      bootstrapSecret,
+      cesServiceToken,
+      signingKey,
+      extraAssistantEnv,
+      extraGatewayEnv,
+    } = await captureReplayState(res);
 
     // Parse gateway port from entry's runtimeUrl, fall back to default
     let gatewayPort = GATEWAY_INTERNAL_PORT;

@@ -19,17 +19,21 @@ import {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
+const SAVED_ENV_VARS = [
+  "XDG_CONFIG_HOME",
+  "VELLUM_ENVIRONMENT",
+  "VELLUM_DEVICE_ID",
+] as const;
+const savedEnv: Record<string, string | undefined> = {};
+for (const key of SAVED_ENV_VARS) {
+  savedEnv[key] = process.env[key];
+}
+
 describe("getOrCreateHostDeviceId", () => {
   let tempHome: string;
-  let savedXdg: string | undefined;
-  let savedEnv: string | undefined;
-  let savedDeviceId: string | undefined;
   let deviceFile: string;
 
   beforeEach(() => {
-    savedXdg = process.env.XDG_CONFIG_HOME;
-    savedEnv = process.env.VELLUM_ENVIRONMENT;
-    savedDeviceId = process.env.VELLUM_DEVICE_ID;
     delete process.env.VELLUM_DEVICE_ID;
     tempHome = mkdtempSync(join(tmpdir(), "cli-device-id-test-"));
     process.env.XDG_CONFIG_HOME = tempHome;
@@ -41,20 +45,12 @@ describe("getOrCreateHostDeviceId", () => {
   });
 
   afterEach(() => {
-    if (savedXdg === undefined) {
-      delete process.env.XDG_CONFIG_HOME;
-    } else {
-      process.env.XDG_CONFIG_HOME = savedXdg;
-    }
-    if (savedEnv === undefined) {
-      delete process.env.VELLUM_ENVIRONMENT;
-    } else {
-      process.env.VELLUM_ENVIRONMENT = savedEnv;
-    }
-    if (savedDeviceId === undefined) {
-      delete process.env.VELLUM_DEVICE_ID;
-    } else {
-      process.env.VELLUM_DEVICE_ID = savedDeviceId;
+    for (const key of SAVED_ENV_VARS) {
+      if (savedEnv[key] === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = savedEnv[key];
+      }
     }
     rmSync(tempHome, { recursive: true, force: true });
     resetHostDeviceIdCache();
