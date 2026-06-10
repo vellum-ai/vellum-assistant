@@ -92,13 +92,22 @@ describe("resolveSelectedAssistantId", () => {
     expect(resolveSelectedAssistantId(ORG_A)).toBe("asst-1");
   });
 
-  test("unknown candidate id (no resolved entry) passes through", () => {
+  test("unknown PER-ORG candidate passes through (404 net clears that store)", () => {
     assistants = [platformAssistant("asst-1", ORG_A)];
     selectedPlatformAssistantByOrg = { [ORG_A]: "asst-unknown" };
     expect(resolveSelectedAssistantId(ORG_A)).toBe("asst-unknown");
   });
 
-  test("a tab-local pick is used when there is no per-org cache", () => {
+  test("an unknown TAB-LOCAL candidate is NOT passed through", () => {
+    // Regression: the 404 net only clears selectedPlatformAssistantByOrg, not
+    // the tab-local key, so a stale tab-local id must fall to a valid one
+    // rather than loop on the platform retrieve endpoint.
+    assistants = [platformAssistant("asst-1", ORG_A)];
+    tabLocalId = "asst-stale-tab";
+    expect(resolveSelectedAssistantId(ORG_A)).toBe("asst-1");
+  });
+
+  test("a tab-local pick is used when it resolves to a valid assistant", () => {
     assistants = [platformAssistant("asst-1", ORG_A)];
     tabLocalId = "asst-1";
     expect(resolveSelectedAssistantId(ORG_A)).toBe("asst-1");

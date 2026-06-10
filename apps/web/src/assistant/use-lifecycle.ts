@@ -62,10 +62,21 @@ export function useAssistantLifecycle({
   const multiAssistantEnabled =
     useClientFeatureFlagStore.use.multiPlatformAssistant();
   useResolvedAssistantsStore.use.selectedPlatformAssistantByOrg();
-  useResolvedAssistantsStore.use.assistants();
-  const selectedPlatformAssistantId =
+  const assistants = useResolvedAssistantsStore.use.assistants();
+  const resolvedSelectionId =
     multiAssistantEnabled && !isGatewayAuthMode() && currentOrganizationId
       ? resolveSelectedAssistantId(currentOrganizationId)
+      : null;
+  // Only a platform-hosted id belongs on the platform retrieve path: a local
+  // selection (or a lockfile-active id pointing at a local assistant) would 404
+  // against the platform endpoint. Unknown ids — which after resolution can only
+  // come from the per-org platform cache — pass through for the 404 net.
+  const resolvedEntry = resolvedSelectionId
+    ? assistants.find((a) => a.id === resolvedSelectionId)
+    : undefined;
+  const selectedPlatformAssistantId =
+    resolvedSelectionId && (resolvedEntry?.isPlatformHosted ?? true)
+      ? resolvedSelectionId
       : null;
 
   const { data: assistantResult } = useAssistantQuery({

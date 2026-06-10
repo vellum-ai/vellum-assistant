@@ -42,20 +42,27 @@ export function resolveSelectedAssistantId(
   const { assistants, selectedPlatformAssistantByOrg } =
     useResolvedAssistantsStore.getState();
   const valid = assistantsValidForOrg(assistants, activeOrgId);
+  const isValid = (id: string): boolean => valid.some((a) => a.id === id);
 
-  const candidate =
-    (activeOrgId ? selectedPlatformAssistantByOrg[activeOrgId] : null) ??
-    getTabLocalSelectedAssistantId() ??
-    null;
-
-  if (candidate !== null) {
-    const entry = assistants.find((a) => a.id === candidate);
-    // Unknown id (not resolved yet) passes through; the 404 net handles it.
-    if (!entry || valid.some((a) => a.id === candidate)) return candidate;
+  // Per-org platform selection: an unknown id passes through — the lifecycle
+  // 404 net clears `selectedPlatformAssistantByOrg`, so a stale one self-heals.
+  const perOrg = activeOrgId
+    ? (selectedPlatformAssistantByOrg[activeOrgId] ?? null)
+    : null;
+  if (perOrg !== null) {
+    const known = assistants.some((a) => a.id === perOrg);
+    if (!known || isValid(perOrg)) return perOrg;
   }
 
+  // Tab-local pick: only when it resolves to a VALID assistant. No unknown
+  // pass-through here — the 404 net doesn't clear the tab-local key, so a stale
+  // id would loop (reconcileSelectedAssistant clears it on lockfile commit).
+  const tabLocal = getTabLocalSelectedAssistantId();
+  if (tabLocal !== null && isValid(tabLocal)) return tabLocal;
+
+  // Lockfile active, then first valid — both validated.
   const active = getActiveAssistant()?.assistantId ?? null;
-  if (active !== null && valid.some((a) => a.id === active)) return active;
+  if (active !== null && isValid(active)) return active;
 
   return valid[0]?.id ?? null;
 }
