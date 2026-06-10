@@ -38,10 +38,11 @@ export interface DropdownOption<T extends string> {
    */
   readonly disabled?: boolean;
   /**
-   * When true, renders a bottom border below this option to visually
-   * separate it from the options that follow.
+   * When true, renders a border to visually separate this option.
+   * `"below"` (default when `true`) adds a bottom border;
+   * `"above"` adds a top border.
    */
-  readonly separated?: boolean;
+  readonly separated?: boolean | "above" | "below";
 }
 
 export interface DropdownProps<T extends string> {
@@ -336,7 +337,11 @@ export function Dropdown<T extends string>({
             className={cn(
               "flex items-center gap-2 px-3 py-2 text-body-medium-default transition-colors",
               isDisabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
-              option.separated && "border-b border-[var(--border-element)]",
+              option.separated === true || option.separated === "below"
+                ? "border-b border-[var(--border-element)]"
+                : option.separated === "above"
+                  ? "border-t border-[var(--border-element)]"
+                  : "",
             )}
             style={{
               background: isHighlighted
