@@ -331,9 +331,15 @@ describe("lifecycleService — bootstrap branches", () => {
     await lifecycleService.respondToInputs();
 
     expect(getAssistantMock).not.toHaveBeenCalled();
-    expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
-      kind: "active",
-      isLocal: true,
+    const state = useAssistantLifecycleStore.getState().assistantState;
+    expect(state.kind).toBe("active");
+    if (state.kind === "active") {
+      expect(state.isLocal).toBe(true);
+    }
+    // The short-circuit also starts the local health heartbeat.
+    await waitFor(() => {
+      const s = useAssistantLifecycleStore.getState().assistantState;
+      return s.kind === "active" && s.health === "healthy";
     });
   });
 });
@@ -695,5 +701,102 @@ describe("lifecycleService — reachability probe", () => {
     expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
       "loading",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Local health heartbeat
+// ---------------------------------------------------------------------------
+
+describe("lifecycleService — local health heartbeat", () => {
+  test("self-hosted projection starts a heartbeat that writes health", async () => {
+    getAssistantHealthzMock.mockImplementation(async () => ({ ok: true }));
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: true,
+      status: 200,
+      data: {
+        id: "asst-local-1",
+        status: "active",
+        is_local: true,
+        ingress_url: "https://gateway.example.test",
+        platform_actor_token: "actor-token",
+      },
+    }));
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+
+    await lifecycleService.checkAssistant();
+
+    await waitFor(() => {
+      const s = useAssistantLifecycleStore.getState().assistantState;
+      return s.kind === "self_hosted" && s.health === "healthy";
+    });
+    expect(getAssistantHealthzMock).toHaveBeenCalled();
+  });
+
+  test("heartbeat maps a degraded daemon status to unhealthy while reachable", async () => {
+    isGatewayAuthModeMock.mockImplementation(() => true);
+    getAssistantHealthzMock.mockImplementation(async () => ({
+      ok: true,
+      data: { status: "degraded" },
+    }));
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+
+    await lifecycleService.respondToInputs();
+
+    await waitFor(() => {
+      const s = useAssistantLifecycleStore.getState().assistantState;
+      return s.kind === "active" && s.health === "unhealthy";
+    });
+    const state = useAssistantLifecycleStore.getState().assistantState;
+    expect(state.kind).toBe("active");
+    if (state.kind === "active") {
+      expect(state.reachable).toBe(true);
+    }
+  });
+
+  test("triggerReachabilityProbe pulls the heartbeat forward without flipping health optimistically", async () => {
+    isGatewayAuthModeMock.mockImplementation(() => true);
+    getAssistantHealthzMock.mockImplementation(async () => ({ ok: true }));
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.respondToInputs();
+    await waitFor(() => {
+      const s = useAssistantLifecycleStore.getState().assistantState;
+      return s.kind === "active" && s.health === "healthy";
+    });
+
+    getAssistantHealthzMock.mockImplementation(async () => ({
+      ok: false,
+      status: 503,
+    }));
+    lifecycleService.triggerReachabilityProbe();
+
+    // Synchronously after the trigger: the acute `reachable` signal
+    // flips for the chat overlay, but `health` keeps its last
+    // probe-confirmed value so the banner doesn't flash.
+    const optimistic = useAssistantLifecycleStore.getState().assistantState;
+    expect(optimistic.kind).toBe("active");
+    if (optimistic.kind === "active") {
+      expect(optimistic.reachable).toBe(false);
+      expect(optimistic.health).toBe("healthy");
+    }
+
+    // Once the pulled-forward probe completes, health follows.
+    await waitFor(() => {
+      const s = useAssistantLifecycleStore.getState().assistantState;
+      return (
+        s.kind === "active" &&
+        s.health === "unreachable" &&
+        s.reachable === false
+      );
+    });
   });
 });

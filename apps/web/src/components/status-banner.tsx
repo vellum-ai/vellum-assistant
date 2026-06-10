@@ -135,9 +135,9 @@ function useAssistantBannerConfig(): BannerConfig | null {
   const assistantId = operationalStatusAssistantId ?? activeAssistantId;
   const statusQuery = useAssistantOperationalStatus(assistantId);
   // Non-null only for local / self-hosted assistants, where the
-  // platform's operational status never polls and the daemon's own
-  // health-check API is the only signal.
-  const localHealth = useLocalAssistantHealth(activeAssistantId);
+  // platform's operational status never polls and the lifecycle
+  // service's healthz heartbeat is the only signal.
+  const localHealth = useLocalAssistantHealth();
 
   if (electron && connectivityState === "device-offline") {
     return {

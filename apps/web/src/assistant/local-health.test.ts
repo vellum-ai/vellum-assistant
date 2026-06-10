@@ -1,84 +1,90 @@
-import { beforeAll, describe, expect, mock, test } from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
   HealthzProbeResult,
   LocalAssistantHealth,
 } from "@/assistant/local-health";
+import type { AssistantState } from "@/assistant/types";
 
-let deriveLocalAssistantHealth: (input: {
-  isError: boolean;
-  result: HealthzProbeResult | undefined;
-}) => LocalAssistantHealth | null;
+let deriveLocalAssistantHealth: (
+  result: HealthzProbeResult,
+) => LocalAssistantHealth;
+let useLocalAssistantHealth: () => LocalAssistantHealth | null;
 
-mock.module("@/assistant/api", () => ({
-  getAssistantHealthz: () => {
-    throw new Error("not called in these tests");
+let assistantStateMock: AssistantState = { kind: "loading" };
+
+mock.module("@/assistant/lifecycle-store", () => ({
+  useAssistantLifecycleStore: {
+    use: {
+      assistantState: () => assistantStateMock,
+    },
   },
 }));
 
-mock.module("@/hooks/use-platform-gate", () => ({
-  useActiveAssistantIsSelfHosted: () => false,
-}));
-
 beforeAll(async () => {
-  ({ deriveLocalAssistantHealth } = await import("@/assistant/local-health"));
+  ({ deriveLocalAssistantHealth, useLocalAssistantHealth } = await import(
+    "@/assistant/local-health"
+  ));
+});
+
+beforeEach(() => {
+  assistantStateMock = { kind: "loading" };
 });
 
 describe("deriveLocalAssistantHealth", () => {
-  test("returns unreachable when the request errored", () => {
-    expect(
-      deriveLocalAssistantHealth({ isError: true, result: undefined }),
-    ).toBe("unreachable");
-  });
-
-  test("returns null before the first probe resolves", () => {
-    expect(
-      deriveLocalAssistantHealth({ isError: false, result: undefined }),
-    ).toBeNull();
-  });
-
   test("returns unreachable for a non-2xx response", () => {
-    expect(
-      deriveLocalAssistantHealth({
-        isError: false,
-        result: { ok: false },
-      }),
-    ).toBe("unreachable");
+    expect(deriveLocalAssistantHealth({ ok: false })).toBe("unreachable");
   });
 
   test("returns healthy for a healthy status", () => {
     expect(
-      deriveLocalAssistantHealth({
-        isError: false,
-        result: { ok: true, data: { status: "healthy" } },
-      }),
+      deriveLocalAssistantHealth({ ok: true, data: { status: "healthy" } }),
     ).toBe("healthy");
   });
 
   test("returns healthy for an ok status", () => {
     expect(
-      deriveLocalAssistantHealth({
-        isError: false,
-        result: { ok: true, data: { status: "ok" } },
-      }),
+      deriveLocalAssistantHealth({ ok: true, data: { status: "ok" } }),
     ).toBe("healthy");
   });
 
   test("treats a 2xx response without a status field as healthy", () => {
-    expect(
-      deriveLocalAssistantHealth({
-        isError: false,
-        result: { ok: true, data: {} },
-      }),
-    ).toBe("healthy");
+    expect(deriveLocalAssistantHealth({ ok: true, data: {} })).toBe("healthy");
   });
 
   test("returns unhealthy for any other reported status", () => {
     expect(
-      deriveLocalAssistantHealth({
-        isError: false,
-        result: { ok: true, data: { status: "degraded" } },
-      }),
+      deriveLocalAssistantHealth({ ok: true, data: { status: "degraded" } }),
     ).toBe("unhealthy");
+  });
+});
+
+describe("useLocalAssistantHealth", () => {
+  test("returns null while the lifecycle is unresolved", () => {
+    expect(useLocalAssistantHealth()).toBeNull();
+  });
+
+  test("returns null for platform-hosted assistants even with health set", () => {
+    assistantStateMock = { kind: "active", isLocal: false, health: "healthy" };
+    expect(useLocalAssistantHealth()).toBeNull();
+  });
+
+  test("returns null for a local assistant before the first probe", () => {
+    assistantStateMock = { kind: "active", isLocal: true };
+    expect(useLocalAssistantHealth()).toBeNull();
+  });
+
+  test("returns the heartbeat health for a local active assistant", () => {
+    assistantStateMock = {
+      kind: "active",
+      isLocal: true,
+      health: "unreachable",
+    };
+    expect(useLocalAssistantHealth()).toBe("unreachable");
+  });
+
+  test("returns the heartbeat health for a self-hosted assistant", () => {
+    assistantStateMock = { kind: "self_hosted", health: "unhealthy" };
+    expect(useLocalAssistantHealth()).toBe("unhealthy");
   });
 });

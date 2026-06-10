@@ -18,7 +18,6 @@ let operationalStatusQueryMock: {
   isError: false,
 };
 let localHealthMock: "healthy" | "unhealthy" | "unreachable" | null = null;
-let requestedLocalHealthAssistantId: string | null | undefined;
 let StatusBanner: ComponentType<{ className?: string }>;
 
 mock.module("@/runtime/native-auth", () => ({
@@ -52,10 +51,7 @@ mock.module("@/assistant/operational-status", () => ({
 }));
 
 mock.module("@/assistant/local-health", () => ({
-  useLocalAssistantHealth: (assistantId: string | null) => {
-    requestedLocalHealthAssistantId = assistantId;
-    return localHealthMock;
-  },
+  useLocalAssistantHealth: () => localHealthMock,
 }));
 
 mock.module("@/assistant/lifecycle-store", () => ({
@@ -113,7 +109,6 @@ beforeEach(() => {
     isError: false,
   };
   localHealthMock = null;
-  requestedLocalHealthAssistantId = undefined;
 });
 
 describe("StatusBanner", () => {
@@ -201,12 +196,6 @@ describe("StatusBanner", () => {
   });
 
   describe("local assistant health", () => {
-    test("polls local health for the active assistant", () => {
-      renderToStaticMarkup(<StatusBanner />);
-
-      expect(requestedLocalHealthAssistantId).toBe("assistant-123");
-    });
-
     test("renders nothing when the local assistant is healthy", () => {
       localHealthMock = "healthy";
 
