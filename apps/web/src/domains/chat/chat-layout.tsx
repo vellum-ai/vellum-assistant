@@ -7,7 +7,7 @@ import {
     useState,
     type ReactNode,
 } from "react";
-import { Outlet, useLocation, useNavigate, useNavigationType } from "react-router";
+import { Outlet, useLocation, useMatch, useNavigate, useNavigationType } from "react-router";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -116,6 +116,14 @@ export function ChatLayout() {
   // persistent layout route — it stays mounted when child routes change, so
   // this initial value remains stable for the window's lifetime.
   const [isPopout] = useState(() => location.search.includes("popout=1"));
+
+  // The Recovery Mode card (composer-notices) mounts only on the chat
+  // conversation surface, not on the other outlets this layout hosts
+  // (home, library, identity, inspect, documents) — so only that route
+  // may suppress StatusBanner's maintenance notice. The match is exact:
+  // `conversations/:id/inspect` does not match this pattern.
+  const isChatConversationRoute =
+    useMatch(`${routes.conversations}/:conversationId`) !== null;
 
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantStateKind = useAssistantLifecycleStore(
@@ -605,7 +613,9 @@ export function ChatLayout() {
         />
       )}
 
-      {!isPopout && <StatusBanner hasMaintenanceSurface />}
+      {!isPopout && (
+        <StatusBanner hasMaintenanceSurface={isChatConversationRoute} />
+      )}
 
       {isMobile ? (
         <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
