@@ -40,6 +40,7 @@ export function LanguageModelCard() {
   const [manageProfilesOpen, setManageProfilesOpen] = useState(false);
   const [overridesOpen, setOverridesOpen] = useState(false);
   const [manageProvidersOpen, setManageProvidersOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const queryComplexityRoutingEnabled =
     useAssistantFeatureFlagStore.use.queryComplexityRouting();
@@ -138,14 +139,16 @@ export function LanguageModelCard() {
                   }))}
                 />
               </div>
-              <Button
-                variant="outlined"
-                size="regular"
-                className="h-9"
-                onClick={() => setManageProfilesOpen(true)}
-              >
-                + Create
-              </Button>
+              {advancedOpen && (
+                <Button
+                  variant="outlined"
+                  size="regular"
+                  className="h-9"
+                  onClick={() => setManageProfilesOpen(true)}
+                >
+                  + Create
+                </Button>
+              )}
             </div>
             {queryComplexityRoutingEnabled && effectiveActiveProfile === AUTO_PROFILE_NAME && (
               <div className="flex items-center gap-2 rounded-lg bg-[var(--surface-warning-subtle)] px-3 py-2">
@@ -165,7 +168,11 @@ export function LanguageModelCard() {
             ) : null}
           </div>
 
-          <Collapsible.Root type="single" collapsible>
+          <Collapsible.Root
+            type="single"
+            collapsible
+            onValueChange={(val) => setAdvancedOpen(val === "advanced")}
+          >
             <Collapsible.Item value="advanced">
               <Collapsible.Trigger className="group gap-2 rounded-md py-2">
                 <Settings className="h-4 w-4 text-[var(--content-tertiary)]" />
@@ -174,10 +181,10 @@ export function LanguageModelCard() {
                 </span>
                 <ChevronRight className="h-3.5 w-3.5 text-[var(--content-tertiary)] transition-transform duration-200 group-data-[state=open]:rotate-90" />
               </Collapsible.Trigger>
+              <p className="mb-4 text-body-small-default text-[var(--content-disabled)]">
+                Define custom model APIs, create and edit Profiles and manage overrides.
+              </p>
               <Collapsible.Content>
-                <p className="mb-4 text-body-small-default text-[var(--content-disabled)]">
-                  Define custom model APIs, create and edit Profiles and manage overrides.
-                </p>
                 <div className="space-y-1">
                   <AdvancedRow
                     label="Provider Connections"
