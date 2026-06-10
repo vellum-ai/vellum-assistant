@@ -1,10 +1,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type {
-  AssistantsConnectionStatusResponse,
-  ConnectionStatus,
-} from "@/generated/api/index";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 
@@ -32,7 +28,6 @@ export type ReachabilityPhase =
   | "checking"
   | "connecting"
   | "ready"
-  | "retrying"
   | "failed";
 
 export type ReachabilityState =
@@ -40,10 +35,7 @@ export type ReachabilityState =
   | { phase: "checking" }
   | { phase: "connecting" }
   | { phase: "ready" }
-  | { phase: "retrying" }
   | { phase: "failed" };
-
-export type ConnectionServerState = AssistantsConnectionStatusResponse["state"];
 
 export interface UseAssistantReachabilityResult {
   state: ReachabilityState;
@@ -58,23 +50,6 @@ export interface ReachabilityProbeOptions {
 }
 
 export type ReachabilityProbeMode = "visible" | "background";
-
-/**
- * Returns true when the probe result indicates the pod is in a crash loop.
- * Retained for consumers that import it directly.
- */
-export function shouldFailReachabilityImmediately(
-  serverState: ConnectionServerState,
-  response?: ConnectionStatus | null,
-): boolean {
-  if (serverState === "crash_loop") {
-    return true;
-  }
-  if (serverState === "waking" && response?.crash_loop_since != null) {
-    return true;
-  }
-  return false;
-}
 
 export function useAssistantReachability(
   assistantId: string | null,

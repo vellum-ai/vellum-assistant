@@ -10,6 +10,7 @@
 import {
   lazy,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -298,6 +299,13 @@ export function ActiveChatView() {
     reachabilityProbe: reachability.probe,
     getPendingInitialMessage: () => peekPendingPreChatContext()?.initialMessage ?? undefined,
   });
+
+  useEffect(() => {
+    if (reachability.state.phase !== "failed") return;
+    useChatSessionStore.getState().setError({
+      message: "Connection lost. Please try again.",
+    });
+  }, [reachability.state.phase]);
 
   // Post-hatch "Connecting…" overlay lifecycle — pre-chat detector,
   // messages-arrived clear, safety timer, conversation-switch clear.
