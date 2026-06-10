@@ -103,6 +103,7 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
             viewMode={viewMode}
             onChangeViewMode={setViewMode}
             onBrowse={() => setDrawerOpen(true)}
+            onDeleted={() => setSelectedPath(null)}
           />
         </div>
       </div>
