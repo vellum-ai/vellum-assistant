@@ -73,6 +73,10 @@ export function getPlatformRuntimeUrl(): string {
 const commitLockfile = (data: Lockfile): void => {
   setCachedLockfile(data);
   setLocalSetting(LOCKFILE_STORAGE_KEY, JSON.stringify(data));
+  // Only reconcile against a lockfile from a successful host read/write — never
+  // the transient empty fallback in `loadLockfile`/`getLockfile`, which would
+  // wrongly drop a valid selection on a boot/read failure.
+  reconcileSelectedAssistant();
 };
 
 // ---------------------------------------------------------------------------
@@ -295,6 +299,21 @@ export function setSelectedAssistantId(id: string): void {
 
 export function clearSelectedAssistant(): void {
   removeLocalSetting(SELECTED_ASSISTANT_STORAGE_KEY);
+}
+
+/**
+ * Reconcile the tab-local selection cache against the lockfile registry: if the
+ * selected id no longer names a lockfile entry, clear it so `getSelectedAssistant`
+ * falls back to `getActiveAssistant`. No-op when there is no tab-local selection —
+ * resolution is left to `getActiveAssistant`.
+ */
+export function reconcileSelectedAssistant(): void {
+  const selectedId = getLocalSetting(SELECTED_ASSISTANT_STORAGE_KEY, "");
+  if (!selectedId) return;
+  const present = getLockfile().assistants.some(
+    (a) => a.assistantId === selectedId,
+  );
+  if (!present) clearSelectedAssistant();
 }
 
 // ---------------------------------------------------------------------------

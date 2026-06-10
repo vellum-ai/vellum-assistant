@@ -5,13 +5,17 @@ import {
   getLocalAssistants,
   getLockfile,
   getPlatformAssistants,
+  getSelectedAssistant,
   isLocalAssistant,
   isPlatformAssistant,
+  reconcileSelectedAssistant,
+  setSelectedAssistantId,
 } from "@/lib/local-mode";
 import type { Lockfile, LockfileAssistant } from "@/runtime/local-mode-host";
 import { useLockfileStore } from "@/stores/lockfile-store";
 
 const LOCKFILE_STORAGE_KEY = "vellum:local:lockfile";
+const SELECTED_ASSISTANT_STORAGE_KEY = "vellum:local:selectedAssistantId";
 
 const localA: LockfileAssistant = {
   assistantId: "local-a",
@@ -37,6 +41,7 @@ function setLockfile(lockfile: Lockfile): void {
 afterEach(() => {
   useLockfileStore.setState({ lockfile: null });
   localStorage.removeItem(LOCKFILE_STORAGE_KEY);
+  localStorage.removeItem(SELECTED_ASSISTANT_STORAGE_KEY);
 });
 
 describe("assistant classification", () => {
@@ -81,6 +86,51 @@ describe("getActiveAssistant", () => {
   test("does not bind to the first entry when a later one is active", () => {
     setLockfile({ assistants: [localA, localB], activeAssistant: "local-b" });
     expect(getActiveAssistant()).not.toBe(localA);
+  });
+});
+
+describe("reconcileSelectedAssistant", () => {
+  test("clears a stale selection whose id is absent from the lockfile", () => {
+    setLockfile({ assistants: [localA], activeAssistant: "local-a" });
+    setSelectedAssistantId("local-b");
+
+    reconcileSelectedAssistant();
+
+    expect(
+      localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY),
+    ).toBeNull();
+    expect(getSelectedAssistant()).toBe(localA);
+  });
+
+  test("preserves a selection that is still present in the lockfile", () => {
+    setLockfile({ assistants: [localA, localB], activeAssistant: "local-a" });
+    setSelectedAssistantId("local-b");
+
+    reconcileSelectedAssistant();
+
+    expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBe("local-b");
+    expect(getSelectedAssistant()).toBe(localB);
+  });
+
+  test("is a no-op when there is no tab-local selection", () => {
+    setLockfile({ assistants: [localA], activeAssistant: "local-a" });
+
+    reconcileSelectedAssistant();
+
+    expect(
+      localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY),
+    ).toBeNull();
+  });
+
+  test("a transient empty-lockfile read does not clear the selection", () => {
+    // No cached lockfile and nothing persisted → getLockfile() hits its empty
+    // fallback (setCachedLockfile), which must NOT reconcile. Otherwise a boot/
+    // read failure would wrongly drop a still-valid selection.
+    setSelectedAssistantId("local-a");
+
+    getLockfile();
+
+    expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBe("local-a");
   });
 });
 

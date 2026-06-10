@@ -24,7 +24,11 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
-import { isLocalMode, isLocalAssistant, isPlatformAssistant } from "@/lib/local-mode";
+import {
+  isLocalMode,
+  isLocalAssistant,
+  isPlatformAssistant,
+} from "@/lib/local-mode";
 import { useLockfileStore } from "@/stores/lockfile-store";
 import type { Lockfile } from "@/runtime/local-mode-host";
 import type { Assistant } from "@/generated/api/types.gen";
