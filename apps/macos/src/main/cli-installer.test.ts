@@ -24,15 +24,24 @@ mock.module("electron", () => ({
   },
 }));
 
+mock.module("./logger", () => ({
+  default: { info: () => {}, warn: () => {}, error: () => {} },
+}));
+
 // Track fs calls so tests can assert on them.
 // Per-path overrides for existsSync. Falls back to `existsSyncDefault`.
 let existsSyncDefault = false;
 const existsSyncByPath: Record<string, boolean> = {};
 let readdirSyncReturn: Array<{ name: string; isDirectory: () => boolean }> = [];
 let readdirSyncError: Error | null = null;
+let writeFileSyncError: Error | null = null;
 const mkdirSyncCalls: Array<[string, object]> = [];
 const rmSyncCalls: Array<[string, object]> = [];
 const copyFileSyncCalls: Array<[string, string]> = [];
+const writeFileSyncCalls: Array<[string, string]> = [];
+const renameSyncCalls: Array<[string, string]> = [];
+// Interleaved fs call log for ordering assertions across mocks.
+const fsCallOrder: string[] = [];
 
 mock.module("node:fs", () => ({
   copyFileSync: (src: string, dst: string) => {
@@ -47,8 +56,18 @@ mock.module("node:fs", () => ({
     if (readdirSyncError) throw readdirSyncError;
     return readdirSyncReturn;
   },
+  renameSync: (src: string, dst: string) => {
+    renameSyncCalls.push([src, dst]);
+    fsCallOrder.push(`renameSync:${dst}`);
+  },
   rmSync: (p: string, opts: object) => {
     rmSyncCalls.push([p, opts]);
+    fsCallOrder.push(`rmSync:${p}`);
+  },
+  writeFileSync: (p: string, content: string) => {
+    if (writeFileSyncError) throw writeFileSyncError;
+    writeFileSyncCalls.push([p, content]);
+    fsCallOrder.push(`writeFileSync:${p}`);
   },
 }));
 
@@ -71,6 +90,9 @@ const {
   getCliInstallDir,
   getCliBinPath,
   getBundledBunPath,
+  getCliLocatorPath,
+  shQuote,
+  writeCliLocator,
   buildInstallEnv,
   isCliInstalled,
   ensureCliInstalled,
@@ -80,15 +102,20 @@ const {
 
 const seedPkgPath = `${mockResourcesPath}/cli-lockfile/package.json`;
 const seedLockPath = `${mockResourcesPath}/cli-lockfile/bun.lock`;
+const locatorPath = `${userDataPath}/cli/locator.sh`;
 
 afterEach(() => {
   existsSyncDefault = false;
   for (const key of Object.keys(existsSyncByPath)) delete existsSyncByPath[key];
   readdirSyncReturn.length = 0;
   readdirSyncError = null;
+  writeFileSyncError = null;
   mkdirSyncCalls.length = 0;
   rmSyncCalls.length = 0;
   copyFileSyncCalls.length = 0;
+  writeFileSyncCalls.length = 0;
+  renameSyncCalls.length = 0;
+  fsCallOrder.length = 0;
   spawnCalls.length = 0;
   _resetInstallLock();
 });
@@ -117,6 +144,59 @@ describe("getBundledBunPath", () => {
   });
 });
 
+describe("getCliLocatorPath", () => {
+  test("returns <userData>/cli/locator.sh", () => {
+    expect(getCliLocatorPath()).toBe(locatorPath);
+  });
+});
+
+// --- shQuote ---
+
+describe("shQuote", () => {
+  test("wraps a plain value in single quotes", () => {
+    expect(shQuote("/usr/local/bin/bun")).toBe("'/usr/local/bin/bun'");
+  });
+
+  test("escapes embedded single quotes", () => {
+    expect(shQuote("/Users/o'brien/bin")).toBe("'/Users/o'\\''brien/bin'");
+  });
+});
+
+// --- writeCliLocator ---
+
+describe("writeCliLocator", () => {
+  test("writes the temp file then renames it over locator.sh", () => {
+    writeCliLocator();
+
+    expect(mkdirSyncCalls).toContainEqual([
+      `${userDataPath}/cli`,
+      { recursive: true },
+    ]);
+    expect(writeFileSyncCalls).toHaveLength(1);
+    expect(writeFileSyncCalls[0][0]).toBe(`${locatorPath}.tmp`);
+    expect(renameSyncCalls).toEqual([[`${locatorPath}.tmp`, locatorPath]]);
+  });
+
+  test("content contains both single-quoted paths", () => {
+    writeCliLocator();
+
+    const content = writeFileSyncCalls[0][1];
+    expect(content).toContain(`VELLUM_BUN='${mockResourcesPath}/bun'\n`);
+    expect(content).toContain(
+      `VELLUM_CLI_BIN='${userDataPath}/cli/${PINNED_CLI_VERSION}/node_modules/.bin/vellum'\n`,
+    );
+    expect(content.endsWith("\n")).toBe(true);
+    expect(content.startsWith("#!")).toBe(false);
+  });
+
+  test("swallows write errors", () => {
+    writeFileSyncError = new Error("EACCES: permission denied");
+
+    expect(() => writeCliLocator()).not.toThrow();
+    expect(renameSyncCalls).toHaveLength(0);
+  });
+});
+
 // --- isCliInstalled ---
 
 describe("isCliInstalled", () => {
@@ -134,10 +214,20 @@ describe("isCliInstalled", () => {
 // --- ensureCliInstalled ---
 
 describe("ensureCliInstalled", () => {
-  test("skips install when already installed", async () => {
+  test("skips install but refreshes the locator when already installed", async () => {
     existsSyncDefault = true;
+
     await ensureCliInstalled();
+
     expect(spawnCalls).toHaveLength(0);
+    expect(renameSyncCalls).toEqual([[`${locatorPath}.tmp`, locatorPath]]);
+  });
+
+  test("a throwing locator write does not reject", async () => {
+    existsSyncDefault = true;
+    writeFileSyncError = new Error("EROFS: read-only file system");
+
+    await expect(ensureCliInstalled()).resolves.toBeUndefined();
   });
 
   test("falls back to bun add --ignore-scripts when no seed lockfile exists", async () => {
@@ -188,10 +278,34 @@ describe("ensureCliInstalled", () => {
     lastChild.emit("close", 0);
     await promise;
 
-    expect(mkdirSyncCalls).toHaveLength(1);
     const [dir, opts] = mkdirSyncCalls[0];
     expect(dir).toBe(`${userDataPath}/cli/${PINNED_CLI_VERSION}`);
     expect(opts).toEqual({ recursive: true });
+  });
+
+  test("fresh install writes the locator before cleanupOldVersions", async () => {
+    existsSyncDefault = false;
+    readdirSyncReturn = [dirEntry("0.8.5")];
+
+    const promise = ensureCliInstalled();
+    lastChild.emit("close", 0);
+    await promise;
+
+    const renameIndex = fsCallOrder.indexOf(`renameSync:${locatorPath}`);
+    const rmIndex = fsCallOrder.indexOf(`rmSync:${userDataPath}/cli/0.8.5`);
+    expect(renameIndex).toBeGreaterThanOrEqual(0);
+    expect(rmIndex).toBeGreaterThanOrEqual(0);
+    expect(renameIndex).toBeLessThan(rmIndex);
+  });
+
+  test("a throwing locator write does not reject a fresh install", async () => {
+    existsSyncDefault = false;
+    writeFileSyncError = new Error("EACCES: permission denied");
+
+    const promise = ensureCliInstalled();
+    lastChild.emit("close", 0);
+
+    await expect(promise).resolves.toBeUndefined();
   });
 
   test("throws on non-zero exit code", async () => {
