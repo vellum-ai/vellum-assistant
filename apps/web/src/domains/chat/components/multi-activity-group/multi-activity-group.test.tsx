@@ -102,11 +102,10 @@ describe("MultiActivityGroup — non-web tool group", () => {
     const { getByRole, getByText, getByTestId, queryByTestId, queryByText } = renderCard(toolCalls);
     // The unified card mounts the shared shell wrapper.
     expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
-    // The redundant "Working" label is suppressed in the collapsed
-    // header; the `command` input is promoted to the header's primary slot.
-    // The expanded body is hidden by default, so only the header content is
-    // present on mount.
-    expect(queryByText("Working")).toBeNull();
+    // The collapsed header carousels the live step: the tool's "Working"
+    // title paired with the `command` input. The expanded body is hidden by
+    // default, so only the header content is present on mount.
+    expect(getByText("Working")).toBeTruthy();
     expect(getByText("git status")).toBeTruthy();
     expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
     expect(queryByTestId("tool-step-pill")).toBeNull();
@@ -115,7 +114,7 @@ describe("MultiActivityGroup — non-web tool group", () => {
     expect(queryByText("1 step")).toBeNull();
   });
 
-  test("shows a stable 'Working' summary header while streaming, not the step command", () => {
+  test("carousels the live step in the collapsed header while streaming", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
@@ -124,12 +123,12 @@ describe("MultiActivityGroup — non-web tool group", () => {
         input: { command: "git status" },
       }),
     ];
-    const { getByText, queryByText, queryByTestId } = renderCard(toolCalls);
-    // While the run is in flight the header is a single status summary — it
-    // does NOT carousel the live step (no "git status"). The latest step's
-    // loading indicator lives in the expanded timeline.
+    const { getByText, queryByTestId } = renderCard(toolCalls);
+    // While the run is in flight the collapsed header carousels the live
+    // step: the "Working" title paired with the running command. The
+    // three-dot indicator (verified elsewhere) pairs with this live text.
     expect(getByText("Working")).toBeTruthy();
-    expect(queryByText("git status")).toBeNull();
+    expect(getByText("git status")).toBeTruthy();
     // Collapsed by default: no step rows on mount.
     expect(queryByTestId("tool-step-pill")).toBeNull();
   });
@@ -865,9 +864,9 @@ describe("MultiActivityGroup — header reflects the latest step", () => {
       { kind: "toolCall", toolCall: toolCalls[0]! },
     ];
     const { getByText, queryByText } = renderCard(toolCalls, { items });
-    // Bash label suppressed in the collapsed header; command promoted to the
-    // primary slot.
-    expect(queryByText("Working")).toBeNull();
+    // The collapsed header carousels the live step: the "Working" title
+    // paired with the command.
+    expect(getByText("Working")).toBeTruthy();
     expect(getByText("echo hi")).toBeTruthy();
     // The leading thinking text is NOT promoted into the header (it's a body
     // step only).

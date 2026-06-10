@@ -390,19 +390,17 @@ function UnifiedMultiActivityGroup({
   const toolCallById = new Map(toolCalls.map((tc) => [tc.id, tc]));
 
   // The header shows the stable overall-status summary ("Working for 8s" /
-  // "Worked for 8s" / "Failed") rather than the live per-step carousel in two
-  // cases:
-  //   - While the run is in flight: the only changing part is the ticking
-  //     duration — no step carousel, no truncated step text. The expanded
-  //     timeline's latest step carries the live loading indicator instead, so
-  //     the header needn't echo it (and a stable animation key below keeps the
-  //     number updating in place rather than re-sliding every second).
-  //   - When expanded: the full timeline is visible below, so echoing the
-  //     latest step in the header would be pure repetition.
-  // Otherwise (collapsed + terminal) the header carousels the latest step so a
-  // compact history card still summarises what ran.
+  // "Worked for 8s" / "Failed") rather than the live per-step carousel ONLY
+  // when expanded: the full timeline is visible below, so echoing the latest
+  // step in the header would be pure repetition.
+  //
+  // A collapsed card — whether still running or terminal — carousels the
+  // latest step (`currentStepTitle | currentStepInfo`) so a compact card
+  // summarises what's running / what ran. A collapsed running card keeps its
+  // three-dot indicator (see `hideStatusIndicator` below) and now pairs it
+  // with the live title + info.
   const isLoading = shellState === "loading";
-  const showSummaryHeader = isLoading || expanded;
+  const showSummaryHeader = expanded;
   const headerTitle = showSummaryHeader
     ? expandedHeaderLabel(
         shellState,
