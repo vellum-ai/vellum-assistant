@@ -15,16 +15,16 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
-  oversizedImageReplacement,
-  persistUnsendableImageDowngrades,
-} from "../daemon/persist-unsendable-image.js";
-import {
   addMessage,
   createConversation,
   getMessages,
 } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import {
+  oversizedImageReplacement,
+  persistUnsendableImageDowngrades,
+} from "../plugins/defaults/image-recovery/recover.js";
 import type { ContentBlock } from "../providers/types.js";
 
 initializeDb();

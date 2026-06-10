@@ -30,7 +30,6 @@ mock.module("../agent/image-optimize.js", () => ({
   }),
 }));
 
-import { persistUnsendableImageDowngrades } from "../daemon/persist-unsendable-image.js";
 import {
   addMessage,
   createConversation,
@@ -38,6 +37,7 @@ import {
 } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import { persistUnsendableImageDowngrades } from "../plugins/defaults/image-recovery/recover.js";
 import type { ContentBlock } from "../providers/types.js";
 
 initializeDb();
@@ -58,9 +58,22 @@ function oversizedPngBase64(): string {
   const height = 9000;
   return Buffer.from(
     Uint8Array.from([
-      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, // PNG signature
-      0x00, 0x00, 0x00, 0x0d, // IHDR length (13)
-      0x49, 0x48, 0x44, 0x52, // "IHDR"
+      0x89,
+      0x50,
+      0x4e,
+      0x47,
+      0x0d,
+      0x0a,
+      0x1a,
+      0x0a, // PNG signature
+      0x00,
+      0x00,
+      0x00,
+      0x0d, // IHDR length (13)
+      0x49,
+      0x48,
+      0x44,
+      0x52, // "IHDR"
       (width >>> 24) & 0xff,
       (width >>> 16) & 0xff,
       (width >>> 8) & 0xff,
@@ -69,7 +82,11 @@ function oversizedPngBase64(): string {
       (height >>> 16) & 0xff,
       (height >>> 8) & 0xff,
       height & 0xff,
-      0x08, 0x06, 0x00, 0x00, 0x00,
+      0x08,
+      0x06,
+      0x00,
+      0x00,
+      0x00,
     ]),
   ).toString("base64");
 }
@@ -80,7 +97,10 @@ function toolResultWithImage(data: string): ContentBlock {
     tool_use_id: "toolu_123",
     content: "Screenshot captured",
     contentBlocks: [
-      { type: "image", source: { type: "base64", media_type: "image/png", data } },
+      {
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data },
+      },
     ],
   };
 }
@@ -119,9 +139,9 @@ describe("persistUnsendableImageDowngrades (downscalable host)", () => {
     };
     const nested = toolResult.contentBlocks?.[0];
     expect(nested?.type).toBe("image");
-    expect((nested as Extract<ContentBlock, { type: "image" }>).source.data).toBe(
-      SHRUNK_DATA,
-    );
+    expect(
+      (nested as Extract<ContentBlock, { type: "image" }>).source.data,
+    ).toBe(SHRUNK_DATA);
   });
 
   /** Re-running is a no-op: the downscaled payload is within limits. */
