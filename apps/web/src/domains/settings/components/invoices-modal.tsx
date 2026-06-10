@@ -112,12 +112,6 @@ export function InvoicesModal({ open, onOpenChange }: InvoicesModalProps) {
     (invoice) => invoice.invoice_pdf != null,
   );
 
-  /**
-   * Download every invoice PDF as a single server-assembled zip. Stripe's
-   * `invoice_pdf` URLs don't serve CORS headers, so the archive must be built
-   * server-side; the SDK call routes through the platform client so the
-   * interceptor attaches the org/session headers.
-   */
   async function downloadAllInvoices(): Promise<void> {
     setIsDownloadingAll(true);
     try {

@@ -2,8 +2,10 @@ import { AlertCircle, Copy, Download, RefreshCw } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { useLlmLogPayload } from "@/domains/chat/inspector/inspector-payload-api";
+import { captureError } from "@/lib/sentry/capture-error";
 import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
 import { Button, Card } from "@vellumai/design-library";
+import { toast } from "@vellumai/design-library/components/toast";
 
 type RawPane = "request" | "response";
 
@@ -125,9 +127,14 @@ async function downloadRawPayload(
   text: string,
   filename: string,
 ): Promise<void> {
-  const blob = new Blob([text], { type: "application/json;charset=utf-8" });
-  const { saveFile } = await import("@/runtime/native-file");
-  await saveFile(blob, filename);
+  try {
+    const blob = new Blob([text], { type: "application/json;charset=utf-8" });
+    const { saveFile } = await import("@/runtime/native-file");
+    await saveFile(blob, filename);
+  } catch (error) {
+    captureError(error, { context: "download_raw_payload" });
+    toast.error("Failed to download the payload.");
+  }
 }
 
 function LoadingState(): ReactNode {
