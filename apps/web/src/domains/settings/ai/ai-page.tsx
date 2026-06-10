@@ -25,7 +25,6 @@ export function AiPage() {
   const [sidePanel, setSidePanel] = useState<SettingsSidePanel>(null);
 
   const openProfiles = useCallback(() => setSidePanel("profiles"), []);
-  const openProviders = useCallback(() => setSidePanel("providers"), []);
   const closePanel = useCallback(() => setSidePanel(null), []);
 
   const isReady = assistantId && (assistantStateKind === "active" || assistantStateKind === "self_hosted");
@@ -63,7 +62,6 @@ export function AiPage() {
 
           <LanguageModelCard
             onOpenProfiles={openProfiles}
-            onOpenProviders={openProviders}
           />
           <WebSearchCard />
           <EmailServiceCard />
