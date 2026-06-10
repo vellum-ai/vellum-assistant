@@ -40,6 +40,21 @@ export interface ResolvedAssistant {
   organizationId?: string;
 }
 
+/**
+ * Assistants usable under the active org: local entries (no org), legacy
+ * entries with no org (`organizationId == null`), and platform entries owned
+ * by the active org. Cross-org platform entries are dropped.
+ */
+export function assistantsValidForOrg(
+  assistants: ResolvedAssistant[],
+  activeOrgId: string | null,
+): ResolvedAssistant[] {
+  return assistants.filter(
+    (a) =>
+      a.isLocal || a.organizationId == null || a.organizationId === activeOrgId,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Per-org platform selection persistence (localStorage)
 // ---------------------------------------------------------------------------
