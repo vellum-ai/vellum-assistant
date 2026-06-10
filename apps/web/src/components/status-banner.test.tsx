@@ -9,10 +9,7 @@ let connectivityStateMock: "online" | "device-offline" | "backend-unreachable" =
 let isElectronMock = false;
 let activeAssistantIdMock: string | null = "assistant-123";
 let operationalStatusAssistantIdMock: string | null = null;
-let assistantStateMock: {
-  kind: string;
-  maintenanceMode?: { enabled?: boolean };
-} = { kind: "active" };
+let hasMaintenanceSurfaceMock = false;
 let requestedOperationalStatusAssistantId: string | null | undefined;
 let operationalStatusQueryMock: {
   data: { state: string } | null | undefined;
@@ -21,10 +18,7 @@ let operationalStatusQueryMock: {
   data: null,
   isError: false,
 };
-let StatusBanner: ComponentType<{
-  className?: string;
-  hasMaintenanceSurface?: boolean;
-}>;
+let StatusBanner: ComponentType<{ className?: string }>;
 
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => isNativePlatformMock,
@@ -60,9 +54,13 @@ mock.module("@/assistant/lifecycle-store", () => ({
   useAssistantLifecycleStore: {
     use: {
       operationalStatusAssistantId: () => operationalStatusAssistantIdMock,
-      assistantState: () => assistantStateMock,
     },
   },
+}));
+
+mock.module("@/components/maintenance-surface-store", () => ({
+  useHasMaintenanceSurface: () => hasMaintenanceSurfaceMock,
+  useRegisterMaintenanceSurface: () => {},
 }));
 
 mock.module("@/stores/resolved-assistants-store", () => ({
@@ -106,7 +104,7 @@ beforeEach(() => {
   isElectronMock = false;
   activeAssistantIdMock = "assistant-123";
   operationalStatusAssistantIdMock = null;
-  assistantStateMock = { kind: "active" };
+  hasMaintenanceSurfaceMock = false;
   requestedOperationalStatusAssistantId = undefined;
   operationalStatusQueryMock = {
     data: null,
@@ -186,32 +184,20 @@ describe("StatusBanner", () => {
     expect(maintenanceHtml).toContain('data-tone="info"');
   });
 
-  test("renders the maintenance_mode notice when lifecycle maintenance mode is off", () => {
-    assistantStateMock = { kind: "active", maintenanceMode: { enabled: false } };
+  test("suppresses the maintenance_mode notice while a Recovery Mode card is rendered", () => {
+    hasMaintenanceSurfaceMock = true;
     operationalStatusQueryMock = {
       data: { state: "maintenance_mode" },
       isError: false,
     };
 
-    const html = renderToStaticMarkup(<StatusBanner hasMaintenanceSurface />);
-
-    expect(html).toContain("Assistant is in maintenance mode");
-  });
-
-  test("suppresses the maintenance_mode notice on maintenance-surface mounts when lifecycle maintenance mode is active", () => {
-    assistantStateMock = { kind: "active", maintenanceMode: { enabled: true } };
-    operationalStatusQueryMock = {
-      data: { state: "maintenance_mode" },
-      isError: false,
-    };
-
-    const html = renderToStaticMarkup(<StatusBanner hasMaintenanceSurface />);
+    const html = renderToStaticMarkup(<StatusBanner />);
 
     expect(html).toBe("");
   });
 
-  test("keeps the maintenance_mode notice on mounts without a maintenance surface", () => {
-    assistantStateMock = { kind: "active", maintenanceMode: { enabled: true } };
+  test("keeps the maintenance_mode notice when no Recovery Mode card is rendered", () => {
+    hasMaintenanceSurfaceMock = false;
     operationalStatusQueryMock = {
       data: { state: "maintenance_mode" },
       isError: false,
@@ -222,14 +208,14 @@ describe("StatusBanner", () => {
     expect(html).toContain("Assistant is in maintenance mode");
   });
 
-  test("lifecycle maintenance mode only suppresses the maintenance_mode state", () => {
-    assistantStateMock = { kind: "active", maintenanceMode: { enabled: true } };
+  test("a rendered Recovery Mode card only suppresses the maintenance_mode state", () => {
+    hasMaintenanceSurfaceMock = true;
     operationalStatusQueryMock = {
       data: { state: "crash_loop" },
       isError: false,
     };
 
-    const html = renderToStaticMarkup(<StatusBanner hasMaintenanceSurface />);
+    const html = renderToStaticMarkup(<StatusBanner />);
 
     expect(html).toContain("Assistant is crash looping");
   });

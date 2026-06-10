@@ -13,6 +13,7 @@ import {
   useAssistantOperationalStatus,
 } from "@/assistant/operational-status";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { useHasMaintenanceSurface } from "@/components/maintenance-surface-store";
 import { useConnectivityState } from "@/hooks/use-connectivity-state";
 import { useNetworkStatus } from "@/hooks/use-network-status";
 import { retryConnectivity } from "@/runtime/connectivity";
@@ -101,9 +102,7 @@ function BannerNotice({
   );
 }
 
-function useAssistantBannerConfig(
-  hasMaintenanceSurface: boolean,
-): BannerConfig | null {
+function useAssistantBannerConfig(): BannerConfig | null {
   const electron = isElectron();
   const isNative = useIsNativePlatform();
   const connectivityState = useConnectivityState();
@@ -111,9 +110,9 @@ function useAssistantBannerConfig(
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const operationalStatusAssistantId =
     useAssistantLifecycleStore.use.operationalStatusAssistantId();
-  const assistantState = useAssistantLifecycleStore.use.assistantState();
   const assistantId = operationalStatusAssistantId ?? activeAssistantId;
   const statusQuery = useAssistantOperationalStatus(assistantId);
+  const hasMaintenanceSurface = useHasMaintenanceSurface();
 
   if (electron && connectivityState === "device-offline") {
     return {
@@ -151,35 +150,20 @@ function useAssistantBannerConfig(
     };
   }
 
-  // On surfaces that render their own maintenance UI (the actionable
-  // Recovery Mode card in composer-notices), don't stack a second
-  // notice on it. Other mounts (e.g. SidebarShell on settings/logs
-  // routes) keep the notice — it's their only maintenance indication.
-  if (
-    hasMaintenanceSurface &&
-    statusQuery.data?.state === "maintenance_mode" &&
-    assistantState.kind === "active" &&
-    assistantState.maintenanceMode?.enabled === true
-  ) {
+  // While the actionable Recovery Mode card is on screen (it registers
+  // itself in the maintenance-surface store), don't stack a second
+  // maintenance notice on it. Everywhere the card isn't rendered —
+  // SidebarShell routes, non-chat ChatLayout outlets, read-only channel
+  // conversations — this notice is the only maintenance indication.
+  if (hasMaintenanceSurface && statusQuery.data?.state === "maintenance_mode") {
     return null;
   }
 
   return operationalStatusBannerConfig(statusQuery.data);
 }
 
-export function StatusBanner({
-  className,
-  hasMaintenanceSurface = false,
-}: {
-  className?: string;
-  /**
-   * Set on mounts whose surrounding surface already renders a dedicated
-   * maintenance UI (the chat layout's Recovery Mode card), so the
-   * operational `maintenance_mode` notice doesn't double up with it.
-   */
-  hasMaintenanceSurface?: boolean;
-}) {
-  const banner = useAssistantBannerConfig(hasMaintenanceSurface);
+export function StatusBanner({ className }: { className?: string }) {
+  const banner = useAssistantBannerConfig();
 
   return banner ? <BannerNotice banner={banner} className={className} /> : null;
 }
