@@ -21,6 +21,7 @@ describe("deviceKey", () => {
     expect(deviceKey("theme")).toBe("device:theme");
     expect(deviceKey("shareAnalytics")).toBe("device:share_analytics");
     expect(deviceKey("biometricEnabled")).toBe("device:biometric_enabled");
+    expect(deviceKey("dockBadgesEnabled")).toBe("device:dock_badges_enabled");
     expect(deviceKey("lastUserId")).toBe("device:last_user_id");
   });
 });
@@ -81,6 +82,7 @@ describe("migrateDeviceSettings", () => {
     localStorage.setItem("vellum_timezone", "America/New_York");
     localStorage.setItem("vellum_media_embeds_enabled", "true");
     localStorage.setItem("vellum_media_embed_domains", '["youtube.com"]');
+    localStorage.setItem("vellum_dock_badges_enabled", "false");
     localStorage.setItem("onboarding.lastUserId", "user-123");
 
     migrateDeviceSettings();
@@ -93,6 +95,7 @@ describe("migrateDeviceSettings", () => {
     expect(localStorage.getItem("device:timezone")).toBe("America/New_York");
     expect(localStorage.getItem("device:media_embeds_enabled")).toBe("true");
     expect(localStorage.getItem("device:media_embed_domains")).toBe('["youtube.com"]');
+    expect(localStorage.getItem("device:dock_badges_enabled")).toBe("false");
     expect(localStorage.getItem("device:last_user_id")).toBe("user-123");
   });
 

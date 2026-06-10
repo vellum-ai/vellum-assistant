@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import {
   isElectron,
@@ -66,6 +66,26 @@ export function useSystemPermissionsState() {
   const [loading, setLoading] = useState(() => supportsSystemPermissions());
   const [error, setError] = useState<string | null>(null);
 
+  const refresh = useCallback(async () => {
+    if (!supportsSystemPermissions()) {
+      setState(null);
+      setLoading(false);
+      return null;
+    }
+
+    setError(null);
+    try {
+      const next = await getSystemPermissionsState();
+      setState(next);
+      return next;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!supportsSystemPermissions()) {
       setLoading(false);
@@ -103,5 +123,6 @@ export function useSystemPermissionsState() {
     loading,
     error,
     supported: supportsSystemPermissions(),
+    refresh,
   };
 }

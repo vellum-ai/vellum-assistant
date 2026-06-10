@@ -1,6 +1,7 @@
 import { Loader2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import { setDockBadge } from "@/runtime/dock";
 import {
   openSystemPermissionSettings,
   requestSystemPermission,
@@ -8,22 +9,46 @@ import {
   type SystemPermissionKind,
   type SystemPermissionStateItem,
 } from "@/runtime/system-permissions";
+import {
+  getDeviceBool,
+  setDeviceBool,
+  watchDeviceSetting,
+} from "@/utils/device-settings";
 import { cn } from "@vellumai/design-library";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
-type PermissionRowId = SystemPermissionKind | "notificationBadges";
+type LocalPermissionRowId = "notificationBadges";
+type PermissionRowId = SystemPermissionKind | LocalPermissionRowId;
 
-interface PermissionRowMeta {
-  id: PermissionRowId;
+interface SystemPermissionRowMeta {
+  id: SystemPermissionKind;
+  type: "system";
   sourceKind: SystemPermissionKind;
   label: string;
   description: string;
 }
 
-const PERMISSION_ROWS: PermissionRowMeta[] = [
+interface LocalPermissionRowMeta {
+  id: LocalPermissionRowId;
+  type: "local";
+  label: string;
+  description: string;
+}
+
+interface PermissionRowViewModel {
+  id: PermissionRowId;
+  label: string;
+  description: string;
+  checked: boolean;
+  disabled: boolean;
+  error?: string;
+}
+
+const SYSTEM_PERMISSION_ROWS: SystemPermissionRowMeta[] = [
   {
     id: "accessibility",
+    type: "system",
     sourceKind: "accessibility",
     label: "Accessibility",
     description:
@@ -31,6 +56,7 @@ const PERMISSION_ROWS: PermissionRowMeta[] = [
   },
   {
     id: "screen",
+    type: "system",
     sourceKind: "screen",
     label: "Screen Recording",
     description:
@@ -38,6 +64,7 @@ const PERMISSION_ROWS: PermissionRowMeta[] = [
   },
   {
     id: "microphone",
+    type: "system",
     sourceKind: "microphone",
     label: "Microphone",
     description:
@@ -45,6 +72,7 @@ const PERMISSION_ROWS: PermissionRowMeta[] = [
   },
   {
     id: "speechRecognition",
+    type: "system",
     sourceKind: "speechRecognition",
     label: "Speech Recognition",
     description:
@@ -52,19 +80,23 @@ const PERMISSION_ROWS: PermissionRowMeta[] = [
   },
   {
     id: "notifications",
+    type: "system",
     sourceKind: "notifications",
     label: "Notifications",
     description:
       "Allows your assistant to send macOS alerts for approvals, messages, and task updates.",
   },
+];
+
+const LOCAL_PERMISSION_ROWS: LocalPermissionRowMeta[] = [
   {
     id: "notificationBadges",
-    sourceKind: "notifications",
+    type: "local",
     label: "Notification Badges",
     description:
       "Allows your assistant to show unseen conversation counts on the Dock icon.",
   },
-] as const;
+];
 
 function usePendingKind() {
   const [pendingKind, setPendingKind] = useState<PermissionRowId | null>(null);
@@ -76,6 +108,9 @@ function usePendingKind() {
     setPendingKind(kind);
     try {
       await action();
+    } catch {
+      // The action updates visible error state where possible; do not let a
+      // failed macOS permission read escape as an unhandled UI promise.
     } finally {
       setPendingKind((current) => (current === kind ? null : current));
     }
@@ -84,48 +119,63 @@ function usePendingKind() {
   return { pendingKind, run };
 }
 
+function useNotificationBadgesEnabled() {
+  const [enabled, setEnabled] = useState(() =>
+    getDeviceBool("dockBadgesEnabled", true),
+  );
+
+  useEffect(
+    () =>
+      watchDeviceSetting("dockBadgesEnabled", () => {
+        setEnabled(getDeviceBool("dockBadgesEnabled", true));
+      }),
+    [],
+  );
+
+  const update = (next: boolean) => {
+    setEnabled(next);
+    setDeviceBool("dockBadgesEnabled", next);
+    if (!next) setDockBadge(0);
+  };
+
+  return [enabled, update] as const;
+}
+
 function PermissionRow({
-  item,
-  meta,
-  pending,
+  row,
   onToggle,
 }: {
-  item: SystemPermissionStateItem;
-  meta: PermissionRowMeta;
-  pending: boolean;
-  onToggle: (meta: PermissionRowMeta, item: SystemPermissionStateItem) => void;
+  row: PermissionRowViewModel;
+  onToggle: (id: PermissionRowId) => void;
 }) {
-  const checked = item.status === "granted";
-  const disabled = pending || item.status === "restricted";
-
   return (
     <div className="flex items-start gap-3">
       <Toggle
-        checked={checked}
-        disabled={disabled}
-        aria-label={meta.label}
-        onChange={() => onToggle(meta, item)}
+        checked={row.checked}
+        disabled={row.disabled}
+        aria-label={row.label}
+        onChange={() => onToggle(row.id)}
       />
       <div className="min-w-0 flex-1">
         <button
           type="button"
-          disabled={disabled}
-          onClick={() => onToggle(meta, item)}
+          disabled={row.disabled}
+          onClick={() => onToggle(row.id)}
           className={cn(
             "block w-full text-left",
-            disabled ? "cursor-not-allowed" : "cursor-pointer",
+            row.disabled ? "cursor-not-allowed" : "cursor-pointer",
           )}
         >
           <span className="block text-[14px] font-semibold leading-[18px] text-[var(--content-emphasised)]">
-            {meta.label}
+            {row.label}
           </span>
           <span className="mt-1 block text-[13px] font-medium leading-[18px] text-[var(--content-tertiary)]">
-            {meta.description}
+            {row.description}
           </span>
         </button>
-        {item.error && (
+        {row.error && (
           <p className="mt-1 text-body-small-default text-[var(--system-negative-strong)]">
-            {item.error}
+            {row.error}
           </p>
         )}
       </div>
@@ -138,37 +188,83 @@ export function SystemPermissionsCard({
 }: {
   compact?: boolean;
 }) {
-  const { state, loading, error, supported } = useSystemPermissionsState();
+  const { state, loading, error, supported, refresh } =
+    useSystemPermissionsState();
   const { pendingKind, run } = usePendingKind();
+  const [notificationBadgesEnabled, setNotificationBadgesEnabled] =
+    useNotificationBadgesEnabled();
 
-  const items = useMemo(
-    () =>
-      PERMISSION_ROWS.map((meta) => {
-        const item = state?.[meta.sourceKind];
-        return item ? { meta, item } : null;
-      }).filter(Boolean) as Array<{
-        meta: PermissionRowMeta;
-        item: SystemPermissionStateItem;
-      }>,
-    [state],
-  );
+  const systemRowsById = useMemo(() => {
+    const rows = new Map<
+      SystemPermissionKind,
+      { meta: SystemPermissionRowMeta; item: SystemPermissionStateItem }
+    >();
+    if (!state) return rows;
+
+    for (const meta of SYSTEM_PERMISSION_ROWS) {
+      const item = state[meta.sourceKind];
+      if (item) rows.set(meta.id, { meta, item });
+    }
+
+    return rows;
+  }, [state]);
+
+  const rows = useMemo<PermissionRowViewModel[]>(() => {
+    const systemRows = SYSTEM_PERMISSION_ROWS.map((meta) => {
+      const item = systemRowsById.get(meta.id)?.item;
+      if (!item) return null;
+
+      return {
+        id: meta.id,
+        label: meta.label,
+        description: meta.description,
+        checked: item.status === "granted",
+        disabled: pendingKind === meta.id || item.status === "restricted",
+        ...(item.error ? { error: item.error } : {}),
+      };
+    }).filter(Boolean) as PermissionRowViewModel[];
+
+    const localRows = LOCAL_PERMISSION_ROWS.map((meta) => ({
+      id: meta.id,
+      label: meta.label,
+      description: meta.description,
+      checked: notificationBadgesEnabled,
+      disabled: pendingKind === meta.id,
+    }));
+
+    return [...systemRows, ...localRows];
+  }, [notificationBadgesEnabled, pendingKind, systemRowsById]);
 
   if (!supported) return null;
 
-  const handleToggle = (
-    meta: PermissionRowMeta,
+  const handleSystemToggle = async (
+    meta: SystemPermissionRowMeta,
     item: SystemPermissionStateItem,
   ) => {
-    void run(meta.id, () => {
-      if (
-        item.status === "granted" ||
-        item.status === "denied" ||
-        !item.canRequest
-      ) {
-        return openSystemPermissionSettings(meta.sourceKind);
-      }
-      return requestSystemPermission(meta.sourceKind);
-    });
+    if (
+      item.status === "granted" ||
+      item.status === "denied" ||
+      !item.canRequest
+    ) {
+      await openSystemPermissionSettings(meta.sourceKind);
+    } else {
+      await requestSystemPermission(meta.sourceKind);
+    }
+    await refresh();
+  };
+
+  const handleToggle = (id: PermissionRowId) => {
+    const systemRow = systemRowsById.get(id as SystemPermissionKind);
+    if (systemRow) {
+      void run(id, () => handleSystemToggle(systemRow.meta, systemRow.item));
+      return;
+    }
+
+    if (id === "notificationBadges") {
+      void run(id, async () => {
+        setNotificationBadgesEnabled(!notificationBadgesEnabled);
+      });
+    }
   };
 
   return (
@@ -178,19 +274,17 @@ export function SystemPermissionsCard({
       <h2 className="text-[18px] font-semibold leading-[22px] text-[var(--content-emphasised)]">
         System Permissions
       </h2>
-      {loading && items.length === 0 ? (
+      {loading && rows.length === 0 ? (
         <div className="mt-6 flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
           <Loader2 className="h-4 w-4 animate-spin" />
           Checking permissions...
         </div>
       ) : (
         <div className="mt-3 space-y-2">
-          {items.map(({ meta, item }) => (
+          {rows.map((row) => (
             <PermissionRow
-              key={meta.id}
-              item={item}
-              meta={meta}
-              pending={pendingKind === meta.id}
+              key={row.id}
+              row={row}
               onToggle={handleToggle}
             />
           ))}
