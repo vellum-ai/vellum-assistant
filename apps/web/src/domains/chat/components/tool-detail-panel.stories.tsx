@@ -49,7 +49,7 @@ const subagentDetail: ToolDetailPayload = {
 const bashDetail: ToolDetailPayload = {
   toolCallId: "tc-bash-1",
   toolName: "bash",
-  title: "Working (bash)",
+  title: "Working",
   activity: "",
   input: { command: "ls -la" },
   result:

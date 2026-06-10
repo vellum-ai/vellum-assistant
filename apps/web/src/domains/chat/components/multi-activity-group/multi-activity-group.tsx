@@ -346,7 +346,7 @@ function deriveWebShellState(
 /**
  * Render the unified shell for a non-web tool-call group. Wraps
  * `ToolProgressCardShell` with a `PhaseGroupedStepList` body that groups
- * contiguous same-phase steps (`Working (bash)`, `Using a skill`, etc.)
+ * contiguous same-phase steps (`Working`, `Using a skill`, etc.)
  * under a single phase header. Mixed groups carry `web_search` /
  * `web_search_error` / `thinking` (the latter from web tools, e.g.
  * `web_fetch` "Reading …") alongside the `tool` variant emitted by

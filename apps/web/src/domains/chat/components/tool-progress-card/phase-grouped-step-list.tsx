@@ -58,8 +58,7 @@ export const ICON_MAP: Record<IconName, LucideIcon> = {
  * share the same label collapse into a single `PhaseSection`.
  *
  * `tool` branch:
- *   - "Working (bash)" → kept verbatim so bash sections read distinctly
- *   - Other "Working (...)" titles → kept verbatim
+ *   - "Working" (bash) and other "Working (...)" titles → kept verbatim
  *   - "Reading" / "Editing" / "Running ..." → grouped under "Working"
  *   - "Using a skill" → kept verbatim
  *   - "Using ..." (MCP / server) → kept verbatim (server name is the label)
