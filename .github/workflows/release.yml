@@ -2936,14 +2936,14 @@ jobs:
 
       - name: Upload Electron update artifacts to GCS
         run: |
-          CHANNEL=${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
-          BUCKET="vellum-desktop-releases"
-          MANIFEST_NAME="${CHANNEL}-mac.yml"
+          ENVIRONMENT=${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
+          BUCKET=${{ needs.extract-version.outputs.is_staging == 'true' && 'vellum-staging-releases' || 'vellum-prod-releases' }}
+          MANIFEST_NAME="${ENVIRONMENT}-mac.yml"
 
           for ARCH in arm64 x64; do
             ARCH_DIR="electron-artifacts/${ARCH}"
             [ -d "$ARCH_DIR" ] || continue
-            PREFIX="mac-electron/${CHANNEL}/${ARCH}"
+            PREFIX="mac-electron/${ARCH}"
 
             find "$ARCH_DIR" -name "*.zip" -type f ! -name "*.blockmap" | while read -r ZIP; do
               gcloud storage cp "$ZIP" "gs://${BUCKET}/${PREFIX}/$(basename "$ZIP")"

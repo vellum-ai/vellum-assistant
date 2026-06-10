@@ -1,6 +1,7 @@
 // @ts-check
 
 const env = process.env.VELLUM_ENVIRONMENT || "production";
+const bucketEnv = env === "production" ? "prod" : env;
 const targetArch = process.env.ELECTRON_TARGET_ARCH || "arm64";
 
 const productName =
@@ -24,7 +25,7 @@ module.exports = {
   productName,
   publish: {
     provider: "generic",
-    url: `https://storage.googleapis.com/vellum-desktop-releases/mac-electron/${env}/${targetArch}/`,
+    url: `https://storage.googleapis.com/vellum-${bucketEnv}-releases/mac-electron/${targetArch}/`,
   },
   directories: {
     output: "dist",
