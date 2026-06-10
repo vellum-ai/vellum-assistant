@@ -31,7 +31,7 @@ function getPostRetireRoute(): string {
   });
   return decision.action === "redirect"
     ? decision.to
-    : routes.onboarding.welcome;
+    : routes.welcome;
 }
 
 /**

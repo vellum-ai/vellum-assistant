@@ -47,7 +47,11 @@ export type VellumCommand =
   | { kind: "selectAssistant"; assistantId: string }
   | { kind: "createAssistant" }
   | { kind: "retireAssistant"; assistantId: string }
-  | { kind: "quickInputSubmit"; message: string };
+  | { kind: "quickInputSubmit"; message: string }
+  | { kind: "cancelActiveAction" }
+  | { kind: "replayOnboarding" }
+  | { kind: "previewPrechat" }
+  | { kind: "openComponentGallery" };
 
 /**
  * Whether a hotkey is a system-wide global shortcut (active even when the app
@@ -115,6 +119,36 @@ export interface HotkeyEvent {
 export type FnPushToTalkResult =
   | { ok: true; enabled: boolean }
   | { ok: false; reason: string };
+
+/**
+ * Renderer-side mirror of `DictationPartialsResult` / `DictationPartialEvent`
+ * in `apps/macos/src/main/hotkey-helper.ts` — inline for the same reason as
+ * `VellumCommand`.
+ */
+export type DictationPartialsResult =
+  | { ok: true; enabled: boolean }
+  | { ok: false; reason: string };
+
+export interface DictationPartialEvent {
+  text: string;
+}
+
+/**
+ * States the system-wide dictation overlay can display, plus the explicit
+ * dismiss message. Renderer-side mirror of `DictationOverlayState` /
+ * `DictationOverlayMessage` in
+ * `apps/macos/src/main/dictation-overlay-window.ts` — inline for the same
+ * reason as `VellumCommand`.
+ */
+export type DictationOverlayState =
+  | { kind: "recording"; transcription: string }
+  | { kind: "processing" }
+  | { kind: "done" }
+  | { kind: "error"; message: string };
+
+export type DictationOverlayMessage =
+  | DictationOverlayState
+  | { kind: "dismiss" };
 
 export type HelperState =
   | { status: "idle" }
@@ -254,9 +288,6 @@ declare global {
         insertIntoFrontApp(text: string): Promise<ElectronTextInsertionResult>;
         openAutomationSettings(): Promise<void>;
       };
-      csrf?: {
-        getToken(): string | null;
-      };
       // Optional: an older preload predates the hotkeys/featureFlags channels.
       // The macOS app and web bundle don't release together, so a newer
       // renderer can run against an older preload; callers must guard on
@@ -277,6 +308,13 @@ declare global {
         hotkey?: {
           fnPushToTalk(enable: boolean): Promise<FnPushToTalkResult>;
           onEvent(callback: (event: HotkeyEvent) => void): () => void;
+        };
+        // Optional: older Electron shells predate the dictation channel.
+        dictation?: {
+          setPartials(enable: boolean): Promise<DictationPartialsResult>;
+          onPartial(
+            callback: (event: DictationPartialEvent) => void,
+          ): () => void;
         };
       };
       commands: {
@@ -380,6 +418,14 @@ declare global {
       quickInput?: {
         submit(message: string): Promise<void>;
         dismiss(): Promise<void>;
+      };
+      // Optional: older Electron shells predate the dictation overlay channel.
+      dictationOverlay?: {
+        setState(state: DictationOverlayMessage): void;
+        onState(
+          callback: (state: DictationOverlayState) => void,
+        ): () => void;
+        getState(): Promise<DictationOverlayState | null>;
       };
       // Optional: older Electron shells predate the notifications channel.
       notifications?: {

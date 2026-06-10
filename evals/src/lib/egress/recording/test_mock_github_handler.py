@@ -53,7 +53,7 @@ class MockGithubHandlerTest(unittest.TestCase):
     def test_directory_listing_returns_github_shaped_array(self) -> None:
         url = (
             "https://api.github.com/repos/vellum-ai/vellum-assistant/"
-            "contents/experimental/plugins/simple-memory?ref=main"
+            "contents/plugins/simple-memory?ref=main"
         )
         result = handle(method="GET", url=url, fixtures_dir=self.tmpdir)
         self.assertIsNotNone(result)
@@ -78,13 +78,13 @@ class MockGithubHandlerTest(unittest.TestCase):
                     )
                 )
                 self.assertTrue(
-                    entry["path"].startswith("experimental/plugins/simple-memory/")
+                    entry["path"].startswith("plugins/simple-memory/")
                 )
 
     def test_subdirectory_listing_recurses_with_correct_repo_path(self) -> None:
         url = (
             "https://api.github.com/repos/vellum-ai/vellum-assistant/"
-            "contents/experimental/plugins/simple-memory/hooks?ref=main"
+            "contents/plugins/simple-memory/hooks?ref=main"
         )
         result = handle(method="GET", url=url, fixtures_dir=self.tmpdir)
         self.assertIsNotNone(result)
@@ -92,7 +92,7 @@ class MockGithubHandlerTest(unittest.TestCase):
         entries = json.loads(body)
         self.assertEqual([e["name"] for e in entries], ["say-hi.ts"])
         self.assertEqual(
-            entries[0]["path"], "experimental/plugins/simple-memory/hooks/say-hi.ts"
+            entries[0]["path"], "plugins/simple-memory/hooks/say-hi.ts"
         )
 
     def test_single_file_returns_object_not_array(self) -> None:
@@ -102,7 +102,7 @@ class MockGithubHandlerTest(unittest.TestCase):
         # "not a plugin directory" and returns null.
         url = (
             "https://api.github.com/repos/vellum-ai/vellum-assistant/"
-            "contents/experimental/plugins/simple-memory/init.ts?ref=main"
+            "contents/plugins/simple-memory/init.ts?ref=main"
         )
         result = handle(method="GET", url=url, fixtures_dir=self.tmpdir)
         self.assertIsNotNone(result)
@@ -118,7 +118,7 @@ class MockGithubHandlerTest(unittest.TestCase):
     def test_raw_file_returns_file_bytes_verbatim(self) -> None:
         url = (
             "https://raw.githubusercontent.com/vellum-ai/vellum-assistant/"
-            "main/experimental/plugins/simple-memory/init.ts"
+            "main/plugins/simple-memory/init.ts"
         )
         result = handle(method="GET", url=url, fixtures_dir=self.tmpdir)
         self.assertIsNotNone(result)
@@ -137,7 +137,7 @@ class MockGithubHandlerTest(unittest.TestCase):
         for ref in ("main", "v1.2.3", "a1b2c3d4e5"):
             url = (
                 f"https://raw.githubusercontent.com/vellum-ai/vellum-assistant/"
-                f"{ref}/experimental/plugins/simple-memory/init.ts"
+                f"{ref}/plugins/simple-memory/init.ts"
             )
             result = handle(method="GET", url=url, fixtures_dir=self.tmpdir)
             self.assertIsNotNone(result, ref)
@@ -149,15 +149,15 @@ class MockGithubHandlerTest(unittest.TestCase):
     def test_missing_plugin_returns_404(self) -> None:
         url = (
             "https://api.github.com/repos/vellum-ai/vellum-assistant/"
-            "contents/experimental/plugins/does-not-exist?ref=main"
+            "contents/plugins/does-not-exist?ref=main"
         )
         result = handle(method="GET", url=url, fixtures_dir=self.tmpdir)
         self.assertIsNotNone(result)
         status, _, _ = result  # type: ignore[misc]
         self.assertEqual(status, 404)
 
-    def test_path_outside_experimental_plugins_returns_404(self) -> None:
-        # The fixtures dir is scoped to experimental/plugins/. Even
+    def test_path_outside_plugins_dir_returns_404(self) -> None:
+        # The fixtures dir is scoped to plugins/. Even
         # if the runner pointed at the repo root, we'd refuse other
         # repo paths up front so the assistant can't read arbitrary
         # repo files via the mock.
@@ -176,7 +176,7 @@ class MockGithubHandlerTest(unittest.TestCase):
         # non-matching (skip) or returns 404. Either is safe.
         url = (
             "https://raw.githubusercontent.com/vellum-ai/vellum-assistant/"
-            "main/experimental/plugins/../../etc/passwd"
+            "main/plugins/../../etc/passwd"
         )
         result = handle(method="GET", url=url, fixtures_dir=self.tmpdir)
         if result is not None:
@@ -206,7 +206,7 @@ class MockGithubHandlerTest(unittest.TestCase):
     def test_non_get_method_is_skipped(self) -> None:
         url = (
             "https://api.github.com/repos/vellum-ai/vellum-assistant/"
-            "contents/experimental/plugins/simple-memory"
+            "contents/plugins/simple-memory"
         )
         # POST/PUT/DELETE on a matching URL still skips — the install
         # loader is read-only and we don't want to invent a write API.
@@ -222,7 +222,7 @@ class MockGithubHandlerTest(unittest.TestCase):
         # one half of the dispatch still gets the right behavior.
         url = (
             "https://raw.githubusercontent.com/vellum-ai/vellum-assistant/"
-            "main/experimental/plugins/simple-memory/init.ts"
+            "main/plugins/simple-memory/init.ts"
         )
         self.assertIsNone(
             handle_contents_api(
@@ -233,7 +233,7 @@ class MockGithubHandlerTest(unittest.TestCase):
     def test_raw_handler_skips_contents_host(self) -> None:
         url = (
             "https://api.github.com/repos/vellum-ai/vellum-assistant/"
-            "contents/experimental/plugins/simple-memory?ref=main"
+            "contents/plugins/simple-memory?ref=main"
         )
         self.assertIsNone(
             handle_raw_api(method="GET", url=url, fixtures_dir=self.tmpdir)

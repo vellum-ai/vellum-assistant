@@ -70,12 +70,20 @@ const {
   canOpenScheduleRunConversation,
   canOpenScheduleSourceConversation,
   formatScheduleCost,
-  RecentRunsCard,
-  ScheduleRow,
-  SystemTaskRow,
-  SystemTaskDetailView,
   shouldShowSystemTaskToggles,
-} = await import("./schedules-page");
+} = await import("@/domains/settings/utils/schedule-formatters");
+const { RecentRunsCard } = await import(
+  "@/domains/settings/components/recent-runs-card"
+);
+const { ScheduleRow } = await import(
+  "@/domains/settings/components/schedule-row"
+);
+const { SystemTaskRow } = await import(
+  "@/domains/settings/components/system-tasks-section"
+);
+const { SystemTaskDetailView } = await import(
+  "@/domains/settings/components/system-task-detail-view"
+);
 
 afterEach(() => {
   cleanup();
@@ -170,7 +178,7 @@ describe("formatScheduleCost", () => {
   test("formats zero, cents, and tiny nonzero costs", () => {
     expect(formatScheduleCost(0)).toBe("$0.00");
     expect(formatScheduleCost(0.42)).toBe("$0.42");
-    expect(formatScheduleCost(0.0034)).toBe("$0.0034");
+    expect(formatScheduleCost(0.0034)).toBe("$0.00");
   });
 
   test("falls back when cost is missing or invalid", () => {
@@ -247,7 +255,7 @@ describe("SystemTaskDetailView", () => {
     );
 
     await waitFor(() =>
-      expect(document.body.textContent).toContain("$0.1234"),
+      expect(document.body.textContent).toContain("$0.12"),
     );
     expect(screen.getByRole("button", { name: /Run now/i })).toBeTruthy();
     expect(document.body.textContent).not.toContain(

@@ -27,7 +27,7 @@ import {
 import { shouldRetryDaemonError } from "@/utils/daemon-errors";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 import { mergeAdjacentAssistantMessages } from "@/domains/chat/utils/message-merge";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 
 // ---------------------------------------------------------------------------
 // Query key

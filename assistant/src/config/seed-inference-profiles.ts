@@ -74,6 +74,24 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     thinking: { enabled: false, streamThinking: false },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
+  // Open-weight economy option: Kimi K2.6 served by Fireworks via managed
+  // platform inference. Carries the `suppress-cjk` logit-bias preset to
+  // discourage the model from spontaneously emitting Chinese in English
+  // output; the preset is profile-scoped and only forwarded on the Fireworks
+  // path (see `providers/inference/logit-bias.ts`).
+  "balanced-economy": {
+    intent: "balanced",
+    provider: "fireworks",
+    connectionName: "fireworks-managed",
+    source: "managed",
+    label: "Balanced Economy",
+    description: "Strong open model (Kimi K2.6) at a lower price point",
+    maxTokens: 16000,
+    effort: "high",
+    thinking: { enabled: true, streamThinking: true },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
+    logitBias: "suppress-cjk",
+  },
 };
 
 /**
@@ -211,7 +229,7 @@ export function seedInferenceProfiles(
   //    profiles without duplicating; we have to honor those edits across
   //    reseeds or they'd silently revert on every boot. Carry by
   //    key-presence rather than truthiness so an explicit `null` (user
-  //    cleared the label) survives too. Codex P1 finding on PR #30362.
+  //    cleared the label) survives too.
   //
   //    BYOK seed defaults (off-platform only):
   //      • label: " (Managed)" suffix disambiguates managed profile labels

@@ -45,7 +45,7 @@ mock.module("@/domains/chat/components/chat-attachments/message-attachments", ()
 
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import type {
   MessageItem,
   TranscriptItem,

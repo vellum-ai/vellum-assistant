@@ -309,6 +309,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
     const maxTokens = configObj?.max_tokens as number | undefined;
     const modelOverride = configObj?.model as string | undefined;
     const effort = configObj?.effort as string | undefined;
+    const logitBias = configObj?.logit_bias as
+      | Record<string, number>
+      | undefined;
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
       | Record<string, string>
       | undefined;
@@ -327,6 +330,12 @@ export class OpenAIChatCompletionsProvider implements Provider {
 
       if (maxTokens) {
         params.max_completion_tokens = maxTokens;
+      }
+
+      // Profile-scoped token biasing (e.g. the `suppress-cjk` preset). Resolved
+      // and gated to this provider family upstream in `RetryProvider`.
+      if (logitBias) {
+        params.logit_bias = logitBias;
       }
 
       // Subclasses (OpenRouter) may already have nested effort under
@@ -641,7 +650,16 @@ export class OpenAIChatCompletionsProvider implements Provider {
             : {}),
         },
         stopReason: finishReason,
-        rawRequest: params,
+        // `rawRequest` is persisted to the request-log DB and inspector on every
+        // call. A `logit_bias` preset (e.g. `suppress-cjk`) is ~5.3k deterministic
+        // entries (~68KB); summarize it here so logs don't balloon. The full map
+        // still went out on the wire above.
+        rawRequest: params.logit_bias
+          ? {
+              ...params,
+              logit_bias: `<${Object.keys(params.logit_bias).length} token biases omitted>`,
+            }
+          : params,
         rawResponse,
       };
     } catch (error) {

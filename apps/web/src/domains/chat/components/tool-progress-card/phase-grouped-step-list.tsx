@@ -37,7 +37,7 @@ import { Tooltip, Typography } from "@vellumai/design-library";
 
 import type { IconName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
-import { formatMs, type ToolCallCardStep } from "@/domains/chat/hooks/tool-call-card-utils";
+import { formatMs, type ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
 import { cn } from "@/utils/misc";
 
 /** Concrete lucide icon for each `IconName` produced by `deriveStepLabel`. */
@@ -89,25 +89,39 @@ export function phaseFromStep(step: ToolCallCardStep): string {
 
 /**
  * Best-effort parse of a `formatMs`-style duration label back into a raw ms
- * value so we can sum phase totals. Handles the two outputs the formatter
- * produces today (`"<1s"`, `"Ns"`) plus an empty / missing label.
+ * value so we can sum phase totals. Handles every output the formatter
+ * produces (`"<1s"`, `"Ns"`, `"Nm"`, `"Nh"`) plus an empty / missing label.
+ * Re-formatting the sum via `formatMs` collapses the coarse units back into a
+ * single readable label, so the per-unit rounding here is acceptable.
  */
 function parseDurationLabel(label: string): number {
-  if (!label) return 0;
-  if (label === "<1s") return 0;
-  const match = /^(\d+)s$/.exec(label);
+  if (!label || label === "<1s") return 0;
+  const match = /^(\d+)(s|m|h)$/.exec(label);
   if (!match) return 0;
-  return Number(match[1]) * 1000;
+  const value = Number(match[1]);
+  switch (match[2]) {
+    case "h":
+      return value * 3_600_000;
+    case "m":
+      return value * 60_000;
+    default:
+      return value * 1_000;
+  }
 }
 
 /**
- * Earliest known start time (epoch ms) across a phase's tool steps, or `null`
- * when none carry timing. Drives the "Started at …" hover on the duration.
+ * Earliest known start time (epoch ms) across a phase's steps, or `null` when
+ * none carry timing. Both `tool` and `thinking` steps stamp `startedAt`, so a
+ * thinking phase surfaces the same "Started at …" hover on its duration as a
+ * tool phase.
  */
 function phaseStartedAt(steps: ToolCallCardStep[]): number | null {
   let earliest: number | null = null;
   for (const step of steps) {
-    if (step.kind === "tool" && step.startedAt != null) {
+    if (
+      (step.kind === "tool" || step.kind === "thinking") &&
+      step.startedAt != null
+    ) {
       earliest =
         earliest == null ? step.startedAt : Math.min(earliest, step.startedAt);
     }
@@ -295,7 +309,6 @@ export function PhaseGroupedStepList({
             key={`${section.label}-${sectionIdx}`}
             section={section}
             baseIndex={sectionOffsets[sectionIdx]!}
-            isFirst={sectionIdx === 0}
             isLast={sectionIdx === sections.length - 1}
             renderSectionSteps={renderSectionSteps}
           />
@@ -337,21 +350,8 @@ export function PhaseGroupedStepList({
 }
 
 /**
- * Height of the connector lead-in that rises from the FIRST timeline node up
- * toward the card header's status icon. Anchored `bottom-full` above the
- * section (so it keeps the same small gap above the first node as the
- * inter-node segments) and colinear with the main line (`left-[6.5px]`). It
- * spans the ActivityRunCard timeline body's top padding (`pt-4` = 16px) and
- * most of the gap up to the header icon, stopping a small gap short of it so
- * the connection reads consistently with the rest of the timeline. Nudge ±2-4px
- * to taste; if you change the body `pt`, re-tune this to match.
- */
-const TIMELINE_LEAD_IN_HEIGHT_PX = 24;
-
-/**
- * One phase section in the vertical timeline: the connector line (+ a lead-in
- * to the header on the first section), the circular status node, the phase
- * header row, and the indented step pills.
+ * One phase section in the vertical timeline: the connector line, the circular
+ * status node, the phase header row, and the indented step pills.
  *
  * Timeline mechanics:
  *  - A connector line per non-last section sits at the node's center x
@@ -360,20 +360,18 @@ const TIMELINE_LEAD_IN_HEIGHT_PX = 24;
  *    (`bottom-0`), leaving a small, even gap before the next node — so the
  *    timeline reads as evenly-spaced segments rather than one unbroken line.
  *  - The LAST section renders no line, so nothing trails below the final node.
- *  - The FIRST section additionally renders a `bottom-full` lead-in above the
- *    node so the timeline reads as flowing down from the card header icon, with
- *    the same small gap at each end.
+ *  - The FIRST section renders no lead-in: the expanded card header omits its
+ *    status icon, so the timeline starts cleanly at the first node rather than
+ *    trailing a connector up to empty space.
  */
 function TimelinePhaseSection({
   section,
   baseIndex,
-  isFirst,
   isLast,
   renderSectionSteps,
 }: {
   section: PhaseSection;
   baseIndex: number;
-  isFirst: boolean;
   isLast: boolean;
   renderSectionSteps: (section: PhaseSection, baseIndex: number) => ReactNode;
 }) {
@@ -402,17 +400,6 @@ function TimelinePhaseSection({
         <div
           aria-hidden
           className="absolute bottom-0 left-[6.5px] top-6 w-px bg-[var(--border-element)]"
-        />
-      )}
-      {/* Lead-in above the FIRST node, rising through the body's top padding
-          toward the card header's status icon. Anchored `bottom-full` so it
-          keeps the same small gap above the first node as the inter-node
-          segments; its height stops a matching gap short of the header icon. */}
-      {isFirst && (
-        <div
-          aria-hidden
-          className="absolute bottom-full left-[6.5px] w-px bg-[var(--border-element)]"
-          style={{ height: TIMELINE_LEAD_IN_HEIGHT_PX }}
         />
       )}
       {/* Header row: circular node + label share ONE items-center row so the

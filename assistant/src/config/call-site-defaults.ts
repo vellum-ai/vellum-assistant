@@ -25,7 +25,6 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     profile: "cost-optimized",
     contextWindow: { maxInputTokens: 1000000 },
   },
-  memoryV3RouteL1: { profile: "balanced", temperature: 0 },
   memoryV3SelectL2: { profile: "balanced", temperature: 0 },
   recall: {
     profile: "balanced",

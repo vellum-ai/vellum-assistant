@@ -1,5 +1,5 @@
 /**
- * Tests for the default `user-prompt-submit-temp` hook (memory retrieval +
+ * Tests for the default `user-prompt-submit` hook (memory retrieval +
  * runtime injection).
  *
  * Covers the retrieval behavior, the side effects the hook owns (injected-block
@@ -37,6 +37,7 @@ const applyRuntimeInjectionsMock = mock(async (messages: unknown) => ({
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   applyRuntimeInjections: applyRuntimeInjectionsMock,
   resolveTurnInboundActorContext: () => null,
+  resolveTurnModelProfileLabel: () => null,
 }));
 
 // The hook self-resolves the live conversation and its trust class; both are
@@ -56,14 +57,22 @@ mock.module("../config/loader.js", () => ({
   getConfig: () => ({}) as AssistantConfig,
 }));
 
+// The hook publishes `memory_recalled` (and forwards the sink into
+// `prepareMemory` for `memory_status`) through the shared `broadcastMessage`
+// hub. Stub it so tests can assert what the hook emits.
+const broadcastMessageMock = mock((_msg: unknown) => {});
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: broadcastMessageMock,
+}));
+
+import type { UserPromptSubmitContext } from "@vellumai/plugin-api";
+
 import type { AssistantConfig } from "../config/schema.js";
 import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
-import userPromptSubmitMemoryRetrieval, {
-  type MemoryRetrievalHookContext,
-} from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit-temp.js";
+import userPromptSubmitMemoryRetrieval from "../plugins/defaults/memory-retrieval/hooks/user-prompt-submit.js";
 import type { Message } from "../providers/types.js";
 
 /** Canonical metrics payload the graph retriever attaches to a real hit. */
@@ -136,19 +145,20 @@ function makeFakeGraphMemory(overrides?: {
 }
 
 function makeHookCtx(
-  overrides: Partial<MemoryRetrievalHookContext> = {},
-): MemoryRetrievalHookContext {
+  overrides: Partial<UserPromptSubmitContext> = {},
+): UserPromptSubmitContext {
   return {
-    onEvent: () => {},
     conversationId: "conv-test",
     userMessageId: "msg-test",
     logger: {
       warn: () => {},
-    } as unknown as MemoryRetrievalHookContext["logger"],
+    } as unknown as UserPromptSubmitContext["logger"],
     latestMessages: [],
     requestId: "req-test",
     isNonInteractive: false,
-    modelProfile: null,
+    modelProfileKey: null,
+    prompt: "",
+    originalMessages: [],
     ...overrides,
   };
 }
@@ -160,7 +170,10 @@ function makeHookCtx(
  */
 function installConversation(
   graphMemory: ConversationGraphMemory,
-  opts?: { trusted?: boolean; signal?: AbortSignal },
+  opts?: {
+    trusted?: boolean;
+    signal?: AbortSignal;
+  },
 ): void {
   currentTrustClass = opts?.trusted === false ? "unknown" : "guardian";
   currentConversation = {
@@ -175,11 +188,12 @@ beforeEach(() => {
   recordMemoryRecallLogMock.mockReset();
   applyRuntimeInjectionsMock.mockClear();
   findConversationOrSubagentMock.mockClear();
+  broadcastMessageMock.mockReset();
   currentConversation = undefined;
   currentTrustClass = "guardian";
 });
 
-describe("user-prompt-submit-temp hook (memory retrieval)", () => {
+describe("user-prompt-submit hook (memory retrieval)", () => {
   test("adopts the injected run messages when the actor is trusted", async () => {
     const injected: Message[] = [
       { role: "user", content: [{ type: "text", text: "injected" }] },
@@ -299,14 +313,12 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
   });
 
   test("persists injected block, recall log, and emits memory_recalled", async () => {
-    const received: ServerMessage[] = [];
     const { memory } = makeFakeGraphMemory({
       injectedBlockText: "injected-block",
       metrics: makeMetrics(),
     });
     installConversation(memory, { trusted: true });
     const ctx = makeHookCtx({
-      onEvent: (msg) => received.push(msg),
       userMessageId: "msg-42",
       conversationId: "conv-42",
     });
@@ -323,8 +335,98 @@ describe("user-prompt-submit-temp hook (memory retrieval)", () => {
     };
     expect(logEntry.conversationId).toBe("conv-42");
     expect(logEntry.reason).toBe("graph:none");
-    expect(received).toHaveLength(1);
-    expect(received[0]?.type).toBe("memory_recalled");
+    // The `memory_recalled` summary publishes through the shared broadcast hub.
+    expect(broadcastMessageMock).toHaveBeenCalledTimes(1);
+    const emitted = broadcastMessageMock.mock.calls[0]?.[0] as ServerMessage;
+    expect(emitted.type).toBe("memory_recalled");
+  });
+
+  test("memory-v3 active → v2 persists immediately, then the combined update removes it and persists the v3 card block", async () => {
+    // The v2 block is persisted RIGHT AFTER retrieval (no loss window: a
+    // crash between retrieval and assembly must not leave v2's activation
+    // store claiming pages whose block never reached metadata). Assembly then
+    // reports memoryV3Active (v3 superseded/stripped v2's tail block), so the
+    // post-assembly combined update REMOVES the v2 key — persisting it would
+    // rehydrate a block that is not in the live history.
+    const { memory } = makeFakeGraphMemory({
+      injectedBlockText: "v2-block-superseded",
+      metrics: makeMetrics(),
+    });
+    installConversation(memory, { trusted: true });
+    applyRuntimeInjectionsMock.mockImplementationOnce(
+      async (messages: unknown) => ({
+        messages,
+        blocks: {
+          memoryV3Active: true,
+          memoryV3InjectedBlock: "header\n\n# memory/concepts/page-a.md\nhead",
+        },
+      }),
+    );
+    const ctx = makeHookCtx({ userMessageId: "msg-43" });
+
+    await userPromptSubmitMemoryRetrieval(ctx);
+
+    expect(updateMessageMetadataMock.mock.calls).toEqual([
+      ["msg-43", { memoryInjectedBlock: "v2-block-superseded" }],
+      [
+        "msg-43",
+        {
+          // `undefined` deletes the key (JSON.stringify drops it) — the turn
+          // ends with the two memory layers mutually exclusive per row.
+          memoryInjectedBlock: undefined,
+          memoryV3InjectedBlock: "header\n\n# memory/concepts/page-a.md\nhead",
+        },
+      ],
+    ]);
+  });
+
+  test("memory-v3 active with EMPTY net-new → the immediate v2 persist is removed again", async () => {
+    // All-repeat turn: v2 was stripped (superseded) and v3 attached nothing
+    // new — the row must rehydrate with no memory block, matching live state.
+    const { memory } = makeFakeGraphMemory({
+      injectedBlockText: "v2-block-superseded",
+      metrics: makeMetrics(),
+    });
+    installConversation(memory, { trusted: true });
+    applyRuntimeInjectionsMock.mockImplementationOnce(
+      async (messages: unknown) => ({
+        messages,
+        blocks: { memoryV3Active: true },
+      }),
+    );
+    const ctx = makeHookCtx({ userMessageId: "msg-44" });
+
+    await userPromptSubmitMemoryRetrieval(ctx);
+
+    expect(updateMessageMetadataMock.mock.calls).toEqual([
+      ["msg-44", { memoryInjectedBlock: "v2-block-superseded" }],
+      ["msg-44", { memoryInjectedBlock: undefined }],
+    ]);
+  });
+
+  test("v2 block is already persisted when runtime assembly throws (no loss window)", async () => {
+    // Regression guard for the v2 path: with the v3 shadow flag on, assembly
+    // includes a seconds-long selector LLM call. If the process dies or the
+    // turn aborts in that window, the v2 block must already be in metadata —
+    // v2's activation store claimed its pages during retrieval, and a
+    // claimed-but-never-persisted block is absent from history on reload AND
+    // suppressed until compaction.
+    const { memory } = makeFakeGraphMemory({
+      injectedBlockText: "v2-block",
+      metrics: makeMetrics(),
+    });
+    installConversation(memory, { trusted: true });
+    applyRuntimeInjectionsMock.mockImplementationOnce(async () => {
+      throw new Error("assembly failed");
+    });
+    const ctx = makeHookCtx({ userMessageId: "msg-45" });
+
+    await expect(userPromptSubmitMemoryRetrieval(ctx)).rejects.toThrow(
+      "assembly failed",
+    );
+    expect(updateMessageMetadataMock).toHaveBeenCalledWith("msg-45", {
+      memoryInjectedBlock: "v2-block",
+    });
   });
 
   test("skips metadata persist when no block text is injected", async () => {

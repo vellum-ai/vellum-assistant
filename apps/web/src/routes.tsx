@@ -116,6 +116,13 @@ export const routeTree = [
     // outside auth middleware and RootLayout for fast load.
     { path: "/assistant/quick-input", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/quick-input-page").then((m) => m.QuickInputPage) } },
 
+    // Dictation overlay — live transcription pill rendered inside the
+    // Electron dictation overlay BrowserWindow (a click-through floating
+    // panel pinned top-center of the screen while push-to-talk dictation
+    // is active). Same pattern as Quick Input: sibling of `/assistant`,
+    // outside auth middleware and RootLayout for fast load.
+    { path: "/assistant/dictation-overlay", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/dictation-overlay-page").then((m) => m.DictationOverlayPage) } },
+
     // Assistant routes — auth-protected app with layout
     {
       path: "/assistant",
@@ -140,23 +147,27 @@ export const routeTree = [
         {
           ErrorBoundary: RouteErrorBoundary,
           children: [
-        // Onboarding routes — redirect to /assistant when onboarding is
-        // already completed (unless ?replay is present).
+        // Standalone pre-app routes (not part of the new-user onboarding funnel).
+        {
+          path: "welcome",
+          lazy: { Component: () => import("@/domains/onboarding/pages/welcome-screen").then((m) => m.WelcomeScreen) },
+        },
+        {
+          path: "select-assistant",
+          lazy: { Component: () => import("@/domains/onboarding/pages/select-assistant-screen").then((m) => m.SelectAssistantScreen) },
+        },
+        {
+          path: "review-terms",
+          lazy: { Component: () => import("@/domains/onboarding/pages/review-terms-screen").then((m) => m.ReviewTermsScreen) },
+        },
+
+        // Onboarding funnel — new-user setup flow (privacy → prechat → hatching).
         {
           middleware: [onboardingCompletedMiddleware],
           children: [
-            // Local-mode-only: redirect to /assistant when not in local mode.
             {
               middleware: [localModeOnlyMiddleware],
               children: [
-                {
-                  path: "onboarding/welcome",
-                  lazy: { Component: () => import("@/domains/onboarding/pages/welcome-screen").then((m) => m.WelcomeScreen) },
-                },
-                {
-                  path: "onboarding/select-assistant",
-                  lazy: { Component: () => import("@/domains/onboarding/pages/select-assistant-screen").then((m) => m.SelectAssistantScreen) },
-                },
                 {
                   path: "onboarding/hosting",
                   lazy: { Component: () => import("@/domains/onboarding/pages/hosting-screen").then((m) => m.HostingScreen) },
@@ -170,10 +181,6 @@ export const routeTree = [
             {
               path: "onboarding/privacy",
               lazy: { Component: () => import("@/domains/onboarding/pages/privacy-screen").then((m) => m.PrivacyScreen) },
-            },
-            {
-              path: "onboarding/review-terms",
-              lazy: { Component: () => import("@/domains/onboarding/pages/review-terms-screen").then((m) => m.ReviewTermsScreen) },
             },
             {
               path: "onboarding/prechat",

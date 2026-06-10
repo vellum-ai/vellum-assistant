@@ -18,6 +18,12 @@ import {
   getAllauthByClientV1AuthProviderSignup,
   postAllauthByClientV1AuthProviderSignup,
 } from "@/generated/auth/sdk.gen";
+import { isElectron } from "@/runtime/is-electron";
+
+// Electron authenticates via the session-token header → allauth's "app" client.
+// Web/iOS use cookie sessions → the "browser" client.
+const allauthClient = (): "app" | "browser" =>
+  isElectron() ? "app" : "browser";
 
 export type AllauthResult<T = unknown> =
   | { ok: true; data: T }
@@ -49,7 +55,7 @@ function errorResult(
 
 export async function getSession(): Promise<AllauthResult<Authenticated>> {
   const { data, error, response } = await getAllauthByClientV1AuthSession({
-    path: { client: "browser" },
+    path: { client: allauthClient() },
   });
 
   if (data) {
@@ -62,7 +68,7 @@ export async function getSession(): Promise<AllauthResult<Authenticated>> {
 export async function logout(): Promise<AllauthResult> {
   const { data, error, response } =
     await deleteAllauthByClientV1AuthSession({
-      path: { client: "browser" },
+      path: { client: allauthClient() },
     });
 
   if (data) {
@@ -87,7 +93,7 @@ export async function getProviderSignup(): Promise<
 > {
   const { data, error, response } =
     await getAllauthByClientV1AuthProviderSignup({
-      path: { client: "browser" },
+      path: { client: allauthClient() },
     });
 
   if (data) {
@@ -106,7 +112,7 @@ export async function submitProviderSignup({
 }): Promise<AllauthResult<Authenticated>> {
   const { data, error, response } =
     await postAllauthByClientV1AuthProviderSignup({
-      path: { client: "browser" },
+      path: { client: allauthClient() },
       body: { email, username },
     });
 

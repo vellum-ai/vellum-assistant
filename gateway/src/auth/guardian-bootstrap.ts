@@ -8,7 +8,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { getGatewayDb } from "../db/connection.js";
 import {
@@ -427,7 +427,7 @@ export function revokeActorTokensByDevice(
       and(
         eq(actorTokenRecords.guardianPrincipalId, guardianPrincipalId),
         eq(actorTokenRecords.hashedDeviceId, hashedDeviceId),
-        eq(actorTokenRecords.status, "active"),
+        inArray(actorTokenRecords.status, ["active", "derived"]),
       ),
     )
     .run();
@@ -598,7 +598,7 @@ export function mintAndRecordDeviceBoundTokenPair(params: {
 async function fetchPlatformOwnerDisplayName(): Promise<string | null> {
   if (!arePlatformFeaturesEnabled()) {
     log.debug(
-      "platform-features-in-local-mode is disabled — skipping platform owner display name fetch",
+      "Platform features disabled — skipping platform owner display name fetch",
     );
     return null;
   }

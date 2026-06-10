@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { planPlatformForward } from "./platform-forward";
 
 const PLATFORM = "https://platform.vellum.ai";
+const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
 
 const request = (
   pathname: string,
@@ -93,7 +94,7 @@ describe("planPlatformForward", () => {
     expect(plan.headers.get("origin")).toBe("https://platform.vellum.ai");
   });
 
-  test("marks app-origin platform requests as eligible for CSRF injection", () => {
+  test("forwards unsafe requests from the trusted app origin", () => {
     const plan = planPlatformForward(
       request("/_allauth/browser/v1/auth/session", {
         method: "POST",
@@ -103,11 +104,10 @@ describe("planPlatformForward", () => {
       { allowedOrigin: { protocol: "app:", host: "vellum.ai" } },
     );
     if (plan.kind !== "forward") throw new Error("expected forward");
-    expect(plan.shouldInjectCsrfToken).toBe(true);
     expect(plan.headers.get("origin")).toBe("https://platform.vellum.ai");
   });
 
-  test("rejects platform requests with a foreign Origin before CSRF injection", () => {
+  test("rejects platform requests with a foreign Origin", () => {
     const plan = planPlatformForward(
       request("/_allauth/browser/v1/auth/session", {
         method: "POST",
@@ -137,7 +137,48 @@ describe("planPlatformForward", () => {
     expect(plan.kind).toBe("reject");
   });
 
-  test("rejects source-less unsafe platform requests", () => {
+  test("trusts source-less unsafe requests with renderer-origin marker", () => {
+    const plan = planPlatformForward(
+      request("/v1/assistants", {
+        method: "POST",
+        headers: { [ELECTRON_RENDERER_ORIGIN_HEADER]: "app://vellum.ai" },
+      }),
+      PLATFORM,
+      { allowedOrigin: { protocol: "app:", host: "vellum.ai" } },
+    );
+
+    if (plan.kind !== "forward") throw new Error("expected forward");
+    expect(plan.headers.get("origin")).toBe("https://platform.vellum.ai");
+    expect(plan.headers.get(ELECTRON_RENDERER_ORIGIN_HEADER)).toBeNull();
+  });
+
+  test("trusts source-less unsafe requests with Sec-Fetch-Site same-origin", () => {
+    const plan = planPlatformForward(
+      request("/v1/assistants", {
+        method: "POST",
+        headers: { "sec-fetch-site": "same-origin" },
+      }),
+      PLATFORM,
+      { allowedOrigin: { protocol: "app:", host: "vellum.ai" } },
+    );
+
+    if (plan.kind !== "forward") throw new Error("expected forward");
+  });
+
+  test("rejects source-less unsafe requests with cross-site fetch metadata", () => {
+    const plan = planPlatformForward(
+      request("/v1/assistants", {
+        method: "POST",
+        headers: { "sec-fetch-site": "cross-site" },
+      }),
+      PLATFORM,
+      { allowedOrigin: { protocol: "app:", host: "vellum.ai" } },
+    );
+
+    expect(plan.kind).toBe("reject");
+  });
+
+  test("rejects source-less unsafe requests without any trust signal", () => {
     const plan = planPlatformForward(
       request("/v1/assistants", { method: "POST" }),
       PLATFORM,
@@ -147,15 +188,30 @@ describe("planPlatformForward", () => {
     expect(plan.kind).toBe("reject");
   });
 
-  test("does not auto-inject CSRF for source-less safe platform requests", () => {
+  test("rejects source-less unsafe requests from a foreign request URL", () => {
+    const plan = planPlatformForward(
+      {
+        url: "app://evil.example/v1/assistants",
+        method: "POST",
+        headers: new Headers({
+          [ELECTRON_RENDERER_ORIGIN_HEADER]: "app://vellum.ai",
+        }),
+      },
+      PLATFORM,
+      { allowedOrigin: { protocol: "app:", host: "vellum.ai" } },
+    );
+
+    expect(plan.kind).toBe("reject");
+  });
+
+  test("forwards source-less safe platform requests", () => {
     const plan = planPlatformForward(
       request("/v1/assistants", { method: "GET" }),
       PLATFORM,
       { allowedOrigin: { protocol: "app:", host: "vellum.ai" } },
     );
 
-    if (plan.kind !== "forward") throw new Error("expected forward");
-    expect(plan.shouldInjectCsrfToken).toBe(false);
+    expect(plan.kind).toBe("forward");
   });
 
   test("preserves non-Origin headers", () => {

@@ -30,7 +30,6 @@ export function SettingsLayout() {
   );
   const settingsDeveloperNav = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
   const platformNotifications = useClientFeatureFlagStore.use.platformNotifications();
-  const sounds = useAssistantFeatureFlagStore.use.sounds();
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   const billingGate = usePlatformGate();
   const { pathname } = useLocation();
@@ -50,9 +49,6 @@ export function SettingsLayout() {
         if (item.id === "devices" && platformGate === "gated") {
           return false;
         }
-        if (item.id === "sounds" && !sounds) {
-          return false;
-        }
         // Hotkey rebinding drives Electron globalShortcut + menu accelerators,
         // which have no web/iOS analogue. Hide the entry off the desktop app;
         // the page itself also redirects as defense in depth.
@@ -64,7 +60,7 @@ export function SettingsLayout() {
         }
         return true;
       }),
-    [platformNotifications, sounds, platformGate, billingGate],
+    [platformNotifications, platformGate, billingGate],
   );
 
   const bottomItems = useMemo(
@@ -91,7 +87,7 @@ export function SettingsLayout() {
     <SidebarShell
       backHref={routes.assistant}
       sidebar={
-        <SidebarTree items={filteredItems} bottomItems={bottomItems} />
+        <SidebarTree items={filteredItems} bottomItems={bottomItems} indexPath={routes.settings.root} />
       }
       title={pageTitle}
     >

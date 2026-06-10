@@ -272,6 +272,7 @@ mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
     async maybeCompact() {
       return { compacted: false };
     }
+    resetOverflowRecovery() {}
   },
   createContextSummaryMessage: () => ({
     role: "user",
@@ -368,7 +369,6 @@ mock.module("../agent/loop.js", () => ({
             resolveResult({
               history,
               exitReason: pending.exitReason,
-              appendedNewMessages: history.length > messages.length,
               newMessages: history.slice(messages.length),
             }),
           reject,
@@ -2196,44 +2196,6 @@ describe("Conversation checkpoint handoff", () => {
 
     // C should have completed successfully
     expect(eventsC.some((e) => e.type === "message_complete")).toBe(true);
-  });
-
-  test("onCheckpoint callback is passed to both initial and retry runs", async () => {
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-
-    // Start processing
-    const p1 = conversation.processMessage({
-      content: "msg-1",
-      attachments: [],
-      requestId: "req-1",
-    });
-    await waitForPendingRun(1);
-
-    // The first run should have onCheckpoint
-    expect(pendingRuns[0].onCheckpoint).toBeDefined();
-
-    // Simulate an ordering error: emit error + resolve with same length
-    // to trigger the retry path
-    const run0 = pendingRuns[0];
-    run0.onEvent({
-      type: "error",
-      error: new Error(
-        "tool_result block not immediately after tool_use block",
-      ),
-    });
-    // Resolve with the same messages (no new messages appended = ordering error)
-    run0.resolve([...run0.messages]);
-
-    // Wait for the retry run
-    await waitForPendingRun(2);
-
-    // The retry run should also have onCheckpoint
-    expect(pendingRuns[1].onCheckpoint).toBeDefined();
-
-    // Complete retry cleanly
-    await resolveRun(1);
-    await p1;
   });
 });
 

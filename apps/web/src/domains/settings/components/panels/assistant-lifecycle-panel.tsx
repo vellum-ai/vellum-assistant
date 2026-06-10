@@ -10,6 +10,7 @@ import {
     assistantsListOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { Assistant } from "@/generated/api/types.gen";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Tag } from "@vellumai/design-library/components/tag";
@@ -19,14 +20,17 @@ export function AssistantLifecyclePanel() {
   const queryClient = useQueryClient();
   const [hatching, setHatching] = useState(false);
   const [hatchConfirmOpen, setHatchConfirmOpen] = useState(false);
+  const isOrgReady = useIsOrgReady();
 
-  const { data: assistant, isLoading: assistantLoading } = useQuery(
-    assistantsActiveRetrieveOptions(),
-  );
+  const { data: assistant, isLoading: assistantLoading } = useQuery({
+    ...assistantsActiveRetrieveOptions(),
+    enabled: isOrgReady,
+  });
 
-  const { data: assistantsList, isLoading: listLoading } = useQuery(
-    assistantsListOptions({ query: { hosting: "all" } }),
-  );
+  const { data: assistantsList, isLoading: listLoading } = useQuery({
+    ...assistantsListOptions({ query: { hosting: "all" } }),
+    enabled: isOrgReady,
+  });
 
   const loading = assistantLoading || listLoading;
   const allAssistants = assistantsList?.results ?? [];

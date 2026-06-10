@@ -5,14 +5,18 @@ import { session } from "electron";
 // injected bridge/storage scripts are inline. The sandbox attribute is the
 // primary isolation boundary for that content.
 //
-// Self-hosted live-voice WS connects to an arbitrary ingress URL that a
-// static CSP can't allowlist — follow-up will proxy through main or
-// extend connect-src dynamically.
+// ws://localhost / ws://127.0.0.1 in connect-src: the self-hosted gateway's
+// WebSocket endpoints (/v1/stt/stream dictation partials, /v1/live-voice).
+// HTTP gateway traffic rides the app:// protocol forward in main and stays
+// within 'self', but WebSocket upgrades can't take that path — the local
+// loopback ingress is the one shape a static CSP can allowlist. A REMOTE
+// self-hosted ingress (e.g. an ngrok wss:// URL) still can't be — those
+// connections need the planned proxy-through-main follow-up.
 export const CSP_POLICY = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
-  "connect-src 'self' blob: data: https://*.vellum.ai wss://*.vellum.ai https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://api.elevenlabs.io https://api.deepgram.com",
+  "connect-src 'self' blob: data: https://*.vellum.ai wss://*.vellum.ai https://*.ingest.sentry.io https://*.ingest.us.sentry.io https://api.elevenlabs.io https://api.deepgram.com ws://localhost:* ws://127.0.0.1:*",
   "img-src 'self' https: data: blob:",
   "media-src 'self' blob:",
   "worker-src 'self' blob: https://cdn.jsdelivr.net",

@@ -31,9 +31,9 @@ mock.module("@/domains/chat/components/surfaces/surface-router", () => ({
 }));
 
 mock.module(
-  "@/domains/chat/components/activity-run-card/activity-run-card",
+  "@/domains/chat/components/multi-activity-group/multi-activity-group",
   () => ({
-    ActivityRunCard: () => <div data-testid="activity-run-card" />,
+    MultiActivityGroup: () => <div data-testid="multi-activity-group" />,
   }),
 );
 
@@ -52,7 +52,7 @@ mock.module(
 
 import { Transcript } from "@/domains/chat/transcript/transcript";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
@@ -231,7 +231,7 @@ describe("Transcript — inline subagent rendering (PR 8)", () => {
     // out of its body it would have no renderable steps, leaving just the
     // leading-thinking preamble (already shown as message text) — pure noise.
     const toolCard = container.querySelector(
-      '[data-testid="activity-run-card"]',
+      '[data-testid="multi-activity-group"]',
     );
     expect(toolCard).toBeNull();
   });
@@ -421,7 +421,7 @@ describe("Transcript — toolUseId anchor (PR 3)", () => {
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-anchored");
     // The spawn-only group must not surface a generic progress card.
     expect(
-      container.querySelector('[data-testid="activity-run-card"]'),
+      container.querySelector('[data-testid="multi-activity-group"]'),
     ).toBeNull();
   });
 });
@@ -560,7 +560,7 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
     let cards = getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(1);
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-lifecycle");
-    expect(queryByTestId("activity-run-card")).toBeNull();
+    expect(queryByTestId("multi-activity-group")).toBeNull();
 
     // Server reconcile: the parent message id swaps to "server-1" while the
     // local tool-call id "tu-1" is preserved (keepLocalToolState). The
@@ -581,7 +581,7 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
     cards = getAllByTestId("subagent-inline-card");
     expect(cards.length).toBe(1);
     expect(cards[0].getAttribute("data-subagent-id")).toBe("sa-lifecycle");
-    expect(queryByTestId("activity-run-card")).toBeNull();
+    expect(queryByTestId("multi-activity-group")).toBeNull();
   });
 
   test("card survives reconcile via the byParent re-anchor when parentToolUseId is absent (older daemon)", () => {
@@ -641,7 +641,7 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
     );
 
     expect(queryAllByTestId("subagent-inline-card").length).toBe(0);
-    expect(queryByTestId("activity-run-card")).toBeNull();
+    expect(queryByTestId("multi-activity-group")).toBeNull();
   });
 });
 

@@ -3,12 +3,11 @@ import SwiftUI
 @testable import VellumAssistantLib
 @testable import VellumAssistantShared
 
-/// Tests for the `account-deletion` feature-flag-gated Danger Zone section in
-/// `SettingsGeneralTab`, and for the `DeleteAccountConfirmView` confirmation
-/// modal. The modal calls `AuthService.requestAccountDeletion()`, which posts
-/// directly to platform at `/v1/user/deletion-request/` and returns
-/// `.requested` (HTTP 201) when the server-side `account-deletion` flag is on
-/// or `.unavailable` (HTTP 404) when off.
+/// Tests for the Danger Zone section in `SettingsGeneralTab` and the
+/// `DeleteAccountConfirmView` confirmation modal. The modal calls
+/// `AuthService.requestAccountDeletion()`, which posts directly to platform
+/// at `/v1/user/deletion-request/` and returns `.requested` (HTTP 201) on
+/// success or `.unavailable` (HTTP 404) when the endpoint is unreachable.
 @MainActor
 final class DeleteAccountTests: XCTestCase {
 
@@ -34,8 +33,8 @@ final class DeleteAccountTests: XCTestCase {
         }
     }
 
-    /// On an `.unavailable` result (server-side flag off), the modal surfaces
-    /// an inline error and does not report `.deleted` to the parent.
+    /// On an `.unavailable` result (HTTP 404), the modal surfaces an inline
+    /// error and does not report `.deleted` to the parent.
     func testConfirmModalShowsErrorOnUnavailable() async {
         let view = DeleteAccountConfirmView(
             onDeleted: { _ in XCTFail("onDeleted should not fire on unavailable") },

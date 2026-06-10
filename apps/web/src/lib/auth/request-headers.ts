@@ -23,6 +23,8 @@
  */
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
 import { getSelfHostedActorToken } from "@/lib/self-hosted/connection";
+import { isElectron } from "@/runtime/is-electron";
+import { getElectronSessionToken } from "@/runtime/session-token";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
 
 /**
@@ -43,6 +45,11 @@ export function buildVellumHeaders(
   if (organizationId) {
     headers["Vellum-Organization-Id"] = organizationId;
   }
+  // Electron app provides a session token header. This is no-ops on web.
+  const sessionToken = getElectronSessionToken();
+  if (sessionToken) {
+    headers["X-Session-Token"] = sessionToken;
+  }
   return headers;
 }
 
@@ -56,6 +63,8 @@ export async function buildVellumMutatingHeaders(
 ): Promise<Record<string, string>> {
   const headers = buildVellumHeaders(extra);
   if (headers["Authorization"]) return headers;
+  // Electron authenticates via a token header - no CSRF needed.
+  if (isElectron()) return headers;
   await ensureCsrfCookie();
   const csrfToken = getCsrfToken();
   if (csrfToken) {

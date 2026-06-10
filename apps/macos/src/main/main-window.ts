@@ -14,17 +14,23 @@ import {
   writeOnboardingActive,
 } from "./window-state";
 
-// Default content-area size of the onboarding flow, mirroring the macOS
-// Swift client's onboarding window (`OnboardingWindow.swift`: `contentRect`
-// 440×630). Applied as the *content* size (`useContentSize`) so the usable
-// area matches the Swift app's `.fullSizeContentView` content rect rather
-// than including the Electron title bar. Unlike the Swift window this is
-// only the *default* — the window stays resizable, so a user who wants more
-// room can drag it larger.
+// Default *and* minimum content-area size of the onboarding flow, mirroring
+// the macOS Swift client's onboarding window (`OnboardingWindow.swift`, where
+// `contentRect` == `contentMinSize` == 440×630). Applied as the *content*
+// size (`useContentSize`) so the usable area matches the Swift app's
+// `.fullSizeContentView` content rect rather than including the Electron
+// title bar. The window stays resizable larger, but the same dimensions are
+// also the minimum so the chrome-less flow can't be dragged below its content.
 const ONBOARDING_CONTENT_SIZE = { width: 440, height: 630 } as const;
 
 // Default bounds for the main window once onboarding is done.
 const MAIN_DEFAULT_BOUNDS = { width: 1280, height: 800 } as const;
+
+// Minimum size for the main-app window, mirroring the macOS Swift client's
+// main window (`MainWindow.swift`: `contentMinSize` 800×600). The window can't
+// be dragged below this — unlike the compact onboarding floor, this is the
+// roomy desktop floor the chat layout (sidebar rail + content) needs.
+const MAIN_MIN_SIZE = { width: 800, height: 600 } as const;
 
 // macOS traffic-light (window controls) position for the main-app layout.
 //
@@ -170,7 +176,10 @@ const createMainWindow = (): BrowserWindow => {
 
   // Onboarding opens at the 440×630 default (matching the Swift client);
   // otherwise restore the user's saved main-app bounds. Both layouts are
-  // fully resizable — onboarding just starts smaller. The persisted flag
+  // resizable larger, but each carries its own minimum (`minWidth`/
+  // `minHeight`): the compact onboarding flow can't be dragged below its
+  // 440×630 content, and the main app can't be dragged below 800×600 (both
+  // mirror the Swift client's `contentMinSize`). The persisted flag
   // lets a relaunch *during* onboarding rebuild the small window directly
   // (no flash); the absent-flag default is `false` (open large) so we
   // never cramp the `/account/*` screens that render outside RootLayout —
@@ -178,8 +187,17 @@ const createMainWindow = (): BrowserWindow => {
   // renderer's `setOnboarding` reconcile shrinks it.
   const onboardingActive = readOnboardingActive();
   const sizing = onboardingActive
-    ? { ...ONBOARDING_CONTENT_SIZE, useContentSize: true }
-    : restoreBounds("main", MAIN_DEFAULT_BOUNDS);
+    ? {
+        ...ONBOARDING_CONTENT_SIZE,
+        minWidth: ONBOARDING_CONTENT_SIZE.width,
+        minHeight: ONBOARDING_CONTENT_SIZE.height,
+        useContentSize: true,
+      }
+    : {
+        ...restoreBounds("main", MAIN_DEFAULT_BOUNDS),
+        minWidth: MAIN_MIN_SIZE.width,
+        minHeight: MAIN_MIN_SIZE.height,
+      };
 
   const win = createWindow({
     // `titleBarStyle: "hidden"` removes the native title bar chrome and its
@@ -334,10 +352,11 @@ export const dispatchToMain = (command: VellumCommand): void => {
 };
 
 /**
- * Switch the main window between the onboarding layout (440×630 default)
- * and the main-app layout. Both are fully resizable; the only difference
- * is the default/restored size. Persists the mode so the next launch's
- * window is constructed at the right size, then resizes the current window
+ * Switch the main window between the onboarding layout (440×630 default and
+ * minimum) and the main-app layout (restored bounds, 800×600 minimum). Both
+ * resize larger freely; the difference is the default/restored size and which
+ * floor applies. Persists the mode so the next launch's window is constructed
+ * at the right size, then resizes the current window (and swaps the minimum)
  * if the mode actually changed.
  *
  * The mode of record is the persisted flag (read before the write), not
@@ -362,12 +381,21 @@ export const setOnboarding = (active: boolean): void => {
   applyTrafficLightPosition(win, active);
 
   if (active) {
+    // Lower the floor before shrinking: `setContentSize` clamps to the current
+    // minimum, so the 800×600 main floor must drop to 440×630 first or the
+    // window wouldn't actually shrink.
+    win.setMinimumSize(
+      ONBOARDING_CONTENT_SIZE.width,
+      ONBOARDING_CONTENT_SIZE.height,
+    );
     win.setContentSize(
       ONBOARDING_CONTENT_SIZE.width,
       ONBOARDING_CONTENT_SIZE.height,
     );
     win.center();
   } else {
+    // Swap the onboarding floor for the roomier 800×600 main-app floor.
+    win.setMinimumSize(MAIN_MIN_SIZE.width, MAIN_MIN_SIZE.height);
     const bounds = restoreBounds("main", MAIN_DEFAULT_BOUNDS);
     win.setBounds({ width: bounds.width, height: bounds.height });
     if (bounds.x !== undefined && bounds.y !== undefined) {

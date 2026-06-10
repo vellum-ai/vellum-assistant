@@ -1323,6 +1323,10 @@ export async function hatchDocker(
       : ownSecret;
 
     emitProgress(4, 6, "Starting containers...");
+    if (flagEnvVars.VELLUM_DISABLE_PLATFORM) {
+      extraAssistantEnv.VELLUM_DISABLE_PLATFORM =
+        flagEnvVars.VELLUM_DISABLE_PLATFORM;
+    }
     const extraGatewayEnv =
       Object.keys(flagEnvVars).length > 0 ? flagEnvVars : undefined;
     await startContainers(

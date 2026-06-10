@@ -2,7 +2,7 @@
 import { ArrowUp, Pencil, X } from "lucide-react";
 import { useCallback, useMemo, type ReactNode } from "react";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { Button } from "@vellumai/design-library";
 

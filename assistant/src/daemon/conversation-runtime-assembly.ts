@@ -10,9 +10,14 @@ import { join } from "node:path";
 
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
-import type { LLMCallSite } from "../config/schemas/llm.js";
-import { stripUserTextBlocksByPrefix } from "../context/strip-injections.js";
+import type { LLMCallSite, LLMConfig } from "../config/schemas/llm.js";
+import {
+  NOW_SCRATCHPAD_STRIP_PREFIXES,
+  stripSpotlightInjections,
+  stripUserTextBlocksByPrefix,
+} from "../context/strip-injections.js";
 import { getDocumentsForConversation } from "../documents/document-store.js";
 import {
   getApp,
@@ -28,8 +33,9 @@ import { isBackgroundConversationType } from "../memory/conversation-types.js";
 import {
   countMemoryPrefixBlocks,
   extractMemoryPrefixBlocks,
-  stripAllMemoryInjections,
+  getLiveGraphMemory,
 } from "../memory/graph/conversation-graph-memory.js";
+import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory/memory-marker.js";
 import {
   readSlackMetadata,
   readSlackMetadataFromMessageMetadata,
@@ -44,7 +50,10 @@ import {
 } from "../messaging/providers/slack/render-transcript.js";
 import { createContextSummaryMessage } from "../plugins/defaults/compaction/window-manager.js";
 import { getInjectorChain } from "../plugins/defaults/memory-retrieval/injector-chain.js";
-import { MEMORY_V3_BLOCK_ID } from "../plugins/defaults/memory-v3-shadow/types.js";
+import {
+  MEMORY_V3_BLOCK_ID,
+  MEMORY_V3_COMMIT_META_KEY,
+} from "../plugins/defaults/memory-v3-shadow/types.js";
 import type {
   InjectionBlock,
   InjectionPlacement,
@@ -208,6 +217,43 @@ export function resolveTurnInboundActorContext(
     resolved = inboundActorContextFromTrustContext(trustContext);
   }
   return resolved.trustClass === "guardian" ? null : resolved;
+}
+
+/**
+ * Render the `model_profile:` turn-context label for a turn from its resolved
+ * inference profile key, for the unified `<turn_context>` block.
+ *
+ * Returns `null` when there is no key to announce (the caller gates this to the
+ * turns where the active profile changed since the one last delivered to the
+ * model). Otherwise the human-readable label comes from the profile's
+ * configured `label` (falling back to the key) and the model id from the
+ * call-site resolution keyed on that profile, yielding `Label (model)` — or
+ * just `Label` when no model resolves. Derives purely from the passed key,
+ * call site, and config, so callers thread the key (plain turn data) rather
+ * than the rendered string and self-resolve the call site from the live
+ * conversation.
+ *
+ * `selectionSeed` is the conversation id, threaded so that a key naming a `mix`
+ * profile expands to the same arm the turn's provider calls run on (which seed
+ * expansion with the same id). Without it the announced model would be a fresh
+ * random arm that can disagree with the model actually serving the turn.
+ */
+export function resolveTurnModelProfileLabel(
+  modelProfileKey: string | null,
+  callSite: LLMCallSite,
+  llm: LLMConfig,
+  selectionSeed?: string,
+): string | null {
+  if (modelProfileKey == null) {
+    return null;
+  }
+  const profileEntry = llm.profiles?.[modelProfileKey];
+  const resolved = resolveCallSiteConfig(callSite, llm, {
+    overrideProfile: modelProfileKey,
+    selectionSeed,
+  });
+  const label = profileEntry?.label ?? modelProfileKey;
+  return resolved.model ? `${label} (${resolved.model})` : label;
 }
 
 /** Derive channel capabilities from source channel + interface identifiers. */
@@ -631,12 +677,7 @@ function injectVoiceCallControlContext(
 
 /** Strip `<NOW.md>` blocks injected by the `now-md` default injector. */
 export function stripNowScratchpad(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, [
-    // Shared prefix catches both the current tag and any pre-line-limit
-    // variant that may linger in in-flight histories during a rolling deploy.
-    "<NOW.md Always keep this up to date",
-    "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
-  ]);
+  return stripUserTextBlocksByPrefix(messages, NOW_SCRATCHPAD_STRIP_PREFIXES);
 }
 
 /**
@@ -1486,6 +1527,24 @@ export interface RuntimeInjectionBlocks {
   pkbContextBlock?: string;
   memoryV2StaticBlock?: string;
   /**
+   * UNWRAPPED inner text of the memory-v3 frozen net-new card block the v3
+   * injector attached this turn, mirroring v2's unwrapped `memoryInjectedBlock`
+   * contract (rehydration re-wraps on use). Undefined when v3 attached no new
+   * cards (all-repeat turn, v3 off, or v3 failure). Persisted by the
+   * user-prompt-submit hook under `metadata.memoryV3InjectedBlock`
+   * (`MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`).
+   */
+  memoryV3InjectedBlock?: string;
+  /**
+   * True when memory-v3 superseded v2 as this turn's `<memory>` source — the
+   * `memory-v3-live` flag is on AND the v3 injector produced a block (possibly
+   * empty-text on an all-repeat turn), i.e. exactly when assembly stripped
+   * v2's fresh tail block. The user-prompt-submit hook keys v2's
+   * `memoryInjectedBlock` metadata persist off this so a stripped v2 block is
+   * never rehydrated back into history on reload.
+   */
+  memoryV3Active?: boolean;
+  /**
    * Composed output of every plugin-registered {@link Injector}, concatenated
    * in ascending `order`. Empty string when every injector opted out (returned
    * `null`). Today the default injectors (`default-injectors` plugin)
@@ -1638,6 +1697,63 @@ function applyInjectionBlock(
 }
 
 /**
+ * Strip v2's freshly-prepended DYNAMIC memory prefix from the tail user
+ * message, preserving every other leading memory-prefix block. Exactly three
+ * shapes are v2's to remove:
+ *
+ *  - `v2WrappedBlock` — the wrapped (`wrapMemoryBlock`) form of the text the
+ *    graph-memory wiring prepended this turn, matched by full-block IDENTITY.
+ *    A prefix match cannot work here: v3's card-block instruction header is
+ *    deliberately byte-identical to v2's `INJECTION_HEADER`
+ *    (`memory/v2/injection.ts`), and v2's router block leads with that same
+ *    header whenever any summary section is present — the dominant case — so
+ *    the two layers' blocks are indistinguishable by any shared prefix.
+ *  - legacy `<memory __injected>` text blocks — only v2 ever produced them.
+ *  - memory-image groups (`<memory_image …>` opener text, the image block,
+ *    the `</memory_image>` closer) — only v2 injects images; v3 card blocks
+ *    are text-only.
+ *
+ * Everything else in the leading memory prefix survives:
+ *
+ *  - memory-v3's frozen card blocks: a same-turn re-entry assembly (overflow
+ *    convergence) sees the tail it assembled on first entry, whose leading
+ *    block may be this turn's just-frozen v3 cards (while this re-entry's
+ *    injector run produces an EMPTY block — the cards are already claimed by
+ *    the everInjected store). Their bytes never equal the v2 identity, so
+ *    they are kept without needing to be recognized as v3.
+ *  - the `<info>` static block: it counts toward the memory prefix for
+ *    splice positioning but is never prepended by `prepareMemory`, so the v2
+ *    suppression strip has no business removing it.
+ *
+ * `v2WrappedBlock === null` (nothing injected this turn, or no live graph
+ * handle) still strips the image groups and legacy blocks — both are
+ * unambiguously v2's — but leaves every `<memory>` text block in place.
+ */
+function stripTailV2DynamicMemoryPrefix(
+  messages: Message[],
+  v2WrappedBlock: string | null,
+): Message[] {
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== "user") return messages;
+  const prefixCount = countMemoryPrefixBlocksOnContent(last.content);
+  if (prefixCount === 0) return messages;
+  const content = last.content.filter((block, i) => {
+    if (i >= prefixCount) return true;
+    // v2's memory-image groups: opener text, injected image, closer text.
+    if (block.type === "image") return false;
+    if (block.type !== "text") return true;
+    if (block.text.startsWith("<memory_image")) return false;
+    if (block.text === "</memory_image>") return false;
+    // v2's legacy dynamic wrapper.
+    if (block.text.startsWith("<memory __injected>\n")) return false;
+    // v2's current dynamic block — identity match only (see doc comment).
+    return v2WrappedBlock === null || block.text !== v2WrappedBlock;
+  });
+  if (content.length === last.content.length) return messages;
+  return [...messages.slice(0, -1), { ...last, content }];
+}
+
+/**
  * Per-turn options accepted by {@link applyRuntimeInjections}.
  *
  * Most fields are layered onto the {@link TurnContext} the caller provides
@@ -1707,7 +1823,7 @@ export interface RuntimeInjectionOptions {
    * {@link Injector}s — it is the one turn-identity field that cannot be
    * recovered from the live conversation, so callers must supply it.
    */
-  requestId?: string;
+  requestId?: string | null;
   /**
    * Conversation the turn is scoped to. Drives the live-conversation lookup
    * that sources every self-resolved per-turn field, and is forwarded onto
@@ -1990,6 +2106,7 @@ export async function applyRuntimeInjections(
   let pkbContextCaptured: string | undefined;
   let pkbSystemReminderCaptured: string | undefined;
   let memoryV2StaticCaptured: string | undefined;
+  let memoryV3Captured: string | undefined;
   const initialTail = runMessages[runMessages.length - 1];
   const initialTailIsUser = !!initialTail && initialTail.role === "user";
   if (initialTailIsUser) {
@@ -2013,6 +2130,26 @@ export async function applyRuntimeInjections(
         case "memory-v2-static":
           memoryV2StaticCaptured = block.text;
           break;
+        case MEMORY_V3_BLOCK_ID: {
+          // The v3 frozen card block is persisted UNWRAPPED (the v2
+          // `memoryInjectedBlock` contract — rehydration re-wraps on use).
+          // An empty-text block (all-repeat turn) attaches no content, so
+          // nothing is captured for persistence either.
+          if (block.text.length > 0) {
+            memoryV3Captured = unwrapMemoryBlock(block.text);
+          }
+          // Attachment is guaranteed from here (user tail — the gate this
+          // capture loop runs under), so commit the injector's deferred
+          // everInjected-store write. On a non-user tail the block silently
+          // no-ops in `applyInjectionBlock`, and skipping the commit keeps
+          // the store from claiming cards that never attached (which would
+          // suppress them until compaction).
+          const commit = block.meta?.[MEMORY_V3_COMMIT_META_KEY];
+          if (typeof commit === "function") {
+            (commit as () => void)();
+          }
+          break;
+        }
       }
     }
   }
@@ -2029,15 +2166,32 @@ export async function applyRuntimeInjections(
       ? injectorChainPieces.join("\n\n")
       : undefined;
 
-  // ── Step 0: memory-v3-live v2 suppression ──
-  // When the `memory-v3-live` flag is on AND the v3 injector actually produced
-  // a block this turn, v3 is the sole `<memory>` source. v2's `prepareMemory`
-  // already prepended its own `<memory>` block to the tail user message (and
-  // historical turns may carry v2 blocks from earlier turns). Strip every user
-  // message's memory prefix here so:
-  //   1. The v3 `after-memory-prefix` block (Step 2) lands at the top of the
-  //      tail with no v2 prefix ahead of it — exactly one `<memory>` block.
-  //   2. History is byte-stable across turns for prompt caching.
+  // ── Step 0: memory-v3 ephemeral-spotlight strip + v2 tail suppression ──
+  //
+  // Spotlight strip (unconditional): the `<memory_spotlight>` block is
+  // ephemeral by contract — re-rendered at the current tail each turn — so any
+  // spotlight riding history from a previous turn is stale and is removed
+  // here. This is a SCOPED strip of only that block id: the frozen `<memory>`
+  // card blocks on historical messages are untouched (the cache contract).
+  // With the v3 flag off no spotlight blocks exist and this is a content
+  // no-op, keeping the v2 path bit-for-bit identical.
+  let runMessagesForAssembly = stripSpotlightInjections(runMessages);
+
+  // v2 suppression: when the `memory-v3-live` flag is on AND the v3 injector
+  // produced a block this turn (possibly empty-text on an all-repeat turn), v3
+  // owns the `<memory>` layer. v2's `prepareMemory` already prepended its own
+  // fresh `<memory>` block to the tail user message — strip the TAIL's v2
+  // dynamic prefix only, so the v3 `after-memory-prefix` block (Step 2) lands
+  // at the top of the tail with no v2 prefix ahead of it. Historical user
+  // messages keep their memory blocks byte-identical: frozen v3 card blocks
+  // from prior turns AND pre-cutover v2 blocks both ride the cached prefix
+  // (the old whole-layer `stripAllMemoryInjections` replace is gone). The
+  // strip discriminates v2's dynamic block by IDENTITY ({@link
+  // stripTailV2DynamicMemoryPrefix}): the live graph handle holds the exact
+  // text the wiring layer prepended this turn, so a re-entry tail's
+  // just-frozen v3 card block (and the `<info>` static block) survive even
+  // though v2 and v3 blocks share identical wrapper + header bytes — the v2
+  // prefix this strip exists to remove was already stripped on first entry.
   // Keyed off the v3 block being present (not the flag alone) so a v3 failure
   // (`produce()` → null) leaves v2's block intact — fallback rather than a
   // memory-less turn. Idempotent: re-injection sites that already stripped
@@ -2047,9 +2201,14 @@ export async function applyRuntimeInjections(
     getConfig(),
   );
   const v3ProducedBlock = afterMemory.some((b) => b.id === MEMORY_V3_BLOCK_ID);
-  let runMessagesForAssembly = runMessages;
-  if (suppressV2MemoryForV3 && v3ProducedBlock) {
-    runMessagesForAssembly = stripAllMemoryInjections(runMessages);
+  const memoryV3Active = suppressV2MemoryForV3 && v3ProducedBlock;
+  if (memoryV3Active) {
+    const v2DynamicText =
+      getLiveGraphMemory(conversationId)?.lastInjectedBlockText ?? null;
+    runMessagesForAssembly = stripTailV2DynamicMemoryPrefix(
+      runMessagesForAssembly,
+      v2DynamicText === null ? null : wrapMemoryBlock(v2DynamicText),
+    );
   }
 
   let result = runMessagesForAssembly;
@@ -2214,6 +2373,8 @@ export async function applyRuntimeInjections(
       nowScratchpadBlock: nowScratchpadCaptured,
       pkbContextBlock: pkbContextCaptured,
       memoryV2StaticBlock: memoryV2StaticCaptured,
+      memoryV3InjectedBlock: memoryV3Captured,
+      memoryV3Active,
       injectorChainBlock,
     },
   };

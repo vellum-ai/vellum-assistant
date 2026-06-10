@@ -76,15 +76,17 @@ export function SelectAssistantScreen() {
 
   // Auto-skip when there's exactly one assistant and it's accessible.
   // Don't skip when the user just logged in — let them see the now-enabled option.
+  // Reactive to assistants so it fires when the store populates after mount.
   useEffect(() => {
     if (fromLogin) return;
+    if (connecting || autoSkipping) return;
     if (assistants.length === 0) return;
     if (assistants.length === 1 && accessibleAssistants.length === 1) {
       setAutoSkipping(true);
       void handleConnect(accessibleAssistants[0]);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [assistants.length, accessibleAssistants.length]);
 
   const onContinue = () => {
     const assistant = assistants.find((a) => a.id === selected);
@@ -92,7 +94,7 @@ export function SelectAssistantScreen() {
   };
 
   const onBack = () => {
-    void navigate(routes.onboarding.welcome);
+    void navigate(routes.welcome);
   };
 
   const displayError = loginError ?? error;

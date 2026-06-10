@@ -25,20 +25,31 @@
  *
  * Reference: https://heyapi.dev/openapi-ts/clients/fetch#interceptors
  */
+import {
+  UNREACHABLE_STATUS_CODES,
+  notifyAssistantUnreachable,
+} from "@/assistant/unreachable-bus";
+import { client as platformClient } from "@/generated/api/client.gen";
 import { client as authClient } from "@/generated/auth/client.gen";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
-import { client as platformClient } from "@/generated/api/client.gen";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { isLocalMode, isPlatformDisabled } from "@/lib/local-mode";
 import {
-  getSelfHostedActorToken,
-  getSelfHostedIngressUrl,
+    getSelfHostedActorToken,
+    getSelfHostedIngressUrl,
 } from "@/lib/self-hosted/connection";
-import { isLocalMode } from "@/lib/local-mode";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
+import { getDeviceId } from "@/runtime/device-id";
+import { isElectron } from "@/runtime/is-electron";
+import { getElectronSessionToken } from "@/runtime/session-token";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
 
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
+
+function getRendererTupleOrigin(): string {
+  return `${window.location.protocol}//${window.location.host}`;
+}
 
 /**
  * Allowlist of `/v1/assistants/{id}/<segment>/...` first segments that
@@ -188,12 +199,32 @@ function createInterceptor({ skipSegmentAllowlist = false } = {}) {
     }
 
     // Platform path — Django session auth.
+    if (isElectron() && MUTATING_METHODS.has(request.method)) {
+      newRequest.headers.set(
+        ELECTRON_RENDERER_ORIGIN_HEADER,
+        getRendererTupleOrigin(),
+      );
+    }
+
     const organizationId = getActiveOrganizationIdForRequests();
     if (organizationId) {
       newRequest.headers.set("Vellum-Organization-Id", organizationId);
     }
 
-    if (MUTATING_METHODS.has(request.method)) {
+    const deviceId = getDeviceId();
+    if (deviceId) {
+      newRequest.headers.set("Vellum-Device-Id", deviceId);
+    }
+
+    // Electron app provides a session token header. This is no-ops on web.
+    const sessionToken = getElectronSessionToken();
+    if (sessionToken) {
+      newRequest.headers.set("X-Session-Token", sessionToken);
+    }
+
+    // Clients authenticating via session cookie need to pass CSRF checks.
+    // Electron authenticates via a session token header.
+    if (!isElectron() && MUTATING_METHODS.has(request.method)) {
       await ensureCsrfCookie();
       const csrfToken = getCsrfToken();
       if (csrfToken) {
@@ -213,17 +244,29 @@ export const daemonRequestInterceptor = createInterceptor({
   skipSegmentAllowlist: true,
 });
 
+/**
+ * Daemon-only response interceptor — fires the unreachable bus on
+ * gateway-class errors. No URL filtering needed because every daemon
+ * SDK request targets the assistant runtime by definition. Not
+ * installed on platform/auth clients (a 502 from Django is a
+ * different failure domain).
+ */
+export function daemonUnreachableInterceptor(response: Response): Response {
+  if (UNREACHABLE_STATUS_CODES.has(response.status)) {
+    notifyAssistantUnreachable();
+  }
+  return response;
+}
+
 daemonClient.interceptors.request.use(daemonRequestInterceptor);
+daemonClient.interceptors.response.use(daemonUnreachableInterceptor);
 
 for (const apiClient of [authClient, platformClient]) {
   apiClient.interceptors.request.use(requestInterceptor);
 }
 
 function arePlatformFeaturesEnabled(): boolean {
-  return (
-    (useAssistantFeatureFlagStore.getState() as Record<string, unknown>)
-      .platformFeaturesInLocalMode !== false
-  );
+  return !isPlatformDisabled();
 }
 
 /**
@@ -248,7 +291,7 @@ export function platformFeaturesGate(request: Request): Request {
   }
 
   console.debug(
-    "platform-features-in-local-mode is disabled — no-op platform request:",
+    "VELLUM_DISABLE_PLATFORM is set — no-op platform request:",
     new URL(request.url).pathname,
   );
   const aborted = new AbortController();

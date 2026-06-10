@@ -15,7 +15,7 @@ import {
   ToolProgressCardShell,
   type ToolProgressCardState,
 } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
-import type { ToolCallCardStep } from "@/domains/chat/hooks/tool-call-card-utils";
+import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
 
 /**
  * Live progress card rendered while an assistant turn is actively searching the
@@ -27,7 +27,7 @@ import type { ToolCallCardStep } from "@/domains/chat/hooks/tool-call-card-utils
  *     per-step content; the web card passes a `renderStep` override so
  *     `web_search` steps keep their favicon-chip cluster)
  *   - `WebSearchStepRow` / `WebSearchErrorRow` (shared with the unified
- *     `ActivityRunCard`'s `ExpandedStep` — single source of truth for
+ *     `MultiActivityGroup`'s `ExpandedStep` — single source of truth for
  *     the favicon chip cluster, overflow pill, and error chip)
  *   - `WebsiteCarousel` (collapsed-header info slot during an active search
  *     with at least one completed `web_search` to feed the rotation)

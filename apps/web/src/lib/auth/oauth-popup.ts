@@ -49,6 +49,37 @@ export function getOAuthCompleteMessagePayload(
   return event.data as OAuthCompletePayload;
 }
 
+/**
+ * Parse a raw JSON string into an OAuthCompletePayload, returning null on
+ * malformed input. Use this instead of `JSON.parse(...) as OAuthCompletePayload`
+ * when reading from runtime boundaries (localStorage, postMessage fallback).
+ */
+export function parseOAuthCompletePayload(
+  raw: string,
+): OAuthCompletePayload | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      (parsed as OAuthCompletePayload).type !== "vellum:oauth-complete"
+    ) {
+      return null;
+    }
+    const payload = parsed as OAuthCompletePayload;
+    if (
+      payload.requestId !== undefined &&
+      payload.requestId !== null &&
+      typeof payload.requestId !== "string"
+    ) {
+      return null;
+    }
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
 export function getOAuthCompleteStoragePayload(
   event: StorageEvent,
   requestId: string,

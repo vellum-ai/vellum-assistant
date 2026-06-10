@@ -12,14 +12,18 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, render } from "@testing-library/react";
 
 import { PhaseGroupedStepList } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
-import type { ToolCallCardStep } from "@/domains/chat/hooks/tool-call-card-utils";
+import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
 
 afterEach(() => {
   cleanup();
 });
 
-function thinking(text: string, duration = ""): ToolCallCardStep {
-  return { kind: "thinking", durationLabel: duration, text };
+function thinking(
+  text: string,
+  duration = "",
+  timing?: { startedAt: number; completedAt: number },
+): ToolCallCardStep {
+  return { kind: "thinking", durationLabel: duration, text, ...timing };
 }
 
 function bash(
@@ -275,7 +279,7 @@ describe("PhaseGroupedStepList — timeline mode", () => {
     expect(icons[0]!.children.length).toBe(3);
   });
 
-  test("renders a gapped connector line for every non-last section (and a lead-in above the first), none for the last", () => {
+  test("renders a gapped connector line for every non-last section, none for the last (no header lead-in)", () => {
     const steps: ToolCallCardStep[] = [
       bash("ls", "completed", "1s", "tc-a"),
       thinking("Reasoning"),
@@ -291,19 +295,21 @@ describe("PhaseGroupedStepList — timeline mode", () => {
         section.querySelectorAll('div[aria-hidden][class*="w-px"]'),
       ) as HTMLElement[];
 
-    // First section: the inter-node segment (`top-6 bottom-0`) + the lead-in.
-    expect(connectorsIn(sections[0]!).length).toBe(2);
+    // First section: only the inter-node segment (`top-6 bottom-0`). The
+    // expanded card header omits its status icon, so there is no lead-in
+    // trailing up to it — the timeline starts cleanly at the first node.
+    expect(connectorsIn(sections[0]!).length).toBe(1);
     // Middle section: one inter-node segment.
     expect(connectorsIn(sections[1]!).length).toBe(1);
     // Last section: no line trails below the final circle.
     expect(connectorsIn(sections[2]!).length).toBe(0);
 
-    // First section carries the lead-in (`bottom-full`) up toward the header.
+    // No section renders a `bottom-full` lead-in any more.
     expect(
-      connectorsIn(sections[0]!).some((el) =>
-        el.className.includes("bottom-full"),
+      sections.some((s) =>
+        connectorsIn(s).some((el) => el.className.includes("bottom-full")),
       ),
-    ).toBe(true);
+    ).toBe(false);
 
     // The inter-node segment starts below its node (`top-6`) and runs to the
     // section bottom (`bottom-0`) — a small, even gap before the next node.
@@ -323,5 +329,49 @@ describe("PhaseGroupedStepList — phase header total duration", () => {
     const { getAllByTestId } = render(<PhaseGroupedStepList steps={steps} />);
     const header = getAllByTestId("phase-header")[0]!;
     expect(header.textContent).toContain("3s");
+  });
+
+  test("a stamped thinking phase makes its duration a hover trigger", () => {
+    /**
+     * Thinking phases reuse the same duration tooltip as tool phases: when a
+     * start time is known the duration becomes a `cursor-default` hover trigger
+     * ("Started at …").
+     */
+
+    // GIVEN a thinking phase carrying start/completion timestamps
+    const { getAllByTestId } = render(
+      <PhaseGroupedStepList
+        steps={[
+          thinking("reasoning", "3s", { startedAt: 1_000, completedAt: 4_000 }),
+        ]}
+        timeline
+      />,
+    );
+
+    // WHEN inspecting the phase header's duration
+    const header = getAllByTestId("phase-header")[0]!;
+
+    // THEN the duration is wrapped in the tooltip hover trigger
+    expect(header.textContent).toContain("3s");
+    expect(header.querySelector(".cursor-default")).not.toBeNull();
+  });
+
+  test("an unstamped thinking phase keeps its duration a plain label", () => {
+    /**
+     * Without a start time the duration stays a plain label — no hover trigger
+     * — exactly as a tool phase with no timing behaves.
+     */
+
+    // GIVEN a thinking phase with a duration but no timestamps
+    const { getAllByTestId } = render(
+      <PhaseGroupedStepList steps={[thinking("reasoning", "3s")]} timeline />,
+    );
+
+    // WHEN inspecting the phase header's duration
+    const header = getAllByTestId("phase-header")[0]!;
+
+    // THEN the duration renders without the tooltip hover trigger
+    expect(header.textContent).toContain("3s");
+    expect(header.querySelector(".cursor-default")).toBeNull();
   });
 });

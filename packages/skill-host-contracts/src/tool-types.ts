@@ -195,6 +195,8 @@ interface ToolLifecycleEventBase {
   conversationId: string;
   requestId?: string;
   executionTarget?: ExecutionTarget;
+  /** Id of the skill whose `skill_execute` dispatch triggered this tool call. Absent for direct tool calls. */
+  skillId?: string;
 }
 
 export interface AllowlistOption {

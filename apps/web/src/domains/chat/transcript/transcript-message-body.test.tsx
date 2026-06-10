@@ -2,6 +2,15 @@ import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
+// The transcript transitively pulls in the viewer store → the generated daemon
+// SDK (not built in CI/worktree checkouts). Stub the two endpoints it references
+// so the module loads; nothing here invokes them. Mirrors the mock in
+// `single-activity.test.tsx`.
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  appsByIdOpenPost: async () => ({ data: undefined }),
+  documentsByIdGet: async () => ({ data: undefined }),
+}));
+
 mock.module("@/domains/chat/components/chat-attachments/message-attachments", () => ({
   MessageAttachments: () => <div data-testid="attachments" />,
 }));
@@ -30,9 +39,9 @@ mock.module("@/domains/chat/components/surfaces/surface-router", () => ({
 }));
 
 mock.module(
-  "@/domains/chat/components/activity-run-card/activity-run-card",
+  "@/domains/chat/components/multi-activity-group/multi-activity-group",
   () => ({
-    ActivityRunCard: ({
+    MultiActivityGroup: ({
       autoExpand,
       toolCalls,
       items,
@@ -74,17 +83,40 @@ mock.module(
   }),
 );
 
+// `SingleActivity` is the lone inline link for both a single tool call
+// (`variant="tool"`) and an assistant reasoning run (`variant="thinking"`).
+// Stub the tool variant to a lightweight chip carrying its id; render the
+// thinking variant faithfully enough for the label / no-op assertions (the
+// real component is exercised in `single-activity.test.tsx`).
 mock.module(
-  "@/domains/chat/components/inline-activity-link/inline-tool-link",
+  "@/domains/chat/components/single-activity/single-activity",
   () => ({
-    InlineToolLink: ({ toolCall }: { toolCall: { id: string } }) => (
-      <div data-testid="inline-tool-link" data-tool-call-id={toolCall.id} />
-    ),
+    SingleActivity: (
+      props:
+        | { variant: "thinking"; content: string; isStreaming?: boolean }
+        | { variant: "tool"; toolCall: { id: string } },
+    ) => {
+      if (props.variant === "tool") {
+        return (
+          <div
+            data-testid="inline-tool-link"
+            data-tool-call-id={props.toolCall.id}
+          />
+        );
+      }
+      const { content, isStreaming = false } = props;
+      // No-ops once settled with empty content (mirrors the real link).
+      if (!content && !isStreaming) return null;
+      return (
+        <div data-testid="thought-process-link">
+          {isStreaming ? "Thinking" : "Thought process"}
+        </div>
+      );
+    },
   }),
 );
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
-import type { Surface } from "@/domains/chat/types/types";
+import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 
@@ -320,7 +352,7 @@ describe("TranscriptMessageBody", () => {
     expect(inspectedIds).toEqual(["message-1"]);
   });
 
-  test("auto-expands the latest interleaved tool-call group while a tool is running", () => {
+  test("renders the latest interleaved tool-call group collapsed while a tool is running", () => {
     const { getByTestId } = render(
       <TranscriptMessageBody
         message={{
@@ -343,9 +375,11 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
+    // Activity cards are collapsed by default — a running tool no longer forces
+    // the group open; the user opens it to see the live timeline.
     expect(
       getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
-    ).toBe("true");
+    ).toBe("false");
   });
 
   test("does not auto-expand a latest interleaved tool-call group whose tools have all completed", () => {
@@ -378,7 +412,7 @@ describe("TranscriptMessageBody", () => {
     ).toBe("false");
   });
 
-  test("auto-expands the last tool-call group of a streaming message even after its tools complete", () => {
+  test("renders a streaming message's last tool-call group collapsed", () => {
     const { getByTestId } = render(
       <TranscriptMessageBody
         message={{
@@ -403,12 +437,13 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
+    // Streaming no longer forces the trailing group open — collapsed by default.
     expect(
       getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
-    ).toBe("true");
+    ).toBe("false");
   });
 
-  test("only the last tool-call group of a streaming message auto-expands", () => {
+  test("renders every tool-call group of a streaming message collapsed", () => {
     const { getAllByTestId } = render(
       <TranscriptMessageBody
         message={{
@@ -447,7 +482,7 @@ describe("TranscriptMessageBody", () => {
       getAllByTestId("tool-progress-card").map((el) =>
         el.getAttribute("data-auto-expand"),
       ),
-    ).toEqual(["false", "true"]);
+    ).toEqual(["false", "false"]);
   });
 
   test("collapses a streaming message's tool-call group once answer text streams in below it", () => {
@@ -513,7 +548,7 @@ describe("TranscriptMessageBody", () => {
     ).toBe("false");
   });
 
-  test("moves auto-expansion to a later interleaved tool-call group", () => {
+  test("renders multiple interleaved tool-call groups collapsed", () => {
     const { getAllByTestId } = render(
       <TranscriptMessageBody
         message={{
@@ -550,7 +585,7 @@ describe("TranscriptMessageBody", () => {
       getAllByTestId("tool-progress-card").map((el) =>
         el.getAttribute("data-auto-expand"),
       ),
-    ).toEqual(["false", "true"]);
+    ).toEqual(["false", "false"]);
   });
 
   test("renders user text and an image attachment inside a single bubble", () => {
@@ -813,7 +848,7 @@ describe("TranscriptMessageBody", () => {
     ).not.toBeNull();
   });
 
-  test("auto-expands legacy tool-only messages while a tool runs, until content appears", () => {
+  test("renders legacy tool-only messages collapsed whether or not a tool is running", () => {
     const { getByTestId, rerender } = render(
       <TranscriptMessageBody
         message={{
@@ -831,9 +866,10 @@ describe("TranscriptMessageBody", () => {
         onSurfaceAction={noop}
       />,
     );
+    // Collapsed by default even while the tool runs.
     expect(
       getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
-    ).toBe("true");
+    ).toBe("false");
 
     rerender(
       <TranscriptMessageBody
@@ -858,7 +894,7 @@ describe("TranscriptMessageBody", () => {
     ).toBe("false");
   });
 
-  test("renders a 'Thought process' block for completed reasoning followed by text", () => {
+  test("renders a 'Thought process' link for completed reasoning followed by text", () => {
     // GIVEN a persisted assistant message whose reasoning precedes its answer
     // WHEN it is rendered (legacy path — no interleaved tool calls)
     const html = renderMessage({
@@ -873,13 +909,13 @@ describe("TranscriptMessageBody", () => {
       timestamp: 1_000,
     });
 
-    // THEN the reasoning renders as a completed, collapsed thinking block
+    // THEN the reasoning renders as a completed SingleActivity
     expect(html).toContain("Thought process");
-    expect(html).not.toContain("Thinking…");
+    expect(html).not.toContain("Thinking");
   });
 
-  test("labels trailing reasoning as 'Thinking…' while the row is live", () => {
-    // GIVEN an assistant row mid-reasoning: a thinking block is the last
+  test("labels trailing reasoning as 'Thinking' while the row is live", () => {
+    // GIVEN an assistant row mid-reasoning: a thinking run is the last
     // content entry with no text or tool output after it yet
     // WHEN it is rendered as the in-flight turn (isStreaming)
     const html = renderMessage(
@@ -894,8 +930,9 @@ describe("TranscriptMessageBody", () => {
       { isStreaming: true },
     );
 
-    // THEN the block reads as still-streaming
-    expect(html).toContain("Thinking…");
+    // THEN the link reads as still-streaming ("Thinking" + the dot loader),
+    // not the settled "Thought process".
+    expect(html).toContain("Thinking");
     expect(html).not.toContain("Thought process");
   });
 
@@ -913,9 +950,9 @@ describe("TranscriptMessageBody", () => {
       timestamp: 1_000,
     });
 
-    // THEN the trailing block reads as finished, not perpetually streaming
+    // THEN the trailing link reads as finished, not perpetually streaming
     expect(html).toContain("Thought process");
-    expect(html).not.toContain("Thinking…");
+    expect(html).not.toContain("Thinking");
   });
 
   test("merges interleaved thinking + tool into one activity card", () => {
@@ -1035,7 +1072,7 @@ describe("TranscriptMessageBody", () => {
     expect(container.querySelector("[data-activity-anchor]")).toBeNull();
   });
 
-  test("a pure-thinking run renders an inline ThoughtProcessLink, not a tool card", () => {
+  test("a pure-thinking run renders an inline SingleActivity, not a tool card", () => {
     // contentOrder carries a tool elsewhere so the interleaved branch is taken,
     // but the FIRST run before the text is pure thinking.
     const message: DisplayMessage = {
@@ -1061,7 +1098,7 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    // The pure-thinking run renders as the inline `ThoughtProcessLink`
+    // The pure-thinking run renders as the inline `SingleActivity`
     // ("Thought process"). The trailing lone bash tool run renders as the
     // compact inline chip, NOT a boxed tool card.
     expect(

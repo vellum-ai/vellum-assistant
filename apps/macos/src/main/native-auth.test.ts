@@ -22,6 +22,9 @@ mock.module("./ipc", () => ({
 // Capture the OAuth start URL so tests can read back the generated `state`.
 let lastOpenedUrl = "";
 
+// Capture legacy-cookie eviction calls.
+const cookieRemoveCalls: Array<{ url: string; name: string }> = [];
+
 mock.module("electron", () => ({
   app: { getVersion: () => "9.9.9", getPath: () => "/tmp" },
   net: {
@@ -33,7 +36,14 @@ mock.module("electron", () => ({
       ),
   },
   session: {
-    defaultSession: { cookies: { set: () => Promise.resolve() } },
+    defaultSession: {
+      cookies: {
+        remove: (url: string, name: string) => {
+          cookieRemoveCalls.push({ url, name });
+          return Promise.resolve();
+        },
+      },
+    },
   },
   shell: {
     openExternal: (url: string) => {
@@ -79,6 +89,7 @@ afterEach(() => {
   store.saved.length = 0;
   store.clearCalls = 0;
   lastOpenedUrl = "";
+  cookieRemoveCalls.length = 0;
   for (const key of Object.keys(ipcHandlers)) delete ipcHandlers[key];
   for (const key of Object.keys(ipcSyncHandlers)) delete ipcSyncHandlers[key];
 });
@@ -146,6 +157,17 @@ describe("installNativeAuth — session-token wiring", () => {
 
     expect(result.sessionToken).toBe("sess-tok-123");
     expect(store.saved).toContain("sess-tok-123");
+  });
+
+  test("evicts both legacy session cookies on install", () => {
+    installNativeAuth();
+    // Eviction fires synchronously (Promise.all over the cookie names).
+    const names = cookieRemoveCalls.map((c) => c.name);
+    expect(names).toContain("sessionid");
+    expect(names).toContain("__Secure-sessionid");
+    expect(cookieRemoveCalls.every((c) => c.url === "https://platform.example")).toBe(
+      true,
+    );
   });
 
   test("signOut clears the persisted token", async () => {

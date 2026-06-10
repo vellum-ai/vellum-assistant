@@ -50,10 +50,11 @@ import { deleteBiometricToken } from "@/runtime/native-biometric";
 import { fetchMe, patchConsent } from "@/domains/account/profile";
 import { restoreConsentForUser, persistConsentForUser, resolveServerConsent, CONSENT_VERSION } from "@/utils/onboarding-cleanup";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
-import { clearOrganization } from "@/stores/organization-store";
+import { clearOrganization, useOrganizationStore } from "@/stores/organization-store";
 import { clearUserScopedStorage } from "@/lib/auth/session-cleanup";
 import { subscribe } from "@/lib/event-bus";
-import { isNativePlatform, installSessionCookies, waitForNativeSessionCookie } from "@/runtime/native-auth";
+import { isElectron } from "@/runtime/is-electron";
+import { isNativePlatform, isOAuthFlowInFlight, installSessionCookies, waitForNativeSessionCookie } from "@/runtime/native-auth";
 import { isBiometricEnabled, retrieveBiometricToken } from "@/runtime/native-biometric";
 
 export interface AuthUser {
@@ -269,6 +270,7 @@ function probePlatformSession(
         // indefinitely otherwise.
         if (isLocalMode()) {
           try {
+            await useOrganizationStore.getState().fetchOrganizations();
             const apiAssistants = await Promise.race([
               listAssistants(),
               new Promise<never>((_, reject) =>
@@ -380,6 +382,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
             await syncUserScopedState(user?.id ?? null);
             // Re-sync platform assistants to remove stale lockfile entries.
             try {
+              await useOrganizationStore.getState().fetchOrganizations();
               const apiAssistants = await listAssistants();
               if (apiAssistants.ok) {
                 await syncPlatformAssistantsToLockfile(apiAssistants.data);
@@ -416,6 +419,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
         const user = toAuthUser(result.data.user);
         await syncUserScopedState(user?.id ?? null);
         try {
+          await useOrganizationStore.getState().fetchOrganizations();
           const apiAssistants = await listAssistants();
           if (apiAssistants.ok) {
             useResolvedAssistantsStore.getState().setFromApi(apiAssistants.data);
@@ -441,6 +445,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
             const user = toAuthUser(retryResult.data.user);
             await syncUserScopedState(user?.id ?? null);
             try {
+              await useOrganizationStore.getState().fetchOrganizations();
               const apiAssistants = await listAssistants();
               if (apiAssistants.ok) {
                 useResolvedAssistantsStore.getState().setFromApi(apiAssistants.data);
@@ -488,6 +493,8 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     }
     const user = toAuthUser(result.data.user);
     await syncUserScopedState(user?.id ?? null);
+    // Hydrate the organizations to avoid race conditions from lazy fetch.
+    await useOrganizationStore.getState().fetchOrganizations();
     set(authenticatedPlatformUser(user));
   },
 
@@ -517,6 +524,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
         // refresh has already succeeded regardless of the sync outcome.
         if (isLocalMode()) {
           try {
+            await useOrganizationStore.getState().fetchOrganizations();
             const apiAssistants = await listAssistants();
             if (apiAssistants.ok) {
               await syncPlatformAssistantsToLockfile(apiAssistants.data);
@@ -556,6 +564,8 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     try {
       await allauthLogout();
     } finally {
+      // Clean up session token in the main process.
+      if (isElectron()) await window.vellum?.auth?.signOut?.();
       if (isLocalMode()) {
         document.cookie = "sessionid=; path=/; samesite=lax; expires=Thu, 01 Jan 1970 00:00:00 UTC";
       }
@@ -608,6 +618,8 @@ export function setupAuthListeners(): () => void {
     );
 
   const unsubResume = subscribe("app.resume", () => {
+    // Mid-OAuth refocus — an unauthenticated probe would tear down state.
+    if (isOAuthFlowInFlight()) return;
     void safeRefresh();
   });
   cleanups.push(unsubResume);

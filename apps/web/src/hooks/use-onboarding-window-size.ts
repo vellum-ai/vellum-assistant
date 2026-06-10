@@ -20,7 +20,13 @@ import { setOnboardingWindow } from "@/runtime/main-window";
  * targets the main window, so signalling from any non-main window would
  * resize the wrong window.
  */
-const COMPACT_PATH_PREFIXES = ["/assistant/onboarding/", "/account"];
+const COMPACT_PATH_PREFIXES = [
+  "/assistant/onboarding/",
+  "/assistant/welcome",
+  "/assistant/select-assistant",
+  "/assistant/review-terms",
+  "/account",
+];
 
 function isCompactRoute(pathname: string): boolean {
   return COMPACT_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix));

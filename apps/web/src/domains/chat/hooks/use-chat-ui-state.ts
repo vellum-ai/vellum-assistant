@@ -22,7 +22,8 @@ import {
   type UIContext,
 } from "@/domains/chat/turn-selectors";
 import { hasAnyInteractiveSurface, hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
-import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
+import { liveAssistantRowId } from "@/domains/chat/utils/stream-updaters/shared";
+import { useActiveConversationIsProcessing } from "@/lib/backwards-compat/conversation-processing-state";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -74,18 +75,16 @@ export function useChatUIState(): ChatUIState {
 
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const activeConversationId = useConversationStore.use.activeConversationId();
-  const processingConversationIds = useConversationStore.use.processingConversationIds();
 
   // TanStack Query — deduped with any other call for the same conversation.
   const activeConversation = useActiveConversation(assistantId, activeConversationId, true);
 
   // --- Derived values (memoized) ------------------------------------------
 
-  // Conversation processing — OR of local optimistic set and server snapshot.
-  const activeConversationIsProcessing =
-    (activeConversationId != null &&
-      processingConversationIds.has(activeConversationId)) ||
-    !!activeConversation?.isProcessing;
+  // Conversation processing. The daemon's `isProcessing` flag is the single
+  // source of truth on 0.8.8+; older daemons fall back to the client
+  // optimistic mirror. See `lib/backwards-compat/conversation-processing-state`.
+  const activeConversationIsProcessing = useActiveConversationIsProcessing();
 
   const activeConversationHasPendingAssistantResponse = useMemo(
     () => hasPendingAssistantResponse(messages),
@@ -101,6 +100,20 @@ export function useChatUIState(): ChatUIState {
   );
   const hasStreamingAssistantMessage = liveAssistantMessageId != null;
 
+  // True once the live assistant message has emitted reasoning content — at
+  // which point an inline `SingleActivity` is rendering it (and owning the
+  // streaming "Thinking" loading state). Used to hand off from the standalone
+  // thinking-dots row so the two indicators never compete.
+  const hasStreamingAssistantThinking = useMemo(() => {
+    if (liveAssistantMessageId == null) return false;
+    const live = messages.find((m) => m.id === liveAssistantMessageId);
+    if (!live) return false;
+    return (
+      (live.thinkingSegments?.length ?? 0) > 0 ||
+      !!live.contentBlocks?.some((b) => b.type === "thinking")
+    );
+  }, [messages, liveAssistantMessageId]);
+
   const hasUncompletedVisibleSurface = useMemo(
     () => hasAnyInteractiveSurface(messages),
     [messages],
@@ -109,6 +122,7 @@ export function useChatUIState(): ChatUIState {
   const uiContext: UIContext = useMemo(
     () => ({
       hasStreamingAssistantMessage,
+      hasStreamingAssistantThinking,
       hasPendingSecret: !!pendingSecret,
       hasPendingConfirmation: !!pendingConfirmation,
       hasPendingQuestion: !!pendingQuestion,
@@ -119,6 +133,7 @@ export function useChatUIState(): ChatUIState {
     }),
     [
       hasStreamingAssistantMessage,
+      hasStreamingAssistantThinking,
       pendingSecret,
       pendingConfirmation,
       pendingQuestion,

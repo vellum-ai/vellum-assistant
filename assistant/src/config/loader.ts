@@ -14,7 +14,6 @@ import {
   getWorkspaceConfigPath,
   getWorkspaceDir,
 } from "../util/platform.js";
-import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import { AssistantConfigSchema } from "./schema.js";
 import type { AssistantConfig } from "./types.js";
 
@@ -692,16 +691,15 @@ export function loadConfig(): AssistantConfig {
 
     if (suppressConfigDiskWritesDepth === 0) {
       // Managed Gemini embedding defaults migration.
-      // When on a managed platform (IS_PLATFORM=true) with the feature flag
-      // enabled and no explicit embedding provider chosen (provider=auto),
-      // persist Gemini embedding defaults into the raw config file.
+      // When on a managed platform (IS_PLATFORM=true) and no explicit embedding
+      // provider chosen (provider=auto), persist Gemini embedding defaults into
+      // the raw config file.
       // Idempotent: once provider=gemini is written, subsequent loads skip this.
       if (config.memory.embeddings.provider === "auto") {
         try {
           if (
-            (process.env.IS_PLATFORM === "true" ||
-              process.env.IS_PLATFORM === "1") &&
-            isManagedGeminiFFEnabled(config)
+            process.env.IS_PLATFORM === "true" ||
+            process.env.IS_PLATFORM === "1"
           ) {
             setNestedValue(fileConfig, "memory.embeddings.provider", "gemini");
             setNestedValue(
@@ -794,21 +792,6 @@ export function loadConfig(): AssistantConfig {
     cachedFileSignature = null;
     loading = false;
     throw err;
-  }
-}
-
-/**
- * Check whether the managed-gemini-embeddings-enabled feature flag is on.
- * Wrapped in a try/catch so a flag-resolver failure never breaks config loading.
- */
-function isManagedGeminiFFEnabled(config: AssistantConfig): boolean {
-  try {
-    return isAssistantFeatureFlagEnabled(
-      "managed-gemini-embeddings-enabled",
-      config,
-    );
-  } catch {
-    return false;
   }
 }
 

@@ -20,7 +20,6 @@ import { AppViewerContainer } from "@/components/app-viewer-container";
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
 import { ChatMainPanel, type ChatMainPanelProps } from "@/domains/chat/components/chat-route-content";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -56,7 +55,6 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
-  const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
 
   const isMobile = useIsMobile();
@@ -136,7 +134,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             onEdit={handleCloseEditPanel}
             onShare={handleShareApp}
             isSharing={isSharing}
-            onDeploy={deployToVercel ? handleDeployApp : undefined}
+            onDeploy={handleDeployApp}
             isDeploying={isDeploying}
             isEditing
           />
@@ -165,7 +163,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
         onEdit={handleEditApp}
         onShare={handleShareApp}
         isSharing={isSharing}
-        onDeploy={deployToVercel ? handleDeployApp : undefined}
+        onDeploy={handleDeployApp}
         isDeploying={isDeploying}
       />
     );
@@ -228,18 +226,26 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     }
   }
 
-  // Tool detail side panel — opens by animating the drawer width so the chat
-  // reflows in sync (no early layout snap) and the panel grows in instead of
-  // popping in at full size. Drag-to-resize + width persistence preserved.
-  if (mainView === "tool-detail" && activeToolDetail && !isMobile) {
-    return (
-      <AnimatedRightDrawer
-        storageKey="toolDetailDrawerWidth"
-        defaultWidth={400}
-        minWidth={400}
-        minLeftWidth={300}
-        left={chatContent}
-        right={
+  // Default: chat, optionally with the tool-detail side panel.
+  //
+  // The drawer wraps the chat unconditionally (open/closed) rather than being
+  // mounted only when a tool detail is active, so it can animate the panel both
+  // OPEN and CLOSED — an unmount-on-close would skip the exit — and so the chat
+  // keeps its tree position (and scroll) across open/close. Opening eases the
+  // drawer width 0 → target while the chat reflows in sync. On mobile the panel
+  // is shown via the portal-based MobileToolDetailOverlay instead, so the
+  // drawer stays closed (`open=false`) and the chat fills the width.
+  const toolDetailOpen = mainView === "tool-detail" && !!activeToolDetail && !isMobile;
+  return (
+    <AnimatedRightDrawer
+      storageKey="toolDetailDrawerWidth"
+      defaultWidth={400}
+      minWidth={400}
+      minLeftWidth={300}
+      open={toolDetailOpen}
+      left={chatContent}
+      right={
+        activeToolDetail && !isMobile ? (
           <LazyBoundary>
             <ToolDetailPanel
               detail={activeToolDetail}
@@ -247,11 +253,8 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
               onRiskBadgeClick={() => useViewerStore.getState().requestRuleEditorForActiveTool()}
             />
           </LazyBoundary>
-        }
-      />
-    );
-  }
-
-  // Default: chat only
-  return chatContent;
+        ) : null
+      }
+    />
+  );
 }

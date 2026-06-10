@@ -14,7 +14,7 @@ import { getModelsForProvider } from "@/assistant/llm-model-catalog";
 import { inferenceProviderconnectionsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 
 import type { ProfileEntry, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
-import { INFERENCE_PROVIDER_DISPLAY_NAMES, OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/ai-types";
+import { INFERENCE_PROVIDER_DISPLAY_NAMES } from "@/domains/settings/ai/ai-types";
 import {
     ProfileAdvancedParams,
     THINKING_LEVEL_INHERIT,
@@ -54,15 +54,11 @@ export interface ProfileEditorModalProps {
    *   the daemon can't dispatch through.
    */
   connections?: ProviderConnection[];
-  openAICompatibleEndpointsEnabled?: boolean;
   /**
    * Assistant whose provider connections the inline "+ Create new provider"
    * sub-form writes to. Required for the create-mode quick-add flow.
    */
   assistantId: string;
-  /** Surfaces the "Sign in with ChatGPT" subscription path in the inline
-   *  provider create sub-form when enabled. */
-  chatgptSubscriptionEnabled?: boolean;
   /**
    * Persist a profile entry. The optional `options.mode` argument tells the
    * parent how to combine `entry` with the existing on-disk record:
@@ -93,9 +89,7 @@ export function ProfileEditorModal({
   initialValues,
   existingNames,
   connections,
-  openAICompatibleEndpointsEnabled = false,
   assistantId,
-  chatgptSubscriptionEnabled = false,
   onSave,
   onCancel,
 }: ProfileEditorModalProps) {
@@ -113,9 +107,7 @@ export function ProfileEditorModal({
           initialValues={initialValues}
           existingNames={existingNames}
           connections={connections}
-          openAICompatibleEndpointsEnabled={openAICompatibleEndpointsEnabled}
           assistantId={assistantId}
-          chatgptSubscriptionEnabled={chatgptSubscriptionEnabled}
           onSave={onSave}
           onCancel={onCancel}
         />
@@ -135,9 +127,7 @@ interface ProfileEditorModalInnerProps {
   existingNames: string[];
   // See `ProfileEditorModalProps.connections` for nil-vs-empty semantics.
   connections: ProviderConnection[] | undefined;
-  openAICompatibleEndpointsEnabled: boolean;
   assistantId: string;
-  chatgptSubscriptionEnabled: boolean;
   onSave: (
     name: string,
     entry: ProfileEntry,
@@ -152,9 +142,7 @@ function ProfileEditorModalInner({
   initialValues,
   existingNames,
   connections,
-  openAICompatibleEndpointsEnabled,
   assistantId,
-  chatgptSubscriptionEnabled,
   onSave,
   onCancel,
 }: ProfileEditorModalInnerProps) {
@@ -272,14 +260,9 @@ function ProfileEditorModalInner({
   const availableConnectionsForProvider = useMemo(
     () =>
       provider
-        ? effectiveConnections.filter(
-            (c) =>
-              c.provider === provider &&
-              (openAICompatibleEndpointsEnabled ||
-                c.provider !== OPENAI_COMPATIBLE_PROVIDER),
-          )
+        ? effectiveConnections.filter((c) => c.provider === provider)
         : [],
-    [provider, effectiveConnections, openAICompatibleEndpointsEnabled],
+    [provider, effectiveConnections],
   );
 
   // Saved binding no longer points at any known connection. The save handler
@@ -678,12 +661,6 @@ function ProfileEditorModalInner({
     const seen = new Set<string>();
     const opts: { value: string; label: string }[] = [];
     for (const c of effectiveConnections) {
-      if (
-        !openAICompatibleEndpointsEnabled &&
-        c.provider === OPENAI_COMPATIBLE_PROVIDER
-      ) {
-        continue;
-      }
       if (!seen.has(c.provider)) {
         seen.add(c.provider);
         opts.push({
@@ -697,7 +674,7 @@ function ProfileEditorModalInner({
       label: "+ Create new provider",
     });
     return opts;
-  }, [effectiveConnections, openAICompatibleEndpointsEnabled]);
+  }, [effectiveConnections]);
 
   const createProviderSection = (
     <div className="space-y-4">
@@ -746,8 +723,6 @@ function ProfileEditorModalInner({
           variant="inline"
           assistantId={assistantId}
           existingNames={effectiveConnections.map((c) => c.name)}
-          openAICompatibleEndpointsEnabled={openAICompatibleEndpointsEnabled}
-          chatgptSubscriptionEnabled={chatgptSubscriptionEnabled}
           defaultProviderType={
             (provider || undefined) as ConnectionProvider | undefined
           }
@@ -763,7 +738,6 @@ function ProfileEditorModalInner({
           onModelChange={handleModelChange}
           onConnectionChange={handleConnectionChange}
           connections={effectiveConnections}
-          openAICompatibleEndpointsEnabled={openAICompatibleEndpointsEnabled}
           isReadOnly={isReadOnly}
           availableConnectionsForProvider={availableConnectionsForProvider}
           connectionNotFound={connectionNotFound}
@@ -868,7 +842,6 @@ function ProfileEditorModalInner({
                 onModelChange={handleModelChange}
                 onConnectionChange={handleConnectionChange}
                 connections={connections}
-                openAICompatibleEndpointsEnabled={openAICompatibleEndpointsEnabled}
                 isReadOnly={isReadOnly}
                 availableConnectionsForProvider={availableConnectionsForProvider}
                 connectionNotFound={connectionNotFound}

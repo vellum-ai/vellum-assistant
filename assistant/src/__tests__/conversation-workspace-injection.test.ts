@@ -190,6 +190,7 @@ mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
     async maybeCompact() {
       return { compacted: false };
     }
+    resetOverflowRecovery() {}
   },
   createContextSummaryMessage: () => ({
     role: "user",
@@ -270,7 +271,6 @@ mock.module("../agent/loop.js", () => ({
       return {
         history: [...messages, assistantMessage],
         exitReason: null,
-        appendedNewMessages: true,
         newMessages: [assistantMessage],
       };
     }

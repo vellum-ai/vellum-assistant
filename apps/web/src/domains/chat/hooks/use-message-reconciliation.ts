@@ -9,13 +9,13 @@ import {
   summarizeDisplayMessages,
   summarizeRuntimeMessages,
 } from "@/domains/chat/utils/diagnostics";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import { reconcileSnapshot } from "@/domains/chat/utils/reconcile-snapshot";
 import { getLocalSeq, recordLocalSeq } from "@/lib/streaming/local-seq";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
-import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
+import { liveAssistantRowId } from "@/domains/chat/utils/stream-updaters/shared";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { fetchConversationMessages } from "@/domains/chat/api/messages";
 import type { ConversationMessage } from "@vellumai/assistant-api";

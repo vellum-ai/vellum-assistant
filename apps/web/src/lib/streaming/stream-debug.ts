@@ -66,8 +66,8 @@ export interface SseDebugClient {
 export interface SseDebugEventEntry {
   /** Which client produced this event. */
   clientId: string;
-  /** Millisecond timestamp when the event was received. */
-  receivedAt: number;
+  /** ISO 8601 timestamp of when the event was received. */
+  receivedAt: string;
   /** The parsed event payload. */
   event: AssistantEvent;
 }
@@ -182,7 +182,7 @@ export function recordSseTraffic(clientId: string, isData: boolean): void {
 export function pushSseEvent(clientId: string, event: AssistantEvent): void {
   events.push({
     clientId,
-    receivedAt: Date.now(),
+    receivedAt: new Date().toISOString(),
     event,
   });
   if (events.length > MAX_EVENTS) {

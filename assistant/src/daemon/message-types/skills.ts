@@ -91,6 +91,8 @@ interface SlimSkillBase {
   kind: "bundled" | "installed" | "catalog";
   status: "enabled" | "disabled" | "available";
   category: string;
+  /** Name of the installed plugin shipping this skill, when plugin-resident. */
+  pluginName?: string;
 }
 
 interface VellumSlimSkill extends SlimSkillBase {
@@ -163,6 +165,8 @@ interface SkillDetailBase {
   kind: "bundled" | "installed" | "catalog";
   status: "enabled" | "disabled" | "available";
   category: string;
+  /** Name of the installed plugin shipping this skill, when plugin-resident. */
+  pluginName?: string;
 }
 
 interface VellumSkillDetail extends SkillDetailBase {

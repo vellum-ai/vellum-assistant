@@ -27,29 +27,12 @@ import { useOrganizationStore } from "@/stores/organization-store";
 
 interface UseAssistantLifecycleOptions {
   sessionStatus: SessionStatus;
-  isRetired: boolean;
-  isNonProduction: boolean;
   hasPlatformSession: boolean;
-  /** Framework-agnostic redirect — called instead of router.replace(). */
-  onRedirect: (url: string) => void;
-  /**
-   * Returns the path to redirect to when onboarding should intercept,
-   * or `null` if the intended destination is fine as-is. Injected so
-   * `assistant/` stays free of the onboarding domain (the
-   * `shared → domains` direction).
-   */
-  resolveOnboardingRedirect: (input: {
-    intendedDestination: string;
-  }) => string | null;
 }
 
 export function useAssistantLifecycle({
   sessionStatus,
-  isRetired,
-  isNonProduction,
   hasPlatformSession,
-  onRedirect,
-  resolveOnboardingRedirect,
 }: UseAssistantLifecycleOptions): void {
   const queryClient = useQueryClient();
 
@@ -96,11 +79,7 @@ export function useAssistantLifecycle({
   useEffect(() => {
     lifecycleService.setInputs({
       sessionStatus,
-      isRetired,
-      isNonProduction,
       hasPlatformSession,
-      onRedirect,
-      resolveOnboardingRedirect,
       queryClient,
       selectedPlatformAssistantId,
       isOrgReady,
@@ -108,11 +87,7 @@ export function useAssistantLifecycle({
     void lifecycleService.respondToInputs();
   }, [
     sessionStatus,
-    isRetired,
-    isNonProduction,
     hasPlatformSession,
-    onRedirect,
-    resolveOnboardingRedirect,
     queryClient,
     selectedPlatformAssistantId,
     isOrgReady,

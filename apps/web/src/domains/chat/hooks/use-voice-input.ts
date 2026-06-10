@@ -9,8 +9,7 @@ import {
 } from "@/domains/chat/components/mic-permission-primer";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { postDictation } from "@/domains/chat/voice/dictation-api";
-import { shouldEnablePushToTalk } from "@/domains/chat/voice/push-to-talk-host";
-import { usePushToTalk } from "@/domains/chat/voice/use-push-to-talk";
+import { registerPushToTalkTarget } from "@/domains/chat/voice/push-to-talk-target";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import {
   insertTextIntoFrontApp,
@@ -79,7 +78,7 @@ export interface UseVoiceInputReturn {
  * Manages:
  * - Voice interim/error state
  * - Mic-permission primer dialog
- * - Push-to-talk keyboard shortcut integration
+ * - Voice-target registration for the app-level push-to-talk bridge
  * - Dictation transcript processing for composer or front-app insertion
  * - Recording lifecycle callbacks
  *
@@ -103,10 +102,12 @@ export function useVoiceInput({
   const primerResolveRef = useRef<((v: boolean) => void) | null>(null);
   const isNative = useIsNativePlatform();
 
-  // Push-to-talk is a hardware-keyboard-only affordance. Keep it disabled for
-  // touch-first web/iOS surfaces, but always enable it in Electron so the
-  // native Fn helper can register and desktop fallback modifiers still work.
-  usePushToTalk(voiceInputRef, { enabled: shouldEnablePushToTalk() });
+  useEffect(() => {
+    return registerPushToTalkTarget({
+      start: () => voiceInputRef.current?.start(),
+      stop: () => voiceInputRef.current?.stop(),
+    });
+  }, []);
 
   const clearVoiceError = useCallback(() => {
     setVoiceError(null);
@@ -156,8 +157,14 @@ export function useVoiceInput({
       }
       if (frontAppInsertion.status === "automation-denied") {
         setVoiceError("dictation-automation-denied");
+        useVoiceRecordingStore
+          .getState()
+          .flagDictationInsertionError("dictation-automation-denied");
       } else if (frontAppInsertion.status === "blocked") {
         setVoiceError("dictation-paste-blocked");
+        useVoiceRecordingStore
+          .getState()
+          .flagDictationInsertionError("dictation-paste-blocked");
       }
 
       setInput((current: string) => {

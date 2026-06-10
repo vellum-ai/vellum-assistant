@@ -7,7 +7,7 @@ import type { MutableRefObject } from "react";
 
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { ConversationMessage } from "@vellumai/assistant-api";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 import type {
@@ -56,6 +56,7 @@ function fakeRuntimeMessage(overrides: Partial<ConversationMessage> = {}): Conve
 
 const DEFAULT_UI_CONTEXT: UIContext = {
   hasStreamingAssistantMessage: false,
+  hasStreamingAssistantThinking: false,
   hasPendingSecret: false,
   hasPendingConfirmation: false,
   hasPendingQuestion: false,
@@ -788,6 +789,7 @@ type DebugWindow = Window & {
     events?: { getClients: unknown; getEvents: unknown };
     flags?: {
       impersonateVersion?: (v?: string | null) => string | null;
+      renderFromContentBlocks?: (v?: boolean) => boolean;
     };
     other?: unknown;
   };
@@ -795,6 +797,7 @@ type DebugWindow = Window & {
 
 const makeFlagsApi = () => ({
   impersonateVersion: (_value?: string | null): string | null => null,
+  renderFromContentBlocks: (_value?: boolean): boolean => false,
 });
 
 describe("installVellumDebugApi", () => {
@@ -808,6 +811,7 @@ describe("installVellumDebugApi", () => {
     expect(typeof root?.events?.getClients).toBe("function");
     expect(typeof root?.events?.getEvents).toBe("function");
     expect(typeof root?.flags?.impersonateVersion).toBe("function");
+    expect(typeof root?.flags?.renderFromContentBlocks).toBe("function");
     uninstall();
   });
 

@@ -76,7 +76,6 @@ function makeTarget(): Conversation {
       run: async ({ messages }: { messages: Message[] }) => ({
         history: messages,
         exitReason: null,
-        appendedNewMessages: false,
         newMessages: [],
       }),
     },

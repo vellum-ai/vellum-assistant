@@ -102,6 +102,7 @@ interface ResolvedAssistantsState {
 interface ResolvedAssistantsActions {
   setFromLockfile: (lockfile: Lockfile) => void;
   setFromApi: (assistants: Assistant[]) => void;
+  upsertFromApi: (assistant: Assistant) => void;
   remove: (assistantId: string) => void;
   clear: () => void;
   setActiveAssistantId: (assistantId: string | null) => void;
@@ -137,6 +138,24 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
           isLocal: a.is_local,
           isPlatformHosted: !a.is_local,
         })),
+      }),
+
+    upsertFromApi: (assistant) =>
+      set((state) => {
+        const entry: ResolvedAssistant = {
+          id: assistant.id,
+          name: assistant.name,
+          hatchedAt: assistant.created,
+          isLocal: assistant.is_local,
+          isPlatformHosted: !assistant.is_local,
+        };
+        const idx = state.assistants.findIndex((a) => a.id === assistant.id);
+        if (idx >= 0) {
+          const next = [...state.assistants];
+          next[idx] = entry;
+          return { assistants: next };
+        }
+        return { assistants: [...state.assistants, entry] };
       }),
 
     remove: (assistantId) =>

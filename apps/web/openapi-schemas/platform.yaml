@@ -290,6 +290,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/DetailResponse'
           description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
         '502':
           content:
             application/json:
@@ -2203,6 +2209,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/DetailResponse'
           description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
         '502':
           content:
             application/json:
@@ -2862,6 +2874,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/DetailResponse'
           description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
         '502':
           content:
             application/json:
@@ -3270,11 +3288,17 @@ paths:
     get:
       operationId: feature_flags_client_flag_values_retrieve
       description: |-
-        Return evaluated feature flag values for the session-authenticated user.
+        Return evaluated feature flag values for the current user.
 
-        The web SPA calls this on startup to hydrate its client-side feature flag
-        store. Requires session auth and the ``Vellum-Organization-Id`` header.
+        When session-authenticated with the ``Vellum-Organization-Id`` header,
+        flags are evaluated against the user/org LD context. Unauthenticated
+        requests receive flags evaluated against an anonymous LD context.
       parameters:
+      - in: header
+        name: Vellum-Device-Id
+        schema:
+          type: string
+        description: Stable device identifier for per-device flag targeting.
       - in: header
         name: Vellum-Organization-Id
         schema:
@@ -3288,6 +3312,7 @@ paths:
       - VellumAPIKey: []
       - cookieAuth: []
       - XSessionTokenAuth: []
+      - {}
       responses:
         '200':
           content:
@@ -3576,6 +3601,39 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/InvoiceListResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+  /v1/organizations/billing/invoices/download/:
+    get:
+      operationId: organizations_billing_invoices_download_retrieve
+      description: |-
+        Download all of the org's invoice PDFs as a single zip archive.
+
+        Stripe's ``invoice_pdf`` URLs don't serve CORS headers, so the
+        browser can't fetch and zip them client-side — the archive has to
+        be assembled server-side.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
           description: ''
       x-vellum-api-clients:
       - platform

@@ -1518,7 +1518,7 @@ async function main() {
     path: "/auth/token",
     method: "POST",
     auth: "custom",
-    handler: (req) => handleCreateToken(req, server),
+    handler: (req) => handleCreateToken(req, server, config.trustProxy),
   });
 
   // Runtime proxy catch-all — must be last so specific routes are checked first.
@@ -1531,6 +1531,7 @@ async function main() {
 
   const router = createRouter(routes, {
     authRateLimiter,
+    trustProxy: config.trustProxy,
   });
 
   /** Stamp the assistant version header on a response. */
@@ -1853,7 +1854,7 @@ async function main() {
   async function notifyRecordActivity(): Promise<void> {
     if (!arePlatformFeaturesEnabled()) {
       log.debug(
-        "platform-features-in-local-mode is disabled — skipping record-activity",
+        "Platform features disabled — skipping record-activity",
       );
       return;
     }

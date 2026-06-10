@@ -16,5 +16,5 @@ export function resolveOnboardingRedirect({
 }
 
 export function getOnboardingEntrypoint(): string {
-  return isLocalMode() ? routes.onboarding.welcome : routes.onboarding.privacy;
+  return isLocalMode() ? routes.welcome : routes.onboarding.privacy;
 }

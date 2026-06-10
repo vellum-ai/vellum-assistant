@@ -1,8 +1,7 @@
 // afterPack hook for electron-builder (macOS only).
 //
 // Runs after files are packaged but before code signing. Handles:
-//   1. Codesigning the bundled bun binary with JIT/network entitlements.
-//   2. Compiling and embedding Quick Look extensions (.appex) for .vellum files.
+//   1. Compiling and embedding Quick Look extensions (.appex) for .vellum files.
 //
 // electron-builder skips signing Contents/PlugIns (intended for kexts but also
 // affects app extensions — see https://github.com/electron-userland/electron-builder/issues/9627),
@@ -138,38 +137,10 @@ exports.default = async function afterPack(context) {
   const productName = packager.appInfo.productFilename;
   const appDir = path.join(appOutDir, `${productName}.app`);
   const contentsDir = path.join(appDir, "Contents");
-  const resourcesDir = path.join(contentsDir, "Resources");
   const identity = process.env.CSC_NAME || process.env.APPLE_SIGNING_IDENTITY || "-";
   const timestampFlag = identity === "-" ? "" : " --timestamp";
 
-  // 1. Codesign bundled executables with appropriate entitlements.
-  const executables = [
-    {
-      name: "bun",
-      path: path.join(resourcesDir, "bun"),
-      entitlements: path.join(__dirname, "entitlements", "bun.plist"),
-    },
-    {
-      name: "hotkey-helper",
-      path: path.join(resourcesDir, "hotkey-helper"),
-      entitlements: path.join(__dirname, "entitlements", "inherit.plist"),
-    },
-  ];
-
-  for (const executable of executables) {
-    if (!fs.existsSync(executable.path)) {
-      console.warn(`afterPack: ${executable.name} not found at ${executable.path}, skipping codesign`);
-      continue;
-    }
-
-    console.log(`afterPack: codesigning ${executable.name} with identity="${identity}"`);
-    execSync(
-      `codesign --force --options runtime --sign "${identity}"${timestampFlag} --entitlements "${executable.entitlements}" "${executable.path}"`,
-      { stdio: "inherit" }
-    );
-  }
-
-  // 2. Build and embed Quick Look extensions (.appex).
+  // Build and embed Quick Look extensions (.appex).
   const plugInsDir = path.join(contentsDir, "PlugIns");
   const appBundleId = packager.config.appId;
   const swiftTarget = SWIFTC_TARGETS[context.arch] || "arm64-apple-macosx15.0";

@@ -10,6 +10,8 @@
  * are values, not constants — do NOT rewrite those through this module.
  */
 
+import { isElectron } from "@/runtime/is-electron";
+
 const r = <const T extends string>(path: T): T => path;
 
 const dyn = (parent: string, id: string): string => `${parent}/${id}`;
@@ -39,6 +41,7 @@ export const routes = {
    */
   bundleConfirm: r("/assistant/bundle/confirm"),
   quickInput: r("/assistant/quick-input"),
+  conversations: r("/assistant/conversations"),
   conversation: (key: string) => dyn(r("/assistant/conversations"), key),
   /**
    * LLM-context inspector for a single conversation. The conversation id
@@ -75,13 +78,14 @@ export const routes = {
     },
   },
 
+  welcome: r("/assistant/welcome"),
+  selectAssistant: r("/assistant/select-assistant"),
+  reviewTerms: r("/assistant/review-terms"),
+
   onboarding: {
-    welcome: r("/assistant/onboarding/welcome"),
-    selectAssistant: r("/assistant/onboarding/select-assistant"),
     hosting: r("/assistant/onboarding/hosting"),
     apiKey: r("/assistant/onboarding/api-key"),
     privacy: r("/assistant/onboarding/privacy"),
-    reviewTerms: r("/assistant/onboarding/review-terms"),
     prechat: r("/assistant/onboarding/prechat"),
     hatching: r("/assistant/onboarding/hatching"),
   },
@@ -162,7 +166,14 @@ export function docsUrl(path: string): string {
 
 /** URL for the platform-hosted admin UI. */
 export function adminUrl(): string {
-  return import.meta.env.DEV
-    ? `${LOCAL_ADMIN_ORIGIN}${routes.admin.root}`
-    : routes.admin.root;
+  if (isElectron()) {
+    const config = (
+      window as unknown as { __VELLUM_CONFIG__?: { webUrl?: string } }
+    ).__VELLUM_CONFIG__;
+    return `${config?.webUrl ?? window.location.origin}${routes.admin.root}`;
+  }
+  if (import.meta.env.DEV) {
+    return `${LOCAL_ADMIN_ORIGIN}${routes.admin.root}`;
+  }
+  return routes.admin.root;
 }

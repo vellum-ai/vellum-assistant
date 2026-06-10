@@ -45,9 +45,7 @@ export class VellumPlatformClient {
    */
   static async create(): Promise<VellumPlatformClient | null> {
     if (!arePlatformFeaturesEnabled()) {
-      log.debug(
-        "platform-features-in-local-mode is disabled — returning null",
-      );
+      log.debug("platform features disabled — returning null");
       return null;
     }
 

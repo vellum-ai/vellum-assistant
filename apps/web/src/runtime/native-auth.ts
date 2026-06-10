@@ -11,6 +11,7 @@ import { isPlatformLocal, startLoopbackAuth } from "@/lib/auth/loopback-auth";
 import { isLocalMode } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
 import { setMenuPlatformSession } from "@/runtime/menu";
+import { primeElectronSessionToken } from "@/runtime/session-token";
 import { isBiometricEnabled, storeBiometricToken } from "@/runtime/native-biometric";
 import { routes } from "@/utils/routes";
 
@@ -46,6 +47,15 @@ const NativeAuth = registerPlugin<NativeAuthPlugin>("NativeAuth");
 
 /** Fallback destination after a successful native login. */
 const DEFAULT_POST_AUTH_DESTINATION = routes.assistant;
+
+// True while the Electron OAuth flow awaits its deep-link callback. The
+// redirect refocuses the window before the code exchange finishes, so the
+// auth store skips app-resume session probes while this is set.
+let oauthFlowInFlight = false;
+
+export function isOAuthFlowInFlight(): boolean {
+  return oauthFlowInFlight;
+}
 
 /**
  * Origin to present to the native OAuth flow. The Capacitor shell's
@@ -257,20 +267,26 @@ export async function startAuthFlow(
   // install) and returns the session token. Falls through to the web
   // form-POST path when the bridge method is absent (older preload).
   if (isElectron() && window.vellum?.auth?.startOAuth) {
-    const result = await window.vellum.auth.startOAuth({
-      providerHint: options.providerHint,
-      loginHint: options.loginHint,
-      intent: options.intent,
-    });
-    if (result?.sessionToken) {
-      await setMenuPlatformSession(true);
-      const destination = sanitizeReturnTo(
-        options.intent === "signup"
-          ? routes.onboarding.privacy
-          : options.returnTo ?? null,
-        DEFAULT_POST_AUTH_DESTINATION,
-      );
-      window.location.href = destination;
+    oauthFlowInFlight = true;
+    try {
+      const result = await window.vellum.auth.startOAuth({
+        providerHint: options.providerHint,
+        loginHint: options.loginHint,
+        intent: options.intent,
+      });
+      if (result?.sessionToken) {
+        primeElectronSessionToken(result.sessionToken);
+        await setMenuPlatformSession(true);
+        const destination = sanitizeReturnTo(
+          options.intent === "signup"
+            ? routes.onboarding.privacy
+            : options.returnTo ?? null,
+          DEFAULT_POST_AUTH_DESTINATION,
+        );
+        window.location.href = destination;
+      }
+    } finally {
+      oauthFlowInFlight = false;
     }
     return;
   }

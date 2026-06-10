@@ -1,12 +1,12 @@
 /**
  * In-memory cache for the installable plugin catalog.
  *
- * The catalog (`loadPluginCatalog`) is built from two unauthenticated GitHub
- * Contents API calls — the first-party `experimental/plugins/` directory
- * listing and the `marketplace.json` manifest. GitHub's unauthenticated rate
- * limit is 60 requests/hour per IP, so a long-lived daemon that hit GitHub on
- * every catalog search (on web mount, on every keystroke, across reloads and
- * multiple clients) would exhaust that budget and start getting HTTP 403s.
+ * The catalog (`loadPluginCatalog`) is built from a single unauthenticated
+ * GitHub Contents API call — the `marketplace.json` manifest. GitHub's
+ * unauthenticated rate limit is 60 requests/hour per IP, so a long-lived
+ * daemon that hit GitHub on every catalog search (on web mount, on every
+ * keystroke, across reloads and multiple clients) would exhaust that budget
+ * and start getting HTTP 403s.
  *
  * Because the GitHub responses are **query-independent** — `searchPlugins`
  * applies the regex filter in memory — one catalog load serves any number of
@@ -44,9 +44,9 @@ const cache = new Map<string, CacheEntry>();
  * transient upstream error ({@link PluginCatalogUnavailableError} — rate
  * limiting or a 5xx) and a cached catalog exists, the stale catalog is served
  * (and its TTL window is reset so a sustained outage doesn't re-enter the
- * failing fetch on every call). A hard error (e.g. the canonical plugins
- * prefix returning 404, or a deleted ref) always propagates — serving stale
- * there would silently mask a real misconfiguration. With no cache to fall
+ * failing fetch on every call). A hard error (e.g. a malformed manifest, or a
+ * deleted ref) always propagates — serving stale there would silently mask a
+ * real misconfiguration. With no cache to fall
  * back on, the underlying error propagates regardless so the caller can
  * surface it (e.g. the route maps a rate-limit failure to 503).
  */

@@ -50,9 +50,12 @@ function countUserTurns(messages: ReadonlyArray<Message>): number {
 }
 
 const stop: PluginHookFn<StopContext> = async (ctx) => {
-  // Only re-title at a genuine turn end. A `"continue"` decision means an
-  // earlier hook is re-querying the model (e.g. an empty-response nudge), so
-  // defer to the eventual terminal stop.
+  // Re-title only at a genuine successful turn end. An error stop (a provider
+  // rejection) produced no new topic to re-title from, and a `"continue"`
+  // decision means an earlier hook is re-querying the model (e.g. an
+  // empty-response nudge or an ordering-repair retry), so defer to the
+  // eventual terminal stop.
+  if (ctx.error) return;
   if (ctx.decision !== "stop") return;
 
   if (getConfig().conversations.skipAutoRetitling) return;

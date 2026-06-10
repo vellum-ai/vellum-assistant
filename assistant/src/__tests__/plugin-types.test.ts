@@ -78,14 +78,6 @@ describe("plugin core types", () => {
           handler: async () => new Response("ok", { status: 200 }),
         },
       ],
-      skills: [
-        {
-          id: "sample-skill",
-          name: "Sample Skill",
-          description: "Demo plugin-contributed skill",
-          body: "## Sample\n\nPlugin-provided skill body.",
-        },
-      ],
     } satisfies Plugin;
 
     // Minimal runtime check so the test body is non-empty.

@@ -111,8 +111,8 @@ export function HostingScreen() {
   const onBack = () => {
     void navigate(
       fromSelectAssistant
-        ? routes.onboarding.selectAssistant
-        : routes.onboarding.welcome,
+        ? routes.selectAssistant
+        : routes.welcome,
     );
   };
 

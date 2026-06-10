@@ -2,10 +2,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent, AgentLoopRunResult } from "../agent/loop.js";
-import type { UserMessageAttachment } from "../daemon/message-protocol.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
-import { ProviderError } from "../util/errors.js";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -82,80 +80,14 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-// Token estimator: return a small value (well within budget) so preflight
-// does not trigger in existing tests. Stub both the calibrated and raw
-// entry points — the calibrated estimate backs the orchestrator's preflight /
-// mid-loop overflow checkpoints, and the raw estimate backs the pre-send
-// calibration capture.
+// Token estimator: return a small value (well within budget) so the loop's
+// pre-call budget gate does not trip in these tests. Stub both the calibrated
+// and raw entry points.
 mock.module("../context/token-estimator.js", () => ({
   estimatePromptTokens: () => 1000,
   estimatePromptTokensRaw: () => 1000,
-  // The preflight overflow gate calls this calibrated wrapper directly; stub
-  // it alongside the others so it returns the same small value.
   estimatePromptTokensWithTools: () => 1000,
   estimateToolsTokens: () => 0,
-}));
-
-// Overflow recovery module mocks — the convergence loop delegates to these
-// but these tests exercise the Conversation-level flow, not the reducer internals.
-// The reducer mock delegates to the compactFn to simulate a forced compaction
-// tier, matching the real reducer's behavior for Tier 1.
-mock.module(
-  "../plugins/defaults/compaction/context-overflow-reducer.js",
-  () => ({
-    createInitialReducerState: () => ({
-      appliedTiers: [],
-      injectionMode: "full" as const,
-      exhausted: false,
-    }),
-    reduceContextOverflow: async (
-      msgs: Message[],
-      _cfg: unknown,
-      _state: unknown,
-      compactFn?: (
-        m: Message[],
-        s: AbortSignal | undefined,
-        o: Record<string, unknown>,
-      ) => Promise<{
-        compacted: boolean;
-        messages: Message[];
-        compactedPersistedMessages?: number;
-        summaryText?: string;
-        [k: string]: unknown;
-      }>,
-      signal?: AbortSignal,
-    ) => {
-      let resultMessages = msgs;
-      let compactionResult;
-      if (compactFn) {
-        const cr = await compactFn(msgs, signal, { force: true });
-        if (cr.compacted) {
-          resultMessages = cr.messages;
-          compactionResult = cr;
-        }
-      }
-      return {
-        messages: resultMessages,
-        tier: "forced_compaction",
-        state: {
-          appliedTiers: [
-            "forced_compaction",
-            "tool_result_truncation",
-            "media_stubbing",
-            "injection_downgrade",
-          ],
-          injectionMode: "full",
-          exhausted: true,
-        },
-        estimatedTokens: 1000,
-        compactionResult,
-      };
-    },
-  }),
-);
-
-mock.module("../daemon/context-overflow-policy.js", () => ({
-  resolveOverflowAction: () => "fail_gracefully",
 }));
 
 mock.module("../prompts/system-prompt.js", () => ({
@@ -218,41 +150,20 @@ mock.module("../memory/retriever.js", () => ({
   injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
-let maybeCompactCalls: Array<{ force: boolean }> = [];
-let forceCompactionEnabled = false;
-
 mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   ContextWindowManager: class {
-    constructor() {}
+    conversationId: string | undefined;
+    constructor(options?: { conversationId?: string }) {
+      this.conversationId = options?.conversationId;
+    }
     updateConfig() {}
     shouldCompact() {
       return { needed: false, estimatedTokens: 0 };
     }
-    async maybeCompact(
-      messages: Message[],
-      _signal?: AbortSignal,
-      options?: { force?: boolean },
-    ) {
-      maybeCompactCalls.push({ force: options?.force === true });
-      if (options?.force && forceCompactionEnabled) {
-        return {
-          compacted: true,
-          messages,
-          previousEstimatedInputTokens: 120000,
-          estimatedInputTokens: 50000,
-          maxInputTokens: 100000,
-          thresholdTokens: 80000,
-          compactedMessages: 2,
-          compactedPersistedMessages: 2,
-          summaryCalls: 1,
-          summaryInputTokens: 200,
-          summaryOutputTokens: 50,
-          summaryModel: "mock-summary-model",
-          summaryText: "## Goals\n- compacted",
-        };
-      }
+    async maybeCompact() {
       return { compacted: false };
     }
+    resetOverflowRecovery() {}
   },
   createContextSummaryMessage: () => ({
     role: "user",
@@ -263,13 +174,7 @@ mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
 
 // Track how many times agentLoop.run was called
 let agentLoopRunCount = 0;
-let firstRunErrorMode:
-  | "none"
-  | "ordering"
-  | "context_too_large"
-  | "context_too_large_phrase"
-  | "context_too_large_413"
-  | "context_too_large_413_with_progress" = "ordering";
+let firstRunErrorMode: "none" | "ordering" = "ordering";
 
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
@@ -294,70 +199,11 @@ mock.module("../agent/loop.js", () => ({
       await onEvent({ type: "llm_call_started" });
       agentLoopRunCount++;
 
-      if (
-        agentLoopRunCount === 1 &&
-        firstRunErrorMode === "context_too_large_413_with_progress"
-      ) {
-        // Simulate a run that made progress (tool-use + tool-result) before
-        // hitting a 413 context-too-large error on the second LLM call.
-        onEvent({
-          type: "usage",
-          inputTokens: 10,
-          outputTokens: 20,
-          model: "mock",
-          providerDurationMs: 50,
-        });
-        const assistantMsg: Message = {
-          role: "assistant",
-          content: [
-            {
-              type: "tool_use",
-              id: "tu-1",
-              name: "bash",
-              input: { command: "echo hi" },
-            },
-          ],
-        };
-        onEvent({ type: "message_complete", message: assistantMsg });
-        onEvent({
-          type: "tool_result",
-          toolUseId: "tu-1",
-          content: "hi",
-          isError: false,
-        });
-        // Now the second LLM call fails with 413
-        onEvent({
-          type: "error",
-          error: new ProviderError(
-            "request entity too large",
-            "mock-provider",
-            413,
-          ),
-        });
-        const history = [...messages];
-        history.push(assistantMsg);
-        history.push({
-          role: "user",
-          content: [
-            { type: "tool_result", tool_use_id: "tu-1", content: "hi" },
-          ],
-        } as Message);
-        // Progress was made — history grew
-        return {
-          history,
-          exitReason: null,
-          appendedNewMessages: true,
-          newMessages: history.slice(messages.length),
-        };
-      }
-
-      // Context-too-large modes: keep failing when compaction can't help
-      const isContextTooLargeMode =
-        firstRunErrorMode !== "none" && firstRunErrorMode !== "ordering";
-      const shouldError =
-        firstRunErrorMode !== "none" &&
-        (agentLoopRunCount === 1 ||
-          (isContextTooLargeMode && !forceCompactionEnabled));
+      // Ordering-error recovery lives inside `AgentLoop.run`; with the loop
+      // mocked here, an unrecovered ordering error surfaces as a terminal
+      // `error` event so we can assert the wrapper's surface behavior — it
+      // routes the error to a durable conversation_error and does not re-run.
+      const shouldError = firstRunErrorMode === "ordering";
 
       if (shouldError) {
         onEvent({
@@ -367,34 +213,14 @@ mock.module("../agent/loop.js", () => ({
           model: "mock",
           providerDurationMs: 0,
         });
-        const error = (() => {
-          if (firstRunErrorMode === "ordering") {
-            return new Error(
-              "tool_result blocks that are not immediately after a tool_use block",
-            );
-          }
-          if (firstRunErrorMode === "context_too_large_phrase") {
-            return new Error(
-              "The conversation is too long for the model to process.",
-            );
-          }
-          if (firstRunErrorMode === "context_too_large_413") {
-            return new ProviderError(
-              "request entity too large",
-              "mock-provider",
-              413,
-            );
-          }
-          return new Error(
-            "context_length_exceeded: request has too many input tokens",
-          );
-        })();
+        const error = new Error(
+          "tool_result blocks that are not immediately after a tool_use block",
+        );
         onEvent({ type: "error", error });
         // Return unchanged — no progress
         return {
           history: [...messages],
           exitReason: null,
-          appendedNewMessages: false,
           newMessages: [],
         };
       }
@@ -417,7 +243,6 @@ mock.module("../agent/loop.js", () => ({
       return {
         history,
         exitReason: null,
-        appendedNewMessages: true,
         newMessages: history.slice(messages.length),
       };
     }
@@ -474,23 +299,10 @@ function makeConversation(): Conversation {
   );
 }
 
-function makeImageAttachments(
-  count: number,
-  bytesPerImage = 20_000,
-): UserMessageAttachment[] {
-  return Array.from({ length: count }, (_, i) => ({
-    filename: `shot-${i + 1}.png`,
-    mimeType: "image/png",
-    data: `${i}${"A".repeat(bytesPerImage)}`,
-  }));
-}
-
-describe("provider ordering error retry", () => {
+describe("terminal provider ordering error", () => {
   beforeEach(() => {
     agentLoopRunCount = 0;
     firstRunErrorMode = "ordering";
-    maybeCompactCalls = [];
-    forceCompactionEnabled = false;
     // The compaction pipeline runs through the plugin registry; re-register
     // every default so it has a middleware to dispatch to. Collaborators are
     // mocked above, so the default plugins' delegates go through the mocked
@@ -498,12 +310,13 @@ describe("provider ordering error retry", () => {
     resetPluginRegistryAndRegisterDefaults();
   });
 
-  test("simulated strict provider error triggers exactly one retry", async () => {
+  test("surfaces a durable conversation error without re-running the loop", async () => {
+    // GIVEN the agent loop reports an unrecovered ordering error
     firstRunErrorMode = "ordering";
-
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
+    // WHEN the conversation processes a message
     const events: Array<Record<string, unknown>> = [];
     await conversation.processMessage({
       content: "Hello",
@@ -511,189 +324,37 @@ describe("provider ordering error retry", () => {
       onEvent: (msg) => events.push(msg as unknown as Record<string, unknown>),
     });
 
-    // Should have been called exactly 2 times: original + one retry
-    expect(agentLoopRunCount).toBe(2);
-  });
-
-  test("[experimental] retry succeeds with repaired history and no spurious error event", async () => {
-    firstRunErrorMode = "ordering";
-
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-
-    const events: Array<Record<string, unknown>> = [];
-    await conversation.processMessage({
-      content: "Hello",
-      attachments: [],
-      onEvent: (msg) => events.push(msg as unknown as Record<string, unknown>),
-    });
-
-    // Should have a message_complete event (from successful retry)
-    const messageComplete = events.find((e) => e.type === "message_complete");
-    expect(messageComplete).toBeDefined();
-
-    // Ordering error should be suppressed when retry succeeds — no error events
-    const errorEvents = events.filter((e) => e.type === "error");
-    expect(errorEvents.length).toBe(0);
-
-    // Should also have the assistant response in memory
-    const messages = conversation.getMessages();
-    const lastMsg = messages[messages.length - 1];
-    expect(lastMsg.role).toBe("assistant");
-  });
-
-  test("non-ordering errors do not trigger retry", async () => {
-    firstRunErrorMode = "none";
-
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-
-    const events: Array<Record<string, unknown>> = [];
-    await conversation.processMessage({
-      content: "Hello",
-      attachments: [],
-      onEvent: (msg) => events.push(msg as unknown as Record<string, unknown>),
-    });
-
-    // Should have been called exactly 1 time (no retry for non-ordering errors)
+    // THEN the wrapper invokes the loop exactly once — ordering recovery is
+    // the loop's responsibility, not a wrapper-level re-run
     expect(agentLoopRunCount).toBe(1);
-  });
 
-  test("context-too-large triggers one forced-compaction retry for image-heavy input", async () => {
-    firstRunErrorMode = "context_too_large";
-    forceCompactionEnabled = true;
-
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-
-    const events: Array<Record<string, unknown>> = [];
-    await conversation.processMessage({
-      content: "Please compare these images.",
-      attachments: makeImageAttachments(8),
-      onEvent: (msg) => events.push(msg as unknown as Record<string, unknown>),
-    });
-
-    expect(agentLoopRunCount).toBe(2);
-    expect(maybeCompactCalls).toEqual([{ force: true }]);
-    expect(events.some((e) => e.type === "message_complete")).toBe(true);
-    expect(events.some((e) => e.type === "conversation_error")).toBe(false);
-  });
-
-  test("context-too-large exhausts reducer tiers without compaction — error surfaces after emergency attempt", async () => {
-    firstRunErrorMode = "context_too_large";
-    forceCompactionEnabled = false;
-
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-
-    const events: Array<Record<string, unknown>> = [];
-    await conversation.processMessage({
-      content: "Please compare these images.",
-      attachments: makeImageAttachments(8),
-      onEvent: (msg) => events.push(msg as unknown as Record<string, unknown>),
-    });
-
-    // The convergence loop enters and applies the reducer (which returns
-    // exhausted:true). With the early-break removed, the loop still re-runs
-    // the agent loop once after the reducer. Since compaction didn't help
-    // (forceCompactionEnabled=false), the second run also fails with
-    // context_too_large. The overflow policy (fail_gracefully) surfaces error.
-    expect(agentLoopRunCount).toBe(2);
-    // One maybeCompact call: the reducer's compactFn (force:true). The
-    // orchestrator's start-of-turn auto-compact no longer runs — the loop's
-    // pre-call budget gate owns turn-start compaction and doesn't trip here.
-    expect(maybeCompactCalls).toEqual([{ force: true }]);
-
-    expect(events.some((e) => e.type === "conversation_error")).toBe(true);
-  });
-
-  test("context-too-large still surfaces when no media payloads are available to trim", async () => {
-    firstRunErrorMode = "context_too_large";
-    forceCompactionEnabled = false;
-
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-
-    const events: Array<Record<string, unknown>> = [];
-    await conversation.processMessage({
-      content: "No attachments here.",
-      attachments: [],
-      onEvent: (msg) => events.push(msg as unknown as Record<string, unknown>),
-    });
-
-    // Same as above — convergence loop re-runs agent loop, which also fails.
-    expect(agentLoopRunCount).toBe(2);
-    expect(maybeCompactCalls).toEqual([{ force: true }]);
-    expect(events.some((e) => e.type === "conversation_error")).toBe(true);
-  });
-
-  test("context-too-large phrase also triggers one forced-compaction retry", async () => {
-    firstRunErrorMode = "context_too_large_phrase";
-    forceCompactionEnabled = true;
-
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-
-    const events: Array<Record<string, unknown>> = [];
-    await conversation.processMessage({
-      content: "Please compare these images.",
-      attachments: makeImageAttachments(4),
-      onEvent: (msg) => events.push(msg as unknown as Record<string, unknown>),
-    });
-
-    expect(agentLoopRunCount).toBe(2);
-    expect(maybeCompactCalls).toEqual([{ force: true }]);
-    expect(events.some((e) => e.type === "message_complete")).toBe(true);
-    expect(events.some((e) => e.type === "conversation_error")).toBe(false);
-  });
-
-  test("ProviderError with statusCode 413 triggers forced-compaction retry via classifyConversationError", async () => {
-    firstRunErrorMode = "context_too_large_413";
-    forceCompactionEnabled = true;
-
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-
-    const events: Array<Record<string, unknown>> = [];
-    await conversation.processMessage({
-      content: "Please compare these images.",
-      attachments: makeImageAttachments(8),
-      onEvent: (msg) => events.push(msg as unknown as Record<string, unknown>),
-    });
-
-    // The 413 ProviderError message "request entity too large" doesn't match
-    // the regex patterns, but classifyConversationError recognizes statusCode 413
-    // as CONTEXT_TOO_LARGE and sets contextTooLargeDetected = true.
-    expect(agentLoopRunCount).toBe(2);
-    expect(maybeCompactCalls).toEqual([{ force: true }]);
-    expect(events.some((e) => e.type === "message_complete")).toBe(true);
-    expect(events.some((e) => e.type === "conversation_error")).toBe(false);
-  });
-
-  test("context-too-large after progress surfaces error instead of silent failure", async () => {
-    firstRunErrorMode = "context_too_large_413_with_progress";
-    forceCompactionEnabled = false;
-
-    const conversation = makeConversation();
-    await conversation.loadFromDb();
-
-    const events: Array<Record<string, unknown>> = [];
-    await conversation.processMessage({
-      content: "Run some tools then hit the limit.",
-      attachments: [],
-      onEvent: (msg) => events.push(msg as unknown as Record<string, unknown>),
-    });
-
-    // Two agent loop runs — first makes progress then 413, convergence loop
-    // re-runs after reducer (which returns exhausted). Second run also fails
-    // since compaction didn't help (forceCompactionEnabled=false).
-    expect(agentLoopRunCount).toBe(2);
-
-    // The error must be surfaced to clients via conversation_error, not silently swallowed.
+    // AND the error is surfaced as a durable conversation_error consistent
+    // with every other terminal provider error
     const conversationError = events.find(
       (e) => e.type === "conversation_error",
-    ) as { code?: string } | undefined;
+    );
     expect(conversationError).toBeDefined();
-    expect(conversationError?.code).toBe("CONTEXT_TOO_LARGE");
+    expect(conversationError?.code).toBe("PROVIDER_ORDERING");
+  });
+
+  test("runs the loop once and emits no error on a normal turn", async () => {
+    // GIVEN the agent loop completes the turn without error
+    firstRunErrorMode = "none";
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    // WHEN the conversation processes a message
+    const events: Array<Record<string, unknown>> = [];
+    await conversation.processMessage({
+      content: "Hello",
+      attachments: [],
+      onEvent: (msg) => events.push(msg as unknown as Record<string, unknown>),
+    });
+
+    // THEN the loop ran once and the assistant response was persisted
+    expect(agentLoopRunCount).toBe(1);
+    expect(events.some((e) => e.type === "conversation_error")).toBe(false);
+    const messages = conversation.getMessages();
+    expect(messages[messages.length - 1].role).toBe("assistant");
   });
 });

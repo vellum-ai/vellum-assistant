@@ -74,6 +74,8 @@ function projectModel(model: CatalogModel): Record<string, unknown> {
     projected.longContextMode = model.longContextMode;
   if (model.supportsThinking !== undefined)
     projected.supportsThinking = model.supportsThinking;
+  if (model.adaptiveThinkingOnly !== undefined)
+    projected.adaptiveThinkingOnly = model.adaptiveThinkingOnly;
   if (model.supportsCaching !== undefined)
     projected.supportsCaching = model.supportsCaching;
   if (model.supportsVision !== undefined)

@@ -1,7 +1,7 @@
 /**
- * Tests for the default `history-repair` plugin's `user-prompt-submit` hook.
+ * Tests for the default `history-repair` plugin's hooks.
  *
- * Covers:
+ * `user-prompt-submit`:
  * - The hook normalizes `latestMessages` exactly as `repairHistory` would for
  *   the three documented repair classes (orphan tool_result, missing
  *   tool_result, consecutive same-role messages) and is a no-op for a
@@ -11,6 +11,14 @@
  * - Chain ordering: because defaults register first, the default repair hook
  *   runs ahead of a later-registered user hook, which therefore observes an
  *   already-normalized history.
+ *
+ * `stop` (error-stop recovery):
+ * - On an error stop carrying a repairable ordering rejection, the hook
+ *   deep-repairs the messages and asks the loop to continue.
+ * - Bounded to one pass per turn via the per-conversation repair state: a
+ *   second consecutive ordering rejection is left to surface; the bound clears
+ *   at the turn boundary.
+ * - Ignores non-ordering errors and successful (non-error) stops.
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
@@ -18,10 +26,20 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
   PluginLogger,
+  StopContext,
   UserPromptSubmitContext,
 } from "../plugin-api/types.js";
+import stop from "../plugins/defaults/history-repair/hooks/stop.js";
 import userPromptSubmit from "../plugins/defaults/history-repair/hooks/user-prompt-submit.js";
-import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
+import {
+  isOrderingRepairAttempted,
+  markOrderingRepairAttempted,
+  resetRepairStateStoreForTests,
+} from "../plugins/defaults/history-repair/repair-state-store.js";
+import {
+  deepRepairHistory,
+  repairHistory,
+} from "../plugins/defaults/history-repair/terminal.js";
 import { defaultHistoryRepairPlugin } from "../plugins/defaults/index.js";
 import { runHook } from "../plugins/pipeline.js";
 import {
@@ -29,6 +47,10 @@ import {
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
 import type { Message } from "../providers/types.js";
+
+/** Provider rejection text matched by `isRepairableOrderingError`. */
+const ORDERING_ERROR_MESSAGE =
+  "messages: tool_use ids must have a corresponding tool_result";
 
 const noopLogger: PluginLogger = {
   info: () => {},
@@ -42,6 +64,8 @@ function makeCtx(messages: Message[]): UserPromptSubmitContext {
     conversationId: "conv-test",
     userMessageId: "msg-test",
     requestId: "req-test",
+    modelProfileKey: null,
+    isNonInteractive: false,
     prompt: "",
     originalMessages: messages,
     latestMessages: messages,
@@ -160,5 +184,136 @@ describe("history-repair user-prompt-submit hook — via runHook", () => {
 
     // THEN the user hook saw the already-repaired history.
     expect(observed as Message[] | null).toEqual(expected.messages);
+  });
+});
+
+// ─── Stop hook (error-stop recovery) ─────────────────────────────────────────
+
+/** An ordering-violating history: a leading assistant turn deep-repair strips. */
+function orderingViolatingHistory(): Message[] {
+  return [
+    { role: "assistant", content: [{ type: "text", text: "orphaned" }] },
+    { role: "user", content: [{ type: "text", text: "Hello" }] },
+  ];
+}
+
+function makeStopCtx(overrides: Partial<StopContext> = {}): StopContext {
+  return {
+    conversationId: "conv-stop",
+    messages: [],
+    responseContent: [],
+    stopReason: null,
+    decision: "stop",
+    logger: noopLogger,
+    ...overrides,
+  };
+}
+
+describe("history-repair stop hook — direct", () => {
+  beforeEach(() => {
+    resetRepairStateStoreForTests();
+  });
+
+  test("repairable ordering error → deep-repairs and continues", async () => {
+    // GIVEN an error stop carrying a repairable ordering rejection over a
+    // history with a leading assistant turn.
+    const messages = orderingViolatingHistory();
+    const expected = deepRepairHistory(messages).messages;
+    const ctx = makeStopCtx({
+      messages,
+      error: new Error(ORDERING_ERROR_MESSAGE),
+    });
+
+    // WHEN the hook runs.
+    await stop(ctx);
+
+    // THEN it rewrites the messages to the deep-repaired history and asks the
+    // loop to retry.
+    expect(ctx.decision).toBe("continue");
+    expect(ctx.messages).toEqual(expected);
+    expect(isOrderingRepairAttempted(ctx.conversationId)).toBe(true);
+  });
+
+  test("second consecutive ordering rejection is left to surface", async () => {
+    // GIVEN a turn whose first ordering rejection already triggered a repair.
+    const conversationId = "conv-bounded";
+    markOrderingRepairAttempted(conversationId);
+    const messages = orderingViolatingHistory();
+    const ctx = makeStopCtx({
+      conversationId,
+      messages,
+      error: new Error(ORDERING_ERROR_MESSAGE),
+    });
+
+    // WHEN a second ordering rejection reaches the hook.
+    await stop(ctx);
+
+    // THEN it does not repair again — the error surfaces.
+    expect(ctx.decision).toBe("stop");
+    expect(ctx.messages).toEqual(messages);
+
+    // AND the exhausted bound is cleared so the next turn repairs afresh.
+    expect(isOrderingRepairAttempted(conversationId)).toBe(false);
+  });
+
+  test("a terminal stop clears the bound so a later turn repairs again", async () => {
+    // GIVEN a conversation that already attempted a repair this turn.
+    const conversationId = "conv-reset";
+    markOrderingRepairAttempted(conversationId);
+
+    // AND a successful stop ends that turn, which the hook treats as terminal.
+    await stop(
+      makeStopCtx({
+        conversationId,
+        responseContent: [{ type: "text", text: "done" }],
+        stopReason: "end_turn",
+      }),
+    );
+    expect(isOrderingRepairAttempted(conversationId)).toBe(false);
+
+    // WHEN a later turn hits a repairable ordering rejection.
+    const ctx = makeStopCtx({
+      conversationId,
+      messages: orderingViolatingHistory(),
+      error: new Error(ORDERING_ERROR_MESSAGE),
+    });
+    await stop(ctx);
+
+    // THEN the hook repairs independently of the prior turn.
+    expect(ctx.decision).toBe("continue");
+  });
+
+  test("non-ordering error is left untouched", async () => {
+    // GIVEN an error stop whose rejection is not an ordering violation.
+    const messages = orderingViolatingHistory();
+    const ctx = makeStopCtx({
+      messages,
+      error: new Error("rate limit exceeded"),
+    });
+
+    // WHEN the hook runs.
+    await stop(ctx);
+
+    // THEN it defers — the decision and history are unchanged.
+    expect(ctx.decision).toBe("stop");
+    expect(ctx.messages).toEqual(messages);
+  });
+
+  test("successful (non-error) stop is ignored", async () => {
+    // GIVEN a successful stop — the model returned a response, no error.
+    const messages = orderingViolatingHistory();
+    const ctx = makeStopCtx({
+      messages,
+      responseContent: [{ type: "text", text: "done" }],
+      stopReason: "end_turn",
+    });
+
+    // WHEN the hook runs.
+    await stop(ctx);
+
+    // THEN the model response is left untouched — repair only applies to
+    // ordering rejections.
+    expect(ctx.decision).toBe("stop");
+    expect(ctx.messages).toEqual(messages);
   });
 });

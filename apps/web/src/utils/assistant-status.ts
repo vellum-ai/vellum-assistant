@@ -44,7 +44,7 @@ export function deriveAssistantStatus({
   if (lifecycleKind === "error") return "error";
 
   // Session still settling, or the assistant hasn't reached `active` yet
-  // (loading / initializing / version-selection / hosted-but-not-connected):
+  // (loading / initializing / hosted-but-not-connected):
   // there's no live data plane, so the honest state is disconnected.
   if (sessionStatus === "initializing" || lifecycleKind !== "active") {
     return "disconnected";

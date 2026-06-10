@@ -20,10 +20,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { routes } from "@/utils/routes";
 
-import {
-  type DisplayAttachment,
-  type DisplayMessage,
-} from "@/domains/chat/utils/reconcile";
+import type {
+  DisplayAttachment,
+  DisplayMessage,
+} from "@/domains/chat/types/types";
 import { reconcileSnapshot } from "@/domains/chat/utils/reconcile-snapshot";
 import { getLocalSeq, recordLocalSeq } from "@/lib/streaming/local-seq";
 import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope";
@@ -50,7 +50,7 @@ import {
   type PreChatOnboardingContext,
 } from "@/domains/onboarding/prechat";
 
-import { clearQueueStatus } from "@/domains/chat/hooks/stream-message-updaters";
+import { clearQueueStatus } from "@/domains/chat/utils/stream-updaters/shared";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat";
 import type { ChatError } from "@/domains/chat/types";

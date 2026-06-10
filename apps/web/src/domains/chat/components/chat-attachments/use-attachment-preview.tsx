@@ -2,7 +2,7 @@
 import { useCallback, useState } from "react";
 import type { ReactNode } from "react";
 
-import type { DisplayAttachment } from "@/domains/chat/utils/reconcile";
+import type { DisplayAttachment } from "@/domains/chat/types/types";
 
 import { AttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/attachment-preview-modal";
 

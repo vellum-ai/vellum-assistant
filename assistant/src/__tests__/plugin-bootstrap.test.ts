@@ -42,11 +42,7 @@ import {
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
-import {
-  type Plugin,
-  PluginExecutionError,
-  type PluginInitContext,
-} from "../plugins/types.js";
+import { type Plugin, type PluginInitContext } from "../plugins/types.js";
 import { APP_VERSION } from "../version.js";
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
@@ -174,9 +170,9 @@ describe("plugin bootstrap", () => {
     expect(received?.credentials).toEqual({ "some-key": "super-secret-value" });
   });
 
-  test("credential resolution: missing credential fails bootstrap with the plugin named", async () => {
+  test("credential resolution: a plugin whose required credential is missing is skipped, not fatal", async () => {
+    // GIVEN a plugin that requires a credential the store cannot resolve
     getSecureKeyAsyncMock.mockImplementation(async () => undefined);
-
     registerPlugin(
       buildPlugin(
         "missing-cred",
@@ -185,16 +181,14 @@ describe("plugin bootstrap", () => {
       ),
     );
 
-    let caught: unknown;
-    try {
-      await bootstrapPlugins();
-    } catch (err) {
-      caught = err;
-    }
-    expect(caught).toBeInstanceOf(PluginExecutionError);
-    const msg = (caught as PluginExecutionError).message;
-    expect(msg).toContain("missing-cred");
-    expect(msg).toContain("absent-key");
+    // WHEN bootstrap runs
+    // THEN it completes without throwing — the unresolvable credential is
+    // contained to that plugin (same per-plugin isolation as an init throw)
+    await bootstrapPlugins();
+
+    // AND the plugin is dropped from the registry
+    const names = getRegisteredPlugins().map((p) => p.manifest.name);
+    expect(names).not.toContain("missing-cred");
   });
 
   test("version mismatch: external plugin loader rejects when peerDependency unsatisfied", async () => {
@@ -208,7 +202,8 @@ describe("plugin bootstrap", () => {
     expect(() => registerPlugin(plugin)).not.toThrow();
   });
 
-  test("plugin init throw: bootstrap throws a PluginExecutionError naming the plugin", async () => {
+  test("plugin init throw: bootstrap contains the failure and does not throw", async () => {
+    // GIVEN a plugin whose init throws
     registerPlugin(
       buildPlugin("broken", {
         async init() {
@@ -217,38 +212,29 @@ describe("plugin bootstrap", () => {
       }),
     );
 
-    let caught: unknown;
-    try {
-      await bootstrapPlugins();
-    } catch (err) {
-      caught = err;
-    }
-    expect(caught).toBeInstanceOf(PluginExecutionError);
-    const msg = (caught as PluginExecutionError).message;
-    expect(msg).toContain("broken");
-    expect(msg).toContain("kaboom");
+    // WHEN bootstrap runs
+    // THEN it completes without throwing — a single plugin's init failure is
+    // contained to that plugin rather than aborting the whole plugin layer
+    await bootstrapPlugins();
+
+    // AND the failing plugin is dropped from the registry so its hooks never
+    // participate in the turn lifecycle
+    const names = getRegisteredPlugins().map((p) => p.manifest.name);
+    expect(names).not.toContain("broken");
   });
 
-  test("partial-init failure: earlier plugins' onShutdown runs in reverse before the error propagates", async () => {
-    // If plugin N throws during init, every plugin 1..N-1 that already made
-    // it through its full init+contribution phase must have onShutdown()
-    // invoked in reverse registration order before bootstrap re-throws.
-    // Without this, earlier plugins leak live tools/routes/skills because
-    // the shutdown hook is only registered once the entire loop completes.
-    const callOrder: string[] = [];
+  test("mid-list init failure: surrounding plugins still initialize and survive", async () => {
+    // GIVEN two healthy plugins surrounding one whose init throws, registered
+    // in order
+    const initialized: string[] = [];
+    const shutDownDuringBootstrap: string[] = [];
     registerPlugin(
-      buildPlugin("survivor-a", {
-        async init() {},
-        async onShutdown() {
-          callOrder.push("survivor-a");
+      buildPlugin("before", {
+        async init() {
+          initialized.push("before");
         },
-      }),
-    );
-    registerPlugin(
-      buildPlugin("survivor-b", {
-        async init() {},
         async onShutdown() {
-          callOrder.push("survivor-b");
+          shutDownDuringBootstrap.push("before");
         },
       }),
     );
@@ -257,25 +243,60 @@ describe("plugin bootstrap", () => {
         async init() {
           throw new Error("mid-bootstrap failure");
         },
+      }),
+    );
+    registerPlugin(
+      buildPlugin("after", {
+        async init() {
+          initialized.push("after");
+        },
         async onShutdown() {
-          // Never called — this plugin never completes init, so it was never
-          // added to the active list that teardown walks.
-          callOrder.push("failing");
+          shutDownDuringBootstrap.push("after");
         },
       }),
     );
 
-    let caught: unknown;
-    try {
-      await bootstrapPlugins();
-    } catch (err) {
-      caught = err;
-    }
-    expect(caught).toBeInstanceOf(PluginExecutionError);
+    // WHEN bootstrap runs
+    await bootstrapPlugins();
 
-    // Reverse order: survivor-b registered after survivor-a, so it tears
-    // down first; "failing" never entered the active list.
-    expect(callOrder).toEqual(["survivor-b", "survivor-a"]);
+    // THEN both healthy plugins initialized — the one registered after the
+    // failure is not skipped
+    expect(initialized).toEqual(["before", "after"]);
+    // AND neither healthy plugin was torn down by the failure (their
+    // onShutdown only runs at real shutdown, not during bootstrap)
+    expect(shutDownDuringBootstrap).toEqual([]);
+    // AND the failing plugin is dropped while both survivors remain registered
+    const names = getRegisteredPlugins().map((p) => p.manifest.name);
+    expect(names).toContain("before");
+    expect(names).toContain("after");
+    expect(names).not.toContain("failing");
+  });
+
+  test("user-plugin init failure leaves the first-party defaults registered", async () => {
+    // GIVEN the first-party defaults are registered ahead of user plugins, as
+    // at daemon startup
+    registerDefaultPlugins();
+    // AND a user plugin registered after them whose init throws
+    registerPlugin(
+      buildPlugin("breaking-user-plugin", {
+        async init() {
+          throw new Error("user plugin boom");
+        },
+      }),
+    );
+
+    // WHEN bootstrap runs
+    await bootstrapPlugins();
+
+    // THEN the failing user plugin is dropped from the registry
+    const names = getRegisteredPlugins().map((p) => p.manifest.name);
+    expect(names).not.toContain("breaking-user-plugin");
+    // AND every first-party default survived, so core turn behavior (memory
+    // retrieval, history repair, title generation) keeps running in degraded
+    // mode instead of being torn down with the failing plugin
+    expect(names).toContain("default-memory-retrieval");
+    expect(names).toContain("default-history-repair");
+    expect(names).toContain("default-title-generate");
   });
 
   test("shutdown order: onShutdown fires in reverse registration order", async () => {
@@ -378,11 +399,11 @@ describe("plugin bootstrap", () => {
     expect(initFired).toBe(true);
   });
 
-  test("requiresFlag disabled: init does not fire and no tools/routes/skills are registered", async () => {
+  test("requiresFlag disabled: init does not fire and no tools/routes are registered", async () => {
     setOverridesForTesting({ "plugin-gated-disabled": false });
 
     let initFired = false;
-    // Attach tool/route/skill contributions alongside init. If gating works,
+    // Attach tool/route contributions alongside init. If gating works,
     // none of them should land in their respective registries.
     const plugin = buildPlugin(
       "gated-off",
@@ -409,24 +430,14 @@ describe("plugin bootstrap", () => {
             handler: async () => new Response("ok"),
           },
         ],
-        skills: [
-          {
-            id: "gated-off/skill",
-            name: "gated-off-skill",
-            description: "should not be catalogued",
-            body: "# unused",
-          },
-        ],
       },
       { requiresFlag: ["plugin-gated-disabled"] },
     );
     registerPlugin(plugin);
 
-    // Grab tool / route / skill introspection helpers lazily so the import
+    // Grab tool / route introspection helpers lazily so the import
     // side effect happens after `mock.module` has taken effect.
     const { getTool } = await import("../tools/registry.js");
-    const { getPluginSkillRefCount } =
-      await import("../plugins/plugin-skill-contributions.js");
     const { matchSkillRoute } =
       await import("../runtime/skill-route-registry.js");
 
@@ -438,8 +449,6 @@ describe("plugin bootstrap", () => {
     expect(getTool("gated-off-tool")).toBeUndefined();
     // No route wired up — `matchSkillRoute` returns null when nothing matches.
     expect(matchSkillRoute("/_plugin/gated-off/status", "GET")).toBeNull();
-    // No skill catalogued under this plugin's name — ref count stays 0.
-    expect(getPluginSkillRefCount("gated-off")).toBe(0);
   });
 
   test("requiresFlag absent: plugin activates unconditionally", async () => {

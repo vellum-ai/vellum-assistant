@@ -1,7 +1,7 @@
 import {
   applyToolResult,
   upsertToolCall,
-} from "@/domains/chat/hooks/stream-message-updaters";
+} from "@/domains/chat/utils/stream-updaters/tool-call-updaters";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type {
@@ -21,7 +21,7 @@ export function handleToolUseStart(
     id: toolCallId,
     name: event.toolName,
     input: event.input,
-    startedAt: Date.now(),
+    startedAt: event.startedAt ?? Date.now(),
   };
   ctx.setMessages((prev) => {
     const next = upsertToolCall(prev, newToolCall, event.messageId);
@@ -66,6 +66,7 @@ export function handleToolResult(
       riskScopeOptions: event.riskScopeOptions,
       riskDirectoryScopeOptions: event.riskDirectoryScopeOptions,
       activityMetadata: event.activityMetadata,
+      completedAt: event.completedAt,
     }),
   );
 }

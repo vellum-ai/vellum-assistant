@@ -3,7 +3,7 @@
 // messages + interaction state and emits a flat item array that the
 // Transcript component renders via a virtualised list.
 
-import { dedupeDisplayMessages, type DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import type {
   MessageItem,
   PendingContactRequestItem,
@@ -61,7 +61,7 @@ export function buildTranscriptItems(
 
   const items: TranscriptItem[] = [];
 
-  for (const message of dedupeDisplayMessages(messages)) {
+  for (const message of messages) {
     // Subagent notification messages are injected by the daemon as user-role
     // messages for state reconstruction (history.ts extracts them). They
     // should not render as user bubbles. Matches macOS ChatVisibleMessageFilter.

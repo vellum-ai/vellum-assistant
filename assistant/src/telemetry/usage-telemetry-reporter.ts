@@ -23,6 +23,7 @@ import {
 import { queryUnreportedLifecycleEvents } from "../memory/lifecycle-events-store.js";
 import { queryUnreportedUsageEvents } from "../memory/llm-usage-store.js";
 import { queryUnreportedOnboardingEvents } from "../memory/onboarding-events-store.js";
+import { queryUnreportedToolExecutionEvents } from "../memory/tool-execution-events-store.js";
 import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
 import { VellumPlatformClient } from "../platform/client.js";
 import { getDeviceId } from "../util/device-id.js";
@@ -56,6 +57,10 @@ const CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK =
   "telemetry:auth_fallback:last_reported_at";
 const CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK_ID =
   "telemetry:auth_fallback:last_reported_id";
+const CHECKPOINT_KEY_TOOL_EXECUTION_WATERMARK =
+  "telemetry:tool_execution:last_reported_at";
+const CHECKPOINT_KEY_TOOL_EXECUTION_WATERMARK_ID =
+  "telemetry:tool_execution:last_reported_id";
 const REPORT_INTERVAL_MS = 5 * 60 * 1000;
 const INITIAL_FLUSH_DELAY_MS = 30_000; // Delay first flush to let CES handshake complete
 const BATCH_SIZE = 500;
@@ -149,6 +154,7 @@ export class UsageTelemetryReporter {
         setMemoryCheckpoint(CHECKPOINT_KEY_LIFECYCLE_WATERMARK, now);
         setMemoryCheckpoint(CHECKPOINT_KEY_ONBOARDING_WATERMARK, now);
         setMemoryCheckpoint(CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK, now);
+        setMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTION_WATERMARK, now);
         return;
       }
 
@@ -189,6 +195,14 @@ export class UsageTelemetryReporter {
         getMemoryCheckpoint(CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK_ID) ??
         undefined;
 
+      // Read tool-execution watermark (compound cursor: createdAt + id)
+      const toolExecutionWatermark = Number(
+        getMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTION_WATERMARK) ?? "0",
+      );
+      const toolExecutionWatermarkId =
+        getMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTION_WATERMARK_ID) ??
+        undefined;
+
       // Query unreported events
       const events = queryUnreportedUsageEvents(
         watermark,
@@ -215,13 +229,19 @@ export class UsageTelemetryReporter {
         authFallbackWatermarkId,
         BATCH_SIZE,
       );
+      const toolExecutionEvents = queryUnreportedToolExecutionEvents(
+        toolExecutionWatermark,
+        toolExecutionWatermarkId,
+        BATCH_SIZE,
+      );
 
       if (
         events.length === 0 &&
         turnEvents.length === 0 &&
         lifecycleEvents.length === 0 &&
         onboardingEvents.length === 0 &&
-        authFallbackEvents.length === 0
+        authFallbackEvents.length === 0 &&
+        toolExecutionEvents.length === 0
       )
         return;
 
@@ -236,6 +256,7 @@ export class UsageTelemetryReporter {
           lifecycleCount: lifecycleEvents.length,
           onboardingCount: onboardingEvents.length,
           authFallbackCount: authFallbackEvents.length,
+          toolExecutionCount: toolExecutionEvents.length,
         },
         "Telemetry flush: resolved auth context",
       );
@@ -375,11 +396,11 @@ export class UsageTelemetryReporter {
             ...(e.stepIndex != null ? { step_index: e.stepIndex } : {}),
             ...(e.completedAt ? { completed_at: e.completedAt } : {}),
             ...(e.funnelVersion ? { funnel_version: e.funnelVersion } : {}),
-            // Onboarding events fall back to the envelope `assistant_version`
-            // — same upload-time attribution risk as before this PR. Adding
-            // the record-time column to `onboarding_events` (#30733) is a
-            // separate follow-up that mirrors what this PR does for
-            // `llm_usage_events`.
+            // Onboarding events fall back to the envelope `assistant_version`,
+            // so events recorded under an older build are attributed to the
+            // version running at upload time. Adding a record-time column to
+            // `onboarding_events` (mirroring `llm_usage_events`) is a known
+            // follow-up.
             assistant_version: APP_VERSION,
           }),
         ),
@@ -399,6 +420,26 @@ export class UsageTelemetryReporter {
             // wire value is concrete rather than an explicit null that would
             // override the envelope under the platform's per-event-wins
             // contract.
+            assistant_version: APP_VERSION,
+          }),
+        ),
+        ...toolExecutionEvents.map(
+          (e): TelemetryEvent => ({
+            type: "tool_execution",
+            daemon_event_id: e.id,
+            recorded_at: e.createdAt,
+            tool_name: e.toolName,
+            skill_id: e.skillId,
+            decision: e.decision,
+            risk_level: e.riskLevel,
+            duration_ms: e.durationMs,
+            conversation_id: e.conversationId,
+            // `tool_invocations` has no record-time version column — stamp
+            // the running binary's `APP_VERSION` so the wire value is
+            // concrete rather than an explicit null that would override the
+            // envelope under the platform's per-event-wins contract. Adding
+            // the record-time column is a separate follow-up that mirrors
+            // what migration 267 did for `llm_usage_events`.
             assistant_version: APP_VERSION,
           }),
         ),
@@ -501,13 +542,28 @@ export class UsageTelemetryReporter {
         );
       }
 
+      // Advance tool-execution watermark (compound cursor)
+      if (toolExecutionEvents.length > 0) {
+        const lastToolExecution =
+          toolExecutionEvents[toolExecutionEvents.length - 1];
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_TOOL_EXECUTION_WATERMARK,
+          String(lastToolExecution.createdAt),
+        );
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_TOOL_EXECUTION_WATERMARK_ID,
+          lastToolExecution.id,
+        );
+      }
+
       // If we got a full batch of any type, there may be more — recurse
       if (
         events.length === BATCH_SIZE ||
         turnEvents.length === BATCH_SIZE ||
         lifecycleEvents.length === BATCH_SIZE ||
         onboardingEvents.length === BATCH_SIZE ||
-        authFallbackEvents.length === BATCH_SIZE
+        authFallbackEvents.length === BATCH_SIZE ||
+        toolExecutionEvents.length === BATCH_SIZE
       ) {
         await this._doFlush(batchCount + 1);
       }

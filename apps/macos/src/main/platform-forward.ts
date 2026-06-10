@@ -16,7 +16,6 @@ export type PlatformForwardPlan =
       method: string;
       headers: Headers;
       hasBody: boolean;
-      shouldInjectCsrfToken: boolean;
     };
 
 export interface PlatformForwardRequest {
@@ -35,6 +34,7 @@ export interface PlatformForwardOptions {
 }
 
 const PLATFORM_PREFIXES = ["/v1", "/_allauth", "/accounts"] as const;
+const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
 
 function isPlatformPath(pathname: string): boolean {
   return PLATFORM_PREFIXES.some(
@@ -59,7 +59,48 @@ function isUnsafeMethod(method: string): boolean {
   return !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
 }
 
+function expectedRendererOrigin(allowed: PlatformForwardAllowedOrigin): string {
+  return `${allowed.protocol}//${allowed.host}`;
+}
+
+/**
+ * Chromium omits the `Origin` header on requests to Electron custom protocol
+ * handlers (`app://`), so standard origin-checking cannot trust them. Fall
+ * back to two signals that ARE present:
+ *
+ *   1. `X-Vellum-Electron-Renderer-Origin` — set by the renderer's API
+ *      interceptor on mutating requests, stripped before forwarding.
+ *   2. `Sec-Fetch-Site: same-origin` — browser-controlled Fetch Metadata
+ *      header that page JS cannot forge.
+ *
+ * Both checks additionally verify the request URL itself targets the
+ * expected app origin, preventing a hypothetical cross-origin sub-resource
+ * from satisfying the check.
+ */
+function hasTrustedSourceLessRendererSignal(
+  requestUrl: URL,
+  headers: Headers,
+  allowed: PlatformForwardAllowedOrigin,
+): boolean {
+  if (
+    requestUrl.protocol !== allowed.protocol ||
+    requestUrl.host !== allowed.host
+  ) {
+    return false;
+  }
+
+  if (
+    headers.get(ELECTRON_RENDERER_ORIGIN_HEADER) ===
+    expectedRendererOrigin(allowed)
+  ) {
+    return true;
+  }
+
+  return headers.get("sec-fetch-site") === "same-origin";
+}
+
 function getInitiatorTrust(
+  requestUrl: URL,
   headers: Headers,
   allowed?: PlatformForwardAllowedOrigin,
 ): { trusted: boolean; rejected: boolean } {
@@ -72,7 +113,16 @@ function getInitiatorTrust(
   }
 
   const referer = headers.get("referer");
-  if (!referer) return { trusted: false, rejected: false };
+  if (!referer) {
+    return {
+      trusted: hasTrustedSourceLessRendererSignal(
+        requestUrl,
+        headers,
+        allowed,
+      ),
+      rejected: false,
+    };
+  }
 
   const trusted = isAllowedSource(referer, allowed);
   return { trusted, rejected: !trusted };
@@ -83,11 +133,9 @@ function getInitiatorTrust(
  *
  * On `forward`, the request's `Origin` is rewritten to the platform's own
  * origin. The renderer issues this request from `app://vellum.ai` but the
- * platform expects its own origin for CORS/CSRF purposes. Unsafe requests are
- * only forwarded when their browser-controlled `Origin` or `Referer` matches
- * the trusted renderer origin, and only those trusted requests are eligible for
- * main-process CSRF token injection. All other headers (Authorization,
- * X-CSRFToken, Content-Type, etc.) pass through unchanged.
+ * platform expects its own origin for CORS purposes. Unsafe requests are only
+ * forwarded when their browser-controlled `Origin` or `Referer` matches the
+ * trusted renderer origin. All other headers pass through unchanged.
  */
 export function planPlatformForward(
   request: PlatformForwardRequest,
@@ -99,7 +147,11 @@ export function planPlatformForward(
     return { kind: "pass" };
   }
 
-  const initiator = getInitiatorTrust(request.headers, options.allowedOrigin);
+  const initiator = getInitiatorTrust(
+    url,
+    request.headers,
+    options.allowedOrigin,
+  );
   const unsafeUntrustedRequest =
     options.allowedOrigin &&
     isUnsafeMethod(request.method) &&
@@ -114,6 +166,7 @@ export function planPlatformForward(
 
   const target = new URL(platformUrl);
   const headers = new Headers(request.headers);
+  headers.delete(ELECTRON_RENDERER_ORIGIN_HEADER);
   headers.set("origin", target.origin);
 
   return {
@@ -122,6 +175,5 @@ export function planPlatformForward(
     method: request.method,
     headers,
     hasBody: request.method !== "GET" && request.method !== "HEAD",
-    shouldInjectCsrfToken: initiator.trusted,
   };
 }

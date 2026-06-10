@@ -13,10 +13,10 @@ const appId =
     ? "com.vellum.vellum-assistant-electron"
     : `com.vellum.vellum-assistant-electron-${env}`;
 
-const schemes = ["vellum", "vellum-assistant"];
-if (env !== "production") {
-  schemes.push(`vellum-assistant-${env}`);
-}
+const schemes =
+  env === "production"
+    ? ["vellum", "vellum-assistant"]
+    : [`vellum-assistant-${env}`];
 
 const channel =
   env === "staging" ? "beta" : env === "dev" ? "alpha" : "latest";
@@ -34,12 +34,13 @@ module.exports = {
   },
   extraResources: [
     { from: "resources/bun", to: "bun" },
-    { from: "resources/hotkey-helper", to: "hotkey-helper" },
+    { from: "resources/vellum-mac-helper", to: "bin/vellum-mac-helper" },
     { from: "resources/web-dist", to: "web-dist" },
     { from: "resources/cli-lockfile", to: "cli-lockfile" },
     { from: "build/icon.icns", to: "icon.icns" },
   ],
   afterPack: "./scripts/afterPack.js",
+  afterSign: "./scripts/afterSign.js",
   protocols: [
     {
       name: "Vellum Deep Links",

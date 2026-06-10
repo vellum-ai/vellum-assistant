@@ -1,5 +1,6 @@
 import type { CredentialCache } from "./credential-cache.js";
 import { credentialKey } from "./credential-key.js";
+import { getDeviceId } from "./device-id.js";
 import { fetchImpl } from "./fetch.js";
 import { loadFeatureFlagDefaults } from "./feature-flag-defaults.js";
 import { writeRemoteFeatureFlags } from "./feature-flag-remote-store.js";
@@ -379,6 +380,10 @@ export class RemoteFeatureFlagSync {
     const headers: Record<string, string> = { Accept: "application/json" };
     if (assistantCredential) {
       headers["Authorization"] = `Api-Key ${assistantCredential}`;
+    }
+    const deviceId = getDeviceId();
+    if (deviceId) {
+      headers["Vellum-Device-Id"] = deviceId;
     }
     log.debug(
       { url, authenticated: !!assistantCredential },

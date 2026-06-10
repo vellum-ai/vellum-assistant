@@ -250,7 +250,7 @@ describe("runLongMemEvalV2Unit", () => {
     const runId = `lme-v2-runner-events-${Date.now()}`;
     runIdsToCleanup.push(runId);
     const harness = makeFakeAgent([
-      [textEvent("Indexing haystack…")],
+      [textEvent("Indexing haystack…"), textEvent("\nReady.")],
       [textEvent("The laptop was blue.")],
     ]);
     nextAgent = harness.agent;
@@ -573,7 +573,7 @@ describe("runLongMemEvalV2Unit", () => {
     expect(usage.totalOutputTokens).toBe(50);
   });
 
-  test("manifest write reflects haystack order and ability", async () => {
+  test("manifest write reflects haystack order and withholds the question for blind ingest", async () => {
     const runId = `lme-v2-runner-manifest-${Date.now()}`;
     runIdsToCleanup.push(runId);
 
@@ -594,7 +594,10 @@ describe("runLongMemEvalV2Unit", () => {
     expect(manifestWrite).toBeDefined();
     const manifest = JSON.parse(manifestWrite!.content);
     expect(manifest.trajectoryIds).toEqual(["t2", "t1"]);
-    expect(manifest.ability).toBe("static-state-recall");
     expect(manifest.count).toBe(2);
+    // The ingested manifest must not leak the upcoming question or its
+    // ability type, otherwise the ingest turn is no longer blind.
+    expect(manifest.question).toBeUndefined();
+    expect(manifest.ability).toBeUndefined();
   });
 });

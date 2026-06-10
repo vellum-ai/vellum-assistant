@@ -8,8 +8,7 @@
 
 import type { ConversationContentBlock } from "@vellumai/assistant-api";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import type { Surface } from "@/domains/chat/types/types";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 
 /**
  * One item inside an `activity` run for the merged activity-summary grouping.
@@ -102,11 +101,9 @@ export function resolveToolCall(
  * the unified `contentBlocks` projection and falling back to the positional
  * `thinkingSegments` per index. Thinking blocks are built in lockstep with
  * `thinkingSegments`, so the i-th thinking block carries the same text as
- * `thinkingSegments[i]`. The per-index fallback covers indices the projection
- * doesn't span: rows with no `contentBlocks` at all (older daemons, in-flight
- * streaming rows) and rows whose `contentBlocks` is shorter than the positional
- * arrays — e.g. one formed by merging adjacent/duplicate messages, where the
- * positional arrays are concatenated but `contentBlocks` carries only one side.
+ * `thinkingSegments[i]`. The per-index fallback covers rows that have no
+ * `contentBlocks` projection yet — older daemons that never emit blocks and
+ * in-flight streaming rows whose blocks have not been built.
  */
 export function resolveThinkingContent(
   message: DisplayMessage,
@@ -126,6 +123,48 @@ export function resolveThinkingContent(
     })
     .filter((s): s is string => Boolean(s))
     .join("\n");
+}
+
+/** Earliest start and latest completion (epoch ms) across a run of thinking blocks. */
+export interface ThinkingTiming {
+  startedAt?: number;
+  completedAt?: number;
+}
+
+/**
+ * Resolve the timing of a run of `thinking` contentOrder ids: the earliest
+ * `startedAt` and latest `completedAt` across the referenced thinking blocks.
+ * Rows without `contentBlocks` resolve to empty timing, and the UI then hides
+ * the duration exactly as a tool call with no `startedAt` does.
+ */
+export function resolveThinkingTiming(
+  message: DisplayMessage,
+  ids: string[],
+): ThinkingTiming {
+  const thinkingBlocks = message.contentBlocks?.filter(
+    (b): b is Extract<ConversationContentBlock, { type: "thinking" }> =>
+      b.type === "thinking",
+  );
+  if (!thinkingBlocks) return {};
+  let startedAt: number | undefined;
+  let completedAt: number | undefined;
+  for (const id of ids) {
+    const idx = parseInt(id, 10);
+    if (isNaN(idx)) continue;
+    const block = thinkingBlocks[idx];
+    if (!block) continue;
+    if (block.startedAt != null) {
+      startedAt =
+        startedAt == null ? block.startedAt : Math.min(startedAt, block.startedAt);
+    }
+    if (block.completedAt != null) {
+      completedAt =
+        completedAt == null
+          ? block.completedAt
+          : Math.max(completedAt, block.completedAt);
+    }
+  }
+  return { startedAt, completedAt };
 }
 
 /**

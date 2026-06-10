@@ -124,6 +124,15 @@ export const ToolResultEventSchema = z.object({
   approvalReason: z.string().optional(),
   riskThreshold: z.string().optional(),
   activityMetadata: ToolActivityMetadataSchema.optional(),
+  /**
+   * Unix ms when the daemon finished executing the tool. Pairs with
+   * `ToolUseStartEvent.startedAt` so clients can render a final duration that
+   * stays on the daemon's clock, matching the live elapsed-time counter and
+   * avoiding skew between a server-stamped start and a browser-stamped end.
+   * Absent on streams from older daemons; clients fall back to their own
+   * receipt time.
+   */
+  completedAt: z.number().optional(),
 });
 
 export type ToolResultEvent = z.infer<typeof ToolResultEventSchema>;

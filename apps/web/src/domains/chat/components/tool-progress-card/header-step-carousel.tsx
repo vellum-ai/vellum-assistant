@@ -115,6 +115,7 @@ export function HeaderStepCarousel({
   currentStepTitle,
   currentStepInfo,
   bypassDwell = false,
+  animationKey,
 }: {
   currentStepTitle: string;
   currentStepInfo: ReactNode;
@@ -129,6 +130,15 @@ export function HeaderStepCarousel({
    * metadata still coalesces into readable steps.
    */
   bypassDwell?: boolean;
+  /**
+   * Optional stable identity for the enter/exit transition. By default the
+   * animation re-keys on the `(title, info)` tuple, so any text change slides
+   * the old content out and the new content in. When the header's only
+   * changing part is a live value (e.g. a ticking "Working for 8s"), pass a
+   * constant key here so the same element stays mounted and the text updates
+   * in place — no per-tick slide.
+   */
+  animationKey?: string;
 }) {
   const reduce = useReducedMotion();
   const tuple = useMemo(
@@ -164,11 +174,20 @@ export function HeaderStepCarousel({
     : displayed.info == null
       ? ""
       : "node";
-  const key = `${displayed.title}::${infoKey}`;
+  // A caller-supplied `animationKey` pins the transition identity so in-place
+  // value updates (e.g. a ticking duration) don't trigger a slide; otherwise
+  // the key tracks the content tuple so each new step animates in.
+  const key = animationKey ?? `${displayed.title}::${infoKey}`;
 
   // Pipe separator only renders when there's info to follow it. Empty
   // string, null, and undefined all count as "no info".
   const hasInfo = isTextInfo ? displayed.info !== "" : displayed.info != null;
+
+  // Some tools (e.g. bash) intentionally carry no collapsed-header title —
+  // the info subtext alone is the label. When the title is empty we drop both
+  // the title element and the leading pipe, and promote the info into the
+  // primary (emphasised) slot so it doesn't read as de-emphasised subtext.
+  const hasTitle = displayed.title.trim() !== "";
 
   return (
     <AnimatePresence initial={false} mode="popLayout">
@@ -182,31 +201,43 @@ export function HeaderStepCarousel({
         // truncates inside the remaining space.
         className="flex min-w-0 flex-1 items-center gap-1"
       >
-        <Typography
-          variant="body-medium-default"
-          className="ml-1 shrink-0 whitespace-nowrap text-[var(--content-emphasised)]"
-        >
-          {displayed.title}
-        </Typography>
+        {hasTitle ? (
+          <Typography
+            variant="body-medium-default"
+            className="ml-1 shrink-0 whitespace-nowrap text-[var(--content-emphasised)]"
+          >
+            {displayed.title}
+          </Typography>
+        ) : null}
         {hasInfo ? (
           <>
-            <span
-              aria-hidden="true"
-              className="shrink-0 text-[var(--border-element)]"
-            >
-              |
-            </span>
+            {hasTitle ? (
+              <span
+                aria-hidden="true"
+                className="shrink-0 text-[var(--border-element)]"
+              >
+                |
+              </span>
+            ) : null}
             {isTextInfo ? (
               <Typography
-                variant="body-small-default"
+                // With a title present, the info is subtext (small, tertiary).
+                // With no title it IS the header label, so it takes the
+                // title's emphasis (medium, emphasised) instead.
+                variant={hasTitle ? "body-small-default" : "body-medium-default"}
                 // `body-small-default` ships line-height: 1, which clips
                 // descenders (e.g. the "g" in "subagent") once `truncate`
                 // adds overflow:hidden. Bump to 16px — the same ~1.3 ratio
                 // the title's `body-medium-default` (18/14) uses — so the
                 // glyphs get vertical breathing room while staying centered.
                 // `ml-1` adds 4px on top of the row's `gap-1` (also 4px) so
-                // the descriptor sits ~8px clear of the `|` separator.
-                className="ml-1 block min-w-0 flex-1 truncate text-left leading-[16px] text-[var(--content-tertiary)]"
+                // the descriptor sits ~8px clear of the `|` separator (or, when
+                // title-less, aligns where the title would have sat).
+                className={`ml-1 block min-w-0 flex-1 truncate text-left leading-[16px] ${
+                  hasTitle
+                    ? "text-[var(--content-tertiary)]"
+                    : "text-[var(--content-emphasised)]"
+                }`}
               >
                 {displayed.info}
               </Typography>

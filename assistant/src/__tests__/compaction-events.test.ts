@@ -198,6 +198,7 @@ mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
     async maybeCompact(): Promise<ContextWindowResult> {
       return mockCompactResult;
     }
+    resetOverflowRecovery() {}
   },
   createContextSummaryMessage: () => ({
     role: "user",

@@ -2,11 +2,12 @@
  * Tests for the default `empty-response` plugin's `stop` hook.
  *
  * Covers:
- * - The default hook's binary decision for the canonical cases: empty turn
- *   after a prior tool-use turn → continue (with the canonical nudge text);
- *   visible text → stop; prior turn already delivered visible text → stop;
- *   first model call with no prior turn → stop; provider refusal → continue
- *   (with the refusal-specific nudge text); refusal-but-recovered → stop.
+ * - The default hook's decision for the canonical cases: empty turn after a
+ *   prior tool-use turn → continue (with the canonical nudge text); visible
+ *   text → stop; prior turn already delivered visible text → stop; first model
+ *   call with no prior turn → stop; provider refusal → stop with the turn
+ *   rewritten to the user-facing fallback; refusal-but-recovered → stop;
+ *   refusal after a visible reply this run → stop with no rewrite.
  * - The hook scopes its prior-turn signals to the current response cycle (the
  *   messages after the last genuine user prompt), so visible text from the
  *   inbound conversation does not suppress the nudge.
@@ -28,7 +29,7 @@ import { HOOKS } from "../plugin-api/constants.js";
 import type { PluginLogger, StopContext } from "../plugin-api/types.js";
 import {
   NUDGE_TEXT,
-  REFUSAL_NUDGE_TEXT,
+  REFUSAL_FALLBACK_TEXT,
 } from "../plugins/defaults/empty-response/hooks/stop.js";
 import stop from "../plugins/defaults/empty-response/hooks/stop.js";
 import { defaultEmptyResponsePlugin } from "../plugins/defaults/index.js";
@@ -172,7 +173,7 @@ describe("empty-response stop hook — default decisions", () => {
 
   // ─── Refusal stop ──────────────────────────────────────────────────────────
 
-  test("refusal on the first call with no content → continue with refusal nudge", async () => {
+  test("refusal on the first call with no content → stop with rewritten fallback", async () => {
     // GIVEN the canonical failure mode: the provider's safety classifier zeros
     // the response on the very first model call, returning `stopReason:
     // "refusal"` and no visible text.
@@ -185,15 +186,16 @@ describe("empty-response stop hook — default decisions", () => {
     // WHEN the hook runs.
     await stop(ctx);
 
-    // THEN it continues with the refusal-specific nudge, even with no prior turn.
-    expect(ctx.decision).toBe("continue");
-    expect(ctx.messages.at(-1)).toEqual({
-      role: "user",
-      content: [{ type: "text", text: REFUSAL_NUDGE_TEXT }],
-    });
+    // THEN it lets the turn end and rewrites the turn content to the
+    // user-facing fallback, without nudging the model.
+    expect(ctx.decision).toBe("stop");
+    expect(ctx.responseContent).toEqual([
+      { type: "text", text: REFUSAL_FALLBACK_TEXT },
+    ]);
+    expect(ctx.messages).toEqual([]);
   });
 
-  test("refusal with a thinking-only block still continues", async () => {
+  test("refusal with a thinking-only block is still rewritten", async () => {
     // GIVEN a refusal whose only content is a thinking block — the user sees
     // nothing.
     const ctx = makeCtx({
@@ -207,15 +209,14 @@ describe("empty-response stop hook — default decisions", () => {
     // WHEN the hook runs.
     await stop(ctx);
 
-    // THEN it continues with the refusal-specific nudge.
-    expect(ctx.decision).toBe("continue");
-    expect(ctx.messages.at(-1)).toEqual({
-      role: "user",
-      content: [{ type: "text", text: REFUSAL_NUDGE_TEXT }],
-    });
+    // THEN it stops and rewrites the turn content to the fallback.
+    expect(ctx.decision).toBe("stop");
+    expect(ctx.responseContent).toEqual([
+      { type: "text", text: REFUSAL_FALLBACK_TEXT },
+    ]);
   });
 
-  test("refusal but visible text present → stop (model recovered)", async () => {
+  test("refusal but visible text present → stop, no rewrite (model recovered)", async () => {
     // GIVEN a refusal that still delivered some visible text before refusing —
     // the user has something to see.
     const ctx = makeCtx({
@@ -226,13 +227,35 @@ describe("empty-response stop hook — default decisions", () => {
     // WHEN the hook runs.
     await stop(ctx);
 
-    // THEN the decision stays at stop.
+    // THEN the decision stays at stop and the turn content is left untouched.
     expect(ctx.decision).toBe("stop");
+    expect(ctx.responseContent).toEqual([
+      { type: "text", text: "partial answer" },
+    ]);
   });
 
-  test("refusal beats the post-tool-empty nudge wording", async () => {
+  test("refusal after a visible reply this run → stop, no rewrite", async () => {
+    // GIVEN an earlier turn this run already delivered a real answer (text
+    // alongside a tool call), then the trailing turn refuses after the tool
+    // result. Rewriting here would stack an apology beneath the real answer.
+    const ctx = makeCtx({
+      messages: [userPrompt("do X"), priorVisibleTextTurn, priorToolUseTurn],
+      responseContent: [],
+      stopReason: "refusal",
+    });
+
+    // WHEN the hook runs.
+    await stop(ctx);
+
+    // THEN the refusal is left as-is — no fallback is stacked beneath the
+    // earlier reply.
+    expect(ctx.decision).toBe("stop");
+    expect(ctx.responseContent).toEqual([]);
+  });
+
+  test("refusal beats the post-tool-empty nudge", async () => {
     // GIVEN conditions that would trip both the refusal branch and the
-    // post-tool-empty branch.
+    // post-tool-empty branch (a prior tool-use turn with no visible text).
     const ctx = makeCtx({
       messages: [priorToolUseTurn],
       responseContent: [],
@@ -242,12 +265,32 @@ describe("empty-response stop hook — default decisions", () => {
     // WHEN the hook runs.
     await stop(ctx);
 
-    // THEN refusal wins because its wording is more accurate.
-    expect(ctx.decision).toBe("continue");
-    expect(ctx.messages.at(-1)).toEqual({
-      role: "user",
-      content: [{ type: "text", text: REFUSAL_NUDGE_TEXT }],
+    // THEN refusal wins: the turn content is rewritten to the fallback and the
+    // model is not nudged.
+    expect(ctx.decision).toBe("stop");
+    expect(ctx.responseContent).toEqual([
+      { type: "text", text: REFUSAL_FALLBACK_TEXT },
+    ]);
+    expect(ctx.messages).toEqual([priorToolUseTurn]);
+  });
+
+  test("error stop is ignored — no nudge, no rewrite", async () => {
+    // GIVEN an error stop (a provider rejection ended the turn). The shape
+    // otherwise matches the post-tool-empty nudge case, but no response was
+    // produced, so this plugin must defer to the recovery hooks.
+    const ctx = makeCtx({
+      messages: [priorToolUseTurn],
+      responseContent: [],
+      error: new Error("provider rejected the request"),
     });
+
+    // WHEN the hook runs.
+    await stop(ctx);
+
+    // THEN it leaves the decision and history untouched — empty-response only
+    // acts on a real (successful) model stop.
+    expect(ctx.decision).toBe("stop");
+    expect(ctx.messages).toEqual([priorToolUseTurn]);
   });
 });
 

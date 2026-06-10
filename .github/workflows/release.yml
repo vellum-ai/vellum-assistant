@@ -1264,7 +1264,11 @@ jobs:
           git push origin "v${VERSION}"
           echo "Tagged staging release: v${VERSION}"
 
-  publish-npm-prod:
+  # Build (untrusted: runs `bun install` postinstall scripts) is isolated from
+  # publish (holds NPM_TOKEN) in a separate job. `npm pack` produces the tarball
+  # here with no token; `npm publish <tarball>` below does not re-run prepack, so
+  # no build/dependency code executes alongside the credential.
+  build-npm-prod:
     needs: [extract-version, ci-cli, ci-gateway, ci-playwright, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image]
     if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' && (needs.ci-playwright.result == 'success' || inputs.playwright_blocks_release != true) && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' }}
     runs-on: ubuntu-latest
@@ -1284,7 +1288,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
-          registry-url: https://registry.npmjs.org
 
       - name: Sync feature flag registry for publish
         run: bun run meta/feature-flags/sync-bundled-copies.ts
@@ -1299,15 +1302,55 @@ jobs:
             rm -rf node_modules
             bun install
           fi
+      - name: Pack tarball
+        run: |
+          cd "${{ matrix.package }}"
+          mkdir -p /tmp/npm-dist
+          npm pack --pack-destination /tmp/npm-dist
+          mv /tmp/npm-dist/*.tgz /tmp/npm-dist/package.tgz
+          node -p "require('./package.json').name" > /tmp/npm-dist/name
+          node -p "require('./package.json').version" > /tmp/npm-dist/version
+      - name: Upload tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-tarball-prod-${{ matrix.package }}
+          path: /tmp/npm-dist/
+          retention-days: 1
+
+  publish-npm-prod:
+    needs: [extract-version, build-npm-prod]
+    if: ${{ always() && !cancelled() && needs.build-npm-prod.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        package: [assistant, cli, credential-executor, gateway]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+
+      - name: Download tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-tarball-prod-${{ matrix.package }}
+          path: /tmp/npm-dist
+
       - name: Publish package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           E2E_BLOCKS_RELEASE: ${{ inputs.playwright_blocks_release }}
         run: |
-          PACKAGE="${{ matrix.package }}"
-          cd "$PACKAGE"
-          PKG_NAME=$(node -p "require('./package.json').name")
-          PKG_VERSION=$(node -p "require('./package.json').version")
+          PKG_NAME=$(cat /tmp/npm-dist/name)
+          PKG_VERSION=$(cat /tmp/npm-dist/version)
           if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
             if [ "$E2E_BLOCKS_RELEASE" = "true" ]; then
               echo "::error::$PKG_NAME@$PKG_VERSION is already published, but e2e tests are gating this release. Bump the version — refusing to silently retry."
@@ -1316,7 +1359,7 @@ jobs:
             echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping (e2e is non-blocking, treating as retry)."
             exit 0
           fi
-          npm publish --access public --no-provenance
+          npm publish /tmp/npm-dist/package.tgz --access public --no-provenance
 
   # ── Staging: pack CLI tarball and dispatch QA to platform repo ──────
   pack-cli:
@@ -1378,7 +1421,7 @@ jobs:
             --field version="${{ needs.extract-version.outputs.version }}" \
             --field run_id="${{ github.run_id }}"
 
-  publish-npm-staging:
+  build-npm-staging:
     needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
     runs-on: ubuntu-latest
@@ -1396,7 +1439,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
-          registry-url: https://registry.npmjs.org
       - name: Sync feature flag registry
         run: bun run meta/feature-flags/sync-bundled-copies.ts
       - name: Stamp staging version
@@ -1407,21 +1449,59 @@ jobs:
           if ! bun install --frozen-lockfile; then
             rm -f bun.lock && rm -rf node_modules && bun install
           fi
+      - name: Pack tarball
+        run: |
+          cd "${{ matrix.package }}"
+          mkdir -p /tmp/npm-dist
+          npm pack --pack-destination /tmp/npm-dist
+          mv /tmp/npm-dist/*.tgz /tmp/npm-dist/package.tgz
+          node -p "require('./package.json').name" > /tmp/npm-dist/name
+          node -p "require('./package.json').version" > /tmp/npm-dist/version
+      - name: Upload tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-tarball-staging-${{ matrix.package }}
+          path: /tmp/npm-dist/
+          retention-days: 1
+
+  publish-npm-staging:
+    needs: [extract-version, build-npm-staging]
+    if: ${{ always() && !cancelled() && needs.build-npm-staging.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        package: [assistant, cli, credential-executor, gateway]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+      - name: Download tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-tarball-staging-${{ matrix.package }}
+          path: /tmp/npm-dist
       - name: Publish package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          cd "${{ matrix.package }}"
-          PKG_NAME=$(node -p "require('./package.json').name")
-          PKG_VERSION=$(node -p "require('./package.json').version")
+          PKG_NAME=$(cat /tmp/npm-dist/name)
+          PKG_VERSION=$(cat /tmp/npm-dist/version)
           if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
             echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping."
             exit 0
           fi
-          npm publish --tag staging --access public --no-provenance
+          npm publish /tmp/npm-dist/package.tgz --tag staging --access public --no-provenance
 
-  publish-web-staging:
-    name: publish-npm-staging (web)
+  build-web-staging:
+    name: build-npm-staging (web)
     needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
     runs-on: ubuntu-latest
@@ -1436,7 +1516,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
-          registry-url: https://registry.npmjs.org
       - name: Install design-library dependencies
         working-directory: packages/design-library
         run: bun install --frozen-lockfile
@@ -1463,18 +1542,54 @@ jobs:
         run: |
           VERSION="${{ needs.extract-version.outputs.version }}"
           jq --arg v "$VERSION" '{name, version: $v, license, type, description, files}' package.json > tmp && mv tmp package.json
-      - name: Publish
+      - name: Pack tarball
         working-directory: apps/web
+        run: |
+          mkdir -p /tmp/npm-dist
+          npm pack --pack-destination /tmp/npm-dist
+          mv /tmp/npm-dist/*.tgz /tmp/npm-dist/package.tgz
+          node -p "require('./package.json').name" > /tmp/npm-dist/name
+          node -p "require('./package.json').version" > /tmp/npm-dist/version
+      - name: Upload tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-tarball-staging-web
+          path: /tmp/npm-dist/
+          retention-days: 1
+
+  publish-web-staging:
+    name: publish-npm-staging (web)
+    needs: [extract-version, build-web-staging]
+    if: ${{ always() && !cancelled() && needs.build-web-staging.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+      - name: Download tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-tarball-staging-web
+          path: /tmp/npm-dist
+      - name: Publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          PKG_NAME=$(node -p "require('./package.json').name")
-          PKG_VERSION=$(node -p "require('./package.json').version")
+          PKG_NAME=$(cat /tmp/npm-dist/name)
+          PKG_VERSION=$(cat /tmp/npm-dist/version)
           if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
             echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping."
             exit 0
           fi
-          npm publish --tag staging --access public --no-provenance
+          npm publish /tmp/npm-dist/package.tgz --tag staging --access public --no-provenance
 
   publish-meta-staging:
     name: publish-npm-staging (meta)
@@ -1515,8 +1630,8 @@ jobs:
           fi
           npm publish --tag staging --access public --no-provenance
 
-  publish-web-prod:
-    name: publish-npm-prod (web)
+  build-web-prod:
+    name: build-npm-prod (web)
     needs: [extract-version, ci-cli, ci-gateway, ci-playwright, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image]
     if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' && (needs.ci-playwright.result == 'success' || inputs.playwright_blocks_release != true) && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' }}
     runs-on: ubuntu-latest
@@ -1533,7 +1648,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
-          registry-url: https://registry.npmjs.org
 
       - name: Install design-library dependencies
         working-directory: packages/design-library
@@ -1569,14 +1683,54 @@ jobs:
         run: |
           jq '{name, version, license, type, description, files}' package.json > tmp && mv tmp package.json
 
-      - name: Publish
+      - name: Pack tarball
         working-directory: apps/web
+        run: |
+          mkdir -p /tmp/npm-dist
+          npm pack --pack-destination /tmp/npm-dist
+          mv /tmp/npm-dist/*.tgz /tmp/npm-dist/package.tgz
+          node -p "require('./package.json').name" > /tmp/npm-dist/name
+          node -p "require('./package.json').version" > /tmp/npm-dist/version
+
+      - name: Upload tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-tarball-prod-web
+          path: /tmp/npm-dist/
+          retention-days: 1
+
+  publish-web-prod:
+    name: publish-npm-prod (web)
+    needs: [extract-version, build-web-prod]
+    if: ${{ always() && !cancelled() && needs.build-web-prod.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+
+      - name: Download tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-tarball-prod-web
+          path: /tmp/npm-dist
+
+      - name: Publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           E2E_BLOCKS_RELEASE: ${{ inputs.playwright_blocks_release }}
         run: |
-          PKG_NAME=$(node -p "require('./package.json').name")
-          PKG_VERSION=$(node -p "require('./package.json').version")
+          PKG_NAME=$(cat /tmp/npm-dist/name)
+          PKG_VERSION=$(cat /tmp/npm-dist/version)
           if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
             if [ "$E2E_BLOCKS_RELEASE" = "true" ]; then
               echo "::error::$PKG_NAME@$PKG_VERSION is already published, but e2e tests are gating this release. Bump the version — refusing to silently retry."
@@ -1585,7 +1739,7 @@ jobs:
             echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping (e2e is non-blocking, treating as retry)."
             exit 0
           fi
-          npm publish --access public --no-provenance
+          npm publish /tmp/npm-dist/package.tgz --access public --no-provenance
 
   publish-meta-prod:
     name: publish-npm-prod (meta)

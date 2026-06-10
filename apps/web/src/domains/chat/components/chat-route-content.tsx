@@ -19,6 +19,7 @@
 
 import { type Dispatch, type MutableRefObject, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo } from "react";
 
+import { useEscapeCancel } from "@/domains/chat/hooks/use-escape-cancel";
 import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
 import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
 import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
@@ -50,7 +51,7 @@ import { Button, Notice } from "@vellumai/design-library";
 import { Link, useNavigate } from "react-router";
 import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/types/types";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
@@ -79,6 +80,7 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
+import { useVellumCommands } from "@/runtime/vellum-commands";
 
 // ---------------------------------------------------------------------------
 // Props — only values that cannot be owned locally
@@ -198,7 +200,6 @@ export function ChatMainPanel({
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const assistantName = useAssistantIdentityStore.use.name();
   const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
-  const doctorEnabled = useClientFeatureFlagStore.use.doctor();
 
   // -------------------------------------------------------------------------
   // Store reads — per-conversation state
@@ -218,6 +219,19 @@ export function ChatMainPanel({
 
   // Conversation count (for nudges — TanStack Query deduped)
   const { conversations } = useConversationListQuery(assistantId, true);
+
+  // -------------------------------------------------------------------------
+  // Global Escape cancel — focused app case (document keydown) and
+  // unfocused case (IPC command from the Electron escape monitor).
+  // -------------------------------------------------------------------------
+  useEscapeCancel(canStopGenerating, handleStopGenerating);
+  useVellumCommands({
+    cancelActiveAction: () => {
+      if (canStopGenerating) {
+        void handleStopGenerating();
+      }
+    },
+  });
 
   // -------------------------------------------------------------------------
   // UI-scoped hooks
@@ -422,13 +436,13 @@ export function ChatMainPanel({
   const genericChatError = shouldShowGenericChatErrorNotice(error) && error
     ? {
         message: error.message,
-        actions: doctorEnabled ? (
+        actions: (
           <Button asChild variant="outlined" size="compact">
             <Link to={`${routes.settings.debug}?tab=doctor`}>
               Go to Doctor
             </Link>
           </Button>
-        ) : undefined,
+        ),
       }
     : null;
 
