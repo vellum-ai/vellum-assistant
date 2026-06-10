@@ -4,6 +4,14 @@ import { z } from "zod";
 import { openAboutWindow } from "./about";
 import { checkForUpdates } from "./auto-update";
 import {
+  runInstallCliCommandFlow,
+  runUninstallCliCommandFlow,
+} from "./cli-path-flow";
+import {
+  type CliPathInstallState,
+  getCliPathInstallState,
+} from "./cli-path-installer";
+import {
   acceleratorOption,
   dispatchToFocused,
   type VellumCommand,
@@ -25,6 +33,50 @@ interface MenuState {
 
 const state: MenuState = {
   hasPlatformSession: false,
+};
+
+// Null until the first detection completes; the menu shows the Install item
+// in the meantime (the install flow is safe to run from any state).
+let cliPathState: CliPathInstallState | null = null;
+
+export const refreshCliPathMenuState = async (): Promise<void> => {
+  try {
+    cliPathState = await getCliPathInstallState();
+  } catch {
+    cliPathState = null;
+  }
+  applyMenu();
+};
+
+const cliPathFlowItem = (
+  label: string,
+  flow: () => Promise<void>,
+): MenuItemConstructorOptions => ({
+  label,
+  click: async () => {
+    await flow();
+    await refreshCliPathMenuState();
+  },
+});
+
+const cliPathItems = (): MenuItemConstructorOptions[] => {
+  const kind = cliPathState?.kind;
+  if (kind === "installed" || kind === "shadowed") {
+    return [
+      ...(kind === "shadowed"
+        ? [
+            {
+              label: "⚠ vellum is shadowed by another install",
+              enabled: false,
+            },
+          ]
+        : []),
+      cliPathFlowItem("Uninstall vellum Command", runUninstallCliCommandFlow),
+    ];
+  }
+  return [
+    cliPathFlowItem("Install vellum Command\u2026", runInstallCliCommandFlow),
+  ];
 };
 
 const isDeveloperMenuEnabled = (): boolean => {
@@ -89,6 +141,8 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
           enabled: !readOnboardingActive(),
           click: () => dispatchMenuCommand({ kind: "openSettings" }),
         },
+        { type: "separator" },
+        ...cliPathItems(),
         { type: "separator" },
         { role: "services" },
         { type: "separator" },
@@ -261,4 +315,8 @@ export const installApplicationMenu = (): void => {
   });
 
   applyMenu();
+
+  // Detect the vellum CLI install state asynchronously so menu setup never
+  // waits on (or breaks from) login-shell PATH resolution.
+  void refreshCliPathMenuState();
 };

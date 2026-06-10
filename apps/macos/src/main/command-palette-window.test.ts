@@ -250,6 +250,24 @@ mock.module("./window-state", () => ({
   readOnboardingActive: () => false,
 }));
 
+// Full `./cli-path-installer` surface so this mock — which leaks into co-run
+// test files via the global module registry — doesn't break sibling modules.
+mock.module("./cli-path-installer", () => ({
+  WRAPPER_MARKER: "# vellum-cli-wrapper v1",
+  getWrapperDir: () => "/tmp/.local/bin",
+  getWrapperPath: () => "/tmp/.local/bin/vellum",
+  buildWrapperScript: () => "",
+  readWrapperOwnership: () => "absent",
+  installWrapper: () => "installed",
+  getCliPathInstallState: async () => ({ kind: "not-installed" }),
+  uninstallWrapper: () => "absent",
+}));
+
+mock.module("./cli-path-flow", () => ({
+  runInstallCliCommandFlow: async () => undefined,
+  runUninstallCliCommandFlow: async () => undefined,
+}));
+
 const {
   __resetForTesting,
   installCommandPaletteWindow,
