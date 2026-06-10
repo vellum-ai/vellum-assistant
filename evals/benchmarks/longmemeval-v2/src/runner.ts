@@ -39,6 +39,7 @@ import {
 import type { EvalProgressReporter } from "../../../src/lib/runner/progress";
 import { createRunProgressLifecycle } from "../../../src/lib/runner/progress-lifecycle";
 import {
+  appendAssistantEvents,
   ensureRunArtifacts,
   type MetricResult,
   updateRunMetadata,
@@ -396,13 +397,22 @@ export async function runLongMemEvalV2Unit(
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    // Persist whatever ingest-turn events were captured before the
-    // failure so a run that aborted (e.g. an ingest that never reached
-    // its completion sentinel) can still be inspected in the report.
-    if (err instanceof IngestAskError && err.ingestEvents.length > 0) {
-      await writeIngestAssistantEvents(input.runId, [
-        ...err.ingestEvents,
-      ]).catch(() => undefined);
+    // Persist whatever events were captured before the failure so a run
+    // that aborted can still be inspected in the report: ingest-turn
+    // events (e.g. an ingest that never reached its completion sentinel)
+    // and question-turn events (e.g. conversation B did retrieval work
+    // but returned no gradable answer).
+    if (err instanceof IngestAskError) {
+      if (err.ingestEvents.length > 0) {
+        await writeIngestAssistantEvents(input.runId, [
+          ...err.ingestEvents,
+        ]).catch(() => undefined);
+      }
+      if (err.questionEvents.length > 0) {
+        await appendAssistantEvents(input.runId, [...err.questionEvents]).catch(
+          () => undefined,
+        );
+      }
     }
     progress({
       step: "shutdown",

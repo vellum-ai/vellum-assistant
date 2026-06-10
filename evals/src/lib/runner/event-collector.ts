@@ -63,10 +63,11 @@ export class AgentEventCollector {
   async collectUntilQuiet(input: {
     quietMs: number;
     maxMs?: number;
+    onEvent?: (event: AgentEvent) => void | Promise<void>;
   }): Promise<AgentEvent[]> {
     const quietMs = input.quietMs;
     const maxMs = input.maxMs ?? Math.max(quietMs * 6, quietMs);
-    return this.drain({ quietMs, maxMs });
+    return this.drain({ quietMs, maxMs, onEvent: input.onEvent });
   }
 
   /**
