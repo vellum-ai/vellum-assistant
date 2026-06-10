@@ -37,6 +37,11 @@ export interface DropdownOption<T extends string> {
    * list reads consistently. Defaults to selectable.
    */
   readonly disabled?: boolean;
+  /**
+   * When true, renders a bottom border below this option to visually
+   * separate it from the options that follow.
+   */
+  readonly separated?: boolean;
 }
 
 export interface DropdownProps<T extends string> {
@@ -331,6 +336,7 @@ export function Dropdown<T extends string>({
             className={cn(
               "flex items-center gap-2 px-3 py-2 text-body-medium-default transition-colors",
               isDisabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
+              option.separated && "border-b border-[var(--field-border)]",
             )}
             style={{
               background: isHighlighted

@@ -676,7 +676,7 @@ function ProfileEditorModalInner({
   // new provider" sentinel. First-run empty state shows ONLY the sentinel.
   const createModeProviderOptions = useMemo(() => {
     const seen = new Set<string>();
-    const opts: { value: string; label: string }[] = [];
+    const opts: { value: string; label: string; separated?: boolean }[] = [];
     for (const c of effectiveConnections) {
       if (
         !openAICompatibleEndpointsEnabled &&
@@ -695,6 +695,7 @@ function ProfileEditorModalInner({
     opts.unshift({
       value: CREATE_NEW_PROVIDER_SENTINEL,
       label: "+ New Connection",
+      separated: true,
     });
     return opts;
   }, [effectiveConnections, openAICompatibleEndpointsEnabled]);
