@@ -315,12 +315,12 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
             <label className="mb-1 block text-body-medium-default text-[var(--content-strong)]">
               {field.label}
               {field.required && (
-                <span className="ml-0.5 text-danger-500">*</span>
+                <span className="ml-0.5 text-[var(--system-negative-strong)]">*</span>
               )}
             </label>
             {renderField(field, values[field.id] ?? "", handleChange, validationErrors)}
             {validationErrors[field.id] && (
-              <p className="mt-1 text-body-small-default text-danger-500">
+              <p className="mt-1 text-body-small-default text-[var(--system-negative-strong)]">
                 {validationErrors[field.id]}
               </p>
             )}

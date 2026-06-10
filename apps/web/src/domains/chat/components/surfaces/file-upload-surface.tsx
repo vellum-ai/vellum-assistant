@@ -345,7 +345,7 @@ export function FileUploadSurface({ surface, onAction }: FileUploadSurfaceProps)
       )}
 
       {/* Error message */}
-      {error && <p className="mt-2 text-body-small-default text-danger-500">{error}</p>}
+      {error && <p className="mt-2 text-body-small-default text-[var(--system-negative-strong)]">{error}</p>}
 
       {/* Suspicious extension warning */}
       {extensionWarning && (
