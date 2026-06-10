@@ -116,13 +116,13 @@ describe("groupContentBlocks", () => {
       {
         type: "activity",
         items: [
-          { kind: "thinking", text: "plan", startedAt: undefined, completedAt: undefined },
-          { kind: "tool", toolCall: toolCall({ id: "call-a" }) },
+          { type: "thinking", thinking: "plan", startedAt: undefined, completedAt: undefined },
+          { type: "tool_use", toolCall: toolCall({ id: "call-a" }) },
         ],
       },
       { type: "text", text: "answer" },
-      { type: "activity", items: [{ kind: "tool", toolCall: toolCall({ id: "call-b" }) }] },
-      { type: "surface", surfaceId: "s1" },
+      { type: "activity", items: [{ type: "tool_use", toolCall: toolCall({ id: "call-b" }) }] },
+      { type: "surface", surface: surface({}) },
     ]);
   });
 
@@ -146,8 +146,8 @@ describe("groupContentBlocks", () => {
         type: "activity",
         items: [
           {
-            kind: "thinking",
-            text: "first\nsecond",
+            type: "thinking",
+            thinking: "first\nsecond",
             startedAt: 100,
             completedAt: 900,
           },

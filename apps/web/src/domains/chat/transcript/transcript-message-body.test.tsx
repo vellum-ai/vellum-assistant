@@ -1334,7 +1334,7 @@ describe("TranscriptMessageBody — contentBlocks render tree", () => {
     ).toBeNull();
   });
 
-  test("renders a pure-thinking run as a ThoughtProcessLink, not a card", () => {
+  test("renders a pure-thinking run as an inline SingleActivity, not a card", () => {
     const { container } = render(
       <TranscriptMessageBody
         message={{

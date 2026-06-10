@@ -78,26 +78,31 @@ export function groupMessageActivityRuns(
 }
 
 /**
- * One item inside a blocks-driven `activity` run. Unlike `ActivityRunItem`,
- * which carries contentOrder ids resolved positionally later, this embeds the
- * referent directly off `contentBlocks`: a `thinking` item is a contiguous
- * reasoning run already joined into one markdown string with widened timing,
- * and a `tool` item carries the tool call itself.
+ * One item inside a blocks-driven `activity` run, reusing the server block
+ * shapes rather than re-declaring them: a `thinking` item is the wire
+ * `thinking` block (a contiguous reasoning run is pre-merged into one
+ * synthesized block — text newline-joined, timing widened to the earliest
+ * start / latest completion), and a `tool_use` item is the wire `tool_use`
+ * block with its `toolCall` narrowed to the client `ChatMessageToolCall`. The
+ * id is guaranteed at ingest, so the narrow happens once here and the render
+ * body needs no per-item check.
  */
 export type ContentBlockActivityItem =
-  | { kind: "thinking"; text: string; startedAt?: number; completedAt?: number }
-  | { kind: "tool"; toolCall: ChatMessageToolCall };
+  | Extract<ConversationContentBlock, { type: "thinking" }>
+  | { type: "tool_use"; toolCall: ChatMessageToolCall };
 
 /**
  * Grouped content for the blocks-driven render body. Adjacent thinking +
  * tool_use blocks merge into one `activity` group (broken only by a `text` or
- * `surface` block); `text`/`surface` pass through individually. Pure — no
- * React/DOM. The blocks embed their referents, so unlike
- * `groupMessageActivityRuns` this needs no positional resolvers.
+ * `surface` block); `text` and `surface` reuse the server block as-is. The
+ * `activity` wrapper is the only shape with no wire analog — collapsing a run
+ * of blocks into one card is a render concern. Pure — no React/DOM; the blocks
+ * embed their referents, so unlike `groupMessageActivityRuns` this needs no
+ * positional resolvers.
  */
 export type ContentBlockGroup =
-  | { type: "text"; text: string }
-  | { type: "surface"; surfaceId: string }
+  | Extract<ConversationContentBlock, { type: "text" }>
+  | Extract<ConversationContentBlock, { type: "surface" }>
   | { type: "activity"; items: ContentBlockActivityItem[] };
 
 /**
@@ -121,9 +126,9 @@ function hasToolCallId(
  * order; consecutive `thinking` blocks merge into one item (text joined with
  * newlines, timing widened to the earliest start / latest completion), matching
  * macOS and the legacy walk. A `text` or `surface` block closes the open
- * activity group and passes through as its own group — carrying only the
- * `surfaceId` so the render body resolves the client-narrowed `Surface`
- * (placement, orphaned binding) from `message.surfaces`, exactly as the legacy
+ * activity group and passes through unchanged as its own group; the render
+ * body reads the client-narrowed `Surface` (placement, orphaned binding) from
+ * `message.surfaces` by the block's `surface.surfaceId`, exactly as the legacy
  * walk does. `attachment` blocks are skipped — attachments render in their own
  * region from `message.attachments`, mirroring the positional walk. Pure — no
  * React/DOM.
@@ -147,9 +152,9 @@ export function groupContentBlocks(
     if (block.type === "thinking") {
       const activity = openActivity();
       const lastItem = activity.items[activity.items.length - 1];
-      if (lastItem?.kind === "thinking") {
-        lastItem.text = lastItem.text
-          ? `${lastItem.text}\n${block.thinking}`
+      if (lastItem?.type === "thinking") {
+        lastItem.thinking = lastItem.thinking
+          ? `${lastItem.thinking}\n${block.thinking}`
           : block.thinking;
         if (block.startedAt != null) {
           lastItem.startedAt =
@@ -164,9 +169,11 @@ export function groupContentBlocks(
               : Math.max(lastItem.completedAt, block.completedAt);
         }
       } else {
+        // Synthesize a fresh thinking block so the merge above never mutates a
+        // block held by `message.contentBlocks`.
         activity.items.push({
-          kind: "thinking",
-          text: block.thinking,
+          type: "thinking",
+          thinking: block.thinking,
           startedAt: block.startedAt,
           completedAt: block.completedAt,
         });
@@ -175,13 +182,16 @@ export function groupContentBlocks(
       if (!hasToolCallId(block.toolCall)) {
         continue;
       }
-      openActivity().items.push({ kind: "tool", toolCall: block.toolCall });
+      openActivity().items.push({
+        type: "tool_use",
+        toolCall: block.toolCall,
+      });
     } else if (block.type === "text") {
       current = null;
-      groups.push({ type: "text", text: block.text });
+      groups.push(block);
     } else if (block.type === "surface") {
       current = null;
-      groups.push({ type: "surface", surfaceId: block.surface.surfaceId });
+      groups.push(block);
     }
   }
 
