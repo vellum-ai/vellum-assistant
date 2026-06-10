@@ -1,4 +1,3 @@
-import { randomBytes } from "crypto";
 import { spawnSync } from "child_process";
 
 import cliPkg from "../../package.json";
@@ -40,10 +39,9 @@ import {
   buildProgressEvent,
   buildStartingEvent,
   buildUpgradeCommitMessage,
-  captureContainerEnv,
+  captureReplayState,
   captureUpgradeFailureLogs,
   commitWorkspaceViaGateway,
-  CONTAINER_ENV_EXCLUDE_KEYS,
   rollbackMigrations,
   UPGRADE_PROGRESS,
   waitForReady,
@@ -297,16 +295,13 @@ async function upgradeDocker(
     }),
   );
 
-  console.log("💾 Capturing existing container environment...");
-  const capturedEnv = await captureContainerEnv(res.assistantContainer);
-  console.log(
-    `   Captured ${Object.keys(capturedEnv).length} env var(s) from ${res.assistantContainer}\n`,
-  );
-
-  // Capture GUARDIAN_BOOTSTRAP_SECRET from the gateway container (it is only
-  // set on gateway, not assistant) so it persists across container restarts.
-  const gatewayEnv = await captureContainerEnv(res.gatewayContainer);
-  const bootstrapSecret = gatewayEnv["GUARDIAN_BOOTSTRAP_SECRET"];
+  const {
+    bootstrapSecret,
+    cesServiceToken,
+    signingKey,
+    extraAssistantEnv,
+    extraGatewayEnv,
+  } = await captureReplayState(res);
 
   // Notify connected clients that an upgrade is about to begin.
   // This must fire BEFORE any progress broadcasts so the UI sets
@@ -361,18 +356,6 @@ async function upgradeDocker(
     // use default
   }
 
-  // Extract CES_SERVICE_TOKEN from the captured env so it can be passed via
-  // the dedicated cesServiceToken parameter (which propagates it to all three
-  // containers). If the old instance predates CES_SERVICE_TOKEN, generate a
-  // fresh one so gateway and CES can authenticate.
-  const cesServiceToken =
-    capturedEnv["CES_SERVICE_TOKEN"] || randomBytes(32).toString("hex");
-
-  // Extract or generate the shared JWT signing key. Pre-env-var instances
-  // won't have it in capturedEnv, so generate fresh in that case.
-  const signingKey =
-    capturedEnv["ACTOR_TOKEN_SIGNING_KEY"] || randomBytes(32).toString("hex");
-
   // Create pre-upgrade backup (best-effort, daemon must be running)
   await broadcastUpgradeEvent(
     entry.runtimeUrl,
@@ -415,23 +398,6 @@ async function upgradeDocker(
   await stopContainers(res);
   console.log("✅ Containers stopped\n");
 
-  // Build the set of extra env vars to replay on the new assistant container.
-  // Captured env vars serve as the base; keys already managed by
-  // buildServiceRunArgs are excluded to avoid duplicates.
-  const envKeysSetByRunArgs = new Set(CONTAINER_ENV_EXCLUDE_KEYS);
-  // Only exclude keys that buildServiceRunArgs will actually set
-  for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
-    if (process.env[envVar]) {
-      envKeysSetByRunArgs.add(envVar);
-    }
-  }
-  const extraAssistantEnv: Record<string, string> = {};
-  for (const [key, value] of Object.entries(capturedEnv)) {
-    if (!envKeysSetByRunArgs.has(key)) {
-      extraAssistantEnv[key] = value;
-    }
-  }
-
   console.log("🚀 Starting upgraded containers...");
   await startContainers(
     {
@@ -439,6 +405,7 @@ async function upgradeDocker(
       bootstrapSecret,
       cesServiceToken,
       extraAssistantEnv,
+      extraGatewayEnv,
       gatewayPort,
       imageTags,
       instanceName,
@@ -544,6 +511,7 @@ async function upgradeDocker(
             bootstrapSecret,
             cesServiceToken,
             extraAssistantEnv,
+            extraGatewayEnv,
             gatewayPort,
             imageTags: previousImageRefs,
             instanceName,

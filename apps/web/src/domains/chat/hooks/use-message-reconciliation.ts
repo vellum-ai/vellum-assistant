@@ -13,6 +13,7 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 import { reconcileSnapshot } from "@/domains/chat/utils/reconcile-snapshot";
 import { getLocalSeq, recordLocalSeq } from "@/lib/streaming/local-seq";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
+import { mapMessageToolCalls } from "@/domains/chat/utils/map-message-tool-calls";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { liveAssistantRowId } from "@/domains/chat/utils/stream-updaters/shared";
@@ -318,23 +319,12 @@ export function useMessageReconciliation({
             m.toolCalls?.some((tc) => isToolCallRunning(tc)),
           );
           if (!hasStaleToolCalls) return prev;
-          return prev.map((m) => {
-            const needsClearToolCalls = m.toolCalls?.some(
-              (tc) => isToolCallRunning(tc),
-            );
-            if (!needsClearToolCalls) return m;
-            return {
-              ...m,
-              toolCalls: m.toolCalls!.map((tc) =>
-                isToolCallRunning(tc)
-                  ? {
-                      ...tc,
-                      completedAt: Date.now(),
-                    }
-                  : tc,
-              ),
-            };
-          });
+          const completedAt = Date.now();
+          return prev.map((m) =>
+            mapMessageToolCalls(m, (tc) =>
+              isToolCallRunning(tc) ? { ...tc, completedAt } : tc,
+            ),
+          );
         });
       }
 

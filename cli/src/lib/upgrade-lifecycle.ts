@@ -7,6 +7,7 @@ import type { AssistantEntry } from "./assistant-config.js";
 import { saveAssistantEntry } from "./assistant-config.js";
 import { createBackup, pruneOldBackups, restoreBackup } from "./backup-ops.js";
 import { emitCliError } from "./cli-error.js";
+import { getOrCreateHostDeviceId } from "./device-id.js";
 import {
   captureImageRefs,
   DOCKER_READY_TIMEOUT_MS,
@@ -19,6 +20,11 @@ import { getStateDir } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
 import { loadGuardianToken } from "./guardian-token.js";
 import { resolveImageRefs } from "./platform-releases.js";
+import {
+  getBuilderManagedEnvKeys,
+  type DockerStatefulSetSpec,
+  type ServiceName,
+} from "./statefulset.js";
 import { exec, execOutput } from "./step-runner.js";
 import { compareVersions } from "./version-compat.js";
 
@@ -142,20 +148,6 @@ export function buildUpgradeCommitMessage(options: {
 }
 
 /**
- * Environment variable keys that are set by CLI run arguments and should
- * not be replayed from a captured container environment during upgrades
- * or rollbacks. Shared between upgrade.ts and rollback.ts.
- */
-export const CONTAINER_ENV_EXCLUDE_KEYS: ReadonlySet<string> = new Set([
-  "CES_SERVICE_TOKEN",
-  "GUARDIAN_BOOTSTRAP_SECRET",
-  "VELLUM_ASSISTANT_NAME",
-  "RUNTIME_HTTP_HOST",
-  "PATH",
-  "ACTOR_TOKEN_SIGNING_KEY",
-]);
-
-/**
  * Capture environment variables from a running Docker container so they
  * can be replayed onto the replacement container after upgrade.
  */
@@ -181,6 +173,93 @@ export async function captureContainerEnv(
     // Container may not exist or not be inspectable
   }
   return captured;
+}
+
+/**
+ * Filter a captured container env down to the entries safe to replay onto a
+ * replacement container.
+ *
+ * Drops every key `buildServiceRunArgs` sets itself (spec static/secret
+ * entries, builder-computed extras, PATH). Spec-managed secrets re-enter via
+ * the dedicated `DockerRunSecrets` path, so adding a secret to the spec
+ * automatically excludes it here. Spec host-forwarded keys are dropped only
+ * when the host variable is currently set, so fresh host values win over
+ * stale captured ones.
+ *
+ * Security contract: the returned env is memory-only — never persist it to
+ * disk, and log counts only, never values.
+ */
+export function buildReplayEnv(
+  capturedEnv: Record<string, string>,
+  service: ServiceName,
+  spec?: DockerStatefulSetSpec,
+): Record<string, string> {
+  const { always, hostForwarded } = getBuilderManagedEnvKeys(service, spec);
+  const hostManaged = new Set(
+    hostForwarded.filter((h) => process.env[h.hostVar]).map((h) => h.name),
+  );
+  return Object.fromEntries(
+    Object.entries(capturedEnv).filter(
+      ([key]) => !always.has(key) && !hostManaged.has(key),
+    ),
+  );
+}
+
+/** Secrets and replay env derived from the outgoing containers. */
+interface ReplayState {
+  bootstrapSecret: string | undefined;
+  cesServiceToken: string;
+  signingKey: string;
+  extraAssistantEnv: Record<string, string>;
+  extraGatewayEnv: Record<string, string>;
+}
+
+/**
+ * Derive the secrets and replay env for replacement containers from
+ * already-captured assistant/gateway envs. GUARDIAN_BOOTSTRAP_SECRET is only
+ * set on the gateway; CES_SERVICE_TOKEN and ACTOR_TOKEN_SIGNING_KEY fall back
+ * to fresh values for instances that predate them. VELLUM_DEVICE_ID is
+ * backfilled from the host for gateways hatched before device-id injection
+ * (captured value wins — it was itself host-derived).
+ */
+export function buildReplayState(
+  capturedEnv: Record<string, string>,
+  gatewayEnv: Record<string, string>,
+): ReplayState {
+  const extraGatewayEnv = buildReplayEnv(gatewayEnv, "gateway");
+  extraGatewayEnv.VELLUM_DEVICE_ID ??= getOrCreateHostDeviceId();
+
+  return {
+    bootstrapSecret: gatewayEnv["GUARDIAN_BOOTSTRAP_SECRET"],
+    cesServiceToken:
+      capturedEnv["CES_SERVICE_TOKEN"] || randomBytes(32).toString("hex"),
+    signingKey:
+      capturedEnv["ACTOR_TOKEN_SIGNING_KEY"] || randomBytes(32).toString("hex"),
+    extraAssistantEnv: buildReplayEnv(capturedEnv, "assistant"),
+    extraGatewayEnv,
+  };
+}
+
+/**
+ * Capture the assistant and gateway container envs and derive the replay
+ * state for the replacement containers. Logs only the assistant env-var
+ * count (security contract on `buildReplayEnv`).
+ */
+export async function captureReplayState(
+  res: Pick<
+    ReturnType<typeof dockerResourceNames>,
+    "assistantContainer" | "gatewayContainer"
+  >,
+): Promise<ReplayState> {
+  console.log("💾 Capturing existing container environment...");
+  const [capturedEnv, gatewayEnv] = await Promise.all([
+    captureContainerEnv(res.assistantContainer),
+    captureContainerEnv(res.gatewayContainer),
+  ]);
+  console.log(
+    `   Captured ${Object.keys(capturedEnv).length} env var(s) from ${res.assistantContainer}\n`,
+  );
+  return buildReplayState(capturedEnv, gatewayEnv);
 }
 
 /**
@@ -581,37 +660,13 @@ export async function performDockerRollback(
     console.warn("⚠️  Pre-rollback backup failed (continuing with rollback)\n");
   }
 
-  // Capture container env, extract secrets
-  console.log("💾 Capturing existing container environment...");
-  const capturedEnv = await captureContainerEnv(res.assistantContainer);
-  console.log(
-    `   Captured ${Object.keys(capturedEnv).length} env var(s) from ${res.assistantContainer}\n`,
-  );
-
-  // Capture GUARDIAN_BOOTSTRAP_SECRET from the gateway container (it is only
-  // set on gateway, not assistant) so it persists across container restarts.
-  const gatewayEnv = await captureContainerEnv(res.gatewayContainer);
-  const bootstrapSecret = gatewayEnv["GUARDIAN_BOOTSTRAP_SECRET"];
-
-  const cesServiceToken =
-    capturedEnv["CES_SERVICE_TOKEN"] || randomBytes(32).toString("hex");
-
-  const signingKey =
-    capturedEnv["ACTOR_TOKEN_SIGNING_KEY"] || randomBytes(32).toString("hex");
-
-  // Build extra env vars, excluding keys managed by buildServiceRunArgs
-  const envKeysSetByRunArgs = new Set(CONTAINER_ENV_EXCLUDE_KEYS);
-  for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
-    if (process.env[envVar]) {
-      envKeysSetByRunArgs.add(envVar);
-    }
-  }
-  const extraAssistantEnv: Record<string, string> = {};
-  for (const [key, value] of Object.entries(capturedEnv)) {
-    if (!envKeysSetByRunArgs.has(key)) {
-      extraAssistantEnv[key] = value;
-    }
-  }
+  const {
+    bootstrapSecret,
+    cesServiceToken,
+    signingKey,
+    extraAssistantEnv,
+    extraGatewayEnv,
+  } = await captureReplayState(res);
 
   // Parse gateway port from entry's runtimeUrl
   let gatewayPort = GATEWAY_INTERNAL_PORT;
@@ -684,6 +739,7 @@ export async function performDockerRollback(
       bootstrapSecret,
       cesServiceToken,
       extraAssistantEnv,
+      extraGatewayEnv,
       gatewayPort,
       imageTags: targetImageTags,
       instanceName,
@@ -801,6 +857,7 @@ export async function performDockerRollback(
             bootstrapSecret,
             cesServiceToken,
             extraAssistantEnv,
+            extraGatewayEnv,
             gatewayPort,
             imageTags: currentImageRefs,
             instanceName,
