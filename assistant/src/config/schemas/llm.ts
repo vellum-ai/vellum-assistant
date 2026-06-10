@@ -278,8 +278,10 @@ const OpenRouterDeepPartialSchema = z.object({
 // ---------------------------------------------------------------------------
 
 /**
- * Distinguishes daemon-managed profiles (overwritten on every startup) from
- * user-created ones (never touched by the daemon).
+ * Distinguishes daemon-managed profiles (resolved at config load time from
+ * the code definitions in `config/builtin-inference-profiles.ts`, never
+ * persisted) from user-created ones (stored in `llm.profiles` and never
+ * touched by the daemon).
  */
 const ProfileSource = z.enum(["managed", "user"]);
 type ProfileSource = z.infer<typeof ProfileSource>;
@@ -390,11 +392,11 @@ export const ProfileEntry = LLMConfigFragment.extend({
   /**
    * `.nullable()` is intentional: the PUT `/v1/config/llm/profiles/:name`
    * route uses `null` as the "clear this override" sentinel for managed
-   * profiles (see `patchManagedProfileFields` in
+   * profiles (see `writeBuiltinProfileOverride` in
    * `runtime/routes/conversation-query-routes.ts`). Without `.nullable()`,
    * Zod rejects `{ label: null }` at parse time before the route handler
-   * ever sees it, and the clear-back-to-seed path is unreachable from any
-   * client. `.min(1)` still applies to string values so empty strings
+   * ever sees it, and the clear-back-to-default path is unreachable from
+   * any client. `.min(1)` still applies to string values so empty strings
    * remain rejected — `null` is the only non-string-non-undefined input
    * accepted.
    */
@@ -410,8 +412,8 @@ export const ProfileEntry = LLMConfigFragment.extend({
   /**
    * Absent means active. `.nullable()` matches `label` so the PUT route's
    * "send `null` to clear" sentinel works for status edits too — see
-   * `patchManagedProfileFields`, which has handled `status === null` since
-   * #30362 even though the schema didn't accept it until now.
+   * `writeBuiltinProfileOverride` in
+   * `runtime/routes/conversation-query-routes.ts`.
    */
   status: ProfileStatusSchema.nullable().optional(),
   /**
@@ -438,7 +440,8 @@ export type ProfileEntry = z.infer<typeof ProfileEntry>;
  * (`model`, `provider`, `maxTokens`, ...) through the override store — that
  * drift vector is exactly what built-in profiles exist to close. `.nullable()`
  * on both fields mirrors `ProfileEntry`: `null` is the "clear this override"
- * sentinel used by the PUT profile route (see `patchManagedProfileFields`).
+ * sentinel used by the PUT profile route (see `writeBuiltinProfileOverride`
+ * in `runtime/routes/conversation-query-routes.ts`).
  */
 export const ProfileOverrideEntry = z
   .object({

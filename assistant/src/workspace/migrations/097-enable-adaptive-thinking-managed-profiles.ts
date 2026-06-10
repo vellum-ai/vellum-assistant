@@ -28,19 +28,11 @@ const ADAPTIVE_THINKING = { enabled: true, streamThinking: true } as const;
 const TARGET_PROFILES = ["balanced", "quality-optimized"] as const;
 
 /**
- * Patch managed Anthropic profiles that are missing adaptive thinking.
- *
- * Exported so lifecycle.ts can re-run the repair after mergeDefaultWorkspaceConfig()
- * and seedInferenceProfiles(). On-platform instances with a config overlay have their
- * profiles overwritten by the overlay merge (which runs after workspace migrations),
- * so the migration alone is insufficient — the post-overlay call ensures the repair
- * sticks even when the overlay supplies profiles without thinking enabled.
- *
- * The function is idempotent: profiles that already have thinking enabled are skipped.
+ * Patch managed Anthropic profiles in the on-disk config that are missing
+ * adaptive thinking. Idempotent: profiles that already have thinking enabled
+ * are skipped.
  */
-export function repairAdaptiveThinkingOnManagedProfiles(
-  workspaceDir: string,
-): void {
+function repairAdaptiveThinkingOnManagedProfiles(workspaceDir: string): void {
   const configPath = join(workspaceDir, "config.json");
   if (!existsSync(configPath)) return;
 

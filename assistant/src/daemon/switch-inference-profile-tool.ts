@@ -1,5 +1,5 @@
+import { AUTO_PROFILE_KEY } from "../config/builtin-inference-profiles.js";
 import type { ProfileEntry } from "../config/schemas/llm.js";
-import { AUTO_PROFILE_KEY } from "../config/seed-inference-profiles.js";
 import type { ToolDefinition } from "../providers/types.js";
 
 export const SWITCH_INFERENCE_PROFILE_TOOL_NAME = "switch_inference_profile";

@@ -3,7 +3,7 @@ import type { ModelIntent } from "../providers/types.js";
 import {
   DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
   type ProfileEntry,
-  type ProfileStatus,
+  type ProfileOverrideEntry,
 } from "./schemas/llm.js";
 
 /**
@@ -28,9 +28,10 @@ export type BuiltinProfileDefinition = Omit<
 };
 
 /**
- * Managed profiles. Overwritten on every daemon boot so Vellum can push
- * model/config updates to customers in new releases. Platform overlays
- * (`preserveProfileNames`) take precedence when present.
+ * Managed profiles. Resolved into the effective config at load time
+ * (`applyBuiltinProfiles` in `loader.ts`) and never persisted to disk, so
+ * Vellum can push model/config updates to customers in new releases. User
+ * label/status overrides come from the sparse `llm.profileOverrides` store.
  */
 export const MANAGED_PROFILE_TEMPLATES: Record<
   string,
@@ -126,7 +127,7 @@ export function isSeedDefaultBuiltinLabel(
   label: string,
 ): boolean {
   if (name === AUTO_PROFILE_KEY) {
-    return label === createAutoProfileEntry().label;
+    return label === AUTO_PROFILE_LABEL;
   }
   const base = MANAGED_PROFILE_TEMPLATES[name]?.label;
   return (
@@ -137,8 +138,8 @@ export function isSeedDefaultBuiltinLabel(
 
 export function materializeProfile(
   template: BuiltinProfileDefinition,
-  provider: NonNullable<ProfileEntry["provider"]>,
-  connectionName: string,
+  provider: NonNullable<ProfileEntry["provider"]> = template.provider,
+  connectionName: string = template.connectionName,
 ): ProfileEntry {
   const {
     intent,
@@ -155,28 +156,22 @@ export function materializeProfile(
   };
 }
 
+const AUTO_PROFILE_LABEL = "Auto";
+
+const AUTO_PROFILE_DESCRIPTION =
+  "Automatically routes each query to the best profile — fast for simple questions, capable for complex ones";
+
 /**
  * The `auto` profile entry is metadata-only: no provider/model — the resolver
  * falls through to the call-site default when it is active.
  */
-export function createAutoProfileEntry(): ProfileEntry {
+function createAutoProfileEntry(): ProfileEntry {
   return {
     source: "managed",
-    label: "Auto",
-    description:
-      "Automatically routes each query to the best profile — fast for simple questions, capable for complex ones",
+    label: AUTO_PROFILE_LABEL,
+    description: AUTO_PROFILE_DESCRIPTION,
   };
 }
-
-/**
- * Sparse user override for a built-in profile. Only `label` and `status` are
- * user-ownable on built-ins; `null` means "explicitly cleared" and is applied
- * as-is (key-presence semantics — an absent key leaves the default in place).
- */
-export type BuiltinProfileOverride = {
-  label?: string | null;
-  status?: ProfileStatus | null;
-};
 
 /**
  * Resolve the effective built-in profile set. Pure: reads only its arguments
@@ -194,7 +189,7 @@ export type BuiltinProfileOverride = {
 export function resolveBuiltinProfiles(opts: {
   isPlatform: boolean;
   isFlagEnabled: (key: string) => boolean;
-  overrides: Record<string, BuiltinProfileOverride>;
+  overrides: Record<string, ProfileOverrideEntry>;
 }): { profiles: Record<string, ProfileEntry>; order: string[] } {
   const profiles: Record<string, ProfileEntry> = {};
   const order: string[] = [AUTO_PROFILE_KEY];
@@ -210,11 +205,7 @@ export function resolveBuiltinProfiles(opts: {
     const effective: BuiltinProfileDefinition = opts.isPlatform
       ? definition
       : { ...definition, label: `${definition.label}${MANAGED_LABEL_SUFFIX}` };
-    const entry = materializeProfile(
-      effective,
-      definition.provider,
-      definition.connectionName,
-    );
+    const entry = materializeProfile(effective);
     applyOverride(entry, opts.overrides[name]);
     profiles[name] = entry;
     order.push(name);
@@ -225,7 +216,7 @@ export function resolveBuiltinProfiles(opts: {
 
 function applyOverride(
   entry: ProfileEntry,
-  override: BuiltinProfileOverride | undefined,
+  override: ProfileOverrideEntry | undefined,
 ): void {
   if (!override) return;
   if ("label" in override) entry.label = override.label;

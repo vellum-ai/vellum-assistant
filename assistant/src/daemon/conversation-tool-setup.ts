@@ -51,7 +51,7 @@ import { resolveTrustClass } from "./trust-context.js";
 const log = getLogger("conversation-tool-setup");
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { AUTO_PROFILE_KEY } from "../config/seed-inference-profiles.js";
+import { AUTO_PROFILE_KEY } from "../config/builtin-inference-profiles.js";
 import {
   buildSwitchInferenceProfileToolDef,
   SWITCH_INFERENCE_PROFILE_TOOL_NAME,

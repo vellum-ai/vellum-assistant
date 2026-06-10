@@ -57,6 +57,7 @@ mock.module("@/domains/settings/ai/use-daemon-config", () => ({
       return Promise.resolve({ data: undefined, resolvedId: "asst-1" });
     },
   }),
+  invalidateDaemonConfig: () => {},
 }));
 
 // Feature-flag store: `.use.<flag>()` accessors return booleans.
