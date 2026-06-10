@@ -13,8 +13,8 @@ import type { VellumCommand } from "./commands";
 const COMMAND_PALETTE_KIND = "commandPalette";
 const COMMAND_PALETTE_PATH = "/floating/command-palette";
 
-const PANEL_WIDTH = 800;
-const PANEL_HEIGHT = 520;
+const PANEL_WIDTH = 584;
+const PANEL_HEIGHT = 444;
 
 type PayloadCommandKind = Extract<
   VellumCommand,
@@ -115,7 +115,7 @@ export const openCommandPaletteWindow = (): void => {
       minimizable: false,
       maximizable: false,
       hasShadow: true,
-      vibrancy: "popover",
+      backgroundColor: "#00000000",
     },
   });
 
