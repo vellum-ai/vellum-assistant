@@ -322,9 +322,7 @@ export interface VellumBridge {
     onChange(callback: (catalog: ResolvedHotkey[]) => void): () => void;
   };
   launchAtLogin: {
-    /** Read the current launch-at-login preference. */
     get(): Promise<boolean>;
-    /** Persist the launch-at-login preference; triggers `syncLoginItem()`. */
     set(enabled: boolean): Promise<void>;
   };
   featureFlags: {
