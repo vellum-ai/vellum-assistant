@@ -1195,6 +1195,130 @@ describe("seedInferenceProfiles BYOK-mode built-in profile handling", () => {
     });
   });
 
+  test("seed-default label in overlay built-in fragment is not lifted into profileOverrides", () => {
+    // The bare template label is a seeder artifact in legacy fragments, not
+    // overlay intent. Lifting it would pin the label as an override and
+    // bypass the resolve-time default — on BYOK that default carries the
+    // " (Managed)" suffix.
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: { provider: "anthropic" },
+            profiles: {
+              balanced: {
+                provider: "anthropic",
+                model: "claude-sonnet-4-6",
+                label: "Balanced",
+              },
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.profiles?.balanced).toBeUndefined();
+    expect(raw.llm.profileOverrides.balanced).toEqual({ status: "disabled" });
+
+    const config = loadConfig();
+    expect(config.llm.profiles.balanced?.label).toBe("Balanced (Managed)");
+  });
+
+  test("' (Managed)'-suffixed seed-default label in overlay built-in fragment is not lifted either", () => {
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: { provider: "anthropic" },
+            profiles: {
+              balanced: { label: "Balanced (Managed)" },
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.profileOverrides.balanced).toEqual({ status: "disabled" });
+  });
+
+  test("non-seed-default label in overlay built-in fragment still lifts into profileOverrides", () => {
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: { provider: "anthropic" },
+            profiles: {
+              balanced: { label: "My Org Default" },
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.profileOverrides.balanced).toEqual({
+      label: "My Org Default",
+      status: "disabled",
+    });
+
+    const config = loadConfig();
+    expect(config.llm.profiles.balanced?.label).toBe("My Org Default");
+  });
+
+  test("explicit overlay profileOverrides label matching the seed default persists — the filter applies only to lifted legacy fragments", () => {
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: { provider: "anthropic" },
+            profileOverrides: {
+              balanced: { label: "Balanced" },
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.profileOverrides.balanced).toEqual({
+      label: "Balanced",
+      status: "disabled",
+    });
+
+    const config = loadConfig();
+    expect(config.llm.profiles.balanced?.label).toBe("Balanced");
+  });
+
   test("hatch overlay activeProfile naming a built-in with dropped provider routing remaps to the matching custom profile", () => {
     // Pre-PR semantics let a hatch overlay back `balanced` with openai; that
     // representation no longer exists. The hatch collected an openai BYOK

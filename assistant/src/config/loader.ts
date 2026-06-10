@@ -788,7 +788,11 @@ export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult
   // Overlay entries for built-in profile names are converted to sparse
   // `llm.profileOverrides` entries (label/status only) — built-in profile
   // config is code-defined and never materialized into `llm.profiles` on
-  // disk. Non-override fields are dropped with a warning. The converted
+  // disk. Non-override fields are dropped with a warning. Seed-default
+  // labels (the bare template label or its " (Managed)" variant) are seed
+  // artifacts, not overlay intent, so they are not lifted — only explicit
+  // `null` and non-default strings carry through; explicit overlay
+  // `llm.profileOverrides` entries are never filtered. The converted
   // names are excluded from `providedLlmProfileNames` so the seeder treats
   // only custom overlay names as overlay-owned.
   const convertedBuiltinNames = new Set<string>();
@@ -815,6 +819,16 @@ export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult
         if (droppedKeys.some((key) => PROVIDER_ROUTING_PROFILE_KEYS.has(key))) {
           builtinProfilesWithDroppedProviderConfig.add(name);
         }
+      }
+      // Mirrors the transition-compat path in applyBuiltinProfiles: a
+      // seed-default label carries no intent, and lifting it would pin the
+      // label as an override, bypassing the resolve-time default (e.g. the
+      // BYOK " (Managed)" suffix).
+      if (
+        typeof override.label === "string" &&
+        isSeedDefaultBuiltinLabel(name, override.label)
+      ) {
+        delete override.label;
       }
       if (Object.keys(override).length > 0) {
         const overridesStore = ensurePlainObjectAt(
