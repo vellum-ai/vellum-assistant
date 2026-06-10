@@ -71,18 +71,13 @@ async function flush(ms = 20): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
 }
 
-// Mock globalThis.fetch for /auth/token exchange (local) and /v1/organizations/ (cloud).
+// Mock globalThis.fetch for the /auth/token exchange (local gateway). Cloud
+// connections resolve their org from the lockfile, so they make no fetch here.
 const originalFetch = globalThis.fetch;
 const mockGatewayTokenFetch = async (input: string | URL | Request) => {
   const url = String(input);
   if (url.includes("/auth/token")) {
     return new Response(JSON.stringify({ token: "gateway-jwt", expiresAt: Date.now() + 60_000 }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-  if (url.includes("/v1/organizations/")) {
-    return new Response(JSON.stringify({ results: [{ id: "org-test-123" }] }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
@@ -255,7 +250,64 @@ describe("host-proxy-router", () => {
       const conn = __testing.connections.get("cloud-1")!;
       expect(conn.sse).toBeInstanceOf(HostProxySseClient);
       expect(conn.poster).toBeInstanceOf(HostProxyPoster);
-      expect(conn.fingerprint).toBe("cloud:https://platform.vellum.ai");
+      expect(conn.fingerprint).toBe("cloud:https://platform.vellum.ai:");
+    });
+
+    test("stamps organizationId from the lockfile into the fingerprint", async () => {
+      installHostProxyBridge(fakeCliResolver);
+
+      lockfileListener?.({
+        assistants: [
+          {
+            assistantId: "cloud-1",
+            cloud: "vellum",
+            runtimeUrl: "https://platform.vellum.ai",
+            organizationId: "org-from-lockfile",
+          },
+        ],
+        activeAssistant: "cloud-1",
+      });
+      await flush();
+
+      expect(__testing.connections.get("cloud-1")!.fingerprint).toBe(
+        "cloud:https://platform.vellum.ai:org-from-lockfile",
+      );
+    });
+
+    test("reconnects cloud assistant when organizationId changes", async () => {
+      installHostProxyBridge(fakeCliResolver);
+
+      lockfileListener?.({
+        assistants: [
+          {
+            assistantId: "cloud-1",
+            cloud: "vellum",
+            runtimeUrl: "https://platform.vellum.ai",
+            organizationId: "org-a",
+          },
+        ],
+        activeAssistant: "cloud-1",
+      });
+      await flush();
+      const firstSse = __testing.connections.get("cloud-1")!.sse;
+
+      lockfileListener?.({
+        assistants: [
+          {
+            assistantId: "cloud-1",
+            cloud: "vellum",
+            runtimeUrl: "https://platform.vellum.ai",
+            organizationId: "org-b",
+          },
+        ],
+        activeAssistant: "cloud-1",
+      });
+      await flush();
+
+      expect(__testing.connections.get("cloud-1")!.sse).not.toBe(firstSse);
+      expect(__testing.connections.get("cloud-1")!.fingerprint).toBe(
+        "cloud:https://platform.vellum.ai:org-b",
+      );
     });
 
     test("skips cloud assistant when no session token is available", async () => {
@@ -313,7 +365,7 @@ describe("host-proxy-router", () => {
       expect(__testing.connections.has("local-1")).toBe(true);
       expect(__testing.connections.has("cloud-1")).toBe(true);
       expect(__testing.connections.get("local-1")!.fingerprint).toBe("local:9001");
-      expect(__testing.connections.get("cloud-1")!.fingerprint).toBe("cloud:https://platform.vellum.ai");
+      expect(__testing.connections.get("cloud-1")!.fingerprint).toBe("cloud:https://platform.vellum.ai:");
     });
 
     test("reconnects cloud assistant when runtimeUrl changes", async () => {
@@ -338,7 +390,7 @@ describe("host-proxy-router", () => {
 
       expect(__testing.connections.has("cloud-1")).toBe(true);
       expect(__testing.connections.get("cloud-1")!.sse).not.toBe(firstSse);
-      expect(__testing.connections.get("cloud-1")!.fingerprint).toBe("cloud:https://new.vellum.ai");
+      expect(__testing.connections.get("cloud-1")!.fingerprint).toBe("cloud:https://new.vellum.ai:");
     });
 
     test("ignores non-vellum cloud assistants without resources", async () => {

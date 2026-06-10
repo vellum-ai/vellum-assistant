@@ -26,13 +26,20 @@ mock.module("@/assistant/api", () => ({
 }));
 
 const retireLocalAssistantMock = mock(async (_id: string) => retireLocalResult);
-const syncPlatformAssistantsToLockfileMock = mock(async (_a: unknown) => {});
+const syncPlatformAssistantsToLockfileMock = mock(
+  async (_a: unknown, _orgId?: string) => {},
+);
 mock.module("@/lib/local-mode", () => ({
   getLockfile: () => ({ assistants: lockfileAssistants, activeAssistant: null }),
   isLocalAssistant: (a: { cloud?: string }) => a.cloud !== "vellum",
   isLocalMode: () => isLocalModeValue,
   retireLocalAssistant: retireLocalAssistantMock,
   syncPlatformAssistantsToLockfile: syncPlatformAssistantsToLockfileMock,
+}));
+mock.module("@/stores/organization-store", () => ({
+  useOrganizationStore: {
+    getState: () => ({ currentOrganizationId: "org-test" }),
+  },
 }));
 
 mock.module("@/lib/navigation/navigation-resolver", () => ({
@@ -142,7 +149,10 @@ describe("retireAssistant", () => {
     // THEN it uses the platform delete (not local) and re-syncs the lockfile
     expect(retireAssistantByIdMock).toHaveBeenCalledWith("p1");
     expect(retireLocalAssistantMock).not.toHaveBeenCalled();
-    expect(syncPlatformAssistantsToLockfileMock).toHaveBeenCalled();
+    expect(syncPlatformAssistantsToLockfileMock).toHaveBeenCalledWith(
+      [{ id: "p1", is_local: false, created: "" }],
+      "org-test",
+    );
     expect(outcome.ok).toBe(true);
   });
 
