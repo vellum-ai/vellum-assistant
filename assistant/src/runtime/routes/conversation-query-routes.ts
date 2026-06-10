@@ -741,7 +741,11 @@ function pruneEmptyProfileOverrides(raw: Record<string, unknown>): void {
  * the stored override entry are kept (used when that entry was itself part
  * of the incoming write — the override store is the canonical write surface
  * for built-ins, so an explicit override beats a value lifted from a merged
- * `llm.profiles` entry in the same write).
+ * `llm.profiles` entry in the same write). An explicit entry-level `null`
+ * (clear the whole stored entry) is the strongest such override: under
+ * `explicitWins` the lift is skipped entirely so the downstream
+ * key-presence apply (`applyProfileOverridesPatch`) deletes the entry
+ * instead of resurrecting it with lifted values.
  */
 function liftIntoRawProfileOverrides(
   raw: Record<string, unknown>,
@@ -752,6 +756,9 @@ function liftIntoRawProfileOverrides(
   if (Object.keys(lifted).length === 0) return;
   const llm = ensureObjectAt(raw, "llm");
   const overrides = ensureObjectAt(llm, "profileOverrides");
+  if (opts.explicitWins && name in overrides && overrides[name] === null) {
+    return;
+  }
   const existing = asMutablePlainObject(overrides[name]);
   if (!existing) {
     overrides[name] = lifted;

@@ -585,6 +585,49 @@ describe("PATCH /v1/config — built-in profile sanitization", () => {
     expect(saved.llm.profiles.balanced).toBeUndefined();
   });
 
+  test("round-tripped built-in entry plus an explicit profileOverrides null deletes the stored override", async () => {
+    (rawConfig.llm as Record<string, unknown>).profileOverrides = {
+      balanced: { label: "Custom" },
+    };
+    const got = (await getRoute.handler({})) as Record<string, any>;
+    expect(got.llm.profiles.balanced.label).toBe("Custom");
+    const result = await patchRoute.handler({
+      body: {
+        llm: {
+          profiles: { balanced: got.llm.profiles.balanced },
+          profileOverrides: { balanced: null },
+        },
+      },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides).toBeUndefined();
+    expect(saved.llm.profiles.balanced).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet",
+    });
+  });
+
+  test("explicit profileOverrides null wins over a changed label carried by the profiles entry", async () => {
+    (rawConfig.llm as Record<string, unknown>).profileOverrides = {
+      balanced: { label: "Custom" },
+    };
+    const result = await patchRoute.handler({
+      body: {
+        llm: {
+          profiles: { balanced: { label: "New Name" } },
+          profileOverrides: { balanced: null },
+        },
+      },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    // The entry-level null is the strongest explicit override in the write:
+    // the stored entry is deleted and the lifted "New Name" is discarded
+    // rather than resurrecting the entry.
+    expect(saved.llm.profileOverrides).toBeUndefined();
+  });
+
   test("PATCH { label: null } persists the sentinel and masks a stale materialized label", async () => {
     // No llm.profileOverrides on disk: the lifted null must not flow through
     // deepMergeOverwrite, whose stripNullLeaves would empty the fresh
