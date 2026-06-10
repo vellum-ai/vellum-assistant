@@ -1,5 +1,7 @@
 import { BrowserWindow, app, type WebContents } from "electron";
 import { spawn } from "node:child_process";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 
@@ -134,130 +136,95 @@ export const queryMacHelperPermission = async (
 export const queryFreshMacHelperPermission = async (
   kind: MacHelperPermissionKind,
 ): Promise<MacHelperPermissionStatus> => {
-  const result = await callOneShotHelper("permission.status", { kind });
+  const result = await queryBundledMacHelperPermission(kind);
   return HELPER_PERMISSION_STATUS_SCHEMA.parse(result).status;
 };
 
 export const requestMacHelperSpeechRecognitionPermission =
   async (): Promise<void> => {
-    await openMacHelperPermissionRequest("--request-speech-recognition");
+    await openMacHelperApp(["--request-speech-recognition"]);
   };
 
 export const requestMacHelperInputMonitoringPermission =
   async (): Promise<void> => {
-    await openMacHelperPermissionRequest("--request-input-monitoring");
+    await openMacHelperApp(["--request-input-monitoring"]);
   };
 
-const openMacHelperPermissionRequest = async (arg: string): Promise<void> => {
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(
-      "open",
+const queryBundledMacHelperPermission = async (
+  kind: MacHelperPermissionKind,
+): Promise<unknown> => {
+  const tempDir = await mkdtemp(
+    path.join(tmpdir(), "vellum-mac-helper-permission-"),
+  );
+  const outputPath = path.join(tempDir, "status.json");
+
+  try {
+    await openMacHelperApp(
       [
-        "-n",
-        getMacHelperAppPath(),
-        "--args",
-        arg,
+        "--permission-status",
+        kind,
+        "--status-output",
+        outputPath,
       ],
-      { stdio: "ignore" },
     );
-    child.once("error", reject);
+    return await readPermissionStatusFile(outputPath);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+};
+
+const openMacHelperApp = async (
+  helperArgs: string[],
+): Promise<void> => {
+  await new Promise<void>((resolve, reject) => {
+    const args = [
+      "-n",
+      getMacHelperAppPath(),
+      "--args",
+      ...helperArgs,
+    ];
+    const child = spawn("open", args, { stdio: "ignore" });
+    let settled = false;
+
+    const settle = (err?: Error) => {
+      if (settled) return;
+      settled = true;
+      if (err) {
+        reject(err);
+      } else {
+        resolve();
+      }
+    };
+
+    child.once("error", settle);
     child.once("exit", (code) => {
       if (code === 0) {
-        resolve();
+        settle();
       } else {
-        reject(new Error(`open exited with code ${code ?? "unknown"}`));
+        settle(new Error(`open exited with code ${code ?? "unknown"}`));
       }
     });
   });
 };
 
-const callOneShotHelper = async (
-  method: string,
-  params?: unknown,
+const readPermissionStatusFile = async (
+  outputPath: string,
 ): Promise<unknown> => {
-  return new Promise<unknown>((resolve, reject) => {
-    const helperPath = getMacHelperPath();
-    const child = spawn(helperPath, [], {
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    const id = 1;
-    let timeout: ReturnType<typeof setTimeout> | null = null;
+  const deadline = Date.now() + 5_000;
+  let lastError: unknown = null;
 
-    const settle = (result: unknown) => {
-      if (settled) return;
-      settled = true;
-      if (timeout) clearTimeout(timeout);
-      if (result instanceof Error) {
-        reject(result);
-      } else {
-        resolve(result);
-      }
-    };
+  while (Date.now() < deadline) {
+    try {
+      return JSON.parse(await readFile(outputPath, "utf8"));
+    } catch (err) {
+      lastError = err;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
 
-    timeout = setTimeout(() => {
-      settle(new Error("mac helper one-shot status did not respond"));
-      child.kill("SIGTERM");
-    }, 2_000);
-    timeout.unref?.();
-
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
-      const newline = stdout.indexOf("\n");
-      if (newline < 0) return;
-
-      const line = stdout.slice(0, newline).trim();
-      try {
-        const response = z
-          .object({
-            jsonrpc: z.literal("2.0"),
-            id: z.number(),
-            result: z.unknown().optional(),
-            error: z
-              .object({ message: z.string(), code: z.number() })
-              .optional(),
-          })
-          .parse(JSON.parse(line));
-        if (response.error) {
-          settle(new Error(response.error.message));
-        } else {
-          settle(response.result);
-        }
-      } catch (err) {
-        settle(err instanceof Error ? err : new Error(String(err)));
-      } finally {
-        child.stdin.end();
-      }
-    });
-
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
-    });
-
-    child.once("error", settle);
-    child.once("exit", (code) => {
-      if (!settled && code !== 0) {
-        settle(
-          new Error(
-            `mac helper one-shot status exited with code ${code ?? "unknown"}${
-              stderr.trim() ? `: ${stderr.trim()}` : ""
-            }`,
-          ),
-        );
-      }
-    });
-
-    child.stdin.write(
-      `${JSON.stringify({
-        jsonrpc: "2.0",
-        id,
-        method,
-        ...(params === undefined ? {} : { params }),
-      })}\n`,
-    );
-  });
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("mac helper permission status did not appear");
 };
 
 interface HotkeyOwner {

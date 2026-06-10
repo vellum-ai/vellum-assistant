@@ -195,6 +195,15 @@ final class MacHelper: @unchecked Sendable {
         }
     }
 
+    func permissionStatus(rawKind: String) throws -> String {
+        guard let kind = PermissionKind(rawValue: rawKind) else {
+            throw JsonRpcDispatchError.invalidParams(
+                "permission status calls require kind"
+            )
+        }
+        return permissionStatus(kind: kind)
+    }
+
     private func speechRecognitionStatus() -> String {
         switch SFSpeechRecognizer.authorizationStatus() {
         case .authorized:
@@ -369,6 +378,44 @@ private enum HelperError: LocalizedError {
 
 let helper = MacHelper()
 
+private func argumentValue(after flag: String) -> String? {
+    guard let index = CommandLine.arguments.firstIndex(of: flag) else {
+        return nil
+    }
+    let valueIndex = CommandLine.arguments.index(after: index)
+    guard valueIndex < CommandLine.arguments.endIndex else {
+        return nil
+    }
+    return CommandLine.arguments[valueIndex]
+}
+
+private func writePermissionStatusAndExit() {
+    guard
+        let kind = argumentValue(after: "--permission-status"),
+        let outputPath = argumentValue(after: "--status-output")
+    else {
+        FileHandle.standardError.write(
+            Data("[vellum-mac-helper] permission status requires kind and output path\n".utf8)
+        )
+        exit(2)
+    }
+
+    do {
+        let status = try helper.permissionStatus(rawKind: kind)
+        let data = try JSONSerialization.data(
+            withJSONObject: ["status": status],
+            options: []
+        )
+        try data.write(to: URL(fileURLWithPath: outputPath), options: .atomic)
+        exit(0)
+    } catch {
+        FileHandle.standardError.write(
+            Data("[vellum-mac-helper] failed to write permission status: \(error.localizedDescription)\n".utf8)
+        )
+        exit(1)
+    }
+}
+
 if CommandLine.arguments.contains("--request-speech-recognition") {
     MainActor.assumeIsolated {
         NSApplication.shared.setActivationPolicy(.prohibited)
@@ -389,6 +436,8 @@ if CommandLine.arguments.contains("--request-speech-recognition") {
         }
         NSApplication.shared.terminate(nil)
     }
+} else if CommandLine.arguments.contains("--permission-status") {
+    writePermissionStatusAndExit()
 } else {
     MainActor.assumeIsolated {
         helper.run()

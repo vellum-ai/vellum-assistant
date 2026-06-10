@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { EventEmitter } from "node:events";
+import { writeFile } from "node:fs/promises";
 
 import { FakeChild } from "./test-helpers";
 
@@ -184,23 +185,22 @@ describe("getMacHelperPath", () => {
 describe("permission request launchers", () => {
   test("reads a permission status from a fresh helper process", async () => {
     const pending = queryFreshMacHelperPermission("speechRecognition");
+    await wait(10);
 
-    expect(spawnCalls[0]?.[0]).toBe(
-      "/repo/apps/macos/resources/vellum-mac-helper.app/Contents/MacOS/vellum-mac-helper",
-    );
-    expect(lastChild?.stdin.writes[0]).toContain(
-      "\"method\":\"permission.status\"",
-    );
-    expect(lastChild?.stdin.writes[0]).toContain(
-      "\"kind\":\"speechRecognition\"",
-    );
+    expect(spawnCalls[0]?.[0]).toBe("open");
+    const args = spawnCalls[0]?.[1] ?? [];
+    expect(args.slice(0, 4)).toEqual([
+      "-n",
+      "/repo/apps/macos/resources/vellum-mac-helper.app",
+      "--args",
+      "--permission-status",
+    ]);
+    expect(args[4]).toBe("speechRecognition");
+    expect(args[5]).toBe("--status-output");
+    expect(args[6]).toBeString();
 
-    lastChild?.stdout.emit(
-      "data",
-      Buffer.from(
-        "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"status\":\"granted\"}}\n",
-      ),
-    );
+    await writeFile(args[6]!, "{\"status\":\"granted\"}");
+    lastChild?.emit("exit", 0);
     expect(await pending).toBe("granted");
   });
 
