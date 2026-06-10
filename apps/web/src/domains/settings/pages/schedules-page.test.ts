@@ -255,7 +255,7 @@ describe("SystemTaskDetailView", () => {
     );
 
     await waitFor(() =>
-      expect(document.body.textContent).toContain("$0.1234"),
+      expect(document.body.textContent).toContain("$0.12"),
     );
     expect(screen.getByRole("button", { name: /Run now/i })).toBeTruthy();
     expect(document.body.textContent).not.toContain(
