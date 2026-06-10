@@ -382,8 +382,6 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
   minTurnIntervalMs: 150,
 };
 
-const MAX_STOP_CONTINUE_RETRIES = 1;
-
 /**
  * Per-run backstop on `post-model-call`-driven retries. A recovery hook that
  * sets `decision: "continue"` re-issues the provider call; this bounds the
@@ -848,9 +846,7 @@ export class AgentLoop {
     // `history.slice(newMessagesStart)` is always exactly what the loop produced
     // since the last base.
     let newMessagesStart = history.length;
-    let producedVisibleTextThisRun = false;
     let toolUseTurns = 0;
-    let stopContinueRetries = 0;
     let postModelCallContinues = 0;
     let lastLlmCallTime = 0;
     let exitReason: ExitReason | null = null;
@@ -1168,6 +1164,13 @@ export class AgentLoop {
         // instead. Reset per model call.
         let deferAssistantOutput = false;
 
+        // Set once any visible assistant text reaches the client live this
+        // model call. A deferred turn holds the live stream and a turn the
+        // model leaves visibly empty streams nothing, so this stays false for
+        // both — letting the loop surface the finalized text exactly once when
+        // the client would otherwise see nothing.
+        let streamedVisibleText = false;
+
         // The `onEvent` wrapping below applies sensitive-output placeholder
         // substitution to streamed text while forwarding every other event
         // type through unchanged.
@@ -1189,9 +1192,11 @@ export class AgentLoop {
                 );
                 streamingPending = pending;
                 if (emit.length > 0) {
+                  streamedVisibleText = true;
                   onEvent({ type: "text_delta", text: emit });
                 }
               } else {
+                if (event.text.length > 0) streamedVisibleText = true;
                 onEvent({ type: "text_delta", text: event.text });
               }
             } else if (event.type === "thinking_delta") {
@@ -1345,6 +1350,7 @@ export class AgentLoop {
         if (streamingPending.length > 0) {
           const flushed = applySubstitutions(streamingPending, substitutionMap);
           if (flushed.length > 0) {
+            streamedVisibleText = true;
             onEvent({ type: "text_delta", text: flushed });
           }
           streamingPending = "";
@@ -1358,8 +1364,8 @@ export class AgentLoop {
         // Returns the finalized message alongside the chain's retry `decision`
         // and resulting `messages`. The caller honors `decision` only at an
         // actionable outcome (a no-tool stop boundary); other call sites take
-        // the finalized message and ignore the decision. Deferred output is not
-        // emitted here — the caller emits it via `emitDeferredAssistantText`
+        // the finalized message and ignore the decision. Final output is not
+        // emitted here — the caller emits it via `emitFinalAssistantText`
         // once it has decided to keep the turn, so a re-queried reply isn't
         // streamed-then-discarded.
         const finalizeAssistantMessage = async (
@@ -1394,13 +1400,15 @@ export class AgentLoop {
           }
         };
 
-        // Emit a deferred turn's finalized assistant text once. When a turn
-        // defers its live stream, nothing reached the client during streaming;
-        // this replays the finalized (post-transform) text, with sensitive-output
-        // substitution applied to match what the live stream would have shown.
-        // No-op when the turn didn't defer. Call only for a turn being kept.
-        const emitDeferredAssistantText = (content: ContentBlock[]): void => {
-          if (!deferAssistantOutput) return;
+        // Surface the finalized assistant text when the client saw nothing live
+        // this turn: a deferred turn held its live stream, and a turn the model
+        // left visibly empty that a `post-model-call` hook rewrote into visible
+        // text (e.g. a refusal turned into an apology) streamed nothing either.
+        // Sensitive-output substitution is applied to match what the live stream
+        // would have shown. A no-op when text already streamed live — that
+        // stream stands. Call only for a turn being kept.
+        const emitFinalAssistantText = (content: ContentBlock[]): void => {
+          if (streamedVisibleText) return;
           const finalText = applySubstitutions(
             assistantTextOf(content),
             substitutionMap,
@@ -1455,15 +1463,15 @@ export class AgentLoop {
             "LLM response reached output token limit",
           );
           // Run the hook on the truncated reply so output-filter plugins still
-          // see it, and so a deferred turn gets its synthetic final emit (the
-          // live stream was suppressed; without this the client would see nothing).
-          // The retry decision is ignored here: a max-tokens stop is terminal.
+          // see it, and so a turn that streamed nothing live gets its final
+          // emit (without this the client would see nothing). The retry decision
+          // is ignored here: a max-tokens stop is terminal.
           const { finalized: safeAssistantMessage } =
             await finalizeAssistantMessage({
               role: "assistant",
               content: safeContent,
             });
-          emitDeferredAssistantText(safeAssistantMessage.content);
+          emitFinalAssistantText(safeAssistantMessage.content);
           history.push(safeAssistantMessage);
           await onEvent({
             type: "max_tokens_reached",
@@ -1477,71 +1485,10 @@ export class AgentLoop {
           break;
         }
 
-        // The model's "stop" moment: a response with no tool calls is about to
-        // yield to the user. The `stop` hook (below) decides whether to accept
-        // the turn or re-query with a follow-up; `priorAssistantHadVisibleText`
-        // gates the ops log for the post-tool empty case.
+        // A response with no tool calls is the run's stop boundary. The
+        // `post-model-call` hook (below) sees the finalized reply and decides
+        // whether to accept the turn or re-query with a follow-up.
         const responseHasVisibleText = hasVisibleText(response.content);
-        const priorAssistantHadVisibleText = producedVisibleTextThisRun;
-        if (responseHasVisibleText) {
-          producedVisibleTextThisRun = true;
-        }
-
-        // Content a `stop` hook rewrote the turn into, replacing an otherwise
-        // user-invisible turn (e.g. a refusal rewritten into an apology).
-        // Applied after `finalizeAssistantMessage` below.
-        let stopRewrittenContent: ContentBlock[] | undefined;
-
-        if (toolUseBlocks.length === 0) {
-          // The model stopped requesting tools — the run's stop boundary. The
-          // `stop` hook decides whether to let the turn end, rewrite it for the
-          // user, or re-query with a follow-up turn. It receives the full
-          // history and, when it asks to continue, appends the follow-up turn
-          // itself.
-          const stopCtx: StopContext = {
-            conversationId: this.conversationId,
-            messages: [...history],
-            responseContent: response.content,
-            stopReason: response.stopReason,
-            decision: "stop",
-            logger: rlog,
-          };
-          const finalStopCtx = await runHook(HOOKS.STOP, stopCtx);
-          // A hook rewrites the turn by replacing `responseContent`; detect it
-          // by identity against the model's original output.
-          if (finalStopCtx.responseContent !== response.content) {
-            stopRewrittenContent = [...finalStopCtx.responseContent];
-          }
-
-          if (finalStopCtx.decision === "continue") {
-            // The loop owns the retry budget: a hook always asks to continue
-            // when a nudge is warranted, and the loop stops anyway once the
-            // budget is spent. This bounds the hook-driven re-query loop.
-            if (stopContinueRetries < MAX_STOP_CONTINUE_RETRIES) {
-              stopContinueRetries++;
-              rlog.warn(
-                { turn: toolUseTurns, retry: stopContinueRetries },
-                "Model returned empty response after tool results — retrying",
-              );
-              history = finalStopCtx.messages;
-              continue;
-            }
-
-            // Budget spent — accept the empty turn. Emit a dedicated log line
-            // for the post-tool empty case so ops dashboards that grep on it
-            // keep working.
-            if (
-              !responseHasVisibleText &&
-              toolUseTurns > 0 &&
-              !priorAssistantHadVisibleText
-            ) {
-              rlog.error(
-                { turn: toolUseTurns, retries: stopContinueRetries },
-                "Model returned empty response after tool results — retries exhausted",
-              );
-            }
-          }
-        }
 
         // Run the `post-model-call` hook: transform the finalized reply and
         // surface its retry decision.
@@ -1592,24 +1539,24 @@ export class AgentLoop {
           }
         }
 
-        // The turn is being kept: replay any deferred final text (skipped above
-        // when a retry discarded the turn).
-        emitDeferredAssistantText(assistantMessage.content);
+        // The turn is being kept: surface the finalized text if the client saw
+        // nothing live (a deferred stream, or a hook-rewritten empty turn).
+        emitFinalAssistantText(assistantMessage.content);
 
-        // Apply a `stop` hook's rewrite of the turn (e.g. a provider `refusal`
-        // that zeroed the response, rewritten into a user-facing apology). The
-        // hook decides whether and what to rewrite; the loop owns the I/O —
-        // persisting the new content and streaming a synthetic `text_delta`,
-        // since nothing was emitted live for a turn the model left empty.
-        if (stopRewrittenContent) {
-          assistantMessage = {
-            role: "assistant",
-            content: stopRewrittenContent,
+        if (toolUseBlocks.length === 0) {
+          // The model stopped requesting tools and `post-model-call` settled on
+          // ending the turn: notify the `stop` chain so terminal hooks (e.g.
+          // title regeneration) react. `stop` has no retry decision here — the
+          // turn's outcome is already resolved.
+          const stopCtx: StopContext = {
+            conversationId: this.conversationId,
+            messages: [...history],
+            responseContent: assistantMessage.content,
+            stopReason: response.stopReason,
+            decision: "stop",
+            logger: rlog,
           };
-          const rewrittenText = assistantTextOf(stopRewrittenContent);
-          if (rewrittenText) {
-            onEvent({ type: "text_delta", text: rewrittenText });
-          }
+          await runHook(HOOKS.STOP, stopCtx);
         }
 
         history.push(assistantMessage);
