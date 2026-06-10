@@ -41,9 +41,11 @@
  *      a conservative full-reembed effectively free. On failure no follow-ups
  *      are enqueued — the agent's writes may be partial and re-embedding
  *      partial state would be misleading.
- *   7. Release the lock. If a prior holder's PID is no longer running, the
- *      stale lock is taken over automatically (single-writer per workspace,
- *      so a holder whose process died is unambiguously stale).
+ *   7. Release the lock. A stale lock is taken over automatically on the next
+ *      run (single-writer per workspace): when the holder's PID is no longer
+ *      running, or — because the daemon runs as PID 1 in containers and a
+ *      restarted daemon collides with the dead holder's PID — when the lock is
+ *      older than a TTL well above the run's hard timeout.
  *
  * The handler never propagates exceptions from the run path — `runBackgroundJob`
  * absorbs them and returns a structured result. A thrown error before the
@@ -95,6 +97,25 @@ const MEMORY_V3_LIVE = "memory-v3-live" as const;
  * provider can't pin the worker indefinitely.
  */
 const CONSOLIDATION_TIMEOUT_MS = 15 * 60 * 1000;
+
+/**
+ * Age past which a lock held by an apparently-live PID is taken over anyway.
+ *
+ * The PID-liveness probe alone is not sufficient in containers: the daemon
+ * runs as PID 1, so after a container restart `isProcessAlive(1)` reports the
+ * NEW daemon as alive even though it is not the process that wrote the lock.
+ * PID-1 collision means a lock left behind by a crashed/restarted run can
+ * never be declared stale by liveness alone, and consolidation wedges
+ * permanently (every scheduled run skips with `locked`).
+ *
+ * A lock older than this TTL is treated as abandoned regardless of PID
+ * liveness. The bound is a large multiple of the run's hard timeout — the
+ * lock timestamp is written at acquire time and a run can hold the lock for
+ * at most `CONSOLIDATION_TIMEOUT_MS`, so a TTL well above that can never fire
+ * against a legitimately in-flight run while still recovering a wedged lock
+ * within a couple of scheduled passes.
+ */
+const STALE_LOCK_TTL_MS = 4 * CONSOLIDATION_TIMEOUT_MS;
 
 /**
  * Follow-up jobs to fan out after a successful consolidation.
@@ -286,11 +307,13 @@ export function countBufferLines(bufferPath: string): number {
  * `null` on success, or the current holder string (file contents, typically
  * `pid timestamp`) when the file already exists and the holder is still alive.
  *
- * Stale-lock takeover: if the file exists but its holder PID is not running,
- * unlink the stale file and retry the create exactly once. This recovers
- * automatically from a crashed daemon that died with the lock held —
- * otherwise every subsequent scheduled consolidation would skip with `locked`
- * indefinitely until an operator manually removed the file.
+ * Stale-lock takeover: if the file exists but its holder is stale (PID not
+ * running, payload corrupt, or — for the container PID-1 collision — older
+ * than the TTL; see {@link holderStaleReason}), unlink the stale file and
+ * retry the create exactly once. This recovers automatically from a crashed
+ * or restarted daemon that died with the lock held — otherwise every
+ * subsequent scheduled consolidation would skip with `locked` indefinitely
+ * until an operator manually removed the file.
  *
  * The simple takeover-then-retry is safe here (unlike `snapshot-lock.ts`'s
  * full rename-aside dance) because only the assistant's jobs worker calls
@@ -307,11 +330,12 @@ function tryAcquireLock(lockPath: string): string | null {
 
   const firstHolder = tryCreate(lockPath);
   if (firstHolder === null) return null;
-  if (!isHolderStale(firstHolder)) return firstHolder;
+  const staleReason = holderStaleReason(firstHolder);
+  if (staleReason === null) return firstHolder;
 
   log.info(
-    { lockPath, holder: firstHolder },
-    "consolidation: taking over stale lock (holder not running)",
+    { lockPath, holder: firstHolder, reason: staleReason },
+    "consolidation: taking over stale lock",
   );
   try {
     unlinkSync(lockPath);
@@ -363,18 +387,62 @@ function tryCreate(lockPath: string): string | null {
 }
 
 /**
- * A holder string is stale when its PID parses to a non-running process.
- * The payload format is `<pid> <timestamp>` (see `tryCreate`'s write), but
- * an unparseable / empty / `"unknown"` payload is also treated as stale:
- * the only writer is `tryCreate` itself, so corruption indicates a partial
- * write from a crashed prior holder rather than a live writer mid-flush.
+ * Why a lock holder is considered stale, for diagnosable takeover logs:
+ *   - `unparseable`: empty / corrupt payload (partial write from a crash).
+ *   - `pid_dead`: the holder's PID is no longer running.
+ *   - `expired`: the lock is older than {@link STALE_LOCK_TTL_MS} even though
+ *     its PID still appears alive — the PID-1 collision case in containers.
  */
-function isHolderStale(holder: string): boolean {
-  const match = /^\d+/.exec(holder);
-  if (!match) return true;
-  const pid = Number.parseInt(match[0], 10);
-  if (!Number.isFinite(pid) || pid <= 0) return true;
-  return !isProcessAlive(pid);
+type StaleReason = "unparseable" | "pid_dead" | "expired";
+
+/**
+ * Parse a `<pid> <timestamp>` holder payload (see `tryCreate`'s write).
+ * Returns `null` when the PID cannot be parsed; a missing/garbled timestamp
+ * yields `timestamp: null` so a partial payload still gives us the PID.
+ */
+function parseHolder(
+  holder: string,
+): { pid: number; timestamp: number | null } | null {
+  const match = /^(\d+)(?:\s+(\d+))?/.exec(holder);
+  if (!match) return null;
+  const pid = Number.parseInt(match[1], 10);
+  if (!Number.isFinite(pid) || pid <= 0) return null;
+  const timestamp =
+    match[2] !== undefined ? Number.parseInt(match[2], 10) : null;
+  return {
+    pid,
+    timestamp:
+      timestamp !== null && Number.isFinite(timestamp) ? timestamp : null,
+  };
+}
+
+/**
+ * Classify a holder string, returning the reason it is stale or `null` when
+ * the lock is held by a live process and must be respected.
+ *
+ * Takeover triggers, in order:
+ *   1. Unparseable / empty / `"unknown"` payload → `unparseable`. The only
+ *      writer is `tryCreate`, so corruption is a partial write from a crashed
+ *      prior holder, not a live writer mid-flush.
+ *   2. PID not running → `pid_dead`. The fast path for a crashed daemon (or a
+ *      different process now occupying that PID on a normal host).
+ *   3. Lock older than {@link STALE_LOCK_TTL_MS} → `expired`. Required because
+ *      the daemon runs as PID 1 in containers: after a restart the new daemon
+ *      is also PID 1, so the liveness probe alone reports the holder as alive
+ *      forever and could never reclaim an abandoned lock. The TTL is far above
+ *      the run's hard timeout, so it never fires against an in-flight run.
+ */
+function holderStaleReason(holder: string): StaleReason | null {
+  const parsed = parseHolder(holder);
+  if (parsed === null) return "unparseable";
+  if (!isProcessAlive(parsed.pid)) return "pid_dead";
+  if (
+    parsed.timestamp !== null &&
+    Date.now() - parsed.timestamp > STALE_LOCK_TTL_MS
+  ) {
+    return "expired";
+  }
+  return null;
 }
 
 /**
