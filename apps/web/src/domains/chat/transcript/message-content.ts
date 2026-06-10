@@ -11,6 +11,8 @@ import type {
   ConversationMessageToolCall,
 } from "@vellumai/assistant-api";
 
+// These union members aren't individually exported from @vellumai/assistant-api;
+// narrow from the discriminated union instead.
 type ConversationThinkingBlock = Extract<
   ConversationContentBlock,
   { type: "thinking" }
