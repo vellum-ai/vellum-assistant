@@ -69,18 +69,18 @@ export function RouteErrorBoundary() {
 
   // On Electron with `titleBarStyle: "hidden"`, the macOS traffic lights and
   // the global `WindowDragRegion` (h-7 = 28px) occupy the top of the viewport.
-  // Add matching top padding so content centres in the usable area below the
-  // window controls — the same treatment `SidebarShell` and
-  // `ChatLayoutHeader` apply. Off Electron this is a no-op.
+  // With `justify-center`, symmetric padding centres content at H/2; to shift
+  // the visual centre into the usable area below the window controls we need a
+  // 28px top-vs-bottom imbalance → 52px top (28 clearance + 24 content) vs the
+  // existing 24px bottom from `p-6`.
   const electron = isElectron();
 
   return (
     <div
       data-slot="route-error-boundary"
       data-variant="full-page"
-      className={`flex min-h-svh flex-col items-center justify-center gap-4 p-6 text-center${
-        electron ? " pt-7" : ""
-      }`}
+      className="flex min-h-svh flex-col items-center justify-center gap-4 p-6 text-center"
+      style={electron ? { paddingTop: "3.25rem" } : undefined}
     >
       <h1 className="text-2xl font-semibold text-[var(--content-primary)]">
         {heading}
