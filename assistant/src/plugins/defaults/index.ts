@@ -26,6 +26,8 @@
 
 import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
 import { type Plugin, PluginExecutionError } from "../types.js";
+import attachmentReadHintUserPromptSubmit from "./attachment-read-hint/hooks/user-prompt-submit.js";
+import attachmentReadHintPkg from "./attachment-read-hint/package.json" with { type: "json" };
 import compactionPkg from "./compaction/package.json" with { type: "json" };
 import emptyResponseStop from "./empty-response/hooks/stop.js";
 import emptyResponsePkg from "./empty-response/package.json" with { type: "json" };
@@ -167,6 +169,23 @@ export const defaultTitleGeneratePlugin: Plugin = {
 };
 
 /**
+ * `attachment-read-hint` — a `user-prompt-submit` hook that appends a
+ * read-the-attachment hint to the tail user message when it carries image or
+ * file blocks and the turn's resolved model is one that under-prioritizes
+ * attachments (currently Kimi K2.6). Models that already read attachments
+ * first pay no token cost for the hint.
+ */
+export const defaultAttachmentReadHintPlugin: Plugin = {
+  manifest: {
+    name: attachmentReadHintPkg.name,
+    version: attachmentReadHintPkg.version,
+  },
+  hooks: {
+    "user-prompt-submit": attachmentReadHintUserPromptSubmit,
+  },
+};
+
+/**
  * `tool-error` — a `post-tool-use` hook that coaches the model to retry or
  * report a failed tool call, bounded per tool. The coaching is surfaced via
  * `additionalContext`, leaving the tool result's own content untouched.
@@ -209,6 +228,7 @@ function getAllDefaultPlugins(): readonly Plugin[] {
     defaultEmptyResponsePlugin,
     defaultToolErrorPlugin,
     defaultHistoryRepairPlugin,
+    defaultAttachmentReadHintPlugin,
     defaultImageRecoveryPlugin,
     defaultCompactionPlugin,
     defaultTitleGeneratePlugin,

@@ -804,6 +804,10 @@ export async function runAgentLoopImpl(
       latestMessages: ctx.messages,
       logger: rlog,
       modelProfileKey,
+      resolvedModel: resolveCallSiteConfig(turnCallSite, config.llm, {
+        overrideProfile: turnOverrideProfile ?? undefined,
+        selectionSeed: ctx.conversationId,
+      }).model,
       isNonInteractive,
     };
     const finalUserPromptCtx = await runHook(

@@ -164,6 +164,17 @@ export interface UserPromptSubmitContext {
    */
   readonly modelProfileKey: string | null;
   /**
+   * Model id resolved for this turn's call site at turn start (e.g.
+   * "moonshotai/kimi-k2.6"), via the same call-site resolution the provider
+   * layer uses for the turn's first LLM call. Lets hooks scope model-specific
+   * prompt shaping to the models that need it. Mid-turn profile switches
+   * (tool-based auto-routing) are not reflected — the value is fixed when the
+   * hook fires. Absent when the caller cannot resolve a model (synthesized
+   * test contexts); hooks must treat absence as "don't apply model-specific
+   * behavior".
+   */
+  readonly resolvedModel?: string;
+  /**
    * Whether the turn has no human present to answer clarification questions
    * (e.g. a scheduled, background, or headless run). Resolved once at turn
    * start from the run's interactivity option, falling back to live client
