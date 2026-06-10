@@ -1,7 +1,10 @@
 import { Check, Loader2, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { subscribeToDictationOverlayState } from "@/runtime/dictation-overlay";
+import {
+  getDictationOverlayState,
+  subscribeToDictationOverlayState,
+} from "@/runtime/dictation-overlay";
 import type { DictationOverlayState } from "@/runtime/is-electron";
 
 /**
@@ -22,7 +25,19 @@ import type { DictationOverlayState } from "@/runtime/is-electron";
 export function DictationOverlayPage() {
   const [state, setState] = useState<DictationOverlayState | null>(null);
 
-  useEffect(() => subscribeToDictationOverlayState(setState), []);
+  useEffect(() => {
+    const unsubscribe = subscribeToDictationOverlayState(setState);
+    // This route chunk loads lazily after the window is created, so the
+    // session's first states can be pushed before the subscription above
+    // registers and be dropped. Pull the latest to catch up — pushed states
+    // are newer, so never overwrite one.
+    void getDictationOverlayState().then((initial) => {
+      if (initial) {
+        setState((current) => current ?? initial);
+      }
+    });
+    return unsubscribe;
+  }, []);
 
   if (!state) {
     return null;

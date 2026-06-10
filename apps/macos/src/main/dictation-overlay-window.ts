@@ -2,7 +2,7 @@ import { BrowserWindow, app, screen } from "electron";
 import { z } from "zod";
 
 import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
-import { on } from "./ipc";
+import { handle, on } from "./ipc";
 import { createWindow } from "./windows";
 
 /**
@@ -154,9 +154,10 @@ const overlayUrl = (): string => {
 
 let overlayWindow: BrowserWindow | null = null;
 
-// Latest state forwarded to the overlay renderer, replayed on
-// `did-finish-load` so the session that triggers the window's creation
-// isn't lost to the route-load race.
+// Latest state forwarded to the overlay renderer. The overlay route loads
+// lazily after the window is created, so pushes sent before its `onState`
+// subscription registers are dropped by Electron — the route pulls this via
+// `vellum:dictationOverlay:getState` once subscribed to catch up.
 let latestState: DictationOverlayState | null = null;
 
 const sendState = (state: DictationOverlayState): void => {
@@ -212,12 +213,6 @@ const ensureOverlayWindow = (): BrowserWindow => {
     skipTransformProcessType: true,
   });
 
-  win.webContents.on("did-finish-load", () => {
-    if (latestState) {
-      win.webContents.send("vellum:dictationOverlay:state", latestState);
-    }
-  });
-
   win.on("closed", () => {
     overlayWindow = null;
   });
@@ -267,4 +262,6 @@ export const installDictationOverlay = (): void => {
       controller.handleMessage(message);
     },
   );
+
+  handle("vellum:dictationOverlay:getState", z.tuple([]), () => latestState);
 };

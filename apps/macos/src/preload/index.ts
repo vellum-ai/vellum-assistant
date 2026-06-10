@@ -577,6 +577,13 @@ export interface VellumBridge {
      * function.
      */
     onState(callback: (state: DictationOverlayState) => void): () => void;
+    /**
+     * Read the latest overlay state (or null when no session is active).
+     * The overlay route loads lazily, so states pushed before its `onState`
+     * subscription registers are dropped — it pulls this once subscribed
+     * to catch up.
+     */
+    getState(): Promise<DictationOverlayState | null>;
   };
   popout: {
     /**
@@ -915,6 +922,10 @@ const bridge: VellumBridge = {
         ipcRenderer.off("vellum:dictationOverlay:state", handler);
       };
     },
+    getState: (): Promise<DictationOverlayState | null> =>
+      ipcRenderer.invoke(
+        "vellum:dictationOverlay:getState",
+      ) as Promise<DictationOverlayState | null>,
   },
   popout: {
     open: (conversationId: string): Promise<void> =>

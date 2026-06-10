@@ -41,3 +41,16 @@ export function subscribeToDictationOverlayState(
   }
   return window.vellum.dictationOverlay.onState(callback);
 }
+
+/**
+ * Read the latest overlay state (null when no session is active, off
+ * Electron, or on shells that predate the channel). The overlay route
+ * loads lazily, so states pushed before its subscription registers are
+ * dropped — pull this once subscribed to catch up.
+ */
+export async function getDictationOverlayState(): Promise<DictationOverlayState | null> {
+  if (!isElectron() || !window.vellum?.dictationOverlay?.getState) {
+    return null;
+  }
+  return window.vellum.dictationOverlay.getState();
+}

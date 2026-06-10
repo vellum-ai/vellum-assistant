@@ -402,6 +402,7 @@ declare global {
         onState(
           callback: (state: DictationOverlayState) => void,
         ): () => void;
+        getState(): Promise<DictationOverlayState | null>;
       };
       // Optional: older Electron shells predate the notifications channel.
       notifications?: {
