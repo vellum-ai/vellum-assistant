@@ -21,7 +21,10 @@ let operationalStatusQueryMock: {
   data: null,
   isError: false,
 };
-let StatusBanner: ComponentType<{ className?: string }>;
+let StatusBanner: ComponentType<{
+  className?: string;
+  hasMaintenanceSurface?: boolean;
+}>;
 
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => isNativePlatformMock,
@@ -190,12 +193,24 @@ describe("StatusBanner", () => {
       isError: false,
     };
 
-    const html = renderToStaticMarkup(<StatusBanner />);
+    const html = renderToStaticMarkup(<StatusBanner hasMaintenanceSurface />);
 
     expect(html).toContain("Assistant is in maintenance mode");
   });
 
-  test("suppresses the maintenance_mode notice when lifecycle maintenance mode is active", () => {
+  test("suppresses the maintenance_mode notice on maintenance-surface mounts when lifecycle maintenance mode is active", () => {
+    assistantStateMock = { kind: "active", maintenanceMode: { enabled: true } };
+    operationalStatusQueryMock = {
+      data: { state: "maintenance_mode" },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner hasMaintenanceSurface />);
+
+    expect(html).toBe("");
+  });
+
+  test("keeps the maintenance_mode notice on mounts without a maintenance surface", () => {
     assistantStateMock = { kind: "active", maintenanceMode: { enabled: true } };
     operationalStatusQueryMock = {
       data: { state: "maintenance_mode" },
@@ -204,7 +219,7 @@ describe("StatusBanner", () => {
 
     const html = renderToStaticMarkup(<StatusBanner />);
 
-    expect(html).toBe("");
+    expect(html).toContain("Assistant is in maintenance mode");
   });
 
   test("lifecycle maintenance mode only suppresses the maintenance_mode state", () => {
@@ -214,7 +229,7 @@ describe("StatusBanner", () => {
       isError: false,
     };
 
-    const html = renderToStaticMarkup(<StatusBanner />);
+    const html = renderToStaticMarkup(<StatusBanner hasMaintenanceSurface />);
 
     expect(html).toContain("Assistant is crash looping");
   });
