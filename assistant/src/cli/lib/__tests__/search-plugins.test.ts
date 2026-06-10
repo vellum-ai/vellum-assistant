@@ -1,13 +1,15 @@
 /**
  * Tests for {@link searchPlugins}.
  *
- * Network is replaced with an in-memory fixture passed via the `fetch`
- * dependency — no globals are monkey-patched and no `--test-hook` exports
- * leak into production code.
+ * The catalog is the whitelisted external plugins in the curated
+ * `plugins/marketplace.json` manifest. Network is replaced with an in-memory
+ * fixture passed via the `fetch` dependency — no globals are monkey-patched and
+ * no `--test-hook` exports leak into production code.
  */
 
 import { describe, expect, test } from "bun:test";
 
+import { MarketplaceFetchError } from "../plugin-marketplace.js";
 import {
   type FetchLike,
   InvalidSearchPatternError,
@@ -15,52 +17,64 @@ import {
   searchPlugins,
 } from "../search-plugins.js";
 
-/**
- * Build a GitHub Contents API fixture from an in-memory directory listing.
- *
- * `entries` maps each name under `plugins/` to its `type`. The
- * fixture answers GET requests against
- *  - `https://api.github.com/repos/vellum-ai/vellum-assistant/contents/plugins...`
- * and returns 500 for anything else (forces test bugs to surface loudly).
- */
-function fixtureFetch(
-  entries: Record<string, "dir" | "file" | "symlink" | "submodule">,
-): FetchLike {
-  const PREFIX_API =
-    "https://api.github.com/repos/vellum-ai/vellum-assistant/contents/plugins";
+const MANIFEST_URL_PREFIX =
+  "https://api.github.com/repos/vellum-ai/vellum-assistant/contents/plugins/marketplace.json";
 
+// External marketplace refs must be full commit SHAs (immutable). Fixtures use
+// realistic 40-char hex object names rather than tags/branches.
+const SHA_A = "63a91ecadbf4c4719a4602a5abb00883f9966034";
+const SHA_B = "0123456789abcdef0123456789abcdef01234567";
+const SHA_C = "89abcdef0123456789abcdef0123456789abcdef";
+
+interface ManifestPlugin {
+  name: string;
+  source: { source: "github"; repo: string; path?: string; ref: string };
+  description?: string;
+}
+
+/** Serve `plugins` as the raw marketplace manifest at the manifest URL. */
+function manifestFetch(plugins: ManifestPlugin[]): FetchLike {
   return (async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (!url.startsWith(PREFIX_API)) {
+    if (!url.startsWith(MANIFEST_URL_PREFIX)) {
       return new Response("unexpected url: " + url, { status: 500 });
     }
-    const body = Object.entries(entries).map(([name, type]) => ({
-      name,
-      path: `plugins/${name}`,
-      type,
-      size: type === "file" ? 1 : 0,
-      download_url:
-        type === "file"
-          ? `https://raw.githubusercontent.com/vellum-ai/vellum-assistant/main/plugins/${name}`
-          : null,
-    }));
-    return new Response(JSON.stringify(body), {
+    return new Response(JSON.stringify({ name: "vellum-assistant", plugins }), {
       status: 200,
       headers: { "content-type": "application/json" },
     });
   }) as FetchLike;
 }
 
+/** A github-sourced manifest entry, with optional path/description. */
+function entry(
+  name: string,
+  repo: string,
+  ref: string,
+  extra?: { path?: string; description?: string },
+): ManifestPlugin {
+  return {
+    name,
+    source: {
+      source: "github",
+      repo,
+      ...(extra?.path ? { path: extra.path } : {}),
+      ref,
+    },
+    ...(extra?.description ? { description: extra.description } : {}),
+  };
+}
+
 describe("searchPlugins", () => {
-  test("matches the query as a case-insensitive regex against directory names", async () => {
+  test("matches the query as a case-insensitive regex against plugin names", async () => {
     const result = await searchPlugins(
       { query: "memory" },
       {
-        fetch: fixtureFetch({
-          "simple-memory": "dir",
-          "memory-graph": "dir",
-          "git-tools": "dir",
-        }),
+        fetch: manifestFetch([
+          entry("simple-memory", "vellum-ai/simple-memory", SHA_A),
+          entry("memory-graph", "acme/memory-graph", SHA_B),
+          entry("git-tools", "acme/git-tools", SHA_C),
+        ]),
       },
     );
 
@@ -68,7 +82,7 @@ describe("searchPlugins", () => {
       "memory-graph",
       "simple-memory",
     ]);
-    expect(result.matches[0]!.path).toBe("plugins/memory-graph");
+    expect(result.matches[0]!.path).toBe(`github:acme/memory-graph@${SHA_B}`);
     expect(result.query).toBe("memory");
     expect(result.ref).toBe("main");
   });
@@ -76,7 +90,11 @@ describe("searchPlugins", () => {
   test("matches regardless of query casing (case-insensitive)", async () => {
     const result = await searchPlugins(
       { query: "MEMORY" },
-      { fetch: fixtureFetch({ "simple-memory": "dir" }) },
+      {
+        fetch: manifestFetch([
+          entry("simple-memory", "vellum-ai/simple-memory", SHA_A),
+        ]),
+      },
     );
     expect(result.matches.map((m) => m.name)).toEqual(["simple-memory"]);
   });
@@ -85,24 +103,24 @@ describe("searchPlugins", () => {
     const result = await searchPlugins(
       { query: "^memory-" },
       {
-        fetch: fixtureFetch({
-          "memory-graph": "dir",
-          "simple-memory": "dir",
-        }),
+        fetch: manifestFetch([
+          entry("memory-graph", "acme/memory-graph", SHA_B),
+          entry("simple-memory", "vellum-ai/simple-memory", SHA_A),
+        ]),
       },
     );
     expect(result.matches.map((m) => m.name)).toEqual(["memory-graph"]);
   });
 
-  test("empty query matches all directories", async () => {
+  test("empty query matches every whitelisted entry", async () => {
     const result = await searchPlugins(
       { query: "" },
       {
-        fetch: fixtureFetch({
-          "simple-memory": "dir",
-          "memory-graph": "dir",
-          "git-tools": "dir",
-        }),
+        fetch: manifestFetch([
+          entry("simple-memory", "vellum-ai/simple-memory", SHA_A),
+          entry("memory-graph", "acme/memory-graph", SHA_B),
+          entry("git-tools", "acme/git-tools", SHA_C),
+        ]),
       },
     );
     expect(result.matches.map((m) => m.name)).toEqual([
@@ -112,19 +130,35 @@ describe("searchPlugins", () => {
     ]);
   });
 
-  test("skips entries that are not directories", async () => {
+  test("projects each entry onto a github source with a display locator", async () => {
+    // GIVEN a whitelisted external plugin nested in a subdirectory
+    // WHEN we search
     const result = await searchPlugins(
-      { query: "" },
+      { query: "nested" },
       {
-        fetch: fixtureFetch({
-          "simple-memory": "dir",
-          "README.md": "file",
-          "broken-symlink": "symlink",
-          "old-plugin": "submodule",
-        }),
+        fetch: manifestFetch([
+          entry("nested", "acme/monorepo", SHA_B, {
+            path: "packages/nested",
+            description: "A nested plugin.",
+          }),
+        ]),
       },
     );
-    expect(result.matches.map((m) => m.name)).toEqual(["simple-memory"]);
+
+    // THEN the match carries the github coordinates and a human locator
+    expect(result.matches).toEqual([
+      {
+        name: "nested",
+        path: `github:acme/monorepo/packages/nested@${SHA_B}`,
+        description: "A nested plugin.",
+        source: {
+          kind: "github",
+          repo: "acme/monorepo",
+          path: "packages/nested",
+          ref: SHA_B,
+        },
+      },
+    ]);
   });
 
   test("rejects invalid regex patterns up front (no network call)", async () => {
@@ -143,7 +177,11 @@ describe("searchPlugins", () => {
   test("empty result set on no matches", async () => {
     const result = await searchPlugins(
       { query: "nothing-matches" },
-      { fetch: fixtureFetch({ "simple-memory": "dir" }) },
+      {
+        fetch: manifestFetch([
+          entry("simple-memory", "vellum-ai/simple-memory", SHA_A),
+        ]),
+      },
     );
     expect(result.matches).toEqual([]);
   });
@@ -161,15 +199,12 @@ describe("searchPlugins", () => {
           const m = /[?&]ref=([^&]+)/.exec(url);
           seenRef = m ? decodeURIComponent(m[1]!) : undefined;
           return new Response(
-            JSON.stringify([
-              {
-                name: "simple-memory",
-                path: "plugins/simple-memory",
-                type: "dir",
-                size: 0,
-                download_url: null,
-              },
-            ]),
+            JSON.stringify({
+              name: "vellum-assistant",
+              plugins: [
+                entry("simple-memory", "vellum-ai/simple-memory", SHA_A),
+              ],
+            }),
             { status: 200, headers: { "content-type": "application/json" } },
           );
         }) as FetchLike,
@@ -233,32 +268,46 @@ describe("searchPlugins", () => {
     expect((err as Error).message).toMatch(/HTTP 403/);
   });
 
-  test("404 on the plugins prefix is a hard error (not silently empty)", async () => {
-    // Distinct from `installPlugin`, where 404 on a specific plugin name is
-    // normal "not found". For the search, 404 on the prefix means the
-    // canonical source path itself is gone — that's a real misconfiguration
-    // worth surfacing, not a clean empty result and not a transient outage.
-    const err = await searchPlugins(
+  test("a missing manifest (404) is a clean empty catalog", async () => {
+    // Unlike a 5xx or a bare 403, a 404 on `marketplace.json` means no
+    // whitelist has been published at this ref yet — a normal empty catalog,
+    // not a misconfiguration. The search returns no matches without error.
+    const result = await searchPlugins(
       { query: "memory" },
       {
         fetch: (async () =>
           new Response("not found", { status: 404 })) as FetchLike,
       },
+    );
+    expect(result.matches).toEqual([]);
+  });
+
+  test("a malformed manifest is a hard error (not silently empty)", async () => {
+    // GIVEN the manifest body is not valid JSON
+    // WHEN we search
+    // THEN it surfaces as a hard MarketplaceFetchError — the catalog is the
+    // source of truth, so a broken whitelist must not masquerade as empty,
+    // and it is NOT transient (retrying won't fix malformed bytes).
+    const err = await searchPlugins(
+      { query: "" },
+      {
+        fetch: (async () =>
+          new Response("{ not json", { status: 200 })) as FetchLike,
+      },
     ).catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(Error);
+    expect(err).toBeInstanceOf(MarketplaceFetchError);
     expect(err).not.toBeInstanceOf(PluginCatalogUnavailableError);
-    expect((err as Error).message).toMatch(/HTTP 404/);
   });
 
   test("returns matches sorted by name", async () => {
     const result = await searchPlugins(
       { query: "" },
       {
-        fetch: fixtureFetch({
-          "zeta-plugin": "dir",
-          "alpha-plugin": "dir",
-          "mu-plugin": "dir",
-        }),
+        fetch: manifestFetch([
+          entry("zeta-plugin", "acme/zeta", SHA_A),
+          entry("alpha-plugin", "acme/alpha", SHA_B),
+          entry("mu-plugin", "acme/mu", SHA_C),
+        ]),
       },
     );
     expect(result.matches.map((m) => m.name)).toEqual([
@@ -268,175 +317,31 @@ describe("searchPlugins", () => {
     ]);
   });
 
-  test("merges whitelisted marketplace entries with first-party dirs", async () => {
-    // GIVEN the canonical repo serves both a first-party plugin listing and a
-    // marketplace manifest whitelisting an external plugin
-    const manifest = {
-      name: "vellum-assistant",
-      plugins: [
-        {
-          name: "caveman",
-          source: {
-            source: "github",
-            repo: "JuliusBrussee/caveman",
-            ref: "63a91ecadbf4c4719a4602a5abb00883f9966034",
-          },
-          description: "Ultra-compressed communication mode.",
-        },
-      ],
-    };
-    const fetch: FetchLike = (async (input: RequestInfo | URL) => {
-      const url = typeof input === "string" ? input : input.toString();
-      if (url.includes("marketplace.json")) {
-        return new Response(JSON.stringify(manifest), { status: 200 });
-      }
-      return new Response(
-        JSON.stringify([
-          {
-            name: "simple-memory",
-            path: "plugins/simple-memory",
-            type: "dir",
-            size: 0,
-            download_url: null,
-          },
+  test("dedupes entries that repeat a name, keeping the first", async () => {
+    // GIVEN a manifest that lists the same name twice (e.g. a bad edit)
+    // WHEN we search
+    // THEN the name surfaces once, from the first entry, so a duplicate can't
+    // inflate the catalog or shadow the reviewed source
+    const result = await searchPlugins(
+      { query: "caveman" },
+      {
+        fetch: manifestFetch([
+          entry("caveman", "JuliusBrussee/caveman", SHA_A),
+          entry("caveman", "impostor/caveman", SHA_B),
         ]),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    }) as FetchLike;
-
-    // WHEN we search the catalog with a match-all query
-    const result = await searchPlugins({ query: "" }, { fetch });
-
-    // THEN both sources appear, sorted by name, each tagged with its origin
+      },
+    );
     expect(result.matches).toEqual([
       {
         name: "caveman",
-        path: "github:JuliusBrussee/caveman@63a91ecadbf4c4719a4602a5abb00883f9966034",
-        description: "Ultra-compressed communication mode.",
+        path: `github:JuliusBrussee/caveman@${SHA_A}`,
         source: {
           kind: "github",
           repo: "JuliusBrussee/caveman",
-          ref: "63a91ecadbf4c4719a4602a5abb00883f9966034",
-        },
-      },
-      {
-        name: "simple-memory",
-        path: "plugins/simple-memory",
-        source: { kind: "first-party" },
-      },
-    ]);
-  });
-
-  test("filters marketplace entries by the query too", async () => {
-    // GIVEN a marketplace whitelisting an external plugin and no first-party dirs
-    const manifest = {
-      name: "vellum-assistant",
-      plugins: [
-        {
-          name: "caveman",
-          source: {
-            source: "github",
-            repo: "JuliusBrussee/caveman",
-            ref: "63a91ecadbf4c4719a4602a5abb00883f9966034",
-          },
-        },
-      ],
-    };
-    const fetch: FetchLike = (async (input: RequestInfo | URL) => {
-      const url = typeof input === "string" ? input : input.toString();
-      if (url.includes("marketplace.json")) {
-        return new Response(JSON.stringify(manifest), { status: 200 });
-      }
-      return new Response(JSON.stringify([]), { status: 200 });
-    }) as FetchLike;
-
-    // WHEN the query matches no plugin name
-    const result = await searchPlugins({ query: "memory" }, { fetch });
-
-    // THEN the non-matching marketplace entry is excluded
-    expect(result.matches).toEqual([]);
-  });
-
-  test("a marketplace entry owns a name shared by an in-repo stub dir", async () => {
-    // GIVEN a marketplace entry named "caveman"
-    const manifest = {
-      name: "vellum-assistant",
-      plugins: [
-        {
-          name: "caveman",
-          source: {
-            source: "github",
-            repo: "JuliusBrussee/caveman",
-            ref: "63a91ecadbf4c4719a4602a5abb00883f9966034",
-          },
-        },
-      ],
-    };
-    // AND a same-named in-repo directory, which is caveman's adapter stub
-    // rather than a standalone first-party plugin
-    const fetch: FetchLike = (async (input: RequestInfo | URL) => {
-      const url = typeof input === "string" ? input : input.toString();
-      if (url.includes("marketplace.json")) {
-        return new Response(JSON.stringify(manifest), { status: 200 });
-      }
-      return new Response(
-        JSON.stringify([
-          {
-            name: "caveman",
-            path: "plugins/caveman",
-            type: "dir",
-            size: 0,
-            download_url: null,
-          },
-        ]),
-        { status: 200 },
-      );
-    }) as FetchLike;
-
-    // WHEN we search
-    const result = await searchPlugins({ query: "caveman" }, { fetch });
-
-    // THEN the name surfaces once, as the external marketplace entry — the
-    // stub dir is its adapter overlay, not a competing first-party listing
-    expect(result.matches).toEqual([
-      {
-        name: "caveman",
-        path: "github:JuliusBrussee/caveman@63a91ecadbf4c4719a4602a5abb00883f9966034",
-        source: {
-          kind: "github",
-          repo: "JuliusBrussee/caveman",
-          ref: "63a91ecadbf4c4719a4602a5abb00883f9966034",
+          ref: SHA_A,
         },
       },
     ]);
-  });
-
-  test("a broken marketplace manifest degrades to the first-party listing", async () => {
-    // GIVEN the manifest is malformed but the first-party listing is healthy
-    const fetch: FetchLike = (async (input: RequestInfo | URL) => {
-      const url = typeof input === "string" ? input : input.toString();
-      if (url.includes("marketplace.json")) {
-        return new Response("{ not json", { status: 200 });
-      }
-      return new Response(
-        JSON.stringify([
-          {
-            name: "simple-memory",
-            path: "plugins/simple-memory",
-            type: "dir",
-            size: 0,
-            download_url: null,
-          },
-        ]),
-        { status: 200 },
-      );
-    }) as FetchLike;
-
-    // WHEN we search
-    const result = await searchPlugins({ query: "" }, { fetch });
-
-    // THEN the core catalog is unaffected by the broken whitelist
-    expect(result.matches.map((m) => m.name)).toEqual(["simple-memory"]);
   });
 
   test("sends no Authorization header (canonical source is a public repo)", async () => {
@@ -449,10 +354,10 @@ describe("searchPlugins", () => {
           const headers = init?.headers as Record<string, string> | undefined;
           seenAuth = headers?.Authorization;
           seenUserAgent = headers?.["User-Agent"];
-          return new Response("[]", {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({ name: "vellum-assistant", plugins: [] }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
         }) as FetchLike,
       },
     );
