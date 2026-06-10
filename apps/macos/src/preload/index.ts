@@ -24,7 +24,22 @@ export type VellumCommand =
   | { kind: "previousConversation" }
   | { kind: "nextConversation" }
   | { kind: "commandPalette" }
-  | { kind: "quickInputSubmit"; message: string };
+  | { kind: "openConversation"; conversationId: string }
+  | { kind: "openLibrary" }
+  | { kind: "openIdentity" }
+  | { kind: "navigateBack" }
+  | { kind: "navigateForward" }
+  | { kind: "zoomIn" }
+  | { kind: "zoomOut" }
+  | { kind: "actualSize" }
+  | { kind: "selectAssistant"; assistantId: string }
+  | { kind: "createAssistant" }
+  | { kind: "retireAssistant"; assistantId: string }
+  | { kind: "quickInputSubmit"; message: string }
+  | { kind: "cancelActiveAction" }
+  | { kind: "replayOnboarding" }
+  | { kind: "previewPrechat" }
+  | { kind: "openComponentGallery" };
 
 // Whether a hotkey is a system-wide global shortcut or a focused-app menu
 // accelerator. Mirrors `HotkeyScope` in `apps/macos/src/main/hotkeys.ts`.
@@ -124,7 +139,7 @@ export interface DictationPartialEvent {
 // in `apps/macos/src/main/dictation-overlay-window.ts` (kept inline for the
 // same three-TS-project reason as `VellumCommand`).
 export type DictationOverlayState =
-  | { kind: "recording"; transcription: string }
+  | { kind: "recording"; transcription: string; audioLevel?: number }
   | { kind: "processing" }
   | { kind: "done" }
   | { kind: "error"; message: string };
@@ -588,6 +603,18 @@ export interface VellumBridge {
     /** Dismiss the quick input panel without submitting. */
     dismiss(): Promise<void>;
   };
+  commandPalette: {
+    /** Open or focus the standalone command palette window. */
+    open(): Promise<void>;
+    /** Dismiss the standalone command palette window without selecting. */
+    dismiss(): Promise<void>;
+    /**
+     * Close the palette and dispatch the selected app command to the main
+     * window. Main only brings the main window forward when it is hidden,
+     * minimized, or destroyed.
+     */
+    select(command: VellumCommand): Promise<void>;
+  };
   dictationOverlay: {
     /**
      * Publish the current dictation lifecycle state so main can drive the
@@ -598,7 +625,7 @@ export interface VellumBridge {
     setState(state: DictationOverlayMessage): void;
     /**
      * Subscribe to overlay states. Only the dictation overlay window's own
-     * renderer (`/dictation-overlay`) consumes this. Returns an unsubscribe
+     * renderer (`/floating/dictation-overlay`) consumes this. Returns an unsubscribe
      * function.
      */
     onState(callback: (state: DictationOverlayState) => void): () => void;
@@ -949,6 +976,17 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke("vellum:quickInput:submit", message) as Promise<void>,
     dismiss: (): Promise<void> =>
       ipcRenderer.invoke("vellum:quickInput:dismiss") as Promise<void>,
+  },
+  commandPalette: {
+    open: (): Promise<void> =>
+      ipcRenderer.invoke("vellum:commandPalette:open") as Promise<void>,
+    dismiss: (): Promise<void> =>
+      ipcRenderer.invoke("vellum:commandPalette:dismiss") as Promise<void>,
+    select: (command: VellumCommand): Promise<void> =>
+      ipcRenderer.invoke(
+        "vellum:commandPalette:select",
+        command,
+      ) as Promise<void>,
   },
   dictationOverlay: {
     setState: (state: DictationOverlayMessage): void => {

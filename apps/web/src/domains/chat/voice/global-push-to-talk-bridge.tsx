@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   VoiceInputButton,
@@ -12,6 +12,7 @@ import { postDictation } from "@/domains/chat/voice/dictation-api";
 import { getPushToTalkTarget } from "@/domains/chat/voice/push-to-talk-target";
 import { shouldEnablePushToTalk } from "@/domains/chat/voice/push-to-talk-host";
 import { useNativePushToTalkRegistration } from "@/domains/chat/voice/use-native-push-to-talk-registration";
+import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
 import { usePushToTalk } from "@/domains/chat/voice/use-push-to-talk";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { insertTextIntoFrontApp } from "@/runtime/text-insertion";
@@ -44,6 +45,18 @@ export function GlobalPushToTalkBridge({
   assistantId,
 }: GlobalPushToTalkBridgeProps) {
   const fallbackVoiceInputRef = useRef<VoiceInputButtonHandle | null>(null);
+  const voicePhase = useVoiceRecordingStore.use.phase();
+  const [voiceStream, setVoiceStream] = useState<MediaStream | null>(null);
+  const { amplitude } = useAudioAmplitude({
+    active: voicePhase === "recording" && voiceStream !== null,
+    stream: voiceStream,
+  });
+  const setVoiceAudioLevel = useVoiceRecordingStore.use.setAudioLevel();
+
+  useEffect(() => {
+    if (!voiceStream) return;
+    setVoiceAudioLevel(amplitude);
+  }, [amplitude, voiceStream, setVoiceAudioLevel]);
 
   useNativePushToTalkRegistration();
 
@@ -74,7 +87,6 @@ export function GlobalPushToTalkBridge({
       if (dictationResult?.mode === "dictation" && dictationResult.text) {
         insertText = dictationResult.text;
       }
-
       const frontAppInsertion = await insertTextIntoFrontApp(insertText);
       if (frontAppInsertion.status === "inserted") {
         return;
@@ -124,6 +136,7 @@ export function GlobalPushToTalkBridge({
       assistantId={assistantId}
       onTranscript={handleTranscript}
       onError={handleError}
+      onStreamReady={setVoiceStream}
       onBeforeStart={allowVoiceStart}
       renderButton={false}
     />

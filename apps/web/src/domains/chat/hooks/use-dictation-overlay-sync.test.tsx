@@ -45,14 +45,18 @@ describe("useDictationOverlaySync", () => {
     act(() => {
       store().startRecording();
     });
-    expect(messages).toEqual([{ kind: "recording", transcription: "" }]);
+    expect(messages).toEqual([
+      { kind: "recording", transcription: "", audioLevel: 0 },
+    ]);
 
     act(() => {
+      store().setAudioLevel(0.42);
       store().setInterimTranscript("hello wor");
     });
     expect(messages[messages.length - 1]).toEqual({
       kind: "recording",
       transcription: "hello wor",
+      audioLevel: 0.42,
     });
   });
 
@@ -139,7 +143,11 @@ describe("useDictationOverlaySync", () => {
     act(() => {
       store().startRecording();
     });
-    expect(messages[0]).toEqual({ kind: "recording", transcription: "" });
+    expect(messages[0]).toEqual({
+      kind: "recording",
+      transcription: "",
+      audioLevel: 0,
+    });
 
     act(() => {
       store().stopRecording();

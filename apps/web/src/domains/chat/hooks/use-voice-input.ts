@@ -150,7 +150,6 @@ export function useVoiceInput({
       if (dictationResult?.mode === "dictation" && dictationResult.text) {
         insertText = dictationResult.text;
       }
-
       const frontAppInsertion = await insertTextIntoFrontApp(insertText);
       if (frontAppInsertion.status === "inserted") {
         return;
