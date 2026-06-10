@@ -502,14 +502,14 @@ function buildToolStep(tc: ChatMessageToolCall): ToolCallCardStep {
  * web-search hook's selector logic for the web-tool branch and adding a
  * non-web `deriveStepLabel().title` branch alongside it.
  *
- * The bash label ("Working (bash)") is redundant chrome in the collapsed
+ * The bash label ("Working") is redundant chrome in the collapsed
  * header — the command/activity subtext already conveys what's running — so
  * we suppress it here, letting `HeaderStepCarousel` promote the info to the
  * primary slot. We intentionally key off the derived title rather than
  * `tc.name` so the `skill_execute → bash` wrapper (which also derives to
- * "Working (bash)") is covered too. `deriveStepLabel` and `phaseFromStep`
+ * "Working") is covered too. `deriveStepLabel` and `phaseFromStep`
  * stay untouched, so the EXPANDED list still groups bash steps under a
- * distinct "Working (bash)" section.
+ * distinct "Working" section.
  */
 function deriveCurrentStepTitle(
   toolCalls: ChatMessageToolCall[],
@@ -534,7 +534,7 @@ function deriveCurrentStepTitle(
       }
     } else {
       const title = deriveStepLabel(tc).title;
-      return title === "Working (bash)" ? "" : title;
+      return title === "Working" ? "" : title;
     }
   }
   return "";

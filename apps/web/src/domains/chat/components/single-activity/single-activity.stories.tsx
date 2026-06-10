@@ -147,7 +147,7 @@ export const ToolActive: Story = {
       useViewerStore.getState().openToolDetail({
         toolCallId: "tc-active",
         toolName: "bash",
-        title: "Working (bash)",
+        title: "Working",
         activity: "Checking the current time",
         input: {},
         status: "completed",

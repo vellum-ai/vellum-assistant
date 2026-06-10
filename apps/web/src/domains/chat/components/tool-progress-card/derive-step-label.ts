@@ -129,7 +129,7 @@ export function deriveStepLabelFromName(
       const command = readString(inputBag, "command", "cmd");
       const cleaned = command.replace(/\s+/g, " ").trim();
       return {
-        title: "Working (bash)",
+        title: "Working",
         info: truncate(cleaned, INFO_MAX_LENGTH),
         activity,
         iconName: "code",
@@ -164,7 +164,7 @@ export function deriveStepLabelFromName(
       // `skill_execute` is the daemon's shim for invoking bundled-skill
       // tools — the real tool name lives in `input.tool` and its arguments
       // in `input.input`. Recurse on the inner tool so the card surfaces a
-      // useful label ("Working (bash)", "Spawning subagent", …) instead of
+      // useful label ("Working", "Spawning subagent", …) instead of
       // a generic "Using a skill" with no detail. Falls back to the legacy
       // skill label when the input shape isn't a recognisable wrapper.
       const innerTool = readString(inputBag, "tool");

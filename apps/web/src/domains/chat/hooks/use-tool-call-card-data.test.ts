@@ -78,7 +78,7 @@ describe("computeToolCallCardData — step kinds", () => {
       kind: "tool",
       durationLabel: "2s",
       startedAt: 1000,
-      title: "Working (bash)",
+      title: "Working",
       info: "echo hello",
       activity: "",
       riskLevel: undefined,
@@ -87,9 +87,9 @@ describe("computeToolCallCardData — step kinds", () => {
       status: "completed",
     });
     expect(data.state).toBe("complete");
-    // The collapsed header suppresses the redundant "Working (bash)" label,
+    // The collapsed header suppresses the redundant "Working" label,
     // promoting the command into the (otherwise subtext) info slot. The
-    // underlying step keeps its "Working (bash)" title for phase grouping.
+    // underlying step keeps its "Working" title for phase grouping.
     expect(data.currentStepTitle).toBe("");
     expect(data.currentStepInfo).toBe("echo hello");
   });
