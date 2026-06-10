@@ -8,12 +8,15 @@ import {
   supportsNativePushToTalk,
 } from "@/runtime/hotkey";
 
+let registrationGeneration = 0;
+
 export function useNativePushToTalkRegistration(): void {
   useEffect(() => {
     if (typeof window === "undefined" || !supportsNativePushToTalk()) {
       return;
     }
 
+    const generation = ++registrationGeneration;
     let disposed = false;
     let syncInFlight: Promise<void> | null = null;
     let syncAgain = false;
@@ -28,10 +31,14 @@ export function useNativePushToTalkRegistration(): void {
         do {
           syncAgain = false;
           const config = await getPushToTalkConfig();
-          if (!disposed) {
+          if (!disposed && registrationGeneration === generation) {
             await configureNativePushToTalk(config);
           }
-        } while (!disposed && syncAgain);
+        } while (
+          !disposed &&
+          registrationGeneration === generation &&
+          syncAgain
+        );
       })().finally(() => {
         syncInFlight = null;
       });
@@ -43,7 +50,11 @@ export function useNativePushToTalkRegistration(): void {
     return () => {
       disposed = true;
       unsubscribeSetting();
-      void configureNativePushToTalk(NONE_PTT_ACTIVATOR);
+      window.setTimeout(() => {
+        if (registrationGeneration === generation) {
+          void configureNativePushToTalk(NONE_PTT_ACTIVATOR);
+        }
+      }, 0);
     };
   }, []);
 }

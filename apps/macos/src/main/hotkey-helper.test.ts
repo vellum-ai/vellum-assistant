@@ -411,6 +411,63 @@ describe("installHotkeyHelper", () => {
     });
   });
 
+  test("configures default Fn push-to-talk through the legacy Fn helper path", async () => {
+    installHotkeyHelper();
+    const fnConfig = { kind: "modifierOnly", modifiers: ["function"] };
+    const pending = invokePttConfigure(fnConfig);
+
+    expect(spawnCalls[0]?.[0]).toBe(
+      "/repo/apps/macos/resources/vellum-mac-helper",
+    );
+    expect(lastChild?.stdin.writes[0]).toContain("\"jsonrpc\":\"2.0\"");
+    expect(lastChild?.stdin.writes[0]).toContain(
+      "\"method\":\"hotkey.fnPushToTalk\"",
+    );
+    expect(lastChild?.stdin.writes[0]).toContain("\"enable\":true");
+
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"enabled\":true}}\n",
+      ),
+    );
+
+    expect(await pending).toEqual({
+      ok: true,
+      enabled: true,
+      config: fnConfig,
+    });
+
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        "{\"jsonrpc\":\"2.0\",\"method\":\"hotkey.event\",\"params\":{\"kind\":\"fnPushToTalk\",\"state\":\"down\"}}\n",
+      ),
+    );
+
+    expect(defaultSender.send).toHaveBeenCalledWith("vellum:ptt:state", {
+      state: "down",
+    });
+
+    const disabled = invokePttConfigure({ kind: "none" });
+    expect(lastChild?.stdin.writes.at(-1)).toContain(
+      "\"method\":\"hotkey.fnPushToTalk\"",
+    );
+    expect(lastChild?.stdin.writes.at(-1)).toContain("\"enable\":false");
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"enabled\":false}}\n",
+      ),
+    );
+
+    expect(await disabled).toEqual({
+      ok: true,
+      enabled: false,
+      config: { kind: "none" },
+    });
+  });
+
   test("restarts the helper after a crash", async () => {
     __setSupervisorOptionsForTesting({
       initialBackoffMs: 1,
@@ -490,6 +547,41 @@ describe("installHotkeyHelper", () => {
     expect(lastChild?.stdin.writes[0]).toContain("\"method\":\"ptt.setConfig\"");
     expect(lastChild?.stdin.writes[0]).toContain("\"kind\":\"mouseButton\"");
     expect(lastChild?.stdin.writes[0]).toContain("\"button\":4");
+  });
+
+  test("restores default Fn push-to-talk through the legacy path after a helper crash", async () => {
+    __setSupervisorOptionsForTesting({
+      initialBackoffMs: 1,
+      maxBackoffMs: 1,
+    });
+    installHotkeyHelper();
+
+    const pending = invokePttConfigure({
+      kind: "modifierOnly",
+      modifiers: ["function"],
+    });
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"enabled\":true}}\n",
+      ),
+    );
+    expect(await pending).toEqual({
+      ok: true,
+      enabled: true,
+      config: { kind: "modifierOnly", modifiers: ["function"] },
+    });
+
+    const crashed = lastChild;
+    crashed?.emit("close", 1, null);
+    await wait(5);
+
+    expect(spawnCalls).toHaveLength(2);
+    expect(lastChild).not.toBe(crashed);
+    expect(lastChild?.stdin.writes[0]).toContain(
+      "\"method\":\"hotkey.fnPushToTalk\"",
+    );
+    expect(lastChild?.stdin.writes[0]).toContain("\"enable\":true");
   });
 
   test("maps JSON-RPC helper errors to hotkey results", async () => {

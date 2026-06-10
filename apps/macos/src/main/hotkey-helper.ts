@@ -191,6 +191,11 @@ const pttConfigsEqual = (a: PttConfig, b: PttConfig): boolean =>
   JSON.stringify(normalizePttConfig(a)) ===
   JSON.stringify(normalizePttConfig(b));
 
+const isFnOnlyPttConfig = (config: PttConfig): boolean =>
+  config.kind === "modifierOnly" &&
+  config.modifiers.length === 1 &&
+  config.modifiers[0] === "function";
+
 const parseStoredPttConfig = (raw: unknown): PttConfig => {
   const parsed = PTT_CONFIG_SCHEMA.safeParse(raw);
   return parsed.success ? normalizePttConfig(parsed.data) : DEFAULT_PTT_CONFIG;
@@ -244,7 +249,7 @@ const fnPushToTalk = async (
   }
 };
 
-const setNativePttConfig = async (
+const setNativeGenericPttConfig = async (
   config: PttConfig,
 ): Promise<PttRegistrationResult> => {
   const normalized = normalizePttConfig(config);
@@ -270,6 +275,39 @@ const setNativePttConfig = async (
       reason: err instanceof Error ? err.message : String(err),
     };
   }
+};
+
+const setNativePttConfig = async (
+  config: PttConfig,
+): Promise<PttRegistrationResult> => {
+  const normalized = normalizePttConfig(config);
+  const wasFnOnly = isFnOnlyPttConfig(helperPttConfig);
+  const nextIsFnOnly = isFnOnlyPttConfig(normalized);
+
+  if (wasFnOnly && !nextIsFnOnly) {
+    const disabled = await fnPushToTalk(false);
+    if (!disabled.ok) return disabled;
+    if (normalized.kind === "none") {
+      return { ok: true, enabled: false, config: normalized };
+    }
+  } else if (!wasFnOnly && nextIsFnOnly && helperPttConfig.kind !== "none") {
+    const disabled = await setNativeGenericPttConfig(NONE_PTT_CONFIG);
+    if (!disabled.ok) return disabled;
+  }
+
+  if (nextIsFnOnly) {
+    const result = await fnPushToTalk(true);
+    if (!result.ok) return result;
+    if (!result.enabled) {
+      return {
+        ok: false,
+        reason: "mac helper did not enable Fn push-to-talk",
+      };
+    }
+    return { ok: true, enabled: true, config: normalized };
+  }
+
+  return setNativeGenericPttConfig(normalized);
 };
 
 const ping = async (): Promise<"pong"> => {
@@ -466,8 +504,12 @@ const sendHotkeyEventToOwner = (event: HotkeyEvent): void => {
     activeOwner && !activeOwner.webContents.isDestroyed()
       ? activeOwner
       : hotkeyOwners.get(newestOwnerId() ?? -1);
-  if (!owner || owner.webContents.isDestroyed()) return;
-  owner.webContents.send("vellum:helper:hotkey:event", event);
+  if (owner && !owner.webContents.isDestroyed()) {
+    owner.webContents.send("vellum:helper:hotkey:event", event);
+  }
+  if (isFnOnlyPttConfig(helperPttConfig)) {
+    sendPttEventToOwner({ state: event.state });
+  }
 };
 
 const sendSyntheticHotkeyUpIfNeeded = (): void => {
