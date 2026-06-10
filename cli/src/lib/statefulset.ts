@@ -265,8 +265,13 @@ export interface BuildServiceRunArgsOpts extends DockerRunSecrets {
 export interface BuilderManagedEnvKeys {
   /** Always set by buildServiceRunArgs (spec static/secret entries, builder-computed extras, image-baked PATH). Never replay. */
   always: ReadonlySet<string>;
-  /** Spec host-forwarded entries — buildServiceRunArgs sets them only when present in process.env. Exclude from replay only in that case. */
-  hostForwarded: readonly string[];
+  /**
+   * Spec host-forwarded entries. `name` is the container-side env key (what
+   * docker inspect captures); `hostVar` is the host process.env variable
+   * buildServiceRunArgs reads. Exclude captured `name` from replay only when
+   * process.env[hostVar] is set.
+   */
+  hostForwarded: ReadonlyArray<{ name: string; hostVar: string }>;
 }
 
 /**
@@ -281,10 +286,13 @@ export function getBuilderManagedEnvKeys(
   if (!container) throw new Error(`docker-statefulset: unknown service "${service}"`);
 
   const always = new Set<string>(["PATH"]);
-  const hostForwarded: string[] = [];
+  const hostForwarded: Array<{ name: string; hostVar: string }> = [];
   for (const entry of container.env) {
-    if (entry.kind === "host") hostForwarded.push(entry.hostVar ?? entry.name);
-    else always.add(entry.name);
+    if (entry.kind === "host") {
+      hostForwarded.push({ name: entry.name, hostVar: entry.hostVar ?? entry.name });
+    } else {
+      always.add(entry.name);
+    }
   }
 
   // Builder-computed extras added outside the spec env arrays
