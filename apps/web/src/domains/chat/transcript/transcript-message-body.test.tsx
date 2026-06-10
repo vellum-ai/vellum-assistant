@@ -1,4 +1,12 @@
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
@@ -115,6 +123,14 @@ mock.module(
     },
   }),
 );
+
+// Drive the single render seam from a mutable flag so the blocks-tree suite can
+// flip it on without touching localStorage. Defaults off, matching production,
+// so every other suite exercises the legacy positional tree.
+let renderFromContentBlocksFlag = false;
+mock.module("@/lib/backwards-compat/content-blocks-render-flag", () => ({
+  getRenderFromContentBlocks: () => renderFromContentBlocksFlag,
+}));
 
 import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 
@@ -1219,5 +1235,167 @@ describe("TranscriptMessageBody", () => {
     expect(
       container.querySelector("[data-testid='inline-tool-link']"),
     ).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Blocks-driven render tree (flag ON)
+// ---------------------------------------------------------------------------
+//
+// With `renderFromContentBlocks` enabled the row renders from `contentBlocks`
+// alone — no positional `contentOrder`/`textSegments`/`toolCalls` arrays. These
+// rows deliberately omit the positional fields to prove the blocks walk is the
+// sole source of truth, and reuse the same leaf-component mocks so the assertions
+// mirror the legacy suite's.
+describe("TranscriptMessageBody — contentBlocks render tree", () => {
+  beforeEach(() => {
+    renderFromContentBlocksFlag = true;
+  });
+  afterEach(() => {
+    renderFromContentBlocksFlag = false;
+  });
+
+  test("renders assistant text straight from a text block", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "b-text",
+          role: "assistant",
+          contentBlocks: [{ type: "text", text: "hello\nworld" }],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const markdown = container.querySelector("[data-testid='markdown']");
+    expect(markdown).not.toBeNull();
+    expect(markdown!.textContent).toBe("hello\nworld");
+    expect(markdown!.getAttribute("data-hard-line-breaks")).toBe("true");
+  });
+
+  test("merges a contiguous thinking + tool_use run into one activity card", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "b-activity",
+          role: "assistant",
+          contentBlocks: [
+            { type: "thinking", thinking: "why I called the tool" },
+            {
+              type: "tool_use",
+              toolCall: { id: "tc-a", name: "bash", input: {}, completedAt: 1 },
+            },
+            { type: "text", text: "the answer" },
+          ],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const card = container.querySelector("[data-testid='tool-progress-card']");
+    expect(card).not.toBeNull();
+    expect(card!.getAttribute("data-item-kinds")).toBe("thinking,toolCall");
+    expect(card!.getAttribute("data-item-thinking")).toBe(
+      "why I called the tool",
+    );
+    expect(card!.getAttribute("data-item-tool-ids")).toBe("tc-a");
+
+    const markdowns = container.querySelectorAll("[data-testid='markdown']");
+    expect(
+      Array.from(markdowns).some((m) => m.textContent === "the answer"),
+    ).toBe(true);
+  });
+
+  test("renders a lone bash tool_use as the inline chip, not a card", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "b-lone-tool",
+          role: "assistant",
+          contentBlocks: [
+            {
+              type: "tool_use",
+              toolCall: { id: "tc-a", name: "bash", input: {}, completedAt: 1 },
+            },
+          ],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(
+      container.querySelector("[data-testid='inline-tool-link']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-testid='tool-progress-card']"),
+    ).toBeNull();
+  });
+
+  test("renders a pure-thinking run as a ThoughtProcessLink, not a card", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "b-thinking",
+          role: "assistant",
+          contentBlocks: [{ type: "thinking", thinking: "just reasoning" }],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(
+      container.querySelector("[data-testid='thought-process-link']"),
+    ).not.toBeNull();
+    expect(container.textContent).toContain("Thought process");
+    expect(
+      container.querySelector("[data-testid='tool-progress-card']"),
+    ).toBeNull();
+  });
+
+  test("resolves a surface block against message.surfaces by id", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "b-surface",
+          role: "assistant",
+          contentBlocks: [
+            { type: "surface", surface: { surfaceId: "s-1" } as never },
+          ],
+          surfaces: [{ surfaceId: "s-1" } as never],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const surface = container.querySelector("[data-testid='surface']");
+    expect(surface).not.toBeNull();
+    expect(surface!.getAttribute("data-surface-id")).toBe("s-1");
+  });
+
+  test("renders user text from a text block inside the user bubble", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "b-user",
+          role: "user",
+          contentBlocks: [{ type: "text", text: "do this" }],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const markdown = container.querySelector("[data-testid='markdown']");
+    expect(markdown).not.toBeNull();
+    expect(markdown!.textContent).toBe("do this");
+    // The text run is wrapped in the surface-lift user bubble.
+    expect(
+      container.querySelector(".bg-\\[var\\(--surface-lift\\)\\]"),
+    ).not.toBeNull();
   });
 });
