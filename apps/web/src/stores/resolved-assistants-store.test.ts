@@ -50,3 +50,27 @@ describe("setFromLockfile", () => {
     expect(entry.organizationId).toBeUndefined();
   });
 });
+
+describe("upsertFromApi", () => {
+  it("preserves a lockfile-seeded organizationId on refresh (API has no org)", () => {
+    useResolvedAssistantsStore.getState().setFromLockfile({
+      assistants: [platformAssistant],
+      activeAssistant: null,
+    });
+
+    // A lifecycle refresh upserts the API-shaped payload, which carries no org.
+    useResolvedAssistantsStore.getState().upsertFromApi({
+      id: "asst-platform",
+      name: "Platform (refreshed)",
+      created: "2026-01-01T00:00:00Z",
+      is_local: false,
+    } as Parameters<
+      ReturnType<typeof useResolvedAssistantsStore.getState>["upsertFromApi"]
+    >[0]);
+
+    const entry = useResolvedAssistantsStore.getState().assistants[0];
+    expect(entry.id).toBe("asst-platform");
+    expect(entry.name).toBe("Platform (refreshed)");
+    expect(entry.organizationId).toBe("org-1");
+  });
+});
