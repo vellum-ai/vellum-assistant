@@ -127,7 +127,10 @@ function asStr(value: unknown): string | undefined {
  * `metadata.vellum["display-name"]`). Existing nested values take precedence
  * so a future API change to the nested shape keeps working.
  */
-function normalizeCatalogEntry(entry: RawCatalogEntry): CatalogSkill | null {
+function normalizeCatalogEntry(raw: unknown): CatalogSkill | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const entry = raw as RawCatalogEntry;
+
   const id = asStr(entry.id);
   if (!id) return null;
 
@@ -176,7 +179,7 @@ export async function fetchCatalog(): Promise<CatalogSkill[]> {
     throw new Error("Platform catalog has invalid skills array");
   }
   return manifest.skills
-    .map((s) => normalizeCatalogEntry(s as RawCatalogEntry))
+    .map((s) => normalizeCatalogEntry(s))
     .filter((s): s is CatalogSkill => s !== null);
 }
 
@@ -186,7 +189,7 @@ export function readLocalCatalog(repoSkillsDir: string): CatalogSkill[] {
     const manifest = JSON.parse(raw) as { skills?: unknown };
     if (!Array.isArray(manifest.skills)) return [];
     return manifest.skills
-      .map((s) => normalizeCatalogEntry(s as RawCatalogEntry))
+      .map((s) => normalizeCatalogEntry(s))
       .filter((s): s is CatalogSkill => s !== null);
   } catch {
     return [];

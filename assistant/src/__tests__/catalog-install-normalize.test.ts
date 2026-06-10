@@ -33,25 +33,36 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
+/**
+ * Build a `fetch` stub that responds with `payload` serialized as JSON.
+ *
+ * `Object.assign` attaches the `preconnect` static that Bun's `fetch` type
+ * requires, so the stub satisfies `typeof fetch` without an `as unknown` cast.
+ */
+function stubFetchJson(payload: unknown): typeof fetch {
+  const respond = async () =>
+    new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  return Object.assign(respond, { preconnect: () => {} });
+}
+
 describe("fetchCatalog normalization", () => {
   test("re-nests the platform's flattened category under metadata.vellum", async () => {
-    globalThis.fetch = (async () =>
-      new Response(
-        JSON.stringify({
-          skills: [
-            {
-              id: "amazon",
-              name: "amazon",
-              display_name: "Amazon",
-              description: "Shop on Amazon",
-              icon: "🛒",
-              category: "commerce",
-              updated_at: "2026-04-19T19:26:17Z",
-            },
-          ],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      )) as unknown as typeof fetch;
+    globalThis.fetch = stubFetchJson({
+      skills: [
+        {
+          id: "amazon",
+          name: "amazon",
+          display_name: "Amazon",
+          description: "Shop on Amazon",
+          icon: "🛒",
+          category: "commerce",
+          updated_at: "2026-04-19T19:26:17Z",
+        },
+      ],
+    });
 
     const catalog = await fetchCatalog();
 
@@ -66,13 +77,9 @@ describe("fetchCatalog normalization", () => {
   });
 
   test("leaves category undefined when the API omits it", async () => {
-    globalThis.fetch = (async () =>
-      new Response(
-        JSON.stringify({
-          skills: [{ id: "no-cat", name: "no-cat", description: "d" }],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      )) as unknown as typeof fetch;
+    globalThis.fetch = stubFetchJson({
+      skills: [{ id: "no-cat", name: "no-cat", description: "d" }],
+    });
 
     const catalog = await fetchCatalog();
 
@@ -80,18 +87,23 @@ describe("fetchCatalog normalization", () => {
     expect(catalog[0].metadata?.vellum?.category).toBeUndefined();
   });
 
-  test("drops entries without a string id", async () => {
-    globalThis.fetch = (async () =>
-      new Response(
-        JSON.stringify({
-          skills: [{ name: "missing-id", description: "d" }, { id: 42 }],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      )) as unknown as typeof fetch;
+  test("drops malformed entries without throwing", async () => {
+    globalThis.fetch = stubFetchJson({
+      skills: [
+        null,
+        undefined,
+        "not-an-object",
+        { name: "missing-id", description: "d" },
+        { id: 42 },
+        { id: "valid", name: "valid", description: "d", category: "email" },
+      ],
+    });
 
     const catalog = await fetchCatalog();
 
-    expect(catalog).toHaveLength(0);
+    expect(catalog).toHaveLength(1);
+    expect(catalog[0].id).toBe("valid");
+    expect(catalog[0].metadata?.vellum?.category).toBe("email");
   });
 });
 
