@@ -8,7 +8,7 @@ import { useAssistantLifecycle } from "@/assistant/use-lifecycle";
 import { useCommandPaletteSections } from "@/domains/chat/hooks/use-command-palette-sections";
 import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";
 import { useConversationListQuery } from "@/hooks/conversation-queries";
-import { getSelectedAssistant } from "@/lib/local-mode";
+import { resolveSelectedAssistantId } from "@/assistant/selection";
 import {
   dismissCommandPaletteWindow,
   selectCommandPaletteCommand,
@@ -88,29 +88,18 @@ export function CommandPaletteWindowPage() {
     useResolvedAssistantsStore.use.selectedPlatformAssistantByOrg();
   const currentOrganizationId =
     useOrganizationStore.use.currentOrganizationId();
+  // Resolve through the unified org-aware resolver. It reads activeAssistantId
+  // and selectedPlatformAssistantByOrg via getState() (non-reactive), so those
+  // slices are kept in the dep array as the recompute signal even though the
+  // callback doesn't reference them directly.
   const selectedAssistant = useMemo(
     () => {
-      const localSelected = getSelectedAssistant();
-      if (localSelected) {
-        return {
-          id: localSelected.assistantId,
-          name: localSelected.name,
-        };
-      }
-
-      const selectedPlatformAssistantId =
-        currentOrganizationId == null
-          ? null
-          : selectedPlatformAssistantByOrg[currentOrganizationId];
-      const selectedId =
-        activeAssistantId ??
-        selectedPlatformAssistantId ??
-        (assistants.length === 1 ? assistants[0]?.id : null);
+      const selectedId = resolveSelectedAssistantId(currentOrganizationId);
       if (!selectedId) return null;
-      return (
-        assistants.find((assistant) => assistant.id === selectedId) ?? null
-      );
+      const entry = assistants.find((a) => a.id === selectedId);
+      return entry ? { id: entry.id, name: entry.name } : null;
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       activeAssistantId,
       assistants,
