@@ -147,9 +147,7 @@ describe("buildRunBundle", () => {
       runCount: 2,
     });
     expect(metadata.testIds).toContain("t1");
-    expect(metadata.profileIds).toEqual(
-      expect.arrayContaining(["p1", "p2"]),
-    );
+    expect(metadata.profileIds).toEqual(expect.arrayContaining(["p1", "p2"]));
   });
 
   test("throws for an unknown session", async () => {
