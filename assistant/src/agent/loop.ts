@@ -25,7 +25,6 @@ import type {
 } from "../plugin-api/types.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
-import { resetRepairState } from "../plugins/defaults/history-repair/repair-state-store.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { CompactionCircuitEvent } from "../plugins/types.js";
 import { normalizeThinkingConfigForWire } from "../providers/thinking-config.js";
@@ -868,15 +867,6 @@ export class AgentLoop {
     let overflowAutoCompressApplied = false;
     const rlog = requestId ? log.child({ requestId }) : log;
 
-    // Clear the history-repair plugin's per-conversation ordering-repair bound
-    // at the start of every run so each run begins able to deep-repair. The
-    // bound is owned by the plugin but reset here because a run is the unit it
-    // scopes to: direct callers (e.g. agent wakes invoking `run` outside the
-    // daemon orchestrator) would otherwise inherit a spent bound from a prior
-    // run on the same conversation and surface a repairable ordering rejection
-    // instead of repairing it.
-    resetRepairState(this.conversationId);
-
     // Resolve the inference-profile override that applies right now. The
     // optional resolver lets a turn observe a confirmed mid-turn profile switch
     // before the next model call; absent a resolver the turn-start value holds.
@@ -1319,11 +1309,6 @@ export class AgentLoop {
           providerCallError = llmCallError;
           throw llmCallError;
         }
-
-        // The call succeeded, so any prior ordering repair stuck. Clear the
-        // plugin's repair bound so a later turn's fresh ordering rejection can
-        // repair again rather than being treated as an exhausted retry.
-        resetRepairState(this.conversationId);
 
         const providerDurationMs = Date.now() - providerStart;
 

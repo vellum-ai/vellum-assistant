@@ -15,7 +15,6 @@ import { enqueueMemoryRetrospectiveIfEnabled } from "../memory/memory-retrospect
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { disposeContextWindowManager } from "../plugins/defaults/compaction/manager-store.js";
-import { disposeRepairState } from "../plugins/defaults/history-repair/repair-state-store.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import {
   isUntrustedTrustClass,
@@ -250,5 +249,4 @@ export function disposeConversation(ctx: DisposeContext): void {
   // cross-turn state — `nonPersistedPrefixCount` — off the manager so a
   // per-turn dispose/rebuild stays correct.
   disposeContextWindowManager(ctx.conversationId);
-  disposeRepairState(ctx.conversationId);
 }

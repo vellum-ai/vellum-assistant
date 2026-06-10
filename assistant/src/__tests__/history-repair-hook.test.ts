@@ -32,8 +32,8 @@ import type {
 import stop from "../plugins/defaults/history-repair/hooks/stop.js";
 import userPromptSubmit from "../plugins/defaults/history-repair/hooks/user-prompt-submit.js";
 import {
-  getRepairState,
-  resetRepairState,
+  isOrderingRepairAttempted,
+  markOrderingRepairAttempted,
   resetRepairStateStoreForTests,
 } from "../plugins/defaults/history-repair/repair-state-store.js";
 import {
@@ -231,15 +231,13 @@ describe("history-repair stop hook — direct", () => {
     // loop to retry.
     expect(ctx.decision).toBe("continue");
     expect(ctx.messages).toEqual(expected);
-    expect(getRepairState(ctx.conversationId).orderingRepairAttempted).toBe(
-      true,
-    );
+    expect(isOrderingRepairAttempted(ctx.conversationId)).toBe(true);
   });
 
   test("second consecutive ordering rejection is left to surface", async () => {
     // GIVEN a turn whose first ordering rejection already triggered a repair.
     const conversationId = "conv-bounded";
-    getRepairState(conversationId).orderingRepairAttempted = true;
+    markOrderingRepairAttempted(conversationId);
     const messages = orderingViolatingHistory();
     const ctx = makeStopCtx({
       conversationId,
@@ -250,18 +248,28 @@ describe("history-repair stop hook — direct", () => {
     // WHEN a second ordering rejection reaches the hook.
     await stop(ctx);
 
-    // THEN it does not repair again — the bound holds and the error surfaces.
+    // THEN it does not repair again — the error surfaces.
     expect(ctx.decision).toBe("stop");
     expect(ctx.messages).toEqual(messages);
+
+    // AND the exhausted bound is cleared so the next turn repairs afresh.
+    expect(isOrderingRepairAttempted(conversationId)).toBe(false);
   });
 
-  test("repairs again after the turn boundary resets the bound", async () => {
+  test("a terminal stop clears the bound so a later turn repairs again", async () => {
     // GIVEN a conversation that already attempted a repair this turn.
     const conversationId = "conv-reset";
-    getRepairState(conversationId).orderingRepairAttempted = true;
+    markOrderingRepairAttempted(conversationId);
 
-    // AND the turn boundary clears the per-conversation bound.
-    resetRepairState(conversationId);
+    // AND a successful stop ends that turn, which the hook treats as terminal.
+    await stop(
+      makeStopCtx({
+        conversationId,
+        responseContent: [{ type: "text", text: "done" }],
+        stopReason: "end_turn",
+      }),
+    );
+    expect(isOrderingRepairAttempted(conversationId)).toBe(false);
 
     // WHEN a later turn hits a repairable ordering rejection.
     const ctx = makeStopCtx({
@@ -303,7 +311,8 @@ describe("history-repair stop hook — direct", () => {
     // WHEN the hook runs.
     await stop(ctx);
 
-    // THEN it does nothing — repair only applies to ordering rejections.
+    // THEN the model response is left untouched — repair only applies to
+    // ordering rejections.
     expect(ctx.decision).toBe("stop");
     expect(ctx.messages).toEqual(messages);
   });
