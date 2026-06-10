@@ -202,7 +202,6 @@ export function RootLayout() {
     if (outcome.ok) {
       setRetireId(null);
       setRetirePending(false);
-      toast.success("Assistant retired.");
       navigate(outcome.nextRoute, { replace: true });
       return;
     }
