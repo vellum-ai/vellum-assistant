@@ -673,11 +673,10 @@ function ProfileEditorModalInner({
   // new provider" sentinel. First-run empty state shows ONLY the sentinel.
   const createModeProviderOptions = useMemo(() => {
     const seen = new Set<string>();
-    const opts: { value: string; label: string; separated?: boolean | "above" | "below" }[] = [
+    const opts: { value: string; label: string }[] = [
       {
         value: CREATE_NEW_PROVIDER_SENTINEL,
         label: "+ New Connection",
-        separated: "below",
       },
     ];
     for (const c of effectiveConnections) {
