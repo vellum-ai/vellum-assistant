@@ -57,15 +57,6 @@ const MID_LOOP_YIELD_THRESHOLD_RATIO = 0.85;
 const LONG_HISTORY_MESSAGE_THRESHOLD = 50;
 const LONG_HISTORY_SAFETY_MARGIN_FLOOR = 0.15;
 
-/**
- * Consecutive context-overflow rejections the loop recovers from in place
- * before letting the error propagate. Each recovery calibrates the estimator
- * from the provider's real token count and re-fires the budget gate, which
- * compacts before the next call; the cap stops an unbounded
- * reject → compact → reject cycle when compaction cannot get under the limit.
- */
-const MAX_REACTIVE_OVERFLOW_RETRIES = 2;
-
 export interface AgentLoopConfig {
   maxTokens: number;
   maxInputTokens?: number; // context window size for tool result truncation
@@ -91,11 +82,11 @@ export interface CheckpointInfo {
 
 /**
  * Why a checkpoint paused the loop. Surfaced back to the caller via
- * {@link AgentLoopRunResult.exitReason} so the orchestrator reacts to
- * the loop's own signal (hand off to a queued message vs. compact and
- * re-enter) instead of the checkpoint callback mutating orchestrator state.
+ * {@link AgentLoopRunResult.exitReason} so the wrapper reacts to the loop's
+ * own signal (hand off to a queued message) instead of the checkpoint callback
+ * mutating wrapper state.
  */
-export type ExitReason = "handoff" | "budget";
+export type ExitReason = "handoff";
 
 export type CheckpointDecision = "continue" | ExitReason;
 
@@ -110,9 +101,8 @@ export interface AgentLoopRunResult {
   exitReason: ExitReason | null;
   /**
    * Whether the loop produced at least one new assistant message this run —
-   * the forward-progress signal for the ordering-error retry gate and the
-   * overflow convergence fold (immune to in-loop compaction shrinking history
-   * below a pre-run length).
+   * the forward-progress signal for the ordering-error retry gate (immune to
+   * in-loop compaction shrinking history below a pre-run length).
    */
   appendedNewMessages: boolean;
   /**
@@ -121,6 +111,22 @@ export interface AgentLoopRunResult {
    * boundary, so it cannot desync the way an externally-held index can.
    */
   newMessages: Message[];
+}
+
+/**
+ * Outcome of an in-loop {@link AgentLoop.compact} call.
+ */
+interface CompactionAttempt {
+  /**
+   * Re-injected history to continue from, or `null` when an ordinary forced
+   * compaction exhausted with nothing reduced worth continuing from. The
+   * overflow-recovery path always returns the reduction rung's history.
+   */
+  history: Message[] | null;
+  /** Whether the overflow reduction ladder reported it is spent. */
+  exhausted: boolean;
+  /** Whether the ladder applied its terminal auto-compress-latest-turn rung. */
+  autoCompressApplied: boolean;
 }
 
 /**
@@ -496,19 +502,18 @@ export interface AgentLoopRunOptions {
   /**
    * When `true`, the loop owns turn-start and mid-loop compaction. The pre-call
    * budget gate runs before the very first provider call — subsuming the
-   * proactive turn-start compaction the orchestrator would otherwise perform
-   * inline before `run()` — as well as before each tool-use re-entry. When the
-   * gate trips it compacts the running history in place, re-applying runtime
-   * injections via the default post-compaction hook ({@link HOOKS.POST_COMPACT}), and
-   * continues instead of yielding `exitReason = "budget"`.
+   * proactive turn-start compaction the wrapper would otherwise perform inline
+   * before `run()` — as well as before each tool-use re-entry. When the gate
+   * trips it compacts the running history in place, re-applying runtime
+   * injections via the default post-compaction hook ({@link HOOKS.POST_COMPACT}),
+   * and continues with the call.
    *
    * The first-call pass honors the compaction circuit breaker and proceeds with
-   * the call whether or not it compacted (preflight-overflow recovery and the
-   * convergence loop remain the escalation path), so it never yields on the
-   * first call. Reruns without an inline compaction path (agent wakes,
-   * convergence/auto-compress reruns) leave it `false`: they skip the
-   * first-call gate and keep yielding for budget on mid-loop re-entries.
-   * Defaults to `false` when omitted.
+   * the call whether or not it compacted, so it never yields on the first call;
+   * a provider context-too-large rejection then drives the reactive recovery
+   * ladder from the catch. Reruns that carry no inline compaction path (the
+   * deep-repair and image-recovery retries) leave it `false` and skip the
+   * first-call gate. Defaults to `false` when omitted.
    */
   compactInPlace?: boolean;
   /**
@@ -700,12 +705,18 @@ export class AgentLoop {
   }
 
   /**
-   * Compact the running history in place when the mid-loop budget gate trips.
+   * Compact the running history in place when the budget gate trips.
    *
    * Calls the default compaction plugin on the stripped history, then
-   * re-applies injections via the supplied hooks. Returns the history to
-   * continue from, or `null` when the compactor exhausted its retry budget so
-   * the caller yields `exitReason = "budget"` and the orchestrator escalates.
+   * re-applies injections via the supplied hooks. When `overflowSignal` is
+   * supplied the plugin routes through the manager's reduction ladder (which
+   * advances one rung per call and reports `exhausted` / `autoCompressApplied`
+   * / `injectionMode`); otherwise it runs ordinary forced compaction. Returns
+   * the re-injected history to continue from alongside the ladder's terminal
+   * state. On the ordinary path an exhausted compactor yields a `null` history
+   * (nothing reduced worth continuing from, so the caller proceeds with the
+   * call); the overflow path always returns the rung's reduced history so the
+   * call is retried once at maximum reduction before the turn ends.
    */
   private async compact(
     history: Message[],
@@ -716,7 +727,8 @@ export class AgentLoop {
     overrideProfile: string | null,
     isNonInteractive: boolean,
     modelProfileKey: string | null,
-  ): Promise<Message[] | null> {
+    overflowSignal?: { actualTokens: number | null; isInteractive: boolean },
+  ): Promise<CompactionAttempt> {
     await onEvent({ type: "context_compacting" });
     // Strip runtime injections so the compactor summarizes the raw persistent
     // messages.
@@ -726,12 +738,13 @@ export class AgentLoop {
     await onEvent({ type: "history_stripped" });
     // The compaction module owns the per-conversation manager; pass the
     // conversation id and let `defaultCompact` resolve it from the store.
-    // The mid-loop budget gate is reached only when this turn decides to
-    // compact in place, so `force` past the auto-threshold check.
-    // `actorTrustClass` comes from the turn's trust snapshot (the actor whose
-    // turn triggered compaction) so the compactor's image manifest excludes
-    // guardian-only attachments for untrusted actors. `overrideProfile` is the
-    // turn's resolved inference-profile override for the summary call.
+    // The budget gate is reached only when this turn decides to compact in
+    // place, so `force` past the auto-threshold check. `actorTrustClass` comes
+    // from the turn's trust snapshot (the actor whose turn triggered
+    // compaction) so the compactor's image manifest excludes guardian-only
+    // attachments for untrusted actors. `overrideProfile` is the turn's
+    // resolved inference-profile override for the summary call. `overflowSignal`
+    // routes the request through the reduction ladder when present.
     const compactResult = await defaultCompact({
       conversationId: this.conversationId,
       messages: rawHistory,
@@ -739,6 +752,7 @@ export class AgentLoop {
       force: true,
       actorTrustClass: trust.trustClass,
       overrideProfile,
+      overflowSignal,
     });
     // `force: true` bypasses the auto-threshold gate, but early returns
     // for "no eligible messages" / "insufficient messages" still leave
@@ -760,18 +774,27 @@ export class AgentLoop {
       result: compactResult,
       basis: rawHistory,
     });
-    if (compactResult.exhausted ?? false) {
-      return null;
+    const exhausted = compactResult.exhausted ?? false;
+    const autoCompressApplied = compactResult.autoCompressApplied ?? false;
+    if (overflowSignal == null && exhausted) {
+      return { history: null, exhausted, autoCompressApplied };
     }
-    // Re-inject onto the same base the `compaction_completed` dispatch commits:
-    // the compacted messages when the pipeline compacted, the stripped
-    // pre-compaction history otherwise.
+    // Re-inject onto the same base the `compaction_completed` dispatch commits.
+    // The overflow ladder transforms the history on every rung (truncation /
+    // media stubbing / injection downgrade) regardless of whether the summary
+    // ran, so continue from its reduced messages; the ordinary path continues
+    // from the compacted messages only when the pipeline actually compacted.
+    const base =
+      overflowSignal != null || compactResult.compacted
+        ? compactResult.messages
+        : rawHistory;
     const postCompactCtx: PostCompactContext = {
-      history: compactResult.compacted ? compactResult.messages : rawHistory,
+      history: base,
       requestId: requestId ?? null,
       conversationId: this.conversationId,
       isNonInteractive,
       modelProfileKey,
+      injectionMode: compactResult.injectionMode,
     };
     // The hook chain writes the re-injected history back onto the context;
     // read it from there once the chain settles.
@@ -779,7 +802,11 @@ export class AgentLoop {
       HOOKS.POST_COMPACT,
       postCompactCtx,
     );
-    return finalPostCompactCtx.history;
+    return {
+      history: finalPostCompactCtx.history,
+      exhausted,
+      autoCompressApplied,
+    };
   }
 
   async run(options: AgentLoopRunOptions): Promise<AgentLoopRunResult> {
@@ -821,10 +848,21 @@ export class AgentLoop {
     // overflow catch can calibrate the estimator against the provider's actual
     // token count. Reset to the success path's value on every call.
     let lastPreSendEstimatedTokens = 0;
-    // Consecutive context-overflow rejections recovered in place this run,
-    // reset after any successful provider call. Bounded by
-    // MAX_REACTIVE_OVERFLOW_RETRIES.
-    let reactiveOverflowRetries = 0;
+    // Overflow signal stashed by the reactive catch when the provider rejects a
+    // call as context-too-large. The next budget gate forwards it into
+    // `compact()`, which routes through the manager's reduction ladder, then
+    // clears it (one rung consumed per recovery pass).
+    let pendingOverflowSignal: {
+      actualTokens: number | null;
+      isInteractive: boolean;
+    } | null = null;
+    // Mirror of the reduction ladder's terminal state from the most recent
+    // overflow-recovery compaction. When the ladder is spent and the provider
+    // still rejects, the catch ends the turn with the reason the final rung
+    // implies (auto-compress applied → `budget_yield_unrecovered`, otherwise
+    // `context_too_large`) instead of looping.
+    let overflowLadderExhausted = false;
+    let overflowAutoCompressApplied = false;
     const rlog = requestId ? log.child({ requestId }) : log;
 
     // Resolve the inference-profile override that applies right now. The
@@ -866,29 +904,31 @@ export class AgentLoop {
 
       try {
         // ── Pre-call budget gate ─────────────────────────────────────
-        // When overflow recovery is enabled, estimate the running context
-        // size as it approaches the preflight budget before issuing the
-        // provider call. With `compactInPlace` the loop compacts in place and
-        // proceeds with the call; otherwise it yields (`exitReason =
-        // "budget"`) so the orchestrator can recover before the call risks a
-        // hard context-too-large rejection. Keyed off the loop's own
-        // `history.length` (the messages actually in context this turn,
-        // including tool iterations) rather than the durable conversation
-        // count.
+        // Compact the running history before issuing the provider call when
+        // either the running estimate approaches the preflight budget
+        // (proactive) or a prior call was rejected as context-too-large
+        // (reactive, signalled via `pendingOverflowSignal`). The reactive case
+        // forwards the overflow signal into `compact()`, which routes through
+        // the manager's reduction ladder; the proactive case runs ordinary
+        // forced compaction. Either way the loop proceeds with the call —
+        // recovery is driven by compaction, never by yielding out of the loop.
         //
-        // Armed after each tool-use iteration; stop-hook re-query continues
-        // skip it. The first call runs it only when `compactInPlace` is set,
-        // where it stands in for the orchestrator's turn-start compaction: it
-        // honors the compaction circuit breaker and proceeds with the call
-        // rather than yielding, since there is no prior turn output to
-        // escalate.
+        // Keyed off the loop's own `history.length` (the messages actually in
+        // context this turn, including tool iterations) rather than the durable
+        // conversation count. Armed after each tool-use iteration and by the
+        // reactive catch; stop-hook re-query continues skip it. The first call
+        // runs it only when `compactInPlace` is set (standing in for turn-start
+        // compaction) or when recovering an overflow.
         if (budgetGateArmed) {
           budgetGateArmed = false;
+          const overflowSignal = pendingOverflowSignal;
+          pendingOverflowSignal = null;
           // The gate only re-arms after a completed tool-use iteration
           // (`toolUseTurns` is incremented first), so reaching it with
-          // `toolUseTurns === 0` uniquely identifies the first-call pass: it
-          // compacts-or-proceeds (never yields) and honors the compaction
-          // circuit breaker, matching the orchestrator's turn-start compaction.
+          // `toolUseTurns === 0` and no overflow signal uniquely identifies the
+          // first-call turn-start pass, which honors the compaction circuit
+          // breaker. Overflow recovery ignores the breaker — the provider has
+          // already rejected the call, so it must reduce regardless.
           const isFirstCallGate = toolUseTurns === 0;
           const contextWindow = resolveContextWindow?.();
           if (contextWindow?.overflowRecovery.enabled) {
@@ -906,57 +946,50 @@ export class AgentLoop {
             const midLoopThreshold =
               preflightBudget * MID_LOOP_YIELD_THRESHOLD_RATIO;
             const estimated = this.estimateTokens(history);
-            if (estimated > midLoopThreshold) {
-              let compactedInPlace = false;
-              // The turn-start pass skips compaction while the circuit breaker
-              // is open so a run of failed summaries doesn't keep hammering the
-              // summary LLM; mid-loop compaction is force-driven and proceeds
-              // regardless (it has already committed to compacting in place).
-              const compactionAllowed =
-                !isFirstCallGate || !(await this.compactionCircuit.isOpen());
-              if (compactInPlace && compactionAllowed) {
-                rlog.info(
-                  {
-                    turn: toolUseTurns,
-                    estimated,
-                    threshold: midLoopThreshold,
-                  },
-                  "Token estimate approaching budget — compacting in place",
-                );
-                const compacted = await this.compact(
-                  history,
-                  requestId,
-                  trust,
-                  signal,
-                  onEvent,
-                  resolveEffectiveOverrideProfile() ?? null,
-                  isNonInteractive,
-                  modelProfileKey,
-                );
-                if (compacted) {
-                  history = compacted;
-                  // The compacted, re-injected array is the new base; output
-                  // produced after this point is what the orchestrator
-                  // persists.
-                  newMessagesStart = history.length;
-                  compactedInPlace = true;
-                }
+            const overflowDriven = overflowSignal !== null;
+            // Proactive compaction fires when the primary run's turn-start
+            // signal (`compactInPlace`) crosses the estimate threshold;
+            // overflow recovery always compacts.
+            const shouldCompact =
+              overflowDriven ||
+              (compactInPlace && estimated > midLoopThreshold);
+            const compactionAllowed =
+              overflowDriven ||
+              !isFirstCallGate ||
+              !(await this.compactionCircuit.isOpen());
+            if (shouldCompact && compactionAllowed) {
+              rlog.info(
+                {
+                  turn: toolUseTurns,
+                  estimated,
+                  threshold: midLoopThreshold,
+                  overflowDriven,
+                },
+                "Compacting in place before provider call",
+              );
+              const attempt = await this.compact(
+                history,
+                requestId,
+                trust,
+                signal,
+                onEvent,
+                resolveEffectiveOverrideProfile() ?? null,
+                isNonInteractive,
+                modelProfileKey,
+                overflowSignal ?? undefined,
+              );
+              if (attempt.history) {
+                history = attempt.history;
+                // The compacted, re-injected array is the new base; output
+                // produced after this point is what the wrapper persists.
+                newMessagesStart = history.length;
               }
-              // The turn-start gate proceeds with the call whether or not it
-              // compacted (preflight-overflow recovery and the convergence loop
-              // remain the escalation path); only mid-loop re-entries yield to
-              // the orchestrator before the call.
-              if (!compactedInPlace && !isFirstCallGate) {
-                rlog.warn(
-                  {
-                    turn: toolUseTurns,
-                    estimated,
-                    threshold: midLoopThreshold,
-                  },
-                  "Token estimate approaching budget — yielding for compaction",
-                );
-                exitReason = "budget";
-                break;
+              if (overflowDriven) {
+                // Carry the ladder's terminal state to the catch: if the
+                // provider rejects again after the ladder is spent, the turn
+                // ends instead of looping.
+                overflowLadderExhausted = attempt.exhausted;
+                overflowAutoCompressApplied = attempt.autoCompressApplied;
               }
             }
           }
@@ -1267,10 +1300,6 @@ export class AgentLoop {
           }
           throw llmCallError;
         }
-
-        // The call fit — clear the reactive-overflow budget so a later
-        // independent overflow this run gets its own recovery attempts.
-        reactiveOverflowRetries = 0;
 
         const providerDurationMs = Date.now() - providerStart;
 
@@ -1745,38 +1774,51 @@ export class AgentLoop {
         }
 
         // Reactive context-overflow recovery. The provider rejected the call
-        // because the prompt exceeded its window — ground truth the estimator
-        // under-counted. Fold the provider's actual token count into the
-        // per-provider calibration so the next iteration's budget gate sees a
-        // corrected (higher) estimate, crosses its threshold, and compacts in
-        // place before re-issuing the call. Bounded so an overflow that
-        // compaction cannot resolve falls through to the error path below
-        // instead of looping forever.
-        if (isContextOverflowError(error)) {
+        // because the prompt exceeded its window. Fold the provider's actual
+        // token count into the per-provider calibration (ground truth the
+        // estimator under-counted) and stash the overflow signal so the next
+        // iteration's budget gate forwards it into the compaction plugin's
+        // reduction ladder, which advances one rung before re-issuing the call.
+        // When the ladder is already spent and the provider still rejects, end
+        // the turn with the terminal reason the final rung implies instead of
+        // looping forever. Recovery requires the budget gate to be active; when
+        // it is disabled (e.g. agent wakes) there is no ladder to drive, so the
+        // overflow falls through to the generic error path below.
+        if (
+          isContextOverflowError(error) &&
+          (resolveContextWindow?.().overflowRecovery.enabled ?? false)
+        ) {
+          if (overflowLadderExhausted) {
+            await emitExit(
+              overflowAutoCompressApplied
+                ? "budget_yield_unrecovered"
+                : "context_too_large",
+            );
+            break;
+          }
           const actualTokens = parseActualTokensFromError(error);
-          if (
-            actualTokens !== null &&
-            reactiveOverflowRetries < MAX_REACTIVE_OVERFLOW_RETRIES
-          ) {
-            reactiveOverflowRetries++;
+          if (actualTokens !== null) {
             recordEstimate(
               getCalibrationProviderKey(this.provider),
               "",
               lastPreSendEstimatedTokens,
               actualTokens,
             );
-            budgetGateArmed = true;
-            rlog.warn(
-              {
-                turn: toolUseTurns,
-                attempt: reactiveOverflowRetries,
-                estimated: lastPreSendEstimatedTokens,
-                actualTokens,
-              },
-              "Context too large — calibrated estimator and re-running to compact",
-            );
-            continue;
           }
+          pendingOverflowSignal = {
+            actualTokens,
+            isInteractive: !isNonInteractive,
+          };
+          budgetGateArmed = true;
+          rlog.warn(
+            {
+              turn: toolUseTurns,
+              estimated: lastPreSendEstimatedTokens,
+              actualTokens,
+            },
+            "Context too large — recovering via the compaction reduction ladder",
+          );
+          continue;
         }
 
         const err = error instanceof Error ? error : new Error(String(error));
