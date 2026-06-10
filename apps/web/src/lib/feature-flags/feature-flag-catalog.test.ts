@@ -37,6 +37,11 @@ describe("feature flag catalog", () => {
     expect(ASSISTANT_FLAG_DEFAULTS.emptyStateDynamicGreetings).toBe(false);
     expect("emptyStateDynamicGreetings" in CLIENT_FLAG_DEFAULTS).toBe(false);
   });
+
+  test("exposes web remote ingress as an assistant flag defaulted off", () => {
+    expect(ASSISTANT_FLAG_DEFAULTS.webRemoteIngress).toBe(false);
+    expect("webRemoteIngress" in CLIENT_FLAG_DEFAULTS).toBe(false);
+  });
 });
 
 describe("readEnvFlagOverrides", () => {
