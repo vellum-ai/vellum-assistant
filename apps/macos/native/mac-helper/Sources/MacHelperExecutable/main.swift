@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Carbon
 import Darwin
 import Foundation
@@ -55,6 +56,9 @@ private func isFnHotkeyEvent(_ event: EventRef) -> Bool {
 }
 
 final class MacHelper: @unchecked Sendable {
+    /// Whether this process re-exec'd with TCC responsibility disclaimed —
+    /// the precondition for safely prompting for privacy permissions.
+    let isDisclaimed: Bool
     private var hotkeyRef: EventHotKeyRef?
     private var handlerRefs: [EventHandlerRef] = []
     private var isFnDown = false
@@ -63,6 +67,10 @@ final class MacHelper: @unchecked Sendable {
     // Bumped on every dictation.setPartials so a pending speech-authorization
     // callback can tell the session it was starting has since been stopped.
     private var dictationGeneration = 0
+
+    init(isDisclaimed: Bool) {
+        self.isDisclaimed = isDisclaimed
+    }
 
     private lazy var router: JsonRpcRouter = {
         let router = JsonRpcRouter()
@@ -180,27 +188,68 @@ final class MacHelper: @unchecked Sendable {
             return ["enabled": false]
         }
 
-        switch SFSpeechRecognizer.authorizationStatus() {
-        case .authorized:
+        let speechStatus = SFSpeechRecognizer.authorizationStatus()
+        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+
+        if speechStatus == .authorized, micStatus == .authorized {
             return startDictationSession()
-        case .notDetermined:
-            // First use: prompt (attributed to the host app, which carries
-            // the usage strings) and start late once granted — the renderer
-            // simply receives partials from that point on.
-            let generation = dictationGeneration
-            SFSpeechRecognizer.requestAuthorization { [weak self] status in
+        }
+        if speechStatus == .denied || speechStatus == .restricted {
+            return ["enabled": false, "reason": "speech-recognition-denied"]
+        }
+        if micStatus == .denied || micStatus == .restricted {
+            return ["enabled": false, "reason": "microphone-denied"]
+        }
+
+        // A privacy request from a process whose TCC-responsible ancestor
+        // lacks the usage strings is a SIGABRT, not a denial. Only prompt
+        // when this process runs disclaimed (its own embedded Info.plist is
+        // the one TCC consults); otherwise degrade to no partials.
+        guard isDisclaimed else {
+            return ["enabled": false, "reason": "permissions-not-promptable"]
+        }
+
+        // First use: prompt for whichever permissions are undetermined and
+        // start late once granted — the renderer simply receives partials
+        // from that point on.
+        let generation = dictationGeneration
+        requestSpeechIfNeeded { [weak self] speechGranted in
+            guard speechGranted else { return }
+            Self.requestMicIfNeeded { micGranted in
+                guard micGranted else { return }
                 DispatchQueue.main.async {
                     guard
                         let self,
-                        status == .authorized,
                         generation == self.dictationGeneration
                     else { return }
                     _ = self.startDictationSession()
                 }
             }
-            return ["enabled": true, "authorizing": true]
-        default:
-            return ["enabled": false, "reason": "speech-recognition-denied"]
+        }
+        return ["enabled": true, "authorizing": true]
+    }
+
+    private func requestSpeechIfNeeded(
+        _ completion: @escaping @Sendable (Bool) -> Void
+    ) {
+        if SFSpeechRecognizer.authorizationStatus() == .authorized {
+            completion(true)
+            return
+        }
+        SFSpeechRecognizer.requestAuthorization { status in
+            completion(status == .authorized)
+        }
+    }
+
+    private static func requestMicIfNeeded(
+        _ completion: @escaping @Sendable (Bool) -> Void
+    ) {
+        if AVCaptureDevice.authorizationStatus(for: .audio) == .authorized {
+            completion(true)
+            return
+        }
+        AVCaptureDevice.requestAccess(for: .audio) { granted in
+            completion(granted)
         }
     }
 
@@ -378,7 +427,8 @@ private enum HelperError: LocalizedError {
     }
 }
 
-let helper = MacHelper()
+let disclaimed = ensureDisclaimedResponsibility()
+let helper = MacHelper(isDisclaimed: disclaimed)
 MainActor.assumeIsolated {
     helper.run()
 }
