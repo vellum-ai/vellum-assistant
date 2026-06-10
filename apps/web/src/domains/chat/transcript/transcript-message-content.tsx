@@ -40,21 +40,23 @@ import {
 } from "@/domains/chat/transcript/transcript-message-body-shared";
 
 /**
- * Blocks-driven render tree (flag-ON). Walks the message's unified
- * `contentBlocks` projection — grouped by `groupContentBlocks` — instead of the
- * positional `contentOrder`/`textSegments`/`thinkingSegments`/`toolCalls`/
- * `surfaces` arrays. Each block embeds its own referent, so there are no
- * positional resolvers: text comes straight off the block, thinking text and
- * timing off the block, and tool calls off `block.toolCall`. Surfaces resolve
- * the client-narrowed `Surface` from `message.surfaces` by id (placement /
- * orphaned binding live on the display projection, not the wire block) — the
- * block stream still drives ordering and presence.
+ * Blocks-driven render tree. Walks the message's unified `contentBlocks`
+ * projection — grouped by `groupContentBlocks` — instead of the positional
+ * `contentOrder`/`textSegments`/`thinkingSegments`/`toolCalls`/`surfaces`
+ * arrays. Each block embeds its own referent, so there are no positional
+ * resolvers: text comes straight off the block, thinking text and timing off
+ * the block, and tool calls off `block.toolCall`. Surfaces resolve the
+ * client-narrowed `Surface` from `message.surfaces` by id (placement / orphaned
+ * binding live on the display projection, not the wire block) — the block
+ * stream still drives ordering and presence.
  *
- * Leaf components and visual chrome (single/multi activity cards, surface
- * router, user bubbles, attachments, subagent cards, Slack attribution, hover
- * actions) are shared with the legacy tree.
+ * `TranscriptRow` selects this tree under the `renderFromContentBlocks` flag,
+ * falling back to the positional `TranscriptMessageBody` when it is off. Leaf
+ * components and visual chrome (single/multi activity cards, surface router,
+ * user bubbles, attachments, subagent cards, Slack attribution, hover actions)
+ * are shared with that tree.
  */
-export function TranscriptMessageBodyFromBlocks({
+export function TranscriptMessageContent({
   message,
   assistantDisplayName,
   onSurfaceAction,

@@ -1,7 +1,6 @@
 import {
   afterAll,
   afterEach,
-  beforeEach,
   describe,
   expect,
   mock,
@@ -124,17 +123,10 @@ mock.module(
   }),
 );
 
-// Drive the single render seam from a mutable flag so the blocks-tree suite can
-// flip it on without touching localStorage. Defaults off, matching production,
-// so every other suite exercises the legacy positional tree.
-let renderFromContentBlocksFlag = false;
-mock.module("@/lib/backwards-compat/content-blocks-render-flag", () => ({
-  getRenderFromContentBlocks: () => renderFromContentBlocksFlag,
-}));
-
 import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
+import { TranscriptMessageContent } from "@/domains/chat/transcript/transcript-message-content";
 
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
 const noop = () => {};
@@ -1242,22 +1234,15 @@ describe("TranscriptMessageBody", () => {
 // Blocks-driven render tree (flag ON)
 // ---------------------------------------------------------------------------
 //
-// With `renderFromContentBlocks` enabled the row renders from `contentBlocks`
-// alone — no positional `contentOrder`/`textSegments`/`toolCalls` arrays. These
-// rows deliberately omit the positional fields to prove the blocks walk is the
-// sole source of truth, and reuse the same leaf-component mocks so the assertions
-// mirror the legacy suite's.
-describe("TranscriptMessageBody — contentBlocks render tree", () => {
-  beforeEach(() => {
-    renderFromContentBlocksFlag = true;
-  });
-  afterEach(() => {
-    renderFromContentBlocksFlag = false;
-  });
-
+// `TranscriptMessageContent` renders from `contentBlocks` alone — no positional
+// `contentOrder`/`textSegments`/`toolCalls` arrays. These rows deliberately omit
+// the positional fields to prove the blocks walk is the sole source of truth,
+// and reuse the same leaf-component mocks so the assertions mirror the
+// positional suite's.
+describe("TranscriptMessageContent — contentBlocks render tree", () => {
   test("renders assistant text straight from a text block", () => {
     const { container } = render(
-      <TranscriptMessageBody
+      <TranscriptMessageContent
         message={{
           id: "b-text",
           role: "assistant",
@@ -1276,7 +1261,7 @@ describe("TranscriptMessageBody — contentBlocks render tree", () => {
 
   test("merges a contiguous thinking + tool_use run into one activity card", () => {
     const { container } = render(
-      <TranscriptMessageBody
+      <TranscriptMessageContent
         message={{
           id: "b-activity",
           role: "assistant",
@@ -1310,7 +1295,7 @@ describe("TranscriptMessageBody — contentBlocks render tree", () => {
 
   test("renders a lone bash tool_use as the inline chip, not a card", () => {
     const { container } = render(
-      <TranscriptMessageBody
+      <TranscriptMessageContent
         message={{
           id: "b-lone-tool",
           role: "assistant",
@@ -1336,7 +1321,7 @@ describe("TranscriptMessageBody — contentBlocks render tree", () => {
 
   test("renders a pure-thinking run as an inline SingleActivity, not a card", () => {
     const { container } = render(
-      <TranscriptMessageBody
+      <TranscriptMessageContent
         message={{
           id: "b-thinking",
           role: "assistant",
@@ -1358,7 +1343,7 @@ describe("TranscriptMessageBody — contentBlocks render tree", () => {
 
   test("resolves a surface block against message.surfaces by id", () => {
     const { container } = render(
-      <TranscriptMessageBody
+      <TranscriptMessageContent
         message={{
           id: "b-surface",
           role: "assistant",
@@ -1379,7 +1364,7 @@ describe("TranscriptMessageBody — contentBlocks render tree", () => {
 
   test("renders user text from a text block inside the user bubble", () => {
     const { container } = render(
-      <TranscriptMessageBody
+      <TranscriptMessageContent
         message={{
           id: "b-user",
           role: "user",

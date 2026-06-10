@@ -9,6 +9,8 @@
 import type {
   ConversationContentBlock,
   ConversationMessageToolCall,
+  ConversationSurfaceBlock,
+  ConversationTextBlock,
   ConversationThinkingBlock,
 } from "@vellumai/assistant-api";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -88,7 +90,7 @@ export function groupMessageActivityRuns(
  * body needs no per-item check.
  */
 export type ContentBlockActivityItem =
-  | Extract<ConversationContentBlock, { type: "thinking" }>
+  | ConversationThinkingBlock
   | { type: "tool_use"; toolCall: ChatMessageToolCall };
 
 /**
@@ -101,8 +103,8 @@ export type ContentBlockActivityItem =
  * positional resolvers.
  */
 export type ContentBlockGroup =
-  | Extract<ConversationContentBlock, { type: "text" }>
-  | Extract<ConversationContentBlock, { type: "surface" }>
+  | ConversationTextBlock
+  | ConversationSurfaceBlock
   | { type: "activity"; items: ContentBlockActivityItem[] };
 
 /**
