@@ -21,6 +21,7 @@ import {
 } from "@/domains/chat/voice/stt-api";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useIsNativePlatform } from "@/runtime/native-auth";
+import { useVellumCommands } from "@/runtime/vellum-commands";
 import { voiceInputAudioConstraints } from "@/utils/voice-input-device";
 import { Button, cn } from "@vellumai/design-library";
 
@@ -430,6 +431,17 @@ export const VoiceInputButton = forwardRef<
       window.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [recording, cancelRecording]);
+
+  // The DOM listener above only sees Escape while a Vellum window has
+  // focus. During system-wide push-to-talk dictation into another app the
+  // Electron escape monitor owns Escape and relays it as a command; the
+  // same recorder-ownership guard applies.
+  useVellumCommands({
+    cancelDictation: () => {
+      if (!mediaRecorderRef.current) return;
+      cancelRecording();
+    },
+  });
 
   useEffect(() => {
     if (disabled && recording) {

@@ -239,7 +239,19 @@ const hideOverlay = (): void => {
 
 let installed = false;
 
-export const installDictationOverlay = (): void => {
+export const installDictationOverlay = (
+  options: {
+    /**
+     * Raw recording-lifecycle tap, true while the renderer reports an
+     * active recording. Feeds the escape monitor (injected from `index.ts`
+     * rather than imported — pulling `escape-monitor`'s module graph in
+     * here would drag `main-window` into this module's unit tests). Raw
+     * rather than suppression-aware on purpose: Esc must cancel a
+     * recording even when the overlay itself is suppressed.
+     */
+    onRecordingLifecycle?: (recording: boolean) => void;
+  } = {},
+): void => {
   if (installed) return;
   installed = true;
 
@@ -259,6 +271,7 @@ export const installDictationOverlay = (): void => {
     "vellum:dictationOverlay:setState",
     z.tuple([dictationOverlayMessageSchema]),
     ([message]) => {
+      options.onRecordingLifecycle?.(message.kind === "recording");
       controller.handleMessage(message);
     },
   );

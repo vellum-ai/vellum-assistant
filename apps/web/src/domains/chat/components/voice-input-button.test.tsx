@@ -13,7 +13,14 @@
  * transcribe branching is observable without timer games.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 
 const addBreadcrumbSpy = mock((_breadcrumb: unknown) => {});
 mock.module("@sentry/react", () => ({
@@ -44,6 +51,19 @@ mock.module("@/runtime/native-auth", () => ({
 }));
 mock.module("@/utils/voice-input-device", () => ({
   voiceInputAudioConstraints: () => true,
+}));
+
+// Capture the command handler map the component registers so tests can
+// deliver the escape monitor's `cancelDictation` relay directly (the real
+// hook is an Electron IPC subscription and no-ops in this environment).
+const commandHandlers: Record<string, ((command: unknown) => void) | undefined> =
+  {};
+mock.module("@/runtime/vellum-commands", () => ({
+  useVellumCommands: (
+    handlers: Record<string, (command: unknown) => void>,
+  ) => {
+    Object.assign(commandHandlers, handlers);
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -160,6 +180,22 @@ describe("VoiceInputButton — Esc cancellation", () => {
     expect(crumb.category).toBe("dictation");
     expect(crumb.data.outcome).toBe("cancelled");
     expect(crumb.data.finalLength).toBe(0);
+  });
+
+  test("cancelDictation command (escape monitor relay) discards like Escape", async () => {
+    const onTranscript = mock(async (_text: string) => {});
+    await startSession(onTranscript);
+
+    act(() => {
+      commandHandlers.cancelDictation?.({ kind: "cancelDictation" });
+    });
+
+    await waitFor(() => {
+      expect(useVoiceRecordingStore.getState().phase).toBe("idle");
+    });
+    expect(postSttTranscribeSpy).not.toHaveBeenCalled();
+    expect(onTranscript).not.toHaveBeenCalled();
+    expect(lastBreadcrumb().data.outcome).toBe("cancelled");
   });
 
   test("Escape while idle does nothing", () => {
