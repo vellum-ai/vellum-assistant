@@ -141,6 +141,7 @@ export function LanguageModelCard() {
               <Button
                 variant="outlined"
                 size="regular"
+                className="h-9"
                 onClick={() => setManageProfilesOpen(true)}
               >
                 + Create
