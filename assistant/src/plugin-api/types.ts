@@ -236,7 +236,7 @@ export interface PostCompactContext {
    * re-applied blocks are attributed to the originating request; it is fixed
    * for the turn and cannot be recovered from the message history.
    */
-  readonly requestId: string | null;
+  readonly requestId: string;
   /** Conversation ID the turn being compacted is scoped to. */
   readonly conversationId: string;
   /**

@@ -471,7 +471,7 @@ export interface AgentLoopRunOptions {
   /** Sink the loop streams its {@link AgentEvent}s through as the turn runs. */
   onEvent: (event: AgentEvent) => void | Promise<void>;
   signal?: AbortSignal;
-  requestId?: string;
+  requestId: string;
   onCheckpoint?: (
     checkpoint: CheckpointInfo,
   ) => CheckpointDecision | Promise<CheckpointDecision>;
@@ -698,7 +698,7 @@ export class AgentLoop {
    * compaction outcome into a user-visible turn failure.
    */
   private async recordCompactionOutcome(
-    requestId: string | undefined,
+    requestId: string,
     summaryFailed: boolean,
     onEvent: (event: AgentEvent) => void | Promise<void>,
   ): Promise<void> {
@@ -728,7 +728,7 @@ export class AgentLoop {
    */
   private async compact(
     history: Message[],
-    requestId: string | undefined,
+    requestId: string,
     trust: TrustContext,
     signal: AbortSignal | undefined,
     onEvent: (event: AgentEvent) => void | Promise<void>,
@@ -798,7 +798,7 @@ export class AgentLoop {
         : rawHistory;
     const postCompactCtx: PostCompactContext = {
       history: base,
-      requestId: requestId ?? null,
+      requestId,
       conversationId: this.conversationId,
       isNonInteractive,
       modelProfileKey,
@@ -871,7 +871,7 @@ export class AgentLoop {
     // `context_too_large`) instead of looping.
     let overflowLadderExhausted = false;
     let overflowAutoCompressApplied = false;
-    const rlog = requestId ? log.child({ requestId }) : log;
+    const rlog = log.child({ requestId });
 
     // Resolve the inference-profile override that applies right now. The
     // optional resolver lets a turn observe a confirmed mid-turn profile switch

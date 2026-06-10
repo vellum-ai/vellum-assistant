@@ -192,6 +192,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: (e) => {
         events.push(e);
@@ -214,6 +215,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: (e) => {
         events.push(e);
@@ -237,6 +239,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: (e) => {
         events.push(e);
@@ -281,6 +284,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const events: AgentEvent[] = [];
     const { history: result } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: (e) => {
         events.push(e);
@@ -308,6 +312,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: (e) => {
         events.push(e);
@@ -339,6 +344,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: (e) => {
         events.push(e);
@@ -369,6 +375,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: (e) => {
         events.push(e);
@@ -398,6 +405,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     // WHEN the loop runs to completion
     const result = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -436,6 +444,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     // WHEN the in-loop budget gate trips at the checkpoint
     const result = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: (event) => {
         events.push(event);
@@ -476,6 +485,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: (e) => {
         events.push(e);
@@ -509,6 +519,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: (e) => {
         events.push(e);
@@ -540,6 +551,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: (e) => {
         events.push(e);
