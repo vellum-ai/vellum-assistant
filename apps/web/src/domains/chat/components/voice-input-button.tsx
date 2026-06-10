@@ -8,6 +8,7 @@ import {
     useRef,
     useSyncExternalStore,
 } from "react";
+import * as Sentry from "@sentry/react";
 
 import {
   startDictationStream,
@@ -179,6 +180,43 @@ export function errorCodeForReason(reason: SttFailureReason): string {
 }
 
 // ---------------------------------------------------------------------------
+// Session breadcrumbs
+// ---------------------------------------------------------------------------
+
+type DictationSessionOutcome =
+  | "completed"
+  | "empty"
+  | "error"
+  | "cancelled"
+  | "aborted";
+
+/**
+ * One breadcrumb per dictation session, emitted when the session reaches a
+ * terminal state. Carries only metrics (duration, locale, final transcript
+ * length) — never the transcript itself, which is user speech content and
+ * must not reach Sentry.
+ *
+ * @see https://docs.sentry.io/platforms/javascript/enriching-events/breadcrumbs/
+ */
+function addDictationSessionBreadcrumb(
+  outcome: DictationSessionOutcome,
+  durationMs: number,
+  finalLength: number,
+): void {
+  Sentry.addBreadcrumb({
+    category: "dictation",
+    level: "info",
+    message: `dictation session ${outcome}`,
+    data: {
+      outcome,
+      durationMs,
+      locale: typeof navigator !== "undefined" ? navigator.language : "unknown",
+      finalLength,
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
@@ -242,6 +280,12 @@ export const VoiceInputButton = forwardRef<
   // Guard so recorder.onstop (which always fires after onerror) doesn't
   // overwrite the error state with a vsReset/vsFinalize transition.
   const erroredRef = useRef(false);
+  // Set by cancelRecording (Esc) — recorder.onstop still fires for teardown
+  // but must discard the captured audio instead of transcribing it.
+  const discardedRef = useRef(false);
+  // Wall-clock start of the live recording, for the session breadcrumb's
+  // duration (recording time only, not the STT round trip).
+  const sessionStartedAtRef = useRef(0);
   // Monotonic session counter — incremented on each startRecording call.
   // The async STT completion captures the current value and skips state
   // mutations if a newer session has started since.
@@ -340,6 +384,53 @@ export const VoiceInputButton = forwardRef<
     stopNativePartials,
   ]);
 
+  /**
+   * Discard the in-flight recording session: stop capture without
+   * transcribing or inserting anything. `recorder.onstop` still fires and
+   * performs the usual teardown; `discardedRef` makes it skip the STT path.
+   */
+  const cancelRecording = useCallback(() => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder) return;
+    discardedRef.current = true;
+    stopSpeechRecognition();
+    stopDictationStream();
+    stopNativePartials();
+    if (recorder.state !== "inactive") {
+      try {
+        recorder.stop();
+      } catch {
+        // Already stopped.
+      }
+    }
+    vsReset();
+  }, [
+    stopSpeechRecognition,
+    stopDictationStream,
+    stopNativePartials,
+    vsReset,
+  ]);
+
+  // Esc during recording discards the partial result. Capture phase so it
+  // wins over composer/modal Escape handlers while a recording is live. Two
+  // instances can be mounted per window (chat composer + the global
+  // push-to-talk fallback) and both see the shared store phase; the
+  // recorder-ownership guard keeps the non-recording instance inert.
+  useEffect(() => {
+    if (!recording) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (!mediaRecorderRef.current) return;
+      event.preventDefault();
+      event.stopPropagation();
+      cancelRecording();
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [recording, cancelRecording]);
+
   useEffect(() => {
     if (disabled && recording) {
       stopRecording();
@@ -373,6 +464,7 @@ export const VoiceInputButton = forwardRef<
   const startRecording = useCallback(async () => {
     if (mediaRecorderRef.current) return;
     cancelledStartRef.current = false;
+    discardedRef.current = false;
     const sessionId = ++sessionIdRef.current;
 
     if (onBeforeStart) {
@@ -495,6 +587,7 @@ export const VoiceInputButton = forwardRef<
     };
 
     recorder.onstop = () => {
+      const durationMs = Date.now() - sessionStartedAtRef.current;
       mediaRecorderRef.current = null;
       if (useVoiceRecordingStore.getState().phase === "recording") {
         vsStopRecording();
@@ -505,7 +598,20 @@ export const VoiceInputButton = forwardRef<
       stopNativePartials();
       publishInterim("");
 
+      if (discardedRef.current) {
+        discardedRef.current = false;
+        chunksRef.current = [];
+        speechAccumulatorRef.current = "";
+        // Re-assert idle: a stop() racing in between cancelRecording and
+        // this handler (e.g. the push-to-talk key-up after Esc) can have
+        // moved the store to "processing".
+        vsReset();
+        addDictationSessionBreadcrumb("cancelled", durationMs, 0);
+        return;
+      }
+
       if (erroredRef.current) {
+        addDictationSessionBreadcrumb("error", durationMs, 0);
         return;
       }
 
@@ -514,6 +620,7 @@ export const VoiceInputButton = forwardRef<
       const fallbackText = speechAccumulatorRef.current;
       speechAccumulatorRef.current = "";
       if (chunks.length === 0 && !fallbackText) {
+        addDictationSessionBreadcrumb("empty", durationMs, 0);
         vsReset();
         return;
       }
@@ -555,19 +662,23 @@ export const VoiceInputButton = forwardRef<
 
         try {
           if (text) {
+            addDictationSessionBreadcrumb("completed", durationMs, text.length);
             await onTranscript(text);
           } else if (daemonFailure) {
             // The user-cancelled `aborted` reason should not trigger a
             // visible error — it's the expected outcome of stop().
             if (daemonFailure === "aborted") {
+              addDictationSessionBreadcrumb("aborted", durationMs, 0);
               vsReset();
               return;
             }
+            addDictationSessionBreadcrumb("error", durationMs, 0);
             const code = errorCodeForReason(daemonFailure);
             onError?.(code);
             vsFail(code);
             return;
           } else {
+            addDictationSessionBreadcrumb("empty", durationMs, 0);
             vsReset();
             return;
           }
@@ -602,6 +713,7 @@ export const VoiceInputButton = forwardRef<
       // When a future change wires up the WS /v1/stt/stream consumer, the
       // timeslice should come back paired with that consumer.
       recorder.start();
+      sessionStartedAtRef.current = Date.now();
       vsStartRecording();
       onError?.(null);
     } catch (err) {
