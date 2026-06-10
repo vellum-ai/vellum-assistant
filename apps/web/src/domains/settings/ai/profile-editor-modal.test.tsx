@@ -236,17 +236,17 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("ProfileEditorModal create mode — provider-first", () => {
-  test("renders Provider before Name/Key in create mode", () => {
+describe("ProfileEditorModal create mode", () => {
+  test("renders Name/Key before Provider in create mode", () => {
     renderCreate([makeConnection("anthropic-personal")]);
 
     const text = document.body.textContent ?? "";
     const providerIdx = text.indexOf("Provider");
     const nameIdx = text.indexOf("Name");
     const keyIdx = text.indexOf("Key");
-    expect(providerIdx).toBeGreaterThanOrEqual(0);
-    expect(nameIdx).toBeGreaterThan(providerIdx);
-    expect(keyIdx).toBeGreaterThan(providerIdx);
+    expect(nameIdx).toBeGreaterThanOrEqual(0);
+    expect(providerIdx).toBeGreaterThan(nameIdx);
+    expect(providerIdx).toBeGreaterThan(keyIdx);
   });
 
   test("Advanced is hidden until a model is chosen, then collapsed by default", () => {
@@ -273,7 +273,7 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     selectProvider("Anthropic");
     selectModel("Claude Opus 4.8");
 
-    expect(getInputByPlaceholder("e.g. Fast & Cheap").value).toBe(
+    expect(getInputByPlaceholder("Name your profile").value).toBe(
       "Claude Opus 4.8",
     );
     expect(getInputByPlaceholder("e.g. fast-cheap").value).toBe(
@@ -288,14 +288,14 @@ describe("ProfileEditorModal create mode — provider-first", () => {
     selectModel("Claude Opus 4.8");
 
     // User overrides the Name.
-    fireEvent.change(getInputByPlaceholder("e.g. Fast & Cheap"), {
+    fireEvent.change(getInputByPlaceholder("Name your profile"), {
       target: { value: "My Custom Profile" },
     });
 
     // Selecting a different model must NOT clobber the manual Name/Key.
     selectModel("Claude Opus 4.7");
 
-    expect(getInputByPlaceholder("e.g. Fast & Cheap").value).toBe(
+    expect(getInputByPlaceholder("Name your profile").value).toBe(
       "My Custom Profile",
     );
     expect(getInputByPlaceholder("e.g. fast-cheap").value).toBe(
@@ -317,12 +317,17 @@ describe("ProfileEditorModal create mode — provider-first", () => {
 
     selectProvider("+ New Connection");
 
-    // Inline ProviderCreateForm is mounted (its Key field placeholder).
+    // Inline ProviderCreateForm is mounted — starts with no provider selected.
+    // Select Anthropic in the inline form's Provider dropdown.
+    const inlineProviderTrigger = document.querySelector<HTMLButtonElement>(
+      'button[role="combobox"][aria-label="Provider"]',
+    );
+    expect(inlineProviderTrigger).toBeDefined();
+    pickOption(inlineProviderTrigger!, "Anthropic");
+
+    // Now the key field is seeded from the provider type.
     const inlineKey = getInputByPlaceholder("e.g. anthropic-personal");
     expect(inlineKey).toBeDefined();
-
-    // Fill the inline form and create (anthropic defaults to platform auth,
-    // so no API key entry is required).
     fireEvent.change(inlineKey, { target: { value: "anthropic-personal" } });
     fireEvent.click(getButton("Create"));
 
@@ -346,9 +351,6 @@ describe("ProfileEditorModal create mode — provider-first", () => {
   });
 
   test("inline-create then immediate save persists the new provider_connection (no race)", async () => {
-    // Regression: before the optimistic local-connection merge, saving in the
-    // window between inline create and the parent connections refetch left
-    // `connectionNotFound` true, so the save handler dropped the binding to "".
     createdConnection = makeConnection("anthropic-personal");
 
     const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
@@ -357,12 +359,16 @@ describe("ProfileEditorModal create mode — provider-first", () => {
       return Promise.resolve();
     };
 
-    // Start with zero connections so the only Provider option is "+ Create
-    // new provider" and the parent prop never refetches in this test (the
-    // binding must be valid purely from the optimistic local merge).
     renderCreate([], onSave);
 
     selectProvider("+ New Connection");
+
+    // Select Anthropic in the inline form's Provider dropdown.
+    const inlineProviderTrigger = document.querySelector<HTMLButtonElement>(
+      'button[role="combobox"][aria-label="Provider"]',
+    );
+    pickOption(inlineProviderTrigger!, "Anthropic");
+
     fireEvent.change(getInputByPlaceholder("e.g. anthropic-personal"), {
       target: { value: "anthropic-personal" },
     });

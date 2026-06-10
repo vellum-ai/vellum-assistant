@@ -558,23 +558,20 @@ function ProfileEditorModalInner({
         ? "Edit Profile"
         : (initialValues?.label ?? profileName ?? "Profile");
 
-  // Create mode uses the provider-first layout (Provider -> Model -> Name ->
-  // Key -> Description -> collapsed Advanced) with pre-fill. Edit and view
-  // modes use the legacy layout below.
-  const useProviderFirst = effectiveMode === "create";
+  const isCreateMode = effectiveMode === "create";
 
   // ---- Reusable field nodes (shared by create + edit/view bodies) ----
 
   const displayNameField = (
     <div className="space-y-1">
       <label className="block text-body-small-default text-[var(--content-tertiary)]">
-        {useProviderFirst ? "Name" : "Display Name"}
+        {isCreateMode ? "Name" : "Display Name"}
       </label>
       <Input
         type="text"
         value={label}
         onChange={(e) => handleLabelChange(e.target.value)}
-        placeholder="e.g. Fast & Cheap"
+        placeholder={isCreateMode ? "Name your profile" : "e.g. Fast & Cheap"}
         fullWidth
       />
     </div>
@@ -727,18 +724,21 @@ function ProfileEditorModalInner({
             setCreatingProvider(false);
             handleProviderChange(next);
           }}
-          placeholder="Select a provider…"
+          placeholder="Select a Provider"
           aria-labelledby="profile-editor-provider-label"
           options={createModeProviderOptions}
         />
         {newProviderNote ? (
-          <Typography
-            variant="body-small-default"
-            as="p"
-            className="text-[var(--content-tertiary)]"
-          >
-            New provider connection will show up in the Providers section.
-          </Typography>
+          <div className="flex items-center gap-2">
+            <Tag tone="positive">Own</Tag>
+            <Typography
+              variant="body-small-default"
+              as="span"
+              className="text-[var(--content-tertiary)]"
+            >
+              New provider connection will show up in the Providers section.
+            </Typography>
+          </div>
         ) : null}
       </div>
 
@@ -811,9 +811,7 @@ function ProfileEditorModalInner({
       </Modal.Header>
 
       <Modal.Body>
-        {useProviderFirst ? (
-          // Create mode is provider-first: Provider (with inline create) ->
-          // Model -> Name -> Key -> Description -> collapsed Advanced.
+        {isCreateMode ? (
           <div className="space-y-4">
             {isAutoProfile && (
               <div className="rounded-lg bg-[var(--surface-info-subtle)] p-3">
@@ -825,13 +823,12 @@ function ProfileEditorModalInner({
               </div>
             )}
 
+            {displayNameField}
+            {descriptionField}
+            {keyField}
+
             {/* Provider + Connection + Model — hidden for the auto profile. */}
             {!isAutoProfile && createProviderSection}
-
-            {displayNameField}
-            {keyField}
-            {descriptionField}
-            {activeToggle}
 
             {/* Advanced params — collapsed by default in create mode. */}
             {createAdvancedDisclosure}

@@ -211,6 +211,7 @@ describe("ProviderCreateForm submit sequence", () => {
         <ProviderCreateForm
           assistantId={ASSISTANT_ID}
           existingNames={[]}
+          defaultProviderType="anthropic"
           onCreated={(c) => {
             created = c;
           }}
@@ -269,6 +270,7 @@ describe("ProviderCreateForm submit sequence", () => {
         <ProviderCreateForm
           assistantId={ASSISTANT_ID}
           existingNames={["anthropic-personal"]}
+          defaultProviderType="anthropic"
           onCreated={() => {}}
           onCancel={() => {}}
         />
@@ -293,6 +295,7 @@ describe("ProviderCreateForm submit sequence", () => {
           variant="inline"
           assistantId={ASSISTANT_ID}
           existingNames={[]}
+          defaultProviderType="anthropic"
           onCreated={(c) => {
             created = c;
           }}
@@ -368,6 +371,7 @@ describe("ProviderCreateForm submit sequence", () => {
         <ProviderCreateForm
           assistantId={ASSISTANT_ID}
           existingNames={[]}
+          defaultProviderType="anthropic"
           onCreated={() => {}}
           onCancel={() => {}}
         />
@@ -398,6 +402,7 @@ describe("ProviderCreateForm submit sequence", () => {
         <ProviderCreateForm
           assistantId={ASSISTANT_ID}
           existingNames={[]}
+          defaultProviderType="anthropic"
           onCreated={() => {}}
           onCancel={() => {}}
         />

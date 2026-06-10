@@ -90,12 +90,14 @@ export function ManageProfilesModal({
     const llmPatch: {
       profiles: Record<string, ProfileEntry>;
       profileOrder?: string[];
+      activeProfile?: string;
     } = { profiles: { [name]: entry } };
     if (isNew) {
       const newOrder = profileOrder.includes(name)
         ? profileOrder
         : [...profileOrder, name];
       llmPatch.profileOrder = newOrder;
+      llmPatch.activeProfile = name;
     }
 
     // For edits: delete the existing profile fragment first so the new entry

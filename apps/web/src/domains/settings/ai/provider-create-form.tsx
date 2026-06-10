@@ -81,29 +81,26 @@ export function ProviderCreateForm({
   onCancel,
   variant = "modal",
 }: ProviderCreateFormProps) {
-  const initialProvider: ConnectionProvider = defaultProviderType ?? "anthropic";
+  const initialProvider: ConnectionProvider | "" = defaultProviderType ?? "";
 
-  // Seed Display Name (label) + Key (name) from the initial provider type so
-  // the form opens pre-filled (e.g. Anthropic → "Anthropic" / "anthropic"),
-  // deduped against existing connection names. The user can override both, and
-  // a provider-type change re-seeds only while they haven't edited the fields
-  // (see the dirty guard in the Provider dropdown's onChange below).
-  const initialDefaults = deriveProviderDefaults(initialProvider, existingNames);
+  const initialDefaults = initialProvider
+    ? deriveProviderDefaults(initialProvider, existingNames)
+    : { name: "", key: "" };
 
   const [label, setLabel] = useState(initialDefaults.name);
   const [name, setName] = useState(initialDefaults.key);
-  const [provider, setProvider] = useState<ConnectionProvider>(initialProvider);
+  const [provider, setProvider] = useState<ConnectionProvider | "">(initialProvider);
   const [authType, setAuthType] = useState<AuthType>(
     () =>
       defaultAuthType ??
       (initialProvider === "ollama"
         ? "none"
-        : providerSupportsPlatformAuth(initialProvider)
+        : initialProvider && providerSupportsPlatformAuth(initialProvider)
           ? "platform"
           : "api_key"),
   );
   const [credential, setCredential] = useState(() =>
-    initialProvider === "ollama" ? "" : `credential/${initialProvider}/api_key`,
+    !initialProvider || initialProvider === "ollama" ? "" : `credential/${initialProvider}/api_key`,
   );
   const [baseUrl, setBaseUrl] = useState("");
   const [connectionModels, setConnectionModels] = useState("");
@@ -115,8 +112,8 @@ export function ProviderCreateForm({
     const options = openAICompatibleEndpointsEnabled
       ? CONNECTION_PROVIDERS
       : CONNECTION_PROVIDERS.filter((p) => p !== "openai-compatible");
-    if (provider && !options.includes(provider)) {
-      return [...options, provider];
+    if (provider && !options.includes(provider as ConnectionProvider)) {
+      return [...options, provider as ConnectionProvider];
     }
     return options;
   }, [openAICompatibleEndpointsEnabled, provider]);
@@ -161,7 +158,7 @@ export function ProviderCreateForm({
     return null;
   })();
 
-  const canSave = name.trim().length > 0 && !nameError;
+  const canSave = name.trim().length > 0 && !nameError && provider !== "";
 
   async function handleSave() {
     if (!canSave) return;
@@ -225,7 +222,7 @@ export function ProviderCreateForm({
 
       const input: CreateConnectionInput = {
         name: name.trim(),
-        provider,
+        provider: provider as ConnectionProvider,
         auth,
         ...(labelValue !== null && { label: labelValue }),
         ...(isOpenAICompatible && {
@@ -326,13 +323,10 @@ export function ProviderCreateForm({
         <Dropdown
           aria-label="Provider"
           value={provider}
+          placeholder="Select a Provider"
           onChange={(v) => {
             const newProvider = v as ConnectionProvider;
             setProvider(newProvider);
-            // Re-seed Name + Key from the newly selected provider type, but
-            // only while the user hasn't manually edited either field (dirty
-            // tracking lives in useLabelKeySync). Seeding writes state
-            // directly so it doesn't itself flip the dirty flag.
             if (!getDirty()) {
               const { name: seedName, key: seedKey } = deriveProviderDefaults(
                 newProvider,
@@ -346,8 +340,10 @@ export function ProviderCreateForm({
               setCredential("");
             } else {
               setAuthType((prev) => {
-                if (prev === "none") {
-                  return "api_key";
+                if (prev === "none" || !provider) {
+                  return providerSupportsPlatformAuth(newProvider)
+                    ? "platform"
+                    : "api_key";
                 }
                 if (
                   prev === "oauth_subscription" &&
@@ -365,8 +361,6 @@ export function ProviderCreateForm({
               });
               setCredential(`credential/${newProvider}/api_key`);
             }
-            // Credential ref changes above trigger a new TQ query key,
-            // so the presence check auto-refetches for the new provider.
           }}
           options={connectionProviderOptions.map((p) => ({
             value: p,
@@ -410,45 +404,46 @@ export function ProviderCreateForm({
         </>
       )}
 
-      {/* Auth type */}
-      <div className="space-y-1">
-        <label className="block text-body-small-default text-[var(--content-tertiary)]">
-          Auth Type
-        </label>
-        <Dropdown
-          aria-label="Auth type"
-          value={authType}
-          onChange={(v) => {
-            setAuthType(v as AuthType);
-            setError(null);
-          }}
-          disabled={provider === "ollama"}
-          options={(() => {
-            let types: AuthType[];
-            if (provider === "ollama") {
-              types = ["none"];
-            } else if (providerSupportsPlatformAuth(provider)) {
-              types = ["api_key", "platform"];
-            } else {
-              types = ["api_key"];
-            }
-            // Add oauth_subscription when ChatGPT flag is enabled for OpenAI.
-            if (chatgptSubscriptionEnabled && provider === "openai") {
-              types.push("oauth_subscription");
-            }
-            if (authType && !types.includes(authType)) {
-              types.push(authType);
-            }
-            return types.map((t) => ({
-              value: t,
-              label: AUTH_TYPE_DISPLAY_NAMES[t],
-            }));
-          })()}
-        />
-      </div>
+      {/* Auth type — hidden until a provider is selected */}
+      {provider !== "" && (
+        <div className="space-y-1">
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
+            Auth Type
+          </label>
+          <Dropdown
+            aria-label="Auth type"
+            value={authType}
+            onChange={(v) => {
+              setAuthType(v as AuthType);
+              setError(null);
+            }}
+            disabled={provider === "ollama"}
+            options={(() => {
+              let types: AuthType[];
+              if (provider === "ollama") {
+                types = ["none"];
+              } else if (providerSupportsPlatformAuth(provider)) {
+                types = ["api_key", "platform"];
+              } else {
+                types = ["api_key"];
+              }
+              if (chatgptSubscriptionEnabled && provider === "openai") {
+                types.push("oauth_subscription");
+              }
+              if (authType && !types.includes(authType)) {
+                types.push(authType);
+              }
+              return types.map((t) => ({
+                value: t,
+                label: AUTH_TYPE_DISPLAY_NAMES[t],
+              }));
+            })()}
+          />
+        </div>
+      )}
 
       {/* API Key + Advanced disclosure — only shown for api_key auth */}
-      {authType === "api_key" && (
+      {provider !== "" && authType === "api_key" && (
         <ProviderEditorApiKeySection
           apiKeyValue={apiKeyValue}
           onApiKeyChange={setApiKeyValue}
@@ -457,7 +452,7 @@ export function ProviderCreateForm({
           isAuthLocked={false}
           isLoadingCredential={isLoadingCredential}
           apiKeyPlaceholder={apiKeyPlaceholder}
-          provider={provider}
+          provider={provider as ConnectionProvider}
           providerCredentials={providerCredentials}
           showAdvancedSection={shouldShowAdvancedSection}
           onError={setError}
@@ -465,7 +460,7 @@ export function ProviderCreateForm({
       )}
 
       {/* ChatGPT Subscription OAuth — shown when auth type is oauth_subscription */}
-      {authType === "oauth_subscription" && (
+      {provider !== "" && authType === "oauth_subscription" && (
         <ChatgptOAuthSection
           assistantId={assistantId}
           onConnected={onCreated}
