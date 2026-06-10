@@ -376,11 +376,11 @@ describe("InspectPage — dual-mode chrome", () => {
     expect(html).toContain(
       "2. Assistant · Great — we&#x27;re shipping dual-mode chrome right now.",
     );
-    // The message-mode "View all calls" button must NOT appear here.
+    // The legacy message-mode "View all calls" button must never appear.
     expect(html).not.toContain("View all conversation calls");
   });
 
-  test("message mode renders the scoped subtitle, short id, and the back-to-conversation button", () => {
+  test("message mode renders the scoped subtitle, short id, and keeps the filter dropdown", () => {
     paramsStub = { conversationId: "conv-1" };
     searchParamsMap.set("messageId", "msg-abcdef-1234567890");
     contextStub = {
@@ -403,9 +403,11 @@ describe("InspectPage — dual-mode chrome", () => {
 
     expect(html).toContain("Scoped to one message");
     expect(html).toContain("msg-abcd"); // shortMessageId
-    expect(html).toContain("View all conversation calls");
-    // Conversation-mode dropdown should NOT be in message mode.
-    expect(html).not.toContain("Filter to message:");
+    // The dropdown stays visible in message mode; selecting "All
+    // messages" returns to conversation mode.
+    expect(html).toContain("Filter to message:");
+    expect(html).toContain("All messages");
+    expect(html).not.toContain("View all conversation calls");
   });
 
   test("message mode empty state copy is message-specific", () => {

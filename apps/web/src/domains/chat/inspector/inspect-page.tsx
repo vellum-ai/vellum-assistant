@@ -48,8 +48,8 @@ import { SkillsTab } from "./components/tabs/skills-tab";
  *   switches into message mode for a specific message in the transcript.
  *
  * - **Message mode** — `?messageId=...`. Shows only the calls produced by
- *   the turn containing that message. Header carries a "View all
- *   conversation calls" link that drops back into conversation mode.
+ *   the turn containing that message. The same dropdown stays visible;
+ *   selecting "All messages" drops back into conversation mode.
  *
  * Web counterpart of macOS's `MessageInspectorView`
  * (`clients/macos/vellum-assistant/Features/Chat/MessageInspectorView.swift`).
@@ -192,7 +192,6 @@ function Header({
   const [exportError, setExportError] = useState<string | null>(null);
 
   const canExport = Boolean(assistantId && context && context.logs.length > 0);
-  const isMessageScoped = Boolean(messageId);
 
   async function handleExport(): Promise<void> {
     if (!assistantId || !context || isExporting) return;
@@ -306,7 +305,6 @@ function Header({
         assistantId={assistantId}
         conversationId={conversationId}
         messageId={messageId}
-        isMessageScoped={isMessageScoped}
       />
     </div>
   );
@@ -352,14 +350,12 @@ interface ScopeControlsProps {
   assistantId: string | undefined;
   conversationId: string;
   messageId: string | null;
-  isMessageScoped: boolean;
 }
 
 function ScopeControls({
   assistantId,
   conversationId,
   messageId,
-  isMessageScoped,
 }: ScopeControlsProps): ReactNode {
   const navigate = useNavigate();
   const { data: messages } = useConversationMessageList(
@@ -378,21 +374,6 @@ function ScopeControls({
     const base = routes.inspect(conversationId);
     navigate(qs ? `${base}?${qs}` : base);
   };
-
-  if (isMessageScoped) {
-    return (
-      <div className="flex items-center justify-end">
-        <Button
-          variant="ghost"
-          size="compact"
-          onClick={() => navigateToScope(null)}
-          aria-label="View all conversation calls"
-        >
-          View all conversation calls
-        </Button>
-      </div>
-    );
-  }
 
   return (
     <div className="flex items-center justify-end gap-2">
