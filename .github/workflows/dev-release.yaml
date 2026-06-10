@@ -1907,9 +1907,6 @@ jobs:
           CSC_NAME: Developer ID Application
         run: bun run pack
 
-      - name: Debug – list dist contents
-        run: ls -la dist/
-
       - name: Rename DMG for release
         id: dmg
         run: |
@@ -2003,7 +2000,7 @@ jobs:
         with:
           name: ${{ matrix.update_artifact_name }}
           path: |
-            apps/macos/dist/latest-mac.yml
+            apps/macos/dist/*-mac.yml
             apps/macos/dist/*.zip
             apps/macos/dist/*.zip.blockmap
           if-no-files-found: warn
@@ -2047,8 +2044,8 @@ jobs:
       - name: Validate update artifacts
         run: |
           DIR="electron-artifacts/arm64"
-          if [ ! -f "$(find "$DIR" -name 'latest-mac.yml' -type f 2>/dev/null | grep -m1 .)" ]; then
-            echo "::error::Missing latest-mac.yml for arm64"
+          if [ ! -f "$(find "$DIR" -name '*-mac.yml' -type f 2>/dev/null | grep -m1 .)" ]; then
+            echo "::error::Missing update manifest (*-mac.yml) for arm64"
             exit 1
           fi
           if [ -z "$(find "$DIR" -name '*.zip' -type f ! -name '*.blockmap' 2>/dev/null | grep -m1 .)" ]; then
@@ -2081,7 +2078,7 @@ jobs:
               gcloud storage cp "$BM" "gs://${BUCKET}/${PREFIX}/$(basename "$BM")"
             done
 
-            YML=$(find "$ARCH_DIR" -name "latest-mac.yml" -type f | grep -m1 .)
+            YML=$(find "$ARCH_DIR" -name "*-mac.yml" -type f | grep -m1 .)
             [ -n "$YML" ] && gcloud storage cp "$YML" "gs://${BUCKET}/${PREFIX}/${MANIFEST_NAME}"
           done
 
