@@ -52,6 +52,14 @@ final class DictationPartialsSession: @unchecked Sendable {
         }
 
         request.shouldReportPartialResults = true
+        // Pin recognition on-device when the locale has a local model:
+        // dictation audio shouldn't leave the machine, and it keeps the
+        // transcript working offline. Locales without an on-device model
+        // stay on Apple's server path — forcing the flag there would fail
+        // recognition outright instead of degrading.
+        if recognizer.supportsOnDeviceRecognition {
+            request.requiresOnDeviceRecognition = true
+        }
 
         let input = audioEngine.inputNode
         let format = input.outputFormat(forBus: 0)
