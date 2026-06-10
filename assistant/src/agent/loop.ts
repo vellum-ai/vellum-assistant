@@ -372,17 +372,6 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
 
 const MAX_STOP_CONTINUE_RETRIES = 1;
 
-/**
- * User-facing text appended when a turn ends at the stop boundary on a provider
- * `refusal` with no visible text — i.e. the safety classifier zeroed the
- * response and the `stop` hook's nudge budget is spent. Without this, the
- * refusal would reach the user as an empty assistant bubble. Unlike the `stop`
- * hook's nudge text (which is shown only to the model), this is the message the
- * user actually reads.
- */
-export const REFUSAL_FALLBACK_TEXT =
-  "Sorry — I wasn't able to generate a response to that. Please try rephrasing or asking in a different way.";
-
 const MAX_TOKENS_STOP_REASONS = new Set([
   "length",
   "max_output_tokens",
@@ -1421,11 +1410,17 @@ export class AgentLoop {
           producedVisibleTextThisRun = true;
         }
 
+        // Replacement content a `stop` hook asked the loop to surface in place
+        // of an otherwise user-invisible turn (e.g. a refusal rewritten into an
+        // apology). Applied after `finalizeAssistantMessage` below.
+        let stopRewrittenContent: ContentBlock[] | undefined;
+
         if (toolUseBlocks.length === 0) {
           // The model stopped requesting tools — the run's stop boundary. The
-          // `stop` hook decides whether to let the turn end or re-query with a
-          // follow-up turn. It receives the full history and, when it asks to
-          // continue, appends the follow-up turn itself.
+          // `stop` hook decides whether to let the turn end, rewrite it for the
+          // user, or re-query with a follow-up turn. It receives the full
+          // history and, when it asks to continue, appends the follow-up turn
+          // itself.
           const stopCtx: StopContext = {
             conversationId: this.conversationId,
             messages: [...history],
@@ -1435,6 +1430,7 @@ export class AgentLoop {
             logger: rlog,
           };
           const finalStopCtx = await runHook(HOOKS.STOP, stopCtx);
+          stopRewrittenContent = finalStopCtx.rewrittenContent;
 
           if (finalStopCtx.decision === "continue") {
             // The loop owns the retry budget: a hook always asks to continue
@@ -1472,31 +1468,20 @@ export class AgentLoop {
         // re-queried reply is never transformed-then-discarded.
         assistantMessage = await finalizeAssistantMessage(assistantMessage);
 
-        // Safety net for the refusal stop boundary: a provider `refusal` zeroes
-        // the turn, so after the `stop` hook's nudge budget is spent it would
-        // otherwise reach the user as an empty assistant bubble. Append a
-        // user-facing fallback and stream it, since nothing was emitted live.
-        // Scoped to refusals on purpose — other empty turns (e.g. an organic
-        // `end_turn` with no text) are left as-is. `producedVisibleTextThisRun`
-        // guards the case where an earlier turn this run already replied (e.g.
-        // text alongside a tool call, then a refusal after the tool result), so
-        // a spurious apology never lands beneath a real answer. The fallback is
-        // appended (not substituted) so any other blocks the turn carries are
-        // preserved.
-        if (
-          toolUseBlocks.length === 0 &&
-          response.stopReason === "refusal" &&
-          !producedVisibleTextThisRun &&
-          !hasVisibleText(assistantMessage.content)
-        ) {
+        // Apply a `stop` hook's rewrite of the turn (e.g. a provider `refusal`
+        // that zeroed the response, rewritten into a user-facing apology). The
+        // hook decides whether and what to rewrite; the loop owns the I/O —
+        // persisting the new content and streaming a synthetic `text_delta`,
+        // since nothing was emitted live for a turn the model left empty.
+        if (stopRewrittenContent) {
           assistantMessage = {
             role: "assistant",
-            content: [
-              ...assistantMessage.content,
-              { type: "text", text: REFUSAL_FALLBACK_TEXT },
-            ],
+            content: stopRewrittenContent,
           };
-          onEvent({ type: "text_delta", text: REFUSAL_FALLBACK_TEXT });
+          const rewrittenText = assistantTextOf(stopRewrittenContent);
+          if (rewrittenText) {
+            onEvent({ type: "text_delta", text: rewrittenText });
+          }
         }
 
         history.push(assistantMessage);

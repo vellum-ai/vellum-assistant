@@ -1,22 +1,26 @@
 /**
  * Default `stop` hook: when the model yields a turn with no tool calls, decide
- * whether to let the turn end or re-query the model with a nudge.
+ * whether to let the turn end, rewrite it for the user, or re-query the model.
  *
- * Two cases warrant a nudge:
+ * Two cases warrant intervention:
  *
  * 1. **Refusal stop.** The provider returned `stopReason === "refusal"` with no
- *    visible text (Anthropic's safety classifier zeroed the response). Nudged
- *    even on the first model call of the run — a refusal there guarantees no
- *    organic text exists yet, so without intervening the loop would persist an
- *    empty assistant bubble to the user. Uses `REFUSAL_NUDGE_TEXT`.
+ *    visible text (Anthropic's safety classifier zeroed the response) and no
+ *    earlier turn this run already delivered visible text. The hook rewrites
+ *    the turn into a plain-text apology (`REFUSAL_FALLBACK_TEXT`) via
+ *    {@link StopContext.rewrittenContent} and lets the turn end. A retry is
+ *    deliberately not attempted: a safety-classifier refusal re-fires on a
+ *    re-query, so the canned message is the intended terminal response.
  * 2. **Empty turn after tool use.** The turn produced no visible text, follows
  *    at least one prior assistant turn this run, and no earlier turn this run
- *    already delivered visible text. Uses `NUDGE_TEXT`.
+ *    already delivered visible text. The hook re-queries the model with
+ *    `NUDGE_TEXT` (a tool trail exists to summarize, so a retry can recover a
+ *    real answer).
  *
  * Every other case leaves the decision at `"stop"` (the model said its piece,
- * or there is nothing to nudge about). The retry cap is owned by the agent
- * loop: this hook always asks to continue when a nudge is warranted, and the
- * loop stops anyway once the run's nudge budget is spent.
+ * or there is nothing to act on). The retry cap for case 2 is owned by the
+ * agent loop: this hook asks to continue and the loop stops anyway once the
+ * run's nudge budget is spent.
  *
  * Both prior-turn signals are derived from the current response cycle — the
  * messages after the last genuine user prompt (a user turn that isn't purely
@@ -47,16 +51,13 @@ export const NUDGE_TEXT =
   "<system_notice>Your previous response was empty. You must respond to the user with a summary of what you found or did. Do not use any tools — just respond with text.</system_notice>";
 
 /**
- * Refusal-specific nudge. Used when the provider stops with `"refusal"` and no
- * visible text — i.e. the safety classifier zeroed the response. Kept distinct
- * from `NUDGE_TEXT` so the model gets context-appropriate guidance (no "summary
- * of what you found or did" — there is no tool trail to summarize on a refusal).
- *
- * Wire-compat note: this is shown to the LLM, not the user. Edits here affect
- * retry behavior but not end-user UX directly.
+ * User-facing text a refusal turn is rewritten into. Used when the provider
+ * stops with `"refusal"` and no visible text — i.e. the safety classifier
+ * zeroed the response. Unlike `NUDGE_TEXT` (shown only to the model), this is
+ * the message the user actually reads in place of an empty assistant bubble.
  */
-export const REFUSAL_NUDGE_TEXT =
-  '<system_notice>Your previous response was empty because the upstream provider returned stop_reason="refusal". Please answer the user\'s last message directly with a plain-text response. Do not use any tools — just respond with text.</system_notice>';
+export const REFUSAL_FALLBACK_TEXT =
+  "Sorry — I wasn't able to generate a response to that. Please try rephrasing or asking in a different way.";
 
 function hasVisibleText(content: ReadonlyArray<ContentBlock>): boolean {
   return content.some(
@@ -96,16 +97,6 @@ function currentCycleMessages(
 const stop: PluginHookFn<StopContext> = async (ctx) => {
   const turnHasVisibleText = hasVisibleText(ctx.responseContent);
 
-  const appendNudge = (text: string): void => {
-    ctx.messages.push({ role: "user", content: [{ type: "text", text }] });
-    ctx.decision = "continue";
-  };
-
-  if (ctx.stopReason === "refusal" && !turnHasVisibleText) {
-    appendNudge(REFUSAL_NUDGE_TEXT);
-    return;
-  }
-
   const cycleMessages = currentCycleMessages(ctx.messages);
   const priorAssistantTurns = cycleMessages.filter(isAssistantTurn);
   const hadPriorAssistantTurn = priorAssistantTurns.length > 0;
@@ -113,13 +104,29 @@ const stop: PluginHookFn<StopContext> = async (ctx) => {
     hasVisibleText(message.content),
   );
 
+  // Refusal stop: rewrite the empty turn into a user-facing apology and let it
+  // end. Skipped when an earlier turn this run already replied, so the apology
+  // never lands beneath a real answer.
+  if (
+    ctx.stopReason === "refusal" &&
+    !turnHasVisibleText &&
+    !priorAssistantHadVisibleText
+  ) {
+    ctx.rewrittenContent = [{ type: "text", text: REFUSAL_FALLBACK_TEXT }];
+    return;
+  }
+
   const isEmptyTurnAfterTools =
     !turnHasVisibleText &&
     hadPriorAssistantTurn &&
     !priorAssistantHadVisibleText;
 
   if (isEmptyTurnAfterTools) {
-    appendNudge(NUDGE_TEXT);
+    ctx.messages.push({
+      role: "user",
+      content: [{ type: "text", text: NUDGE_TEXT }],
+    });
+    ctx.decision = "continue";
   }
 };
 

@@ -5,7 +5,8 @@ import type {
   CheckpointDecision,
   CheckpointInfo,
 } from "../agent/loop.js";
-import { AgentLoop, REFUSAL_FALLBACK_TEXT } from "../agent/loop.js";
+import { AgentLoop } from "../agent/loop.js";
+import { REFUSAL_FALLBACK_TEXT } from "../plugins/defaults/empty-response/hooks/stop.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type {
   ContentBlock,
@@ -2164,12 +2165,12 @@ describe("AgentLoop", () => {
   });
 
   // Refusal stop boundary — the provider zeroed the response with
-  // `stopReason: "refusal"`. The `stop` hook nudges once; when the retry also
-  // refuses, the loop must surface a user-facing fallback rather than the empty
-  // assistant bubble the user would otherwise see.
-  test("substitutes a fallback when a refusal persists after the nudge retry", async () => {
-    // GIVEN a provider that refuses (empty content, stopReason "refusal") on
-    // every call.
+  // `stopReason: "refusal"`. The default `stop` hook rewrites the empty turn
+  // into a user-facing fallback (no retry — a safety-classifier refusal
+  // re-fires on a re-query), and the loop persists + streams it rather than the
+  // empty assistant bubble the user would otherwise see.
+  test("rewrites a refusal into a user-facing fallback without retrying", async () => {
+    // GIVEN a provider that refuses (empty content, stopReason "refusal").
     const refusalResponse: ProviderResponse = {
       content: [],
       model: "mock-model",
@@ -2194,23 +2195,9 @@ describe("AgentLoop", () => {
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
-    // THEN the loop calls the provider twice: the initial refusal plus one
-    // nudge-driven retry (the stop hook fires even on the first call).
-    expect(calls).toHaveLength(2);
-
-    // AND the retry carries the refusal-specific nudge (model-only, not shown
-    // to the user).
-    const retryMessages = calls[1].messages;
-    const lastSent = retryMessages[retryMessages.length - 1];
-    expect(lastSent.role).toBe("user");
-    expect(
-      lastSent.content.some(
-        (b) =>
-          b.type === "text" &&
-          "text" in b &&
-          (b as { text: string }).text.includes('stop_reason="refusal"'),
-      ),
-    ).toBe(true);
+    // THEN the loop calls the provider once: the refusal is rewritten in place
+    // with no nudge-driven retry.
+    expect(calls).toHaveLength(1);
 
     // AND the user-visible assistant turn is the fallback, not an empty bubble.
     const lastAssistant = [...history]
@@ -2234,7 +2221,7 @@ describe("AgentLoop", () => {
   // The fallback must not pile a spurious apology beneath a real answer: when
   // an earlier turn this run already produced visible text (text alongside a
   // tool call), a refusal on the trailing turn after the tool result must not
-  // append the fallback even though a refusal would normally trigger it.
+  // rewrite the turn even though a refusal would normally trigger it.
   test("does not substitute a fallback when the run already produced visible text", async () => {
     // GIVEN a first turn with text + a tool call, then a refusal after the
     // tool result.
@@ -2258,11 +2245,7 @@ describe("AgentLoop", () => {
       usage: { inputTokens: 10, outputTokens: 0 },
       stopReason: "refusal",
     };
-    const { provider } = createMockProvider([
-      textPlusToolUse,
-      refusalResponse,
-      refusalResponse,
-    ]);
+    const { provider } = createMockProvider([textPlusToolUse, refusalResponse]);
     const loop = new AgentLoop({
       provider: provider,
       systemPrompt: "system",
