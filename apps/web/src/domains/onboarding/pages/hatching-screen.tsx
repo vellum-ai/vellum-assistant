@@ -243,6 +243,7 @@ export function HatchingScreen() {
             if (isLocalMode()) {
               void saveLockfileAssistant({
                 assistantId: existing.data.id,
+                name: existing.data.name,
                 cloud: "vellum",
                 runtimeUrl: getPlatformRuntimeUrl(),
                 hatchedAt: new Date().toISOString(),
@@ -443,6 +444,7 @@ export function HatchingScreen() {
             if (isLocalMode()) {
               void saveLockfileAssistant({
                 assistantId,
+                name: result.data.name,
                 cloud: "vellum",
                 runtimeUrl: getPlatformRuntimeUrl(),
                 hatchedAt: new Date().toISOString(),

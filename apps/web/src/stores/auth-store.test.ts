@@ -306,14 +306,14 @@ describe("auth store onboarding flag reconciliation", () => {
     mockListAssistantsResult = {
       ok: true,
       status: 200,
-      data: [{ id: "assistant-3", is_local: false, created: "2026-06-05T00:00:00Z" }],
+      data: [{ id: "assistant-3", name: "My Assistant", is_local: false, created: "2026-06-05T00:00:00Z" }],
     };
 
     await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
 
     expect(listAssistantsMock).toHaveBeenCalled();
     expect(syncPlatformAssistantsToLockfileMock).toHaveBeenCalledWith([
-      { id: "assistant-3", is_local: false, created: "2026-06-05T00:00:00Z" },
+      { id: "assistant-3", name: "My Assistant", is_local: false, created: "2026-06-05T00:00:00Z" },
     ]);
   });
 
