@@ -46,11 +46,13 @@ mock.module("@vellumai/local-mode", () => ({
   getGuardianAccessToken: getGuardianAccessTokenMock,
 }));
 
+const ensureCliInstalledMock = mock(async () => undefined);
+
 mock.module("./cli-installer", () => ({
   isCliInstalled: () => true,
   getBundledBunPath: () => "/fake/bun",
   getCliBinPath: () => "/fake/cli",
-  ensureCliInstalled: async () => {},
+  ensureCliInstalled: ensureCliInstalledMock,
 }));
 
 const openBundleConfirmationMock = mock(
@@ -139,6 +141,7 @@ beforeEach(() => {
   installBundleConfirmationMock.mockClear();
   unpackBundleMock.mockClear();
   openBundleWindowMock.mockClear();
+  ensureCliInstalledMock.mockClear();
 
   getLockfileDataMock.mockReturnValue({ ok: false, status: 500 });
   openBundleConfirmationMock.mockResolvedValue(true);
@@ -290,6 +293,16 @@ describe("handleBundleFile", () => {
     const opts = fetchCall?.[1] as RequestInit | undefined;
     const headers = opts?.headers as Record<string, string> | undefined;
     expect(headers?.["Authorization"]).toBe("Bearer fake-token");
+  });
+
+  test("refreshes the CLI locator via ensureCliInstalled even when already installed", async () => {
+    getLockfileDataMock.mockReturnValue(makeLockfileWithPort(9000));
+
+    await handleBundleFile("/tmp/test.vellum");
+
+    // isCliInstalled() is mocked true; routing through ensureCliInstalled
+    // keeps the PATH-wrapper locator fresh on the installed path.
+    expect(ensureCliInstalledMock).toHaveBeenCalledTimes(1);
   });
 
   test("success flow: scans, confirms, unpacks, opens window", async () => {

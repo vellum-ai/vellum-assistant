@@ -22,7 +22,6 @@ import {
   ensureCliInstalled,
   getBundledBunPath,
   getCliBinPath,
-  isCliInstalled,
 } from "./cli-installer";
 import { openBundleConfirmation, installBundleConfirmation } from "./bundle-confirmation";
 import { unpackBundle, type BundleScanData } from "./bundle-manager";
@@ -55,9 +54,7 @@ async function resolveCliInvocation(): Promise<CliInvocation> {
       return { command: "bun", baseArgs: ["run", cliEntry] };
     }
   }
-  if (isCliInstalled()) {
-    return { command: getBundledBunPath(), baseArgs: ["run", getCliBinPath()] };
-  }
+  // Early-returns when already installed, refreshing the PATH-wrapper locator.
   await ensureCliInstalled();
   return { command: getBundledBunPath(), baseArgs: ["run", getCliBinPath()] };
 }

@@ -15,6 +15,7 @@ import { installAbout, openAboutWindow } from "./about";
 import { installAutoUpdate } from "./auto-update";
 import { APP_HOST, APP_PROTOCOL, BUNDLES_DIR_NAME, VELLUMAPP_PROTOCOL } from "./app-config";
 import { resolveAllowedOrigin } from "./app-origin";
+import { writeCliLocator } from "./cli-installer";
 import { installCsp } from "./csp";
 import { getDeviceId } from "./device-id";
 import { handleSync } from "./ipc";
@@ -326,6 +327,9 @@ app
     installHotkeysIpc();
     installFeatureFlagsIpc();
     installLocalMode();
+    // Refresh the PATH-wrapper locator every launch so app moves and
+    // version bumps self-heal even if no CLI invocation happens this session.
+    if (app.isPackaged) writeCliLocator();
     installLoginItem();
     installLoginItemIpc();
     installHotkeyHelper();
