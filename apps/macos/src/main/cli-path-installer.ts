@@ -10,6 +10,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 import { getCliLocatorPath, shQuote } from "./cli-installer";
+import { findExecutablesInPath, resolveShellPath } from "./shell-path";
 
 /** Ownership/migration marker embedded in every wrapper we write. */
 export const WRAPPER_MARKER = "# vellum-cli-wrapper v1";
@@ -88,6 +89,41 @@ export function installWrapper(opts: {
   chmodSync(tmpPath, 0o755);
   renameSync(tmpPath, wrapperPath);
   return "installed";
+}
+
+export type CliPathInstallState =
+  | { kind: "not-installed" }
+  | { kind: "foreign-file" }
+  | { kind: "installed"; inPath: boolean }
+  | { kind: "shadowed"; shadowedBy: string };
+
+// Shell PATH entries are already $HOME-expanded; only trailing slashes vary.
+function stripTrailingSlashes(dir: string): string {
+  return dir.replace(/\/+$/, "");
+}
+
+/**
+ * Determine how the `vellum` command resolves on the user's login-shell
+ * PATH. `shadowed` means another executable wins over our wrapper (e.g. an
+ * npm-global install earlier in PATH). Never throws — shell PATH resolution
+ * degrades gracefully.
+ */
+export async function getCliPathInstallState(): Promise<CliPathInstallState> {
+  const ownership = readWrapperOwnership();
+  if (ownership === "absent") return { kind: "not-installed" };
+  if (ownership === "foreign") return { kind: "foreign-file" };
+
+  const shellPath = await resolveShellPath();
+  const [firstHit] = findExecutablesInPath("vellum", shellPath);
+  if (firstHit !== undefined && firstHit !== getWrapperPath()) {
+    return { kind: "shadowed", shadowedBy: firstHit };
+  }
+
+  const wrapperDir = getWrapperDir();
+  const inPath = shellPath
+    .split(":")
+    .some((entry) => stripTrailingSlashes(entry) === wrapperDir);
+  return { kind: "installed", inPath };
 }
 
 /** Remove the wrapper, but only if it's one we installed. */
