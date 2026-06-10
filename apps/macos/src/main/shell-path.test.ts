@@ -15,6 +15,10 @@ mock.module("electron", () => ({
   },
 }));
 
+mock.module("./logger", () => ({
+  default: { info: () => {}, warn: () => {}, error: () => {} },
+}));
+
 // Paths for which the mocked accessSync(X_OK) succeeds.
 const executablePaths = new Set<string>();
 
@@ -28,7 +32,9 @@ mock.module("node:fs", () => ({
   existsSync: () => false,
   mkdirSync: () => {},
   readdirSync: () => [],
+  renameSync: () => {},
   rmSync: () => {},
+  writeFileSync: () => {},
 }));
 
 let lastChild: FakeChild;
