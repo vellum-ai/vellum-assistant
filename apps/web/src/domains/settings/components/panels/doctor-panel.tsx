@@ -220,7 +220,7 @@ export function DoctorPanel() {
     const oldAssistantId = prevAssistantIdRef.current;
     prevAssistantIdRef.current = assistantId;
 
-    teardownSession({
+    void teardownSession({
       assistantId: oldAssistantId,
       sessionId,
       abort,

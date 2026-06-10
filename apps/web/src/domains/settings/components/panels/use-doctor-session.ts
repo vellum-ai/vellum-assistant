@@ -39,7 +39,7 @@ export interface TeardownArgs {
   setPendingBackup: (v: boolean) => void;
 }
 
-export function teardownSession(args: TeardownArgs): void {
+export async function teardownSession(args: TeardownArgs): Promise<void> {
   const {
     assistantId,
     sessionId,
@@ -53,7 +53,7 @@ export function teardownSession(args: TeardownArgs): void {
   abort();
 
   if (sessionId && assistantId) {
-    assistantsDoctorSessionsDestroy({
+    await assistantsDoctorSessionsDestroy({
       path: { assistant_id: assistantId, session_id: sessionId },
       throwOnError: false,
     }).catch(() => {});
@@ -165,7 +165,7 @@ export function useDoctorSession(args: UseDoctorSessionArgs) {
   const endSession = useCallback(async () => {
     setEnding(true);
     try {
-      teardownSession({
+      await teardownSession({
         assistantId,
         sessionId,
         abort,
@@ -180,7 +180,7 @@ export function useDoctorSession(args: UseDoctorSessionArgs) {
   }, [sessionId, assistantId, abort, setSessionId, setSessionStatus, setPendingApproval, setPendingBackup]);
 
   const restartSession = useCallback(async () => {
-    teardownSession({
+    await teardownSession({
       assistantId,
       sessionId,
       abort,
