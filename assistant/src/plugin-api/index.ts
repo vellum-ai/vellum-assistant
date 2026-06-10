@@ -45,8 +45,9 @@
  *   per tool result before it joins the provider-bound history
  * - {@link StopContext} — passed to `stop` hook, fired when the model yields
  *   a response with no tool calls
- * - {@link PostModelCallContext} — passed to `post-model-call` hook,
- *   fired for each finalized assistant message to transform its content
+ * - {@link PostModelCallContext} — passed to `post-model-call` hook, fired at
+ *   every model-call outcome (a finalized reply or a provider rejection) to
+ *   transform content and decide whether to retry
  * - {@link PluginHookFn} — signature every lifecycle hook implements
  * - {@link PluginLogger} — pino-compatible logger shape on the contexts
  * - {@link ToolDefinition} — author-facing tool spec (default-export shape
@@ -64,6 +65,7 @@ export type {
   PluginShutdownContext,
   PostCompactContext,
   PostModelCallContext,
+  PostModelCallDecision,
   PostToolUseContext,
   PreModelCallContext,
   StopContext,

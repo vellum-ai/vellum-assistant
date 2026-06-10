@@ -242,6 +242,10 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "cli/commands/oauth/connect.ts", // CLI OAuth connect stored-secret verification
       "runtime/routes/chatgpt-subscription-auth-routes.ts", // ChatGPT subscription OAuth token storage
       "runtime/routes/identity-routes.ts", // health/readyz endpoint checks CES connectivity via getCesClient
+      "tools/credential-execution/run-authenticated-command.ts", // resolves the CES RPC client via getCesClient
+      "tools/credential-execution/make-authenticated-request.ts", // resolves the CES RPC client via getCesClient
+      "tools/credential-execution/manage-secure-command-tool.ts", // resolves the CES RPC client via getCesClient
+      "tools/executor.ts", // CES approval bridge resolves the CES RPC client via getCesClient
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));

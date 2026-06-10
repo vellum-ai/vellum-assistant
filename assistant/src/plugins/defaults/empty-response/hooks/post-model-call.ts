@@ -1,6 +1,7 @@
 /**
- * Default `stop` hook: when the model yields a turn with no tool calls, decide
- * whether to let the turn end, rewrite it for the user, or re-query the model.
+ * Default `post-model-call` hook: when the model yields a turn with no tool
+ * calls, decide whether to let the turn end, rewrite it for the user, or
+ * re-query the model.
  *
  * Two cases warrant intervention:
  *
@@ -8,19 +9,18 @@
  *    visible text (Anthropic's safety classifier zeroed the response) and no
  *    earlier turn this run already delivered visible text. The hook rewrites
  *    the turn into a plain-text apology (`REFUSAL_FALLBACK_TEXT`) by replacing
- *    {@link StopContext.responseContent} and lets the turn end. A retry is
+ *    {@link PostModelCallContext.content} and lets the turn end. A retry is
  *    deliberately not attempted: a safety-classifier refusal re-fires on a
  *    re-query, so the canned message is the intended terminal response.
  * 2. **Empty turn after tool use.** The turn produced no visible text, follows
  *    at least one prior assistant turn this run, and no earlier turn this run
  *    already delivered visible text. The hook re-queries the model with
  *    `NUDGE_TEXT` (a tool trail exists to summarize, so a retry can recover a
- *    real answer).
+ *    real answer). The retry is bounded to one pass per run by a one-shot
+ *    per-conversation mark the hook owns.
  *
  * Every other case leaves the decision at `"stop"` (the model said its piece,
- * or there is nothing to act on). The retry cap for case 2 is owned by the
- * agent loop: this hook asks to continue and the loop stops anyway once the
- * run's nudge budget is spent.
+ * or there is nothing to act on).
  *
  * Both prior-turn signals are derived from the current response cycle — the
  * messages after the last genuine user prompt (a user turn that isn't purely
@@ -33,16 +33,23 @@
  * not the first model call".
  *
  * Defaults register before any user plugin, so this hook runs at the front of
- * the `stop` chain — later hooks see (and may override) its decision.
+ * the `post-model-call` chain — later hooks see (and may override) its
+ * decision.
  *
- * Only successful stops are handled. An error stop (the provider rejected the
- * call before any response existed) carries no turn content to assess, so the
- * hook returns early and leaves it to a recovery hook like history-repair.
+ * Only a finalized, no-tool reply is actionable. A provider rejection carries
+ * no turn content to assess (a recovery hook like history-repair owns that),
+ * and a tool-bearing turn continues naturally — the loop runs the tools and
+ * ignores the decision — so the hook returns early for both.
  */
 
-import type { PluginHookFn, StopContext } from "@vellumai/plugin-api";
+import type { PluginHookFn, PostModelCallContext } from "@vellumai/plugin-api";
 
 import type { ContentBlock, Message } from "../../../../providers/types.js";
+import {
+  clearEmptyResponseNudged,
+  isEmptyResponseNudged,
+  markEmptyResponseNudged,
+} from "../nudge-state-store.js";
 
 /**
  * Canonical nudge text for an empty turn after tool use. Must stay verbatim so
@@ -67,6 +74,10 @@ function hasVisibleText(content: ReadonlyArray<ContentBlock>): boolean {
   return content.some(
     (block) => block.type === "text" && block.text.trim().length > 0,
   );
+}
+
+function hasToolUse(content: ReadonlyArray<ContentBlock>): boolean {
+  return content.some((block) => block.type === "tool_use");
 }
 
 function isAssistantTurn(message: Message): boolean {
@@ -98,10 +109,19 @@ function currentCycleMessages(
   return messages;
 }
 
-const stop: PluginHookFn<StopContext> = async (ctx) => {
-  if (ctx.error) return;
+const postModelCall: PluginHookFn<PostModelCallContext> = async (ctx) => {
+  // A provider rejection ends this turn for the empty-response hook (a recovery
+  // hook owns the rejection). Clear the one-shot mark so a nudge issued earlier
+  // this run can't strand a stale bound into the next run.
+  if (ctx.error) {
+    clearEmptyResponseNudged(ctx.conversationId);
+    return;
+  }
+  // A tool-bearing turn continues mid-run — the loop runs the tools — so leave
+  // the mark intact to keep the one-nudge-per-run bound across tool iterations.
+  if (hasToolUse(ctx.content)) return;
 
-  const turnHasVisibleText = hasVisibleText(ctx.responseContent);
+  const turnHasVisibleText = hasVisibleText(ctx.content);
 
   const cycleMessages = currentCycleMessages(ctx.messages);
   const priorAssistantTurns = cycleMessages.filter(isAssistantTurn);
@@ -118,7 +138,8 @@ const stop: PluginHookFn<StopContext> = async (ctx) => {
     !turnHasVisibleText &&
     !priorAssistantHadVisibleText
   ) {
-    ctx.responseContent = [{ type: "text", text: REFUSAL_FALLBACK_TEXT }];
+    ctx.content = [{ type: "text", text: REFUSAL_FALLBACK_TEXT }];
+    clearEmptyResponseNudged(ctx.conversationId);
     return;
   }
 
@@ -128,12 +149,32 @@ const stop: PluginHookFn<StopContext> = async (ctx) => {
     !priorAssistantHadVisibleText;
 
   if (isEmptyTurnAfterTools) {
-    ctx.messages.push({
-      role: "user",
-      content: [{ type: "text", text: NUDGE_TEXT }],
-    });
-    ctx.decision = "continue";
+    // Re-query once to recover a real answer. The one-shot per-conversation
+    // mark makes the hook self-limiting: a second empty turn this run finds the
+    // mark already set and lets the turn end rather than nudging again.
+    if (!isEmptyResponseNudged(ctx.conversationId)) {
+      markEmptyResponseNudged(ctx.conversationId);
+      ctx.messages.push({
+        role: "user",
+        content: [{ type: "text", text: NUDGE_TEXT }],
+      });
+      ctx.decision = "continue";
+      ctx.logger.warn(
+        { plugin: "empty-response", conversationId: ctx.conversationId },
+        "Model returned empty response after tool results — retrying",
+      );
+      return;
+    }
+
+    ctx.logger.error(
+      { plugin: "empty-response", conversationId: ctx.conversationId },
+      "Model returned empty response after tool results — retries exhausted",
+    );
   }
+
+  // The turn is ending (a real reply, an exhausted nudge, or nothing to act
+  // on): clear the mark so the next run nudges afresh.
+  clearEmptyResponseNudged(ctx.conversationId);
 };
 
-export default stop;
+export default postModelCall;

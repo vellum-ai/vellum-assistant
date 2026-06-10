@@ -21,6 +21,7 @@
  */
 export * from "./backends/cdp-inspect.js";
 export * from "./backends/extension.js";
+export * from "./backends/host-bridge.js";
 export * from "./backends/local.js";
 export * from "./events.js";
 export * from "./manager.js";

@@ -20,7 +20,7 @@ import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
-import { getMcpToolDefinitions, getToolOwner } from "../tools/registry.js";
+import { getMcpToolDefinitions } from "../tools/registry.js";
 import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
@@ -128,7 +128,6 @@ export function createToolExecutor(
       diskPressureCleanupModeActive: ctx.diskPressureCleanupModeActive,
       toolUseId,
       isPlatformHosted: getIsPlatform(),
-      cesClient: ctx.cesClient,
       transportInterface: ctx.transportInterface,
       overrideProfile: ctx.currentTurnOverrideProfile,
       onToolLifecycleEvent: handleToolLifecycleEvent,
@@ -234,14 +233,6 @@ export function createToolExecutor(
             'Error: skill_execute requires a "tool" parameter with the tool name',
           isError: true,
         };
-      }
-
-      // Attribute the invocation to the skill that owns the dispatched tool
-      // so lifecycle events (and the tool_invocations audit row) carry the
-      // triggering skill id.
-      const owner = getToolOwner(toolName);
-      if (owner?.kind === "skill") {
-        toolContext.skillId = owner.id;
       }
 
       const result = await executor.execute(toolName, toolInput, toolContext);

@@ -19,7 +19,11 @@ import type {
   Message,
   ProviderResponse,
 } from "../providers/types.js";
-import { createMockProvider, textResponse } from "./helpers/mock-provider.js";
+import {
+  createMockProvider,
+  textResponse,
+  toolUseResponse,
+} from "./helpers/mock-provider.js";
 
 const userMessage: Message = {
   role: "user",
@@ -361,5 +365,266 @@ describe("agent loop output hooks", () => {
     // behavior of the normal live stream.
     expect(streamedText(events)).toContain(real);
     expect(streamedText(events)).not.toContain(placeholder);
+  });
+});
+
+/**
+ * Tests for the `post-model-call` retry decision: a hook can set
+ * `decision: "continue"` to re-query the model with a repaired/extended
+ * `messages` history. The decision is honored only at actionable outcomes — a
+ * no-tool reply or a provider rejection — and a per-run backstop bounds a
+ * misbehaving hook. The hook also receives the rejection via `error` so it can
+ * recover from a thrown provider call, not just a finalized reply.
+ */
+describe("agent loop post-model-call retry decision", () => {
+  beforeEach(() => {
+    resetPluginRegistryAndRegisterDefaults();
+  });
+
+  test("a no-tool reply with decision=continue re-queries with the hook's messages", async () => {
+    // GIVEN a hook that, once, asks to continue and appends a nudge turn,
+    // deferring output so the discarded reply was never streamed live
+    let continued = false;
+    const nudge: Message = {
+      role: "user",
+      content: [{ type: "text", text: "try again" }],
+    };
+    registerOutputHookPlugin({
+      preModelCall: (ctx) => {
+        ctx.deferAssistantOutput = true;
+      },
+      postModelCall: (ctx) => {
+        if (ctx.error) return;
+        if (continued) return;
+        continued = true;
+        ctx.messages = [...ctx.messages, nudge];
+        ctx.decision = "continue";
+      },
+    });
+    // AND a provider that returns a first reply then a second
+    const { provider, calls } = createMockProvider([
+      textResponse("first"),
+      textResponse("second"),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect([]),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the model was re-queried with the hook's repaired history
+    expect(calls.length).toBe(2);
+    expect(textOf(calls[1].messages.at(-1)!.content)).toBe("try again");
+    // AND the kept reply is the re-queried one, not the discarded first reply
+    expect(textOf(lastAssistant(history).content)).toBe("second");
+    expect(history.some((m) => textOf(m.content) === "first")).toBe(false);
+  });
+
+  test("a hook that always continues is bounded by the per-run backstop", async () => {
+    // GIVEN a hook that asks to continue on every no-tool reply, deferring
+    // output so each discarded reply was never streamed live
+    registerOutputHookPlugin({
+      preModelCall: (ctx) => {
+        ctx.deferAssistantOutput = true;
+      },
+      postModelCall: (ctx) => {
+        if (ctx.error) return;
+        ctx.decision = "continue";
+      },
+    });
+    // AND a provider that always returns a no-tool reply
+    const { provider, calls } = createMockProvider([textResponse("loop")]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect([]),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN it terminates after the backstop is spent (5 continues + 1 accepted)
+    expect(calls.length).toBe(6);
+    expect(textOf(lastAssistant(history).content)).toBe("loop");
+  });
+
+  test("decision=continue is ignored on an already-streamed visible reply", async () => {
+    /**
+     * A retry discards the reply and re-queries; honoring it on a reply whose
+     * text already streamed live would strand the user on an answer the
+     * transcript silently replaces. The loop keeps such a turn instead.
+     */
+    // GIVEN a hook that asks to continue on a visible reply without deferring
+    // its output, so the reply was streamed to the client live
+    let asked = false;
+    registerOutputHookPlugin({
+      postModelCall: (ctx) => {
+        if (ctx.error) return;
+        asked = true;
+        ctx.decision = "continue";
+      },
+    });
+    // AND a provider whose first reply carries visible text
+    const { provider, calls } = createMockProvider([
+      textResponse("visible"),
+      textResponse("second"),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs
+    const events: AgentEvent[] = [];
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the hook ran but the streamed reply is kept rather than discarded
+    expect(asked).toBe(true);
+    expect(calls.length).toBe(1);
+    expect(textOf(lastAssistant(history).content)).toBe("visible");
+    // AND the visible text the user already saw is the one that stands
+    expect(streamedText(events)).toBe("visible");
+  });
+
+  test("a provider rejection invokes the hook with the error and can recover", async () => {
+    // GIVEN a hook that recovers from a rejection once, recording what it saw
+    const seen: { error?: Error; contentLength?: number } = {};
+    let recovered = false;
+    registerOutputHookPlugin({
+      postModelCall: (ctx) => {
+        if (!ctx.error) return;
+        seen.error = ctx.error;
+        seen.contentLength = ctx.content.length;
+        if (recovered) return;
+        recovered = true;
+        ctx.decision = "continue";
+      },
+    });
+    // AND a provider that throws once then succeeds
+    const rejection = new Error("ordering violation");
+    const { provider, calls } = createMockProvider([
+      rejection,
+      textResponse("recovered"),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs
+    const events: AgentEvent[] = [];
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the hook saw the rejection with empty content
+    expect(seen.error).toBe(rejection);
+    expect(seen.contentLength).toBe(0);
+    // AND the call was re-issued and the recovery reply kept, no error surfaced
+    expect(calls.length).toBe(2);
+    expect(textOf(lastAssistant(history).content)).toBe("recovered");
+    expect(events.some((e) => e.type === "error")).toBe(false);
+  });
+
+  test("a provider rejection the hook does not recover is surfaced", async () => {
+    // GIVEN a hook that inspects but never continues on a rejection
+    registerOutputHookPlugin({
+      postModelCall: (ctx) => {
+        if (!ctx.error) return;
+      },
+    });
+    // AND a provider that always throws
+    const { provider, calls } = createMockProvider([new Error("boom")]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs
+    const events: AgentEvent[] = [];
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the rejection is surfaced and not retried
+    expect(calls.length).toBe(1);
+    expect(events.some((e) => e.type === "error")).toBe(true);
+  });
+
+  test("decision=continue is ignored on a tool-bearing turn", async () => {
+    // GIVEN a hook that asks to continue only on a reply carrying a tool_use
+    registerOutputHookPlugin({
+      postModelCall: (ctx) => {
+        if (ctx.content.some((b) => b.type === "tool_use")) {
+          ctx.decision = "continue";
+        }
+      },
+    });
+    // AND a provider that calls a tool then returns a final reply
+    const { provider, calls } = createMockProvider([
+      toolUseResponse("t1", "noop", {}),
+      textResponse("done"),
+    ]);
+    let toolRuns = 0;
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: [
+        {
+          name: "noop",
+          description: "",
+          input_schema: { type: "object", properties: {} },
+        },
+      ],
+      toolExecutor: async () => {
+        toolRuns += 1;
+        return { content: "ok", isError: false };
+      },
+    });
+
+    // WHEN the loop runs
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect([]),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the tool ran normally (the continue did not discard the tool_use)
+    expect(toolRuns).toBe(1);
+    expect(
+      history.some((m) => m.content.some((b) => b.type === "tool_result")),
+    ).toBe(true);
+    // AND the loop continued naturally to the final reply, no extra re-query
+    expect(calls.length).toBe(2);
+    expect(textOf(lastAssistant(history).content)).toBe("done");
   });
 });

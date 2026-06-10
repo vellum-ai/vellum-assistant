@@ -27,7 +27,8 @@
 import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
 import { type Plugin, PluginExecutionError } from "../types.js";
 import compactionPkg from "./compaction/package.json" with { type: "json" };
-import emptyResponseStop from "./empty-response/hooks/stop.js";
+import emptyResponsePostModelCall from "./empty-response/hooks/post-model-call.js";
+import { resetEmptyResponseNudgeStoreForTests } from "./empty-response/nudge-state-store.js";
 import emptyResponsePkg from "./empty-response/package.json" with { type: "json" };
 import historyRepairStop from "./history-repair/hooks/stop.js";
 import historyRepairUserPromptSubmit from "./history-repair/hooks/user-prompt-submit.js";
@@ -65,8 +66,9 @@ export const defaultCompactionPlugin: Plugin = {
 };
 
 /**
- * `empty-response` — a `stop` hook that re-queries the model when a turn
- * yields with no tool calls but came back empty (or as a provider refusal).
+ * `empty-response` — a `post-model-call` hook that re-queries the model when a
+ * turn yields with no tool calls but came back empty (or as a provider
+ * refusal).
  */
 export const defaultEmptyResponsePlugin: Plugin = {
   manifest: {
@@ -74,7 +76,7 @@ export const defaultEmptyResponsePlugin: Plugin = {
     version: emptyResponsePkg.version,
   },
   hooks: {
-    stop: emptyResponseStop,
+    "post-model-call": emptyResponsePostModelCall,
   },
 };
 
@@ -252,6 +254,7 @@ export function registerDefaultPlugins(): void {
  */
 export function resetPluginRegistryAndRegisterDefaults(): void {
   resetPluginRegistryForTests();
+  resetEmptyResponseNudgeStoreForTests();
   resetRepairStateStoreForTests();
   resetImageRecoveryStoreForTests();
   registerDefaultPlugins();

@@ -7,6 +7,7 @@ import { PermissionPrompter } from "../permissions/prompter.js";
 import { RiskLevel } from "../permissions/types.js";
 import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
 import { redactSensitiveFields } from "../security/redaction.js";
+import { getCesClient } from "../security/secure-keys.js";
 import { TokenExpiredError } from "../security/token-manager.js";
 import { PermissionDeniedError, ToolError } from "../util/errors.js";
 import { pathExists, safeStatSync } from "../util/fs.js";
@@ -207,7 +208,8 @@ export class ToolExecutor {
       // indicator, present the proposal to the guardian via the existing
       // confirmation transport, commit the decision to CES, and retry
       // the original tool invocation with the granted grantId.
-      if (execResult.cesApprovalRequired && !context.cesClient) {
+      const cesClient = getCesClient();
+      if (execResult.cesApprovalRequired && !cesClient) {
         const msg = `CES approval required for "${name}" but no CES client is available. Ensure the Credential Execution Service is running.`;
         const durationMs = Date.now() - startTime;
         emitLifecycleEvent(context, {
@@ -228,11 +230,11 @@ export class ToolExecutor {
         });
         return { content: msg, isError: true };
       }
-      if (execResult.cesApprovalRequired && context.cesClient) {
+      if (execResult.cesApprovalRequired && cesClient) {
         const bridgeResult = await bridgeCesApproval(
           execResult.cesApprovalRequired,
           this.prompter,
-          context.cesClient,
+          cesClient,
           {
             isInteractive: context.isInteractive,
             conversationId: context.conversationId,
@@ -485,12 +487,9 @@ function emitLifecycleEvent(
   const handler = context.onToolLifecycleEvent;
   if (!handler) return;
 
-  // Redact sensitive fields from tool inputs before they reach audit
-  // listeners, and stamp the triggering skill id (if any) so audit/telemetry
-  // consumers can attribute skill-routed calls.
+  // Redact sensitive fields from tool inputs before they reach audit listeners
   const sanitizedEvent = {
     ...event,
-    skillId: context.skillId,
     input: sanitizeToolInput(event.toolName, event.input),
   };
 
