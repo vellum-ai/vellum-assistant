@@ -181,9 +181,9 @@ describe("api-interceptors / Electron session-token header", () => {
 // user's gateway.
 //
 // The platform client uses the segment allowlist — only explicitly
-// listed segments (currently `conversations`) are rewritten. Platform-
-// owned routes like `maintenance-mode/`, `system-events/`, `terminal/`,
-// `doctor/` fall through to Django.
+// listed gateway/runtime segments are rewritten. Platform-owned routes
+// like `maintenance-mode/`, `system-events/`, `terminal/`, `doctor/`
+// fall through to Django.
 //
 // These tests pin the invariants that make that handoff safe:
 //   - URL origin gets swapped to the registered ingress.
@@ -262,17 +262,34 @@ describe("api-interceptors / self-hosted rewriting", () => {
     expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
   });
 
-  test("omits the Authorization header when the actor token slot is null", async () => {
+  test("does NOT rewrite platform-mode requests when the actor token slot is null", async () => {
     // Brief post-hatch window: `is_local=true` and `ingress_url` is
     // known but `bootstrap_platform_actor_token` hasn't landed yet.
-    // The interceptor leaves Authorization off; the gateway 401s; the
-    // chat surface lands on its error state. Don't fall back to
-    // platform session credentials here — that would silently route
-    // a self-hosted request through the wrong trust boundary.
+    // In platform mode, fall through to Django's RuntimeProxyView so it
+    // can lazily bootstrap and attach the actor token instead of sending
+    // a tokenless request to the gateway.
     setSelfHostedConnection({ url: INGRESS, token: null });
     const input = new Request(`https://platform.test${RUNTIME_PROXIED_PATH}`);
     const output = await requestInterceptor(input);
+    expect(new URL(output.url).origin).toBe("https://platform.test");
+    expect(output.headers.get("Vellum-Organization-Id")).toBe(TEST_ORG_ID);
     expect(output.headers.get("Authorization")).toBeNull();
+  });
+
+  test("aborts local-mode gateway rewrites when the actor token slot is null", async () => {
+    const savedPlatformMode = process.env.VITE_PLATFORM_MODE;
+    delete process.env.VITE_PLATFORM_MODE;
+    try {
+      setSelfHostedConnection({ url: INGRESS, token: null });
+      const input = new Request(`https://platform.test${RUNTIME_PROXIED_PATH}`);
+      const output = await requestInterceptor(input);
+      expect(output.signal.aborted).toBe(true);
+      expect(new URL(output.url).origin).toBe("https://platform.test");
+    } finally {
+      if (savedPlatformMode !== undefined) {
+        process.env.VITE_PLATFORM_MODE = savedPlatformMode;
+      }
+    }
   });
 
   test("preserves client + interface identity headers across the rewrite", async () => {
@@ -288,6 +305,20 @@ describe("api-interceptors / self-hosted rewriting", () => {
     const input = new Request(`https://platform.test${RUNTIME_PROXIED_PATH}`);
     const output = await requestInterceptor(input);
     expect(output.credentials).toBe("omit");
+  });
+
+  test("rewrites gateway-owned assistant-scoped platform routes with Authorization", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    for (const path of [
+      `/v1/assistants/${SELF_HOSTED_ID}/feature-flags/`,
+      `/v1/assistants/${SELF_HOSTED_ID}/permissions/thresholds/`,
+    ]) {
+      const input = new Request(`https://platform.test${path}`);
+      const output = await requestInterceptor(input);
+      expect(new URL(output.url).origin).toBe(INGRESS);
+      expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
+      expect(output.headers.get("Vellum-Organization-Id")).toBeNull();
+    }
   });
 
   test("does NOT rewrite when no connection is set", async () => {
@@ -329,6 +360,11 @@ describe("api-interceptors / self-hosted rewriting", () => {
       "release-channel",
       "domains",
       "email-addresses",
+      "contacts",
+      "contact-channels",
+      "ps",
+      "trust-rules",
+      "config",
     ]) {
       const input = new Request(
         `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/${segment}/`,
