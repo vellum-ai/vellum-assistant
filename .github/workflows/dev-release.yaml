@@ -2016,7 +2016,7 @@ jobs:
   # ── Upload Electron update artifacts to GCS ────────────────────────────
   # Push per-arch update feeds (manifest + ZIP + blockmap) to the public
   # GCS bucket so electron-updater can pull delta updates. Each arch gets
-  # its own path: electron/alpha/{arch}/.
+  # its own path: mac-electron/dev/{arch}/.
 
   upload-electron-updates:
     needs: [compute-version, build-electron]
@@ -2064,14 +2064,14 @@ jobs:
 
       - name: Upload Electron update artifacts to GCS
         run: |
-          CHANNEL="alpha"
+          CHANNEL="dev"
           BUCKET="vellum-desktop-releases"
           MANIFEST_NAME="${CHANNEL}-mac.yml"
 
           for ARCH in arm64 x64; do
             ARCH_DIR="electron-artifacts/${ARCH}"
             [ -d "$ARCH_DIR" ] || continue
-            PREFIX="electron/${CHANNEL}/${ARCH}"
+            PREFIX="mac-electron/${CHANNEL}/${ARCH}"
 
             find "$ARCH_DIR" -name "*.zip" -type f ! -name "*.blockmap" | while read -r ZIP; do
               gcloud storage cp "$ZIP" "gs://${BUCKET}/${PREFIX}/$(basename "$ZIP")"

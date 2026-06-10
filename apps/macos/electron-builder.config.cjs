@@ -19,7 +19,7 @@ const schemes =
     : [`vellum-assistant-${env}`];
 
 const channel =
-  env === "staging" ? "beta" : env === "dev" ? "alpha" : "latest";
+  env === "staging" ? "staging" : env === "dev" ? "dev" : "production";
 
 /** @type {import("electron-builder").Configuration} */
 module.exports = {
@@ -27,7 +27,7 @@ module.exports = {
   productName,
   publish: {
     provider: "generic",
-    url: `https://storage.googleapis.com/vellum-desktop-releases/electron/${channel}/${targetArch}/`,
+    url: `https://storage.googleapis.com/vellum-desktop-releases/mac-electron/${channel}/${targetArch}/`,
   },
   directories: {
     output: "dist",

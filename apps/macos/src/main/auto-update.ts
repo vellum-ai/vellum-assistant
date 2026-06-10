@@ -14,11 +14,11 @@ const resolveChannel = (): string => {
       : "production";
   switch (env) {
     case "staging":
-      return "beta";
+      return "staging";
     case "dev":
-      return "alpha";
+      return "dev";
     default:
-      return "latest";
+      return "production";
   }
 };
 
@@ -72,7 +72,7 @@ export const installAutoUpdate = (): void => {
   autoUpdater.allowDowngrade = false;
   autoUpdater.setFeedURL({
     provider: "generic",
-    url: `https://storage.googleapis.com/vellum-desktop-releases/electron/${channel}/${process.arch}/`,
+    url: `https://storage.googleapis.com/vellum-desktop-releases/mac-electron/${channel}/${process.arch}/`,
   });
 
   autoUpdater.on("checking-for-update", () => {
