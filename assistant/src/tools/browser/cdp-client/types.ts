@@ -98,21 +98,35 @@ export interface CdpClient {
  * the sacrificial-profile screencast setup when running against the
  * user's own Chrome via the extension).
  */
-export type CdpClientKind = "local" | "extension" | "cdp-inspect";
+export type CdpClientKind = "local" | "extension" | "cdp-inspect" | "host-bridge";
 
 /**
  * Backend mode preference for the CDP factory. Controls which
  * transport is selected:
  *
  *  - `"auto"` — default, existing priority-ordered fallback
- *    (extension → cdp-inspect → local).
+ *    (extension → host-bridge → cdp-inspect → local).
  *  - `"extension"` — pin to the chrome-extension backend. Fails
  *    immediately if the host browser proxy is unavailable.
  *  - `"cdp-inspect"` — pin to the cdp-inspect backend. Fails
  *    immediately if cdp-inspect cannot connect.
  *  - `"local"` — pin to the local Playwright backend. No fallback.
+ *
+ * The `host-bridge` backend (raw CDP to the user's Chrome via the
+ * desktop client's SSE bridge) is auto-mode only and not listed here —
+ * see {@link InternalBrowserMode}.
  */
 export type BrowserMode = "auto" | "extension" | "cdp-inspect" | "local";
+
+/**
+ * {@link BrowserMode} plus internal-only kinds the factory can pin to.
+ * The conversation's sticky-backend memo records the last successful
+ * {@link CdpClientKind} and re-pins to it on the next tool call; after
+ * a successful host-bridge send that memo is `"host-bridge"`, which is
+ * never user-requestable via `--browser-mode` but must round-trip
+ * through the factory's pinned-candidate path.
+ */
+export type InternalBrowserMode = BrowserMode | "host-bridge";
 
 /**
  * Stage at which a candidate attempt ended. Used in

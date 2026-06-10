@@ -5,6 +5,7 @@ import {
   type CdpResult,
   createCdpInspectBackend,
   createExtensionBackend,
+  createHostBridgeBackend,
   createLocalBackend,
 } from "../../../browser-session/index.js";
 import { getConfig } from "../../../config/loader.js";
@@ -15,13 +16,14 @@ import { getPinnedTab } from "../pinned-tabs.js";
 import { createCdpInspectClient } from "./cdp-inspect-client.js";
 import { CdpError } from "./errors.js";
 import { createExtensionCdpClient } from "./extension-cdp-client.js";
+import { createHostBridgeCdpClient } from "./host-bridge-cdp-client.js";
 import { createLocalCdpClient } from "./local-cdp-client.js";
 import type {
   AttemptDiagnostic,
   BackendCandidate,
-  BrowserMode,
   CdpClient,
   CdpClientKind,
+  InternalBrowserMode,
   ScopedCdpClient,
   TabInfo,
 } from "./types.js";
@@ -52,7 +54,7 @@ let _desktopAutoCooldownSince = 0;
 
 /**
  * Record a cooldown after a desktop-auto cdp-inspect transport failure.
- * Called by {@link maybeRecordDesktopAutoCooldown} in production; also
+ * Called by {@link maybeRecordCandidateCooldown} in production; also
  * exported directly for use in tests.
  */
 export function recordDesktopAutoCooldown(): void {
@@ -84,6 +86,52 @@ export function _getDesktopAutoCooldownSince(): number {
 }
 
 // ---------------------------------------------------------------------------
+// Host-bridge cooldown tracker
+// ---------------------------------------------------------------------------
+
+/**
+ * Module-level timestamp (epoch ms) of the last transport-level failure
+ * for a host-bridge attempt. Mirrors the desktop-auto cdp-inspect
+ * cooldown above — the failure root cause is the same (the user's
+ * Chrome is not exposing a remote-debugging port), just probed through
+ * the desktop SSE bridge instead of directly. While the configured
+ * `desktopAuto.cooldownMs` window has not elapsed, the factory skips
+ * the host-bridge candidate so every browser op doesn't pay an SSE
+ * round-trip for a guaranteed failure.
+ *
+ * **Process-global scope**: like the desktop-auto cooldown, one
+ * conversation's failure suppresses bridge probes for all
+ * conversations in this daemon (including other actors' on a
+ * multi-actor cloud daemon) until expiry.
+ */
+let _hostBridgeCooldownSince = 0;
+
+/** Record a cooldown after a host-bridge transport failure. */
+export function recordHostBridgeCooldown(): void {
+  _hostBridgeCooldownSince = Date.now();
+}
+
+/**
+ * Whether the host-bridge cooldown is currently active. Returns `true`
+ * if a failure was recorded and the configured cooldown window has not
+ * yet elapsed.
+ */
+export function isHostBridgeCooldownActive(cooldownMs: number): boolean {
+  if (_hostBridgeCooldownSince === 0 || cooldownMs <= 0) return false;
+  return Date.now() - _hostBridgeCooldownSince < cooldownMs;
+}
+
+/** Reset the host-bridge cooldown state. Exported for testing only. */
+export function _resetHostBridgeCooldown(): void {
+  _hostBridgeCooldownSince = 0;
+}
+
+/** Get the raw cooldown-since timestamp. Exported for testing only. */
+export function _getHostBridgeCooldownSince(): number {
+  return _hostBridgeCooldownSince;
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -96,9 +144,10 @@ export interface GetCdpClientOptions {
    * Backend mode preference. When omitted or `"auto"`, the factory
    * uses the existing priority-ordered fallback chain. When set to a
    * specific backend kind, the factory pins to that single backend
-   * and disables failover.
+   * and disables failover. `"host-bridge"` is internal-only (sticky
+   * conversation memo), never user-requestable.
    */
-  mode?: BrowserMode;
+  mode?: InternalBrowserMode;
   /**
    * Explicit target client id. When provided, the extension backend routes
    * to this specific client instead of auto-resolving to the most-recently-
@@ -159,7 +208,7 @@ export function getCdpClient(
   context: ToolContext,
   options?: GetCdpClientOptions,
 ): ScopedCdpClient {
-  const mode: BrowserMode = options?.mode ?? "auto";
+  const mode: InternalBrowserMode = options?.mode ?? "auto";
   const targetClientId = options?.targetClientId;
   const candidates =
     mode === "auto"
@@ -191,7 +240,7 @@ export function getCdpClient(
  */
 export function buildPinnedCandidateList(
   context: ToolContext,
-  mode: Exclude<BrowserMode, "auto">,
+  mode: Exclude<InternalBrowserMode, "auto">,
   targetClientId?: string,
 ): BackendCandidate[] {
   const { conversationId, sourceActorPrincipalId } = context;
@@ -265,6 +314,46 @@ export function buildPinnedCandidateList(
             return { client, backend };
           },
         },
+      ];
+    }
+    case "host-bridge": {
+      // Reached only via the conversation's sticky-backend memo after a
+      // successful bridge send — never via --browser-mode. Throwing when
+      // an extension has since connected (not just when the bridge is
+      // gone) deliberately trips the caller's sticky-fallback retry,
+      // which clears the memo and re-runs auto mode so the conversation
+      // upgrades to the extension candidate with correct kind labeling.
+      const hostBrowserProxy = HostBrowserProxy.instance;
+      if (
+        !hostBrowserProxy.isAvailable() ||
+        hostBrowserProxy.hasExtensionClient()
+      ) {
+        const errorMessage = hostBrowserProxy.hasExtensionClient()
+          ? "a Chrome Extension is now connected"
+          : "no host_browser bridge client connected";
+        throw new CdpError(
+          "transport_error",
+          `Pinned mode "host-bridge" unavailable: ${errorMessage}`,
+          {
+            attemptDiagnostics: [
+              {
+                candidateKind: "host-bridge",
+                inclusionReason: "pinned mode: host-bridge",
+                stage: "candidate_selection",
+                errorCode: "transport_error",
+                errorMessage,
+              },
+            ],
+          },
+        );
+      }
+      return [
+        makeHostBridgeCandidate(
+          hostBrowserProxy,
+          conversationId,
+          sourceActorPrincipalId,
+          "pinned mode: host-bridge (conversation sticky memo)",
+        ),
       ];
     }
     case "local": {
@@ -385,6 +474,29 @@ export function buildCandidateList(context: ToolContext, targetClientId?: string
         return { client, backend };
       },
     });
+  } else if (hostBrowserProxy.isAvailable()) {
+    // 1b. Host bridge -- a host_browser-capable client (the desktop SSE
+    // bridge) is connected but no Chrome Extension. Raw CDP commands are
+    // proxied to the user's machine and executed against Chrome's local
+    // remote-debugging port. This is the only route to the user's own
+    // Chrome when the daemon runs remotely (cloud), where cdp-inspect
+    // would dial the daemon's localhost instead.
+    const { cooldownMs } = getConfig().hostBrowser.cdpInspect.desktopAuto;
+    if (isHostBridgeCooldownActive(cooldownMs)) {
+      log.debug(
+        { conversationId, cooldownMs, cooldownSince: _hostBridgeCooldownSince },
+        "CDP factory: host-bridge skipped (cooldown active)",
+      );
+    } else {
+      candidates.push(
+        makeHostBridgeCandidate(
+          hostBrowserProxy,
+          conversationId,
+          sourceActorPrincipalId,
+          "host_browser bridge connected (no Chrome Extension); raw CDP via desktop SSE bridge",
+        ),
+      );
+    }
   } else {
     log.debug(
       { conversationId },
@@ -473,6 +585,41 @@ export function buildCandidateList(context: ToolContext, targetClientId?: string
   return candidates;
 }
 
+/**
+ * Build the host-bridge backend candidate. Shared between auto mode
+ * (no extension connected, bridge available) and the pinned path that
+ * serves the conversation's sticky-backend memo.
+ *
+ * Unlike the extension candidate, no pinned tab is passed: extension
+ * pins store Chrome tab ids, which never match the CDP target ids the
+ * bridge resolves from /json/list.
+ */
+function makeHostBridgeCandidate(
+  hostBrowserProxy: HostBrowserProxy,
+  conversationId: string,
+  sourceActorPrincipalId: string | undefined,
+  reason: string,
+): BackendCandidate {
+  return {
+    kind: "host-bridge",
+    reason,
+    create() {
+      const client = createHostBridgeCdpClient(
+        hostBrowserProxy,
+        conversationId,
+        sourceActorPrincipalId,
+      );
+      const backend = createHostBridgeBackend({
+        isAvailable: () => true,
+        sendCdp: (command, signal) =>
+          dispatchThroughClient(client, command, signal),
+        dispose: () => client.dispose(),
+      });
+      return { client, backend };
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Chained client with per-invocation failover
 // ---------------------------------------------------------------------------
@@ -487,7 +634,7 @@ export function buildCandidateList(context: ToolContext, targetClientId?: string
 export function buildChainedClient(
   conversationId: string,
   candidates: BackendCandidate[],
-  mode: BrowserMode = "auto",
+  mode: InternalBrowserMode = "auto",
 ): ScopedCdpClient {
   if (candidates.length === 0) {
     throw new Error("CDP factory: no backend candidates available");
@@ -749,7 +896,7 @@ async function sendWithFailover<T>(
   }) => void,
   isDisposed: () => boolean,
   conversationId: string,
-  mode: BrowserMode,
+  mode: InternalBrowserMode,
 ): Promise<T> {
   let lastError: CdpError | undefined;
   const diagnostics: AttemptDiagnostic[] = [];
@@ -804,7 +951,7 @@ async function sendWithFailover<T>(
         errorCode: "transport_error",
         errorMessage,
       });
-      maybeRecordDesktopAutoCooldown(candidate);
+      maybeRecordCandidateCooldown(candidate);
 
       // Emit production-visible fallback log in auto mode
       if (mode === "auto" && i < candidates.length - 1) {
@@ -856,7 +1003,7 @@ async function sendWithFailover<T>(
         errorMessage,
         discoveryCode: extractDiscoveryCode(err),
       });
-      maybeRecordDesktopAutoCooldown(candidate);
+      maybeRecordCandidateCooldown(candidate);
 
       // Emit production-visible fallback log in auto mode
       if (mode === "auto" && i < candidates.length - 1) {
@@ -903,7 +1050,7 @@ async function sendWithFailover<T>(
           errorMessage: cdpError.message,
           discoveryCode: extractDiscoveryCode(cdpError.underlying),
         });
-        maybeRecordDesktopAutoCooldown(candidate);
+        maybeRecordCandidateCooldown(candidate);
 
         // Emit production-visible fallback log in auto mode
         if (mode === "auto") {
@@ -998,10 +1145,19 @@ async function sendWithFailover<T>(
 }
 
 /**
- * If the failed candidate is a desktop-auto cdp-inspect attempt,
- * record the cooldown so subsequent calls skip the probe.
+ * Record the appropriate cooldown for a failed candidate so subsequent
+ * calls skip the probe: desktop-auto cdp-inspect attempts (matched by
+ * reason prefix, exempting user-pinned cdp-inspect) and host-bridge
+ * attempts (matched by kind alone — the bridge is never user-pinned).
  */
-function maybeRecordDesktopAutoCooldown(candidate: BackendCandidate): void {
+function maybeRecordCandidateCooldown(candidate: BackendCandidate): void {
+  if (candidate.kind === "host-bridge") {
+    log.debug(
+      "CDP factory: recording host-bridge cooldown after transport failure",
+    );
+    recordHostBridgeCooldown();
+    return;
+  }
   if (
     candidate.kind === "cdp-inspect" &&
     candidate.reason.startsWith("desktopAuto:")

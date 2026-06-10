@@ -5,7 +5,7 @@ import type { ToolContext } from "../../../types.js";
 import { CdpError } from "../errors.js";
 
 type FakeClient = {
-  kind: "extension" | "local" | "cdp-inspect";
+  kind: "extension" | "local" | "cdp-inspect" | "host-bridge";
   conversationId: string;
   send: ReturnType<typeof mock>;
   dispose: ReturnType<typeof mock>;
@@ -16,6 +16,15 @@ function makeFakeExtensionClient(conversationId: string): FakeClient {
     kind: "extension",
     conversationId,
     send: mock(async () => ({ ok: true, via: "extension" })),
+    dispose: mock(() => {}),
+  };
+}
+
+function makeFakeHostBridgeClient(conversationId: string): FakeClient {
+  return {
+    kind: "host-bridge",
+    conversationId,
+    send: mock(async () => ({ ok: true, via: "host-bridge" })),
     dispose: mock(() => {}),
   };
 }
@@ -41,11 +50,24 @@ function makeFakeCdpInspectClient(conversationId: string): FakeClient {
 let lastExtensionClient: FakeClient | undefined;
 let lastLocalClient: FakeClient | undefined;
 let lastCdpInspectClient: FakeClient | undefined;
+let lastHostBridgeClient: FakeClient | undefined;
 
 const createExtensionCdpClientMock = mock(
   (_proxy: HostBrowserProxy, conversationId: string) => {
     const client = makeFakeExtensionClient(conversationId);
     lastExtensionClient = client;
+    return client;
+  },
+);
+
+const createHostBridgeCdpClientMock = mock(
+  (
+    _proxy: HostBrowserProxy,
+    conversationId: string,
+    _sourceActorPrincipalId?: string,
+  ) => {
+    const client = makeFakeHostBridgeClient(conversationId);
+    lastHostBridgeClient = client;
     return client;
   },
 );
@@ -86,11 +108,16 @@ const logDebugCalls: Array<{ args: unknown[] }> = [];
 // suite stubs out.
 import * as realCdpInspectClient from "../cdp-inspect-client.js";
 import * as realExtensionCdpClient from "../extension-cdp-client.js";
+import * as realHostBridgeCdpClient from "../host-bridge-cdp-client.js";
 import * as realLocalCdpClient from "../local-cdp-client.js";
 
 mock.module("../extension-cdp-client.js", () => ({
   ...realExtensionCdpClient,
   createExtensionCdpClient: createExtensionCdpClientMock,
+}));
+mock.module("../host-bridge-cdp-client.js", () => ({
+  ...realHostBridgeCdpClient,
+  createHostBridgeCdpClient: createHostBridgeCdpClientMock,
 }));
 mock.module("../local-cdp-client.js", () => ({
   ...realLocalCdpClient,
@@ -161,6 +188,10 @@ const {
   _getDesktopAutoCooldownSince,
   recordDesktopAutoCooldown,
   isDesktopAutoCooldownActive,
+  _resetHostBridgeCooldown,
+  _getHostBridgeCooldownSince,
+  recordHostBridgeCooldown,
+  isHostBridgeCooldownActive,
 } = await import("../factory.js");
 
 /**
@@ -215,12 +246,15 @@ describe("getCdpClient", () => {
     createExtensionCdpClientMock.mockClear();
     createLocalCdpClientMock.mockClear();
     createCdpInspectClientMock.mockClear();
+    createHostBridgeCdpClientMock.mockClear();
     lastExtensionClient = undefined;
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
+    lastHostBridgeClient = undefined;
     cdpInspectEnabled = false;
     desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
     _resetDesktopAutoCooldown();
+    _resetHostBridgeCooldown();
     logWarnCalls.length = 0;
     logDebugCalls.length = 0;
     mockSingletonProxy = null;
@@ -816,10 +850,11 @@ describe("buildCandidateList", () => {
     expect(candidates[0].kind).toBe("local");
   });
 
-  test("excludes extension candidate when only macOS SSE bridge is connected", () => {
+  test("uses host-bridge candidate when only macOS SSE bridge is connected", () => {
     // isAvailable() = true but hasExtensionClient() = false: only macOS bridge.
-    // The macOS bridge routes through localhost:9222 on the host, so it must
-    // NOT be included under the "extension" candidate kind.
+    // The bridge gets its own first-class candidate kind — it must NOT be
+    // labelled "extension" (it routes raw CDP through localhost:9222 on the
+    // host and cannot serve Vellum.* pseudo-methods).
     const fakeProxy = makeMacosBridgeOnlyProxy();
     mockSingletonProxy = fakeProxy;
     const ctx = makeContext({
@@ -829,7 +864,93 @@ describe("buildCandidateList", () => {
     const candidates = buildCandidateList(ctx);
 
     expect(candidates.every((c) => c.kind !== "extension")).toBe(true);
+    expect(candidates[0].kind).toBe("host-bridge");
     expect(candidates[candidates.length - 1].kind).toBe("local");
+  });
+
+  test("host-bridge candidate is absent when an extension is connected", () => {
+    mockSingletonProxy = makeAvailableProxy();
+    const ctx = makeContext({ conversationId: "candidates-ext-no-bridge" });
+
+    const candidates = buildCandidateList(ctx);
+
+    expect(candidates[0].kind).toBe("extension");
+    expect(candidates.every((c) => c.kind !== "host-bridge")).toBe(true);
+  });
+
+  test("host-bridge candidate is absent when the proxy is unavailable", () => {
+    mockSingletonProxy = makeUnavailableProxy();
+    const ctx = makeContext({ conversationId: "candidates-no-bridge" });
+
+    const candidates = buildCandidateList(ctx);
+
+    expect(candidates.every((c) => c.kind !== "host-bridge")).toBe(true);
+    expect(candidates[0].kind).toBe("local");
+  });
+
+  test("host-bridge candidate is skipped while the bridge cooldown is active", () => {
+    mockSingletonProxy = makeMacosBridgeOnlyProxy();
+    const ctx = makeContext({ conversationId: "candidates-bridge-cooldown" });
+
+    recordHostBridgeCooldown();
+    const candidates = buildCandidateList(ctx);
+
+    expect(candidates.every((c) => c.kind !== "host-bridge")).toBe(true);
+
+    _resetHostBridgeCooldown();
+    const after = buildCandidateList(ctx);
+    expect(after[0].kind).toBe("host-bridge");
+  });
+
+  test("host-bridge cooldown is independent of the desktop-auto cooldown", () => {
+    mockSingletonProxy = makeMacosBridgeOnlyProxy();
+    const ctx = makeContext({
+      conversationId: "candidates-bridge-cooldown-independent",
+      transportInterface: "macos",
+    });
+
+    recordDesktopAutoCooldown();
+    const candidates = buildCandidateList(ctx);
+
+    // Desktop-auto cooldown suppresses cdp-inspect but not the bridge.
+    expect(candidates[0].kind).toBe("host-bridge");
+    expect(candidates.every((c) => c.kind !== "cdp-inspect")).toBe(true);
+    expect(isHostBridgeCooldownActive(30_000)).toBe(false);
+  });
+
+  test("ordering on a macOS turn with bridge only: host-bridge > cdp-inspect > local", () => {
+    mockSingletonProxy = makeMacosBridgeOnlyProxy();
+    const ctx = makeContext({
+      conversationId: "candidates-bridge-order",
+      transportInterface: "macos",
+    });
+
+    const candidates = buildCandidateList(ctx);
+
+    expect(candidates.map((c) => c.kind)).toEqual([
+      "host-bridge",
+      "cdp-inspect",
+      "local",
+    ]);
+  });
+
+  test("host-bridge create() threads proxy + actor and never reads pinned tabs", () => {
+    const fakeProxy = makeMacosBridgeOnlyProxy();
+    mockSingletonProxy = fakeProxy;
+    const ctx = makeContext({
+      conversationId: "candidates-bridge-create",
+      sourceActorPrincipalId: "actor-1",
+    });
+
+    const candidates = buildCandidateList(ctx);
+    expect(candidates[0].kind).toBe("host-bridge");
+    candidates[0].create();
+
+    expect(createHostBridgeCdpClientMock).toHaveBeenCalledWith(
+      fakeProxy,
+      "candidates-bridge-create",
+      "actor-1",
+    );
   });
 
   test("includes cdp-inspect candidate when enabled in config", () => {
@@ -931,12 +1052,15 @@ describe("buildChainedClient failover", () => {
     createExtensionCdpClientMock.mockClear();
     createLocalCdpClientMock.mockClear();
     createCdpInspectClientMock.mockClear();
+    createHostBridgeCdpClientMock.mockClear();
     lastExtensionClient = undefined;
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
+    lastHostBridgeClient = undefined;
     cdpInspectEnabled = false;
     desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
     _resetDesktopAutoCooldown();
+    _resetHostBridgeCooldown();
     logWarnCalls.length = 0;
     logDebugCalls.length = 0;
     mockSingletonProxy = null;
@@ -1028,6 +1152,59 @@ describe("buildChainedClient failover", () => {
     expect(createExtensionCdpClientMock).toHaveBeenCalledTimes(1);
     expect(createCdpInspectClientMock).toHaveBeenCalledTimes(1);
     expect(createLocalCdpClientMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("fails over from host-bridge to local and records the bridge cooldown", async () => {
+    mockSingletonProxy = makeMacosBridgeOnlyProxy();
+
+    // Bridge fails like Chrome without a debug port: structured
+    // "unreachable" envelope → transport_error.
+    createHostBridgeCdpClientMock.mockImplementationOnce(
+      (_proxy: HostBrowserProxy, conversationId: string) => {
+        const c = makeFakeHostBridgeClient(conversationId);
+        c.send = mock(async () => {
+          throw new CdpError(
+            "transport_error",
+            "HTTP 404 from http://localhost:9222/json/list",
+            { cdpMethod: "Page.navigate" },
+          );
+        });
+        lastHostBridgeClient = c;
+        return c;
+      },
+    );
+
+    const ctx = makeContext({ conversationId: "failover-bridge-to-local" });
+
+    const client = getCdpClient(ctx);
+    const result = await client.send<{ ok: boolean; via: string }>(
+      "Page.navigate",
+      { url: "https://example.com" },
+    );
+
+    expect(result).toEqual({ ok: true, via: "local" });
+    expect(createHostBridgeCdpClientMock).toHaveBeenCalledTimes(1);
+    expect(createLocalCdpClientMock).toHaveBeenCalledTimes(1);
+    // Cooldown was recorded so the next candidate list skips the bridge.
+    expect(_getHostBridgeCooldownSince()).toBeGreaterThan(0);
+    expect(_getDesktopAutoCooldownSince()).toBe(0);
+    const after = buildCandidateList(ctx);
+    expect(after.every((c) => c.kind !== "host-bridge")).toBe(true);
+  });
+
+  test("sticky host-bridge client rejects tab operations with a clear error", async () => {
+    mockSingletonProxy = makeMacosBridgeOnlyProxy();
+    const ctx = makeContext({ conversationId: "bridge-tab-ops" });
+
+    const client = getCdpClient(ctx);
+    await client.send("Page.navigate", { url: "https://example.com" });
+    expect(client.kind).toBe("host-bridge");
+
+    // The fake bridge client has no listTabs/selectTab/closeTab, so the
+    // chained client surfaces the not-supported transport_error.
+    await expect(client.listTabs()).rejects.toThrow(
+      "extension backend required",
+    );
   });
 
   test("does NOT fail over on cdp_error -- propagates immediately", async () => {
@@ -1245,12 +1422,15 @@ describe("desktop-auto cdp-inspect (macOS)", () => {
     createExtensionCdpClientMock.mockClear();
     createLocalCdpClientMock.mockClear();
     createCdpInspectClientMock.mockClear();
+    createHostBridgeCdpClientMock.mockClear();
     lastExtensionClient = undefined;
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
+    lastHostBridgeClient = undefined;
     cdpInspectEnabled = false;
     desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
     _resetDesktopAutoCooldown();
+    _resetHostBridgeCooldown();
     logWarnCalls.length = 0;
     logDebugCalls.length = 0;
     mockSingletonProxy = null;
@@ -1597,12 +1777,15 @@ describe("pinned-mode selection", () => {
     createExtensionCdpClientMock.mockClear();
     createLocalCdpClientMock.mockClear();
     createCdpInspectClientMock.mockClear();
+    createHostBridgeCdpClientMock.mockClear();
     lastExtensionClient = undefined;
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
+    lastHostBridgeClient = undefined;
     cdpInspectEnabled = false;
     desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
     _resetDesktopAutoCooldown();
+    _resetHostBridgeCooldown();
     logWarnCalls.length = 0;
     logDebugCalls.length = 0;
     mockSingletonProxy = null;
@@ -1811,12 +1994,15 @@ describe("buildPinnedCandidateList", () => {
     createExtensionCdpClientMock.mockClear();
     createLocalCdpClientMock.mockClear();
     createCdpInspectClientMock.mockClear();
+    createHostBridgeCdpClientMock.mockClear();
     lastExtensionClient = undefined;
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
+    lastHostBridgeClient = undefined;
     cdpInspectEnabled = false;
     desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
     _resetDesktopAutoCooldown();
+    _resetHostBridgeCooldown();
     mockSingletonProxy = null;
   });
 
@@ -1892,6 +2078,54 @@ describe("buildPinnedCandidateList", () => {
       expect(cdpErr.message).toContain("no Chrome Extension connected");
     }
   });
+
+  test("host-bridge mode produces single host-bridge candidate when bridge-only", () => {
+    mockSingletonProxy = makeMacosBridgeOnlyProxy();
+    const ctx = makeContext({ conversationId: "bpl-bridge" });
+
+    const candidates = buildPinnedCandidateList(ctx, "host-bridge");
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].kind).toBe("host-bridge");
+    expect(candidates[0].reason).toContain("pinned mode: host-bridge");
+  });
+
+  test("host-bridge mode throws with diagnostics when proxy is unavailable", () => {
+    mockSingletonProxy = makeUnavailableProxy();
+    const ctx = makeContext({ conversationId: "bpl-bridge-absent" });
+
+    try {
+      buildPinnedCandidateList(ctx, "host-bridge");
+      expect(true).toBe(false); // should not reach
+    } catch (err) {
+      expect(err).toBeInstanceOf(CdpError);
+      const cdpErr = err as CdpError;
+      expect(cdpErr.code).toBe("transport_error");
+      expect(cdpErr.attemptDiagnostics![0]).toMatchObject({
+        candidateKind: "host-bridge",
+        stage: "candidate_selection",
+      });
+    }
+  });
+
+  test("host-bridge mode throws when an extension has since connected", () => {
+    // The sticky memo says host-bridge but a Chrome Extension is now
+    // available. Throwing trips acquireCdpClientWithMode's sticky-fallback
+    // retry, which clears the memo and re-runs auto so the conversation
+    // upgrades to the extension candidate.
+    mockSingletonProxy = makeAvailableProxy();
+    const ctx = makeContext({ conversationId: "bpl-bridge-ext-upgrade" });
+
+    try {
+      buildPinnedCandidateList(ctx, "host-bridge");
+      expect(true).toBe(false); // should not reach
+    } catch (err) {
+      expect(err).toBeInstanceOf(CdpError);
+      expect((err as CdpError).message).toContain(
+        "a Chrome Extension is now connected",
+      );
+    }
+  });
 });
 
 // ── Attempt diagnostics & fallback log tests ─────────────────────────────
@@ -1901,12 +2135,15 @@ describe("attempt diagnostics", () => {
     createExtensionCdpClientMock.mockClear();
     createLocalCdpClientMock.mockClear();
     createCdpInspectClientMock.mockClear();
+    createHostBridgeCdpClientMock.mockClear();
     lastExtensionClient = undefined;
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
+    lastHostBridgeClient = undefined;
     cdpInspectEnabled = false;
     desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
     _resetDesktopAutoCooldown();
+    _resetHostBridgeCooldown();
     logWarnCalls.length = 0;
     logDebugCalls.length = 0;
     mockSingletonProxy = null;
@@ -2300,12 +2537,15 @@ describe("macOS host-browser proxy without extension registry", () => {
     createExtensionCdpClientMock.mockClear();
     createLocalCdpClientMock.mockClear();
     createCdpInspectClientMock.mockClear();
+    createHostBridgeCdpClientMock.mockClear();
     lastExtensionClient = undefined;
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
+    lastHostBridgeClient = undefined;
     cdpInspectEnabled = false;
     desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
     _resetDesktopAutoCooldown();
+    _resetHostBridgeCooldown();
     logWarnCalls.length = 0;
     logDebugCalls.length = 0;
     mockSingletonProxy = null;

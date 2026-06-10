@@ -20,11 +20,13 @@ const probeErrors: Record<string, CdpError | null> = {
   [BROWSER_STATUS_MODE.LOCAL]: null,
 };
 
-const buildCandidateListMock = mock((_context: ToolContext) => [
-  { kind: BROWSER_STATUS_MODE.EXTENSION, reason: "mock" },
-  { kind: BROWSER_STATUS_MODE.CDP_INSPECT, reason: "mock" },
-  { kind: BROWSER_STATUS_MODE.LOCAL, reason: "mock" },
-]);
+const buildCandidateListMock = mock(
+  (_context: ToolContext): Array<{ kind: string; reason: string }> => [
+    { kind: BROWSER_STATUS_MODE.EXTENSION, reason: "mock" },
+    { kind: BROWSER_STATUS_MODE.CDP_INSPECT, reason: "mock" },
+    { kind: BROWSER_STATUS_MODE.LOCAL, reason: "mock" },
+  ],
+);
 
 const getCdpClientMock = mock(
   (_context: ToolContext, options?: { mode?: string }) => {
@@ -251,6 +253,28 @@ describe("executeBrowserStatus", () => {
     expect(result.isError).toBe(false);
     const payload = JSON.parse(result.content);
     // Extension is unavailable, so recommendation should fall to next available
+    expect(payload.recommendedMode).toBe(BROWSER_STATUS_MODE.CDP_INSPECT);
+  });
+
+  test("host-bridge auto candidate is reported but never recommended as a status mode", async () => {
+    // Bridge-only scenario: the auto candidate list leads with host-bridge,
+    // which is not a pinnable status mode — recommendation must fall to the
+    // first candidate that IS a checkable mode.
+    mockSingletonProxy = {
+      isAvailable: () => true,
+      hasExtensionClient: () => false,
+      request: () => {},
+    };
+    buildCandidateListMock.mockImplementationOnce((_context: ToolContext) => [
+      { kind: "host-bridge", reason: "mock bridge" },
+      { kind: BROWSER_STATUS_MODE.CDP_INSPECT, reason: "mock" },
+      { kind: BROWSER_STATUS_MODE.LOCAL, reason: "mock" },
+    ]);
+
+    const result = await executeBrowserStatus({}, makeContext());
+    expect(result.isError).toBe(false);
+    const payload = JSON.parse(result.content);
+    expect(payload.autoCandidateOrder[0]).toBe("host-bridge");
     expect(payload.recommendedMode).toBe(BROWSER_STATUS_MODE.CDP_INSPECT);
   });
 
