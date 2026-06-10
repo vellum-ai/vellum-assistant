@@ -1907,6 +1907,9 @@ jobs:
           CSC_NAME: Developer ID Application
         run: bun run pack
 
+      - name: Debug – list dist contents
+        run: ls -la dist/
+
       - name: Rename DMG for release
         id: dmg
         run: |
