@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   existsSync,
   mkdirSync,
@@ -10,6 +10,17 @@ import {
 } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+
+// Bun's os.homedir() ignores runtime HOME changes, so mock it (same pattern
+// as multi-local.test.ts) to keep production-path tests off the real ~/.vellum.
+let fakeHome: string | undefined;
+const realOs = await import("node:os");
+const osMock = () => ({
+  ...realOs,
+  homedir: () => fakeHome ?? realOs.homedir(),
+});
+mock.module("node:os", osMock);
+mock.module("os", osMock);
 
 import {
   getOrCreateHostDeviceId,
@@ -109,5 +120,48 @@ describe("getOrCreateHostDeviceId", () => {
     expect(id).toMatch(UUID_RE);
     const parsed = JSON.parse(readFileSync(deviceFile, "utf-8"));
     expect(parsed).toEqual({ deviceId: id });
+  });
+});
+
+describe("getOrCreateHostDeviceId (production)", () => {
+  let tempHome: string;
+  let deviceFile: string;
+
+  beforeEach(() => {
+    delete process.env.VELLUM_DEVICE_ID;
+    tempHome = mkdtempSync(join(tmpdir(), "cli-device-id-prod-test-"));
+    fakeHome = tempHome;
+    process.env.XDG_CONFIG_HOME = join(tempHome, ".config");
+    process.env.VELLUM_ENVIRONMENT = "production";
+    deviceFile = join(tempHome, ".vellum", "device.json");
+    resetHostDeviceIdCache();
+  });
+
+  afterEach(() => {
+    fakeHome = undefined;
+    restoreEnv();
+    rmSync(tempHome, { recursive: true, force: true });
+    resetHostDeviceIdCache();
+  });
+
+  test("creates device.json in the shared ~/.vellum dir", () => {
+    const id = getOrCreateHostDeviceId();
+
+    expect(id).toMatch(UUID_RE);
+    expect(existsSync(deviceFile)).toBe(true);
+    expect(JSON.parse(readFileSync(deviceFile, "utf-8")).deviceId).toBe(id);
+  });
+
+  test("reuses an existing ~/.vellum/device.json", () => {
+    mkdirSync(join(tempHome, ".vellum"), { recursive: true });
+    writeFileSync(
+      deviceFile,
+      JSON.stringify({ deviceId: "shared-prod-id" }),
+    );
+
+    expect(getOrCreateHostDeviceId()).toBe("shared-prod-id");
+    expect(readFileSync(deviceFile, "utf-8")).toBe(
+      JSON.stringify({ deviceId: "shared-prod-id" }),
+    );
   });
 });
