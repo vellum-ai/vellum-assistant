@@ -15,11 +15,12 @@
  * consecutive ordering rejection means the repair could not recover the
  * history, so the hook leaves the error to surface rather than looping. The
  * loop's per-run backstop caps these retries globally; this one-shot mark keeps
- * a single recovery attempt per turn. The hook owns that state — it marks the
- * conversation when it retries and clears the mark on any terminal outcome (a
- * finalized reply, a non-ordering rejection, or the exhausted second ordering
- * rejection), so the next turn repairs afresh without the loop or wrapper
- * resetting anything.
+ * a single recovery attempt per turn. This hook marks the conversation when it
+ * retries and clears the mark on any outcome it resolves (a finalized reply, a
+ * non-ordering rejection, or the exhausted second ordering rejection); the
+ * sibling `stop` hook clears it on the one terminal this hook does not resolve
+ * — a retry the loop's per-run backstop overrides — so the next turn always
+ * repairs afresh.
  *
  * A finalized reply (the model returned content) is left untouched for the
  * empty-response hook; only a provider rejection is this hook's to act on.

@@ -31,6 +31,7 @@ import emptyResponsePostModelCall from "./empty-response/hooks/post-model-call.j
 import { resetEmptyResponseNudgeStoreForTests } from "./empty-response/nudge-state-store.js";
 import emptyResponsePkg from "./empty-response/package.json" with { type: "json" };
 import historyRepairPostModelCall from "./history-repair/hooks/post-model-call.js";
+import historyRepairStop from "./history-repair/hooks/stop.js";
 import historyRepairUserPromptSubmit from "./history-repair/hooks/user-prompt-submit.js";
 import historyRepairPkg from "./history-repair/package.json" with { type: "json" };
 import { resetRepairStateStoreForTests } from "./history-repair/repair-state-store.js";
@@ -105,7 +106,9 @@ export const defaultMemoryRetrievalPlugin: Plugin = {
  * pairing, role alternation). The `user-prompt-submit` hook normalizes the
  * history before each provider call; the `post-model-call` hook handles the
  * provider rejection where the call failed on an ordering violation,
- * deep-repairing the history and asking the loop to retry.
+ * deep-repairing the history and asking the loop to retry; the `stop` hook
+ * clears the one-shot repair bound on a terminal stop so the next turn repairs
+ * afresh.
  */
 export const defaultHistoryRepairPlugin: Plugin = {
   manifest: {
@@ -115,6 +118,7 @@ export const defaultHistoryRepairPlugin: Plugin = {
   hooks: {
     "user-prompt-submit": historyRepairUserPromptSubmit,
     "post-model-call": historyRepairPostModelCall,
+    stop: historyRepairStop,
   },
 };
 

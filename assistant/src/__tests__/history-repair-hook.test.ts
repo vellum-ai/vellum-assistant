@@ -21,6 +21,13 @@
  * - Leaves the bound intact across a mid-turn tool-bearing turn so a later
  *   ordering rejection is still the exhausted second attempt.
  * - Ignores non-ordering errors and finalized (non-error) replies.
+ *
+ * `stop` (terminal cleanup):
+ * - Clears the repair bound on a terminal stop, covering the retry the loop's
+ *   per-run backstop overrides — the one terminal `post-model-call` cannot
+ *   resolve — so the next turn repairs afresh.
+ * - Leaves the bound intact on a `"continue"` stop, where a hook is re-querying
+ *   the model this turn.
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
@@ -29,9 +36,11 @@ import { HOOKS } from "../plugin-api/constants.js";
 import type {
   PluginLogger,
   PostModelCallContext,
+  StopContext,
   UserPromptSubmitContext,
 } from "../plugin-api/types.js";
 import postModelCall from "../plugins/defaults/history-repair/hooks/post-model-call.js";
+import stop from "../plugins/defaults/history-repair/hooks/stop.js";
 import userPromptSubmit from "../plugins/defaults/history-repair/hooks/user-prompt-submit.js";
 import {
   isOrderingRepairAttempted,
@@ -366,5 +375,53 @@ describe("history-repair post-model-call hook — direct", () => {
     // ordering rejections.
     expect(ctx.decision).toBe("stop");
     expect(ctx.messages).toEqual(messages);
+  });
+});
+
+// ─── stop hook (terminal cleanup) ────────────────────────────────────────────
+
+function makeStopCtx(overrides: Partial<StopContext> = {}): StopContext {
+  return {
+    conversationId: "conv-stop",
+    messages: [],
+    responseContent: [],
+    stopReason: null,
+    decision: "stop",
+    logger: noopLogger,
+    ...overrides,
+  };
+}
+
+describe("history-repair stop hook — direct", () => {
+  beforeEach(() => {
+    resetRepairStateStoreForTests();
+  });
+
+  test("a terminal stop clears a bound the backstop stranded", async () => {
+    // GIVEN a turn marked a repair-retry, but the loop's per-run backstop
+    // refused the continue and surfaced the rejection through the terminal
+    // stop chain without re-running post-model-call — so the bound is stranded.
+    const conversationId = "conv-backstop";
+    markOrderingRepairAttempted(conversationId);
+
+    // WHEN the terminal stop hook runs.
+    await stop(makeStopCtx({ conversationId }));
+
+    // THEN the stranded bound is cleared so the next turn repairs afresh.
+    expect(isOrderingRepairAttempted(conversationId)).toBe(false);
+  });
+
+  test("a continuing stop keeps the bound for the in-flight retry", async () => {
+    // GIVEN a turn marked a repair-retry, and a stop hook is re-querying the
+    // model this turn (decision is continue).
+    const conversationId = "conv-continue";
+    markOrderingRepairAttempted(conversationId);
+
+    // WHEN the stop hook runs on that continuing stop.
+    await stop(makeStopCtx({ conversationId, decision: "continue" }));
+
+    // THEN the bound survives so a later ordering rejection this turn is still
+    // recognized as the exhausted second attempt.
+    expect(isOrderingRepairAttempted(conversationId)).toBe(true);
   });
 });
