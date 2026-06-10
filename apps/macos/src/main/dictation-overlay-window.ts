@@ -1,9 +1,8 @@
-import { BrowserWindow, app, screen } from "electron";
+import { BrowserWindow, screen } from "electron";
 import { z } from "zod";
 
-import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
+import { createFloatingWindow, getFloatingWindow } from "./floating-window";
 import { handle, on } from "./ipc";
-import { createWindow } from "./windows";
 
 /**
  * System-wide dictation overlay — a floating, click-through panel pinned
@@ -24,6 +23,7 @@ import { createWindow } from "./windows";
  * click-through — it's a display surface only.
  */
 
+const OVERLAY_KIND = "dictation-overlay";
 const OVERLAY_PATH = "/dictation-overlay";
 
 // The window is a fixed-size transparent canvas larger than the visible
@@ -147,13 +147,6 @@ export const createDictationOverlayController = (
 // Window plumbing
 // ---------------------------------------------------------------------------
 
-const overlayUrl = (): string => {
-  const base = app.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase();
-  return `${base}${OVERLAY_PATH}`;
-};
-
-let overlayWindow: BrowserWindow | null = null;
-
 // Latest state forwarded to the overlay renderer. The overlay route loads
 // lazily after the window is created, so pushes sent before its `onState`
 // subscription registers are dropped by Electron — the route pulls this via
@@ -162,78 +155,56 @@ let latestState: DictationOverlayState | null = null;
 
 const sendState = (state: DictationOverlayState): void => {
   latestState = state;
-  if (overlayWindow && !overlayWindow.isDestroyed()) {
-    overlayWindow.webContents.send("vellum:dictationOverlay:state", state);
+  const win = getFloatingWindow(OVERLAY_KIND);
+  if (win) {
+    win.webContents.send("vellum:dictationOverlay:state", state);
   }
 };
 
-const positionOverlay = (win: BrowserWindow): void => {
+const overlayPosition = (): { x: number; y: number } => {
   const cursor = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(cursor);
   const { x, y, width } = display.workArea;
-  win.setPosition(
-    Math.round(x + (width - OVERLAY_WIDTH) / 2),
-    Math.round(y + PILL_TOP_OFFSET - CANVAS_TOP_INSET),
-  );
+  return {
+    x: Math.round(x + (width - OVERLAY_WIDTH) / 2),
+    y: Math.round(y + PILL_TOP_OFFSET - CANVAS_TOP_INSET),
+  };
 };
 
 const ensureOverlayWindow = (): BrowserWindow => {
-  if (overlayWindow && !overlayWindow.isDestroyed()) {
-    return overlayWindow;
-  }
-
-  const win = createWindow({
+  const win = createFloatingWindow({
+    kind: OVERLAY_KIND,
+    route: OVERLAY_PATH,
+    width: OVERLAY_WIDTH,
+    height: OVERLAY_HEIGHT,
+    focusOnShow: false,
+    position: overlayPosition,
     browserWindow: {
-      type: "panel",
-      width: OVERLAY_WIDTH,
-      height: OVERLAY_HEIGHT,
-      frame: false,
-      transparent: true,
-      resizable: false,
       movable: false,
       minimizable: false,
       maximizable: false,
-      fullscreenable: false,
-      alwaysOnTop: true,
-      skipTaskbar: true,
       focusable: false,
-      show: false,
       hasShadow: false,
     },
-    navigation: "deny-all",
   });
 
   // Display surface only — clicks fall through to whatever is underneath,
   // so the transparent canvas margin never intercepts input.
   win.setIgnoreMouseEvents(true);
-  // Dictation targets whatever app the user is in, including fullscreen
-  // Spaces — let the overlay appear there too.
-  win.setVisibleOnAllWorkspaces(true, {
-    visibleOnFullScreen: true,
-    skipTransformProcessType: true,
-  });
-
-  win.on("closed", () => {
-    overlayWindow = null;
-  });
-
-  void win.loadURL(overlayUrl());
-  overlayWindow = win;
   return win;
 };
 
 const showOverlay = (): void => {
-  const win = ensureOverlayWindow();
-  positionOverlay(win);
-  // Never `show()` — that would activate the app and steal focus from the
-  // app being dictated into.
-  win.showInactive();
+  // `createFloatingWindow` uses `showInactive()` when `focusOnShow` is false;
+  // never activate the app or steal focus from the dictation target.
+  ensureOverlayWindow();
 };
 
 const hideOverlay = (): void => {
   latestState = null;
-  if (overlayWindow && !overlayWindow.isDestroyed()) {
-    overlayWindow.hide();
+  const win = getFloatingWindow(OVERLAY_KIND);
+  if (win) {
+    win.hide();
   }
 };
 
