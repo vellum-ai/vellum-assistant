@@ -65,7 +65,7 @@
         "@radix-ui/react-tooltip": ">=1.2.0",
         "class-variance-authority": ">=0.7.0",
         "clsx": ">=2.1.0",
-        "katex": ">=0.16.0",
+        "katex": "^0.16.0",
         "lucide-react": ">=1.16.0",
         "react": ">=19.0.0",
         "react-dom": ">=19.0.0",
