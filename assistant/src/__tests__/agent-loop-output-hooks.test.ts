@@ -382,14 +382,19 @@ describe("agent loop post-model-call retry decision", () => {
   });
 
   test("a no-tool reply with decision=continue re-queries with the hook's messages", async () => {
-    // GIVEN a hook that, once, asks to continue and appends a nudge turn
+    // GIVEN a hook that, once, asks to continue and appends a nudge turn,
+    // deferring output so the discarded reply was never streamed live
     let continued = false;
     const nudge: Message = {
       role: "user",
       content: [{ type: "text", text: "try again" }],
     };
     registerOutputHookPlugin({
+      preModelCall: (ctx) => {
+        ctx.deferAssistantOutput = true;
+      },
       postModelCall: (ctx) => {
+        if (ctx.error) return;
         if (continued) return;
         continued = true;
         ctx.messages = [...ctx.messages, nudge];
@@ -424,9 +429,14 @@ describe("agent loop post-model-call retry decision", () => {
   });
 
   test("a hook that always continues is bounded by the per-run backstop", async () => {
-    // GIVEN a hook that asks to continue on every no-tool reply
+    // GIVEN a hook that asks to continue on every no-tool reply, deferring
+    // output so each discarded reply was never streamed live
     registerOutputHookPlugin({
+      preModelCall: (ctx) => {
+        ctx.deferAssistantOutput = true;
+      },
       postModelCall: (ctx) => {
+        if (ctx.error) return;
         ctx.decision = "continue";
       },
     });
@@ -449,6 +459,50 @@ describe("agent loop post-model-call retry decision", () => {
     // THEN it terminates after the backstop is spent (5 continues + 1 accepted)
     expect(calls.length).toBe(6);
     expect(textOf(lastAssistant(history).content)).toBe("loop");
+  });
+
+  test("decision=continue is ignored on an already-streamed visible reply", async () => {
+    /**
+     * A retry discards the reply and re-queries; honoring it on a reply whose
+     * text already streamed live would strand the user on an answer the
+     * transcript silently replaces. The loop keeps such a turn instead.
+     */
+    // GIVEN a hook that asks to continue on a visible reply without deferring
+    // its output, so the reply was streamed to the client live
+    let asked = false;
+    registerOutputHookPlugin({
+      postModelCall: (ctx) => {
+        if (ctx.error) return;
+        asked = true;
+        ctx.decision = "continue";
+      },
+    });
+    // AND a provider whose first reply carries visible text
+    const { provider, calls } = createMockProvider([
+      textResponse("visible"),
+      textResponse("second"),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs
+    const events: AgentEvent[] = [];
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the hook ran but the streamed reply is kept rather than discarded
+    expect(asked).toBe(true);
+    expect(calls.length).toBe(1);
+    expect(textOf(lastAssistant(history).content)).toBe("visible");
+    // AND the visible text the user already saw is the one that stands
+    expect(streamedText(events)).toBe("visible");
   });
 
   test("a provider rejection invokes the hook with the error and can recover", async () => {

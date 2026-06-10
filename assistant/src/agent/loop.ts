@@ -1562,7 +1562,21 @@ export class AgentLoop {
           toolUseBlocks.length === 0 &&
           postModelCallDecision === "continue"
         ) {
-          if (postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES) {
+          // A retry discards this reply and re-queries. That is only safe when
+          // the reply was not already streamed to the client live: a deferred
+          // turn suppressed its live stream, and a reply with no visible text
+          // streamed nothing. Honoring a retry on an already-streamed visible
+          // reply would leave the user looking at an answer the transcript
+          // then silently replaces, with no retraction — so accept the turn
+          // instead of discarding visible output.
+          const replyWasStreamedLive =
+            responseHasVisibleText && !deferAssistantOutput;
+          if (replyWasStreamedLive) {
+            rlog.warn(
+              { turn: toolUseTurns },
+              "post-model-call requested a retry on an already-streamed reply — keeping the turn to avoid discarding visible output",
+            );
+          } else if (postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES) {
             postModelCallContinues++;
             rlog.warn(
               { turn: toolUseTurns, retry: postModelCallContinues },
@@ -1570,11 +1584,12 @@ export class AgentLoop {
             );
             history = postModelCallMessages;
             continue;
+          } else {
+            rlog.warn(
+              { turn: toolUseTurns, retries: postModelCallContinues },
+              "post-model-call retry backstop reached — accepting the turn",
+            );
           }
-          rlog.warn(
-            { turn: toolUseTurns, retries: postModelCallContinues },
-            "post-model-call retry backstop reached — accepting the turn",
-          );
         }
 
         // The turn is being kept: replay any deferred final text (skipped above
