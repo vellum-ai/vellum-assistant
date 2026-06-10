@@ -99,6 +99,7 @@ mock.module("@/lib/local-mode", () => ({
 
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => mockIsNativePlatform,
+  isOAuthFlowInFlight: () => false,
   installSessionCookies: installSessionCookiesMock,
   waitForNativeSessionCookie: async () => {},
 }));
