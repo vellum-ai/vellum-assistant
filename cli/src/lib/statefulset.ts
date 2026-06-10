@@ -262,6 +262,41 @@ export interface BuildServiceRunArgsOpts extends DockerRunSecrets {
   avatarDevicePath?: string;
 }
 
+export interface BuilderManagedEnvKeys {
+  /** Always set by buildServiceRunArgs (spec static/secret entries, builder-computed extras, image-baked PATH). Never replay. */
+  always: ReadonlySet<string>;
+  /** Spec host-forwarded entries — buildServiceRunArgs sets them only when present in process.env. Exclude from replay only in that case. */
+  hostForwarded: readonly string[];
+}
+
+/**
+ * Env var names that `buildServiceRunArgs` manages for a service, derived
+ * from the spec so future entries are picked up automatically.
+ */
+export function getBuilderManagedEnvKeys(
+  service: ServiceName,
+  spec = DOCKER_STATEFUL_SET_SPEC,
+): BuilderManagedEnvKeys {
+  const container = spec.containers.find((c) => c.internalName === service);
+  if (!container) throw new Error(`docker-statefulset: unknown service "${service}"`);
+
+  const always = new Set<string>(["PATH"]);
+  const hostForwarded: string[] = [];
+  for (const entry of container.env) {
+    if (entry.kind === "host") hostForwarded.push(entry.hostVar ?? entry.name);
+    else always.add(entry.name);
+  }
+
+  // Builder-computed extras added outside the spec env arrays
+  if (service === "assistant") {
+    always.add("VELLUM_ASSISTANT_NAME");
+    always.add("GATEWAY_INTERNAL_URL");
+    always.add(AVATAR_DEVICE_ENV_VAR);
+  }
+
+  return { always, hostForwarded };
+}
+
 function resolveVolume(
   spec: DockerStatefulSetSpec,
   instanceName: string,
