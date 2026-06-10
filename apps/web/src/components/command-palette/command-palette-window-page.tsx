@@ -4,7 +4,9 @@ import {
   CommandPalette,
   type CommandPaletteItemData,
 } from "@/components/command-palette/command-palette";
+import { useAssistantLifecycle } from "@/assistant/use-lifecycle";
 import { useCommandPaletteSections } from "@/domains/chat/hooks/use-command-palette-sections";
+import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";
 import { useConversationListQuery } from "@/hooks/conversation-queries";
 import { getSelectedAssistant } from "@/lib/local-mode";
 import {
@@ -12,6 +14,11 @@ import {
   selectCommandPaletteCommand,
 } from "@/runtime/command-palette-window";
 import type { VellumCommand } from "@/runtime/is-electron";
+import {
+  useAuthStore,
+  useHasPlatformSession,
+  useIsSessionInitializing,
+} from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
@@ -64,6 +71,17 @@ const commandForItem = (item: CommandPaletteItemData): VellumCommand | null => {
 };
 
 export function CommandPaletteWindowPage() {
+  const sessionStatus = useAuthStore.use.sessionStatus();
+  const isSessionInitializing = useIsSessionInitializing();
+  const hasPlatformSession = useHasPlatformSession();
+  // This standalone route intentionally bypasses RootLayout; run the small
+  // bootstrap slice that resolves the active assistant for recents/search.
+  useClientFeatureFlagSync(!isSessionInitializing);
+  useAssistantLifecycle({
+    sessionStatus,
+    hasPlatformSession,
+  });
+
   const assistants = useResolvedAssistantsStore.use.assistants();
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const selectedPlatformAssistantByOrg =
