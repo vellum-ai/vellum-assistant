@@ -247,9 +247,14 @@ describe("AgentLoop exit-reason instrumentation", () => {
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
+    // The mock provider returns its content without streaming any text_delta
+    // live, so the loop surfaces the truncated reply once via a synthetic
+    // text_delta before stopping (a real provider streams the text live, where
+    // this emit is a no-op).
     expect(events.map((e) => e.type)).toEqual([
       "llm_call_started",
       "usage",
+      "text_delta",
       "max_tokens_reached",
       "message_complete",
       "agent_loop_exit",
