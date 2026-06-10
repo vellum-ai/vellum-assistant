@@ -27,7 +27,7 @@ It learns how you work, remembers what matters, and acts before you ask. Yours t
 
 ## Get started
 
-**1. [Sign up](https://vellum.ai/signup) and [download the app](https://vellum.ai/download)**
+**1. [Sign up](https://vellum.ai/signup) or [download the app](https://vellum.ai/download)**
 
 **2. Pick your mode**
 
