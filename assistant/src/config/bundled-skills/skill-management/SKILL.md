@@ -43,7 +43,7 @@ Ask before doing anything. Do not scaffold a skill until you have confirmed with
 
 > ✓ Checkpoint: Have you confirmed scope with the user? If you are guessing at any of the four points above, ask first. Do not scaffold on assumption.
 
-## Step 2 - Write a description that covers what AND when
+## Step 2 - Write a description AND activation-hints, always both
 
 The description is what makes the skill discoverable. It must cover both what the skill does and when to reach for it, phrased the way the user would say it.
 
@@ -53,7 +53,18 @@ description: Build anything visual — apps, landing pages, dashboards, trackers
   the user wants something built that they can see and interact with.
 ```
 
-Keep `activation-hints` separate from the description. The description sells the skill, the hints list the concrete trigger phrases.
+**Every skill must also ship `activation-hints` in its frontmatter. This is not optional.** Keep `activation-hints` separate from the description: the description sells the skill, the hints list the concrete trigger phrases the user confirmed in Step 1.
+
+```yaml
+metadata:
+  vellum:
+    activation-hints:
+      - "build me an app"
+      - "make a dashboard"
+      - "create a landing page"
+```
+
+> ✓ Checkpoint: Does the frontmatter have both a description and an `activation-hints` list? If hints are missing, go back and add them before writing the body.
 
 ## Step 3 - Structure the body so it survives weak models
 
