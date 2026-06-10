@@ -22,6 +22,7 @@ import type { AssistantEntry } from "./assistant-config";
 import { buildHatchConfigValues, writeInitialConfig } from "./config-utils";
 import { buildServiceRunArgs } from "./statefulset.js";
 import type { Species } from "./constants";
+import { getOrCreateHostDeviceId } from "./device-id.js";
 import { getDefaultPorts } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
 import { leaseGuardianToken } from "./guardian-token";
@@ -1327,8 +1328,10 @@ export async function hatchDocker(
       extraAssistantEnv.VELLUM_DISABLE_PLATFORM =
         flagEnvVars.VELLUM_DISABLE_PLATFORM;
     }
-    const extraGatewayEnv =
-      Object.keys(flagEnvVars).length > 0 ? flagEnvVars : undefined;
+    const extraGatewayEnv = {
+      ...flagEnvVars,
+      VELLUM_DEVICE_ID: getOrCreateHostDeviceId(),
+    };
     await startContainers(
       {
         signingKey,
