@@ -883,6 +883,8 @@ function startFileWatcher(opts: {
   signingKey?: string;
   bootstrapSecret?: string;
   cesServiceToken?: string;
+  extraAssistantEnv?: Record<string, string>;
+  extraGatewayEnv?: Record<string, string>;
   gatewayPort: number;
   imageTags: Record<ServiceName, string>;
   instanceName: string;
@@ -902,6 +904,8 @@ function startFileWatcher(opts: {
     signingKey: opts.signingKey,
     bootstrapSecret: opts.bootstrapSecret,
     cesServiceToken: opts.cesServiceToken,
+    extraAssistantEnv: opts.extraAssistantEnv,
+    extraGatewayEnv: opts.extraGatewayEnv,
     gatewayPort,
     imageTags,
     instanceName,
@@ -1433,6 +1437,8 @@ export async function hatchDocker(
         signingKey,
         bootstrapSecret,
         cesServiceToken,
+        extraAssistantEnv,
+        extraGatewayEnv,
         gatewayPort,
         imageTags,
         instanceName,

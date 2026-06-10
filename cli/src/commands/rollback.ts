@@ -25,11 +25,11 @@ import {
   broadcastUpgradeEvent,
   buildCompleteEvent,
   buildProgressEvent,
+  buildReplayEnv,
   buildStartingEvent,
   buildUpgradeCommitMessage,
   captureContainerEnv,
   commitWorkspaceViaGateway,
-  CONTAINER_ENV_EXCLUDE_KEYS,
   fetchCurrentVersion,
   fetchPreviousVersion,
   performDockerRollback,
@@ -315,10 +315,11 @@ export async function rollback(): Promise<void> {
       `   Captured ${Object.keys(capturedEnv).length} env var(s) from ${res.assistantContainer}\n`,
     );
 
-    // Capture GUARDIAN_BOOTSTRAP_SECRET from the gateway container (it is only
-    // set on gateway, not assistant) so it persists across container restarts.
+    // Capture the gateway container env so flag overrides replay onto the new
+    // gateway, and pluck GUARDIAN_BOOTSTRAP_SECRET (only set on gateway).
     const gatewayEnv = await captureContainerEnv(res.gatewayContainer);
     const bootstrapSecret = gatewayEnv["GUARDIAN_BOOTSTRAP_SECRET"];
+    const extraGatewayEnv = buildReplayEnv(gatewayEnv, "gateway");
 
     // Extract CES_SERVICE_TOKEN from captured env, or generate fresh one
     const cesServiceToken =
@@ -328,19 +329,7 @@ export async function rollback(): Promise<void> {
     const signingKey =
       capturedEnv["ACTOR_TOKEN_SIGNING_KEY"] || randomBytes(32).toString("hex");
 
-    // Build extra env vars, excluding keys managed by buildServiceRunArgs
-    const envKeysSetByRunArgs = new Set(CONTAINER_ENV_EXCLUDE_KEYS);
-    for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
-      if (process.env[envVar]) {
-        envKeysSetByRunArgs.add(envVar);
-      }
-    }
-    const extraAssistantEnv: Record<string, string> = {};
-    for (const [key, value] of Object.entries(capturedEnv)) {
-      if (!envKeysSetByRunArgs.has(key)) {
-        extraAssistantEnv[key] = value;
-      }
-    }
+    const extraAssistantEnv = buildReplayEnv(capturedEnv, "assistant");
 
     // Parse gateway port from entry's runtimeUrl, fall back to default
     let gatewayPort = GATEWAY_INTERNAL_PORT;
@@ -401,6 +390,7 @@ export async function rollback(): Promise<void> {
         bootstrapSecret,
         cesServiceToken,
         extraAssistantEnv,
+        extraGatewayEnv,
         gatewayPort,
         imageTags: previousImageRefs,
         instanceName,

@@ -38,12 +38,12 @@ import {
   broadcastUpgradeEvent,
   buildCompleteEvent,
   buildProgressEvent,
+  buildReplayEnv,
   buildStartingEvent,
   buildUpgradeCommitMessage,
   captureContainerEnv,
   captureUpgradeFailureLogs,
   commitWorkspaceViaGateway,
-  CONTAINER_ENV_EXCLUDE_KEYS,
   rollbackMigrations,
   UPGRADE_PROGRESS,
   waitForReady,
@@ -303,10 +303,11 @@ async function upgradeDocker(
     `   Captured ${Object.keys(capturedEnv).length} env var(s) from ${res.assistantContainer}\n`,
   );
 
-  // Capture GUARDIAN_BOOTSTRAP_SECRET from the gateway container (it is only
-  // set on gateway, not assistant) so it persists across container restarts.
+  // Capture the gateway container env so flag overrides replay onto the new
+  // gateway, and pluck GUARDIAN_BOOTSTRAP_SECRET (only set on gateway).
   const gatewayEnv = await captureContainerEnv(res.gatewayContainer);
   const bootstrapSecret = gatewayEnv["GUARDIAN_BOOTSTRAP_SECRET"];
+  const extraGatewayEnv = buildReplayEnv(gatewayEnv, "gateway");
 
   // Notify connected clients that an upgrade is about to begin.
   // This must fire BEFORE any progress broadcasts so the UI sets
@@ -415,22 +416,7 @@ async function upgradeDocker(
   await stopContainers(res);
   console.log("✅ Containers stopped\n");
 
-  // Build the set of extra env vars to replay on the new assistant container.
-  // Captured env vars serve as the base; keys already managed by
-  // buildServiceRunArgs are excluded to avoid duplicates.
-  const envKeysSetByRunArgs = new Set(CONTAINER_ENV_EXCLUDE_KEYS);
-  // Only exclude keys that buildServiceRunArgs will actually set
-  for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
-    if (process.env[envVar]) {
-      envKeysSetByRunArgs.add(envVar);
-    }
-  }
-  const extraAssistantEnv: Record<string, string> = {};
-  for (const [key, value] of Object.entries(capturedEnv)) {
-    if (!envKeysSetByRunArgs.has(key)) {
-      extraAssistantEnv[key] = value;
-    }
-  }
+  const extraAssistantEnv = buildReplayEnv(capturedEnv, "assistant");
 
   console.log("🚀 Starting upgraded containers...");
   await startContainers(
@@ -439,6 +425,7 @@ async function upgradeDocker(
       bootstrapSecret,
       cesServiceToken,
       extraAssistantEnv,
+      extraGatewayEnv,
       gatewayPort,
       imageTags,
       instanceName,
@@ -544,6 +531,7 @@ async function upgradeDocker(
             bootstrapSecret,
             cesServiceToken,
             extraAssistantEnv,
+            extraGatewayEnv,
             gatewayPort,
             imageTags: previousImageRefs,
             instanceName,
