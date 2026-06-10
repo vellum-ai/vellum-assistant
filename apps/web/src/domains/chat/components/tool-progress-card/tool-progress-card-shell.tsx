@@ -78,7 +78,7 @@ export interface ToolProgressCardShellProps {
    * Opt-in "bare" variant. When `true`, the shell drops its boxed card chrome
    * (rounded surface, border, base background) and the inner divider so the
    * header + expanded body render INLINE on the chat background — matching the
-   * `InlineActivityLink` (`ThoughtProcessLink` / `InlineToolLink`) language
+   * lone `SingleActivity` link language
    * with a subtle ghost hover on the header row instead of a container.
    *
    * Only the default (no-`headerActionSlot`) header layout participates in
@@ -377,15 +377,15 @@ export function ToolProgressCardShell({
             {...toggleProps}
             className={
               bare
-                ? // Flush-left to match the inline `ThoughtProcessLink` /
-                  // `InlineToolLink` (which use `-mx-1.5 px-1.5`): pull the
+                ? // Flush-left to match the inline `SingleActivity` link
+                  // (which uses `-mx-1.5 px-1.5`): pull the
                   // header 6px left and add 6px back to the width so the
-                  // status icon lines up exactly with the inline links'
+                  // status icon lines up exactly with the inline link's
                   // glyph while the right-edge step pill stays put.
                   // `hover:bg-[var(--surface-hover)]` overrides the ghost
                   // Button's default `--surface-active` hover so the header
                   // shares the exact same translucent surface-hover as the
-                  // inline `InlineActivityLink` (consistent across light/dark).
+                  // inline `SingleActivity` (consistent across light/dark).
                   // When expanded, that same surface-hover stays painted so the
                   // header reads as the active/open summary above the timeline.
                   `h-auto min-w-0 justify-between gap-2 rounded-md px-1.5 py-1.5 -ml-1.5 w-[calc(100%+0.375rem)] hover:bg-[var(--surface-hover)]${

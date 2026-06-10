@@ -100,9 +100,9 @@ const pluginRefCount = new Map<string, number>();
 /**
  * Format an owner for log messages and error strings. Returns a stable
  * human-readable description (e.g. `skill "deploy"`, `plugin "weather"`,
- * `MCP server "github"`). When an owner is missing (core tool) or has an
- * unrecognized kind, returns a fallback string so log/error sites never
- * produce `undefined` interpolations.
+ * `MCP server "github"`, `workspace tool override`). When an owner is
+ * missing (core tool) or has an unrecognized kind, returns a fallback
+ * string so log/error sites never produce `undefined` interpolations.
  */
 function describeOwner(owner: OwnerInfo | undefined): string {
   if (!owner) return "core tool";
@@ -113,10 +113,45 @@ function describeOwner(owner: OwnerInfo | undefined): string {
       return `plugin "${owner.id}"`;
     case "mcp":
       return `MCP server "${owner.id}"`;
+    case "workspace":
+      return `workspace tool override`;
     default:
       return `${(owner as OwnerInfo).kind}-origin tool`;
   }
 }
+
+// ── Workspace tool overrides ─────────────────────────────────────────
+// Two distinct workspace-tool operations both move a core tool entry
+// into this stash:
+//
+// 1. {@link registerWorkspaceTools} — workspace tool with same name as a
+//    core tool registers; the original is stashed and the workspace tool
+//    takes its place in `tools`. {@link unregisterWorkspaceTool} restores
+//    on teardown.
+// 2. {@link removeCoreToolViaWorkspace} — a `<name>.removed` sentinel in
+//    `<workspaceDir>/tools/` strips a core tool from the registry. The
+//    original is stashed; `tools[name]` is cleared without a replacement.
+//    {@link restoreStrippedCoreTool} restores when the sentinel is gone.
+//
+// Both operations are reversible because the stash holds the original
+// core entry verbatim. The two states are distinguished by what (if
+// anything) sits in `tools[name]` and `ownersByName[name]`:
+//
+// - `ownersByName[name].kind === "workspace"` + stash present → override
+// - `tools[name]` absent + stash present → stripped via `.removed`
+// - `tools[name]` present + no owner → normal core tool
+// - `ownersByName[name].kind === "workspace"` + no stash → net-new workspace tool
+//
+// Keyed by tool name. At most one stashed entry per name — the registry
+// rejects a second workspace registration for the same name without an
+// explicit unregister/restore.
+//
+// Plugin/skill/MCP code paths consult this map only indirectly: they see
+// a workspace-kind entry in `ownersByName` (or a stash entry but no live
+// entry) and refuse to register over it, preserving the
+// single-canonical-source invariant the override / strip paths exist to
+// enforce.
+const coreToolOverrides = new Map<string, Tool>();
 
 function withProviderSafeToolName(tool: Tool): Tool {
   const safeName = toProviderSafeToolName(tool.name);
@@ -185,6 +220,8 @@ export function getToolOwner(name: string): OwnerInfo | undefined {
  *
  * Skips any tool whose name collides with a core tool (logs a warning instead
  * of throwing so the remaining tools in the batch still get registered).
+ * Also skips when the name is owned by a workspace tool — workspace
+ * overrides are authoritative and silently win over skill registration.
  * Throws if a tool name collides with a skill tool owned by a different skill.
  * Allows replacement when the incoming tool has the same skill owner id as
  * the existing one, which supports hot-reloading a skill without tearing
@@ -198,9 +235,20 @@ export function registerSkillTools(skillId: string, newTools: Tool[]): Tool[] {
   // Filter out tools that collide with core tools, and validate the rest.
   const accepted: Tool[] = [];
   for (const tool of newTools) {
+    // A workspace `.removed` sentinel stripped a core tool of this name —
+    // the slot is reserved by the stash even though `tools` has no live
+    // entry. Refuse to fill the slot from a non-workspace surface.
+    if (!tools.has(tool.name) && coreToolOverrides.has(tool.name)) {
+      log.warn(
+        { toolName: tool.name, skillId },
+        `Skill "${skillId}" tried to register tool "${tool.name}" which is reserved by a workspace .removed sentinel. Skipping.`,
+      );
+      continue;
+    }
     const existing = tools.get(tool.name);
     if (existing) {
-      const existingIsCore = !ownersByName.has(tool.name);
+      const existingOwner = ownersByName.get(tool.name);
+      const existingIsCore = !existingOwner;
       if (existingIsCore) {
         log.warn(
           { toolName: tool.name, ownerSkillId: skillId },
@@ -208,9 +256,15 @@ export function registerSkillTools(skillId: string, newTools: Tool[]): Tool[] {
         );
         continue;
       }
+      if (existingOwner?.kind === "workspace") {
+        log.warn(
+          { toolName: tool.name, skillId },
+          `Skill "${skillId}" tried to register tool "${tool.name}" which is owned by a workspace tool override. Skipping.`,
+        );
+        continue;
+      }
       // Existing is from a different owner (plugin/mcp) or a different
       // skill — skill tools can only replace themselves (hot-reload).
-      const existingOwner = ownersByName.get(tool.name);
       const existingSkillId =
         existingOwner?.kind === "skill" ? existingOwner.id : undefined;
       if (existingOwner?.kind !== "skill" || existingSkillId !== skillId) {
@@ -267,6 +321,16 @@ export function registerPluginTools(
 
   const accepted: Tool[] = [];
   for (const tool of stamped) {
+    // A workspace `.removed` sentinel stripped a core tool of this name —
+    // the slot is reserved by the stash even though `tools` has no live
+    // entry. Refuse to fill the slot from a non-workspace surface.
+    if (!tools.has(tool.name) && coreToolOverrides.has(tool.name)) {
+      log.warn(
+        { toolName: tool.name, pluginName },
+        `Plugin "${pluginName}" tried to register tool "${tool.name}" which is reserved by a workspace .removed sentinel. Skipping.`,
+      );
+      continue;
+    }
     const existing = tools.get(tool.name);
     if (existing) {
       const existingIsCore = !ownersByName.has(tool.name);
@@ -278,6 +342,13 @@ export function registerPluginTools(
         continue;
       }
       const existingOwner = ownersByName.get(tool.name);
+      if (existingOwner?.kind === "workspace") {
+        log.warn(
+          { toolName: tool.name, pluginName },
+          `Plugin "${pluginName}" tried to register tool "${tool.name}" which is owned by a workspace tool override. Skipping.`,
+        );
+        continue;
+      }
       if (existingOwner?.kind === "plugin") {
         if (existingOwner.id !== pluginName) {
           throw new Error(
@@ -382,6 +453,16 @@ export function unregisterSkillTools(skillId: string): void {
 export function registerMcpTools(serverId: string, newTools: Tool[]): Tool[] {
   const accepted: Tool[] = [];
   for (const tool of newTools) {
+    // A workspace `.removed` sentinel stripped a core tool of this name —
+    // the slot is reserved by the stash even though `tools` has no live
+    // entry. Refuse to fill the slot from a non-workspace surface.
+    if (!tools.has(tool.name) && coreToolOverrides.has(tool.name)) {
+      log.warn(
+        { toolName: tool.name, serverId },
+        `MCP server "${serverId}" tried to register tool "${tool.name}" which is reserved by a workspace .removed sentinel. Skipping.`,
+      );
+      continue;
+    }
     const existing = tools.get(tool.name);
     if (existing) {
       const existingIsCore = !ownersByName.has(tool.name);
@@ -393,6 +474,13 @@ export function registerMcpTools(serverId: string, newTools: Tool[]): Tool[] {
         continue;
       }
       const existingOwner = ownersByName.get(tool.name);
+      if (existingOwner?.kind === "workspace") {
+        log.warn(
+          { toolName: tool.name, serverId },
+          `MCP server "${serverId}" tried to register tool "${tool.name}" which is owned by a workspace tool override. Skipping.`,
+        );
+        continue;
+      }
       if (existingOwner?.kind === "skill" || existingOwner?.kind === "plugin") {
         log.warn(
           {
@@ -456,6 +544,280 @@ export function getSkillToolNames(): string[] {
   return Array.from(tools.values())
     .filter((t) => ownersByName.get(t.name)?.kind === "skill")
     .map((t) => t.name);
+}
+
+/**
+ * Register a batch of workspace-origin tools — entries discovered under
+ * `<workspaceDir>/tools/<name>.{ts,js,json}`. Each call records ownership
+ * (`kind: "workspace"`, `id: <workspacePath>`) in `ownersByName` keyed by
+ * tool name — the `Tool` object itself carries no owner metadata.
+ *
+ * Conflict handling:
+ *
+ * - **Core tool same name**: the original core entry is moved into
+ *   {@link coreToolOverrides}, and the workspace tool takes its place in
+ *   `tools`. {@link unregisterWorkspaceTool} restores the original later.
+ * - **Workspace tool same name**: rejected with a hard throw. There is
+ *   exactly one canonical source per workspace tool name on disk; a
+ *   second registration without an intervening
+ *   {@link unregisterWorkspaceTool} is a caller bug.
+ * - **Plugin / skill / MCP same name**: rejected with a hard throw.
+ *   Workspace tools must register before any other extension category in
+ *   the daemon lifecycle (between {@link initializeTools} and
+ *   {@link loadUserPlugins}); seeing one of these origins here would mean
+ *   a lifecycle-order regression.
+ * - **Net-new name (no existing entry)**: registers as a new tool. The
+ *   stash stays empty for this name so {@link unregisterWorkspaceTool}
+ *   simply removes the tool with no restoration.
+ *
+ * The batch is validated end-to-end before any mutation lands on `tools`
+ * or `coreToolOverrides` — a single rejected entry aborts the whole call
+ * so callers never observe a partially-applied registration.
+ */
+export function registerWorkspaceTools(
+  newTools: Array<{
+    tool: Tool;
+    workspacePath: string;
+  }>,
+): Tool[] {
+  // Build provider-safe Tool objects up front. We do not mutate the
+  // registry until the entire batch has cleared the conflict checks
+  // below. Ownership (kind + workspace path) is tracked separately
+  // alongside each stamped entry so the mutation phase can set
+  // `ownersByName` in lockstep with `tools`.
+  const stamped: Array<{ tool: Tool; workspacePath: string }> = newTools.map(
+    ({ tool: workspaceTool, workspacePath }) => ({
+      tool: withProviderSafeToolName(workspaceTool as Tool),
+      workspacePath,
+    }),
+  );
+
+  // Validate the whole batch first so we never leave the registry in a
+  // half-applied state. The validation phase only reads; the mutation
+  // phase below only fires once every entry has passed.
+  const seenInBatch = new Set<string>();
+  for (const { tool } of stamped) {
+    if (seenInBatch.has(tool.name)) {
+      throw new Error(
+        `Workspace tool batch contains duplicate name "${tool.name}"`,
+      );
+    }
+    seenInBatch.add(tool.name);
+
+    const existing = tools.get(tool.name);
+    if (!existing) continue;
+
+    const existingOwner = ownersByName.get(tool.name);
+    if (existingOwner?.kind === "workspace") {
+      throw new Error(
+        `Workspace tool "${tool.name}" is already registered (path: ${existingOwner.id}). Call unregisterWorkspaceTool("${tool.name}") before re-registering.`,
+      );
+    }
+
+    if (!existingOwner) continue; // Core tool — override allowed, handled in mutation phase below.
+
+    throw new Error(
+      `Workspace tool "${tool.name}" conflicts with an existing ${describeOwner(existingOwner)}. Workspace tools must register before other extension categories.`,
+    );
+  }
+
+  for (const { tool, workspacePath } of stamped) {
+    const existing = tools.get(tool.name);
+    const existingIsCore = existing && !ownersByName.has(tool.name);
+    if (existingIsCore) {
+      coreToolOverrides.set(tool.name, existing);
+      log.info(
+        { name: tool.name, workspacePath },
+        "Stashing core tool ahead of workspace override",
+      );
+    }
+    tools.set(tool.name, tool);
+    ownersByName.set(tool.name, { kind: "workspace", id: workspacePath });
+    log.info(
+      {
+        name: tool.name,
+        workspacePath,
+        overridesCore: coreToolOverrides.has(tool.name),
+      },
+      "Workspace tool registered",
+    );
+  }
+
+  return stamped.map(({ tool }) => tool);
+}
+
+/**
+ * Remove a workspace tool registration. If the name had a stashed core
+ * tool ({@link coreToolOverrides}), the original is restored; otherwise
+ * the entry is simply deleted (net-new workspace tool case).
+ *
+ * No-op when the named tool is not currently registered as a workspace
+ * tool — the function is safe to call on every shutdown path without
+ * needing to track which tools the loader actually registered.
+ */
+export function unregisterWorkspaceTool(name: string): void {
+  const existingOwner = ownersByName.get(name);
+  if (existingOwner?.kind !== "workspace") {
+    return;
+  }
+  const workspacePath = existingOwner.id;
+
+  const stashed = coreToolOverrides.get(name);
+  if (stashed) {
+    tools.set(name, stashed);
+    ownersByName.delete(name);
+    coreToolOverrides.delete(name);
+    log.info(
+      { name, workspacePath },
+      "Workspace tool unregistered — core tool restored",
+    );
+    return;
+  }
+
+  tools.delete(name);
+  ownersByName.delete(name);
+  log.info(
+    { name, workspacePath },
+    "Workspace tool unregistered (no core tool to restore)",
+  );
+}
+
+/**
+ * Strip a core tool from the registry on behalf of a workspace
+ * `<name>.removed` sentinel. The original core entry is stashed (same
+ * map as override-style stashing) so {@link restoreStrippedCoreTool} can
+ * undo the strip if the sentinel file is later removed.
+ *
+ * No-op cases (logged at debug, never throws):
+ * - `name` doesn't exist in the registry — nothing to strip
+ * - `name` is already stripped (stash present, live entry absent) — idempotent
+ * - `name` is owned by a non-core origin (plugin / skill / mcp) — workspace
+ *   strip cannot evict another extension's tool; that's a namespacing
+ *   collision the operator must resolve at the source
+ *
+ * Throws when `name` is owned by an existing workspace tool. The loader
+ * is supposed to filter out files where both `<name>.<ext>` and
+ * `<name>.removed` coexist before getting here; if we land in this state
+ * something earlier failed and the caller needs to know.
+ */
+export function removeCoreToolViaWorkspace(name: string): void {
+  const existing = tools.get(name);
+
+  if (!existing) {
+    if (coreToolOverrides.has(name)) {
+      log.debug(
+        { name },
+        "removeCoreToolViaWorkspace: core tool already stripped — no-op",
+      );
+      return;
+    }
+    log.debug(
+      { name },
+      "removeCoreToolViaWorkspace: no tool registered under this name — no-op",
+    );
+    return;
+  }
+
+  const existingOwner = ownersByName.get(name);
+  if (existingOwner?.kind === "workspace") {
+    throw new Error(
+      `Cannot strip "${name}" via .removed sentinel — name is owned by a workspace tool override (path: ${existingOwner.id}). Remove the workspace tool file first.`,
+    );
+  }
+
+  if (existingOwner) {
+    log.warn(
+      { name, owner: existingOwner },
+      `removeCoreToolViaWorkspace: "${name}" is owned by ${describeOwner(existingOwner)}, not a core tool — cannot strip from workspace. Resolve at the source (uninstall the ${existingOwner.kind}).`,
+    );
+    return;
+  }
+
+  coreToolOverrides.set(name, existing);
+  tools.delete(name);
+  log.info(
+    { name },
+    "Stripped core tool via workspace .removed sentinel — stashed for potential restore",
+  );
+}
+
+/**
+ * Restore a core tool that was previously stripped via
+ * {@link removeCoreToolViaWorkspace}. Called when the `<name>.removed`
+ * sentinel file is deleted (typically by the workspace-tool file watcher).
+ *
+ * No-op cases (logged at debug, never throws):
+ * - No stash exists for `name` — nothing to restore
+ * - A workspace tool currently owns the name — the restore is implicit
+ *   when the workspace tool is later unregistered; doing it here would
+ *   evict the live workspace tool
+ * - A core tool already sits at the name — already restored, idempotent
+ */
+export function restoreStrippedCoreTool(name: string): void {
+  const stashed = coreToolOverrides.get(name);
+  if (!stashed) {
+    log.debug(
+      { name },
+      "restoreStrippedCoreTool: no stashed core tool — no-op",
+    );
+    return;
+  }
+  const existing = tools.get(name);
+  if (existing) {
+    const existingOwner = ownersByName.get(name);
+    if (existingOwner?.kind === "workspace") {
+      log.debug(
+        { name },
+        "restoreStrippedCoreTool: workspace tool currently owns this name — leaving stash in place for the workspace tool's eventual unregister",
+      );
+      return;
+    }
+    log.debug(
+      { name, currentOwner: existingOwner ?? "core" },
+      "restoreStrippedCoreTool: a non-workspace entry already sits at this name — leaving stash in place",
+    );
+    return;
+  }
+  tools.set(name, stashed);
+  coreToolOverrides.delete(name);
+  log.info(
+    { name },
+    "Restored core tool after workspace .removed sentinel was deleted",
+  );
+}
+
+/**
+ * Return the names of all currently registered workspace-origin tools.
+ */
+export function getWorkspaceToolNames(): string[] {
+  return Array.from(tools.values())
+    .filter((t) => ownersByName.get(t.name)?.kind === "workspace")
+    .map((t) => t.name);
+}
+
+/**
+ * Return the names of core tools currently stripped via workspace
+ * `.removed` sentinels — i.e. names where the stash holds an entry but
+ * no live tool sits in the registry.
+ */
+export function getStrippedCoreToolNames(): string[] {
+  const stripped: string[] = [];
+  for (const name of coreToolOverrides.keys()) {
+    if (!tools.has(name)) stripped.push(name);
+  }
+  return stripped;
+}
+
+/**
+ * Inspect the override stash for a tool name. Returns the original core
+ * tool that was displaced by a workspace registration (or stripped via
+ * `.removed`), or `undefined` when no such override exists.
+ *
+ * Useful for tooling that needs to show "this core tool is overridden by
+ * a workspace entry" without exposing the full stash map.
+ */
+export function getCoreToolOverride(name: string): Tool | undefined {
+  return coreToolOverrides.get(name);
 }
 
 /**
@@ -566,6 +928,20 @@ export async function initializeTools(): Promise<void> {
   }
 
   log.info({ count: tools.size }, "Tools initialized");
+
+  // Load workspace tool overrides from `<workspaceDir>/tools/<name>.{ts,js,json}`
+  // immediately after core tools have settled, before MCP / plugin
+  // registrations get a chance to claim names. This ordering makes
+  // workspace tools the canonical owner per name:
+  //   core registrations → workspace tools → MCP → plugins.
+  // Workspace tools land after the core snapshot above so they're never
+  // baked into the test-reset baseline.
+  //
+  // Imported dynamically because the loader imports back from this module
+  // (registerWorkspaceTools / removeCoreToolViaWorkspace); a static import
+  // here would create a registry ↔ loader cycle.
+  const { loadWorkspaceTools } = await import("./workspace-tools/loader.js");
+  await loadWorkspaceTools();
 }
 
 /**
@@ -583,6 +959,11 @@ export function __resetRegistryForTesting(): void {
   ownersByName.clear();
   skillRefCount.clear();
   pluginRefCount.clear();
+  // Drop the override stash too — the snapshot already represents the
+  // pre-override baseline, so leaving stashed entries here would let a
+  // later registerWorkspaceTools() falsely report "overridesCore: true"
+  // against a fresh registry.
+  coreToolOverrides.clear();
 
   if (coreToolsSnapshot) {
     for (const [name, tool] of coreToolsSnapshot) {
@@ -601,6 +982,7 @@ export function __clearRegistryForTesting(): void {
   ownersByName.clear();
   skillRefCount.clear();
   pluginRefCount.clear();
+  coreToolOverrides.clear();
 }
 
 /**

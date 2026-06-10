@@ -248,6 +248,10 @@ jobs:
           chmod 600 ~/.netrc
 
       - name: Install nested package dependencies
+        env:
+          # Build-only job: skip @playwright/browser-chromium's postinstall
+          # download from cdn.playwright.dev (flaky DNS on macOS runners).
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
         run: |
           pids=()
           for dir in packages/*/ skills/*/; do

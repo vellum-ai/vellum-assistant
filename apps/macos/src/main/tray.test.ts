@@ -81,6 +81,9 @@ mock.module("electron", () => ({
       themeListeners.delete(event);
     },
   },
+  shell: {
+    openExternal: mock(() => Promise.resolve()),
+  },
 }));
 
 mock.module("./assets/menu-icons", () => ({

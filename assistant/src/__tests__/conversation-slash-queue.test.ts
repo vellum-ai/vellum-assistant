@@ -163,6 +163,7 @@ mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
     async maybeCompact() {
       return { compacted: false };
     }
+    resetOverflowRecovery() {}
   },
   createContextSummaryMessage: () => ({
     role: "user",

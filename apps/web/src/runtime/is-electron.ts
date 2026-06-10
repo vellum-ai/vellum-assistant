@@ -48,7 +48,10 @@ export type VellumCommand =
   | { kind: "createAssistant" }
   | { kind: "retireAssistant"; assistantId: string }
   | { kind: "quickInputSubmit"; message: string }
-  | { kind: "cancelActiveAction" };
+  | { kind: "cancelActiveAction" }
+  | { kind: "replayOnboarding" }
+  | { kind: "previewPrechat" }
+  | { kind: "openComponentGallery" };
 
 /**
  * Whether a hotkey is a system-wide global shortcut (active even when the app

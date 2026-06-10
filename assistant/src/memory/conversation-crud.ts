@@ -28,6 +28,11 @@ import { findDisplayTurnEndIndex } from "../conversations/message-consolidation.
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
+import {
+  forkEverInjected,
+  MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
+  seedEverInjectedFromSlugs,
+} from "../plugins/defaults/memory-v3-shadow/ever-injected-store.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { UserError } from "../util/errors.js";
 import { safeParseRecord } from "../util/json.js";
@@ -133,6 +138,9 @@ export const messageMetadataSchema = z
     /** Image source paths from desktop attachments, keyed by filename. */
     imageSourcePaths: z.record(z.string(), z.string()).optional(),
     memoryInjectedBlock: z.string().optional(),
+    /** Memory-v3 frozen net-new card block (unwrapped) — the v3 counterpart
+     *  of `memoryInjectedBlock`. A row carries at most one of the two. */
+    [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]: z.string().optional(),
     turnContextBlock: z.string().optional(),
     pkbSystemReminderBlock: z.string().optional(),
     workspaceBlock: z.string().optional(),
@@ -171,16 +179,21 @@ function cloneForkMessageMetadata(
 }
 
 /**
- * Read the persisted `memoryInjectedBlock` off a message's metadata JSON, or
- * `null` when absent/malformed. The block is what the request builder
- * re-attaches as the message's `<memory>` content each turn.
+ * Read a persisted memory-injection block off a message's metadata JSON, or
+ * `null` when absent/malformed. `key` selects the injection layer: v2's
+ * `memoryInjectedBlock` or memory-v3's card block
+ * (`MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`). The block is what the request
+ * builder re-attaches as the message's `<memory>` content each turn.
  */
-function readMemoryInjectedBlock(metadata: string | null): string | null {
+function readInjectedBlock(
+  metadata: string | null,
+  key: string,
+): string | null {
   if (!metadata) return null;
   try {
     const parsed: unknown = JSON.parse(metadata);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const block = (parsed as Record<string, unknown>).memoryInjectedBlock;
+      const block = (parsed as Record<string, unknown>)[key];
       if (typeof block === "string") return block;
     }
   } catch {
@@ -1056,6 +1069,7 @@ export function forkConversation(params: {
     const isFullHistoryFork = copyBoundaryIndex === sourceMessages.length - 1;
     if (isFullHistoryFork) {
       forkActivationState(db, sourceConversation.id, fc.id);
+      forkEverInjected(db, sourceConversation.id, fc.id);
       forkGraphMemoryState(sourceConversation.id, fc.id);
     } else {
       // Truncated fork: the wholesale copy above would over-claim, but
@@ -1065,18 +1079,42 @@ export function forkConversation(params: {
       // `everInjected` from the inherited attachments themselves — scoped to
       // the child's visible window, since attachments behind an inherited
       // compaction boundary are not rendered and must stay re-injectable.
+      // The v2 and v3 layers persist under separate metadata keys with the
+      // same `# memory/concepts/<slug>.md` header convention, so each seeds
+      // its own dedup record from its own blocks.
       const visibleStartIndex = preserveSourceCompactionState
         ? visibleWindowStartIndex
         : 0;
       const inheritedSlugs = new Set<string>();
+      const inheritedV3Slugs = new Set<string>();
       for (const message of messagesToCopy.slice(visibleStartIndex)) {
-        const block = readMemoryInjectedBlock(message.metadata);
-        if (!block) continue;
-        for (const slug of extractInjectedConceptSlugs(block)) {
-          inheritedSlugs.add(slug);
+        const block = readInjectedBlock(
+          message.metadata,
+          "memoryInjectedBlock",
+        );
+        if (block) {
+          for (const slug of extractInjectedConceptSlugs(block)) {
+            inheritedSlugs.add(slug);
+          }
+        }
+        const v3Block = readInjectedBlock(
+          message.metadata,
+          MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
+        );
+        if (v3Block) {
+          for (const slug of extractInjectedConceptSlugs(v3Block)) {
+            inheritedV3Slugs.add(slug);
+          }
         }
       }
       seedForkActivationState(db, fc.id, [...inheritedSlugs]);
+      seedEverInjectedFromSlugs(
+        db,
+        sourceConversation.id,
+        fc.id,
+        [...inheritedV3Slugs],
+        Date.now(),
+      );
     }
     forkRetrospectiveState({
       database: db,

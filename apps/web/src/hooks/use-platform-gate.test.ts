@@ -156,7 +156,7 @@ describe("usePlatformGate — { platformHostedOnly: true }", () => {
     expect(result.current).toBe("disabled");
   });
 
-  test('returns "full" for unrelated lifecycle kinds (initializing, retired, error, etc) when logged in', () => {
+  test('returns "full" for unrelated lifecycle kinds (initializing, error, etc) when logged in', () => {
     // None of these signal "the active assistant is self-hosted",
     // so the gate falls through to the session-only decision. They
     // are short-lived transitional states; over-gating them would
@@ -164,8 +164,6 @@ describe("usePlatformGate — { platformHostedOnly: true }", () => {
     const kinds: AssistantState[] = [
       { kind: "initializing" },
       { kind: "cleaning_up" },
-      { kind: "retired" },
-      { kind: "platform_hosted" },
       { kind: "error", message: "boom" },
     ];
     useAuthStore.setState({ platformSession: "present" });
@@ -181,12 +179,6 @@ describe("usePlatformGate — { platformHostedOnly: true }", () => {
 });
 
 describe("useActiveAssistantIsPlatformHosted", () => {
-  test("returns true for kind: platform_hosted", () => {
-    setLifecycle({ kind: "platform_hosted" });
-    const { result } = renderHook(() => useActiveAssistantIsPlatformHosted());
-    expect(result.current).toBe(true);
-  });
-
   test("returns true for kind: active with isLocal: false", () => {
     setLifecycle({ kind: "active", isLocal: false });
     const { result } = renderHook(() => useActiveAssistantIsPlatformHosted());
@@ -220,7 +212,6 @@ describe("useActiveAssistantIsPlatformHosted", () => {
     const kinds: AssistantState[] = [
       { kind: "initializing" },
       { kind: "cleaning_up" },
-      { kind: "retired" },
       { kind: "error", message: "boom" },
     ];
     for (const assistantState of kinds) {
@@ -241,14 +232,6 @@ describe("useActiveAssistantLifecycleIsLoading", () => {
       useActiveAssistantLifecycleIsLoading(),
     );
     expect(result.current).toBe(true);
-  });
-
-  test("returns false for kind: platform_hosted (resolved)", () => {
-    setLifecycle({ kind: "platform_hosted" });
-    const { result } = renderHook(() =>
-      useActiveAssistantLifecycleIsLoading(),
-    );
-    expect(result.current).toBe(false);
   });
 
   test("returns false for kind: self_hosted (resolved)", () => {
@@ -272,18 +255,11 @@ describe("useActiveAssistantLifecycleIsLoading", () => {
     // *decided non-hosted*, not *still resolving*. UI that uses
     // `!isPlatformHosted` as the race-window signal would treat them as
     // resolving forever and stick on a spinner / disabled button.
-    const kinds: AssistantState[] = [
-      { kind: "retired" },
-      { kind: "error", message: "boom" },
-    ];
-    for (const assistantState of kinds) {
-      setLifecycle(assistantState);
-      const { result, unmount } = renderHook(() =>
-        useActiveAssistantLifecycleIsLoading(),
-      );
-      expect(result.current).toBe(false);
-      unmount();
-    }
+    setLifecycle({ kind: "error", message: "boom" });
+    const { result } = renderHook(() =>
+      useActiveAssistantLifecycleIsLoading(),
+    );
+    expect(result.current).toBe(false);
   });
 
   test("returns true for transitional kinds (initializing, cleaning_up)", () => {

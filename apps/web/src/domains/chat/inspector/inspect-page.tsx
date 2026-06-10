@@ -12,7 +12,6 @@ import {
 import {
     buildInspectorExportFilename,
     buildInspectorExportZipBlob,
-    downloadBlob,
 } from "@/domains/chat/inspector/inspector-export";
 import {
     llmLogPayloadQueryOptions,
@@ -207,7 +206,8 @@ function Header({
         }),
       );
       const blob = await buildInspectorExportZipBlob(context, payloads);
-      downloadBlob(
+      const { saveFile } = await import("@/runtime/native-file");
+      await saveFile(
         blob,
         buildInspectorExportFilename(
           context.conversationId ?? conversationId,

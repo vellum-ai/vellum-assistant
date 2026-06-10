@@ -36,6 +36,11 @@ export class GeminiEmbeddingBackend implements EmbeddingBackend {
     this.managedBaseUrl = options?.managedBaseUrl;
   }
 
+  /** True when requests route through the managed platform proxy. */
+  get managed(): boolean {
+    return Boolean(this.managedBaseUrl);
+  }
+
   async embed(
     inputs: EmbeddingInput[],
     options?: EmbeddingRequestOptions,

@@ -46,6 +46,7 @@ import {
   migrateActivationState,
   migrateActivationStateFkCascade,
   migrateAddConversationInferenceProfile,
+  migrateAddMemoryV3EverInjected,
   migrateAddMemoryV3Selections,
   migrateAddSourceTypeColumns,
   migrateAssistantContactMetadata,
@@ -201,7 +202,9 @@ import {
   migrateStripIntegrationPrefixFromProviderKeys,
   migrateStripPlaceholderSentinelsFromMessages,
   migrateStripThinkingFromConsolidated,
+  migrateToolInvocationsCreatedAtIdIndex,
   migrateToolInvocationsMatchedRuleId,
+  migrateToolInvocationsSkillId,
   migrateTraceEventsCreatedAtIndex,
   migrateUsageDashboardIndexes,
   migrateUsageLlmCallCount,
@@ -484,6 +487,9 @@ export function initializeDb(): void {
     migrateAcpSessionHistoryCwd,
     migrateOnboardingEventsFunnelColumns,
     createActivationSessionsTable,
+    migrateToolInvocationsSkillId,
+    migrateToolInvocationsCreatedAtIdIndex,
+    migrateAddMemoryV3EverInjected,
   ];
 
   // Run each migration step, catching and logging individual failures so one

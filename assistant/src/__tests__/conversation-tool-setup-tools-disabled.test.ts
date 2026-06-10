@@ -154,4 +154,38 @@ describe("createResolveToolsCallback — toolsDisabledDepth", () => {
     resolve(EMPTY_HISTORY);
     expect(ctx.allowedToolNames).toEqual(new Set());
   });
+
+  test("records the resolved set on lastResolvedToolNames for inventory queries", () => {
+    // GIVEN a normal resolver call
+    const toolDefs = [makeToolDef("tool_a"), makeToolDef("tool_b")];
+    const ctx = makeCtx();
+    const resolve = createResolveToolsCallback(toolDefs, ctx)!;
+
+    // WHEN tools resolve normally
+    resolve(EMPTY_HISTORY);
+
+    // THEN the durable snapshot mirrors the per-turn gate
+    expect(ctx.lastResolvedToolNames).toEqual(ctx.allowedToolNames!);
+    expect(ctx.lastResolvedToolNames?.has("tool_a")).toBe(true);
+    expect(ctx.lastResolvedToolNames?.has("tool_b")).toBe(true);
+  });
+
+  test("preserves lastResolvedToolNames when a later call disables tools", () => {
+    // GIVEN a conversation that resolved tools on a normal turn
+    const toolDefs = [makeToolDef("tool_a"), makeToolDef("tool_b")];
+    const ctx = makeCtx();
+    const resolve = createResolveToolsCallback(toolDefs, ctx)!;
+    resolve(EMPTY_HISTORY);
+    const snapshot = ctx.lastResolvedToolNames;
+
+    // WHEN a subsequent call disables tools (e.g. pointer generation, or the
+    // turn-teardown that clears the per-turn gate)
+    ctx.toolsDisabledDepth = 1;
+    resolve(EMPTY_HISTORY);
+
+    // THEN the per-turn gate is empty but the inventory snapshot survives
+    expect(ctx.allowedToolNames).toEqual(new Set());
+    expect(ctx.lastResolvedToolNames).toBe(snapshot);
+    expect(ctx.lastResolvedToolNames?.has("tool_a")).toBe(true);
+  });
 });

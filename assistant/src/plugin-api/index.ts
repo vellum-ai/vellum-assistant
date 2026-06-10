@@ -37,6 +37,8 @@
  * - {@link PluginShutdownContext} — passed to `shutdown` hook at teardown
  * - {@link UserPromptSubmitContext} — passed to `user-prompt-submit` hook,
  *   fired immediately before the agent loop receives a user's prompt
+ * - {@link PostCompactContext} — passed to `post-compact` hook, fired after
+ *   the agent loop compacts a conversation mid-turn to re-apply injections
  * - {@link PreModelCallContext} — passed to `pre-model-call` hook, fired
  *   before each provider call to edit the request / defer output streaming
  * - {@link PostToolUseContext} — passed to `post-tool-use` hook, fired once
@@ -60,6 +62,7 @@ export type {
   PluginInitContext,
   PluginLogger,
   PluginShutdownContext,
+  PostCompactContext,
   PostModelCallContext,
   PostToolUseContext,
   PreModelCallContext,

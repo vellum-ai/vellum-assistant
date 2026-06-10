@@ -24,7 +24,11 @@ import {
   runAssistantDrivenCompaction,
   runEmergencyCompaction,
 } from "../../../context/compactor.js";
-import { estimatePromptTokens } from "../../../context/token-estimator.js";
+import {
+  estimatePromptTokens,
+  estimateToolsTokens,
+} from "../../../context/token-estimator.js";
+import type { InjectionMode } from "../../../daemon/conversation-runtime-assembly.js";
 import type {
   ContentBlock,
   Message,
@@ -41,6 +45,7 @@ import {
   type ReducerStepResult,
 } from "./context-overflow-reducer.js";
 import { computeCorrectedOverflowTarget } from "./corrected-target.js";
+import { resolveOverflowAction } from "./overflow-policy.js";
 
 const log = getLogger("context-window");
 
@@ -93,6 +98,23 @@ export interface ContextWindowResult {
    * compactions that did clear the threshold.
    */
   exhausted?: boolean;
+  /**
+   * Runtime-injection volume the overflow reduction ladder settled on for the
+   * next provider call. The injection-downgrade rung lowers this to
+   * `"minimal"`; every other rung leaves it `"full"`. The agent loop forwards
+   * it to the post-compaction re-injection so the reduced prompt keeps the
+   * volume the ladder chose. Omitted on the ordinary (non-overflow) compaction
+   * path, where re-injection always runs at `"full"`.
+   */
+  injectionMode?: InjectionMode;
+  /**
+   * Set when the overflow reduction ladder applied its terminal
+   * auto-compress-latest-turn rung. The agent loop reads it to classify the
+   * terminal exit when recovery is exhausted: a still-too-large turn after
+   * auto-compress ran is a `budget_yield_unrecovered`, without it a
+   * `context_too_large`. Omitted on the ordinary compaction path.
+   */
+  autoCompressApplied?: boolean;
 }
 
 export interface ShouldCompactResult {
@@ -164,6 +186,25 @@ export interface OverflowRecoveryRungOptions {
    * policy call itself.
    */
   allowAutoCompressLatestTurn: boolean;
+  /** Per-conversation inference-profile override for the summary call. */
+  overrideProfile?: string | null;
+  /** Trust class of the actor whose turn triggered overflow recovery. */
+  actorTrustClass?: TrustClass;
+}
+
+export interface OverflowRecoveryOptions {
+  /**
+   * Provider-reported token count from the overflow rejection, or `null` when
+   * it could not be parsed. Forwarded to the reduction ladder to correct the
+   * compaction target against the estimator's under-count.
+   */
+  actualTokens: number | null;
+  /**
+   * Whether a human is present this turn. The manager resolves the
+   * auto-compress-latest-turn permission from the overflow policy using this
+   * flag, so callers signal interactivity rather than the policy verdict.
+   */
+  isInteractive: boolean;
   /** Per-conversation inference-profile override for the summary call. */
   overrideProfile?: string | null;
   /** Trust class of the actor whose turn triggered overflow recovery. */
@@ -261,6 +302,18 @@ export class ContextWindowManager {
    * from the emergency rung.
    */
   private _overflowReducerState: ReducerState | undefined;
+  /**
+   * The corrected compaction target and the prompt-token estimate it was
+   * derived from, computed once against the overflowing prompt on the first
+   * rung of a turn and reused across that turn's later rungs. The correction
+   * captures the estimator error the provider's actual token count revealed at
+   * the moment of overflow; re-deriving it against an already-reduced prompt
+   * would divide the original actual-token count by a smaller estimate and
+   * drive the target ever lower. Reset with {@link resetOverflowRecovery}.
+   */
+  private _overflowTurnTarget:
+    | { targetTokens: number; estimatedInputTokens: number }
+    | undefined;
 
   constructor(options: ContextWindowManagerOptions) {
     this.provider = options.provider;
@@ -282,6 +335,7 @@ export class ContextWindowManager {
    */
   resetOverflowRecovery(): void {
     this._overflowReducerState = undefined;
+    this._overflowTurnTarget = undefined;
   }
 
   /** Leading non-persisted inherited-context messages the compactor preserves. */
@@ -398,6 +452,76 @@ export class ContextWindowManager {
     }
   }
 
+  /**
+   * Drive the context-overflow reduction ladder one rung against `messages`
+   * and adapt the rung into a {@link ContextWindowResult} the agent loop's
+   * compaction path consumes. Resolves the auto-compress-latest-turn
+   * permission from the overflow policy — the manager owns that policy call,
+   * the ladder never makes it — and surfaces the rung's injection mode,
+   * terminal auto-compress flag, and exhaustion so the loop can re-inject at
+   * the chosen volume and classify the terminal exit when recovery runs out.
+   */
+  async recoverContextOverflow(
+    messages: Message[],
+    options: OverflowRecoveryOptions,
+    signal?: AbortSignal,
+  ): Promise<ContextWindowResult> {
+    const allowAutoCompressLatestTurn =
+      resolveOverflowAction({
+        overflowRecovery: this.config.overflowRecovery,
+        isInteractive: options.isInteractive,
+      }) === "auto_compress_latest_turn";
+    const step = await this.reduceOverflowOneRung(
+      messages,
+      {
+        actualTokens: options.actualTokens,
+        allowAutoCompressLatestTurn,
+        overrideProfile: options.overrideProfile,
+        actorTrustClass: options.actorTrustClass,
+      },
+      signal,
+    );
+    return this.overflowStepToResult(step, messages);
+  }
+
+  /**
+   * Adapt a reduction-ladder {@link ReducerStepResult} into the
+   * {@link ContextWindowResult} shape the agent loop's compaction path
+   * consumes. A summary rung carries a full compaction result (with the
+   * durable-commit and circuit-breaker fields); the non-summary rungs
+   * (truncation / media stubbing / injection downgrade) only transform the
+   * in-memory history, so they map to a no-op result that still propagates the
+   * reduced messages. Both forward the ladder's injection mode, exhaustion, and
+   * whether the terminal auto-compress rung was applied.
+   */
+  private overflowStepToResult(
+    step: ReducerStepResult,
+    basis: Message[],
+  ): ContextWindowResult {
+    const autoCompressApplied = step.state.appliedTiers.includes(
+      "auto_compress_latest_turn",
+    );
+    const base =
+      step.compactionResult ??
+      noopResult(step.messages, step.estimatedTokens, {
+        maxInputTokens: this.config.maxInputTokens,
+        thresholdTokens: Math.floor(
+          this.config.maxInputTokens *
+            this.resolveCompactionConfig().autoThreshold,
+        ),
+        reason: `overflow recovery: ${step.tier}`,
+      });
+    return {
+      ...base,
+      messages: step.messages,
+      estimatedInputTokens: step.estimatedTokens,
+      previousEstimatedInputTokens: this.estimateInputTokens(basis),
+      injectionMode: step.state.injectionMode,
+      autoCompressApplied,
+      exhausted: step.state.exhausted,
+    };
+  }
+
   private async _reduceOverflowOneRung(
     messages: Message[],
     options: OverflowRecoveryRungOptions,
@@ -408,32 +532,25 @@ export class ContextWindowManager {
         "ContextWindowManager has no conversationId — cannot run overflow recovery",
       );
     }
-    this._overflowReducerState ??= createInitialReducerState();
-
-    const estimatedTokensAtOverflow = estimatePromptTokens(
-      messages,
-      this.systemPrompt,
-      {
-        providerName: this.estimationProviderName,
-        toolTokenBudget: this.toolTokenBudget,
-      },
-    );
-    const { targetTokens } = computeCorrectedOverflowTarget({
-      preflightBudget: this.resolveOverflowPreflightBudget(messages.length),
-      actualTokens: options.actualTokens,
-      estimatedTokens: estimatedTokensAtOverflow,
-    });
+    if (!this._overflowReducerState) {
+      this._overflowReducerState = createInitialReducerState();
+      this._overflowTurnTarget = this.deriveOverflowTurnTarget(
+        messages,
+        options.actualTokens,
+      );
+    }
+    const { targetTokens, estimatedInputTokens } = this._overflowTurnTarget!;
 
     const config: ReducerConfig = {
       providerName: this.estimationProviderName,
       systemPrompt: this.systemPrompt,
       contextWindow: this.config,
       targetTokens,
-      toolTokenBudget: this.toolTokenBudget,
+      toolTokenBudget: this.resolveTurnToolTokenBudget(),
       conversationId: this.conversationId,
       overrideProfile: options.overrideProfile ?? null,
       actorTrustClass: options.actorTrustClass,
-      previousEstimatedInputTokens: estimatedTokensAtOverflow,
+      previousEstimatedInputTokens: estimatedInputTokens,
       maxMiddleTierAttempts: this.config.overflowRecovery.maxAttempts,
       allowAutoCompressLatestTurn: options.allowAutoCompressLatestTurn,
     };
@@ -446,6 +563,55 @@ export class ContextWindowManager {
     );
     this._overflowReducerState = step.state;
     return step;
+  }
+
+  /**
+   * Compute the corrected compaction target for a turn's overflow recovery:
+   * the overflow preflight budget lowered in proportion to the estimator error
+   * the provider's actual token count reveals, so the reduced history lands
+   * under the provider's true ceiling rather than the under-counted estimate.
+   */
+  private deriveOverflowTurnTarget(
+    messages: Message[],
+    actualTokens: number | null,
+  ): { targetTokens: number; estimatedInputTokens: number } {
+    const estimatedInputTokens = estimatePromptTokens(
+      messages,
+      this.systemPrompt,
+      {
+        providerName: this.estimationProviderName,
+        toolTokenBudget: this.resolveTurnToolTokenBudget(),
+      },
+    );
+    const { targetTokens, estimationErrorRatio } =
+      computeCorrectedOverflowTarget({
+        preflightBudget: this.resolveOverflowPreflightBudget(messages.length),
+        actualTokens,
+        estimatedTokens: estimatedInputTokens,
+      });
+    if (estimationErrorRatio != null) {
+      log.warn(
+        {
+          actualTokens,
+          estimatedTokens: estimatedInputTokens,
+          estimationErrorRatio: estimationErrorRatio.toFixed(2),
+          targetTokens,
+        },
+        "Adjusting overflow compaction target based on observed estimation error",
+      );
+    }
+    return { targetTokens, estimatedInputTokens };
+  }
+
+  /**
+   * Tool-token budget for the current turn's overflow recovery. Prefers the
+   * live tool set resolved for the turn — matching what the loop sends to the
+   * provider — and falls back to the constructor-time snapshot when no
+   * resolver is wired (legacy test paths, ad-hoc instantiation).
+   */
+  private resolveTurnToolTokenBudget(): number {
+    const tools = this.resolveTools?.();
+    return tools ? estimateToolsTokens(tools) : this.toolTokenBudget;
   }
 
   /**

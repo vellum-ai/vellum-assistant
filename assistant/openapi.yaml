@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.8.9
+  version: 0.8.10
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -24689,13 +24689,74 @@ paths:
   /v1/tools:
     get:
       operationId: tools_get
-      summary: List tools
-      description: Return available tool names with their descriptions, risk levels, and categories.
+      summary: List registered tools with metadata and schemas
+      description:
+        "Return registered tools. Without `conversationId`, returns every tool in the global registry; `tools`
+        carries per-tool metadata (description, author-asserted risk level, category, and contributing source: core,
+        skill, plugin, or MCP server) and `names`/`schemas` additionally cover skill tools whose manifests are present
+        but not yet loaded, for the permission-simulator catalog. With `conversationId`, scopes the result to the tools
+        available to that conversation as of its most recent turn (including skill/MCP tools registered over its
+        lifecycle); 404 if no such conversation is active."
       tags:
         - tools
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  names:
+                    type: array
+                    items:
+                      type: string
+                  schemas:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: object
+                      propertyNames:
+                        type: string
+                      additionalProperties: {}
+                  tools:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        description:
+                          type: string
+                        riskLevel:
+                          type: string
+                        category:
+                          type: string
+                        source:
+                          type: string
+                          description:
+                            'Tool origin: "core" for built-ins, otherwise "<kind>:<id>" (e.g. "plugin:echo", "skill:my-skill",
+                            "mcp:server").'
+                      required:
+                        - name
+                        - description
+                        - riskLevel
+                        - category
+                        - source
+                      additionalProperties: false
+                required:
+                  - names
+                  - schemas
+                  - tools
+                additionalProperties: false
+      parameters:
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: When set, scope the tool inventory to this conversation's most recent turn instead of the global registry.
   /v1/tools/simulate-permission:
     post:
       operationId: tools_simulatepermission_post

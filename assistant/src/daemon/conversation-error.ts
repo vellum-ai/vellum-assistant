@@ -2,6 +2,10 @@ import type {
   ConversationErrorCode,
   ConversationErrorEvent,
 } from "../api/events/conversation-error.js";
+import {
+  ORDERING_ERROR_PATTERNS,
+  WEB_SEARCH_ORDERING_PATTERNS,
+} from "../plugins/defaults/history-repair/terminal.js";
 import { ConnectionResolutionError } from "../providers/connection-resolution.js";
 import { getProviderRoutingSource } from "../providers/registry.js";
 import { isAbortReason } from "../util/abort-reasons.js";
@@ -116,21 +120,6 @@ const PROVIDER_API_PATTERNS = [
   /bad gateway/i,
   /service unavailable/i,
   /gateway timeout/i,
-];
-
-// Provider ordering error patterns (tool_use/tool_result mismatches)
-const ORDERING_ERROR_PATTERNS = [
-  /tool_result.*not immediately after.*tool_use/i,
-  /tool_use.*must have.*tool_result/i,
-  /tool_use_id.*without.*tool_result/i,
-  /tool_result.*tool_use_id.*not found/i,
-  /messages.*invalid.*order/i,
-];
-
-// Web-search-specific ordering error patterns
-const WEB_SEARCH_ORDERING_PATTERNS = [
-  /web_search.*tool_use.*without/i,
-  /web_search.*tool_result/i,
 ];
 
 // Stale/invalid opaque `encrypted_content` token in replayed web-search results.

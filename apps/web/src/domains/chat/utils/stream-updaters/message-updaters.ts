@@ -11,10 +11,11 @@
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
-import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { toDisplayAttachments } from "@/utils/display-attachments";
-import type { MessageCompleteEvent } from "@vellumai/assistant-api";
-import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type {
+  ConversationContentBlock,
+  MessageCompleteEvent,
+} from "@vellumai/assistant-api";
 import {
   tailIsAssistant,
   findAssistantRowIndexByMessageId,
@@ -40,47 +41,117 @@ export function createStreamingBubble(
       role: "assistant",
       textSegments: [text],
       contentOrder: [{ type: "text", id: "0" }],
+      contentBlocks: [{ type: "text", text }],
       timestamp: Date.now(),
     },
   ];
 }
 
 /**
- * Append a streaming chunk into a segment array on the message at
- * `prev[idx]`. If the last `contentOrder` entry matches `orderType`, the
- * chunk extends the trailing segment (coalescing consecutive chunks into
- * one block). Otherwise a new segment and order entry are opened.
+ * Upsert a text/thinking block at the tail of a row's `contentBlocks`
+ * projection in lockstep with a segment append.
  *
- * Parameterized over `segmentField`/`orderType` so text and thinking
- * deltas share one implementation — a bug fix in segment coalescing
- * applies uniformly.
+ * Overwrites the trailing block only when it is this block's type. A
+ * reconstructed/server projection omits empty or fully-consumed segments
+ * (normalizeContentBlocks), so `contentBlocks` can be shorter than
+ * `contentOrder` and its tail may belong to an earlier entry — appending
+ * then backfills the previously-absent block instead of clobbering a
+ * neighbour.
  */
-function appendSegmentIntoRow(
+function upsertTrailingSegmentBlock(
+  blocks: ConversationContentBlock[],
+  block: ConversationContentBlock,
+  coalesce: boolean,
+): void {
+  if (coalesce && blocks[blocks.length - 1]?.type === block.type) {
+    blocks[blocks.length - 1] = block;
+  } else {
+    blocks.push(block);
+  }
+}
+
+/**
+ * Append a text chunk into the row at `prev[idx]`, maintaining the
+ * positional `textSegments`/`contentOrder` arrays and the `contentBlocks`
+ * projection in lockstep. When the trailing `contentOrder` entry is
+ * already text the chunk extends the trailing segment/block; otherwise a
+ * new text segment and order entry are opened.
+ */
+function appendTextSegmentIntoRow(
   prev: DisplayMessage[],
   idx: number,
   content: string,
   messageId: string | undefined,
-  segmentField: "textSegments" | "thinkingSegments",
-  orderType: "text" | "thinking",
 ): DisplayMessage[] {
   const row = withMergedAlias(prev[idx]!, messageId);
-  const segments = [...(row[segmentField] ?? [])];
+  const segments = [...(row.textSegments ?? [])];
   const order = [...(row.contentOrder ?? [])];
-  const lastOrderEntry = order[order.length - 1];
+  const blocks = [...(row.contentBlocks ?? [])];
+  const coalesce =
+    order[order.length - 1]?.type === "text" && segments.length > 0;
 
-  if (lastOrderEntry?.type === orderType && segments.length > 0) {
+  if (coalesce) {
     segments[segments.length - 1] = segments[segments.length - 1]! + content;
   } else {
-    const newIndex = segments.length;
+    order.push({ type: "text", id: String(segments.length) });
     segments.push(content);
-    order.push({ type: orderType, id: String(newIndex) });
   }
+
+  upsertTrailingSegmentBlock(
+    blocks,
+    { type: "text", text: segments[segments.length - 1]! },
+    coalesce,
+  );
 
   const next = [...prev];
   next[idx] = {
     ...row,
-    [segmentField]: segments,
+    textSegments: segments,
     contentOrder: order,
+    contentBlocks: blocks,
+  };
+  return next;
+}
+
+/**
+ * Append a thinking chunk into the row at `prev[idx]`, maintaining the
+ * positional `thinkingSegments`/`contentOrder` arrays and the
+ * `contentBlocks` projection in lockstep. When the trailing `contentOrder`
+ * entry is already thinking the chunk extends the trailing segment/block;
+ * otherwise a new thinking segment and order entry are opened.
+ */
+function appendThinkingSegmentIntoRow(
+  prev: DisplayMessage[],
+  idx: number,
+  content: string,
+  messageId: string | undefined,
+): DisplayMessage[] {
+  const row = withMergedAlias(prev[idx]!, messageId);
+  const segments = [...(row.thinkingSegments ?? [])];
+  const order = [...(row.contentOrder ?? [])];
+  const blocks = [...(row.contentBlocks ?? [])];
+  const coalesce =
+    order[order.length - 1]?.type === "thinking" && segments.length > 0;
+
+  if (coalesce) {
+    segments[segments.length - 1] = segments[segments.length - 1]! + content;
+  } else {
+    order.push({ type: "thinking", id: String(segments.length) });
+    segments.push(content);
+  }
+
+  upsertTrailingSegmentBlock(
+    blocks,
+    { type: "thinking", thinking: segments[segments.length - 1]! },
+    coalesce,
+  );
+
+  const next = [...prev];
+  next[idx] = {
+    ...row,
+    thinkingSegments: segments,
+    contentOrder: order,
+    contentBlocks: blocks,
   };
   return next;
 }
@@ -113,10 +184,11 @@ export function appendTextDelta(
 ): DisplayMessage[] {
   if (messageId) {
     const idx = findAssistantRowIndexByMessageId(prev, messageId);
-    if (idx >= 0)
-      return appendSegmentIntoRow(prev, idx, text, messageId, "textSegments", "text");
+    if (idx >= 0) {
+      return appendTextSegmentIntoRow(prev, idx, text, messageId);
+    }
     if (tailIsAssistant(prev)) {
-      return appendSegmentIntoRow(prev, prev.length - 1, text, messageId, "textSegments", "text");
+      return appendTextSegmentIntoRow(prev, prev.length - 1, text, messageId);
     }
     return createStreamingBubble(prev, text, messageId);
   }
@@ -124,7 +196,7 @@ export function appendTextDelta(
   if (!tailIsAssistant(prev)) {
     return createStreamingBubble(prev, text, messageId);
   }
-  return appendSegmentIntoRow(prev, prev.length - 1, text, undefined, "textSegments", "text");
+  return appendTextSegmentIntoRow(prev, prev.length - 1, text, undefined);
 }
 
 // ---------------------------------------------------------------------------
@@ -150,6 +222,7 @@ export function createStreamingThinkingBubble(
       role: "assistant",
       thinkingSegments: [thinking],
       contentOrder: [{ type: "thinking", id: "0" }],
+      contentBlocks: [{ type: "thinking", thinking }],
       timestamp: Date.now(),
     },
   ];
@@ -172,9 +245,14 @@ export function appendThinkingDelta(
   if (messageId) {
     const idx = findAssistantRowIndexByMessageId(prev, messageId);
     if (idx >= 0)
-      return appendSegmentIntoRow(prev, idx, thinking, messageId, "thinkingSegments", "thinking");
+      return appendThinkingSegmentIntoRow(prev, idx, thinking, messageId);
     if (tailIsAssistant(prev)) {
-      return appendSegmentIntoRow(prev, prev.length - 1, thinking, messageId, "thinkingSegments", "thinking");
+      return appendThinkingSegmentIntoRow(
+        prev,
+        prev.length - 1,
+        thinking,
+        messageId,
+      );
     }
     return createStreamingThinkingBubble(prev, thinking, messageId);
   }
@@ -182,7 +260,7 @@ export function appendThinkingDelta(
   if (!tailIsAssistant(prev)) {
     return createStreamingThinkingBubble(prev, thinking, messageId);
   }
-  return appendSegmentIntoRow(prev, prev.length - 1, thinking, undefined, "thinkingSegments", "thinking");
+  return appendThinkingSegmentIntoRow(prev, prev.length - 1, thinking, undefined);
 }
 
 // ---------------------------------------------------------------------------
@@ -199,10 +277,10 @@ export function finalizeOnIdle(prev: DisplayMessage[]): DisplayMessage[] {
   let changed = false;
   const updated = prev.map((m) => {
     if (m.role !== "assistant") return m;
-    if (!m.toolCalls?.some((tc: ChatMessageToolCall) => isToolCallRunning(tc)))
-      return m;
+    const finalized = finalizeRunningToolCalls(m);
+    if (!finalized) return m;
     changed = true;
-    return { ...m, toolCalls: finalizeRunningToolCalls(m.toolCalls) };
+    return { ...m, ...finalized };
   });
   return changed ? updated : prev;
 }
@@ -258,7 +336,7 @@ export function finalizeMessageComplete(
     ];
   }
 
-  const finalized = finalizeRunningToolCalls(last.toolCalls);
+  const finalized = finalizeRunningToolCalls(last);
   const adoptServerId = last.isOptimistic === true && !!event.messageId;
   return [
     ...prev.slice(0, -1),
@@ -266,7 +344,7 @@ export function finalizeMessageComplete(
       ...last,
       ...(adoptServerId ? { id: event.messageId!, isOptimistic: false } : {}),
       ...(attachments ? { attachments } : {}),
-      ...(finalized ? { toolCalls: finalized } : {}),
+      ...(finalized ?? {}),
     },
   ];
 }
@@ -372,6 +450,7 @@ export function applyUserMessageEcho(
       role: "user",
       textSegments: [event.text],
       contentOrder: [{ type: "text", id: "0" }],
+      contentBlocks: [{ type: "text", text: event.text }],
       timestamp: Date.now(),
     },
   ];
@@ -389,7 +468,7 @@ export function handleConversationError(
   const last = prev[lastIdx];
   if (!last || last.role !== "assistant") return prev;
 
-  const finalized = finalizeRunningToolCalls(last.toolCalls);
+  const finalized = finalizeRunningToolCalls(last);
   const hasContent =
     segmentsToPlainText(last.textSegments).trim().length > 0 ||
     (last.thinkingSegments != null && last.thinkingSegments.length > 0) ||
@@ -401,7 +480,7 @@ export function handleConversationError(
   const updated = [...prev];
   updated[lastIdx] = {
     ...last,
-    ...(finalized ? { toolCalls: finalized } : {}),
+    ...(finalized ?? {}),
   };
   return updated;
 }
