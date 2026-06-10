@@ -99,6 +99,17 @@ export function useAssistantAvatar(assistantId: string | null) {
           : fetchAvatarViaLegacyFiles(id),
       ]);
 
+      // Character components are a static catalog that must always be
+      // available from a running daemon. A null result indicates a transient
+      // transport failure — throw so React Query retries instead of caching
+      // a partial result that leaves the avatar stuck on the "V" fallback.
+      if (!components) {
+        if (imageUrl) {
+          URL.revokeObjectURL(imageUrl);
+        }
+        throw new Error("Failed to fetch character components");
+      }
+
       const prev = activeBlobUrls.get(id);
       if (prev && prev !== imageUrl) {
         URL.revokeObjectURL(prev);
@@ -114,8 +125,9 @@ export function useAssistantAvatar(assistantId: string | null) {
     enabled: Boolean(assistantId),
     staleTime: Infinity,
     structuralSharing: false,
-    // Retry transient `/avatar/state` failures once so a flaky fetch or a
-    // briefly-unavailable daemon recovers without a manual invalidate.
+    // Retry transient failures (character-components or avatar-state) once
+    // so a flaky fetch or a briefly-unavailable daemon recovers without a
+    // manual invalidate.
     retry: 1,
   });
 
