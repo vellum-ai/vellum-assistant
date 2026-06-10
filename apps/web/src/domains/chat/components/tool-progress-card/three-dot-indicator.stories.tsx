@@ -6,7 +6,7 @@ import { ThreeDotIndicator } from "./three-dot-indicator";
  * `ThreeDotIndicator` is the single, shared "loading dots" used everywhere the
  * app shows in-flight tool/agent work: the tool-progress card header, each
  * running phase node in the expanded timeline, the web-search card, and the
- * `ThoughtProcessLink`. Three dots pulse in a staggered left-to-right wave and
+ * `SingleActivity`. Three dots pulse in a staggered left-to-right wave and
  * honour `prefers-reduced-motion`.
  */
 const meta: Meta<typeof ThreeDotIndicator> = {

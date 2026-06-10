@@ -92,7 +92,7 @@ export interface ChatDebugThinkingConditions {
   hasUncompletedVisibleSurface: boolean;
   hasStreamingAssistantMessage: boolean;
   /** True when the live assistant message already has reasoning content, so the
-   * inline `ThoughtProcessLink` owns the loading state and the dots row defers. */
+   * inline `SingleActivity` owns the loading state and the dots row defers. */
   hasStreamingAssistantThinking: boolean;
   activeConversationIsProcessing: boolean;
   hasPendingAssistantResponse: boolean;

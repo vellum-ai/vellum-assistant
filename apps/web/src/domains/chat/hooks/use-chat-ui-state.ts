@@ -101,7 +101,7 @@ export function useChatUIState(): ChatUIState {
   const hasStreamingAssistantMessage = liveAssistantMessageId != null;
 
   // True once the live assistant message has emitted reasoning content — at
-  // which point an inline `ThoughtProcessLink` is rendering it (and owning the
+  // which point an inline `SingleActivity` is rendering it (and owning the
   // streaming "Thinking" loading state). Used to hand off from the standalone
   // thinking-dots row so the two indicators never compete.
   const hasStreamingAssistantThinking = useMemo(() => {

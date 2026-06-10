@@ -56,7 +56,7 @@ const THINKING_PILL_MAX_CHARS = 60;
  */
 const HEADER_INFO_MAX_CHARS = 80;
 
-export interface ActivityRunCardProps {
+export interface MultiActivityGroupProps {
   toolCalls: ChatMessageToolCall[];
   /**
    * Ephemeral parent-driven expansion for the currently active tool-call
@@ -199,8 +199,9 @@ function expandedHeaderLabel(
 }
 
 /**
- * Activity-run card. Renders a contiguous run of interleaved thinking + tool
- * steps as a single combined card. All tool groups — web search, bash, file
+ * Multi-activity group. Renders a contiguous run of interleaved thinking + tool
+ * steps as a single combined card — the multi-step counterpart to the lone
+ * `SingleActivity` link. All tool groups — web search, bash, file
  * ops, MCP, computer use, skills — render through the shared
  * {@link ToolProgressCardShell} driven by {@link useToolCallCardData}.
  *
@@ -214,7 +215,7 @@ function expandedHeaderLabel(
  *   `null`; the spawned subagents render as inline
  *   `SubagentInlineProgressCard`s elsewhere in the transcript.
  */
-export function ActivityRunCard(props: ActivityRunCardProps) {
+export function MultiActivityGroup(props: MultiActivityGroupProps) {
   const {
     toolCalls,
     autoExpand = false,
@@ -271,7 +272,7 @@ export function ActivityRunCard(props: ActivityRunCardProps) {
   }
 
   return (
-    <UnifiedActivityRunCard
+    <UnifiedMultiActivityGroup
       {...props}
       cardData={cardData}
       expanded={expanded.value}
@@ -351,7 +352,7 @@ function deriveWebShellState(
  * `web_fetch` "Reading …") alongside the `tool` variant emitted by
  * `useToolCallCardData` for non-web tools.
  */
-function UnifiedActivityRunCard({
+function UnifiedMultiActivityGroup({
   toolCalls,
   cardData,
   expanded,
@@ -359,7 +360,7 @@ function UnifiedActivityRunCard({
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
-}: ActivityRunCardProps & {
+}: MultiActivityGroupProps & {
   cardData: ToolCallCardData;
   expanded: boolean;
   onCardExpandChange: (next: boolean) => void;
@@ -444,8 +445,8 @@ function UnifiedActivityRunCard({
   return (
     <ToolProgressCardShell
       // The unified (non-web) activity card renders bare — its header status
-      // icon + phase headers flow inline on the chat background like the
-      // `ThoughtProcessLink` / `InlineToolLink`, with a ghost hover on the
+      // icon + phase headers flow inline on the chat background like the lone
+      // `SingleActivity` link, with a ghost hover on the
       // header row instead of the boxed card chrome. The purely-web path
       // (`WebSearchView`) and the subagent inline card stay boxed.
       bare
@@ -613,8 +614,8 @@ function UnknownCommandNudge({
   onDismiss,
 }: {
   toolCall: ChatMessageToolCall;
-  onOpenRuleEditor: NonNullable<ActivityRunCardProps["onOpenRuleEditor"]>;
-  onDismiss?: ActivityRunCardProps["onDismissUnknownNudge"];
+  onOpenRuleEditor: NonNullable<MultiActivityGroupProps["onOpenRuleEditor"]>;
+  onDismiss?: MultiActivityGroupProps["onDismissUnknownNudge"];
 }) {
   return (
     <div className="flex items-center gap-1 pl-6 text-body-small-default text-[var(--content-tertiary)]">
@@ -688,7 +689,7 @@ function ConfirmationView({
   onAllowAndCreateRule,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
-}: ActivityRunCardProps) {
+}: MultiActivityGroupProps) {
   return (
     <div className="my-1 w-full">
       <div className="space-y-0 rounded-lg bg-[var(--surface-overlay)]">

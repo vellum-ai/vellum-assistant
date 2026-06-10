@@ -102,7 +102,7 @@ export const ThinkingOnly: Story = {
  * The vertical timeline variant (`timeline`): each phase's status icon becomes
  * a circular node in a left column joined by a continuous connector line, with
  * the header + steps flowing in a right content column. Used by the
- * ActivityRunCard; web-search / subagent cards keep the flat layout above.
+ * MultiActivityGroup; web-search / subagent cards keep the flat layout above.
  */
 export const Timeline: Story = {
   args: {

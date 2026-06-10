@@ -2,10 +2,10 @@ import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
-// The legacy reasoning path now renders the real `ThoughtProcessLink`, which
-// pulls in the viewer store → the generated daemon SDK (not built in CI/worktree
-// checkouts). Stub the two endpoints it references so the module loads; the
-// component never invokes them. Mirrors the mock in `thought-process-link.test.tsx`.
+// The transcript transitively pulls in the viewer store → the generated daemon
+// SDK (not built in CI/worktree checkouts). Stub the two endpoints it references
+// so the module loads; nothing here invokes them. Mirrors the mock in
+// `single-activity.test.tsx`.
 mock.module("@/generated/daemon/sdk.gen", () => ({
   appsByIdOpenPost: async () => ({ data: undefined }),
   documentsByIdGet: async () => ({ data: undefined }),
@@ -39,9 +39,9 @@ mock.module("@/domains/chat/components/surfaces/surface-router", () => ({
 }));
 
 mock.module(
-  "@/domains/chat/components/activity-run-card/activity-run-card",
+  "@/domains/chat/components/multi-activity-group/multi-activity-group",
   () => ({
-    ActivityRunCard: ({
+    MultiActivityGroup: ({
       autoExpand,
       toolCalls,
       items,
@@ -83,12 +83,36 @@ mock.module(
   }),
 );
 
+// `SingleActivity` is the lone inline link for both a single tool call
+// (`variant="tool"`) and an assistant reasoning run (`variant="thinking"`).
+// Stub the tool variant to a lightweight chip carrying its id; render the
+// thinking variant faithfully enough for the label / no-op assertions (the
+// real component is exercised in `single-activity.test.tsx`).
 mock.module(
-  "@/domains/chat/components/inline-activity-link/inline-tool-link",
+  "@/domains/chat/components/single-activity/single-activity",
   () => ({
-    InlineToolLink: ({ toolCall }: { toolCall: { id: string } }) => (
-      <div data-testid="inline-tool-link" data-tool-call-id={toolCall.id} />
-    ),
+    SingleActivity: (
+      props:
+        | { variant: "thinking"; content: string; isStreaming?: boolean }
+        | { variant: "tool"; toolCall: { id: string } },
+    ) => {
+      if (props.variant === "tool") {
+        return (
+          <div
+            data-testid="inline-tool-link"
+            data-tool-call-id={props.toolCall.id}
+          />
+        );
+      }
+      const { content, isStreaming = false } = props;
+      // No-ops once settled with empty content (mirrors the real link).
+      if (!content && !isStreaming) return null;
+      return (
+        <div data-testid="thought-process-link">
+          {isStreaming ? "Thinking" : "Thought process"}
+        </div>
+      );
+    },
   }),
 );
 
@@ -885,7 +909,7 @@ describe("TranscriptMessageBody", () => {
       timestamp: 1_000,
     });
 
-    // THEN the reasoning renders as a completed ThoughtProcessLink
+    // THEN the reasoning renders as a completed SingleActivity
     expect(html).toContain("Thought process");
     expect(html).not.toContain("Thinking");
   });
@@ -1048,7 +1072,7 @@ describe("TranscriptMessageBody", () => {
     expect(container.querySelector("[data-activity-anchor]")).toBeNull();
   });
 
-  test("a pure-thinking run renders an inline ThoughtProcessLink, not a tool card", () => {
+  test("a pure-thinking run renders an inline SingleActivity, not a tool card", () => {
     // contentOrder carries a tool elsewhere so the interleaved branch is taken,
     // but the FIRST run before the text is pure thinking.
     const message: DisplayMessage = {
@@ -1074,7 +1098,7 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    // The pure-thinking run renders as the inline `ThoughtProcessLink`
+    // The pure-thinking run renders as the inline `SingleActivity`
     // ("Thought process"). The trailing lone bash tool run renders as the
     // compact inline chip, NOT a boxed tool card.
     expect(
