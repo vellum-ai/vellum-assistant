@@ -142,6 +142,11 @@ export interface PttEvent {
   state: HotkeyEventState;
 }
 
+export interface PttConfigState {
+  config: PttConfig;
+  isStored: boolean;
+}
+
 export type FnPushToTalkResult =
   | { ok: true; enabled: boolean }
   | { ok: false; reason: string };
@@ -332,6 +337,7 @@ declare global {
       };
       ptt?: {
         getConfig(): Promise<PttConfig>;
+        getConfigState?(): Promise<PttConfigState>;
         setConfig(config: PttConfig): Promise<PttConfig>;
         configure(config: PttConfig): Promise<PttRegistrationResult>;
         on(callback: (event: PttEvent) => void): () => void;

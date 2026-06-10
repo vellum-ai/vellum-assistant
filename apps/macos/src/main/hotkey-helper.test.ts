@@ -151,6 +151,9 @@ const invokeFnPushToTalkFrom = (enable: boolean, sender: FakeWebContents) =>
 const invokePttGetConfig = () =>
   handlers["vellum:ptt:getConfig"]({ sender: defaultSender }) as unknown;
 
+const invokePttGetConfigState = () =>
+  handlers["vellum:ptt:getConfigState"]({ sender: defaultSender }) as unknown;
+
 const invokePttSetConfig = (config: unknown) =>
   handlers["vellum:ptt:setConfig"](
     { sender: defaultSender },
@@ -220,6 +223,7 @@ describe("installHotkeyHelper", () => {
     expect(handlers["vellum:helper:state:get"]).toBeDefined();
     expect(handlers["vellum:helper:restart"]).toBeDefined();
     expect(handlers["vellum:ptt:getConfig"]).toBeDefined();
+    expect(handlers["vellum:ptt:getConfigState"]).toBeDefined();
     expect(handlers["vellum:ptt:setConfig"]).toBeDefined();
     expect(handlers["vellum:ptt:configure"]).toBeDefined();
     expect(handlers["vellum:helper:hotkey:fnPushToTalk"]).toBeDefined();
@@ -338,6 +342,10 @@ describe("installHotkeyHelper", () => {
       kind: "modifierOnly",
       modifiers: ["function"],
     });
+    expect(invokePttGetConfigState()).toEqual({
+      config: { kind: "modifierOnly", modifiers: ["function"] },
+      isStored: false,
+    });
 
     expect(invokePttSetConfig({ kind: "mouseButton", button: 4 })).toEqual({
       kind: "mouseButton",
@@ -345,6 +353,10 @@ describe("installHotkeyHelper", () => {
     });
     expect(hotkeysSetting.ptt).toEqual({ kind: "mouseButton", button: 4 });
     expect(invokePttGetConfig()).toEqual({ kind: "mouseButton", button: 4 });
+    expect(invokePttGetConfigState()).toEqual({
+      config: { kind: "mouseButton", button: 4 },
+      isStored: true,
+    });
   });
 
   test("configures generic push-to-talk through the helper process", async () => {

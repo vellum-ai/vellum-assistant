@@ -36,14 +36,14 @@ final class PttMonitor {
     private var runLoopSource: CFRunLoopSource?
     private var pressedModifiers = Set<PttModifier>()
     private var isDown = false
-    private var pendingModifierTimer: Timer?
+    private var pendingActivationTimer: Timer?
 
     init(emitState: @escaping (String) -> Void) {
         self.emitState = emitState
     }
 
     func setConfig(_ nextConfig: PttConfig) throws -> Bool {
-        cancelPendingModifierActivation()
+        cancelPendingActivation()
         if isDown {
             emitUp()
         }
@@ -59,7 +59,7 @@ final class PttMonitor {
     }
 
     func stop() {
-        cancelPendingModifierActivation()
+        cancelPendingActivation()
         if isDown {
             emitUp()
         }
@@ -153,19 +153,27 @@ final class PttMonitor {
         switch config {
         case let .modifierOnly(required):
             if modifierRequirementIsSatisfied(required) {
-                scheduleModifierActivation(required: required)
+                scheduleActivation { monitor in
+                    monitor.modifierRequirementIsSatisfied(required)
+                }
             } else {
-                cancelPendingModifierActivation()
+                cancelPendingActivation()
                 if isDown {
                     emitUp()
                 }
             }
         case .key:
-            if isDown && !pressedModifiers.isEmpty {
+            if !pressedModifiers.isEmpty {
+                cancelPendingActivation()
+            }
+            if isDown, !pressedModifiers.isEmpty {
                 emitUp()
             }
         case let .modifierKey(required, _):
-            if isDown && !modifierRequirementIsSatisfied(required) {
+            if !modifierRequirementIsSatisfied(required) {
+                cancelPendingActivation()
+            }
+            if isDown, !modifierRequirementIsSatisfied(required) {
                 emitUp()
             }
         default:
@@ -174,22 +182,30 @@ final class PttMonitor {
     }
 
     private func handleKeyDown(_ event: CGEvent) {
+        if event.getIntegerValueField(.keyboardEventAutorepeat) != 0 {
+            return
+        }
+
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         if modifierForKeyCode(keyCode) == nil {
-            cancelPendingModifierActivation()
+            cancelPendingActivation()
         }
 
         switch config {
         case let .key(requiredKeyCode):
             if keyCode == requiredKeyCode, pressedModifiers.isEmpty, !isDown {
-                emitDown()
+                scheduleActivation { monitor in
+                    monitor.pressedModifiers.isEmpty
+                }
             }
         case let .modifierKey(required, requiredKeyCode):
             if keyCode == requiredKeyCode,
                modifierRequirementIsSatisfied(required),
                !isDown
             {
-                emitDown()
+                scheduleActivation { monitor in
+                    monitor.modifierRequirementIsSatisfied(required)
+                }
             }
         default:
             break
@@ -200,11 +216,17 @@ final class PttMonitor {
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         switch config {
         case let .key(requiredKeyCode):
-            if keyCode == requiredKeyCode && isDown {
+            if keyCode == requiredKeyCode {
+                cancelPendingActivation()
+            }
+            if keyCode == requiredKeyCode, isDown {
                 emitUp()
             }
         case let .modifierKey(_, requiredKeyCode):
-            if keyCode == requiredKeyCode && isDown {
+            if keyCode == requiredKeyCode {
+                cancelPendingActivation()
+            }
+            if keyCode == requiredKeyCode, isDown {
                 emitUp()
             }
         default:
@@ -230,27 +252,27 @@ final class PttMonitor {
         }
     }
 
-    private func scheduleModifierActivation(required: Set<PttModifier>) {
-        if isDown || pendingModifierTimer != nil {
+    private func scheduleActivation(when condition: @escaping (PttMonitor) -> Bool) {
+        if isDown || pendingActivationTimer != nil {
             return
         }
-        pendingModifierTimer = Timer.scheduledTimer(
+        pendingActivationTimer = Timer.scheduledTimer(
             withTimeInterval: Self.holdDelaySeconds,
             repeats: false
         ) { [weak self] _ in
             guard let self else {
                 return
             }
-            self.pendingModifierTimer = nil
-            if self.modifierRequirementIsSatisfied(required), !self.isDown {
+            self.pendingActivationTimer = nil
+            if condition(self), !self.isDown {
                 self.emitDown()
             }
         }
     }
 
-    private func cancelPendingModifierActivation() {
-        pendingModifierTimer?.invalidate()
-        pendingModifierTimer = nil
+    private func cancelPendingActivation() {
+        pendingActivationTimer?.invalidate()
+        pendingActivationTimer = nil
     }
 
     private func emitDown() {

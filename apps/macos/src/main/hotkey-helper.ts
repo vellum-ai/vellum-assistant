@@ -44,6 +44,11 @@ export interface PttEvent {
   state: HotkeyEventState;
 }
 
+export interface PttConfigState {
+  config: PttConfig;
+  isStored: boolean;
+}
+
 export type FnPushToTalkResult =
   | { ok: true; enabled: boolean }
   | { ok: false; reason: string };
@@ -191,8 +196,19 @@ const parseStoredPttConfig = (raw: unknown): PttConfig => {
   return parsed.success ? normalizePttConfig(parsed.data) : DEFAULT_PTT_CONFIG;
 };
 
+const readPttConfigState = (): PttConfigState => {
+  const raw = readSetting("hotkeys")?.[PTT_HOTKEY_SETTING_KEY];
+  const parsed = PTT_CONFIG_SCHEMA.safeParse(raw);
+  return {
+    config: parsed.success
+      ? normalizePttConfig(parsed.data)
+      : DEFAULT_PTT_CONFIG,
+    isStored: parsed.success,
+  };
+};
+
 const readPttConfig = (): PttConfig =>
-  parseStoredPttConfig(readSetting("hotkeys")?.[PTT_HOTKEY_SETTING_KEY]);
+  readPttConfigState().config;
 
 const writePttConfig = (config: PttConfig): PttConfig => {
   const normalized = normalizePttConfig(config);
@@ -726,6 +742,7 @@ export const installHotkeyHelper = (): void => {
   handle("vellum:helper:restart", z.tuple([]), () => restartHelper());
 
   handle("vellum:ptt:getConfig", z.tuple([]), () => readPttConfig());
+  handle("vellum:ptt:getConfigState", z.tuple([]), () => readPttConfigState());
   handle(
     "vellum:ptt:setConfig",
     z.tuple([PTT_CONFIG_SCHEMA]),

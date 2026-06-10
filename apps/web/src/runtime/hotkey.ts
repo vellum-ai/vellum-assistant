@@ -44,17 +44,49 @@ export function getDefaultPushToTalkConfig(): PTTActivator {
   return supportsNativePushToTalk() ? FN_PTT_ACTIVATOR : NONE_PTT_ACTIVATOR;
 }
 
-export function getLocalPushToTalkConfig(): PTTActivator {
+function getStoredLocalPushToTalkConfig(
+  preserveFunction: boolean,
+): PTTActivator | null {
   const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
-  return raw
-    ? parseActivator(raw, { preserveFunction: supportsNativePushToTalk() })
-    : getDefaultPushToTalkConfig();
+  return raw ? parseActivator(raw, { preserveFunction }) : null;
+}
+
+function cacheLocalPushToTalkConfig(config: PTTActivator): void {
+  setLocalSetting(LS_PTT_ACTIVATION_KEY, serializeActivator(config));
+}
+
+export function getLocalPushToTalkConfig(): PTTActivator {
+  return (
+    getStoredLocalPushToTalkConfig(supportsNativePushToTalk()) ??
+    getDefaultPushToTalkConfig()
+  );
 }
 
 export async function getPushToTalkConfig(): Promise<PTTActivator> {
   const bridge = pttBridge();
   if (supportsNativePushToTalk() && bridge) {
-    return parseActivator(await bridge.getConfig(), { preserveFunction: true });
+    if (bridge.getConfigState) {
+      const state = await bridge.getConfigState();
+      if (!state.isStored) {
+        const legacy = getStoredLocalPushToTalkConfig(true);
+        if (legacy) {
+          const migrated = parseActivator(
+            await bridge.setConfig(legacy as PttConfig),
+            { preserveFunction: true },
+          );
+          cacheLocalPushToTalkConfig(migrated);
+          return migrated;
+        }
+      }
+      const config = parseActivator(state.config, { preserveFunction: true });
+      cacheLocalPushToTalkConfig(config);
+      return config;
+    }
+    const config = parseActivator(await bridge.getConfig(), {
+      preserveFunction: true,
+    });
+    cacheLocalPushToTalkConfig(config);
+    return config;
   }
   return getLocalPushToTalkConfig();
 }
@@ -64,9 +96,11 @@ export async function setPushToTalkConfig(
 ): Promise<PTTActivator> {
   const bridge = pttBridge();
   if (supportsNativePushToTalk() && bridge) {
-    return parseActivator(await bridge.setConfig(config as PttConfig), {
+    const saved = parseActivator(await bridge.setConfig(config as PttConfig), {
       preserveFunction: true,
     });
+    cacheLocalPushToTalkConfig(saved);
+    return saved;
   }
   setLocalSetting(LS_PTT_ACTIVATION_KEY, serializeActivator(config));
   return config;

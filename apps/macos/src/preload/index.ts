@@ -130,6 +130,11 @@ export interface PttEvent {
   state: HotkeyEventState;
 }
 
+export interface PttConfigState {
+  config: PttConfig;
+  isStored: boolean;
+}
+
 export type FnPushToTalkResult =
   | { ok: true; enabled: boolean }
   | { ok: false; reason: string };
@@ -358,6 +363,8 @@ export interface VellumBridge {
   ptt: {
     /** Read the structured push-to-talk activator from settings.hotkeys.ptt. */
     getConfig(): Promise<PttConfig>;
+    /** Read the PTT activator plus whether it is explicitly stored. */
+    getConfigState(): Promise<PttConfigState>;
     /** Persist the structured push-to-talk activator to settings.hotkeys.ptt. */
     setConfig(config: PttConfig): Promise<PttConfig>;
     /**
@@ -744,6 +751,10 @@ const bridge: VellumBridge = {
   ptt: {
     getConfig: (): Promise<PttConfig> =>
       ipcRenderer.invoke("vellum:ptt:getConfig") as Promise<PttConfig>,
+    getConfigState: (): Promise<PttConfigState> =>
+      ipcRenderer.invoke(
+        "vellum:ptt:getConfigState",
+      ) as Promise<PttConfigState>,
     setConfig: (config: PttConfig): Promise<PttConfig> =>
       ipcRenderer.invoke("vellum:ptt:setConfig", config) as Promise<PttConfig>,
     configure: (config: PttConfig): Promise<PttRegistrationResult> =>
