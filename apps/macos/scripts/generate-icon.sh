@@ -252,9 +252,9 @@ echo "generate-icon: wrote $OUTPUT_DIR/icon.icns ($VELLUM_ENVIRONMENT)"
 # serves as CFBundleIconFile fallback. Assets.car (CFBundleIconName) takes priority
 # in Finder, providing proper rounded display on all macOS versions.
 ICON_BUNDLE_DIR=$(mktemp -d)/AppIcon.icon
-mkdir -p "$ICON_BUNDLE_DIR/Assets"
+mkdir -p "$ICON_BUNDLE_DIR"
 cp "$ICON_SOURCE_DIR/icon.json" "$ICON_BUNDLE_DIR/icon.json"
-cp -R "$ICON_SOURCE_DIR/Assets/" "$ICON_BUNDLE_DIR/Assets/"
+cp -R "$ICON_SOURCE_DIR/Assets" "$ICON_BUNDLE_DIR/Assets"
 
 ACTOOL_MAX_ATTEMPTS=3
 ACTOOL_SUCCESS=0
