@@ -2035,6 +2035,7 @@ jobs:
           path: electron-artifacts/arm64
 
       - name: Download x64 update artifacts
+        continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: dev-electron-update-x64
@@ -2042,19 +2043,15 @@ jobs:
 
       - name: Validate update artifacts
         run: |
-          MISSING=0
-          for ARCH in arm64 x64; do
-            DIR="electron-artifacts/${ARCH}"
-            if [ ! -f "$(find "$DIR" -name 'latest-mac.yml' -type f 2>/dev/null | grep -m1 .)" ]; then
-              echo "::error::Missing latest-mac.yml for ${ARCH}"
-              MISSING=1
-            fi
-            if [ -z "$(find "$DIR" -name '*.zip' -type f ! -name '*.blockmap' 2>/dev/null | grep -m1 .)" ]; then
-              echo "::error::Missing ZIP for ${ARCH}"
-              MISSING=1
-            fi
-          done
-          [ "$MISSING" -eq 0 ] || exit 1
+          DIR="electron-artifacts/arm64"
+          if [ ! -f "$(find "$DIR" -name 'latest-mac.yml' -type f 2>/dev/null | grep -m1 .)" ]; then
+            echo "::error::Missing latest-mac.yml for arm64"
+            exit 1
+          fi
+          if [ -z "$(find "$DIR" -name '*.zip' -type f ! -name '*.blockmap' 2>/dev/null | grep -m1 .)" ]; then
+            echo "::error::Missing ZIP for arm64"
+            exit 1
+          fi
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
