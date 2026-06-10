@@ -7,6 +7,10 @@ import {
 } from "@vellumai/design-library/components/notice";
 
 import {
+  type LocalAssistantHealth,
+  useLocalAssistantHealth,
+} from "@/assistant/local-health";
+import {
   isHealthyOperationalStatus,
   type AssistantOperationalState,
   type AssistantOperationalStatus,
@@ -82,6 +86,25 @@ function operationalStatusBannerConfig(
   }
 }
 
+function localHealthBannerConfig(
+  health: LocalAssistantHealth | null,
+): BannerConfig | null {
+  switch (health) {
+    case "unreachable":
+      return {
+        tone: "error",
+        title: "Assistant is unreachable",
+      };
+    case "unhealthy":
+      return {
+        tone: "warning",
+        title: "Assistant is unhealthy",
+      };
+    default:
+      return null;
+  }
+}
+
 function BannerNotice({
   banner,
   className,
@@ -111,6 +134,10 @@ function useAssistantBannerConfig(): BannerConfig | null {
     useAssistantLifecycleStore.use.operationalStatusAssistantId();
   const assistantId = operationalStatusAssistantId ?? activeAssistantId;
   const statusQuery = useAssistantOperationalStatus(assistantId);
+  // Non-null only for local / self-hosted assistants, where the
+  // platform's operational status never polls and the daemon's own
+  // health-check API is the only signal.
+  const localHealth = useLocalAssistantHealth(activeAssistantId);
 
   if (electron && connectivityState === "device-offline") {
     return {
@@ -139,6 +166,11 @@ function useAssistantBannerConfig(): BannerConfig | null {
         </Button>
       ),
     };
+  }
+
+  const localHealthBanner = localHealthBannerConfig(localHealth);
+  if (localHealthBanner) {
+    return localHealthBanner;
   }
 
   if (statusQuery.isError) {

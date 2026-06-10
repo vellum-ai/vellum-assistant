@@ -17,6 +17,8 @@ let operationalStatusQueryMock: {
   data: null,
   isError: false,
 };
+let localHealthMock: "healthy" | "unhealthy" | "unreachable" | null = null;
+let requestedLocalHealthAssistantId: string | null | undefined;
 let StatusBanner: ComponentType<{ className?: string }>;
 
 mock.module("@/runtime/native-auth", () => ({
@@ -46,6 +48,13 @@ mock.module("@/assistant/operational-status", () => ({
   useAssistantOperationalStatus: (assistantId: string | null) => {
     requestedOperationalStatusAssistantId = assistantId;
     return operationalStatusQueryMock;
+  },
+}));
+
+mock.module("@/assistant/local-health", () => ({
+  useLocalAssistantHealth: (assistantId: string | null) => {
+    requestedLocalHealthAssistantId = assistantId;
+    return localHealthMock;
   },
 }));
 
@@ -103,6 +112,8 @@ beforeEach(() => {
     data: null,
     isError: false,
   };
+  localHealthMock = null;
+  requestedLocalHealthAssistantId = undefined;
 });
 
 describe("StatusBanner", () => {
@@ -187,6 +198,51 @@ describe("StatusBanner", () => {
 
     expect(html).toContain("Assistant status is unavailable");
     expect(html).toContain('data-tone="error"');
+  });
+
+  describe("local assistant health", () => {
+    test("polls local health for the active assistant", () => {
+      renderToStaticMarkup(<StatusBanner />);
+
+      expect(requestedLocalHealthAssistantId).toBe("assistant-123");
+    });
+
+    test("renders nothing when the local assistant is healthy", () => {
+      localHealthMock = "healthy";
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      expect(html).toBe("");
+    });
+
+    test("renders an error banner when the local assistant is unreachable", () => {
+      localHealthMock = "unreachable";
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      expect(html).toContain("Assistant is unreachable");
+      expect(html).toContain('data-tone="error"');
+    });
+
+    test("renders a warning banner when the local assistant is unhealthy", () => {
+      localHealthMock = "unhealthy";
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      expect(html).toContain("Assistant is unhealthy");
+      expect(html).toContain('data-tone="warning"');
+    });
+
+    test("renders device-offline banner before local health", () => {
+      isElectronMock = true;
+      connectivityStateMock = "device-offline";
+      localHealthMock = "unreachable";
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      expect(html).toContain("offline");
+      expect(html).not.toContain("unreachable");
+    });
   });
 
   describe("Capacitor iOS", () => {
