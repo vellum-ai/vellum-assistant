@@ -404,14 +404,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "balanced-economy-profile",
-      "scope": "assistant",
-      "key": "balanced-economy-profile",
-      "label": "Balanced Economy Profile",
-      "description": "Controls availability of the built-in Balanced Economy (Kimi K2.6 via Fireworks) inference profile. When disabled, the profile is removed from the effective profile set and profile pickers, and an active selection falls back to Balanced. Enabled by default; acts as a remote kill switch.",
-      "defaultEnabled": true
-    },
-    {
       "id": "self-intro-greeting",
       "scope": "both",
       "key": "self-intro-greeting",
