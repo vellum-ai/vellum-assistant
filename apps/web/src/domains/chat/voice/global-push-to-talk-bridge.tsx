@@ -16,6 +16,7 @@ import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
 import { usePushToTalk } from "@/domains/chat/voice/use-push-to-talk";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { insertTextIntoFrontApp } from "@/runtime/text-insertion";
+import { showTranscriptionOverlay } from "@/runtime/transcription-overlay";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -86,6 +87,9 @@ export function GlobalPushToTalkBridge({
         : null;
       if (dictationResult?.mode === "dictation" && dictationResult.text) {
         insertText = dictationResult.text;
+      }
+      if (insertText.trim()) {
+        void showTranscriptionOverlay({ transcript: insertText });
       }
 
       const frontAppInsertion = await insertTextIntoFrontApp(insertText);
