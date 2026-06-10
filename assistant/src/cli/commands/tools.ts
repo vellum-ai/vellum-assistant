@@ -21,7 +21,9 @@ interface ToolListEntry {
   source: string;
 }
 
-interface ToolsListResponse {
+interface ToolsGetResponse {
+  names: string[];
+  schemas: Record<string, unknown>;
   tools: ToolListEntry[];
 }
 
@@ -54,7 +56,7 @@ Examples:
         )
         .option("--json", "Emit machine-readable JSON instead of a table")
         .action(async (opts: { json?: boolean }) => {
-          const response = await cliIpcCall<ToolsListResponse>("tools_list");
+          const response = await cliIpcCall<ToolsGetResponse>("tools_get");
           if (!response.ok) {
             return exitFromIpcResult(response);
           }

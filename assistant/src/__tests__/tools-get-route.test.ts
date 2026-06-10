@@ -1,10 +1,11 @@
 /**
- * Tests for the `tools/list` route handler (operationId `tools_list`),
- * which backs the `assistant tools list` CLI command. It returns every
- * registered tool with its description, author-asserted risk band,
- * category, and the source (core / skill / plugin / mcp) that contributed
- * it — with the source read from the registry's ownership map rather than
- * off the tool object.
+ * Tests for the `tools` route handler (operationId `tools_get`), which backs
+ * both the macOS permission-simulator catalog (`names`/`schemas`) and the
+ * `assistant tools list` CLI command (`tools`). The `tools` array carries
+ * every registered tool with its description, author-asserted risk band,
+ * category, and the source (core / skill / plugin / mcp) that contributed it
+ * — with the source read from the registry's ownership map rather than off
+ * the tool object.
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
@@ -28,6 +29,12 @@ interface ToolListEntry {
   source: string;
 }
 
+interface ToolsGetResponse {
+  names: string[];
+  schemas: Record<string, unknown>;
+  tools: ToolListEntry[];
+}
+
 function makeFakeTool(name: string, extras: Partial<Tool> = {}): Tool {
   return {
     name,
@@ -48,15 +55,15 @@ function makeFakeTool(name: string, extras: Partial<Tool> = {}): Tool {
 
 const handler = (() => {
   const route = ROUTES.find(
-    (r) => r.endpoint === "tools/list" && r.method === "GET",
+    (r) => r.endpoint === "tools" && r.method === "GET",
   );
   if (!route) {
-    throw new Error("No route found for GET tools/list");
+    throw new Error("No route found for GET tools");
   }
   return route.handler;
 })();
 
-describe("GET /tools/list", () => {
+describe("GET /tools", () => {
   beforeEach(() => {
     __resetRegistryForTesting();
   });
@@ -72,15 +79,22 @@ describe("GET /tools/list", () => {
     );
     registerTool(makeFakeTool("a_core_tool"));
 
-    // WHEN the tools/list handler runs
-    const { tools } = (await handler({})) as { tools: ToolListEntry[] };
+    // WHEN the tools handler runs
+    const { names, schemas, tools } = (await handler({})) as ToolsGetResponse;
 
-    // THEN our tools are present, sorted by name, with full metadata
-    const names = tools.map((t) => t.name);
-    expect(names.indexOf("a_core_tool")).toBeLessThan(
-      names.indexOf("b_core_tool"),
+    // THEN the catalog fields the permission simulator reads are present
+    expect(names).toContain("a_core_tool");
+    expect(names).toContain("b_core_tool");
+    expect(schemas.a_core_tool).toBeDefined();
+
+    // AND the metadata array is sorted by name with full per-tool metadata
+    const toolNames = tools.map((t) => t.name);
+    expect(toolNames.indexOf("a_core_tool")).toBeLessThan(
+      toolNames.indexOf("b_core_tool"),
     );
-    expect([...names]).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+    expect([...toolNames]).toEqual(
+      [...toolNames].sort((a, b) => a.localeCompare(b)),
+    );
 
     // AND each core tool reports "core" as its source plus its metadata
     const beta = tools.find((t) => t.name === "b_core_tool");
@@ -99,8 +113,8 @@ describe("GET /tools/list", () => {
     registerMcpTools("linear", [makeFakeTool("m_tool")]);
     registerSkillTools("my-skill", [makeFakeTool("s_tool")]);
 
-    // WHEN the tools/list handler runs
-    const { tools } = (await handler({})) as { tools: ToolListEntry[] };
+    // WHEN the tools handler runs
+    const { tools } = (await handler({})) as ToolsGetResponse;
 
     // THEN each tool's source encodes its owning extension
     const sourceOf = (name: string) =>

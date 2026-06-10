@@ -24689,22 +24689,11 @@ paths:
   /v1/tools:
     get:
       operationId: tools_get
-      summary: List tool names and schemas
+      summary: List registered tools with metadata and schemas
       description:
-        Return available tool names with their input schemas. For tool metadata (description, risk level, category,
-        source), use the tools/list route.
-      tags:
-        - tools
-      responses:
-        "200":
-          description: Successful response
-  /v1/tools/list:
-    get:
-      operationId: tools_list_get
-      summary: List registered tools with metadata
-      description:
-        Return every registered tool with its description, author-asserted risk level, category, and contributing
-        source (core, skill, plugin, or MCP server).
+        "Return every registered tool. `tools` carries per-tool metadata (description, author-asserted risk level,
+        category, and contributing source: core, skill, plugin, or MCP server). `names`/`schemas` additionally cover
+        skill tools whose manifests are present but not yet loaded, for the permission-simulator catalog."
       tags:
         - tools
       responses:
@@ -24715,6 +24704,19 @@ paths:
               schema:
                 type: object
                 properties:
+                  names:
+                    type: array
+                    items:
+                      type: string
+                  schemas:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: object
+                      propertyNames:
+                        type: string
+                      additionalProperties: {}
                   tools:
                     type: array
                     items:
@@ -24741,6 +24743,8 @@ paths:
                         - source
                       additionalProperties: false
                 required:
+                  - names
+                  - schemas
                   - tools
                 additionalProperties: false
   /v1/tools/simulate-permission:

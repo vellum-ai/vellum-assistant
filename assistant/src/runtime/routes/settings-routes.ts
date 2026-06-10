@@ -416,7 +416,7 @@ function handleToolNamesList() {
   }
 
   const names = Array.from(nameSet).sort((a, b) => a.localeCompare(b));
-  return { names, schemas };
+  return { names, schemas, tools: buildRegisteredToolEntries() };
 }
 
 interface ToolListEntry {
@@ -434,9 +434,11 @@ interface ToolListEntry {
  * extension that contributed the tool. Ownership is read from the registry
  * (the single source of truth) rather than off the `Tool` object, so it
  * cannot be spoofed by a manifest field. Sorted by name for stable output.
+ * Covers only tools loaded into the registry; skill tools whose manifests
+ * are present but not yet loaded appear in `names`/`schemas` but not here.
  */
-function handleToolsList(): { tools: ToolListEntry[] } {
-  const tools = getAllTools()
+function buildRegisteredToolEntries(): ToolListEntry[] {
+  return getAllTools()
     .map((tool) => {
       const owner = getToolOwner(tool.name);
       return {
@@ -448,7 +450,6 @@ function handleToolsList(): { tools: ToolListEntry[] } {
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));
-  return { tools };
 }
 
 async function handleToolPermissionSimulate({ body = {} }: RouteHandlerArgs) {
@@ -795,25 +796,13 @@ export const ROUTES: RouteDefinition[] = [
       requiredScopes: ["settings.read"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
-    summary: "List tool names and schemas",
+    summary: "List registered tools with metadata and schemas",
     description:
-      "Return available tool names with their input schemas. For tool metadata (description, risk level, category, source), use the tools/list route.",
-    tags: ["tools"],
-    handler: () => handleToolNamesList(),
-  },
-  {
-    operationId: "tools_list",
-    endpoint: "tools/list",
-    method: "GET",
-    policy: {
-      requiredScopes: ["settings.read"],
-      allowedPrincipalTypes: ACTOR_PRINCIPALS,
-    },
-    summary: "List registered tools with metadata",
-    description:
-      "Return every registered tool with its description, author-asserted risk level, category, and contributing source (core, skill, plugin, or MCP server).",
+      "Return every registered tool. `tools` carries per-tool metadata (description, author-asserted risk level, category, and contributing source: core, skill, plugin, or MCP server). `names`/`schemas` additionally cover skill tools whose manifests are present but not yet loaded, for the permission-simulator catalog.",
     tags: ["tools"],
     responseBody: z.object({
+      names: z.array(z.string()),
+      schemas: z.record(z.string(), z.record(z.string(), z.unknown())),
       tools: z.array(
         z.object({
           name: z.string(),
@@ -828,7 +817,7 @@ export const ROUTES: RouteDefinition[] = [
         }),
       ),
     }),
-    handler: () => handleToolsList(),
+    handler: () => handleToolNamesList(),
   },
   {
     operationId: "tools_simulate_permission_post",
