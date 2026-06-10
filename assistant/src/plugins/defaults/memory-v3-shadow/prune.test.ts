@@ -6,15 +6,17 @@
  *     surviving its prune;
  *   - `planPrune`: no-op below the cap, oldest-first selection-recency
  *     ranking down to the target, core/hot exemption, `injected_at` fallback,
- *     zero-byte (fork-seed) rows skipped, unlocatable slugs excluded from
- *     candidacy AND the freeable measure (no loop-fire), idempotence below
- *     the cap;
+ *     zero-byte (capability / fork-seed) rows skipped, idempotence below the
+ *     cap;
  *   - `runPruneValve` + the live strip: v3-owned blocks stripped in place,
  *     v2-lookalike blocks untouched, all-pruned blocks removed, and the
  *     rehydration filter (the same `filterPrunedCardSections` over persisted
  *     metadata) converging to the same bytes;
  *   - re-injection round-trip: `recordInjected` clears `pruned_at`, after
  *     which the filter keeps the slug again;
+ *   - accounting-drift regression: a slug with recorded bytes but no
+ *     locatable persisted card section is tombstoned in ONE pass and the
+ *     valve does not loop-fire afterwards;
  *   - `schedulePruneValve` deferred execution via `flushPruneValveForTests`.
  *
  * `mock.module` is process-global and leaks into sibling files in a directory
@@ -248,18 +250,6 @@ describe("planPrune", () => {
     maxResidentBytes: 300,
     targetResidentBytes: 200,
     exemptSlugs: new Set<string>(),
-    // Every concept slug these tests record, locatable by default; the
-    // unlocatable-exclusion tests override this per-case.
-    locatableSlugs: new Set([
-      "page-a",
-      "page-b",
-      "page-c",
-      "page-d",
-      "page-old",
-      "page-new",
-      "core-page",
-      "seeded",
-    ]),
   };
 
   test("no-op below (or at) the cap", () => {
@@ -337,11 +327,12 @@ describe("planPrune", () => {
     expect(plan!.slugs).toEqual(["page-b", "page-c"]);
   });
 
-  test("zero-byte fork-seed rows are skipped (pruning them frees nothing)", () => {
+  test("zero-byte rows (capability slugs, fork seeds) are skipped (pruning them frees nothing)", () => {
     recordInjected(
       "conv-1",
       [
         { slug: "seeded", bytes: 0 },
+        { slug: "skills/meet-join", bytes: 0 },
         { slug: "page-b", bytes: 400 },
       ],
       1_000,
@@ -356,43 +347,6 @@ describe("planPrune", () => {
     expect(
       planPrune({ ...deps, exemptSlugs: new Set(["core-page"]) }, "conv-1"),
     ).toBeNull();
-  });
-
-  test("unlocatable slugs (capability rows, drift) are invisible: no loop-fire against unfreeable bytes", () => {
-    // A capability row's bytes can never be stripped from context, so they
-    // must not count toward the freeable footprint — even when they alone
-    // push the raw store total over the cap.
-    recordInjected(
-      "conv-1",
-      [
-        { slug: "skills/meet-join", bytes: 500 }, // not locatable
-        { slug: "page-a", bytes: 100 },
-      ],
-      1_000,
-    );
-    expect(planPrune(deps, "conv-1")).toBeNull();
-    expect(getPrunedSlugs("conv-1").size).toBe(0);
-  });
-
-  test("plans down to the target over freeable bytes only, never tombstoning unlocatable slugs", () => {
-    recordInjected(
-      "conv-1",
-      [
-        { slug: "skills/meet-join", bytes: 500 }, // not locatable
-        { slug: "page-a", bytes: 200 },
-        { slug: "page-b", bytes: 200 },
-      ],
-      1_000,
-    );
-    insertSelection("conv-1", 0, "page-a", 1_000);
-    insertSelection("conv-1", 0, "page-b", 2_000);
-
-    // Freeable resident = 400 > max 300; pruning page-a reaches the 200
-    // target. The 500 unfreeable bytes neither inflate the measure (which
-    // would over-tombstone real cards chasing an unreachable target) nor
-    // enter candidacy.
-    const plan = planPrune(deps, "conv-1");
-    expect(plan).toEqual({ slugs: ["page-a"], bytesFreed: 200 });
   });
 });
 
@@ -509,7 +463,7 @@ describe("stripPrunedCardsFromMessages", () => {
 });
 
 describe("collectPersistedV3Cards", () => {
-  test("collects card sections AND locatable slugs from persisted v3 metadata, skipping malformed rows", () => {
+  test("collects card sections from persisted v3 metadata, skipping malformed rows", () => {
     insertUserRowWithV3Block(
       "conv-1",
       "m1",
@@ -529,24 +483,22 @@ describe("collectPersistedV3Cards", () => {
       )
       .run();
 
-    const collected = collectPersistedV3Cards("conv-1");
-    expect(collected.sections).toEqual(
+    expect(collectPersistedV3Cards("conv-1")).toEqual(
       new Set([card("page-a"), card("page-b")]),
     );
-    expect(collected.slugs).toEqual(new Set(["page-a", "page-b"]));
-    expect(collectPersistedV3Cards("conv-other").sections.size).toBe(0);
+    expect(collectPersistedV3Cards("conv-other").size).toBe(0);
   });
 
-  test("capability chunks contribute neither a section nor a locatable slug", () => {
+  test("capability chunks contribute no section (they are non-card chunks)", () => {
     insertUserRowWithV3Block(
       "conv-1",
       "m1",
       renderCardsBlockInner([card("page-a"), CAPABILITY_CHUNK]),
     );
 
-    const collected = collectPersistedV3Cards("conv-1");
-    expect(collected.sections).toEqual(new Set([card("page-a")]));
-    expect(collected.slugs).toEqual(new Set(["page-a"]));
+    expect(collectPersistedV3Cards("conv-1")).toEqual(
+      new Set([card("page-a")]),
+    );
   });
 });
 
@@ -574,10 +526,10 @@ describe("runPruneValve", () => {
     ).toBeNull();
   });
 
-  test("unfreeable capability bytes over the raw cap: no-op, nothing tombstoned", async () => {
-    // The capability row inflates the store total past the cap, but its
-    // content has no locatable card section — the valve must not loop-fire
-    // (tombstoning real cards turn after turn against an unreachable target).
+  test("zero-byte capability rows never trigger the valve (the injector's bytes:0 contract)", async () => {
+    // Capability content can never be located/stripped by slug, so the
+    // injector records capability slugs at zero bytes — they contribute
+    // nothing to the resident measure and are never candidates.
     insertUserRowWithV3Block(
       "conv-1",
       "m1",
@@ -587,7 +539,7 @@ describe("runPruneValve", () => {
       "conv-1",
       [
         { slug: "page-a", bytes: 100 },
-        { slug: "skills/meet-join", bytes: 500 },
+        { slug: "skills/meet-join", bytes: 0 },
       ],
       1_000,
     );
@@ -596,10 +548,66 @@ describe("runPruneValve", () => {
     expect(
       await runPruneValve("conv-1", { exemptSlugs: new Set() }),
     ).toBeNull();
-    expect(
-      await runPruneValve("conv-1", { exemptSlugs: new Set() }),
-    ).toBeNull();
     expect(getPrunedSlugs("conv-1").size).toBe(0);
+  });
+
+  test("accounting drift (bytes recorded, no locatable section) is tombstoned in ONE pass — no loop-fire", async () => {
+    // Regression: a slug whose recorded bytes have no locatable persisted
+    // card section (e.g. its metadata row was lost) pushes the store total
+    // over the cap. The valve tombstones it like any candidate — the strip
+    // finds nothing to remove, but the tombstone removes its bytes from the
+    // resident accounting, so the very next pass is a no-op rather than the
+    // valve loop-firing against bytes it cannot free.
+    const inner = renderCardsBlockInner([card("page-a")]);
+    insertUserRowWithV3Block("conv-1", "m1", inner);
+    recordInjected(
+      "conv-1",
+      [
+        { slug: "page-drifted", bytes: 500 }, // no persisted section anywhere
+        { slug: "page-a", bytes: 100 },
+      ],
+      1_000,
+    );
+    insertSelection("conv-1", 0, "page-drifted", 1_000);
+    insertSelection("conv-1", 0, "page-a", 2_000);
+
+    const liveMessages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: wrapMemoryBlock(inner) },
+          { type: "text", text: "turn 1" },
+        ],
+      },
+    ];
+
+    // Resident 600 > max 300; tombstoning the drifted slug's 500 bytes
+    // reaches the 200 target in one pass without touching page-a.
+    pruneConfig = { maxResidentBytes: 300, targetResidentBytes: 200 };
+    const plan = await runPruneValve("conv-1", {
+      exemptSlugs: new Set(),
+      liveMessages: () => liveMessages,
+      now: 9_000,
+    });
+    expect(plan).toEqual({ slugs: ["page-drifted"], bytesFreed: 500 });
+    expect(getActiveSlugs("conv-1")).toEqual(new Set(["page-a"]));
+
+    // The live history is untouched — the drifted slug had no card section
+    // to strip, and page-a was not pruned.
+    expect(liveMessages[0]!.content).toEqual([
+      { type: "text", text: wrapMemoryBlock(inner) },
+      { type: "text", text: "turn 1" },
+    ]);
+
+    // One pass self-heals the accounting: the next run is a no-op (no
+    // loop-fire), with nothing further tombstoned.
+    expect(
+      await runPruneValve("conv-1", {
+        exemptSlugs: new Set(),
+        liveMessages: () => liveMessages,
+      }),
+    ).toBeNull();
+    expect(getPrunedSlugs("conv-1")).toEqual(new Set(["page-drifted"]));
   });
 
   test("over the cap: marks pruned, strips the live history, and converges with rehydration", async () => {

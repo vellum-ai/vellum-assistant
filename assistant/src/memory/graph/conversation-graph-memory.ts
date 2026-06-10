@@ -385,6 +385,22 @@ export class ConversationGraphMemory {
   }
 
   /**
+   * The unwrapped text of the dynamic memory block the last retrieval
+   * injected (the v2 router block, or the v1 context block on legacy
+   * configs), or `null` when the last retrieval injected nothing.
+   *
+   * Runtime assembly reads this as the IDENTITY of the v2 dynamic `<memory>`
+   * block when memory-v3 supersedes the v2 layer: v2's block and v3's frozen
+   * card blocks deliberately share the same wrapper AND leading instruction
+   * header bytes, so the tail strip must match the exact block this handle
+   * prepended (`prepareMemory` → `injectTextBlock`, or a convergence
+   * re-injection of the same cached text) rather than any shared prefix.
+   */
+  get lastInjectedBlockText(): string | null {
+    return this.lastInjectedBlock;
+  }
+
+  /**
    * Main entry point — called on every turn before the LLM sees the messages.
    *
    * Dispatches to the appropriate retrieval mode:

@@ -20,11 +20,20 @@
  * (fallback-to-v2). The flag-off path must be byte-for-byte identical to
  * today — that is the load-bearing regression guard. `applyRuntimeInjections`
  * reads the flag itself, so these tests drive it through the override cache.
+ *
+ * The strip discriminates v2's dynamic block by IDENTITY, not by prefix: v2's
+ * `INJECTION_HEADER` and v3's `V3_CARDS_INJECTION_HEADER` are deliberately
+ * byte-identical, and v2's router block leads with that header whenever any
+ * summary section is present, so no prefix can tell the layers apart. The
+ * identity — the exact text v2 prepended this turn — is read off the live
+ * graph-memory handle, which these tests register and seed per test.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { wrapMemorySpotlightBlock } from "../memory/memory-marker.js";
+import { INJECTION_HEADER } from "../memory/v2/injection.js";
 import { V3_CARDS_INJECTION_HEADER } from "../plugins/defaults/memory-v3-shadow/render-injection.js";
 import { MEMORY_V3_COMMIT_META_KEY } from "../plugins/defaults/memory-v3-shadow/types.js";
 import type {
@@ -53,6 +62,23 @@ function makeTurnContext(): TurnContext {
     turnIndex: 0,
     trust: { sourceChannel: "vellum", trustClass: "guardian" },
   };
+}
+
+/** Live graph handles registered by the current test (disposed afterwards). */
+const seededGraphs: ConversationGraphMemory[] = [];
+
+/**
+ * Register a live graph-memory handle for `conv-test-1` whose last retrieval
+ * injected `text` — the identity the suppression strip resolves via
+ * `getLiveGraphMemory(conversationId)?.lastInjectedBlockText`. The production
+ * setter is `prepareMemory` (which needs a live DB), so the cached block is
+ * seeded directly through the private field.
+ */
+function seedV2Identity(text: string | null): void {
+  const graph = new ConversationGraphMemory("conv-test-1");
+  (graph as unknown as { lastInjectedBlock: string | null }).lastInjectedBlock =
+    text;
+  seededGraphs.push(graph);
 }
 
 /**
@@ -120,9 +146,15 @@ describe("memory-v3-live v2 suppression", () => {
     setOverridesForTesting({});
   });
 
+  afterEach(() => {
+    for (const graph of seededGraphs) graph.dispose();
+    seededGraphs.length = 0;
+  });
+
   test("flag ON + v3 produced a block → TAIL v2 stripped, historical memory blocks frozen in place", async () => {
     setOverridesForTesting({ "memory-v3-live": true });
     injectorChainSlot.push(v3Injector("net-new cards"));
+    seedV2Identity("fresh recalled fact");
 
     // History: a prior user turn carrying a frozen memory block (a v3 card
     // block or a pre-cutover v2 block — same wrapper), plus the current tail
@@ -164,6 +196,7 @@ describe("memory-v3-live v2 suppression", () => {
   test("flag ON + EMPTY-TEXT v3 block (all-repeat turn) → tail v2 stripped, nothing attached", async () => {
     setOverridesForTesting({ "memory-v3-live": true });
     injectorChainSlot.push(v3Injector(""));
+    seedV2Identity("fresh recalled fact");
 
     const runMessages: Message[] = [
       userMsgWithV2Memory("fresh recalled fact", "current question"),
@@ -225,8 +258,11 @@ describe("memory-v3-live v2 suppression", () => {
     // in the everInjected store, so the injector produces an EMPTY block —
     // while the tail still carries the v3 card block frozen on first entry
     // (leading the content because no workspace / <turn_context> prepend
-    // fired this turn) plus the <info> static block.
+    // fired this turn) plus the <info> static block. The graph handle still
+    // holds this turn's v2 identity (stripped on first entry, so absent from
+    // the tail) — it must not match the frozen cards.
     injectorChainSlot.push(v3Injector(""));
+    seedV2Identity("fresh recalled fact");
 
     const frozenV3Block = `<memory>\n${V3_CARDS_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead\n</memory>`;
     const infoBlock = "<info>\nstatic memory\n</info>";
@@ -258,6 +294,7 @@ describe("memory-v3-live v2 suppression", () => {
   test("first entry with a v2 prefix AND a frozen v3 block strips ONLY the v2 block", async () => {
     setOverridesForTesting({ "memory-v3-live": true });
     injectorChainSlot.push(v3Injector(""));
+    seedV2Identity("fresh recalled fact");
 
     const frozenV3Block = `<memory>\n${V3_CARDS_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead\n</memory>`;
     const runMessages: Message[] = [
@@ -279,6 +316,117 @@ describe("memory-v3-live v2 suppression", () => {
       frozenV3Block,
       "current question",
     ]);
+  });
+
+  test("REGRESSION: a v2 block leading with the REAL summary header (byte-identical to v3's) is stripped; v3 cards and <info> survive (first entry)", async () => {
+    setOverridesForTesting({ "memory-v3-live": true });
+    injectorChainSlot.push(v3Injector(""));
+
+    // The collision this guards: v2's router block leads with
+    // INJECTION_HEADER whenever any summary section is present — the dominant
+    // production case — and v3's card header is deliberately the same bytes.
+    expect(INJECTION_HEADER).toBe(V3_CARDS_INJECTION_HEADER);
+
+    const v2Inner = `${INJECTION_HEADER}\n\n## memory/concepts/page-b.md\nsummary of page b`;
+    seedV2Identity(v2Inner);
+
+    const frozenV3Block = `<memory>\n${V3_CARDS_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead\n</memory>`;
+    const infoBlock = "<info>\nstatic memory\n</info>";
+    const runMessages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: `<memory>\n${v2Inner}\n</memory>` },
+          { type: "text", text: frozenV3Block },
+          { type: "text", text: infoBlock },
+          { type: "text", text: "current question" },
+        ],
+      },
+    ];
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    // Despite sharing v3's header prefix, v2's block is gone (identity
+    // match); the v3 cards and <info> blocks are byte-identical in place.
+    expect(tailTexts(result.messages)).toEqual([
+      frozenV3Block,
+      infoBlock,
+      "current question",
+    ]);
+  });
+
+  test("REGRESSION: re-entry with a header-bearing v2 identity keeps the first entry's frozen v3 cards", async () => {
+    setOverridesForTesting({ "memory-v3-live": true });
+    // Re-entry: produce() returns the EMPTY block (cards already claimed by
+    // the store) while the tail carries the FIRST entry's v3 block — and the
+    // graph handle still holds the summary-bearing v2 identity from this
+    // turn's retrieval. Identity must be matched against the v2 block, never
+    // against "whatever leads with the shared header".
+    injectorChainSlot.push(v3Injector(""));
+
+    const v2Inner = `${INJECTION_HEADER}\n\n## memory/concepts/page-b.md\nsummary of page b`;
+    seedV2Identity(v2Inner);
+
+    const frozenV3Block = `<memory>\n${V3_CARDS_INJECTION_HEADER}\n\n# memory/concepts/page-a.md\nhead\n</memory>`;
+    const runMessages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: frozenV3Block },
+          { type: "text", text: "current question" },
+        ],
+      },
+    ];
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    expect(tailTexts(result.messages)).toEqual([
+      frozenV3Block,
+      "current question",
+    ]);
+  });
+
+  test("v2 memory-image groups and legacy <memory __injected> blocks are stripped even without an identity", async () => {
+    setOverridesForTesting({ "memory-v3-live": true });
+    injectorChainSlot.push(v3Injector("net-new cards"));
+    // No live graph handle: identity unknown (null). Image groups and legacy
+    // blocks are unambiguously v2's and are stripped regardless; the shared
+    // `<memory>` wrapper is left alone without an identity to match.
+    const runMessages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "<memory_image __injected>\na chart" },
+          {
+            type: "image",
+            source: { type: "base64", media_type: "image/png", data: "aGk=" },
+          },
+          { type: "text", text: "</memory_image>" },
+          { type: "text", text: "<memory __injected>\nlegacy recalled fact" },
+          { type: "text", text: "current question" },
+        ],
+      },
+    ];
+
+    const result = await applyRuntimeInjections(runMessages, {
+      ...makeTurnContext(),
+    });
+
+    const texts = tailTexts(result.messages);
+    expect(texts).toEqual([
+      "<memory>\nnet-new cards\n</memory>",
+      "current question",
+    ]);
+    // The injected image is gone too (the 3-block group strips as a unit).
+    expect(
+      result.messages[result.messages.length - 1].content.some(
+        (b) => b.type === "image",
+      ),
+    ).toBe(false);
   });
 
   test("the v3 block's attachment-commit callback fires on a user tail", async () => {
