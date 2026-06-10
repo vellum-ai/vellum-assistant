@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import {
+  assistantsValidForOrg,
+  useResolvedAssistantsStore,
+  type ResolvedAssistant,
+} from "@/stores/resolved-assistants-store";
 import type { Lockfile, LockfileAssistant } from "@/runtime/local-mode-host";
 
 // A platform entry is identified by `cloud === "vellum"` and carries an
@@ -72,5 +76,48 @@ describe("upsertFromApi", () => {
     expect(entry.id).toBe("asst-platform");
     expect(entry.name).toBe("Platform (refreshed)");
     expect(entry.organizationId).toBe("org-1");
+  });
+});
+
+describe("assistantsValidForOrg", () => {
+  const local: ResolvedAssistant = {
+    id: "local",
+    isLocal: true,
+    isPlatformHosted: false,
+  };
+  const activeOrg: ResolvedAssistant = {
+    id: "active-org",
+    isLocal: false,
+    isPlatformHosted: true,
+    organizationId: "org-1",
+  };
+  const otherOrg: ResolvedAssistant = {
+    id: "other-org",
+    isLocal: false,
+    isPlatformHosted: true,
+    organizationId: "org-2",
+  };
+  const legacy: ResolvedAssistant = {
+    id: "legacy",
+    isLocal: false,
+    isPlatformHosted: true,
+  };
+
+  it("always keeps local entries", () => {
+    expect(assistantsValidForOrg([local], "org-1")).toEqual([local]);
+    expect(assistantsValidForOrg([local], null)).toEqual([local]);
+  });
+
+  it("keeps platform entries only when owned by the active org", () => {
+    const result = assistantsValidForOrg([activeOrg, otherOrg], "org-1");
+    expect(result).toEqual([activeOrg]);
+  });
+
+  it("keeps legacy entries with no org (undefined)", () => {
+    expect(assistantsValidForOrg([legacy], "org-1")).toEqual([legacy]);
+  });
+
+  it("drops cross-org platform entries", () => {
+    expect(assistantsValidForOrg([otherOrg], "org-1")).toEqual([]);
   });
 });
