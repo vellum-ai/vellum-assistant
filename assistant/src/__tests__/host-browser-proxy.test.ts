@@ -493,11 +493,12 @@ describe("HostBrowserProxy", () => {
       expect(getPublishedMessages()).toHaveLength(0);
     });
 
-    test("picks the most-recently-active same-actor client among multiple transports", async () => {
+    test("prefers the chrome-extension client over a more-recently-active macOS bridge", async () => {
       // Mock `listClientsByCapability` returns mockClients in array
       // order, which mirrors production's `lastActiveAt`-desc ordering.
-      // The first same-actor entry wins regardless of transport; LLMs
-      // pin a specific transport via `target_client_id`.
+      // The macOS bridge is listed first (most recent heartbeat), but
+      // chrome-extension clients are deterministically preferred for
+      // auto-resolution; LLMs pin the bridge via `target_client_id`.
       mockClients = [
         {
           clientId: "macos-client",
@@ -525,7 +526,7 @@ describe("HostBrowserProxy", () => {
       const requestId = sent.requestId as string;
 
       const pending = pendingInteractions.get(requestId);
-      expect(pending?.targetClientId).toBe("macos-client");
+      expect(pending?.targetClientId).toBe("ext-client");
 
       resolveResult(requestId, { content: "ok", isError: false });
       await resultPromise;
@@ -739,7 +740,7 @@ describe("HostBrowserProxy", () => {
       expect(getPublishedMessages()).toHaveLength(0);
     });
 
-    test("no targetClientId auto-resolves to the most-recently-active same-actor client", async () => {
+    test("no targetClientId auto-resolves with extension preferred over the bridge", async () => {
       mockClients = [
         {
           clientId: "macos-client",
@@ -755,9 +756,9 @@ describe("HostBrowserProxy", () => {
         },
       ];
 
-      // No targetClientId — falls through to the first same-actor
-      // entry by lastActiveAt-desc. Mock array order is the proxy's
-      // input contract.
+      // No targetClientId — auto-resolution partitions chrome-extension
+      // clients ahead of other transports, then picks the first
+      // same-actor entry (lastActiveAt-desc within each group).
       const resultPromise = proxy.request(
         { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
         "session-1",
@@ -769,9 +770,204 @@ describe("HostBrowserProxy", () => {
       const requestId = (getPublishedMessages()[0] as Record<string, unknown>)
         .requestId as string;
       const pending = pendingInteractions.get(requestId);
-      expect(pending?.targetClientId).toBe("macos-client");
+      expect(pending?.targetClientId).toBe("ext-client");
 
       resolveResult(requestId, { content: "ok", isError: false });
+      await resultPromise;
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Method-aware routing
+  //
+  // `Vellum.*` pseudo-methods are implemented only by the Chrome
+  // extension dispatcher; the macOS bridge speaks raw CDP against
+  // localhost:9222 and fails on all of them. Auto-resolution therefore
+  // restricts pseudo-methods to chrome-extension clients and prefers
+  // the extension over the bridge for raw CDP, instead of racing on
+  // heartbeat-driven lastActiveAt ordering.
+  // ---------------------------------------------------------------------------
+
+  describe("method-aware routing", () => {
+    const MACOS_CLIENT: MockClient = {
+      clientId: "macos-client",
+      interfaceId: "macos",
+      actorPrincipalId: "user-1",
+      capabilities: ["host_browser"],
+    };
+    const EXT_CLIENT: MockClient = {
+      clientId: "ext-client",
+      interfaceId: "chrome-extension",
+      actorPrincipalId: "user-1",
+      capabilities: ["host_browser"],
+    };
+
+    function expectExtensionRequired(result: {
+      content: string;
+      isError: boolean;
+    }): void {
+      expect(result.isError).toBe(true);
+      const parsed = JSON.parse(result.content) as {
+        code: string;
+        message: string;
+      };
+      expect(parsed.code).toBe("extension_required");
+      expect(parsed.message).toContain("Chrome extension");
+    }
+
+    test("pseudo-method routes to the extension even when the bridge is more recently active", async () => {
+      mockClients = [MACOS_CLIENT, EXT_CLIENT];
+
+      const resultPromise = proxy.request(
+        { cdpMethod: "Vellum.listTabs", cdpParams: {} },
+        "session-1",
+        undefined,
+        "user-1",
+      );
+
+      expect(getPublishedMessages()).toHaveLength(1);
+      const requestId = (getPublishedMessages()[0] as Record<string, unknown>)
+        .requestId as string;
+      expect(pendingInteractions.get(requestId)?.targetClientId).toBe(
+        "ext-client",
+      );
+
+      resolveResult(requestId, { content: '{"tabs":[]}', isError: false });
+      await resultPromise;
+    });
+
+    test("pseudo-method with only the macOS bridge connected resolves extension_required without broadcasting", async () => {
+      mockClients = [MACOS_CLIENT];
+
+      const result = await proxy.request(
+        { cdpMethod: "Vellum.selectTab", cdpParams: { tabId: 42 } },
+        "session-1",
+        undefined,
+        "user-1",
+      );
+
+      expectExtensionRequired(result);
+      expect(getPublishedMessages()).toHaveLength(0);
+    });
+
+    test("pseudo-method with no clients resolves extension_required instead of the legacy rejection", async () => {
+      mockClients = [];
+
+      const result = await proxy.request(
+        { cdpMethod: "Vellum.createTab", cdpParams: {} },
+        "session-1",
+      );
+
+      expectExtensionRequired(result);
+      expect(getPublishedMessages()).toHaveLength(0);
+    });
+
+    test("explicit targetClientId at the macOS bridge + pseudo-method resolves extension_required naming the interface", async () => {
+      mockClients = [MACOS_CLIENT, EXT_CLIENT];
+
+      const result = await proxy.request(
+        { cdpMethod: "Vellum.closeTab", cdpParams: { tabId: 7 } },
+        "session-1",
+        undefined,
+        "user-1",
+        "macos-client",
+      );
+
+      expectExtensionRequired(result);
+      const parsed = JSON.parse(result.content) as { message: string };
+      expect(parsed.message).toContain('"macos"');
+      expect(getPublishedMessages()).toHaveLength(0);
+    });
+
+    test("explicit targetClientId at the extension + pseudo-method dispatches normally", async () => {
+      mockClients = [MACOS_CLIENT, EXT_CLIENT];
+
+      const resultPromise = proxy.request(
+        { cdpMethod: "Vellum.closeTab", cdpParams: { tabId: 7 } },
+        "session-1",
+        undefined,
+        "user-1",
+        "ext-client",
+      );
+
+      expect(getPublishedMessages()).toHaveLength(1);
+      const requestId = (getPublishedMessages()[0] as Record<string, unknown>)
+        .requestId as string;
+      expect(pendingInteractions.get(requestId)?.targetClientId).toBe(
+        "ext-client",
+      );
+
+      resolveResult(requestId, {
+        content: '{"closed":true,"tabId":7}',
+        isError: false,
+      });
+      await resultPromise;
+    });
+
+    test("same-actor gate wins over the pseudo-method check for cross-actor explicit targets", async () => {
+      mockClients = [
+        {
+          clientId: "other-user-ext",
+          interfaceId: "chrome-extension",
+          actorPrincipalId: "user-2",
+          capabilities: ["host_browser"],
+        },
+      ];
+
+      const result = await proxy.request(
+        { cdpMethod: "Vellum.listTabs", cdpParams: {} },
+        "session-1",
+        undefined,
+        "user-1",
+        "other-user-ext",
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("Submitting actor does not match");
+      expect(result.content).not.toContain("extension_required");
+      expect(getPublishedMessages()).toHaveLength(0);
+    });
+
+    test("pseudo-method where the only extension belongs to another actor resolves extension_required", async () => {
+      mockClients = [
+        {
+          clientId: "other-user-ext",
+          interfaceId: "chrome-extension",
+          actorPrincipalId: "user-2",
+          capabilities: ["host_browser"],
+        },
+        MACOS_CLIENT,
+      ];
+
+      const result = await proxy.request(
+        { cdpMethod: "Vellum.listTabs", cdpParams: {} },
+        "session-1",
+        undefined,
+        "user-1",
+      );
+
+      expectExtensionRequired(result);
+      expect(getPublishedMessages()).toHaveLength(0);
+    });
+
+    test("raw CDP with only the bridge connected still routes to the bridge", async () => {
+      mockClients = [MACOS_CLIENT];
+
+      const resultPromise = proxy.request(
+        { cdpMethod: "Page.captureScreenshot", cdpParams: {} },
+        "session-1",
+        undefined,
+        "user-1",
+      );
+
+      expect(getPublishedMessages()).toHaveLength(1);
+      const requestId = (getPublishedMessages()[0] as Record<string, unknown>)
+        .requestId as string;
+      expect(pendingInteractions.get(requestId)?.targetClientId).toBe(
+        "macos-client",
+      );
+
+      resolveResult(requestId, { content: '{"data":"..."}', isError: false });
       await resultPromise;
     });
   });

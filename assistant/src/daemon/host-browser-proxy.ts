@@ -25,6 +25,46 @@ export type HostBrowserInput = DistributiveOmit<
 const log = getLogger("host-browser-proxy");
 
 /**
+ * Extension-only pseudo-CDP methods (Vellum.listTabs, Vellum.selectTab,
+ * Vellum.closeTab, Vellum.createTab, Vellum.findTab, Vellum.attach,
+ * Vellum.detach) are implemented solely by the Chrome extension's
+ * dispatcher via the chrome.tabs / chrome.debugger APIs. The macOS CDP
+ * bridge speaks raw CDP against localhost:9222 only and fails on every
+ * `Vellum.*` method, so routing them anywhere but the extension is a
+ * guaranteed failure. Prefix check rather than an allowlist so newly
+ * added pseudo-methods stay covered.
+ */
+function isExtensionOnlyMethod(cdpMethod: string): boolean {
+  return cdpMethod.startsWith("Vellum.");
+}
+
+/**
+ * Structured isError result for pseudo-methods that cannot be served
+ * because no Chrome Extension client is connected (or the explicit
+ * target is a different transport). The `extension_required` code is
+ * deliberately NOT in ExtensionCdpClient's TRANSPORT_ERROR_CODES: it
+ * classifies as `cdp_error` so the factory does not fail over to a
+ * backend that cannot serve `Vellum.*` either, and the message is
+ * surfaced verbatim to the caller.
+ */
+function extensionRequiredResult(
+  cdpMethod: string,
+  targetInterfaceId?: string,
+): ToolExecutionResult {
+  return {
+    content: JSON.stringify({
+      code: "extension_required",
+      message:
+        `${cdpMethod} requires the Chrome extension; ` +
+        (targetInterfaceId
+          ? `the targeted client (interface "${targetInterfaceId}") cannot handle it.`
+          : "no Chrome extension client is connected."),
+    }),
+    isError: true,
+  };
+}
+
+/**
  * Pick the host_browser-capable client to dispatch to.
  *
  * When `targetClientId` is supplied, the client with that id is looked
@@ -32,24 +72,27 @@ const log = getLogger("host-browser-proxy");
  * in `request()` still runs on the returned client when
  * `sourceActorPrincipalId` is present.
  *
+ * Candidate ordering is method-aware and deterministic. Both the Chrome
+ * extension and the macOS desktop bridge register the `host_browser`
+ * capability, and both receive periodic heartbeats that update
+ * `lastActiveAt` — so pure recency ordering is a race between transports
+ * with very different capabilities:
+ *
+ *  - `Vellum.*` pseudo-methods: candidates are restricted to
+ *    chrome-extension clients (the only transport that implements them).
+ *  - Raw CDP methods: chrome-extension clients are preferred over other
+ *    host_browser clients (the macOS bridge), with `lastActiveAt`
+ *    descending within each group — the natural order returned by
+ *    `listClientsByCapability`. Callers that want the bridge despite a
+ *    connected extension must pass `targetClientId` explicitly via the
+ *    LLM-facing param added in #30066.
+ *
  * When `sourceActorPrincipalId` is supplied (and no explicit target),
  * candidate clients are filtered down to those owned by the same actor.
- * Returns `undefined` when no same-actor client is connected; the
- * caller surfaces this as the existing "no active extension connection"
- * rejection.
- *
- * When neither is supplied (legacy callers without a resolved actor
- * identity), falls through to the most-recently-active host_browser
- * client so the registry singleton continues to work for single-client
- * setups.
- *
- * Within each branch, ties are broken by `lastActiveAt` descending —
- * the natural order returned by `listClientsByCapability`. Callers that
- * need a specific transport (e.g. Chrome Extension's `chrome.debugger`
- * over the macOS CDP bridge) must pass `targetClientId` explicitly via
- * the LLM-facing param added in #30066.
+ * Returns `undefined` when no eligible client is connected.
  */
 function resolveTargetClient(
+  cdpMethod: string,
   sourceActorPrincipalId: string | undefined,
   targetClientId?: string,
 ) {
@@ -58,8 +101,12 @@ function resolveTargetClient(
     return clients.find((c) => c.clientId === targetClientId);
   }
 
-  const candidates =
-    assistantEventHub.listClientsByCapability("host_browser");
+  const all = assistantEventHub.listClientsByCapability("host_browser");
+  const extension = all.filter((c) => c.interfaceId === "chrome-extension");
+  const candidates = isExtensionOnlyMethod(cdpMethod)
+    ? extension
+    : [...extension, ...all.filter((c) => c.interfaceId !== "chrome-extension")];
+
   if (sourceActorPrincipalId == null) {
     return candidates[0];
   }
@@ -155,7 +202,11 @@ export class HostBrowserProxy {
     // alongside the pending interaction registration. Same shape as
     // host-cu-proxy: the result-route same-actor check compares the
     // submitting client's actor against this captured value.
-    const preferredClient = resolveTargetClient(sourceActorPrincipalId, targetClientId);
+    const preferredClient = resolveTargetClient(
+      input.cdpMethod,
+      sourceActorPrincipalId,
+      targetClientId,
+    );
 
     // Same-user enforcement: when the caller's actor is known, refuse to
     // dispatch to a client owned by a different actor. This covers the
@@ -173,6 +224,20 @@ export class HostBrowserProxy {
         op: "host_browser",
       });
       if (rejection) return Promise.resolve(rejection);
+    }
+
+    // Pseudo-methods can only be served by the Chrome extension. Fail fast
+    // (after the same-actor gate, which stays authoritative) instead of
+    // dispatching to a transport that is guaranteed to fail — the factory's
+    // pinned-extension gate is the first line of defense; this covers
+    // heartbeat races and bridge-routed auto-mode sends.
+    if (
+      isExtensionOnlyMethod(input.cdpMethod) &&
+      preferredClient?.interfaceId !== "chrome-extension"
+    ) {
+      return Promise.resolve(
+        extensionRequiredResult(input.cdpMethod, preferredClient?.interfaceId),
+      );
     }
 
     const resolvedClientId = preferredClient?.clientId;
