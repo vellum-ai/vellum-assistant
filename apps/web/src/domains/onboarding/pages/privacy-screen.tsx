@@ -208,17 +208,9 @@ export function PrivacyScreen() {
         </Card>
 
         {electron && (
-          <Card padding="md" className="mt-4 w-full">
-            <div className="mb-2">
-              <h2 className="text-title-small text-[var(--content-emphasised)]">
-                Mac Permissions
-              </h2>
-              <p className="mt-1 text-body-small-default text-[var(--content-tertiary)]">
-                Enable desktop features that need macOS approval.
-              </p>
-            </div>
+          <div className="mt-4 w-full">
             <SystemPermissionsCard compact />
-          </Card>
+          </div>
         )}
 
         <div className="mt-6 flex w-full items-start">
