@@ -41,6 +41,10 @@ function ensureConversationKey(): string {
   return draftId;
 }
 
+function showVoiceErrorToast(code: string): void {
+  toast.error(formatVoiceError(code), { id: `voice-error:${code}` });
+}
+
 export function GlobalPushToTalkBridge({
   assistantId,
 }: GlobalPushToTalkBridgeProps) {
@@ -93,12 +97,12 @@ export function GlobalPushToTalkBridge({
       }
 
       if (frontAppInsertion.status === "automation-denied") {
-        toast.error(formatVoiceError("dictation-automation-denied"));
+        showVoiceErrorToast("dictation-automation-denied");
         useVoiceRecordingStore
           .getState()
           .flagDictationInsertionError("dictation-automation-denied");
       } else if (frontAppInsertion.status === "blocked") {
-        toast.error(formatVoiceError("dictation-paste-blocked"));
+        showVoiceErrorToast("dictation-paste-blocked");
         useVoiceRecordingStore
           .getState()
           .flagDictationInsertionError("dictation-paste-blocked");
@@ -124,7 +128,7 @@ export function GlobalPushToTalkBridge({
 
   const handleError = useCallback((code: string | null) => {
     if (code) {
-      toast.error(formatVoiceError(code));
+      showVoiceErrorToast(code);
     }
   }, []);
 
