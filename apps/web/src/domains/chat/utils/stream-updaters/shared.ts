@@ -9,7 +9,6 @@
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
-import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
 // ---------------------------------------------------------------------------
 // Row resolution
@@ -99,17 +98,31 @@ export function withMergedAlias(
 }
 
 /**
- * Force-complete every running tool call by stamping `completedAt`. With no
- * `result`/`isError`, the timestamp alone reads as completed (not running);
- * reconcile later backfills the real result if it arrives.
+ * Force-complete every running tool call on a row by stamping `completedAt`,
+ * in lockstep across the positional `toolCalls` array and the matching
+ * `contentBlocks` `tool_use` entries so the row reads as completed from either
+ * slice. With no `result`/`isError`, the timestamp alone reads as completed
+ * (not running); reconcile later backfills the real result if it arrives.
+ *
+ * Returns the patched `toolCalls`/`contentBlocks` fields, or `null` when no
+ * tool call was running, so callers can skip rewriting the row.
  */
 export function finalizeRunningToolCalls(
-  toolCalls: ChatMessageToolCall[] | undefined,
-): ChatMessageToolCall[] | undefined {
-  if (!toolCalls) return undefined;
-  return toolCalls.map((tc) =>
-    isToolCallRunning(tc) ? { ...tc, completedAt: Date.now() } : tc,
+  row: Pick<DisplayMessage, "toolCalls" | "contentBlocks">,
+): Pick<DisplayMessage, "toolCalls" | "contentBlocks"> | null {
+  if (!row.toolCalls?.some((tc) => isToolCallRunning(tc))) {
+    return null;
+  }
+  const completedAt = Date.now();
+  const toolCalls = row.toolCalls.map((tc) =>
+    isToolCallRunning(tc) ? { ...tc, completedAt } : tc,
   );
+  const contentBlocks = row.contentBlocks?.map((block) =>
+    block.type === "tool_use" && isToolCallRunning(block.toolCall)
+      ? { type: "tool_use" as const, toolCall: { ...block.toolCall, completedAt } }
+      : block,
+  );
+  return { toolCalls, contentBlocks };
 }
 
 // ---------------------------------------------------------------------------

@@ -11,10 +11,11 @@
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
-import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { toDisplayAttachments } from "@/utils/display-attachments";
-import type { MessageCompleteEvent } from "@vellumai/assistant-api";
-import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type {
+  ConversationContentBlock,
+  MessageCompleteEvent,
+} from "@vellumai/assistant-api";
 import {
   tailIsAssistant,
   findAssistantRowIndexByMessageId,
@@ -40,6 +41,7 @@ export function createStreamingBubble(
       role: "assistant",
       textSegments: [text],
       contentOrder: [{ type: "text", id: "0" }],
+      contentBlocks: [{ type: "text", text }],
       timestamp: Date.now(),
     },
   ];
@@ -66,9 +68,11 @@ function appendSegmentIntoRow(
   const row = withMergedAlias(prev[idx]!, messageId);
   const segments = [...(row[segmentField] ?? [])];
   const order = [...(row.contentOrder ?? [])];
+  const blocks = [...(row.contentBlocks ?? [])];
   const lastOrderEntry = order[order.length - 1];
+  const coalesce = lastOrderEntry?.type === orderType && segments.length > 0;
 
-  if (lastOrderEntry?.type === orderType && segments.length > 0) {
+  if (coalesce) {
     segments[segments.length - 1] = segments[segments.length - 1]! + content;
   } else {
     const newIndex = segments.length;
@@ -76,11 +80,28 @@ function appendSegmentIntoRow(
     order.push({ type: orderType, id: String(newIndex) });
   }
 
+  const segmentText = segments[segments.length - 1]!;
+  const block: ConversationContentBlock =
+    orderType === "text"
+      ? { type: "text", text: segmentText }
+      : { type: "thinking", thinking: segmentText };
+  // Overwrite the trailing block only when it is this segment's block. A
+  // reconstructed/server projection omits empty or fully-consumed segments
+  // (normalizeContentBlocks), so contentBlocks can be shorter than
+  // contentOrder and its tail may belong to an earlier entry — appending then
+  // backfills the previously-absent block instead of clobbering a neighbour.
+  if (coalesce && blocks[blocks.length - 1]?.type === orderType) {
+    blocks[blocks.length - 1] = block;
+  } else {
+    blocks.push(block);
+  }
+
   const next = [...prev];
   next[idx] = {
     ...row,
     [segmentField]: segments,
     contentOrder: order,
+    contentBlocks: blocks,
   };
   return next;
 }
@@ -150,6 +171,7 @@ export function createStreamingThinkingBubble(
       role: "assistant",
       thinkingSegments: [thinking],
       contentOrder: [{ type: "thinking", id: "0" }],
+      contentBlocks: [{ type: "thinking", thinking }],
       timestamp: Date.now(),
     },
   ];
@@ -199,10 +221,10 @@ export function finalizeOnIdle(prev: DisplayMessage[]): DisplayMessage[] {
   let changed = false;
   const updated = prev.map((m) => {
     if (m.role !== "assistant") return m;
-    if (!m.toolCalls?.some((tc: ChatMessageToolCall) => isToolCallRunning(tc)))
-      return m;
+    const finalized = finalizeRunningToolCalls(m);
+    if (!finalized) return m;
     changed = true;
-    return { ...m, toolCalls: finalizeRunningToolCalls(m.toolCalls) };
+    return { ...m, ...finalized };
   });
   return changed ? updated : prev;
 }
@@ -258,7 +280,7 @@ export function finalizeMessageComplete(
     ];
   }
 
-  const finalized = finalizeRunningToolCalls(last.toolCalls);
+  const finalized = finalizeRunningToolCalls(last);
   const adoptServerId = last.isOptimistic === true && !!event.messageId;
   return [
     ...prev.slice(0, -1),
@@ -266,7 +288,7 @@ export function finalizeMessageComplete(
       ...last,
       ...(adoptServerId ? { id: event.messageId!, isOptimistic: false } : {}),
       ...(attachments ? { attachments } : {}),
-      ...(finalized ? { toolCalls: finalized } : {}),
+      ...(finalized ?? {}),
     },
   ];
 }
@@ -372,6 +394,7 @@ export function applyUserMessageEcho(
       role: "user",
       textSegments: [event.text],
       contentOrder: [{ type: "text", id: "0" }],
+      contentBlocks: [{ type: "text", text: event.text }],
       timestamp: Date.now(),
     },
   ];
@@ -389,7 +412,7 @@ export function handleConversationError(
   const last = prev[lastIdx];
   if (!last || last.role !== "assistant") return prev;
 
-  const finalized = finalizeRunningToolCalls(last.toolCalls);
+  const finalized = finalizeRunningToolCalls(last);
   const hasContent =
     segmentsToPlainText(last.textSegments).trim().length > 0 ||
     (last.thinkingSegments != null && last.thinkingSegments.length > 0) ||
@@ -401,7 +424,7 @@ export function handleConversationError(
   const updated = [...prev];
   updated[lastIdx] = {
     ...last,
-    ...(finalized ? { toolCalls: finalized } : {}),
+    ...(finalized ?? {}),
   };
   return updated;
 }
