@@ -10,6 +10,10 @@ import {
 } from "react";
 
 import {
+  startDictationStream,
+  type DictationStreamHandle,
+} from "@/domains/chat/voice/dictation-stream";
+import {
     postSttTranscribe,
     type SttFailureReason,
 } from "@/domains/chat/voice/stt-api";
@@ -247,6 +251,14 @@ export const VoiceInputButton = forwardRef<
   const speechRecRef = useRef<SpeechRecognitionInstance | null>(null);
   const speechAccumulatorRef = useRef("");
 
+  // Daemon streaming STT session — the primary source of live interim
+  // transcripts. Web Speech is non-functional inside the Electron shell
+  // (Chromium ships the API without the speech service behind it), so
+  // without this, dictation there shows no words as they're spoken.
+  // Interim display only; the batch transcribe-on-stop flow below stays
+  // the authority for the final text.
+  const dictationStreamRef = useRef<DictationStreamHandle | null>(null);
+
   const onStreamReadyRef = useRef(onStreamReady);
   onStreamReadyRef.current = onStreamReady;
 
@@ -275,9 +287,15 @@ export const VoiceInputButton = forwardRef<
     }
   }, []);
 
+  const stopDictationStream = useCallback(() => {
+    dictationStreamRef.current?.stop();
+    dictationStreamRef.current = null;
+  }, []);
+
   const stopRecording = useCallback(() => {
     cancelledStartRef.current = true;
     stopSpeechRecognition();
+    stopDictationStream();
     const recorder = mediaRecorderRef.current;
     if (!recorder) return;
     if (recorder.state !== "inactive") {
@@ -288,7 +306,7 @@ export const VoiceInputButton = forwardRef<
       }
     }
     vsStopRecording();
-  }, [vsStopRecording, stopSpeechRecognition]);
+  }, [vsStopRecording, stopSpeechRecognition, stopDictationStream]);
 
   useEffect(() => {
     if (disabled && recording) {
@@ -300,6 +318,7 @@ export const VoiceInputButton = forwardRef<
     return () => {
       transcribeAbortRef.current?.abort();
       stopSpeechRecognition();
+      stopDictationStream();
       const recorder = mediaRecorderRef.current;
       if (recorder && recorder.state !== "inactive") {
         try {
@@ -311,7 +330,7 @@ export const VoiceInputButton = forwardRef<
       releaseStream();
       useVoiceRecordingStore.getState().reset();
     };
-  }, [releaseStream, stopSpeechRecognition]);
+  }, [releaseStream, stopSpeechRecognition, stopDictationStream]);
 
   const startRecording = useCallback(async () => {
     if (mediaRecorderRef.current) return;
@@ -364,7 +383,12 @@ export const VoiceInputButton = forwardRef<
             }
           }
           speechAccumulatorRef.current = accumulated + interim;
-          onInterimTranscriptRef.current?.(interim);
+          // Streaming STT partials take priority over Web Speech partials
+          // to avoid competing UI updates (the legacy client's rule). The
+          // accumulator above still builds — it stays the batch fallback.
+          if (!dictationStreamRef.current?.isLive()) {
+            onInterimTranscriptRef.current?.(interim);
+          }
         };
 
         speechRec.onerror = () => {
@@ -433,6 +457,7 @@ export const VoiceInputButton = forwardRef<
       }
       releaseStream();
       stopSpeechRecognition();
+      stopDictationStream();
       onInterimTranscriptRef.current?.("");
 
       if (erroredRef.current) {
@@ -515,6 +540,7 @@ export const VoiceInputButton = forwardRef<
       mediaRecorderRef.current = null;
       releaseStream();
       stopSpeechRecognition();
+      stopDictationStream();
       onError?.("audio-capture");
       vsFail("audio-capture");
     };
@@ -542,6 +568,13 @@ export const VoiceInputButton = forwardRef<
       return;
     }
 
+    // Recording is live — open the daemon streaming session for interim
+    // transcripts. Null / later failure means no live partials, nothing
+    // more: the recorder above is untouched.
+    stopDictationStream();
+    dictationStreamRef.current = startDictationStream({
+      onPartial: (text) => onInterimTranscriptRef.current?.(text),
+    });
   }, [
     assistantId,
     onBeforeStart,
@@ -549,7 +582,9 @@ export const VoiceInputButton = forwardRef<
     onTranscript,
     releaseStream,
     stopSpeechRecognition,
+    stopDictationStream,
     vsStartRecording,
+    vsStopRecording,
     vsFail,
     vsFinalize,
     vsReset,

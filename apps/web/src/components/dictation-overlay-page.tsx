@@ -56,9 +56,14 @@ export function DictationOverlayPage() {
           </span>
         </div>
         {transcription && (
-          <p className="line-clamp-2 break-words text-[10px] leading-snug text-[var(--content-tertiary)]">
-            {transcription}
-          </p>
+          // Bottom-anchored two-line window: the transcript grows as words
+          // stream in and the newest words are the ones worth showing — a
+          // line-clamp would freeze on the first two lines instead.
+          <div className="flex max-h-7 flex-col justify-end overflow-hidden">
+            <p className="break-words text-[10px] leading-snug text-[var(--content-tertiary)]">
+              {transcription}
+            </p>
+          </div>
         )}
       </div>
     </div>
