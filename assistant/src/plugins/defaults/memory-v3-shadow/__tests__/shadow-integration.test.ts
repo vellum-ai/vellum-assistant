@@ -8,21 +8,21 @@
  * with a mocked select provider, a stubbed dense lane, an in-memory selections
  * DB, and synthetic fixtures, driving them over a MULTI-TURN sequence:
  *
- *   orchestrate (needle ∪ dense ∪ edge → selectPool over a shared WorkingSet
- *     → carry-forward)
+ *   orchestrate (cache-ordered pool: core + hot stable prefix, then
+ *     needle ∪ dense ∪ edge finder candidates → ONE selectPool call)
  *       → attribute selections to lane sources (the shadow plugin's REAL
- *         `attributeSelections`, reading `result.laneBySlug`)
+ *         `attributeSelections`, reading `result.lanes`)
  *       → write to `memory_v3_selections` (the shadow plugin's REAL
  *         `writeSelections`)
  *       → summarizeSelections (the offline A/B readout)
  *
  * This is exactly the side-effect contract shadow mode observes each turn: the
- * candidate pool is the union of the lanes — synthetic capability pages are
- * indexed like any other page, so they enter through the needle lane rather than
- * being always-added — a SINGLE select runs per turn, the working set carries
- * selections forward across turns, and each selection is logged tagged with its
- * lane source. None of this changes live injection — shadow mode is
- * observation-only; cutover is the `memory-v3-live` flag flip.
+ * candidate pool is the cache-ordered union of the lanes — synthetic capability
+ * pages are indexed like any other page, so they enter through the needle lane
+ * rather than being always-added — a SINGLE select runs per turn, the result is
+ * this turn's selections only, and each selection is
+ * logged tagged with its lane source. None of this changes live injection —
+ * shadow mode is observation-only; cutover is the `memory-v3-live` flag flip.
  *
  * Slugs are generic placeholders (`page-a`, `topic-x`, `page-b`, …) — this is a
  * public repo.
@@ -41,6 +41,7 @@ import type {
   Provider,
   ProviderResponse,
 } from "../../../../providers/types.js";
+import { renderCard } from "../card.js";
 import type { EdgeGraph } from "../edge.js";
 import { buildEdgeGraph } from "../edge.js";
 import type { OrchestrateResult } from "../orchestrate.js";
@@ -116,12 +117,11 @@ mock.module("../../../../memory/db-connection.js", () => ({
 }));
 
 const { orchestrate } = await import("../orchestrate.js");
-const { WorkingSet } = await import("../working-set.js");
 const { summarizeSelections } = await import("../selection-log-store.js");
 // The REAL attribution + writer from the shadow plugin, imported AFTER the
 // db-connection mock so `writeSelections` binds to the in-memory test DB. Using
 // the production code (rather than a local copy) means this test exercises the
-// real `result.laneBySlug` attribution — the only thing that can emit "dense".
+// real `result.lanes` attribution — the only thing that can emit "dense".
 const { attributeSelections, writeSelections } =
   await import("../shadow-plugin.js");
 
@@ -211,20 +211,39 @@ function toolUseResponse(input: Record<string, unknown>): ProviderResponse {
   };
 }
 
-/** Parse the numbered `<candidates>` block back into an ordered slug list. */
+/**
+ * Parse the two-segment selector input back into the globally-numbered pool
+ * slug list: stable-prefix cards (`<candidate_cards>`, identified by their
+ * `[i] # memory/concepts/<slug>.md` header line) then finder lines
+ * (`<candidates>`, `[i] slug — descriptor`).
+ */
 function candidateSlugs(messages: Message[]): Slug[] {
+  const entries: Array<{ id: number; slug: string }> = [];
   for (const msg of messages) {
     for (const block of msg.content) {
       if (block.type !== "text") continue;
-      const m = /<candidates>\n([\s\S]*?)\n<\/candidates>/.exec(block.text);
-      if (!m) continue;
-      return m[1]
-        .split("\n")
-        .map((line) => /^\[\d+\] (\S+) —/.exec(line)?.[1])
-        .filter((s): s is string => !!s);
+      const cards = /<candidate_cards>\n([\s\S]*?)\n<\/candidate_cards>/.exec(
+        block.text,
+      );
+      if (cards) {
+        for (const m of cards[1].matchAll(
+          /^\[(\d+)\] # memory\/concepts\/(.+)\.md$/gm,
+        )) {
+          entries.push({ id: Number(m[1]), slug: m[2]! });
+        }
+      }
+      const finder = /<candidates>\n([\s\S]*?)\n<\/candidates>/.exec(
+        block.text,
+      );
+      if (finder) {
+        for (const line of finder[1].split("\n")) {
+          const m = /^\[(\d+)\] (\S+)(?: — |$)/.exec(line);
+          if (m) entries.push({ id: Number(m[1]), slug: m[2]! });
+        }
+      }
     }
   }
-  return [];
+  return entries.sort((a, b) => a.id - b.id).map((e) => e.slug);
 }
 
 /**
@@ -255,7 +274,7 @@ function selectProvider(keep: Slug[], pin: Slug[] = []): Provider {
 // ---------------------------------------------------------------------------
 // Selection read-back. Attribution (`attributeSelections`) and the write
 // (`writeSelections`) are the shadow plugin's REAL functions, imported above —
-// so this test exercises the production `result.laneBySlug` attribution rather
+// so this test exercises the production `result.lanes` attribution rather
 // than a local copy. The db-connection mock routes `writeSelections` at the
 // in-memory test DB.
 // ---------------------------------------------------------------------------
@@ -278,16 +297,23 @@ async function runTurn(
   pin: Slug[],
   deps: {
     lanes: Awaited<ReturnType<typeof buildLanes>>;
-    workingSet: InstanceType<typeof WorkingSet>;
+    core?: Slug[];
+    hot?: Slug[];
   },
 ): Promise<OrchestrateResult> {
   providerStub = selectProvider(keep, pin);
+  const stableSlugs = [...(deps.core ?? []), ...(deps.hot ?? [])];
   const result = await orchestrate(makeTurn(turnNumber, query), {
     sectionIndex: deps.lanes.sectionIndex,
     needle: deps.lanes.needle,
     denseConfig: config,
     edgeGraph: deps.lanes.edgeGraph,
-    workingSet: deps.workingSet,
+    coreSlugs: deps.core ?? [],
+    hotSlugs: deps.hot ?? [],
+    // Mirrors lane init: every stable-prefix slug gets a pre-rendered card.
+    prefixCards: new Map(
+      stableSlugs.map((slug) => [slug, renderCard(slug, RAW[slug] ?? "")]),
+    ),
   });
   writeSelections(CONV, turnNumber, attributeSelections(result));
   return result;
@@ -320,7 +346,7 @@ describe("memory-v3 shadow integration — candidate pool", () => {
     // topic-x (edge). "apple" does NOT match the capability page, so it is not
     // pooled this turn — capability pages are lane-ranked, not always-added.
     denseHits = [{ article: "page-b", section: 0 }];
-    await runTurn(1, "apple", [], [], { lanes, workingSet: new WorkingSet() });
+    await runTurn(1, "apple", [], [], { lanes });
 
     expect(selectCalls).toBe(1);
     expect(new Set(lastPool)).toEqual(new Set(["page-a", "page-b", "topic-x"]));
@@ -330,7 +356,7 @@ describe("memory-v3 shadow integration — candidate pool", () => {
     const lanes = await buildLanes();
     // "durian" is the distinctive term in the capability page's content, so the
     // real needle ranks it and folds it into the pool.
-    await runTurn(1, "durian", [], [], { lanes, workingSet: new WorkingSet() });
+    await runTurn(1, "durian", [], [], { lanes });
 
     expect(selectCalls).toBe(1);
     expect(lastPool).toContain(CAPABILITY_SLUG);
@@ -338,40 +364,52 @@ describe("memory-v3 shadow integration — candidate pool", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Carry-forward across turns: a page selected on turn 1 stays in turn 2's
-// final injection without being re-selected (net-new shadow behavior), and is
-// logged as `carry-forward` on the later turn.
+// Stable-prefix lanes: core and hot head the pool in cache order on EVERY
+// turn regardless of the query, and their selections log with the core / hot
+// source tags. Selections are current-turn only — nothing carries.
 // ---------------------------------------------------------------------------
 
-describe("memory-v3 shadow integration — carry-forward", () => {
-  test("a turn-1 selection accumulates into turn 2's injection and logs as carry-forward", async () => {
+describe("memory-v3 shadow integration — core + hot stable prefix", () => {
+  test("core and hot head the pool every turn and log lane-correct sources", async () => {
     const lanes = await buildLanes();
-    const workingSet = new WorkingSet();
+    const prefix = { core: ["topic-x"], hot: ["page-b"] };
 
-    // Turn 1 selects+pins page-a (needle-sourced).
-    const t1 = await runTurn(1, "apple", ["page-a"], ["page-a"], {
+    // Turn 1: "apple" hits page-a (needle). The prefix precedes it in pool
+    // order even though the query never matches topic-x / page-b.
+    const t1 = await runTurn(1, "apple", ["topic-x", "page-a"], [], {
       lanes,
-      workingSet,
+      ...prefix,
     });
-    expect(t1.currentSelections.map((s) => s.slug)).toContain("page-a");
-    expect(loggedSources(1)).toEqual([{ slug: "page-a", source: "needle" }]);
+    expect(lastPool).toEqual(["topic-x", "page-b", "page-a"]);
+    expect(t1.lanes.core).toEqual(["topic-x"]);
+    expect(t1.lanes.hot).toEqual(["page-b"]);
+    expect(loggedSources(1)).toEqual([
+      { slug: "topic-x", source: "core" },
+      { slug: "page-a", source: "needle" },
+    ]);
 
-    // Turn 2 selects a DIFFERENT page; page-a carries forward un-re-selected.
-    denseHits = [{ article: "topic-x", section: 0 }];
-    const t2 = await runTurn(2, "cherry", ["topic-x"], [], {
+    // Turn 2: a different query — the stable prefix is unchanged, the finder
+    // tail differs, and turn 1's un-re-selected page-a does NOT reappear in
+    // the result (no carry in orchestration).
+    const t2 = await runTurn(2, "durian", ["page-b"], [], { lanes, ...prefix });
+    expect(lastPool.slice(0, 2)).toEqual(["topic-x", "page-b"]);
+    expect(t2.selections.map((s) => s.slug)).toEqual(["page-b"]);
+    expect(loggedSources(2)).toEqual([{ slug: "page-b", source: "hot" }]);
+  });
+
+  test("a finder hit on a core page logs core, not the finder lane", async () => {
+    const lanes = await buildLanes();
+    // "apple" hits page-a via the needle, but page-a is CORE — the pool lists
+    // it twice (stable-prefix card + finder snippet line, by design), the
+    // selection dedupes to one slug, and the row attributes to core.
+    const result = await runTurn(1, "apple", ["page-a"], [], {
       lanes,
-      workingSet,
+      core: ["page-a"],
     });
-    expect(t2.currentSelections.map((s) => s.slug)).not.toContain("page-a");
-    expect(t2.finalInjection).toContain("page-a");
-
-    // The carried page is logged with the carry-forward source tag.
-    const t2Rows = loggedSources(2);
-    expect(t2Rows).toContainEqual({ slug: "topic-x", source: "needle" });
-    expect(t2Rows).toContainEqual({ slug: "page-a", source: "carry-forward" });
-
-    // Working set accumulates both pages across the two turns.
-    expect(workingSet.union()).toEqual(new Set(["page-a", "topic-x"]));
+    expect(lastPool.filter((s) => s === "page-a")).toHaveLength(2);
+    expect(result.selections).toEqual([{ slug: "page-a", pinned: false }]);
+    expect(result.lanes.finder.map((c) => c.slug)).toContain("page-a");
+    expect(loggedSources(1)).toEqual([{ slug: "page-a", source: "core" }]);
   });
 });
 
@@ -385,15 +423,10 @@ describe("memory-v3 shadow integration — lane-source attribution", () => {
   test("a needle-ranked capability selection is logged with the needle source", async () => {
     const lanes = await buildLanes();
     // "durian" matches the capability page's content section, so selecting it
-    // records a `sectionBySlug` entry and the coarse mapping attributes it
+    // records a `matchedSections` entry and the lane mapping attributes it
     // `needle` (capabilities are indexed pages now, not sectionless add-ins).
-    const result = await runTurn(1, "durian", [CAPABILITY_SLUG], [], {
-      lanes,
-      workingSet: new WorkingSet(),
-    });
-    expect(result.currentSelections.map((s) => s.slug)).toEqual([
-      CAPABILITY_SLUG,
-    ]);
+    const result = await runTurn(1, "durian", [CAPABILITY_SLUG], [], { lanes });
+    expect(result.selections.map((s) => s.slug)).toEqual([CAPABILITY_SLUG]);
     expect(loggedSources(1)).toEqual([
       { slug: CAPABILITY_SLUG, source: "needle" },
     ]);
@@ -402,43 +435,51 @@ describe("memory-v3 shadow integration — lane-source attribution", () => {
 
 // ---------------------------------------------------------------------------
 // A/B readout: summarizeSelections aggregates the logged shadow run by lane
-// source, and reports turn count + distinct-slug (working-set) footprint.
+// source, and reports turn count + distinct-slug selection footprint.
 // ---------------------------------------------------------------------------
 
 describe("memory-v3 shadow integration — selection-log readout", () => {
   test("summarizeSelections aggregates a multi-turn run by source", async () => {
     const lanes = await buildLanes();
-    const workingSet = new WorkingSet();
+    const prefix = { hot: ["topic-x"] };
 
-    // Turn 1: needle selects page-a (matched "apple").
-    await runTurn(1, "apple", ["page-a"], [], { lanes, workingSet });
-    // Turn 2: needle selects page-b (matched "banana"); page-a carries forward.
+    // Turn 1: needle selects page-a (matched "apple"), plus the hot topic-x.
+    await runTurn(1, "apple", ["page-a", "topic-x"], [], { lanes, ...prefix });
+    // Turn 2: needle selects page-b (matched "banana").
     denseHits = [{ article: "page-b", section: 0 }];
-    await runTurn(2, "banana", ["page-b"], [], { lanes, workingSet });
+    await runTurn(2, "banana", ["page-b"], [], { lanes, ...prefix });
     // Turn 3: needle selects the capability page (matched "durian" in its
-    // content); page-a and page-b carry forward.
+    // content).
     denseHits = [];
-    await runTurn(3, "durian", [CAPABILITY_SLUG], [], { lanes, workingSet });
+    await runTurn(3, "durian", [CAPABILITY_SLUG], [], { lanes, ...prefix });
 
     const summary = summarizeSelections(CONV);
     // needle: page-a (t1) + page-b (t2) + capability page (t3) = 3.
     expect(summary.bySource.needle).toBe(3);
-    // No selection was attributed to the edge lane in this run.
+    // hot: topic-x (t1).
+    expect(summary.bySource.hot).toBe(1);
+    // No selection was attributed to the core or edge lanes in this run.
+    expect(summary.bySource.core).toBe(0);
     expect(summary.bySource.edge).toBe(0);
-    // carry-forward: page-a (t2) + page-a & page-b (t3) = 3.
-    expect(summary.bySource["carry-forward"]).toBe(3);
     // dense lane surfaced candidates but none were selected.
     expect(summary.bySource.dense).toBe(0);
     // Three turns logged selections.
     expect(summary.turns).toBe(3);
-    // Distinct slugs across the run: page-a, page-b, the capability page.
-    expect(summary.distinctSlugs).toBe(3);
+    // Distinct slugs across the run: page-a, topic-x, page-b, the capability
+    // page.
+    expect(summary.distinctSlugs).toBe(4);
   });
 
   test("summarizeSelections reports zeros for a conversation with no rows", () => {
     const summary = summarizeSelections("conv-empty");
     expect(summary).toEqual({
-      bySource: { needle: 0, dense: 0, edge: 0, "carry-forward": 0 },
+      bySource: {
+        core: 0,
+        hot: 0,
+        needle: 0,
+        dense: 0,
+        edge: 0,
+      },
       turns: 0,
       distinctSlugs: 0,
     });

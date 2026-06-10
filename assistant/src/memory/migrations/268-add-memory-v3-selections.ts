@@ -6,6 +6,12 @@ import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
  * tagged with the lane (`source`) that produced it. `pinned` marks slugs
  * carried forward across turns rather than re-selected cold.
  *
+ * HISTORICAL NOTE: the working-set carry this table originally backed was
+ * removed (selections are current-turn only now; cross-turn persistence lives
+ * in the injector's frozen net-new blocks). The table itself is still live —
+ * the shadow plugin logs per-turn selections to it and the inspector /
+ * `summarizeSelections` read from it.
+ *
  * Idempotent — re-running is a no-op once the table and index exist.
  */
 export function migrateAddMemoryV3Selections(database: DrizzleDb): void {

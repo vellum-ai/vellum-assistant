@@ -29,10 +29,10 @@ import { z } from "zod";
 
 /**
  * One selected page in the v3 set. `source` is the lane that surfaced it —
- * the daemon emits `needle`, `dense`, `edge`, or `carry-forward` — but the
- * schema stays a permissive string so a new lane label (or a historical
- * pre-lane row) doesn't break parsing on the FE. `pinned` marks a slug carried
- * forward across turns.
+ * the daemon emits `core`, `hot`, `needle`, `dense`, or `edge` (historical
+ * rows may carry retired labels) — but the schema stays a permissive string
+ * so a new lane label (or a historical pre-lane row) doesn't break parsing on
+ * the FE. `pinned` marks a page the turn was centrally about.
  */
 export const MemoryV3SelectionRowSchema = z.object({
   slug: z.string(),

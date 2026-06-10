@@ -3,7 +3,7 @@
  *
  * Reads assistant lifecycle state and renders the appropriate screen:
  * - Auth / assistant loading → "Connecting…" placeholder
- * - Error, initializing, cleaning up, retired, etc. → dedicated lifecycle screen
+ * - Error, initializing, cleaning up, etc. → dedicated lifecycle screen
  * - Active (or self-hosted with flag) → mounts `ActiveChatView` for full orchestration
  *
  * By gating at the component boundary, orchestration hooks (SSE, TanStack Query,
@@ -24,7 +24,6 @@ import { Button } from "@vellumai/design-library";
 
 import { ActiveChatView } from "@/domains/chat/active-chat-view";
 import { CleanupScreen } from "@/domains/chat/components/cleanup-screen";
-import { PlatformHostedScreen } from "@/domains/chat/components/platform-hosted-screen";
 import { SelfHostedScreen } from "@/domains/chat/components/self-hosted-screen";
 import { SetupScreen } from "@/domains/chat/components/setup-screen";
 
@@ -109,10 +108,6 @@ export function ChatPage() {
     return <CleanupScreen />;
   }
 
-  if (assistantState.kind === "platform_hosted") {
-    return <PlatformHostedScreen />;
-  }
-
   if (assistantState.kind === "self_hosted" && !selfHostedChatEnabled) {
     return <SelfHostedScreen />;
   }
@@ -134,20 +129,6 @@ export function ChatPage() {
         <Button variant="primary" onClick={refetchConversationList}>
           Try again
         </Button>
-      </div>
-    );
-  }
-
-  if (assistantState.kind === "retired") {
-    return (
-      <div className="flex h-full flex-col items-center justify-center p-8 text-center">
-        <p className="text-title-medium text-[var(--content-default)]">
-          This assistant has been retired
-        </p>
-        <p className="mt-2 max-w-md text-body-medium-lighter text-[var(--content-tertiary)]">
-          This assistant is no longer active. You can create a new one from the
-          settings page.
-        </p>
       </div>
     );
   }

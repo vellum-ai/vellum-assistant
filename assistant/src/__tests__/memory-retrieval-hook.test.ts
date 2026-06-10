@@ -341,6 +341,94 @@ describe("user-prompt-submit hook (memory retrieval)", () => {
     expect(emitted.type).toBe("memory_recalled");
   });
 
+  test("memory-v3 active → v2 persists immediately, then the combined update removes it and persists the v3 card block", async () => {
+    // The v2 block is persisted RIGHT AFTER retrieval (no loss window: a
+    // crash between retrieval and assembly must not leave v2's activation
+    // store claiming pages whose block never reached metadata). Assembly then
+    // reports memoryV3Active (v3 superseded/stripped v2's tail block), so the
+    // post-assembly combined update REMOVES the v2 key — persisting it would
+    // rehydrate a block that is not in the live history.
+    const { memory } = makeFakeGraphMemory({
+      injectedBlockText: "v2-block-superseded",
+      metrics: makeMetrics(),
+    });
+    installConversation(memory, { trusted: true });
+    applyRuntimeInjectionsMock.mockImplementationOnce(
+      async (messages: unknown) => ({
+        messages,
+        blocks: {
+          memoryV3Active: true,
+          memoryV3InjectedBlock: "header\n\n# memory/concepts/page-a.md\nhead",
+        },
+      }),
+    );
+    const ctx = makeHookCtx({ userMessageId: "msg-43" });
+
+    await userPromptSubmitMemoryRetrieval(ctx);
+
+    expect(updateMessageMetadataMock.mock.calls).toEqual([
+      ["msg-43", { memoryInjectedBlock: "v2-block-superseded" }],
+      [
+        "msg-43",
+        {
+          // `undefined` deletes the key (JSON.stringify drops it) — the turn
+          // ends with the two memory layers mutually exclusive per row.
+          memoryInjectedBlock: undefined,
+          memoryV3InjectedBlock: "header\n\n# memory/concepts/page-a.md\nhead",
+        },
+      ],
+    ]);
+  });
+
+  test("memory-v3 active with EMPTY net-new → the immediate v2 persist is removed again", async () => {
+    // All-repeat turn: v2 was stripped (superseded) and v3 attached nothing
+    // new — the row must rehydrate with no memory block, matching live state.
+    const { memory } = makeFakeGraphMemory({
+      injectedBlockText: "v2-block-superseded",
+      metrics: makeMetrics(),
+    });
+    installConversation(memory, { trusted: true });
+    applyRuntimeInjectionsMock.mockImplementationOnce(
+      async (messages: unknown) => ({
+        messages,
+        blocks: { memoryV3Active: true },
+      }),
+    );
+    const ctx = makeHookCtx({ userMessageId: "msg-44" });
+
+    await userPromptSubmitMemoryRetrieval(ctx);
+
+    expect(updateMessageMetadataMock.mock.calls).toEqual([
+      ["msg-44", { memoryInjectedBlock: "v2-block-superseded" }],
+      ["msg-44", { memoryInjectedBlock: undefined }],
+    ]);
+  });
+
+  test("v2 block is already persisted when runtime assembly throws (no loss window)", async () => {
+    // Regression guard for the v2 path: with the v3 shadow flag on, assembly
+    // includes a seconds-long selector LLM call. If the process dies or the
+    // turn aborts in that window, the v2 block must already be in metadata —
+    // v2's activation store claimed its pages during retrieval, and a
+    // claimed-but-never-persisted block is absent from history on reload AND
+    // suppressed until compaction.
+    const { memory } = makeFakeGraphMemory({
+      injectedBlockText: "v2-block",
+      metrics: makeMetrics(),
+    });
+    installConversation(memory, { trusted: true });
+    applyRuntimeInjectionsMock.mockImplementationOnce(async () => {
+      throw new Error("assembly failed");
+    });
+    const ctx = makeHookCtx({ userMessageId: "msg-45" });
+
+    await expect(userPromptSubmitMemoryRetrieval(ctx)).rejects.toThrow(
+      "assembly failed",
+    );
+    expect(updateMessageMetadataMock).toHaveBeenCalledWith("msg-45", {
+      memoryInjectedBlock: "v2-block",
+    });
+  });
+
   test("skips metadata persist when no block text is injected", async () => {
     const { memory } = makeFakeGraphMemory({ injectedBlockText: null });
     installConversation(memory, { trusted: true });

@@ -1,34 +1,6 @@
 import { z } from "zod";
 
 /**
- * Memory v3 (section-grain lane retrieval) working-set configuration.
- *
- * The working set is the per-conversation set of concept pages carried
- * forward across turns. Eviction keeps it bounded: pages unseen for longer
- * than `evictWindow` turns are dropped, and the set is capped at `maxPages`.
- */
-export const MemoryV3WorkingSetSchema = z
-  .object({
-    maxPages: z
-      .number({ error: "memory.v3.workingSet.maxPages must be a number" })
-      .int("memory.v3.workingSet.maxPages must be an integer")
-      .positive("memory.v3.workingSet.maxPages must be a positive integer")
-      .default(150)
-      .describe(
-        "Upper bound on the number of pages retained in the working set. Once exceeded, the least-salient non-pinned pages are evicted until the set fits.",
-      ),
-    evictWindow: z
-      .number({ error: "memory.v3.workingSet.evictWindow must be a number" })
-      .int("memory.v3.workingSet.evictWindow must be an integer")
-      .positive("memory.v3.workingSet.evictWindow must be a positive integer")
-      .default(5)
-      .describe(
-        "Number of turns a non-pinned page may go unseen before it is evicted from the working set.",
-      ),
-  })
-  .describe("Memory v3 working-set retention/eviction tuning.");
-
-/**
  * Edge-lane tuning for the link-graph expansion that folds a turn's lexical and
  * dense seeds outward to their first-class neighbours.
  */
@@ -67,10 +39,111 @@ export const MemoryV3EdgeSchema = z
   })
   .describe("Memory v3 edge-lane (link-graph expansion) tuning.");
 
+/**
+ * Hot-set lane tuning: the top-K pages by exponentially-decayed selection
+ * frequency (frecency) folded into the candidate pool as a stable lane.
+ */
+export const MemoryV3HotSetSchema = z
+  .object({
+    k: z
+      .number({ error: "memory.v3.hotSet.k must be a number" })
+      .int("memory.v3.hotSet.k must be an integer")
+      .positive("memory.v3.hotSet.k must be a positive integer")
+      .default(40)
+      .describe(
+        "Number of top frecency-scored pages included in the hot-set lane.",
+      ),
+    halfLifeDays: z
+      .number({ error: "memory.v3.hotSet.halfLifeDays must be a number" })
+      .positive("memory.v3.hotSet.halfLifeDays must be a positive number")
+      .default(14)
+      .describe(
+        "Frecency decay half-life in days: a selection this old contributes half the weight of one made now.",
+      ),
+  })
+  .describe("Memory v3 hot-set lane (decayed selection frequency) tuning.");
+
+/**
+ * Ephemeral section-spotlight tuning: how many of the current turn's selected
+ * finder hits render their matched section into the `<memory_spotlight>`
+ * block, and how many previous turns' spotlight entries are carried along
+ * before they age out. The block is strip-and-replaced every turn, so its
+ * size is bounded by `n × (windowTurns + 1)` entries.
+ */
+export const MemoryV3SpotlightSchema = z
+  .object({
+    n: z
+      .number({ error: "memory.v3.spotlight.n must be a number" })
+      .int("memory.v3.spotlight.n must be an integer")
+      .positive("memory.v3.spotlight.n must be a positive integer")
+      .default(6)
+      .describe(
+        "Number of the current turn's selected finder hits whose matched sections render into the spotlight block.",
+      ),
+    windowTurns: z
+      .number({ error: "memory.v3.spotlight.windowTurns must be a number" })
+      .int("memory.v3.spotlight.windowTurns must be an integer")
+      .nonnegative(
+        "memory.v3.spotlight.windowTurns must be a non-negative integer",
+      )
+      .default(2)
+      .describe(
+        "Number of previous turns whose spotlight entries are carried into the current block before aging out (0 = current turn only).",
+      ),
+  })
+  .describe("Memory v3 ephemeral section-spotlight tuning.");
+
+/**
+ * Prune-valve bounds on the resident (non-pruned) frozen-card footprint.
+ *
+ * Frozen cards accumulate in history with no per-turn bound, so the valve is
+ * the structural backstop: once resident card bytes exceed
+ * `maxResidentBytes`, the least-recently-selected non-core/non-hot cards are
+ * pruned until the footprint is back at `targetResidentBytes`.
+ *
+ * Defaults rationale: production v2 ran 303KB of accumulated memory unpruned
+ * on the widest observed conversation — 384KB max / 256KB target make the
+ * valve insurance for growth beyond that, not routine behavior.
+ */
+export const MemoryV3PruneSchema = z
+  .object({
+    maxResidentBytes: z
+      .number({ error: "memory.v3.prune.maxResidentBytes must be a number" })
+      .int("memory.v3.prune.maxResidentBytes must be an integer")
+      .positive("memory.v3.prune.maxResidentBytes must be a positive integer")
+      .default(393216 /* 384KB */)
+      .describe(
+        "Resident (non-pruned) card bytes above which the prune valve fires.",
+      ),
+    targetResidentBytes: z
+      .number({
+        error: "memory.v3.prune.targetResidentBytes must be a number",
+      })
+      .int("memory.v3.prune.targetResidentBytes must be an integer")
+      .positive(
+        "memory.v3.prune.targetResidentBytes must be a positive integer",
+      )
+      .default(262144 /* 256KB */)
+      .describe(
+        "Resident card bytes a fired prune reduces the footprint to (must be below maxResidentBytes).",
+      ),
+  })
+  .refine((value) => value.targetResidentBytes < value.maxResidentBytes, {
+    error:
+      "memory.v3.prune.targetResidentBytes must be less than memory.v3.prune.maxResidentBytes",
+  })
+  .describe("Memory v3 prune-valve (resident card footprint) bounds.");
+
+// NOTE: a retired `workingSet` sub-config (maxPages/evictWindow for the old
+// per-turn carry set) used to live here. Existing user config files may still
+// contain the key; zod default unknown-key stripping accepts and ignores it,
+// so legacy configs keep parsing. Do not make this object `.strict()`.
 export const MemoryV3ConfigSchema = z
   .object({
-    workingSet: MemoryV3WorkingSetSchema.default(
-      MemoryV3WorkingSetSchema.parse({}),
+    prune: MemoryV3PruneSchema.default(MemoryV3PruneSchema.parse({})),
+    hotSet: MemoryV3HotSetSchema.default(MemoryV3HotSetSchema.parse({})),
+    spotlight: MemoryV3SpotlightSchema.default(
+      MemoryV3SpotlightSchema.parse({}),
     ),
     needleK: z
       .number({ error: "memory.v3.needleK must be a number" })
@@ -90,8 +163,6 @@ export const MemoryV3ConfigSchema = z
       ),
     edge: MemoryV3EdgeSchema.default(MemoryV3EdgeSchema.parse({})),
   })
-  .describe(
-    "Memory v3 — section-grain lane retrieval with a carry-forward working set",
-  );
+  .describe("Memory v3 — section-grain lane retrieval");
 
 export type MemoryV3Config = z.infer<typeof MemoryV3ConfigSchema>;

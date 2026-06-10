@@ -53,7 +53,7 @@ import {
   setConversationHistoryStrippedAt,
 } from "../memory/conversation-crud.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
+import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory/memory-marker.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
@@ -68,6 +68,11 @@ import {
   createContextSummaryMessage,
 } from "../plugins/defaults/compaction/window-manager.js";
 import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
+import {
+  getPrunedSlugs,
+  MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
+} from "../plugins/defaults/memory-v3-shadow/ever-injected-store.js";
+import { filterPrunedCardSections } from "../plugins/defaults/memory-v3-shadow/prune.js";
 import {
   applyBootstrapTemplate,
   buildSystemPrompt,
@@ -177,7 +182,7 @@ export type {
   QueueDrainReason,
   QueuePolicy,
 } from "./conversation-queue-manager.js";
-import { resolveTrustClass, type TrustContext } from "./trust-context.js";
+import { isPersonalMemoryAllowed, type TrustContext } from "./trust-context.js";
 
 export interface ConversationConstructorOptions {
   maxTokens?: number;
@@ -815,16 +820,30 @@ export class Conversation {
       preStrippedCount = boundary === -1 ? slicedDbMessages.length : boundary;
     }
 
-    // Mirror the injection-time gate (`shouldExposePersonalMemory` in
-    // `conversation-agent-loop.ts`) so background/local conversations
-    // (sourceChannel `undefined` or `"vellum"`) can rehydrate the persisted
-    // v2 static memory block. Use `resolveTrustClass` for parity with the
-    // agent loop — it folds in the HTTP-auth-disabled dev bypass so
-    // rehydration and injection agree on the effective trust class.
-    const personalMemoryAllowed = shouldExposePersonalMemory({
-      sourceChannel: this.trustContext?.sourceChannel,
-      isTrustedActor: resolveTrustClass(this.trustContext) === "guardian",
-    });
+    // The injection-time personal-memory gate, so background/local
+    // conversations (sourceChannel `undefined` or `"vellum"`) can rehydrate
+    // the persisted v2 static memory block. The shared helper folds in the
+    // HTTP-auth-disabled dev bypass so rehydration and injection agree on the
+    // effective trust class.
+    const personalMemoryAllowed = isPersonalMemoryAllowed(this.trustContext);
+    // Pruned v3 card slugs, read lazily on the first row that carries a v3
+    // block (most conversations carry none, so most loads never query). The
+    // prune valve marks cards pruned in the everInjected store instead of
+    // rewriting the persisted metadata, so the v3 rehydration splice below
+    // re-applies the filter on every load — that is what makes a prune
+    // survive daemon restarts. Defensive catch: a store failure degrades to
+    // an unfiltered (pre-prune) rehydration rather than a failed load.
+    let v3PrunedSlugsMemo: Set<string> | null = null;
+    const v3PrunedSlugs = (): Set<string> => {
+      if (v3PrunedSlugsMemo === null) {
+        try {
+          v3PrunedSlugsMemo = getPrunedSlugs(this.conversationId);
+        } catch {
+          v3PrunedSlugsMemo = new Set();
+        }
+      }
+      return v3PrunedSlugsMemo;
+    };
     const parsedMessages: Message[] = slicedDbMessages.map((m, index, arr) => {
       const isPreStripped = index < preStrippedCount;
       const role = m.role as "user" | "assistant";
@@ -855,18 +874,21 @@ export class Conversation {
           // so the resulting layout matches `applyRuntimeInjections`'s
           // after-memory-prefix splices in ascending injector order
           // (pkb-context 30, pkb-reminder 35, memory-v2-static 38,
-          // now-md 40 — the v2 static block lands inside the memory
-          // prefix, so now-md splices *after* it):
+          // now-md 40, memory-v3-shadow 1000 — the v2 static block lands
+          // inside the memory prefix, so now-md splices *after* it; the
+          // v3 card block is `<memory>`-wrapped and splices LAST, landing
+          // at the memory boundary after the `<info>` block but before
+          // now-md's earlier splice):
           //   [<workspace>, <turn_context>, <memory>dynamic</memory>,
-          //    <info>v2static</info>, <NOW.md>, <system_reminder>,
-          //    <knowledge_base>, ...original]
+          //    <info>v2static</info>, <memory>v3cards</memory>, <NOW.md>,
+          //    <system_reminder>, <knowledge_base>, ...original]
           // The v2 static block is replayed verbatim from stored metadata,
           // so rows may carry either `<info>…</info>` or `<memory>…</memory>`
           // depending on when they were persisted.
           // Required so Anthropic's prefix cache keeps matching msg[0]
           // across daemon restart and conversation eviction. The tail
-          // row only rehydrates `memoryInjectedBlock` — the next turn
-          // re-injects the rest fresh.
+          // row only rehydrates `memoryInjectedBlock` and the v3 card
+          // block — the next turn re-injects the rest fresh.
           if (!isTail && typeof meta.pkbContextBlock === "string") {
             content = [
               { type: "text" as const, text: meta.pkbContextBlock },
@@ -888,10 +910,42 @@ export class Conversation {
             ];
           }
 
+          // The memory-v3 frozen card block (net-new compact cards) persists
+          // under its own key, stored UNWRAPPED like v2's dynamic block below.
+          // Rehydrated on ALL rows (tail included): the next turn injects only
+          // net-new cards — deduped via the v3 everInjected store — so this
+          // row's block must be back in history byte-identical for the dedup
+          // (and the provider prefix cache) to hold. A row carries at most one
+          // of the v3 and v2-dynamic keys (the user-prompt-submit hook
+          // persists them mutually exclusively). Spliced here — before the v2
+          // static and dynamic blocks — because prepends invert: executing
+          // first leaves it BELOW both in the final content, matching the
+          // live after-memory-prefix splice (order 1000 lands at the memory
+          // boundary, after `<info>` / `<memory>` prefix blocks).
+          // Pruned slugs' card sections are filtered out here (the metadata
+          // itself is never rewritten — auditable and reversible); an
+          // all-pruned block is skipped entirely, matching the live strip in
+          // `memory-v3-shadow/prune.ts`.
+          if (typeof meta[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] === "string") {
+            const v3Block = meta[
+              MEMORY_V3_INJECTED_BLOCK_METADATA_KEY
+            ] as string;
+            const v3Resident = filterPrunedCardSections(
+              unwrapMemoryBlock(v3Block),
+              v3PrunedSlugs(),
+            );
+            if (v3Resident.length > 0) {
+              content = [
+                { type: "text" as const, text: wrapMemoryBlock(v3Resident) },
+                ...content,
+              ];
+            }
+          }
+
           // The v2 static memory block (essentials/threads/recent/buffer
           // wrapped in either `<info>…</info>` or `<memory>…</memory>`)
           // carries personal user memory. Trust-gated to mirror
-          // `shouldExposePersonalMemory` at injection time — untrusted-actor
+          // `isPersonalMemoryAllowed` at injection time — untrusted-actor
           // views must not read persisted personal memory back through
           // metadata. Skipped on the tail row because the next turn
           // re-injects fresh content on full-mode turns.
@@ -915,15 +969,12 @@ export class Conversation {
           // legitimate unwrapped payloads that happen to start with
           // "<memory>\n" or end with "\n</memory>".
           if (typeof meta.memoryInjectedBlock === "string") {
-            const block = meta.memoryInjectedBlock;
-            const inner =
-              block.startsWith("<memory>\n") && block.endsWith("\n</memory>")
-                ? block.slice("<memory>\n".length, -"\n</memory>".length)
-                : block;
             content = [
               {
                 type: "text" as const,
-                text: `<memory>\n${inner}\n</memory>`,
+                text: wrapMemoryBlock(
+                  unwrapMemoryBlock(meta.memoryInjectedBlock),
+                ),
               },
               ...content,
             ];
@@ -1057,14 +1108,13 @@ export class Conversation {
   async ensureActorScopedHistory(): Promise<void> {
     const currentTrustClass = this.trustContext?.trustClass;
     // `loadFromDb` gates personal-memory rehydration on `sourceChannel` too
-    // (via `shouldExposePersonalMemory`), so a same-trust-class reuse from a
+    // (via `isPersonalMemoryAllowed`), so a same-trust-class reuse from a
     // different channel (e.g. internal `vellum` → remote channel) must also
     // trigger a reload. Otherwise stale personal-memory blocks can leak to
     // an untrusted remote turn, or be hidden when they should be present.
-    const currentPersonalMemoryAllowed = shouldExposePersonalMemory({
-      sourceChannel: this.trustContext?.sourceChannel,
-      isTrustedActor: resolveTrustClass(this.trustContext) === "guardian",
-    });
+    const currentPersonalMemoryAllowed = isPersonalMemoryAllowed(
+      this.trustContext,
+    );
     if (
       this.loadedHistoryTrustClass === currentTrustClass &&
       this.loadedHistoryPersonalMemoryAllowed === currentPersonalMemoryAllowed

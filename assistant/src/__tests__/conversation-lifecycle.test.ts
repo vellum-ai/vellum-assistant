@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Stub out heavy dependencies before importing Conversation
 mock.module("../util/logger.js", () => ({
@@ -110,7 +110,37 @@ mock.module("../memory/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
+// `loadFromDb` reads the conversation's pruned v3 card slugs (prune valve)
+// when a row carries a `memoryV3InjectedBlock`. Stub the store read so these
+// tests never touch a real DB; the stub DELEGATES to the real implementation
+// unless this file is actively running (`mock.module` is process-global and
+// would otherwise leak into sibling files that use the real store).
+const realEverInjectedStore = {
+  ...(await import("../plugins/defaults/memory-v3-shadow/ever-injected-store.js")),
+};
+let lifecycleStoreMockActive = false;
+let mockPrunedSlugs = new Set<string>();
+mock.module(
+  "../plugins/defaults/memory-v3-shadow/ever-injected-store.js",
+  () => ({
+    ...realEverInjectedStore,
+    getPrunedSlugs: (conversationId: string) =>
+      lifecycleStoreMockActive
+        ? mockPrunedSlugs
+        : realEverInjectedStore.getPrunedSlugs(conversationId),
+  }),
+);
+
 import { Conversation } from "../daemon/conversation.js";
+
+beforeEach(() => {
+  lifecycleStoreMockActive = true;
+  mockPrunedSlugs = new Set();
+});
+
+afterAll(() => {
+  lifecycleStoreMockActive = false;
+});
 
 function makeConversation(): Conversation {
   const provider = {
@@ -341,6 +371,156 @@ describe("loadFromDb metadata injection rehydration", () => {
     expect(firstBlock).toEqual({
       type: "text",
       text: "<memory>\nremember: alice\n</memory>",
+    });
+    if (firstBlock.type !== "text") throw new Error("unexpected block type");
+    expect(firstBlock.text.match(/<memory>/g)?.length).toBe(1);
+  });
+
+  test("memoryV3InjectedBlock rehydrates wrapped on ALL rows (tail included)", async () => {
+    // The memory-v3 frozen card block persists UNWRAPPED under its own key and
+    // must come back wrapped on every row — including the tail, since the next
+    // turn injects only NET-NEW cards (deduped via the v3 store) and never
+    // re-renders this row's cards.
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock:
+            "header line\n\n# memory/concepts/page-a.md\nhead a",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Tail turn" }]),
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock: "# memory/concepts/page-b.md\nhead b",
+        }),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages).toHaveLength(3);
+    expect(messages[0].content).toEqual([
+      {
+        type: "text",
+        text: "<memory>\nheader line\n\n# memory/concepts/page-a.md\nhead a\n</memory>",
+      },
+      { type: "text", text: "First turn" },
+    ]);
+    // Tail row rehydrates too (unlike turn_context / system_reminder).
+    expect(messages[2].content).toEqual([
+      {
+        type: "text",
+        text: "<memory>\n# memory/concepts/page-b.md\nhead b\n</memory>",
+      },
+      { type: "text", text: "Tail turn" },
+    ]);
+  });
+
+  test("pruned slugs' card sections are skipped at v3 rehydration (prune valve persistence)", async () => {
+    // The prune valve marks cards pruned in the everInjected store instead of
+    // rewriting the persisted metadata; the rehydration splice re-filters on
+    // every load, which is what makes a prune survive restarts.
+    mockConversation = defaultConv();
+    mockPrunedSlugs = new Set(["page-a"]);
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock:
+            "header line\n\n# memory/concepts/page-a.md\nhead a\n\n# memory/concepts/page-b.md\nhead b",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages[0].content).toEqual([
+      {
+        type: "text",
+        text: "<memory>\nheader line\n\n# memory/concepts/page-b.md\nhead b\n</memory>",
+      },
+      { type: "text", text: "First turn" },
+    ]);
+  });
+
+  test("a fully-pruned memoryV3InjectedBlock is skipped entirely at rehydration", async () => {
+    mockConversation = defaultConv();
+    mockPrunedSlugs = new Set(["page-a"]);
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock:
+            "header line\n\n# memory/concepts/page-a.md\nhead a",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    // No memory block at all — an instruction header with zero cards carries
+    // no content (matches the live strip, which removes the emptied block).
+    expect(messages[0].content).toEqual([{ type: "text", text: "First turn" }]);
+  });
+
+  test("defensively-wrapped memoryV3InjectedBlock rehydrates singly-wrapped", async () => {
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Hi" }]),
+        metadata: JSON.stringify({
+          memoryV3InjectedBlock:
+            "<memory>\n# memory/concepts/page-a.md\nhead a\n</memory>",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Hello" }]),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    const firstBlock = messages[0].content[0];
+    expect(firstBlock).toEqual({
+      type: "text",
+      text: "<memory>\n# memory/concepts/page-a.md\nhead a\n</memory>",
     });
     if (firstBlock.type !== "text") throw new Error("unexpected block type");
     expect(firstBlock.text.match(/<memory>/g)?.length).toBe(1);
@@ -595,6 +775,82 @@ describe("loadFromDb metadata injection rehydration", () => {
       {
         type: "text",
         text: "<info>\n## Essentials\n\nAlice prefers VS Code.\n</info>",
+      },
+      { type: "text", text: "<NOW.md>\nnow body\n</NOW.md>" },
+      {
+        type: "text",
+        text: "<system_reminder>\npkb reminder body\n</system_reminder>",
+      },
+      { type: "text", text: "<knowledge_base>\nkb body\n</knowledge_base>" },
+      { type: "text", text: "First turn" },
+    ]);
+  });
+
+  test("rehydration order matches live assembly when memoryV2StaticBlock and memoryV3InjectedBlock co-occur", async () => {
+    // First-turn and first-post-compaction rows of a memory-v3-live
+    // conversation persist BOTH `memoryV2StaticBlock` and the v3 card block.
+    // Live assembly applies after-memory-prefix splices in ascending
+    // injector order (pkb-context 30, pkb-reminder 35, memory-v2-static 38,
+    // now-md 40, memory-v3-shadow 1000); each splice lands at the
+    // memory-prefix boundary (`countMemoryPrefixBlocks` counts `<memory>`
+    // AND `<info>` blocks), so the v3 block — spliced last and itself
+    // `<memory>`-wrapped — lands AFTER the `<info>` static block but before
+    // now-md's earlier splice:
+    //   [<workspace>, <turn_context>, <memory>dynamic</memory>,
+    //    <info>v2static</info>, <memory>v3cards</memory>, <NOW.md>,
+    //    <system_reminder>, <knowledge_base>, ...original]
+    // Rehydration must reproduce this byte-for-byte or every daemon restart
+    // busts the provider prefix cache for the whole conversation history.
+    // (`memoryInjectedBlock` and the v3 key are mutually exclusive on real
+    // rows; both are included here to pin the relative order of all splices.)
+    mockConversation = defaultConv();
+    mockDbMessages = [
+      {
+        id: "m1",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "First turn" }]),
+        metadata: JSON.stringify({
+          workspaceBlock: "<workspace>\nworkspace body\n</workspace>",
+          turnContextBlock: "<turn_context>\nctx payload\n</turn_context>",
+          memoryInjectedBlock: "mem payload",
+          memoryV2StaticBlock:
+            "<info>\n## Essentials\n\nAlice prefers VS Code.\n</info>",
+          memoryV3InjectedBlock:
+            "header line\n\n# memory/concepts/page-a.md\nhead a",
+          nowScratchpadBlock: "<NOW.md>\nnow body\n</NOW.md>",
+          pkbSystemReminderBlock:
+            "<system_reminder>\npkb reminder body\n</system_reminder>",
+          pkbContextBlock: "<knowledge_base>\nkb body\n</knowledge_base>",
+        }),
+      },
+      {
+        id: "m2",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Reply" }]),
+      },
+      {
+        id: "m3",
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "Tail" }]),
+      },
+    ];
+
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+    const messages = conversation.getMessages();
+
+    expect(messages).toHaveLength(3);
+    expect(messages[0].content).toEqual([
+      { type: "text", text: "<workspace>\nworkspace body\n</workspace>" },
+      { type: "text", text: "<turn_context>\nctx payload\n</turn_context>" },
+      { type: "text", text: "<memory>\nmem payload\n</memory>" },
+      {
+        type: "text",
+        text: "<info>\n## Essentials\n\nAlice prefers VS Code.\n</info>",
+      },
+      {
+        type: "text",
+        text: "<memory>\nheader line\n\n# memory/concepts/page-a.md\nhead a\n</memory>",
       },
       { type: "text", text: "<NOW.md>\nnow body\n</NOW.md>" },
       {

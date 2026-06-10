@@ -46,6 +46,7 @@ import {
   migrateActivationState,
   migrateActivationStateFkCascade,
   migrateAddConversationInferenceProfile,
+  migrateAddMemoryV3EverInjected,
   migrateAddMemoryV3Selections,
   migrateAddSourceTypeColumns,
   migrateAssistantContactMetadata,
@@ -488,6 +489,7 @@ export function initializeDb(): void {
     createActivationSessionsTable,
     migrateToolInvocationsSkillId,
     migrateToolInvocationsCreatedAtIdIndex,
+    migrateAddMemoryV3EverInjected,
   ];
 
   // Run each migration step, catching and logging individual failures so one

@@ -31,6 +31,33 @@ const log = getLogger("memory-v2-consolidate-prompt");
 export const CUTOFF_PLACEHOLDER = "{{CUTOFF}}";
 
 /**
+ * Sentinel substituted with {@link CORE_PAGES_CONSOLIDATION_SECTION} (or the
+ * empty string) at runtime. The core-pages file only exists for the memory-v3
+ * retrieval lanes, so the section is included only when a v3 flag is enabled
+ * for the assistant — on a v2-only install the instruction would have the
+ * agent curate a file nothing reads, under premises ("kept in reach every
+ * turn", "the hot set") that are false there.
+ */
+export const CORE_PAGES_PLACEHOLDER = "{{CORE_PAGES_SECTION}}";
+
+/**
+ * The flag-gated `memory/core-pages.md` curation step. Ends with a blank line
+ * so substituting it (or the empty string) ahead of the `---` separator keeps
+ * the surrounding template byte-stable either way.
+ */
+export const CORE_PAGES_CONSOLIDATION_SECTION = `## 10. Review \`memory/core-pages.md\` — the curated core set
+
+\`memory/core-pages.md\` lists the pages retrieval keeps in reach EVERY turn, regardless of topic. It exists for one class of page: associative texture — registers, identity frames, calibration rules — pages with no lexical or semantic match to the message that neither search nor usage frequency can surface on their own. You are the only editor of this file; review it each pass.
+
+- **Format:** one page per list line — \`- [[slug]]\` or \`- slug\`, optionally followed by an inline note: after a wikilink the note is free-form (\`- [[slug]] — why it belongs\`); after a bare slug introduce it with a dash (\`- slug — why it belongs\`). Headings, blank lines, and standalone prose lines are ignored, so annotate freely.
+- **Keep it small** — on the order of a few dozen entries (~30–50). Every entry costs context budget every single turn.
+- **Add** a page only when its content should always be in reach with no topical cue. If a search query would find it, it doesn't belong here.
+- **Remove** entries made redundant by frequent use — recently-used pages stay warm automatically (the hot set), so a page that comes up all the time doesn't need a core slot.
+- **Fix** entries whose page you renamed or deleted this pass (maintenance reports dangling entries, but never edits the file).
+
+`;
+
+/**
  * Upper bound for the override file. Real consolidation prompts are kilobytes;
  * 1 MiB is generous headroom while preventing a `settings.write` principal from
  * pointing the field at a multi-gigabyte file (or `/dev/zero`-like stream that
@@ -384,7 +411,7 @@ Scan namespace sizes. If any namespace has crossed ~12-15 articles with visible 
 - Rewrite to contain ONLY entries with timestamp ≥ \`${CUTOFF_PLACEHOLDER}\`.
 - Smart removal — never wholesale-clear.
 
----
+${CORE_PAGES_PLACEHOLDER}---
 
 # What NOT to do
 
@@ -433,20 +460,42 @@ For each article you touched:
 
 This is the engine that decides who you are tomorrow. Be ORGANIZED. Care, judgment, voice. Your voice. Your wiki.`;
 
+/** Flag-derived options threaded from the consolidation job. */
+export interface ConsolidationPromptOptions {
+  /**
+   * Include the `memory/core-pages.md` curation step. True only when a
+   * memory-v3 flag (shadow or live) is enabled for the assistant — the file
+   * feeds the v3 core lane and is inert on v2-only installs.
+   */
+  includeCorePagesSection: boolean;
+}
+
 /**
- * Resolve `CONSOLIDATION_PROMPT` with `{{CUTOFF}}` substituted. The prompt
- * treats the cutoff as opaque text — callers pass a `Mon D, h:mm AM/PM`
- * timestamp matching the `buffer.md` entry format so the agent compares
+ * Resolve `CONSOLIDATION_PROMPT` with `{{CUTOFF}}` substituted and the
+ * flag-gated core-pages section included or elided. The prompt treats the
+ * cutoff as opaque text — callers pass a `Mon D, h:mm AM/PM` timestamp
+ * matching the `buffer.md` entry format so the agent compares
  * like-with-like.
  */
-export function renderConsolidationPrompt(cutoff: string): string {
-  return CONSOLIDATION_PROMPT.replaceAll(CUTOFF_PLACEHOLDER, cutoff);
+export function renderConsolidationPrompt(
+  cutoff: string,
+  options: ConsolidationPromptOptions,
+): string {
+  return CONSOLIDATION_PROMPT.replaceAll(CUTOFF_PLACEHOLDER, cutoff).replaceAll(
+    CORE_PAGES_PLACEHOLDER,
+    options.includeCorePagesSection ? CORE_PAGES_CONSOLIDATION_SECTION : "",
+  );
 }
 
 /**
  * Load the consolidation prompt template, optionally overridden from the file
  * referenced by `memory.v2.consolidation_prompt_path`, then substitute
  * `{{CUTOFF}}`. Path-resolution rules are documented on the schema field.
+ *
+ * Override files get the same placeholder substitutions as the bundled
+ * template: `{{CUTOFF}}` always, and `{{CORE_PAGES_SECTION}}` per the same
+ * flag gate — so a prompt copied from the bundled source never leaks a raw
+ * placeholder, and a customized prompt can opt into the managed section.
  *
  * Failure handling is intentionally permissive — missing file, read error, or
  * empty/whitespace-only body all log a warning and fall back to the bundled
@@ -456,8 +505,9 @@ export function renderConsolidationPrompt(cutoff: string): string {
 export function resolveConsolidationPrompt(
   overridePath: string | null,
   cutoff: string,
+  options: ConsolidationPromptOptions,
 ): string {
-  if (overridePath === null) return renderConsolidationPrompt(cutoff);
+  if (overridePath === null) return renderConsolidationPrompt(cutoff, options);
 
   const resolvedPath = resolveOverridePath(overridePath);
   let contents: string;
@@ -473,7 +523,7 @@ export function resolveConsolidationPrompt(
         },
         "consolidation prompt override is not a regular file; using bundled prompt",
       );
-      return renderConsolidationPrompt(cutoff);
+      return renderConsolidationPrompt(cutoff, options);
     }
     if (stat.size > MAX_PROMPT_BYTES) {
       log.warn(
@@ -487,7 +537,7 @@ export function resolveConsolidationPrompt(
         },
         "consolidation prompt override exceeds size limit; using bundled prompt",
       );
-      return renderConsolidationPrompt(cutoff);
+      return renderConsolidationPrompt(cutoff, options);
     }
     contents = readFileSync(resolvedPath, "utf-8");
   } catch (err) {
@@ -496,7 +546,7 @@ export function resolveConsolidationPrompt(
       { configuredPath: overridePath, resolvedPath, code, fallback: "bundled" },
       "consolidation prompt override unreadable; using bundled prompt",
     );
-    return renderConsolidationPrompt(cutoff);
+    return renderConsolidationPrompt(cutoff, options);
   }
 
   if (contents.trim().length === 0) {
@@ -509,10 +559,15 @@ export function resolveConsolidationPrompt(
       },
       "consolidation prompt override is empty; using bundled prompt",
     );
-    return renderConsolidationPrompt(cutoff);
+    return renderConsolidationPrompt(cutoff, options);
   }
 
-  return contents.replaceAll(CUTOFF_PLACEHOLDER, cutoff);
+  return contents
+    .replaceAll(CUTOFF_PLACEHOLDER, cutoff)
+    .replaceAll(
+      CORE_PAGES_PLACEHOLDER,
+      options.includeCorePagesSection ? CORE_PAGES_CONSOLIDATION_SECTION : "",
+    );
 }
 
 function resolveOverridePath(overridePath: string): string {

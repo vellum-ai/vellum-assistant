@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { extractInjectedConceptSlugs } from "../injected-block-slugs.js";
+import {
+  extractInjectedConceptSlugs,
+  injectedConceptHeader,
+  readInjectedBlock,
+} from "../injected-block-slugs.js";
 
 describe("extractInjectedConceptSlugs", () => {
   test("extracts nested concept slugs from page headers", () => {
@@ -47,5 +51,40 @@ describe("extractInjectedConceptSlugs", () => {
       "# memory/concepts/topics/page-a.md\nA.\n\n# memory/concepts/topics/page-a.md\nA again.";
     expect(extractInjectedConceptSlugs(block)).toEqual(["topics/page-a"]);
     expect(extractInjectedConceptSlugs("no headers here")).toEqual([]);
+  });
+});
+
+describe("injectedConceptHeader", () => {
+  test("builds the header the extractor recovers (builder/parser round-trip)", () => {
+    const header = injectedConceptHeader("topics/page-a");
+    expect(header).toBe("# memory/concepts/topics/page-a.md");
+    expect(extractInjectedConceptSlugs(`${header}\nBody.`)).toEqual([
+      "topics/page-a",
+    ]);
+  });
+});
+
+describe("readInjectedBlock", () => {
+  test("reads the requested key off valid metadata JSON", () => {
+    const metadata = JSON.stringify({
+      memoryInjectedBlock: "v2 block",
+      memoryV3InjectedBlock: "v3 block",
+    });
+    expect(readInjectedBlock(metadata, "memoryInjectedBlock")).toBe("v2 block");
+    expect(readInjectedBlock(metadata, "memoryV3InjectedBlock")).toBe(
+      "v3 block",
+    );
+  });
+
+  test("returns null for absent, non-string, malformed, or non-object metadata", () => {
+    expect(readInjectedBlock(null, "memoryInjectedBlock")).toBeNull();
+    expect(readInjectedBlock(undefined, "memoryInjectedBlock")).toBeNull();
+    expect(readInjectedBlock("", "memoryInjectedBlock")).toBeNull();
+    expect(readInjectedBlock("not json", "memoryInjectedBlock")).toBeNull();
+    expect(readInjectedBlock('["array"]', "memoryInjectedBlock")).toBeNull();
+    expect(
+      readInjectedBlock('{"memoryInjectedBlock": 42}', "memoryInjectedBlock"),
+    ).toBeNull();
+    expect(readInjectedBlock("{}", "memoryInjectedBlock")).toBeNull();
   });
 });

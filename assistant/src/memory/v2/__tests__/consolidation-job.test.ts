@@ -336,6 +336,20 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v2_reembed"]);
   });
 
+  test("includes the core-pages curation section in the prompt only when a v3 flag is on", async () => {
+    // v2-only installs must not be instructed to curate memory/core-pages.md
+    // — the file feeds the v3 core lane and is inert without it.
+    v3FlagOn = false;
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    expect(runnerLastArgs?.prompt as string).not.toContain("core-pages");
+
+    v3FlagOn = true;
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    expect(runnerLastArgs?.prompt as string).toContain(
+      "## 10. Review `memory/core-pages.md`",
+    );
+  });
+
   test("returns run_failed and skips follow-ups when the runner reports failure", async () => {
     runnerImpl = async () => ({
       conversationId: "conv-1",
