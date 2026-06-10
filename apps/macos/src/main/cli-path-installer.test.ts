@@ -77,6 +77,23 @@ mock.module("node:fs", () => ({
   },
 }));
 
+// Controlled per-test; reset in afterEach.
+let shellPathValue = "";
+let shellPathHits: string[] = [];
+let resolveShellPathCalls = 0;
+const findExecutablesCalls: Array<[string, string]> = [];
+
+mock.module("./shell-path", () => ({
+  resolveShellPath: async () => {
+    resolveShellPathCalls += 1;
+    return shellPathValue;
+  },
+  findExecutablesInPath: (name: string, pathValue: string) => {
+    findExecutablesCalls.push([name, pathValue]);
+    return shellPathHits;
+  },
+}));
+
 const {
   WRAPPER_MARKER,
   getWrapperDir,
@@ -85,6 +102,7 @@ const {
   readWrapperOwnership,
   installWrapper,
   uninstallWrapper,
+  getCliPathInstallState,
 } = await import("./cli-path-installer");
 
 const wrapperDir = `${mockHome}/.local/bin`;
@@ -98,6 +116,10 @@ afterEach(() => {
   chmodSyncCalls.length = 0;
   renameSyncCalls.length = 0;
   rmSyncCalls.length = 0;
+  shellPathValue = "";
+  shellPathHits = [];
+  resolveShellPathCalls = 0;
+  findExecutablesCalls.length = 0;
 });
 
 // --- Path helpers ---
@@ -242,5 +264,81 @@ describe("uninstallWrapper", () => {
 
     expect(uninstallWrapper()).toBe("absent");
     expect(rmSyncCalls).toHaveLength(0);
+  });
+});
+
+// --- getCliPathInstallState ---
+
+describe("getCliPathInstallState", () => {
+  test("returns not-installed when the wrapper is absent, without consulting shell-path", async () => {
+    readFileSyncResult = null;
+
+    expect(await getCliPathInstallState()).toEqual({ kind: "not-installed" });
+    expect(resolveShellPathCalls).toBe(0);
+    expect(findExecutablesCalls).toHaveLength(0);
+  });
+
+  test("returns foreign-file for a foreign wrapper, without consulting shell-path", async () => {
+    readFileSyncResult = "#!/bin/sh\necho not ours\n";
+
+    expect(await getCliPathInstallState()).toEqual({ kind: "foreign-file" });
+    expect(resolveShellPathCalls).toBe(0);
+    expect(findExecutablesCalls).toHaveLength(0);
+  });
+
+  test("returns installed with inPath false when no hits and wrapper dir is not in PATH", async () => {
+    readFileSyncResult = buildWrapperScript();
+    shellPathValue = "/usr/local/bin:/usr/bin:/bin";
+    shellPathHits = [];
+
+    expect(await getCliPathInstallState()).toEqual({
+      kind: "installed",
+      inPath: false,
+    });
+    expect(findExecutablesCalls).toEqual([["vellum", shellPathValue]]);
+  });
+
+  test("returns installed with inPath true when the wrapper is the first hit", async () => {
+    readFileSyncResult = buildWrapperScript();
+    shellPathValue = `${wrapperDir}:/usr/local/bin:/usr/bin:/bin`;
+    shellPathHits = [wrapperPath];
+
+    expect(await getCliPathInstallState()).toEqual({
+      kind: "installed",
+      inPath: true,
+    });
+  });
+
+  test("returns shadowed with the winning path when another vellum precedes the wrapper", async () => {
+    readFileSyncResult = buildWrapperScript();
+    shellPathValue = `/opt/homebrew/bin:${wrapperDir}:/usr/bin:/bin`;
+    shellPathHits = ["/opt/homebrew/bin/vellum", wrapperPath];
+
+    expect(await getCliPathInstallState()).toEqual({
+      kind: "shadowed",
+      shadowedBy: "/opt/homebrew/bin/vellum",
+    });
+  });
+
+  test("returns installed when the wrapper wins over a later npm copy", async () => {
+    readFileSyncResult = buildWrapperScript();
+    shellPathValue = `${wrapperDir}:/opt/homebrew/bin:/usr/bin:/bin`;
+    shellPathHits = [wrapperPath, "/opt/homebrew/bin/vellum"];
+
+    expect(await getCliPathInstallState()).toEqual({
+      kind: "installed",
+      inPath: true,
+    });
+  });
+
+  test("counts a trailing-slash PATH entry for the wrapper dir as inPath", async () => {
+    readFileSyncResult = buildWrapperScript();
+    shellPathValue = `/usr/local/bin:${wrapperDir}/:/usr/bin`;
+    shellPathHits = [wrapperPath];
+
+    expect(await getCliPathInstallState()).toEqual({
+      kind: "installed",
+      inPath: true,
+    });
   });
 });
