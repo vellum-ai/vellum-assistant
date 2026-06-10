@@ -16,6 +16,8 @@ import { useNavigate } from "react-router";
 
 import type { Conversation } from "@/types/conversation-types";
 import { conversationsByIdAnalyzePost, conversationsForkPost } from "@/generated/daemon/sdk.gen";
+import { isElectron } from "@/runtime/is-electron";
+import { openPopoutWindow } from "@/runtime/popout-window";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
@@ -115,7 +117,11 @@ export function useConversationSecondaryActions({
 
   const handleOpenInNewWindow = useCallback(
     (conversation: Conversation) => {
-      window.open(routes.conversation(conversation.conversationId), "_blank");
+      if (isElectron()) {
+        void openPopoutWindow(conversation.conversationId);
+      } else {
+        window.open(routes.conversation(conversation.conversationId), "_blank");
+      }
     },
     [],
   );
