@@ -141,7 +141,7 @@ export interface DictationPartialEvent {
  * reason as `VellumCommand`.
  */
 export type DictationOverlayState =
-  | { kind: "recording"; transcription: string }
+  | { kind: "recording"; transcription: string; audioLevel?: number }
   | { kind: "processing" }
   | { kind: "done" }
   | { kind: "error"; message: string };

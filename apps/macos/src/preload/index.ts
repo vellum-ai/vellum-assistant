@@ -124,7 +124,7 @@ export interface DictationPartialEvent {
 // in `apps/macos/src/main/dictation-overlay-window.ts` (kept inline for the
 // same three-TS-project reason as `VellumCommand`).
 export type DictationOverlayState =
-  | { kind: "recording"; transcription: string }
+  | { kind: "recording"; transcription: string; audioLevel?: number }
   | { kind: "processing" }
   | { kind: "done" }
   | { kind: "error"; message: string };
@@ -591,14 +591,14 @@ export interface VellumBridge {
   dictationOverlay: {
     /**
      * Publish the current dictation lifecycle state so main can drive the
-     * system-wide overlay panel (live transcription pinned top-center of
+     * system-wide overlay panel (live transcription pinned bottom-center of
      * the active display). Fire-and-forget — interim transcription updates
      * are high-frequency and need no acknowledgement.
      */
     setState(state: DictationOverlayMessage): void;
     /**
      * Subscribe to overlay states. Only the dictation overlay window's own
-     * renderer (`/dictation-overlay`) consumes this. Returns an unsubscribe
+     * renderer (`/floating/dictation-overlay`) consumes this. Returns an unsubscribe
      * function.
      */
     onState(callback: (state: DictationOverlayState) => void): () => void;
