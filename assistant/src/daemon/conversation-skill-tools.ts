@@ -16,9 +16,12 @@ import { getConfig } from "../config/loader.js";
 import { skillFlagKey } from "../config/skill-state.js";
 import type { SkillSummary, SkillToolManifest } from "../config/skills.js";
 import { loadSkillCatalog } from "../config/skills.js";
+import { recordSkillLoadedEvent } from "../memory/skill-loaded-events-store.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { ActiveSkillEntry } from "../skills/active-skill-tools.js";
 import { deriveActiveSkills } from "../skills/active-skill-tools.js";
+import { getCachedCatalogSync } from "../skills/catalog-cache.js";
+import { readInstallMeta } from "../skills/install-meta.js";
 import { parseToolManifestFile } from "../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
 import {
@@ -28,6 +31,7 @@ import {
   unregisterSkillTools,
 } from "../tools/registry.js";
 import { createSkillToolsFromManifest } from "../tools/skills/skill-tool-factory.js";
+import type { UsageAttributionSnapshot } from "../usage/attribution.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("conversation-skill-tools");
@@ -86,6 +90,11 @@ export interface ProjectSkillToolsOptions {
    * reads across agent turns.
    */
   cache?: SkillProjectionCache;
+  /** Telemetry context for skill_loaded events; absent disables recording. */
+  telemetry?: {
+    conversationId: string | null;
+    attribution: UsageAttributionSnapshot | null;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -113,6 +122,54 @@ function loadManifestForSkill(skill: SkillSummary): SkillToolManifest | null {
       "Failed to parse TOOLS.json for skill",
     );
     return null;
+  }
+}
+
+/**
+ * Whether a skill is Vellum-produced for `skill_loaded` telemetry purposes:
+ * bundled skills always are; managed skills only when their install metadata
+ * records a `vellum` origin (legacy version.json installs are inferred as
+ * vellum by `readInstallMeta`). All other sources (workspace, extra, plugin)
+ * never emit.
+ */
+function isVellumProducedSkill(skill: SkillSummary): boolean {
+  if (skill.source === "bundled") return true;
+  if (skill.source === "managed") {
+    return readInstallMeta(skill.directoryPath)?.origin === "vellum";
+  }
+  return false;
+}
+
+/**
+ * Record a `skill_loaded` telemetry event for a newly-activated Vellum-produced
+ * skill. Metadata only — never skill output or conversation content.
+ * `skill_updated_at` comes from the cached merged catalog (sync accessor —
+ * this runs on the hot tool-projection path). Failures are swallowed at
+ * debug level: recording must never break tool projection.
+ */
+function recordSkillLoadedTelemetry(
+  skill: SkillSummary,
+  telemetry: ProjectSkillToolsOptions["telemetry"],
+): void {
+  if (!telemetry) return;
+  try {
+    if (!isVellumProducedSkill(skill)) return;
+    const catalogEntry = getCachedCatalogSync().find((s) => s.id === skill.id);
+    const attribution = telemetry.attribution;
+    recordSkillLoadedEvent({
+      conversationId: telemetry.conversationId ?? undefined,
+      skillName: skill.id,
+      skillUpdatedAt: catalogEntry?.updatedAt,
+      provider: attribution?.resolvedProvider,
+      model: attribution?.resolvedModel,
+      inferenceProfile: attribution?.appliedProfile ?? undefined,
+      inferenceProfileSource: attribution?.profileSource,
+    });
+  } catch (err) {
+    log.debug(
+      { err, skillId: skill.id },
+      "Failed to record skill_loaded telemetry event (non-fatal)",
+    );
   }
 }
 
@@ -325,6 +382,7 @@ export function projectSkillTools(
       if (prevHash === undefined) {
         // Newly active skill — register for the first time
         accepted = registerSkillTools(skillId, tools);
+        recordSkillLoadedTelemetry(skill, options?.telemetry);
       } else if (prevHash !== currentHash) {
         // Hash changed — unregister stale tools, then re-register with new definitions
         log.info(
@@ -343,6 +401,8 @@ export function projectSkillTools(
           // Don't add to successfulEntries — will be cleaned up as transiently-failed
           continue;
         }
+        // A version change that re-registers counts as a new skill load.
+        recordSkillLoadedTelemetry(skill, options?.telemetry);
       } else {
         // Hash unchanged — filter to only tools that are actually registered
         // for this skill. Some tools may have been skipped during initial

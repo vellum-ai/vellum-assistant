@@ -13,6 +13,7 @@ import {
 } from "../channels/types.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
@@ -375,6 +376,17 @@ export interface SkillProjectionContext {
   readonly transportInterface?: InterfaceId;
   /** Per-turn override profile, read by the switch_inference_profile tool injection. */
   currentTurnOverrideProfile?: string;
+  /**
+   * Conversation id for `skill_loaded` telemetry. Absent (e.g. minimal test
+   * contexts) disables telemetry recording in the skill projection.
+   */
+  readonly conversationId?: string;
+  /**
+   * The LLM call site driving the current turn (see
+   * {@link ToolSetupContext.currentCallSite}) — read per turn so skill_loaded
+   * telemetry attributes the provider/model/profile the turn actually ran on.
+   */
+  currentCallSite?: LLMCallSite;
 }
 
 // ── Conditional tool sets ────────────────────────────────────────────
@@ -641,6 +653,19 @@ export function createResolveToolsCallback(
       preactivatedSkillIds: effectivePreactivated,
       previouslyActiveSkillIds: ctx.skillProjectionState,
       cache: ctx.skillProjectionCache,
+      // skill_loaded telemetry context — resolved per turn so attribution
+      // reflects the call site/profile the current turn actually runs on.
+      telemetry:
+        ctx.conversationId !== undefined
+          ? {
+              conversationId: ctx.conversationId,
+              attribution: resolveConversationAttribution({
+                conversationId: ctx.conversationId,
+                currentCallSite: ctx.currentCallSite,
+                currentTurnOverrideProfile: ctx.currentTurnOverrideProfile,
+              }),
+            }
+          : undefined,
     });
     const turnAllowed = new Set(allBaseDefs.map((d) => d.name));
     for (const name of projection.allowedToolNames) {
