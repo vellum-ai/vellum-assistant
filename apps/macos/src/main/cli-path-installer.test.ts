@@ -1,0 +1,246 @@
+import { afterEach, describe, expect, mock, test } from "bun:test";
+
+// --- Mocks ---
+// Must be installed before the `await import` of the module under test so
+// the mocked module graph is in place when `cli-path-installer.ts` (and its
+// `cli-installer.ts` dependency) is evaluated. See `cli-installer.test.ts`.
+
+const userDataPath = "/mock/userData";
+const mockResourcesPath = "/mock/resources";
+const mockHome = "/mock/home";
+
+// `process.resourcesPath` is only defined inside a packaged Electron app.
+Object.defineProperty(process, "resourcesPath", {
+  value: mockResourcesPath,
+  writable: true,
+});
+
+mock.module("electron", () => ({
+  app: {
+    getPath: (name: string) => {
+      if (name === "userData") return userDataPath;
+      return "/tmp";
+    },
+    isPackaged: true,
+  },
+}));
+
+mock.module("./logger", () => ({
+  default: { info: () => {}, warn: () => {}, error: () => {} },
+}));
+
+const realOs = await import("node:os");
+mock.module("node:os", () => ({
+  ...realOs,
+  homedir: () => mockHome,
+}));
+
+// Track fs calls so tests can assert on them.
+let readFileSyncResult: string | Error | null = null;
+const mkdirSyncCalls: Array<[string, object]> = [];
+const writeFileSyncCalls: Array<[string, string]> = [];
+const chmodSyncCalls: Array<[string, number]> = [];
+const renameSyncCalls: Array<[string, string]> = [];
+const rmSyncCalls: Array<[string, object]> = [];
+
+const enoent = () => {
+  const err = new Error("ENOENT: no such file or directory");
+  (err as NodeJS.ErrnoException).code = "ENOENT";
+  return err;
+};
+
+mock.module("node:fs", () => ({
+  // Used by the cli-installer module evaluated as a dependency.
+  copyFileSync: () => {},
+  existsSync: () => false,
+  readdirSync: () => [],
+  // Used by cli-path-installer.
+  chmodSync: (p: string, mode: number) => {
+    chmodSyncCalls.push([p, mode]);
+  },
+  mkdirSync: (p: string, opts: object) => {
+    mkdirSyncCalls.push([p, opts]);
+  },
+  readFileSync: (_p: string, _enc?: string) => {
+    if (readFileSyncResult === null) throw enoent();
+    if (readFileSyncResult instanceof Error) throw readFileSyncResult;
+    return readFileSyncResult;
+  },
+  renameSync: (src: string, dst: string) => {
+    renameSyncCalls.push([src, dst]);
+  },
+  rmSync: (p: string, opts: object) => {
+    rmSyncCalls.push([p, opts]);
+  },
+  writeFileSync: (p: string, content: string) => {
+    writeFileSyncCalls.push([p, content]);
+  },
+}));
+
+const {
+  WRAPPER_MARKER,
+  getWrapperDir,
+  getWrapperPath,
+  buildWrapperScript,
+  readWrapperOwnership,
+  installWrapper,
+  uninstallWrapper,
+} = await import("./cli-path-installer");
+
+const wrapperDir = `${mockHome}/.local/bin`;
+const wrapperPath = `${wrapperDir}/vellum`;
+const locatorPath = `${userDataPath}/cli/locator.sh`;
+
+afterEach(() => {
+  readFileSyncResult = null;
+  mkdirSyncCalls.length = 0;
+  writeFileSyncCalls.length = 0;
+  chmodSyncCalls.length = 0;
+  renameSyncCalls.length = 0;
+  rmSyncCalls.length = 0;
+});
+
+// --- Path helpers ---
+
+describe("getWrapperDir", () => {
+  test("returns ~/.local/bin", () => {
+    expect(getWrapperDir()).toBe(wrapperDir);
+  });
+});
+
+describe("getWrapperPath", () => {
+  test("returns ~/.local/bin/vellum", () => {
+    expect(getWrapperPath()).toBe(wrapperPath);
+  });
+});
+
+// --- buildWrapperScript ---
+
+describe("buildWrapperScript", () => {
+  test("starts with a POSIX sh shebang", () => {
+    expect(buildWrapperScript().startsWith("#!/bin/sh\n")).toBe(true);
+  });
+
+  test("contains the ownership marker", () => {
+    expect(buildWrapperScript()).toContain(`${WRAPPER_MARKER}\n`);
+  });
+
+  test("embeds the single-quoted locator path", () => {
+    expect(buildWrapperScript()).toContain(`LOCATOR='${locatorPath}'\n`);
+  });
+
+  test("ends with the exec line", () => {
+    expect(buildWrapperScript().endsWith('exec "$VELLUM_BUN" "$VELLUM_CLI_BIN" "$@"\n')).toBe(
+      true,
+    );
+  });
+});
+
+// --- readWrapperOwnership ---
+
+describe("readWrapperOwnership", () => {
+  test("returns absent when no file exists at the wrapper path", () => {
+    readFileSyncResult = null; // readFileSync throws ENOENT
+    expect(readWrapperOwnership()).toBe("absent");
+  });
+
+  test("returns ours when the file contains the marker", () => {
+    readFileSyncResult = buildWrapperScript();
+    expect(readWrapperOwnership()).toBe("ours");
+  });
+
+  test("returns ours for an older wrapper revision containing the marker", () => {
+    readFileSyncResult = `#!/bin/sh\n${WRAPPER_MARKER}\n# old body\nexit 0\n`;
+    expect(readWrapperOwnership()).toBe("ours");
+  });
+
+  test("returns foreign for a file without the marker", () => {
+    readFileSyncResult = "#!/bin/sh\necho some other vellum tool\n";
+    expect(readWrapperOwnership()).toBe("foreign");
+  });
+
+  test("returns foreign when the file exists but is unreadable", () => {
+    const eacces = new Error("EACCES: permission denied");
+    (eacces as NodeJS.ErrnoException).code = "EACCES";
+    readFileSyncResult = eacces;
+    expect(readWrapperOwnership()).toBe("foreign");
+  });
+});
+
+// --- installWrapper ---
+
+describe("installWrapper", () => {
+  test("creates ~/.local/bin and atomically writes a 0755 wrapper", () => {
+    readFileSyncResult = null; // absent
+
+    const result = installWrapper({ overwriteForeign: false });
+
+    expect(result).toBe("installed");
+    expect(mkdirSyncCalls).toEqual([[wrapperDir, { recursive: true }]]);
+    expect(writeFileSyncCalls).toEqual([
+      [`${wrapperPath}.tmp`, buildWrapperScript()],
+    ]);
+    expect(chmodSyncCalls).toEqual([[`${wrapperPath}.tmp`, 0o755]]);
+    expect(renameSyncCalls).toEqual([[`${wrapperPath}.tmp`, wrapperPath]]);
+  });
+
+  test("returns needs-overwrite-confirmation for a foreign file without touching it", () => {
+    readFileSyncResult = "#!/bin/sh\necho not ours\n";
+
+    const result = installWrapper({ overwriteForeign: false });
+
+    expect(result).toBe("needs-overwrite-confirmation");
+    expect(writeFileSyncCalls).toHaveLength(0);
+    expect(chmodSyncCalls).toHaveLength(0);
+    expect(renameSyncCalls).toHaveLength(0);
+  });
+
+  test("overwrites a foreign file when overwriteForeign is true", () => {
+    readFileSyncResult = "#!/bin/sh\necho not ours\n";
+
+    const result = installWrapper({ overwriteForeign: true });
+
+    expect(result).toBe("installed");
+    expect(writeFileSyncCalls).toEqual([
+      [`${wrapperPath}.tmp`, buildWrapperScript()],
+    ]);
+    expect(renameSyncCalls).toEqual([[`${wrapperPath}.tmp`, wrapperPath]]);
+  });
+
+  test("overwrites our own older wrapper without confirmation", () => {
+    readFileSyncResult = `#!/bin/sh\n${WRAPPER_MARKER}\n# stale body\n`;
+
+    const result = installWrapper({ overwriteForeign: false });
+
+    expect(result).toBe("installed");
+    expect(writeFileSyncCalls).toEqual([
+      [`${wrapperPath}.tmp`, buildWrapperScript()],
+    ]);
+    expect(renameSyncCalls).toEqual([[`${wrapperPath}.tmp`, wrapperPath]]);
+  });
+});
+
+// --- uninstallWrapper ---
+
+describe("uninstallWrapper", () => {
+  test("removes the wrapper when it is ours", () => {
+    readFileSyncResult = buildWrapperScript();
+
+    expect(uninstallWrapper()).toBe("removed");
+    expect(rmSyncCalls).toEqual([[wrapperPath, { force: true }]]);
+  });
+
+  test("refuses to delete a foreign file", () => {
+    readFileSyncResult = "#!/bin/sh\necho not ours\n";
+
+    expect(uninstallWrapper()).toBe("not-ours");
+    expect(rmSyncCalls).toHaveLength(0);
+  });
+
+  test("no-ops when the wrapper is absent", () => {
+    readFileSyncResult = null;
+
+    expect(uninstallWrapper()).toBe("absent");
+    expect(rmSyncCalls).toHaveLength(0);
+  });
+});
