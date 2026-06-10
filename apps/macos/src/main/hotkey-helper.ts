@@ -131,6 +131,13 @@ export const queryMacHelperPermission = async (
   return HELPER_PERMISSION_STATUS_SCHEMA.parse(result).status;
 };
 
+export const queryFreshMacHelperPermission = async (
+  kind: MacHelperPermissionKind,
+): Promise<MacHelperPermissionStatus> => {
+  const result = await callOneShotHelper("permission.status", { kind });
+  return HELPER_PERMISSION_STATUS_SCHEMA.parse(result).status;
+};
+
 export const requestMacHelperSpeechRecognitionPermission =
   async (): Promise<void> => {
     await openMacHelperPermissionRequest("--request-speech-recognition");
@@ -161,6 +168,95 @@ const openMacHelperPermissionRequest = async (arg: string): Promise<void> => {
         reject(new Error(`open exited with code ${code ?? "unknown"}`));
       }
     });
+  });
+};
+
+const callOneShotHelper = async (
+  method: string,
+  params?: unknown,
+): Promise<unknown> => {
+  return new Promise<unknown>((resolve, reject) => {
+    const helperPath = getMacHelperPath();
+    const child = spawn(helperPath, [], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const id = 1;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+
+    const settle = (result: unknown) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      if (result instanceof Error) {
+        reject(result);
+      } else {
+        resolve(result);
+      }
+    };
+
+    timeout = setTimeout(() => {
+      settle(new Error("mac helper one-shot status did not respond"));
+      child.kill("SIGTERM");
+    }, 2_000);
+    timeout.unref?.();
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+      const newline = stdout.indexOf("\n");
+      if (newline < 0) return;
+
+      const line = stdout.slice(0, newline).trim();
+      try {
+        const response = z
+          .object({
+            jsonrpc: z.literal("2.0"),
+            id: z.number(),
+            result: z.unknown().optional(),
+            error: z
+              .object({ message: z.string(), code: z.number() })
+              .optional(),
+          })
+          .parse(JSON.parse(line));
+        if (response.error) {
+          settle(new Error(response.error.message));
+        } else {
+          settle(response.result);
+        }
+      } catch (err) {
+        settle(err instanceof Error ? err : new Error(String(err)));
+      } finally {
+        child.stdin.end();
+      }
+    });
+
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+
+    child.once("error", settle);
+    child.once("exit", (code) => {
+      if (!settled && code !== 0) {
+        settle(
+          new Error(
+            `mac helper one-shot status exited with code ${code ?? "unknown"}${
+              stderr.trim() ? `: ${stderr.trim()}` : ""
+            }`,
+          ),
+        );
+      }
+    });
+
+    child.stdin.write(
+      `${JSON.stringify({
+        jsonrpc: "2.0",
+        id,
+        method,
+        ...(params === undefined ? {} : { params }),
+      })}\n`,
+    );
   });
 };
 

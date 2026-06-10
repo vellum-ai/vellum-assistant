@@ -106,6 +106,7 @@ const {
   getMacHelperAppPath,
   getMacHelperPath,
   installHotkeyHelper,
+  queryFreshMacHelperPermission,
   requestMacHelperInputMonitoringPermission,
   requestMacHelperSpeechRecognitionPermission,
 } = await import("./hotkey-helper");
@@ -181,6 +182,28 @@ describe("getMacHelperPath", () => {
 });
 
 describe("permission request launchers", () => {
+  test("reads a permission status from a fresh helper process", async () => {
+    const pending = queryFreshMacHelperPermission("speechRecognition");
+
+    expect(spawnCalls[0]?.[0]).toBe(
+      "/repo/apps/macos/resources/vellum-mac-helper.app/Contents/MacOS/vellum-mac-helper",
+    );
+    expect(lastChild?.stdin.writes[0]).toContain(
+      "\"method\":\"permission.status\"",
+    );
+    expect(lastChild?.stdin.writes[0]).toContain(
+      "\"kind\":\"speechRecognition\"",
+    );
+
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"status\":\"granted\"}}\n",
+      ),
+    );
+    expect(await pending).toBe("granted");
+  });
+
   test("launches the helper app for Speech Recognition prompts", async () => {
     const pending = requestMacHelperSpeechRecognitionPermission();
 

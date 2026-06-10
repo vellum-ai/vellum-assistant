@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import { runAppleScript } from "./appleScriptExecutor";
 import {
+  queryFreshMacHelperPermission,
   queryMacHelperPermission,
   requestMacHelperInputMonitoringPermission,
   requestMacHelperSpeechRecognitionPermission,
@@ -105,6 +106,21 @@ const allWindowsWebContents = (): WebContents[] =>
     .filter((win) => !win.isDestroyed() && !win.webContents.isDestroyed())
     .map((win) => win.webContents);
 
+const resolveAppBundleId = (): string => {
+  if (!app.isPackaged) return "com.github.Electron";
+  const env = process.env.VELLUM_ENVIRONMENT || "production";
+  return env === "production"
+    ? "com.vellum.vellum-assistant-electron"
+    : `com.vellum.vellum-assistant-electron-${env}`;
+};
+
+const settingsPaneUrl = (kind: PermissionKind): string => {
+  if (kind !== "notifications") return SETTINGS_PANES[kind];
+  return `${SETTINGS_PANES.notifications}?id=${encodeURIComponent(
+    resolveAppBundleId(),
+  )}`;
+};
+
 export class PermissionsService {
   private lastStateJson: string | null = null;
   private pollTimers = new Map<PermissionKind, ReturnType<typeof setInterval>>();
@@ -179,7 +195,7 @@ export class PermissionsService {
       await requestMacHelperInputMonitoringPermission();
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
-    await shell.openExternal(SETTINGS_PANES[kind]);
+    await shell.openExternal(settingsPaneUrl(kind));
     this.startPolling(kind, sender);
     return this.item(kind, sender);
   }
@@ -229,6 +245,7 @@ export class PermissionsService {
           systemPreferences.getMediaAccessStatus("microphone"),
         );
       case "speechRecognition":
+        return await queryFreshMacHelperPermission(kind);
       case "inputMonitoring":
         return isMacHelperPermissionKind(kind)
           ? await queryMacHelperPermission(kind)
@@ -283,7 +300,7 @@ export class PermissionsService {
       const notification = new Notification({
         title: "Vellum",
         body: "Notifications are enabled.",
-        silent: true,
+        silent: false,
       });
 
       const settle = (status: PermissionStatus) => {
