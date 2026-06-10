@@ -50,7 +50,6 @@ function makeFakeCdpInspectClient(conversationId: string): FakeClient {
 let lastExtensionClient: FakeClient | undefined;
 let lastLocalClient: FakeClient | undefined;
 let lastCdpInspectClient: FakeClient | undefined;
-let lastHostBridgeClient: FakeClient | undefined;
 
 const createExtensionCdpClientMock = mock(
   (_proxy: HostBrowserProxy, conversationId: string) => {
@@ -67,7 +66,6 @@ const createHostBridgeCdpClientMock = mock(
     _sourceActorPrincipalId?: string,
   ) => {
     const client = makeFakeHostBridgeClient(conversationId);
-    lastHostBridgeClient = client;
     return client;
   },
 );
@@ -250,7 +248,6 @@ describe("getCdpClient", () => {
     lastExtensionClient = undefined;
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
-    lastHostBridgeClient = undefined;
     cdpInspectEnabled = false;
     desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
     _resetDesktopAutoCooldown();
@@ -1056,7 +1053,6 @@ describe("buildChainedClient failover", () => {
     lastExtensionClient = undefined;
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
-    lastHostBridgeClient = undefined;
     cdpInspectEnabled = false;
     desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
     _resetDesktopAutoCooldown();
@@ -1169,7 +1165,6 @@ describe("buildChainedClient failover", () => {
             { cdpMethod: "Page.navigate" },
           );
         });
-        lastHostBridgeClient = c;
         return c;
       },
     );
@@ -1426,7 +1421,6 @@ describe("desktop-auto cdp-inspect (macOS)", () => {
     lastExtensionClient = undefined;
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
-    lastHostBridgeClient = undefined;
     cdpInspectEnabled = false;
     desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
     _resetDesktopAutoCooldown();
@@ -1781,7 +1775,6 @@ describe("pinned-mode selection", () => {
     lastExtensionClient = undefined;
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
-    lastHostBridgeClient = undefined;
     cdpInspectEnabled = false;
     desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
     _resetDesktopAutoCooldown();
@@ -1998,7 +1991,6 @@ describe("buildPinnedCandidateList", () => {
     lastExtensionClient = undefined;
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
-    lastHostBridgeClient = undefined;
     cdpInspectEnabled = false;
     desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
     _resetDesktopAutoCooldown();
@@ -2139,7 +2131,6 @@ describe("attempt diagnostics", () => {
     lastExtensionClient = undefined;
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
-    lastHostBridgeClient = undefined;
     cdpInspectEnabled = false;
     desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
     _resetDesktopAutoCooldown();
@@ -2541,7 +2532,6 @@ describe("macOS host-browser proxy without extension registry", () => {
     lastExtensionClient = undefined;
     lastLocalClient = undefined;
     lastCdpInspectClient = undefined;
-    lastHostBridgeClient = undefined;
     cdpInspectEnabled = false;
     desktopAutoConfig = { enabled: true, cooldownMs: 30_000 };
     _resetDesktopAutoCooldown();
