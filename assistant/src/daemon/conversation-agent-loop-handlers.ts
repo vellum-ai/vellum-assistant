@@ -51,7 +51,6 @@ import type {
   ImageContent,
   Message,
 } from "../providers/types.js";
-import { isContextOverflowError } from "../providers/types.js";
 import {
   getCurrentSeq,
   recordPersistedSeq,
@@ -81,7 +80,6 @@ import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
   buildConversationErrorMessage,
   classifyConversationError,
-  isContextTooLarge,
   maxTokensReachedClassification,
 } from "./conversation-error.js";
 import { isProviderOrderingError } from "./conversation-slash.js";
@@ -161,21 +159,12 @@ export interface EventHandlerState {
   model: string;
   orderingErrorDetected: boolean;
   deferredOrderingError: string | null;
-  contextTooLargeDetected: boolean;
   /**
    * Set when the provider rejects with an image-dimension error. The agent
    * loop strips or downscales oversized image blocks from ctx.messages and
    * retries once before surfacing an error to the user.
    */
   imageTooLargeDetected: boolean;
-  /**
-   * The provider error object when context_too_large is detected, preserved
-   * so `parseActualTokensFromError` can prefer the typed
-   * `ContextOverflowError` fields over the string-regex fallback. The
-   * message is always reachable via `.message` on this object — no separate
-   * field is needed.
-   */
-  contextTooLargeError: unknown;
   providerErrorUserMessage: string | null;
   lastAssistantMessageId: string | undefined;
   /**
@@ -348,9 +337,7 @@ export function createEventHandlerState(): EventHandlerState {
     model: "",
     orderingErrorDetected: false,
     deferredOrderingError: null,
-    contextTooLargeDetected: false,
     imageTooLargeDetected: false,
-    contextTooLargeError: null,
     providerErrorUserMessage: null,
     lastAssistantMessageId: undefined,
     assistantRowAwaitingFinalization: false,
@@ -1603,21 +1590,11 @@ function handleError(
   if (isProviderOrderingError(event.error.message)) {
     state.orderingErrorDetected = true;
     state.deferredOrderingError = event.error.message;
-  } else if (isContextOverflowError(event.error)) {
-    // Typed path — the provider client already classified this as overflow.
-    state.contextTooLargeDetected = true;
-    state.contextTooLargeError = event.error;
-  } else if (isContextTooLarge(event.error.message)) {
-    state.contextTooLargeDetected = true;
-    state.contextTooLargeError = event.error;
   } else {
     const classified = classifyConversationError(event.error, {
       phase: "agent_loop",
     });
-    if (classified.code === "CONTEXT_TOO_LARGE") {
-      state.contextTooLargeDetected = true;
-      state.contextTooLargeError = event.error;
-    } else if (classified.code === "IMAGE_TOO_LARGE") {
+    if (classified.code === "IMAGE_TOO_LARGE") {
       // Trigger silent recovery: the agent loop will strip/downscale images
       // in ctx.messages and retry once before surfacing an error.
       state.imageTooLargeDetected = true;
@@ -2450,7 +2427,8 @@ export async function dispatchAgentEvent(
     );
     // Re-throw errors from critical handlers that must not be silently swallowed:
     // - message_complete: persists assistant message to DB, sets state flags
-    // - error: sets recovery flags (contextTooLargeDetected, orderingErrorDetected)
+    // - error: sets recovery flags (orderingErrorDetected) and surfaces the
+    //   user-facing error message
     // - usage: records token accounting
     // - compaction_completed: durable compaction commit; aborting the turn is
     //   safer than re-injecting against a half-applied compaction

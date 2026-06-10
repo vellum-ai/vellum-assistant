@@ -123,7 +123,7 @@ mock.module(
   }),
 );
 
-mock.module("../daemon/context-overflow-policy.js", () => ({
+mock.module("../plugins/defaults/compaction/overflow-policy.js", () => ({
   resolveOverflowAction: () => "fail_gracefully",
 }));
 
