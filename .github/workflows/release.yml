@@ -2779,9 +2779,9 @@ jobs:
 
       - name: Upload Electron update artifacts to GCS
         run: |
-          CHANNEL=${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
+          ENVIRONMENT=${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
           BUCKET=${{ needs.extract-version.outputs.is_staging == 'true' && 'vellum-staging-releases' || 'vellum-prod-releases' }}
-          MANIFEST_NAME="${CHANNEL}-mac.yml"
+          MANIFEST_NAME="${ENVIRONMENT}-mac.yml"
 
           for ARCH in arm64 x64; do
             ARCH_DIR="electron-artifacts/${ARCH}"
