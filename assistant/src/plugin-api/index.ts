@@ -58,6 +58,23 @@
 
 export type { HookName } from "./constants.js";
 export { HOOKS } from "./constants.js";
+// Conversation message/content shapes. A hook receives the live message
+// history (e.g. `PostToolUseContext.latestMessages: Message[]`), so plugins
+// that inspect or narrow content blocks — reading a `tool_use` block's input,
+// matching a `tool_result` — need to name these types.
+export type {
+  ContentBlock,
+  FileContent,
+  ImageContent,
+  Message,
+  RedactedThinkingContent,
+  ServerToolUseContent,
+  TextContent,
+  ThinkingContent,
+  ToolResultContent,
+  ToolUseContent,
+  WebSearchToolResultContent,
+} from "../providers/types.js";
 export type {
   PluginHookFn,
   PluginInitContext,
