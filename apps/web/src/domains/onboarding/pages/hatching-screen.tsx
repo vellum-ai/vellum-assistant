@@ -148,12 +148,19 @@ export function HatchingScreen() {
     let readyPollTimer: ReturnType<typeof setTimeout> | null = null;
     const pollStartMs = Date.now();
     let hatchedAssistantId: string | undefined;
-    // Whether this run created a brand-new assistant (hatch returned 201). Only
-    // a fresh creation may be seeded with a random avatar in the poll path: a
-    // returning user whose pre-flight `getAssistant()` fails transiently falls
-    // through to hatch/poll, and seeding their already-active assistant would
-    // overwrite an existing image avatar (which has no character-traits sidecar).
+    // Two independent signals that the assistant the poll discovers is THIS
+    // run's brand-new hatch (and so may be seeded with a random avatar) rather
+    // than a returning user's existing one (which might carry an uploaded/AI
+    // image avatar that a "no traits" read would clobber):
+    //   - `createdFreshAssistant`: the hatch POST returned 201 (newly created).
+    //   - `preflightFoundNoAssistant`: the pre-flight `getAssistant()` cleanly
+    //     resolved `auto_hatch` (HTTP 404 = no assistant existed yet), so any
+    //     later-active assistant must be this hatch — covers the case where the
+    //     hatch response is lost and 201 never lands. A pre-existing non-active
+    //     assistant, a thrown pre-flight, or a 5xx leaves both false, so a
+    //     returning user is never re-seeded.
     let createdFreshAssistant = false;
+    let preflightFoundNoAssistant = false;
 
     const pinnedVersion = readSelectedVersion();
 
@@ -231,7 +238,8 @@ export function HatchingScreen() {
       if (!useLocalHatch) {
         try {
           const existing = await getAssistant();
-          if (!cancelled && existing.ok && resolveAssistantLifecycleState(existing).kind === "active") {
+          const preflightState = resolveAssistantLifecycleState(existing);
+          if (!cancelled && existing.ok && preflightState.kind === "active") {
             if (isLocalMode()) {
               void saveLockfileAssistant({
                 assistantId: existing.data.id,
@@ -242,6 +250,12 @@ export function HatchingScreen() {
             }
             handleHatchReady();
             return;
+          }
+          // A clean 404 (`auto_hatch`) means no assistant existed yet, so the
+          // assistant the poll later finds active is necessarily this run's
+          // fresh hatch — seedable even if the hatch response is lost.
+          if (preflightState.kind === "auto_hatch") {
+            preflightFoundNoAssistant = true;
           }
         } catch {
           // Fall through to normal hatch
@@ -423,7 +437,7 @@ export function HatchingScreen() {
             const assistantId = result.data.id;
             useResolvedAssistantsStore.getState().upsertFromApi(result.data);
             void selectPlatformAssistant(assistantId);
-            if (createdFreshAssistant) {
+            if (createdFreshAssistant || preflightFoundNoAssistant) {
               void persistHatchAvatar(assistantId);
             }
             if (isLocalMode()) {

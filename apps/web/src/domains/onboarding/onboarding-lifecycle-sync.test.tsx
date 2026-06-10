@@ -738,4 +738,36 @@ describe("onboarding lifecycle sync", () => {
     expect(saveCharacterTraitsMock).not.toHaveBeenCalled();
     expect(invalidateQueriesMock).not.toHaveBeenCalled();
   });
+
+  test("a fresh hatch is still seeded when the hatch response is lost (pre-flight saw no assistant)", async () => {
+    // Pre-flight resolves auto_hatch (HTTP 404 = no assistant existed), so the
+    // user is provably new. hatchAssistant then throws (POST accepted, response
+    // lost), so createdFreshAssistant never gets set — but the poll discovers
+    // the freshly-created assistant, which must still be seeded rather than
+    // landing on the default avatar.
+    let assistantCalls = 0;
+    getAssistantImpl = async () => {
+      assistantCalls += 1;
+      if (assistantCalls === 1) return { ok: false, status: 404, error: {} };
+      return assistantResult("active");
+    };
+    hatchAssistantMock.mockImplementationOnce(async () => {
+      throw new Error("response lost");
+    });
+
+    render(<HatchingScreen />);
+
+    await waitFor(() =>
+      expect(saveCharacterTraitsMock).toHaveBeenCalledWith("asst-1", {
+        bodyShape: "round",
+        eyeStyle: "dot",
+        color: "green",
+      }),
+    );
+    await waitFor(() =>
+      expect(invalidateQueriesMock).toHaveBeenCalledWith({
+        queryKey: ["assistantAvatar", "asst-1"],
+      }),
+    );
+  });
 });
