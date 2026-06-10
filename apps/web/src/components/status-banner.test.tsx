@@ -13,9 +13,11 @@ let requestedOperationalStatusAssistantId: string | null | undefined;
 let operationalStatusQueryMock: {
   data: { state: string } | null | undefined;
   isError: boolean;
+  refetch: () => void;
 } = {
   data: null,
   isError: false,
+  refetch: () => {},
 };
 let StatusBanner: ComponentType<{ className?: string }>;
 
@@ -38,6 +40,21 @@ mock.module("@/runtime/is-electron", () => ({
 
 mock.module("@/runtime/connectivity", () => ({
   retryConnectivity: () => {},
+}));
+
+mock.module("@/generated/api/sdk.gen", () => ({
+  assistantsMaintenanceModeExitCreate: () =>
+    Promise.resolve({ response: new Response(null, { status: 204 }) }),
+}));
+
+mock.module("@/assistant/lifecycle-service", () => ({
+  lifecycleService: {
+    checkAssistant: () => Promise.resolve(),
+  },
+}));
+
+mock.module("@/lib/sentry/capture-error", () => ({
+  captureError: () => {},
 }));
 
 mock.module("@/assistant/operational-status", () => ({
@@ -81,7 +98,7 @@ mock.module("@vellumai/design-library/components/notice", () => ({
 }));
 
 mock.module("@vellumai/design-library/components/button", () => ({
-  Button: (props: { children: string }) => (
+  Button: (props: { children: ReactNode }) => (
     <button data-testid="button">{props.children}</button>
   ),
 }));
@@ -102,6 +119,7 @@ beforeEach(() => {
   operationalStatusQueryMock = {
     data: null,
     isError: false,
+    refetch: () => {},
   };
 });
 
@@ -175,6 +193,7 @@ describe("StatusBanner", () => {
 
     expect(maintenanceHtml).toContain("Assistant is in maintenance mode");
     expect(maintenanceHtml).toContain('data-tone="info"');
+    expect(maintenanceHtml).toContain("Resume Assistant");
   });
 
   test("renders status query failures as error banners", () => {
