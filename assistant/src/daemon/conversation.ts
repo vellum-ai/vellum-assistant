@@ -54,7 +54,6 @@ import {
 } from "../memory/conversation-crud.js";
 import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
 import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory/memory-marker.js";
-import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
@@ -182,7 +181,7 @@ export type {
   QueueDrainReason,
   QueuePolicy,
 } from "./conversation-queue-manager.js";
-import { resolveTrustClass, type TrustContext } from "./trust-context.js";
+import { isPersonalMemoryAllowed, type TrustContext } from "./trust-context.js";
 
 export interface ConversationConstructorOptions {
   maxTokens?: number;
@@ -808,16 +807,12 @@ export class Conversation {
       preStrippedCount = boundary === -1 ? slicedDbMessages.length : boundary;
     }
 
-    // Mirror the injection-time gate (`shouldExposePersonalMemory` in
-    // `conversation-agent-loop.ts`) so background/local conversations
-    // (sourceChannel `undefined` or `"vellum"`) can rehydrate the persisted
-    // v2 static memory block. Use `resolveTrustClass` for parity with the
-    // agent loop — it folds in the HTTP-auth-disabled dev bypass so
-    // rehydration and injection agree on the effective trust class.
-    const personalMemoryAllowed = shouldExposePersonalMemory({
-      sourceChannel: this.trustContext?.sourceChannel,
-      isTrustedActor: resolveTrustClass(this.trustContext) === "guardian",
-    });
+    // The injection-time personal-memory gate, so background/local
+    // conversations (sourceChannel `undefined` or `"vellum"`) can rehydrate
+    // the persisted v2 static memory block. The shared helper folds in the
+    // HTTP-auth-disabled dev bypass so rehydration and injection agree on the
+    // effective trust class.
+    const personalMemoryAllowed = isPersonalMemoryAllowed(this.trustContext);
     // Pruned v3 card slugs, read lazily on the first row that carries a v3
     // block (most conversations carry none, so most loads never query). The
     // prune valve marks cards pruned in the everInjected store instead of
@@ -937,7 +932,7 @@ export class Conversation {
           // The v2 static memory block (essentials/threads/recent/buffer
           // wrapped in either `<info>…</info>` or `<memory>…</memory>`)
           // carries personal user memory. Trust-gated to mirror
-          // `shouldExposePersonalMemory` at injection time — untrusted-actor
+          // `isPersonalMemoryAllowed` at injection time — untrusted-actor
           // views must not read persisted personal memory back through
           // metadata. Skipped on the tail row because the next turn
           // re-injects fresh content on full-mode turns.
@@ -1100,14 +1095,13 @@ export class Conversation {
   async ensureActorScopedHistory(): Promise<void> {
     const currentTrustClass = this.trustContext?.trustClass;
     // `loadFromDb` gates personal-memory rehydration on `sourceChannel` too
-    // (via `shouldExposePersonalMemory`), so a same-trust-class reuse from a
+    // (via `isPersonalMemoryAllowed`), so a same-trust-class reuse from a
     // different channel (e.g. internal `vellum` → remote channel) must also
     // trigger a reload. Otherwise stale personal-memory blocks can leak to
     // an untrusted remote turn, or be hidden when they should be present.
-    const currentPersonalMemoryAllowed = shouldExposePersonalMemory({
-      sourceChannel: this.trustContext?.sourceChannel,
-      isTrustedActor: resolveTrustClass(this.trustContext) === "guardian",
-    });
+    const currentPersonalMemoryAllowed = isPersonalMemoryAllowed(
+      this.trustContext,
+    );
     if (
       this.loadedHistoryTrustClass === currentTrustClass &&
       this.loadedHistoryPersonalMemoryAllowed === currentPersonalMemoryAllowed

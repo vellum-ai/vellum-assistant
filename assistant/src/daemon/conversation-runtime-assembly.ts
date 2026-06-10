@@ -32,8 +32,9 @@ import { isBackgroundConversationType } from "../memory/conversation-types.js";
 import {
   countMemoryPrefixBlocks,
   extractMemoryPrefixBlocks,
+  getLiveGraphMemory,
 } from "../memory/graph/conversation-graph-memory.js";
-import { unwrapMemoryBlock } from "../memory/memory-marker.js";
+import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory/memory-marker.js";
 import {
   readSlackMetadata,
   readSlackMetadataFromMessageMetadata,
@@ -48,7 +49,6 @@ import {
 } from "../messaging/providers/slack/render-transcript.js";
 import { createContextSummaryMessage } from "../plugins/defaults/compaction/window-manager.js";
 import { getInjectorChain } from "../plugins/defaults/memory-retrieval/injector-chain.js";
-import { V3_CARDS_INJECTION_HEADER } from "../plugins/defaults/memory-v3-shadow/render-injection.js";
 import {
   MEMORY_V3_BLOCK_ID,
   MEMORY_V3_COMMIT_META_KEY,
@@ -1701,44 +1701,57 @@ function applyInjectionBlock(
 }
 
 /**
- * Byte prefix of a memory-v3 frozen card block: the `<memory>` wrapper opening
- * followed by the v3 cards instruction header. v2's dynamic block carries
- * recalled facts (no such header), so this prefix discriminates the two
- * layers' otherwise-identical wrappers.
- */
-const V3_CARDS_BLOCK_PREFIX = `<memory>\n${V3_CARDS_INJECTION_HEADER}`;
-
-/**
- * Strip v2's freshly-prepended DYNAMIC memory prefix — the `<memory>` /
- * legacy `<memory __injected>` text block plus any memory-image groups — from
- * the tail user message, preserving every other leading memory-prefix block:
+ * Strip v2's freshly-prepended DYNAMIC memory prefix from the tail user
+ * message, preserving every other leading memory-prefix block. Exactly three
+ * shapes are v2's to remove:
  *
- *  - memory-v3's frozen card block (recognized by
- *    {@link V3_CARDS_BLOCK_PREFIX}): a same-turn re-entry assembly (overflow
+ *  - `v2WrappedBlock` — the wrapped (`wrapMemoryBlock`) form of the text the
+ *    graph-memory wiring prepended this turn, matched by full-block IDENTITY.
+ *    A prefix match cannot work here: v3's card-block instruction header is
+ *    deliberately byte-identical to v2's `INJECTION_HEADER`
+ *    (`memory/v2/injection.ts`), and v2's router block leads with that same
+ *    header whenever any summary section is present — the dominant case — so
+ *    the two layers' blocks are indistinguishable by any shared prefix.
+ *  - legacy `<memory __injected>` text blocks — only v2 ever produced them.
+ *  - memory-image groups (`<memory_image …>` opener text, the image block,
+ *    the `</memory_image>` closer) — only v2 injects images; v3 card blocks
+ *    are text-only.
+ *
+ * Everything else in the leading memory prefix survives:
+ *
+ *  - memory-v3's frozen card blocks: a same-turn re-entry assembly (overflow
  *    convergence) sees the tail it assembled on first entry, whose leading
- *    block may be this turn's just-frozen v3 cards when no workspace /
- *    `<turn_context>` prepend fired. Stripping it would drop the cards from
- *    live history while the everInjected store and metadata still claim them.
+ *    block may be this turn's just-frozen v3 cards (while this re-entry's
+ *    injector run produces an EMPTY block — the cards are already claimed by
+ *    the everInjected store). Their bytes never equal the v2 identity, so
+ *    they are kept without needing to be recognized as v3.
  *  - the `<info>` static block: it counts toward the memory prefix for
  *    splice positioning but is never prepended by `prepareMemory`, so the v2
  *    suppression strip has no business removing it.
  *
- * Only v2's dynamic block is re-prepended fresh each first-entry assembly
- * (by `prepareMemory`, before this runs), so it is the only thing this strip
- * exists to remove.
+ * `v2WrappedBlock === null` (nothing injected this turn, or no live graph
+ * handle) still strips the image groups and legacy blocks — both are
+ * unambiguously v2's — but leaves every `<memory>` text block in place.
  */
-function stripTailV2DynamicMemoryPrefix(messages: Message[]): Message[] {
+function stripTailV2DynamicMemoryPrefix(
+  messages: Message[],
+  v2WrappedBlock: string | null,
+): Message[] {
   const last = messages[messages.length - 1];
   if (!last || last.role !== "user") return messages;
   const prefixCount = countMemoryPrefixBlocksOnContent(last.content);
   if (prefixCount === 0) return messages;
   const content = last.content.filter((block, i) => {
     if (i >= prefixCount) return true;
-    return (
-      block.type === "text" &&
-      (block.text.startsWith(V3_CARDS_BLOCK_PREFIX) ||
-        block.text.startsWith("<info>\n"))
-    );
+    // v2's memory-image groups: opener text, injected image, closer text.
+    if (block.type === "image") return false;
+    if (block.type !== "text") return true;
+    if (block.text.startsWith("<memory_image")) return false;
+    if (block.text === "</memory_image>") return false;
+    // v2's legacy dynamic wrapper.
+    if (block.text.startsWith("<memory __injected>\n")) return false;
+    // v2's current dynamic block — identity match only (see doc comment).
+    return v2WrappedBlock === null || block.text !== v2WrappedBlock;
   });
   if (content.length === last.content.length) return messages;
   return [...messages.slice(0, -1), { ...last, content }];
@@ -2177,11 +2190,12 @@ export async function applyRuntimeInjections(
   // messages keep their memory blocks byte-identical: frozen v3 card blocks
   // from prior turns AND pre-cutover v2 blocks both ride the cached prefix
   // (the old whole-layer `stripAllMemoryInjections` replace is gone). The
-  // strip is SCOPED to v2's dynamic blocks ({@link
-  // stripTailV2DynamicMemoryPrefix}): a same-turn re-entry assembly's tail
-  // may lead with this turn's just-frozen v3 card block (and the `<info>`
-  // static block) when no other prepends fired, and those must survive — the
-  // v2 prefix this strip exists to remove was already stripped on first entry.
+  // strip discriminates v2's dynamic block by IDENTITY ({@link
+  // stripTailV2DynamicMemoryPrefix}): the live graph handle holds the exact
+  // text the wiring layer prepended this turn, so a re-entry tail's
+  // just-frozen v3 card block (and the `<info>` static block) survive even
+  // though v2 and v3 blocks share identical wrapper + header bytes — the v2
+  // prefix this strip exists to remove was already stripped on first entry.
   // Keyed off the v3 block being present (not the flag alone) so a v3 failure
   // (`produce()` → null) leaves v2's block intact — fallback rather than a
   // memory-less turn. Idempotent: re-injection sites that already stripped
@@ -2193,8 +2207,11 @@ export async function applyRuntimeInjections(
   const v3ProducedBlock = afterMemory.some((b) => b.id === MEMORY_V3_BLOCK_ID);
   const memoryV3Active = suppressV2MemoryForV3 && v3ProducedBlock;
   if (memoryV3Active) {
+    const v2DynamicText =
+      getLiveGraphMemory(conversationId)?.lastInjectedBlockText ?? null;
     runMessagesForAssembly = stripTailV2DynamicMemoryPrefix(
       runMessagesForAssembly,
+      v2DynamicText === null ? null : wrapMemoryBlock(v2DynamicText),
     );
   }
 

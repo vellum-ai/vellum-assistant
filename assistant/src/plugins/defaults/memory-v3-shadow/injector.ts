@@ -41,9 +41,12 @@
  * and attaches nothing; both off → no orchestration.
  *
  * Both injectors apply the same personal-memory trust gate as v2
- * ({@link isMemoryV3InjectionAllowed}): an untrusted remote actor's turn
+ * ({@link isPersonalMemoryAllowed}): an untrusted remote actor's turn
  * produces nothing — no orchestration, no cards, no spotlight, and nothing
- * recorded or persisted.
+ * recorded or persisted. Memory pages, skill/CLI capability cards, and
+ * matched-section spotlights all surface private user content — and because
+ * v3 cards are persisted to message metadata and rehydrated forever, the gate
+ * must also keep an untrusted turn from recording or persisting anything.
  *
  * Known mirror-of-v2 limitation: cards attached by mid-turn re-entry
  * assemblies (post-compaction re-injection) live only in memory — metadata is
@@ -54,12 +57,11 @@
 
 import { isAssistantFeatureFlagEnabled } from "../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../config/loader.js";
-import { resolveTrustClass } from "../../../daemon/trust-context.js";
+import { isPersonalMemoryAllowed } from "../../../daemon/trust-context.js";
 import {
   wrapMemoryBlock,
   wrapMemorySpotlightBlock,
 } from "../../../memory/memory-marker.js";
-import { shouldExposePersonalMemory } from "../../../memory/v2/static-context.js";
 import { getLogger } from "../../../util/logger.js";
 import {
   type InjectionBlock,
@@ -220,25 +222,6 @@ export function resetMemoryV3InjectorStateForTests(): void {
   spotlightRings.clear();
 }
 
-// ─── trust gate ──────────────────────────────────────────────────────────────
-
-/**
- * Personal-memory trust gate — the same class v2 applies to its dynamic and
- * static `<memory>` layers ({@link shouldExposePersonalMemory} with the
- * guardian trust class, mirroring `isPersonalMemoryAllowed` in the
- * memory-retrieval injectors). Memory pages, skill/CLI capability cards, and
- * matched-section spotlights all surface private user content, so an
- * untrusted remote actor's turn must produce NOTHING — and, because v3 cards
- * are persisted to message metadata and rehydrated forever, must also record
- * and persist nothing.
- */
-function isMemoryV3InjectionAllowed(trust: TurnContext["trust"]): boolean {
-  return shouldExposePersonalMemory({
-    sourceChannel: trust.sourceChannel,
-    isTrustedActor: resolveTrustClass(trust) === "guardian",
-  });
-}
-
 // ─── injectors ───────────────────────────────────────────────────────────────
 
 export const memoryV3Injector: Injector = {
@@ -252,7 +235,7 @@ export const memoryV3Injector: Injector = {
     const live = isAssistantFeatureFlagEnabled(MEMORY_V3_LIVE, config);
     const shadow = isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config);
     if (!live && !shadow) return null;
-    if (!isMemoryV3InjectionAllowed(ctx.trust)) return null;
+    if (!isPersonalMemoryAllowed(ctx.trust)) return null;
 
     const result = await observeTurnOnce(ctx.conversationId, ctx.turnIndex);
     // Empty selection falls back to v2 (return null): v2 suppression keys off
@@ -363,7 +346,7 @@ export const memoryV3SpotlightInjector: Injector = {
     // must keep the turn untouched (no ring state either, so a later
     // live-flag flip starts from a clean window).
     if (!isAssistantFeatureFlagEnabled(MEMORY_V3_LIVE, config)) return null;
-    if (!isMemoryV3InjectionAllowed(ctx.trust)) return null;
+    if (!isPersonalMemoryAllowed(ctx.trust)) return null;
 
     try {
       const result = await observeTurnOnce(ctx.conversationId, ctx.turnIndex);

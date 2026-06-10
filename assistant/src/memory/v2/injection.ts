@@ -727,8 +727,13 @@ interface RenderInjectionBlockResult {
  * if relevant. Suppressed when every section is a full-page fallback —
  * claiming "these are summaries" over already-complete content would mislead
  * the agent into wasted reads.
+ *
+ * Exported for the v2-suppression regression tests: memory-v3's
+ * `V3_CARDS_INJECTION_HEADER` is deliberately byte-identical to this header,
+ * which is exactly why the v3-era tail strip must discriminate the two
+ * `<memory>` layers by block identity rather than by this shared prefix.
  */
-const INJECTION_HEADER =
+export const INJECTION_HEADER =
   'Use `file_read("memory/concepts/path/to/file.md")` to read the full pages for any of the injected memory summaries you want more information on.';
 
 /**

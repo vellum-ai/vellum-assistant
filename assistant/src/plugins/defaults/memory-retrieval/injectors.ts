@@ -53,7 +53,7 @@ import { readNowScratchpad } from "../../../daemon/now-scratchpad.js";
 import { getInContextPkbPaths } from "../../../daemon/pkb-context-tracker.js";
 import { buildPkbReminder } from "../../../daemon/pkb-reminder-builder.js";
 import {
-  resolveTrustClass,
+  isPersonalMemoryAllowed,
   type TrustContext,
 } from "../../../daemon/trust-context.js";
 import { listComments } from "../../../documents/document-comments-store.js";
@@ -62,10 +62,7 @@ import { getPkbAutoInjectList } from "../../../memory/pkb/autoinject.js";
 import { readPkbContext } from "../../../memory/pkb/context.js";
 import { searchPkbFiles } from "../../../memory/pkb/pkb-search.js";
 import { getPkbRoot, PKB_WORKSPACE_SCOPE } from "../../../memory/pkb/types.js";
-import {
-  readMemoryV2StaticContent,
-  shouldExposePersonalMemory,
-} from "../../../memory/v2/static-context.js";
+import { readMemoryV2StaticContent } from "../../../memory/v2/static-context.js";
 import type { Message } from "../../../providers/types.js";
 import { getLogger } from "../../../util/logger.js";
 import { getSandboxWorkingDir } from "../../../util/platform.js";
@@ -359,19 +356,6 @@ const pkbReminderInjector: Injector = {
     };
   },
 };
-
-/**
- * Whether personal-memory content (PKB, NOW.md) may be surfaced this turn: the
- * trust gate admits the actor (guardian-class, or an internal/local flow). All
- * memory-domain injectors share this gate so they apply identical exposure
- * rules without it being threaded in from the agent loop.
- */
-function isPersonalMemoryAllowed(trust: TrustContext): boolean {
-  return shouldExposePersonalMemory({
-    sourceChannel: trust.sourceChannel,
-    isTrustedActor: resolveTrustClass(trust) === "guardian",
-  });
-}
 
 /**
  * Read the auto-injected PKB content for the turn, gated behind the
