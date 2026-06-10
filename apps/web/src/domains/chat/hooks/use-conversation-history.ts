@@ -20,7 +20,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { startTransition, useEffect } from "react";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import { reconcileLatestHistorySnapshot } from "@/domains/chat/utils/reconcile-snapshot";
+import { reconcileMessagesWithSeq } from "@/domains/chat/utils/reconcile-with-seq";
 import { extractWirePendingConfirmation } from "@/domains/chat/utils/chat";
 import { filterDismissedSurfaces } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import { recordDiagnostic } from "@/lib/diagnostics";
@@ -162,7 +162,7 @@ export function useConversationHistory({
           const nextMessages =
             isFreshSwitch || prev.length === 0
               ? filteredMessages
-              : reconcileLatestHistorySnapshot(prev, filteredMessages, {
+              : reconcileMessagesWithSeq(prev, filteredMessages, {
                   serverSeq: latestPageSeq,
                   localSeq: priorLocalSeq,
                   oldestPageTimestamp: pagination.oldestLoadedTimestamp,

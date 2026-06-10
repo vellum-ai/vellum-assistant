@@ -240,6 +240,61 @@ describe("reconcileMessagesWithSeq", () => {
     expect(result).toHaveLength(1);
   });
 
+  test("keeps older-page rows covered by the loaded-page boundary", () => {
+    /**
+     * Scroll-up pagination: the snapshot carries pages older than anything
+     * rendered locally. With the oldest *loaded* page timestamp as the drop
+     * boundary, those rows must survive the merge instead of being discarded
+     * as paginated-out history.
+     */
+    // GIVEN a transcript holding only the latest page
+    const local = [
+      makeRow({ id: "u2", role: "user", ...textBody("recent"), timestamp: 2000 }),
+    ];
+    // AND a snapshot that also carries a freshly loaded older page
+    const server = [
+      makeRow({ id: "u1", role: "user", ...textBody("older turn"), timestamp: 1000 }),
+      makeRow({ id: "u2", role: "user", ...textBody("recent"), timestamp: 2000 }),
+    ];
+
+    // WHEN merged with the oldest loaded-page timestamp as the boundary
+    const result = reconcileMessagesWithSeq(local, server, {
+      serverSeq: 50,
+      localSeq: 50,
+      oldestPageTimestamp: 1000,
+    });
+
+    // THEN the older-page row is kept, in order
+    expect(result.map((m) => m.id)).toEqual(["u1", "u2"]);
+    expect(messageText(result[0])).toBe("older turn");
+  });
+
+  test("drops older snapshot rows when no loaded-page boundary is passed", () => {
+    /**
+     * Without the boundary the merge falls back to the oldest local row, so
+     * out-of-window history cannot be pulled back in — the original purpose
+     * of the paginated-out guard.
+     */
+    // GIVEN a transcript holding only the latest page
+    const local = [
+      makeRow({ id: "u2", role: "user", ...textBody("recent"), timestamp: 2000 }),
+    ];
+    // AND a snapshot carrying a row older than the local window
+    const server = [
+      makeRow({ id: "u1", role: "user", ...textBody("older turn"), timestamp: 1000 }),
+      makeRow({ id: "u2", role: "user", ...textBody("recent"), timestamp: 2000 }),
+    ];
+
+    // WHEN merged without a loaded-page boundary
+    const result = reconcileMessagesWithSeq(local, server, {
+      serverSeq: 50,
+      localSeq: 50,
+    });
+
+    // THEN the out-of-window row stays dropped
+    expect(result.map((m) => m.id)).toEqual(["u2"]);
+  });
+
   test("folds an optimistic assistant tail into the confirmed server row", () => {
     /**
      * Against pre-anchor-protocol daemons a streamed assistant delta arrives
