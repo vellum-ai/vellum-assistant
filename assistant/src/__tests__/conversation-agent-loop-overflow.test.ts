@@ -1714,6 +1714,12 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       "test-conv",
       "budget_yield_unrecovered",
     );
+    // AND it is stamped exactly once. The loop emits the terminal exit inline
+    // as it breaks, then the wrapper records the synthetic yield row and stamps
+    // again; both reaching the stamp would double-stamp two real rows. The
+    // loop's inline emit must be suppressed so only the wrapper's post-row
+    // stamp lands.
+    expect(setAgentLoopExitReasonOnLatestLogMock).toHaveBeenCalledTimes(1);
 
     // AND a `role="assistant"` notice is persisted via the persistence
     // pipeline. The default persistence terminal calls

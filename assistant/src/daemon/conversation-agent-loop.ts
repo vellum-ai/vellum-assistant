@@ -875,11 +875,25 @@ export async function runAgentLoopImpl(
           event.reason === "budget_yield_unrecovered")
       ) {
         overflowTerminalReason = event.reason;
+        if (event.reason === "budget_yield_unrecovered") {
+          // The loop emits this terminal exit inline as it breaks. Stamping the
+          // exit reason now would land on the last real LLM call before the
+          // wrapper has recorded the synthetic yield row below — and the
+          // wrapper then stamps again after that row exists, double-stamping
+          // two real rows. Capture the reason here and let the wrapper drive a
+          // single stamp via `emitTerminalExit` once the synthetic row is in
+          // place, preserving the "latest LLM call carries the exit reason"
+          // invariant.
+          return Promise.resolve();
+        }
       }
       return dispatchAgentEvent(state, deps, event);
     };
     emitTerminalExit = async (reason: AgentLoopExitReason): Promise<void> => {
-      await eventHandler({ type: "agent_loop_exit", reason });
+      await dispatchAgentEvent(state, deps, {
+        type: "agent_loop_exit",
+        reason,
+      });
     };
 
     const onCheckpoint = async (): Promise<CheckpointDecision> => {
