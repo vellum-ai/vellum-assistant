@@ -313,85 +313,34 @@ describe("AgentLoop", () => {
   });
 
   // 5b. Reactive context-overflow recovery
-  test("recovers from a context-overflow rejection by re-running the call", async () => {
+  //
+  // When recovery is enabled the loop calibrates the estimator from the
+  // rejection, loops back, and the budget gate forwards the overflow signal
+  // into the compaction plugin's reduction ladder. That manager-owned path —
+  // single-rung recovery, multi-rung escalation, and the terminal
+  // `context_too_large` / `budget_yield_unrecovered` exit on exhaustion — is
+  // exercised end-to-end against a manager harness in
+  // `conversation-agent-loop-overflow.test.ts`. Loop-level coverage against a
+  // manager-store stub lands with the suite migration.
+  test.todo(
+    "drives the reduction ladder on a context-overflow rejection",
+    () => {},
+  );
+
+  test("surfaces a context-overflow error when recovery is unavailable", async () => {
     /**
-     * The provider rejects the first call with `context_too_large`; the loop
-     * should calibrate the estimator from the error and re-run instead of
-     * surfacing an error, succeeding on the retry.
+     * Overflow recovery is gated on the budget gate being active. When it is
+     * disabled (e.g. agent wakes pass `overflowRecovery.enabled = false`, or no
+     * context window resolves) there is no ladder to drive, so a context
+     * overflow surfaces as an error on the first call rather than looping.
      */
 
-    // GIVEN a provider that rejects the first call as too large, then succeeds
+    // GIVEN a provider that rejects every call as too large and a loop with no
+    // overflow-recovery budget gate
     const { provider, calls } = createMockProvider([
       new ContextOverflowError("prompt is too long", "mock", {
         actualTokens: 250_000,
       }),
-      textResponse("recovered"),
-    ]);
-    const loop = new AgentLoop({
-      provider,
-      systemPrompt: "system",
-      conversationId: "test-conversation",
-    });
-    const events: AgentEvent[] = [];
-
-    // WHEN the loop runs
-    const { history } = await loop.run({
-      messages: [userMessage],
-      onEvent: collectEvents(events),
-      trust: { sourceChannel: "vellum", trustClass: "unknown" },
-    });
-
-    // THEN the call was retried and the recovery response landed in history
-    expect(calls).toHaveLength(2);
-    expect(history).toHaveLength(2);
-    expect(history[1].content).toEqual([{ type: "text", text: "recovered" }]);
-
-    // AND no error event was emitted — the overflow was handled in-loop
-    expect(events.filter((e) => e.type === "error")).toHaveLength(0);
-  });
-
-  test("surfaces the overflow error after exhausting reactive retries", async () => {
-    /**
-     * When every re-run still overflows, the loop must stop retrying after a
-     * bounded number of attempts and surface the error rather than looping
-     * forever.
-     */
-
-    // GIVEN a provider that rejects every call as too large
-    const { provider, calls } = createMockProvider([
-      new ContextOverflowError("prompt is too long", "mock", {
-        actualTokens: 250_000,
-      }),
-    ]);
-    const loop = new AgentLoop({
-      provider,
-      systemPrompt: "system",
-      conversationId: "test-conversation",
-    });
-    const events: AgentEvent[] = [];
-
-    // WHEN the loop runs
-    await loop.run({
-      messages: [userMessage],
-      onEvent: collectEvents(events),
-      trust: { sourceChannel: "vellum", trustClass: "unknown" },
-    });
-
-    // THEN it tried the initial call plus the bounded retries, then gave up
-    expect(calls).toHaveLength(3);
-    expect(events.filter((e) => e.type === "error")).toHaveLength(1);
-  });
-
-  test("does not retry an overflow with no recoverable token count", async () => {
-    /**
-     * Without a parseable actual-token count there is nothing to calibrate
-     * against, so the loop surfaces the error immediately instead of
-     * re-running blindly.
-     */
-
-    // GIVEN an overflow error carrying neither a typed count nor a parseable one
-    const { provider, calls } = createMockProvider([
-      new ContextOverflowError("context window exceeded", "mock"),
     ]);
     const loop = new AgentLoop({
       provider,
@@ -1137,7 +1086,7 @@ describe("AgentLoop", () => {
       toolExecutor: toolExecutor,
     });
 
-    const onCheckpoint = (): CheckpointDecision => "budget";
+    const onCheckpoint = (): CheckpointDecision => "handoff";
 
     const { history } = await loop.run({
       messages: [userMessage],
@@ -1336,7 +1285,7 @@ describe("AgentLoop", () => {
     const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
       checkpoints.push(checkpoint);
       // Yield on turn 3 (0-indexed)
-      return checkpoint.turnIndex === 3 ? "budget" : "continue";
+      return checkpoint.turnIndex === 3 ? "handoff" : "continue";
     };
 
     const events: AgentEvent[] = [];
@@ -1409,7 +1358,7 @@ describe("AgentLoop", () => {
 
     const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
       // Yield on the second turn (turnIndex 1)
-      return checkpoint.turnIndex === 1 ? "budget" : "continue";
+      return checkpoint.turnIndex === 1 ? "handoff" : "continue";
     };
 
     const { history } = await loop.run({

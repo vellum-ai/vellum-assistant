@@ -245,6 +245,13 @@ export interface PostCompactContext {
    * from this key rather than receiving the rendered string.
    */
   readonly modelProfileKey: string | null;
+  /**
+   * Volume of runtime injection to re-apply. `"full"` restores the complete
+   * runtime context; `"minimal"` is the reduced volume overflow recovery's
+   * injection-downgrade rung selects to keep the re-injected prompt small.
+   * Defaults to `"full"` when omitted.
+   */
+  readonly injectionMode?: "full" | "minimal";
 }
 
 // ─── Post-tool-use hook context ──────────────────────────────────────────────
