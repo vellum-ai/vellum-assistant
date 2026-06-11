@@ -90,6 +90,57 @@ export function removeConversation(
   updateAllConversationCaches(queryClient, assistantId, drop);
 }
 
+export function shouldSurfaceConversationOnUserSend(
+  conversation: Conversation,
+): boolean {
+  if (conversation.archivedAt != null) return false;
+  if (conversation.surfacedAt != null) return false;
+  if (conversation.isPinned === true || conversation.groupId === "system:pinned") {
+    return false;
+  }
+  if (conversation.groupId && !conversation.groupId.startsWith("system:")) {
+    return false;
+  }
+  return (
+    isScheduledConversation(conversation) ||
+    isBackgroundConversation(conversation)
+  );
+}
+
+export function surfaceConversationInCaches(
+  queryClient: QueryClient,
+  assistantId: string | null,
+  conversation: Conversation,
+  surfacedAt: number,
+  lastMessageAt = Date.now(),
+): void {
+  const surfacedConversation: Conversation = {
+    ...conversation,
+    groupId: "system:all",
+    surfacedAt,
+    lastMessageAt: Math.max(conversation.lastMessageAt ?? 0, lastMessageAt),
+  };
+
+  updateAllConversationCaches(queryClient, assistantId, (conversations) => {
+    let changed = false;
+    const next = conversations.map((c) => {
+      if (c.conversationId !== conversation.conversationId) {
+        return c;
+      }
+      changed = true;
+      return surfacedConversation;
+    });
+    return changed ? next : conversations;
+  });
+
+  updateConversationsCache(queryClient, assistantId, (conversations) => [
+    surfacedConversation,
+    ...conversations.filter(
+      (c) => c.conversationId !== conversation.conversationId,
+    ),
+  ]);
+}
+
 /**
  * Refresh a single conversation row in the cached sidebar list by
  * fetching `GET /v1/conversations/:id` and patching the cache in place.
