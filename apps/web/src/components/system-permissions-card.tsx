@@ -1,4 +1,3 @@
-import { Loader2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { setDockBadge } from "@/runtime/dock";
@@ -14,9 +13,8 @@ import {
   setDeviceBool,
   watchDeviceSetting,
 } from "@/utils/device-settings";
-import { cn } from "@vellumai/design-library";
-import { Notice } from "@vellumai/design-library/components/notice";
 import { Toggle } from "@vellumai/design-library/components/toggle";
+import { cn } from "@vellumai/design-library/utils/cn";
 
 type LocalPermissionRowId = "notificationBadges";
 type PermissionRowId = SystemPermissionKind | LocalPermissionRowId;
@@ -183,6 +181,15 @@ function PermissionRow({
   );
 }
 
+function LoadingSpinner() {
+  return (
+    <span
+      aria-hidden="true"
+      className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--border-base)] border-t-[var(--content-tertiary)]"
+    />
+  );
+}
+
 export function SystemPermissionsCard({
   compact: _compact = false,
 }: {
@@ -276,7 +283,7 @@ export function SystemPermissionsCard({
       </h2>
       {loading && rows.length === 0 ? (
         <div className="mt-6 flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
-          <Loader2 className="h-4 w-4 animate-spin" />
+          <LoadingSpinner />
           Checking permissions...
         </div>
       ) : (
@@ -291,8 +298,11 @@ export function SystemPermissionsCard({
         </div>
       )}
       {error && (
-        <div className="mt-6">
-          <Notice tone="error">{error}</Notice>
+        <div
+          role="alert"
+          className="mt-6 rounded-lg border border-[color-mix(in_srgb,var(--system-negative-strong)_25%,transparent)] bg-[var(--system-negative-weak)] p-3 text-body-medium-lighter text-[var(--content-secondary)]"
+        >
+          {error}
         </div>
       )}
     </section>
