@@ -42,6 +42,11 @@ mock.module("../../../../providers/provider-send-message.js", () => ({
   getConfiguredProvider: async () => providerStub,
   extractToolUse: (response: ProviderResponse) =>
     response.content.find((b) => b.type === "tool_use"),
+  createTimeout: (ms: number) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    return { signal: controller.signal, cleanup: () => clearTimeout(timer) };
+  },
 }));
 
 mock.module("../../../../util/logger.js", () => ({
