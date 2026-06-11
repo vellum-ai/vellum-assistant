@@ -6,10 +6,8 @@ import {
 } from "@/domains/settings/components/schedule-shared-ui";
 import {
   formatTimestamp,
-  MODE_TONE,
   type ScheduleRowUsage,
 } from "@/domains/settings/utils/schedule-formatters";
-import { Tag } from "@vellumai/design-library/components/tag";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import type { Schedule } from "@/domains/settings/types/schedules";
@@ -38,9 +36,6 @@ export function ScheduleRow({
           <span className="truncate text-body-medium-default text-[var(--content-default)]">
             {schedule.name}
           </span>
-          <Tag tone={MODE_TONE[schedule.mode] ?? "neutral"}>
-            {schedule.mode}
-          </Tag>
         </div>
         <div className="mt-0.5 flex items-center gap-3 text-body-small-default text-[var(--content-tertiary)]">
           <span className="truncate">{schedule.description}</span>

@@ -431,6 +431,7 @@ describe("ScheduleRow", () => {
 
     expect(usageClicks).toBe(0);
     expect(detailClicks).toBe(0);
+    expect(screen.queryByText("execute")).toBeNull();
   });
 
   test("one-time rows use the shared clickable row affordance", () => {
@@ -535,6 +536,7 @@ describe("SystemTaskRow", () => {
     );
 
     expect(screen.queryByRole("button", { name: /Run now/i })).toBeNull();
+    expect(screen.queryByText("system")).toBeNull();
     expect(screen.getByLabelText("enabled")).toBeTruthy();
     expect(screen.getByText("Cost (7d)")).toBeTruthy();
     expect(screen.getByText("$0.42")).toBeTruthy();
