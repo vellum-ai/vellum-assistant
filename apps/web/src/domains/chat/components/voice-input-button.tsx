@@ -485,9 +485,15 @@ export const VoiceInputButton = forwardRef<
 
   useEffect(() => {
     if (disabled && recording) {
-      stopRecording();
+      // Do NOT stop the recording here. `disabled` composes transient
+      // states — offline SSE recovery flips `isLoadingHistory` every few
+      // seconds, which used to kill an explicit user dictation ~50ms in,
+      // before the offline Apple Speech fallback could hear a single
+      // word. The press-to-stop lifecycle owns an in-flight session;
+      // `disabled` only gates starting new ones.
+      console.info("dictation: button disabled mid-recording (continuing)");
     }
-  }, [disabled, recording, stopRecording]);
+  }, [disabled, recording]);
 
   useEffect(() => {
     return () => {
