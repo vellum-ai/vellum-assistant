@@ -97,9 +97,25 @@ function standardListingVisibilitySql(alias = "conversations"): string {
   return (
     `((${alias}.conversation_type NOT IN ('background', 'scheduled', 'private')` +
     ` AND COALESCE(${alias}.group_id, 'system:all') NOT IN ('system:background', 'system:scheduled'))` +
-    ` OR (${alias}.surfaced_at IS NOT NULL` +
+    ` OR ${surfacedVisibilitySql(alias)})`
+  );
+}
+
+/**
+ * Raw SQL predicate for the surfaced arm of standard-listing visibility:
+ * background/scheduled rows explicitly promoted via the surface API
+ * (`surfaced_at IS NOT NULL`), with private rows excluded unconditionally and
+ * subagent runs excluded so they can never reach the sidebar.
+ *
+ * Shared by {@link standardListingVisibilitySql} and
+ * {@link listPinnedConversations} so pinned surfaced rows stay visible
+ * everywhere the standard listing would show them.
+ */
+function surfacedVisibilitySql(alias = "conversations"): string {
+  return (
+    `(${alias}.surfaced_at IS NOT NULL` +
     ` AND ${alias}.conversation_type != 'private'` +
-    ` AND (${alias}.source IS NULL OR ${alias}.source != 'subagent')))`
+    ` AND (${alias}.source IS NULL OR ${alias}.source != 'subagent'))`
   );
 }
 
@@ -269,7 +285,13 @@ export function listPinnedConversations(
     .from(conversations)
     .where(
       and(
-        sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private')`,
+        // Mirror the standard listing: plain foreground rows by type, plus
+        // surfaced background/scheduled rows — a pinned surfaced conversation
+        // must stay injectable into page 1 (see surfacedVisibilitySql).
+        sql.raw(
+          `(conversations.conversation_type NOT IN ('background', 'scheduled', 'private')` +
+            ` OR ${surfacedVisibilitySql()})`,
+        ),
         sql`is_pinned = 1`,
         ...(archiveCond ? [archiveCond] : []),
       ),

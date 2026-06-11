@@ -17,6 +17,7 @@ import {
   getMessageRoleStatsByConversation,
   listConversations,
   listConversationsBySource,
+  listPinnedConversations,
   searchConversations,
 } from "../conversation-queries.js";
 import { getDb } from "../db-connection.js";
@@ -667,6 +668,71 @@ describe("searchConversations · surfaced conversations", () => {
     const results = searchConversations("C§");
 
     expect(results.map((r) => r.conversationId)).toEqual([surfaced.id]);
+  });
+});
+
+describe("listPinnedConversations · surfaced conversations", () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  function setSurfaced(conversationId: string): void {
+    rawRun(
+      "UPDATE conversations SET surfaced_at = ? WHERE id = ?",
+      Date.now(),
+      conversationId,
+    );
+  }
+
+  function setPinned(conversationId: string): void {
+    rawRun(
+      "UPDATE conversations SET is_pinned = 1 WHERE id = ?",
+      conversationId,
+    );
+  }
+
+  test("a pinned surfaced background conversation is returned", () => {
+    const surfaced = createConversation({
+      title: "bg-pinned-surfaced",
+      conversationType: "background",
+    });
+    setSurfaced(surfaced.id);
+    setPinned(surfaced.id);
+
+    const results = listPinnedConversations();
+
+    expect(results.map((r) => r.id)).toEqual([surfaced.id]);
+  });
+
+  test("a pinned non-surfaced background conversation stays excluded", () => {
+    const background = createConversation({
+      title: "bg-pinned-hidden",
+      conversationType: "background",
+    });
+    setPinned(background.id);
+
+    expect(listPinnedConversations()).toEqual([]);
+  });
+
+  test("pinned private conversations are never included, even with surfaced_at set", () => {
+    const priv = createConversation("private-pinned");
+    setConversationType(priv.id, "private");
+    setSurfaced(priv.id);
+    setPinned(priv.id);
+
+    expect(listPinnedConversations()).toEqual([]);
+  });
+
+  test("pinned surfaced subagent runs stay excluded", () => {
+    const subagent = createConversation({
+      title: "subagent-pinned",
+      conversationType: "background",
+      source: "subagent",
+    });
+    setSurfaced(subagent.id);
+    setPinned(subagent.id);
+
+    expect(listPinnedConversations()).toEqual([]);
   });
 });
 
