@@ -240,7 +240,8 @@ describe("vellum wake", () => {
     );
   });
 
-  test("re-provisions the guardian token when it is missing after sibling seeding", async () => {
+  test("re-provisions the guardian token when missing and --repair-guardian is passed", async () => {
+    process.argv = ["bun", "vellum", "wake", "--repair-guardian", "local-assistant"];
     loadGuardianTokenMock.mockReturnValue(null);
 
     await wake();
@@ -258,7 +259,21 @@ describe("vellum wake", () => {
     );
   });
 
+  test("does NOT re-provision without --repair-guardian, even when the token is missing", async () => {
+    // The automatic connect-repair path spawns `wake <id>` with no flags. A
+    // re-lease here would revoke other device-bound tokens (other tabs / local
+    // clients), so it must never run from auto-repair.
+    process.argv = ["bun", "vellum", "wake", "local-assistant"];
+    loadGuardianTokenMock.mockReturnValue(null);
+
+    await wake();
+
+    expect(resetGuardianBootstrapMock).not.toHaveBeenCalled();
+    expect(leaseGuardianTokenMock).not.toHaveBeenCalled();
+  });
+
   test("skips re-provision when a guardian token already exists", async () => {
+    process.argv = ["bun", "vellum", "wake", "--repair-guardian", "local-assistant"];
     // loadGuardianToken returns a token by default — recovery must not run.
     await wake();
 
