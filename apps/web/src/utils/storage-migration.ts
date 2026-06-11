@@ -109,12 +109,13 @@ function removeAllWithPrefix(prefix: string): void {
  * `vellum:currentAssistantId:<org>` map — into the single
  * `vellum:selectedAssistantId` key.
  *
- * No "current org" exists at migration time (this runs synchronously before
- * stores hydrate), so when only per-org entries exist the winner is the
- * lexicographically-smallest org suffix — deterministic and idempotent. A
- * non-ideal pick self-heals on read: `resolveSelectedAssistantId` validates the
- * id against the active org and drops it if it doesn't belong. Idempotent via
- * the target-exists short-circuit plus unconditional legacy removal.
+ * Among per-org entries, prefer the persisted active org's selection (the org
+ * store records it in sessionStorage as `vellum_active_organization_id`) so a
+ * multi-org user keeps their current org's pick. Only when that's absent does
+ * the lexicographically-smallest org suffix win — deterministic and idempotent.
+ * A non-ideal pick self-heals on read: `resolveSelectedAssistantId` validates
+ * the id against the active org and drops it if it doesn't belong. Idempotent
+ * via the target-exists short-circuit plus unconditional legacy removal.
  */
 export function collapseSelectedAssistantKeys(): void {
   if (typeof window === "undefined") return;
@@ -124,6 +125,7 @@ export function collapseSelectedAssistantKeys(): void {
   try {
     if (localStorage.getItem(target) === null) {
       let candidate = localStorage.getItem(tabLocalKey);
+      if (candidate === null) candidate = activeOrgSelection(perOrgPrefix);
       if (candidate === null) {
         let smallestKey: string | null = null;
         for (let i = 0; i < localStorage.length; i++) {
@@ -141,6 +143,18 @@ export function collapseSelectedAssistantKeys(): void {
   } catch {
     // Storage unavailable — migration retries on next load.
   }
+}
+
+/** The per-org selection for the persisted active org, or null. */
+function activeOrgSelection(perOrgPrefix: string): string | null {
+  let activeOrg: string | null = null;
+  try {
+    activeOrg = sessionStorage.getItem("vellum_active_organization_id");
+  } catch {
+    return null;
+  }
+  if (!activeOrg) return null;
+  return localStorage.getItem(`${perOrgPrefix}${activeOrg}`);
 }
 
 /**

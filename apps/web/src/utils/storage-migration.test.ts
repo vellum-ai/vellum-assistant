@@ -4,10 +4,12 @@ import { migrateKey, migratePrefix, migrateValue, removeKey, runStorageMigration
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
 });
 
 afterEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
 });
 
 describe("removeKey", () => {
@@ -259,6 +261,20 @@ describe("runStorageMigrations", () => {
     expect(localStorage.getItem("vellum:currentAssistantId:org-1")).toBeNull();
     expect(localStorage.getItem("vellum:currentAssistantId:org-2")).toBeNull();
     expect(localStorage.getItem("vellum_current_assistant_id__org-1")).toBeNull();
+  });
+
+  test("collapse prefers the persisted active org's per-org selection", () => {
+    // Active org is org-2 even though org-1 sorts first; the active org's pick
+    // must win so a multi-org user keeps their current selection on upgrade.
+    sessionStorage.setItem("vellum_active_organization_id", "org-2");
+    localStorage.setItem("vellum:currentAssistantId:org-1", "asst-1");
+    localStorage.setItem("vellum:currentAssistantId:org-2", "asst-2");
+
+    runStorageMigrations();
+
+    expect(localStorage.getItem("vellum:selectedAssistantId")).toBe("asst-2");
+    expect(localStorage.getItem("vellum:currentAssistantId:org-1")).toBeNull();
+    expect(localStorage.getItem("vellum:currentAssistantId:org-2")).toBeNull();
   });
 
   test("collapse prefers the tab-local key and is idempotent", () => {
