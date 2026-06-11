@@ -82,6 +82,8 @@ const {
   canOpenScheduleSourceConversation,
   formatScheduleCost,
   formatTimestamp,
+  groupSchedules,
+  pastOneTimeStatus,
   shouldShowSystemTaskToggles,
 } = await import("@/domains/settings/utils/schedule-formatters");
 const { RecentRunsCard } = await import(
@@ -204,6 +206,81 @@ describe("formatScheduleCost", () => {
   test("falls back when cost is missing or invalid", () => {
     expect(formatScheduleCost(null)).toBe("—");
     expect(formatScheduleCost(Number.NaN)).toBe("—");
+  });
+});
+
+describe("groupSchedules", () => {
+  const now = 1_761_792_000_000;
+
+  test("splits one-shots into upcoming and past", () => {
+    const recurring = schedule({ id: "r1", isOneShot: false });
+    const upcoming = schedule({
+      id: "u1",
+      isOneShot: true,
+      lastRunAt: null,
+      nextRunAt: now + 60_000,
+    });
+    const elapsed = schedule({
+      id: "p1",
+      isOneShot: true,
+      lastRunAt: null,
+      nextRunAt: now - 60_000,
+    });
+    const completed = schedule({
+      id: "p2",
+      isOneShot: true,
+      lastRunAt: now - 120_000,
+      nextRunAt: now - 120_000,
+    });
+
+    const grouped = groupSchedules(
+      [completed, recurring, upcoming, elapsed],
+      now,
+    );
+
+    expect(grouped.recurring.map((s) => s.id)).toEqual(["r1"]);
+    expect(grouped.upcomingOneTime.map((s) => s.id)).toEqual(["u1"]);
+    expect(grouped.pastOneTime.map((s) => s.id)).toEqual(["p1", "p2"]);
+  });
+
+  test("orders upcoming one-shots soonest first", () => {
+    const later = schedule({
+      id: "later",
+      isOneShot: true,
+      lastRunAt: null,
+      nextRunAt: now + 120_000,
+    });
+    const sooner = schedule({
+      id: "sooner",
+      isOneShot: true,
+      lastRunAt: null,
+      nextRunAt: now + 60_000,
+    });
+
+    const grouped = groupSchedules([later, sooner], now);
+
+    expect(grouped.upcomingOneTime.map((s) => s.id)).toEqual([
+      "sooner",
+      "later",
+    ]);
+  });
+});
+
+describe("pastOneTimeStatus", () => {
+  test("labels completed, failed, and expired one-shots", () => {
+    expect(
+      pastOneTimeStatus(
+        schedule({ lastRunAt: 1_761_792_000_000, lastStatus: "ok" }),
+      ),
+    ).toEqual({ label: "Completed", tone: "positive" });
+    expect(
+      pastOneTimeStatus(
+        schedule({ lastRunAt: 1_761_792_000_000, lastStatus: "error" }),
+      ),
+    ).toEqual({ label: "Failed", tone: "negative" });
+    expect(
+      pastOneTimeStatus(schedule({ lastRunAt: null, nextRunAt: 1 })),
+    ).toEqual({ label: "Expired", tone: "neutral" });
   });
 });
 
@@ -526,7 +603,7 @@ describe("ScheduleRow", () => {
       }),
     );
 
-    expect(screen.getByText(formatTimestamp(lastRunAt))).toBeTruthy();
+    expect(screen.getByText(`Last ${formatTimestamp(lastRunAt)}`)).toBeTruthy();
     expect(screen.queryByLabelText("ok")).toBeNull();
   });
 
@@ -554,7 +631,60 @@ describe("ScheduleRow", () => {
       }),
     );
 
-    expect(screen.getByText(formatTimestamp(nextRunAt))).toBeTruthy();
+    expect(screen.getByText(`Next ${formatTimestamp(nextRunAt)}`)).toBeTruthy();
+  });
+
+  test("hides the description when it duplicates the name", () => {
+    render(
+      createElement(ScheduleRow, {
+        schedule: rowSchedule({
+          name: "fill water",
+          description: "fill water",
+        }),
+        usage: {
+          status: "ready",
+          summary: {
+            scheduleId: "schedule-123",
+            runCount: 0,
+            totalEstimatedCostUsd: 0,
+            eventCount: 0,
+          },
+        },
+        onClick: () => {},
+        onToggle: () => {},
+        onOpenUsage: () => {},
+      }),
+    );
+
+    expect(screen.getAllByText("fill water")).toHaveLength(1);
+  });
+
+  test("past one-shot rows show a status tag instead of a toggle", () => {
+    render(
+      createElement(ScheduleRow, {
+        schedule: rowSchedule({
+          isOneShot: true,
+          lastRunAt: 1_761_792_000_000,
+          lastStatus: "ok",
+        }),
+        usage: {
+          status: "ready",
+          summary: {
+            scheduleId: "schedule-123",
+            runCount: 1,
+            totalEstimatedCostUsd: 0.01,
+            eventCount: 1,
+          },
+        },
+        onClick: () => {},
+        onToggle: () => {},
+        onOpenUsage: () => {},
+        pastStatus: { label: "Completed", tone: "positive" },
+      }),
+    );
+
+    expect(screen.getByText("Completed")).toBeTruthy();
+    expect(screen.queryByLabelText("Toggle Daily summary")).toBeNull();
   });
 
   test("renders authored description and recurring cadence as separate row text", () => {
@@ -771,9 +901,10 @@ describe("SystemTaskRow", () => {
     expect(screen.queryByRole("button", { name: /Run now/i })).toBeNull();
     expect(screen.queryByText("system")).toBeNull();
     expect(screen.getByLabelText("enabled")).toBeTruthy();
-    expect(screen.getByText("Cost (7d)")).toBeTruthy();
+    // Column labels live in the shared list header now, not in each row.
+    expect(screen.queryByText("Cost (7d)")).toBeNull();
     expect(screen.getByText("$0.42")).toBeTruthy();
-    expect(screen.getByText("Runs (7d)")).toBeTruthy();
+    expect(screen.queryByText("Runs (7d)")).toBeNull();
     expect(screen.getByText("2 runs")).toBeTruthy();
   });
 });
@@ -831,6 +962,9 @@ describe("system task toggles", () => {
         },
       }),
     );
+
+    // System jobs are collapsed by default — expand the disclosure first.
+    fireEvent.click(screen.getByRole("button", { name: /System/i }));
 
     expect(screen.queryByLabelText("Toggle Consolidation")).toBeNull();
     expect(toggleCalls).toEqual([]);

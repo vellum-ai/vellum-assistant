@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Calendar, Loader2, Plus } from "lucide-react";
+import { ArrowLeft, Calendar, ChevronDown, Loader2, Plus } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { useNavigate, useParams } from "react-router";
 
 import { DetailCard } from "@/components/detail-card";
@@ -10,26 +11,30 @@ import { fetchSchedules, toggleSchedule } from "@/domains/settings/api/schedules
 import { CreateScheduleModal } from "@/domains/settings/components/create-schedule-modal";
 import { ScheduleDetailView } from "@/domains/settings/components/schedule-detail-view";
 import { ScheduleRow } from "@/domains/settings/components/schedule-row";
+import { ScheduleListColumnsHeader } from "@/domains/settings/components/schedule-shared-ui";
 import { SystemTaskDetailView } from "@/domains/settings/components/system-task-detail-view";
 import { SystemTasksSection } from "@/domains/settings/components/system-tasks-section";
 import { useSystemTasks } from "@/domains/settings/hooks/use-system-tasks";
 import {
   consolidationSubtitle,
+  groupSchedules,
   heartbeatSubtitle,
+  pastOneTimeStatus,
   scheduleUsageSummaryQueryOptions,
   shouldShowSystemTaskToggles,
-  sortSchedules,
   SYSTEM_TASK_URL_IDS,
   systemTaskKindFromUrlId,
   type ScheduleRowUsage,
   zeroScheduleUsageSummary,
 } from "@/domains/settings/utils/schedule-formatters";
 import { captureError } from "@/lib/sentry/capture-error";
+import type { Schedule } from "@/domains/settings/types/schedules";
 import { assistantSchedulesQueryKey } from "@/lib/sync/query-tags";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { routes } from "@/utils/routes";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import { Button } from "@vellumai/design-library/components/button";
+import { Collapsible } from "@vellumai/design-library/components/collapsible";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -56,6 +61,23 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
           Create schedule
         </Button>
       </div>
+    </div>
+  );
+}
+
+function ScheduleGroup({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="[&+&]:mt-4">
+      <div className="px-2 pb-1 text-label-medium-default uppercase tracking-wider text-[var(--content-tertiary)]">
+        {label}
+      </div>
+      <div>{children}</div>
     </div>
   );
 }
@@ -329,38 +351,36 @@ export function SchedulesPage() {
     return <UnknownScheduleState onBack={navigateToSchedules} />;
   }
 
-  if (
-    !schedules ||
-    (schedules.length === 0 &&
-      !systemTasks.hasAnySystemTask &&
-      !systemTasks.isLoading &&
-      !systemTasks.hasError)
-  ) {
-    return (
-      <div className="w-full">
-        <EmptyState onCreate={() => setCreateOpen(true)} />
-        {assistantId ? (
-          <CreateScheduleModal
-            isOpen={createOpen}
-            assistantId={assistantId}
-            onClose={() => setCreateOpen(false)}
-            onCreated={handleCreated}
-          />
-        ) : null}
-      </div>
-    );
-  }
+  const scheduleList = schedules ?? [];
+  const { recurring, upcomingOneTime, pastOneTime } = groupSchedules(
+    scheduleList,
+    Date.now(),
+  );
+  const hasActiveSchedules =
+    recurring.length > 0 || upcomingOneTime.length > 0;
 
-  const { recurring, oneTime } = sortSchedules(schedules);
+  const renderRow = (schedule: Schedule, past = false) => (
+    <ScheduleRow
+      key={schedule.id}
+      schedule={schedule}
+      usage={usageForSchedule(schedule.id)}
+      onClick={() => navigateToSchedule(schedule.id)}
+      onToggle={(enabled) => void handleToggle(schedule.id, enabled)}
+      onOpenUsage={() => navigate(routes.logs.usageForSchedule(schedule.id))}
+      pastStatus={past ? pastOneTimeStatus(schedule) : undefined}
+    />
+  );
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end">
-        <Button variant="primary" onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4" />
-          New schedule
-        </Button>
-      </div>
+      {scheduleList.length > 0 ? (
+        <div className="flex items-center justify-end">
+          <Button variant="primary" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" />
+            New schedule
+          </Button>
+        </div>
+      ) : null}
 
       {isUsageSummaryError ? (
         <Notice tone="warning" className="py-2 text-body-small-default">
@@ -368,24 +388,45 @@ export function SchedulesPage() {
         </Notice>
       ) : null}
 
-      {recurring.length > 0 && (
-        <DetailCard
-          title="Schedules"
-          subtitle="Recurring automations managed by your assistant."
-        >
+      {scheduleList.length === 0 ? (
+        <EmptyState onCreate={() => setCreateOpen(true)} />
+      ) : (
+        <DetailCard title="Schedules">
           <div>
-            {recurring.map((schedule) => (
-              <ScheduleRow
-                key={schedule.id}
-                schedule={schedule}
-                usage={usageForSchedule(schedule.id)}
-                onClick={() => navigateToSchedule(schedule.id)}
-                onToggle={(enabled) => void handleToggle(schedule.id, enabled)}
-                onOpenUsage={() =>
-                  navigate(routes.logs.usageForSchedule(schedule.id))
-                }
-              />
-            ))}
+            <ScheduleListColumnsHeader />
+            {recurring.length > 0 && (
+              <ScheduleGroup label="Recurring">
+                {recurring.map((schedule) => renderRow(schedule))}
+              </ScheduleGroup>
+            )}
+            {upcomingOneTime.length > 0 && (
+              <ScheduleGroup label="One-time">
+                {upcomingOneTime.map((schedule) => renderRow(schedule))}
+              </ScheduleGroup>
+            )}
+            {!hasActiveSchedules && (
+              <p className="px-2 py-3 text-body-small-default text-[var(--content-tertiary)]">
+                No upcoming schedules.
+              </p>
+            )}
+            {pastOneTime.length > 0 && (
+              <Collapsible.Root
+                type="multiple"
+                className="mt-3 border-t border-[var(--border-base)] pt-1"
+              >
+                <Collapsible.Item value="past-one-time">
+                  <Collapsible.Trigger className="group gap-2 rounded-md px-2 py-2 text-body-small-default text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)]">
+                    <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
+                    Past one-time ({pastOneTime.length})
+                  </Collapsible.Trigger>
+                  <Collapsible.Content>
+                    <div>
+                      {pastOneTime.map((schedule) => renderRow(schedule, true))}
+                    </div>
+                  </Collapsible.Content>
+                </Collapsible.Item>
+              </Collapsible.Root>
+            )}
           </div>
         </DetailCard>
       )}
@@ -409,28 +450,6 @@ export function SchedulesPage() {
           void systemTasks.handleToggle("heartbeat", enabled)
         }
       />
-
-      {oneTime.length > 0 && (
-        <DetailCard
-          title="One-time"
-          subtitle="One-shot automations that run once at a scheduled time."
-        >
-          <div>
-            {oneTime.map((schedule) => (
-              <ScheduleRow
-                key={schedule.id}
-                schedule={schedule}
-                usage={usageForSchedule(schedule.id)}
-                onClick={() => navigateToSchedule(schedule.id)}
-                onToggle={(enabled) => void handleToggle(schedule.id, enabled)}
-                onOpenUsage={() =>
-                  navigate(routes.logs.usageForSchedule(schedule.id))
-                }
-              />
-            ))}
-          </div>
-        </DetailCard>
-      )}
 
       {assistantId ? (
         <CreateScheduleModal

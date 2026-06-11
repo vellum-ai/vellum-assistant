@@ -1,13 +1,15 @@
-import { ChevronRight, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 
 import { DetailCard } from "@/components/detail-card";
 import { ScheduleUsageStats } from "@/domains/settings/components/schedule-shared-ui";
 import {
   consolidationSubtitle,
+  formatScheduleCost,
   formatTimestamp,
   heartbeatSubtitle,
   type ScheduleRowUsage,
 } from "@/domains/settings/utils/schedule-formatters";
+import { Collapsible } from "@vellumai/design-library/components/collapsible";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Tag, type TagTone } from "@vellumai/design-library/components/tag";
 import { Toggle } from "@vellumai/design-library/components/toggle";
@@ -148,76 +150,108 @@ export function SystemTasksSection({
     return null;
   }
 
+  const readyUsages = [heartbeatUsage, consolidationUsage].filter(
+    (usage): usage is Extract<ScheduleRowUsage, { status: "ready" }> =>
+      usage.status === "ready",
+  );
+  const totalCost = readyUsages.reduce(
+    (sum, usage) => sum + (usage.summary.totalEstimatedCostUsd ?? 0),
+    0,
+  );
+
+  const body = isLoading ? (
+    <div className="flex items-center justify-center py-8">
+      <Loader2 className="h-5 w-5 animate-spin text-stone-400" />
+    </div>
+  ) : hasError && !showHeartbeat && !showConsolidation ? (
+    <Notice tone="error">
+      Failed to load system jobs.{" "}
+      <button
+        type="button"
+        onClick={onRetry}
+        className="cursor-pointer underline hover:no-underline"
+      >
+        Retry
+      </button>
+    </Notice>
+  ) : (
+    <div>
+      {showHeartbeat ? (
+        <SystemTaskRow
+          name="Heartbeat"
+          subtitle={heartbeatSubtitle(heartbeatConfig)}
+          enabled={heartbeatConfig.enabled}
+          nextRunAt={heartbeatConfig.nextRunAt}
+          lastRunAt={heartbeatConfig.lastRunAt}
+          usage={heartbeatUsage}
+          showToggle={showSystemTaskToggles}
+          onClick={onSelectHeartbeat}
+          onToggle={onToggleHeartbeat}
+        />
+      ) : null}
+      {showConsolidation ? (
+        <SystemTaskRow
+          name="Consolidation"
+          subtitle={consolidationSubtitle(consolidationConfig)}
+          enabled={consolidationConfig.enabled}
+          helperText={
+            consolidationConfig.enabled
+              ? undefined
+              : "Memory is off, so consolidation is paused."
+          }
+          nextRunAt={consolidationConfig.nextRunAt}
+          lastRunAt={consolidationConfig.lastRunAt}
+          usage={consolidationUsage}
+          showToggle={false}
+          statusLabel={consolidationConfig.enabled ? undefined : "Paused"}
+          statusTone="warning"
+          onClick={onSelectConsolidation}
+        />
+      ) : null}
+      {hasError ? (
+        <div className="pt-3 first:pt-0">
+          <Notice tone="error">
+            Some system jobs failed to load.{" "}
+            <button
+              type="button"
+              onClick={onRetry}
+              className="cursor-pointer underline hover:no-underline"
+            >
+              Retry
+            </button>
+          </Notice>
+        </div>
+      ) : null}
+    </div>
+  );
+
   return (
-    <DetailCard
-      title="System"
-      subtitle="Built-in jobs managed by the assistant runtime."
-    >
-      {isLoading ? (
-        <div className="flex items-center justify-center py-8">
-          <Loader2 className="h-5 w-5 animate-spin text-stone-400" />
-        </div>
-      ) : hasError && !showHeartbeat && !showConsolidation ? (
-        <Notice tone="error">
-          Failed to load system jobs.{" "}
-          <button
-            type="button"
-            onClick={onRetry}
-            className="cursor-pointer underline hover:no-underline"
-          >
-            Retry
-          </button>
-        </Notice>
-      ) : (
-        <div>
-          {showHeartbeat ? (
-            <SystemTaskRow
-              name="Heartbeat"
-              subtitle={heartbeatSubtitle(heartbeatConfig)}
-              enabled={heartbeatConfig.enabled}
-              nextRunAt={heartbeatConfig.nextRunAt}
-              lastRunAt={heartbeatConfig.lastRunAt}
-              usage={heartbeatUsage}
-              showToggle={showSystemTaskToggles}
-              onClick={onSelectHeartbeat}
-              onToggle={onToggleHeartbeat}
-            />
-          ) : null}
-          {showConsolidation ? (
-            <SystemTaskRow
-              name="Consolidation"
-              subtitle={consolidationSubtitle(consolidationConfig)}
-              enabled={consolidationConfig.enabled}
-              helperText={
-                consolidationConfig.enabled
-                  ? undefined
-                  : "Memory is off, so consolidation is paused."
-              }
-              nextRunAt={consolidationConfig.nextRunAt}
-              lastRunAt={consolidationConfig.lastRunAt}
-              usage={consolidationUsage}
-              showToggle={false}
-              statusLabel={consolidationConfig.enabled ? undefined : "Paused"}
-              statusTone="warning"
-              onClick={onSelectConsolidation}
-            />
-          ) : null}
-          {hasError ? (
-            <div className="pt-3 first:pt-0">
-              <Notice tone="error">
-                Some system jobs failed to load.{" "}
-                <button
-                  type="button"
-                  onClick={onRetry}
-                  className="cursor-pointer underline hover:no-underline"
-                >
-                  Retry
-                </button>
-              </Notice>
-            </div>
-          ) : null}
-        </div>
-      )}
+    <DetailCard>
+      <Collapsible.Root type="multiple">
+        <Collapsible.Item value="system-jobs">
+          <Collapsible.Trigger className="group justify-between gap-3">
+            <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 text-left">
+              <span className="text-body-medium-default text-[var(--content-secondary)]">
+                System
+              </span>
+              <span className="text-body-small-default text-[var(--content-tertiary)]">
+                Built-in jobs managed by the assistant runtime
+              </span>
+            </span>
+            <span className="flex shrink-0 items-center gap-3">
+              {readyUsages.length > 0 ? (
+                <span className="text-body-small-default text-[var(--content-tertiary)]">
+                  {formatScheduleCost(totalCost)} (7d)
+                </span>
+              ) : null}
+              <ChevronDown className="h-4 w-4 shrink-0 text-[var(--content-tertiary)] transition-transform group-data-[state=open]:rotate-180" />
+            </span>
+          </Collapsible.Trigger>
+          <Collapsible.Content>
+            <div className="mt-3">{body}</div>
+          </Collapsible.Content>
+        </Collapsible.Item>
+      </Collapsible.Root>
     </DetailCard>
   );
 }

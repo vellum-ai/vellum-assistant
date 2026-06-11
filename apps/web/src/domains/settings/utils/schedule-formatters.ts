@@ -165,21 +165,38 @@ export const MIN_SCRIPT_TIMEOUT_SECONDS = 1;
 export const MAX_SCRIPT_TIMEOUT_SECONDS = 30 * 60;
 
 // ---------------------------------------------------------------------------
-// Sorting
+// Grouping
 // ---------------------------------------------------------------------------
 
-export function sortSchedules(schedules: Schedule[]): {
+export interface GroupedSchedules {
   recurring: Schedule[];
-  oneTime: Schedule[];
-} {
+  upcomingOneTime: Schedule[];
+  pastOneTime: Schedule[];
+}
+
+function isPastOneTime(schedule: Schedule, now: number): boolean {
+  return (
+    schedule.lastRunAt != null ||
+    schedule.nextRunAt == null ||
+    schedule.nextRunAt <= now
+  );
+}
+
+export function groupSchedules(
+  schedules: Schedule[],
+  now: number,
+): GroupedSchedules {
   const recurring: Schedule[] = [];
-  const oneTime: Schedule[] = [];
+  const upcomingOneTime: Schedule[] = [];
+  const pastOneTime: Schedule[] = [];
 
   for (const s of schedules) {
-    if (s.isOneShot) {
-      oneTime.push(s);
-    } else {
+    if (!s.isOneShot) {
       recurring.push(s);
+    } else if (isPastOneTime(s, now)) {
+      pastOneTime.push(s);
+    } else {
+      upcomingOneTime.push(s);
     }
   }
 
@@ -188,13 +205,31 @@ export function sortSchedules(schedules: Schedule[]): {
     return (a.nextRunAt ?? Infinity) - (b.nextRunAt ?? Infinity);
   });
 
-  oneTime.sort((a, b) => {
+  upcomingOneTime.sort(
+    (a, b) => (a.nextRunAt ?? Infinity) - (b.nextRunAt ?? Infinity),
+  );
+
+  pastOneTime.sort((a, b) => {
     const aTime = a.lastRunAt ?? a.nextRunAt ?? 0;
     const bTime = b.lastRunAt ?? b.nextRunAt ?? 0;
     return bTime - aTime;
   });
 
-  return { recurring, oneTime };
+  return { recurring, upcomingOneTime, pastOneTime };
+}
+
+export interface PastOneTimeStatus {
+  label: string;
+  tone: TagTone;
+}
+
+export function pastOneTimeStatus(schedule: Schedule): PastOneTimeStatus {
+  if (schedule.lastRunAt != null) {
+    return schedule.lastStatus === "error" || schedule.lastStatus === "failed"
+      ? { label: "Failed", tone: "negative" }
+      : { label: "Completed", tone: "positive" };
+  }
+  return { label: "Expired", tone: "neutral" };
 }
 
 // ---------------------------------------------------------------------------
