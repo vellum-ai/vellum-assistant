@@ -7,12 +7,10 @@
  * to one pass per run: a second empty turn means the nudge could not coax a
  * real answer, so the hook lets the turn end rather than looping.
  *
- * The hook owns this state end-to-end. It marks a conversation when it issues a
- * nudge-retry and clears the mark on any terminal outcome — a real reply, a
- * refusal rewrite, or an exhausted second empty turn — i.e. whenever the run is
- * leaving rather than retrying. A conversation therefore only holds an entry
- * while a nudge is in flight, so the store stays bounded without a separate
- * teardown step.
+ * The two hooks split this state's lifecycle: `post-model-call` marks a
+ * conversation when it issues a nudge-retry, and the sibling `stop` hook clears
+ * the mark when the turn terminates. A conversation therefore only holds an
+ * entry while a nudge is in flight, and the next run always nudges afresh.
  *
  * This module is side-effect free: importing it only initializes an empty store
  * and registers no plugin.
@@ -33,7 +31,7 @@ export function markEmptyResponseNudged(conversationId: string): void {
 
 /**
  * Clear the conversation's nudge mark so the next run nudges afresh. The
- * `post-model-call` hook calls this on every terminal outcome.
+ * sibling `stop` hook calls this when the turn terminates.
  */
 export function clearEmptyResponseNudged(conversationId: string): void {
   nudgeInFlight.delete(conversationId);

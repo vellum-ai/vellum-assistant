@@ -43,8 +43,10 @@
  *   before each provider call to edit the request / defer output streaming
  * - {@link PostToolUseContext} — passed to `post-tool-use` hook, fired once
  *   per tool result before it joins the provider-bound history
- * - {@link StopContext} — passed to `stop` hook, fired when the model yields
- *   a response with no tool calls
+ * - {@link StopContext} — passed to `stop` hook, the definitive terminal hook
+ *   fired exactly once when the turn ends (no continue capability)
+ * - {@link AgentLoopExitReason} — why a turn reached its terminal state, carried
+ *   on {@link StopContext} and the `agent_loop_exit` event
  * - {@link PostModelCallContext} — passed to `post-model-call` hook, fired at
  *   every model-call outcome (a finalized reply or a provider rejection) to
  *   transform content and decide whether to retry
@@ -76,6 +78,7 @@ export type {
   WebSearchToolResultContent,
 } from "../providers/types.js";
 export type {
+  AgentLoopExitReason,
   PluginHookFn,
   PluginInitContext,
   PluginLogger,
@@ -86,7 +89,6 @@ export type {
   PostToolUseContext,
   PreModelCallContext,
   StopContext,
-  StopDecision,
   ToolContext,
   ToolDefinition,
   ToolExecutionResult,

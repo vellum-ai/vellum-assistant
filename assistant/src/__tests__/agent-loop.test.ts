@@ -544,11 +544,12 @@ describe("AgentLoop", () => {
     });
   });
 
-  test("a stop-hook throw on a successful stop surfaces through the error path without re-entering the stop chain", async () => {
-    // The error-stop recovery is confined to genuine provider rejections. A
-    // throw from the success-path stop chain must not re-enter that chain (the
-    // same hook would throw again and escape the loop, bypassing the generic
-    // error handling) — it must fall through to the standard error path.
+  test("isolates a throwing stop hook on a successful stop and still emits the terminal exit", async () => {
+    // The `stop` chain is the loop's terminal teardown: a throwing teardown
+    // hook (e.g. a third-party plugin) is logged and contained, never escalated
+    // into a turn error. The turn's real outcome stands — a successful no-tool
+    // stop — and the terminal `agent_loop_exit` still fires so the run stays
+    // observable.
 
     // GIVEN a registered stop hook that always throws, and a provider that
     // returns a successful no-tool response (a successful stop)
@@ -581,11 +582,14 @@ describe("AgentLoop", () => {
         rejected = true;
       });
 
-    // THEN the loop handled the throw via the error path (it did not reject),
-    // surfaced exactly one error, and did not re-issue the call
+    // THEN the loop did not reject, did not re-issue the call, surfaced no
+    // error event, and still emitted the terminal exit with the real reason
     expect(rejected).toBe(false);
     expect(calls).toHaveLength(1);
-    expect(events.filter((e) => e.type === "error")).toHaveLength(1);
+    expect(events.filter((e) => e.type === "error")).toHaveLength(0);
+    const exitEvents = events.filter((e) => e.type === "agent_loop_exit");
+    expect(exitEvents).toHaveLength(1);
+    expect(exitEvents[0]).toMatchObject({ reason: "no_tool_calls" });
   });
 
   // 6. Abort signal — verify the loop respects AbortSignal
