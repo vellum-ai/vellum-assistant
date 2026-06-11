@@ -23,7 +23,7 @@ const fetchSchedulesMock = mock(
 const fetchUsageTotalsMock = mock(
   async (
     _assistantId: string,
-    _params: { scheduleId?: string },
+    _params: { scheduleId?: string; callSite?: string },
   ): Promise<UsageTotals> => ({
     totalInputTokens: 120,
     totalOutputTokens: 80,
@@ -39,38 +39,41 @@ let taskGroupingUnsupported = false;
 const fetchUsageBreakdownMock = mock(
   async (
     _assistantId: string,
-    params: { groupBy?: string; scheduleId?: string },
+    params: { groupBy?: string; scheduleId?: string; callSite?: string },
   ): Promise<UsageBreakdownResponse> => {
     if (params.groupBy === "task") {
       if (taskGroupingUnsupported) {
         throw new UsageRequestError(400, "Unsupported groupBy");
       }
 
+      const breakdown = [
+        {
+          group: "heartbeatAgent",
+          groupId: "heartbeatAgent",
+          groupKey: "heartbeatAgent",
+          totalInputTokens: 120,
+          totalOutputTokens: 80,
+          totalCacheCreationTokens: 0,
+          totalCacheReadTokens: 0,
+          totalEstimatedCostUsd: 0.03,
+          eventCount: 2,
+        },
+        {
+          group: "mainAgent",
+          groupId: "mainAgent",
+          groupKey: "mainAgent",
+          totalInputTokens: 40,
+          totalOutputTokens: 20,
+          totalCacheCreationTokens: 0,
+          totalCacheReadTokens: 0,
+          totalEstimatedCostUsd: 0.01,
+          eventCount: 1,
+        },
+      ];
       return {
-        breakdown: [
-          {
-            group: "heartbeatAgent",
-            groupId: "heartbeatAgent",
-            groupKey: "heartbeatAgent",
-            totalInputTokens: 120,
-            totalOutputTokens: 80,
-            totalCacheCreationTokens: 0,
-            totalCacheReadTokens: 0,
-            totalEstimatedCostUsd: 0.03,
-            eventCount: 2,
-          },
-          {
-            group: "mainAgent",
-            groupId: "mainAgent",
-            groupKey: "mainAgent",
-            totalInputTokens: 40,
-            totalOutputTokens: 20,
-            totalCacheCreationTokens: 0,
-            totalCacheReadTokens: 0,
-            totalEstimatedCostUsd: 0.01,
-            eventCount: 1,
-          },
-        ],
+        breakdown: params.callSite
+          ? breakdown.filter((row) => row.groupKey === params.callSite)
+          : breakdown,
       };
     }
     if (params.groupBy === "model") {
@@ -125,9 +128,35 @@ const fetchUsageBreakdownMock = mock(
 const fetchUsageSeriesMock = mock(
   async (
     _assistantId: string,
-    params: { groupBy?: string; scheduleId?: string },
+    params: { groupBy?: string; scheduleId?: string; callSite?: string },
   ): Promise<UsageSeriesResponse> => {
     if (params.groupBy === "task") {
+      if (params.callSite === "heartbeatAgent") {
+        return {
+          buckets: [
+            {
+              bucketId: "2026-06-01",
+              date: "2026-06-01",
+              displayLabel: "Jun 1",
+              totalInputTokens: 120,
+              totalOutputTokens: 80,
+              totalEstimatedCostUsd: 0.03,
+              eventCount: 2,
+              groups: {
+                [usageSeriesKeyForGroupValue("heartbeatAgent", "task")]: {
+                  group: "heartbeatAgent",
+                  groupKey: "heartbeatAgent",
+                  totalInputTokens: 120,
+                  totalOutputTokens: 80,
+                  totalEstimatedCostUsd: 0.03,
+                  eventCount: 2,
+                },
+              },
+            },
+          ],
+        };
+      }
+
       return {
         buckets: [
           {
@@ -409,18 +438,23 @@ describe("UsageTab", () => {
 
     expect(screen.getByText("Daily Trend by Action")).toBeTruthy();
     expect(fetchUsageTotalsMock.mock.calls[0]?.[1]?.scheduleId).toBeUndefined();
+    expect(fetchUsageTotalsMock.mock.calls[0]?.[1]?.callSite).toBe(
+      "heartbeatAgent",
+    );
     expect(fetchUsageBreakdownMock.mock.calls[0]?.[1]?.scheduleId).toBeUndefined();
+    expect(fetchUsageBreakdownMock.mock.calls[0]?.[1]?.callSite).toBe(
+      "heartbeatAgent",
+    );
     expect(fetchUsageSeriesMock.mock.calls[0]?.[1]?.scheduleId).toBeUndefined();
+    expect(fetchUsageSeriesMock.mock.calls[0]?.[1]?.callSite).toBe(
+      "heartbeatAgent",
+    );
 
     const legendItems = readLegendItems(container);
     expect(legendItems.map((item) => item.label.textContent)).toEqual([
       "Heartbeat Agent",
-      "Main Agent",
     ]);
-    expect(legendItems.map((item) => item.state)).toEqual([
-      "active",
-      "inactive",
-    ]);
+    expect(legendItems.map((item) => item.state)).toEqual(["active"]);
   });
 
   test("ignores a selected task when task usage falls back to model grouping", async () => {
@@ -439,7 +473,13 @@ describe("UsageTab", () => {
 
     expect(screen.getByText("Daily Trend by Model")).toBeTruthy();
     expect(fetchUsageBreakdownMock.mock.calls[0]?.[1]?.groupBy).toBe("task");
+    expect(fetchUsageBreakdownMock.mock.calls[0]?.[1]?.callSite).toBe(
+      "heartbeatAgent",
+    );
     expect(fetchUsageBreakdownMock.mock.calls[1]?.[1]?.groupBy).toBe("model");
+    expect(fetchUsageBreakdownMock.mock.calls[1]?.[1]?.callSite).toBe(
+      "heartbeatAgent",
+    );
 
     const legendItems = readLegendItems(container);
     expect(legendItems.map((item) => item.label.textContent)).toEqual([

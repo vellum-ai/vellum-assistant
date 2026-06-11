@@ -66,6 +66,7 @@ export const routes = {
       const params = new URLSearchParams({
         range: "7d",
         groupBy: "task",
+        callSite: taskKey,
         selectedGroup: taskKey,
       });
       return `${LOGS_USAGE_PATH}?${params.toString()}`;

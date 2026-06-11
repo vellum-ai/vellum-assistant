@@ -289,7 +289,9 @@ export interface UsageTimeRange {
   to: number;
 }
 
-export type UsageAggregationFilter = ScheduleAttributionFilter;
+export interface UsageAggregationFilter extends ScheduleAttributionFilter {
+  callSite?: string;
+}
 
 /** Aggregate totals across a time range. */
 export interface UsageTotals {
@@ -391,7 +393,12 @@ type UsageQueryParam = ScheduleAttributionSqlParam;
 function normalizeUsageAggregationFilter(
   filter?: UsageAggregationFilter,
 ): UsageAggregationFilter {
-  return normalizeScheduleAttributionFilter(filter);
+  const scheduleFilter = normalizeScheduleAttributionFilter(filter);
+  const callSite = filter?.callSite?.trim();
+  return {
+    ...scheduleFilter,
+    ...(callSite ? { callSite } : {}),
+  };
 }
 
 function buildUsageAggregationWhere(
@@ -414,6 +421,10 @@ function buildUsageAggregationWhere(
     });
     clauses.push(exists.sql);
     params.push(...exists.params);
+  }
+  if (normalized.callSite) {
+    clauses.push(`${eventTable}.call_site = ?`);
+    params.push(normalized.callSite);
   }
 
   return { sql: clauses.join(" AND "), params };

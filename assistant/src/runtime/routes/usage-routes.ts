@@ -1,10 +1,10 @@
 /**
  * Route handlers for usage and cost summary endpoints.
  *
- * GET /v1/usage/totals?from=&to=&scheduleId=  — aggregate totals for a time range
- * GET /v1/usage/daily?from=&to=&scheduleId=   — per-day buckets for a time range
- * GET /v1/usage/breakdown?from=&to=&groupBy=&scheduleId=  — grouped breakdown
- * GET /v1/usage/series?from=&to=&granularity=&groupBy=&scheduleId= — grouped time-series buckets
+ * GET /v1/usage/totals?from=&to=&scheduleId=&callSite=  — aggregate totals for a time range
+ * GET /v1/usage/daily?from=&to=&scheduleId=&callSite=   — per-day buckets for a time range
+ * GET /v1/usage/breakdown?from=&to=&groupBy=&scheduleId=&callSite=  — grouped breakdown
+ * GET /v1/usage/series?from=&to=&granularity=&groupBy=&scheduleId=&callSite= — grouped time-series buckets
  */
 
 import { z } from "zod";
@@ -33,6 +33,8 @@ const GROUP_BY_DESCRIPTION = USAGE_GROUP_BY_DIMENSIONS.join(", ");
 const SERIES_GROUP_BY_DESCRIPTION = USAGE_SERIES_GROUP_BY_DIMENSIONS.join(", ");
 const SCHEDULE_ID_FILTER_DESCRIPTION =
   "Optional schedule id. When set, usage is attributed by cron run windows for that schedule.";
+const CALL_SITE_FILTER_DESCRIPTION =
+  "Optional call site/task key. When set, only usage attributed to that task is included.";
 
 const usageTotalsSchema = z.object({
   totalInputTokens: z.number(),
@@ -94,7 +96,11 @@ function parseUsageAggregationFilter(
   queryParams: Record<string, string>,
 ): UsageAggregationFilter {
   const scheduleId = queryParams.scheduleId?.trim();
-  return scheduleId ? { scheduleId } : {};
+  const callSite = queryParams.callSite?.trim();
+  return {
+    ...(scheduleId ? { scheduleId } : {}),
+    ...(callSite ? { callSite } : {}),
+  };
 }
 
 function handleUsageTotals({ queryParams }: RouteHandlerArgs) {
@@ -209,6 +215,10 @@ export const ROUTES: RouteDefinition[] = [
         name: "scheduleId",
         description: SCHEDULE_ID_FILTER_DESCRIPTION,
       },
+      {
+        name: "callSite",
+        description: CALL_SITE_FILTER_DESCRIPTION,
+      },
     ],
     responseBody: usageTotalsSchema,
     handler: handleUsageTotals,
@@ -249,6 +259,10 @@ export const ROUTES: RouteDefinition[] = [
         name: "scheduleId",
         description: SCHEDULE_ID_FILTER_DESCRIPTION,
       },
+      {
+        name: "callSite",
+        description: CALL_SITE_FILTER_DESCRIPTION,
+      },
     ],
     responseBody: z.object({
       buckets: z.array(usageDayBucketSchema).describe("Usage bucket objects"),
@@ -285,6 +299,10 @@ export const ROUTES: RouteDefinition[] = [
       {
         name: "scheduleId",
         description: SCHEDULE_ID_FILTER_DESCRIPTION,
+      },
+      {
+        name: "callSite",
+        description: CALL_SITE_FILTER_DESCRIPTION,
       },
     ],
     responseBody: z.object({
@@ -334,6 +352,10 @@ export const ROUTES: RouteDefinition[] = [
       {
         name: "scheduleId",
         description: SCHEDULE_ID_FILTER_DESCRIPTION,
+      },
+      {
+        name: "callSite",
+        description: CALL_SITE_FILTER_DESCRIPTION,
       },
     ],
     responseBody: z.object({

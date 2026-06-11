@@ -14,11 +14,13 @@ describe("usage API query builders", () => {
         from: 100,
         to: 200,
         scheduleId: "schedule-123",
+        callSite: "heartbeatAgent",
       }),
     ).toEqual({
       from: 100,
       to: 200,
       scheduleId: "schedule-123",
+      callSite: "heartbeatAgent",
     });
   });
 
@@ -30,6 +32,7 @@ describe("usage API query builders", () => {
         granularity: "hourly",
         tz: "America/New_York",
         scheduleId: "schedule-123",
+        callSite: "heartbeatAgent",
       }),
     ).toEqual({
       from: 100,
@@ -37,6 +40,7 @@ describe("usage API query builders", () => {
       granularity: "hourly",
       tz: "America/New_York",
       scheduleId: "schedule-123",
+      callSite: "heartbeatAgent",
     });
   });
 
@@ -46,11 +50,13 @@ describe("usage API query builders", () => {
         from: 100,
         to: 200,
         groupBy: "task",
+        callSite: "heartbeatAgent",
       }),
     ).toEqual({
       from: 100,
       to: 200,
       groupBy: "call_site",
+      callSite: "heartbeatAgent",
     });
 
     expect(

@@ -57,6 +57,7 @@ export interface UsageUrlState {
   range: UsageTimeRange;
   groupBy: UsageGroupBy;
   scheduleId: string | undefined;
+  callSiteFilter: string | undefined;
   selectedGroupKey: string | undefined;
 }
 
@@ -64,6 +65,7 @@ export interface UsageSearchParamsUpdate {
   range?: UsageTimeRange;
   groupBy?: UsageGroupBy;
   scheduleId?: string | null;
+  callSiteFilter?: string | null;
   selectedGroupKey?: string | null;
 }
 
@@ -75,13 +77,19 @@ export function readUsageUrlState(
   const groupBy = isUsageGroupBy(rawGroupBy)
     ? rawGroupBy
     : DEFAULT_USAGE_GROUP_BY;
+  const callSiteFilter =
+    groupBy === "task" ? readCallSiteFilter(searchParams) : undefined;
+  const selectedGroupKey =
+    groupBy === "schedule"
+      ? undefined
+      : (readSelectedGroupKey(searchParams) ?? callSiteFilter);
   return {
     range: isUsageTimeRange(range) ? range : DEFAULT_USAGE_RANGE,
     groupBy,
     scheduleId:
       groupBy === "schedule" ? readUsageScheduleId(searchParams) : undefined,
-    selectedGroupKey:
-      groupBy === "schedule" ? undefined : readSelectedGroupKey(searchParams),
+    callSiteFilter,
+    selectedGroupKey,
   };
 }
 
@@ -105,6 +113,14 @@ function readSelectedGroupKey(
   return selectedGroup;
 }
 
+function readCallSiteFilter(searchParams: URLSearchParams): string | undefined {
+  const callSite = searchParams.get("callSite");
+  if (!callSite || callSite.trim().length === 0) {
+    return undefined;
+  }
+  return callSite;
+}
+
 export function buildUsageSearchParams(
   searchParams: URLSearchParams,
   update: UsageSearchParamsUpdate,
@@ -124,6 +140,16 @@ export function buildUsageSearchParams(
       next.set("scheduleId", update.scheduleId);
     }
   }
+  if (update.callSiteFilter !== undefined) {
+    if (
+      update.callSiteFilter === null ||
+      update.callSiteFilter.trim().length === 0
+    ) {
+      next.delete("callSite");
+    } else {
+      next.set("callSite", update.callSiteFilter);
+    }
+  }
   if (update.selectedGroupKey !== undefined) {
     if (
       update.selectedGroupKey === null ||
@@ -136,6 +162,9 @@ export function buildUsageSearchParams(
   }
   if (next.get("groupBy") !== "schedule") {
     next.delete("scheduleId");
+  }
+  if (next.get("groupBy") !== "task") {
+    next.delete("callSite");
   }
   if (next.get("groupBy") === "schedule") {
     next.delete("selectedGroup");

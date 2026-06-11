@@ -36,7 +36,7 @@ describe("routes", () => {
 
   test("builds task-selected usage URLs", () => {
     expect(routes.logs.usageForTask("memoryV2Consolidation")).toBe(
-      "/assistant/logs/usage?range=7d&groupBy=task&selectedGroup=memoryV2Consolidation",
+      "/assistant/logs/usage?range=7d&groupBy=task&callSite=memoryV2Consolidation&selectedGroup=memoryV2Consolidation",
     );
   });
 });

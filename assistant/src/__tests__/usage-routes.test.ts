@@ -330,6 +330,22 @@ describe("usage routes", () => {
       expect(body.totalCacheReadTokens).toBe(100);
     });
 
+    test("filters totals by trimmed callSite", () => {
+      const { day1, day2 } = seedEvents();
+      const from = day1 - 1000;
+      const to = day2 + 1000;
+
+      const body = dispatch(
+        "GET",
+        `usage/totals?from=${from}&to=${to}&callSite=%20mainAgent%20`,
+      ) as Record<string, number>;
+
+      expect(body.eventCount).toBe(1);
+      expect(body.totalInputTokens).toBe(850);
+      expect(body.totalOutputTokens).toBe(200);
+      expect(body.totalEstimatedCostUsd).toBeCloseTo(0.005);
+    });
+
     test("filters by trimmed scheduleId using schedule run windows", () => {
       seedScheduleRouteEvents();
 
@@ -392,6 +408,29 @@ describe("usage routes", () => {
       expect(body.buckets[1].date).toBe("2025-01-16");
       expect(body.buckets[1].totalInputTokens).toBe(2000);
       expect(body.buckets[1].eventCount).toBe(1);
+    });
+
+    test("filters daily buckets by callSite", () => {
+      const { day1, day2 } = seedEvents();
+      const from = day1 - 1000;
+      const to = day2 + 1000;
+
+      const body = dispatch(
+        "GET",
+        `usage/daily?from=${from}&to=${to}&callSite=mainAgent`,
+      ) as {
+        buckets: Array<{ totalInputTokens: number; eventCount: number }>;
+      };
+
+      expect(body.buckets).toHaveLength(2);
+      expect(body.buckets[0]).toMatchObject({
+        totalInputTokens: 850,
+        eventCount: 1,
+      });
+      expect(body.buckets[1]).toMatchObject({
+        totalInputTokens: 0,
+        eventCount: 0,
+      });
     });
 
     test("filters daily buckets by scheduleId", () => {
@@ -524,6 +563,30 @@ describe("usage routes", () => {
       expect(
         body.breakdown.find((row) => row.groupKey === null)?.totalInputTokens,
       ).toBe(2000);
+    });
+
+    test("filters breakdown by callSite", () => {
+      const { day1, day2 } = seedEvents();
+      const from = day1 - 1000;
+      const to = day2 + 1000;
+
+      const body = dispatch(
+        "GET",
+        `usage/breakdown?from=${from}&to=${to}&groupBy=provider&callSite=mainAgent`,
+      ) as {
+        breakdown: Array<{
+          group: string;
+          totalInputTokens: number;
+          eventCount: number;
+        }>;
+      };
+
+      expect(body.breakdown).toHaveLength(1);
+      expect(body.breakdown[0]).toMatchObject({
+        group: "anthropic",
+        totalInputTokens: 850,
+        eventCount: 1,
+      });
     });
 
     test("groups by inference profile with unset rows", () => {
@@ -666,6 +729,32 @@ describe("usage routes", () => {
         groupKey: null,
         totalInputTokens: 2000,
       });
+    });
+
+    test("filters grouped series by callSite", () => {
+      const { day1, day2 } = seedEvents();
+      const from = day1 - 1000;
+      const to = day2 + 1000;
+
+      const body = dispatch(
+        "GET",
+        `usage/series?from=${from}&to=${to}&groupBy=call_site&granularity=daily&callSite=mainAgent`,
+      ) as {
+        buckets: Array<{
+          totalInputTokens: number;
+          groups: Record<string, { groupKey: string | null; totalInputTokens: number }>;
+        }>;
+      };
+
+      expect(body.buckets).toHaveLength(2);
+      expect(body.buckets[0].totalInputTokens).toBe(850);
+      expect(body.buckets[0].groups["value:mainAgent"]).toMatchObject({
+        groupKey: "mainAgent",
+        totalInputTokens: 850,
+      });
+      expect(body.buckets[0].groups["value:compactionAgent"]).toBeUndefined();
+      expect(body.buckets[1].totalInputTokens).toBe(0);
+      expect(body.buckets[1].groups).toEqual({});
     });
 
     test("returns grouped inference-profile series buckets", () => {

@@ -146,11 +146,26 @@ describe("usage URL state", () => {
       range: "today",
       groupBy: "schedule",
       scheduleId: "schedule-123",
+      callSiteFilter: undefined,
       selectedGroupKey: undefined,
     });
   });
 
-  test("reads a selected grouped usage value outside schedule filtering", () => {
+  test("reads a selected task value and task call-site filter", () => {
+    const params = new URLSearchParams(
+      "range=7d&groupBy=task&selectedGroup=heartbeatAgent&callSite=heartbeatAgent",
+    );
+
+    expect(readUsageUrlState(params)).toEqual({
+      range: "7d",
+      groupBy: "task",
+      scheduleId: undefined,
+      callSiteFilter: "heartbeatAgent",
+      selectedGroupKey: "heartbeatAgent",
+    });
+  });
+
+  test("keeps legacy selected task URLs selected without explicit call-site filters", () => {
     const params = new URLSearchParams(
       "range=7d&groupBy=task&selectedGroup=heartbeatAgent",
     );
@@ -159,6 +174,7 @@ describe("usage URL state", () => {
       range: "7d",
       groupBy: "task",
       scheduleId: undefined,
+      callSiteFilter: undefined,
       selectedGroupKey: "heartbeatAgent",
     });
   });
@@ -172,6 +188,7 @@ describe("usage URL state", () => {
       range: "7d",
       groupBy: "task",
       scheduleId: undefined,
+      callSiteFilter: undefined,
       selectedGroupKey: undefined,
     });
   });
@@ -185,6 +202,7 @@ describe("usage URL state", () => {
       range: "7d",
       groupBy: "task",
       scheduleId: undefined,
+      callSiteFilter: undefined,
       selectedGroupKey: undefined,
     });
   });
@@ -196,6 +214,7 @@ describe("usage URL state", () => {
       range: "7d",
       groupBy: "task",
       scheduleId: undefined,
+      callSiteFilter: undefined,
       selectedGroupKey: undefined,
     });
   });
@@ -225,7 +244,7 @@ describe("usage URL state", () => {
   test("updates group-by to schedule without dropping a schedule filter", () => {
     const params = buildUsageSearchParams(
       new URLSearchParams(
-        "range=90d&groupBy=task&scheduleId=schedule-123&selectedGroup=heartbeatAgent",
+        "range=90d&groupBy=task&scheduleId=schedule-123&selectedGroup=heartbeatAgent&callSite=heartbeatAgent",
       ),
       { groupBy: "schedule" },
     );
@@ -247,14 +266,18 @@ describe("usage URL state", () => {
   test("sets and clears a selected grouped usage value", () => {
     const withSelection = buildUsageSearchParams(
       new URLSearchParams("range=7d&groupBy=task"),
-      { selectedGroupKey: "memoryV2Consolidation" },
+      {
+        selectedGroupKey: "memoryV2Consolidation",
+        callSiteFilter: "memoryV2Consolidation",
+      },
     );
     expect(withSelection.toString()).toBe(
-      "range=7d&groupBy=task&selectedGroup=memoryV2Consolidation",
+      "range=7d&groupBy=task&callSite=memoryV2Consolidation&selectedGroup=memoryV2Consolidation",
     );
 
     const cleared = buildUsageSearchParams(withSelection, {
       selectedGroupKey: null,
+      callSiteFilter: null,
     });
     expect(cleared.toString()).toBe("range=7d&groupBy=task");
   });

@@ -52,6 +52,7 @@ export interface FetchUsageTotalsParams {
   from: number;
   to: number;
   scheduleId?: string;
+  callSite?: string;
 }
 
 export interface FetchUsageDailyParams {
@@ -60,6 +61,7 @@ export interface FetchUsageDailyParams {
   granularity?: UsageGranularity;
   tz?: string;
   scheduleId?: string;
+  callSite?: string;
 }
 
 export interface FetchUsageBreakdownParams {
@@ -67,6 +69,7 @@ export interface FetchUsageBreakdownParams {
   to: number;
   groupBy: UsageGroupBy;
   scheduleId?: string;
+  callSite?: string;
 }
 
 export interface FetchUsageSeriesParams {
@@ -76,6 +79,7 @@ export interface FetchUsageSeriesParams {
   groupBy: UsageSeriesGroupBy;
   tz?: string;
   scheduleId?: string;
+  callSite?: string;
 }
 
 export type UsageTotalsQuery = NonNullable<UsageTotalsGetData["query"]>;
@@ -94,7 +98,7 @@ export function buildUsageTotalsQuery(
     from: params.from,
     to: params.to,
   };
-  return withScheduleId(query, params.scheduleId);
+  return withUsageFilters(query, params);
 }
 
 export function buildUsageDailyQuery(
@@ -106,7 +110,7 @@ export function buildUsageDailyQuery(
     ...(params.granularity ? { granularity: params.granularity } : {}),
     ...(params.tz ? { tz: params.tz } : {}),
   };
-  return withScheduleId(query, params.scheduleId);
+  return withUsageFilters(query, params);
 }
 
 export function buildUsageBreakdownQuery(
@@ -117,7 +121,7 @@ export function buildUsageBreakdownQuery(
     to: params.to,
     groupBy: toUsageGroupByQueryValue(params.groupBy),
   };
-  return withScheduleId(query, params.scheduleId);
+  return withUsageFilters(query, params);
 }
 
 export function buildUsageSeriesQuery(
@@ -130,14 +134,18 @@ export function buildUsageSeriesQuery(
     groupBy: toUsageGroupByQueryValue(params.groupBy),
     ...(params.tz ? { tz: params.tz } : {}),
   };
-  return withScheduleId(query, params.scheduleId);
+  return withUsageFilters(query, params);
 }
 
-function withScheduleId<T extends { scheduleId?: string }>(
+function withUsageFilters<T extends { scheduleId?: string; callSite?: string }>(
   query: T,
-  scheduleId: string | undefined,
+  params: { scheduleId?: string; callSite?: string },
 ): T {
-  return scheduleId ? { ...query, scheduleId } : query;
+  return {
+    ...query,
+    ...(params.scheduleId ? { scheduleId: params.scheduleId } : {}),
+    ...(params.callSite ? { callSite: params.callSite } : {}),
+  };
 }
 
 async function throwOnBadResponse(

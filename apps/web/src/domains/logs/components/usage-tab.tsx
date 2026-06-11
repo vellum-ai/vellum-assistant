@@ -100,10 +100,10 @@ const COST_OPTIMIZATION_PROMPT = [
 export function UsageTab({ assistantId }: UsageTabProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { range, groupBy, scheduleId, selectedGroupKey } = useMemo(
-    () => readUsageUrlState(searchParams),
-    [searchParams],
-  );
+  const { range, groupBy, scheduleId, callSiteFilter, selectedGroupKey } =
+    useMemo(() => readUsageUrlState(searchParams), [searchParams]);
+  const taskCallSiteFilter =
+    groupBy === "task" ? (callSiteFilter ?? selectedGroupKey) : undefined;
   const timezone = useEffectiveTimezone();
   const updateUsageSearchParams = useCallback(
     (update: UsageSearchParamsUpdate) => {
@@ -150,12 +150,14 @@ export function UsageTab({ assistantId }: UsageTabProps) {
       rangeWindow.from,
       rangeWindow.to,
       scheduleId ?? null,
+      taskCallSiteFilter ?? null,
     ],
     queryFn: () =>
       fetchUsageTotals(assistantId, {
         from: rangeWindow.from,
         to: rangeWindow.to,
         scheduleId,
+        callSite: taskCallSiteFilter,
       }),
   });
 
@@ -167,6 +169,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
       rangeWindow.to,
       groupBy,
       scheduleId ?? null,
+      taskCallSiteFilter ?? null,
     ],
     queryFn: async () => {
       try {
@@ -177,6 +180,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
             to: rangeWindow.to,
             groupBy,
             scheduleId,
+            callSite: taskCallSiteFilter,
           }),
         };
       } catch (error) {
@@ -191,6 +195,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
             to: rangeWindow.to,
             groupBy: FALLBACK_USAGE_GROUP_BY,
             scheduleId,
+            callSite: taskCallSiteFilter,
           }),
         };
       }
@@ -213,6 +218,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
       timezone,
       effectiveGroupBy,
       scheduleId ?? null,
+      taskCallSiteFilter ?? null,
     ],
     queryFn: () => {
       if (!seriesGroupBy) {
@@ -226,6 +232,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
         groupBy: seriesGroupBy,
         tz: timezone,
         scheduleId,
+        callSite: taskCallSiteFilter,
       });
     },
     enabled: Boolean(seriesGroupBy),
@@ -241,6 +248,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
       granularity,
       timezone,
       scheduleId ?? null,
+      taskCallSiteFilter ?? null,
     ],
     queryFn: () =>
       fetchUsageDaily(assistantId, {
@@ -249,6 +257,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
         granularity,
         tz: timezone,
         scheduleId,
+        callSite: taskCallSiteFilter,
       }),
     enabled: !seriesGroupBy || seriesQuery.isError,
   });
@@ -404,6 +413,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
     updateUsageSearchParams({
       groupBy: nextGroupBy,
       scheduleId: nextGroupBy === "schedule" ? undefined : null,
+      callSiteFilter: null,
       selectedGroupKey: null,
     });
   };

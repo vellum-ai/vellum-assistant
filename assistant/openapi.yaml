@@ -25377,6 +25377,12 @@ paths:
           schema:
             type: string
           description: Optional schedule id. When set, usage is attributed by cron run windows for that schedule.
+        - name: callSite
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional call site/task key. When set, only usage attributed to that task is included.
   /v1/usage/daily:
     get:
       operationId: usage_daily_get
@@ -25459,6 +25465,12 @@ paths:
           schema:
             type: string
           description: Optional schedule id. When set, usage is attributed by cron run windows for that schedule.
+        - name: callSite
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional call site/task key. When set, only usage attributed to that task is included.
   /v1/usage/series:
     get:
       operationId: usage_series_get
@@ -25577,6 +25589,12 @@ paths:
           schema:
             type: string
           description: Optional schedule id. When set, usage is attributed by cron run windows for that schedule.
+        - name: callSite
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional call site/task key. When set, only usage attributed to that task is included.
   /v1/usage/totals:
     get:
       operationId: usage_totals_get
@@ -25637,6 +25655,12 @@ paths:
           schema:
             type: string
           description: Optional schedule id. When set, usage is attributed by cron run windows for that schedule.
+        - name: callSite
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional call site/task key. When set, only usage attributed to that task is included.
   /v1/user-routes/inspect:
     post:
       operationId: userroutes_inspect_post
