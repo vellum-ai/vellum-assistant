@@ -185,6 +185,16 @@ describe("parseWeatherData", () => {
     expect(days!.forecast).toHaveLength(1);
   });
 
+  test("falls through to daily when forecast is non-array", () => {
+    const result = parseWeatherData({
+      location: "NYC",
+      forecast: "malformed",
+      daily: [{ day: "Mon", icon: "sun.max.fill" }],
+    });
+    expect(result!.forecast).toHaveLength(1);
+    expect(result!.forecast![0].day).toBe("Mon");
+  });
+
   test("omits hourly/forecast when arrays are empty", () => {
     const result = parseWeatherData({
       location: "NYC",

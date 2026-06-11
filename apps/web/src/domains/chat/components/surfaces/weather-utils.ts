@@ -186,8 +186,9 @@ export function parseWeatherData(raw: Record<string, unknown>): WeatherForecastD
       tempC: num(h.tempC),
     }));
 
-  // Daily / forecast — accept forecast, daily, or days
-  const dailyRaw = raw.forecast ?? raw.daily ?? raw.days;
+  // Daily / forecast — prefer forecast, fall back to daily/days. Use Array.isArray
+  // so a malformed non-array forecast doesn't shadow a valid daily/days array.
+  const dailyRaw = [raw.forecast, raw.daily, raw.days].find(Array.isArray);
   const forecast: WeatherForecastItem[] = filterRecords(dailyRaw)
     .map((d, i) => ({
       id: str(d.id) ?? String(i),
