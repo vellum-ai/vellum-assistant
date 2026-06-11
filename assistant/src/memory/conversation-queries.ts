@@ -74,6 +74,36 @@ function archiveStatusClause(status: ArchiveStatusFilter) {
 }
 
 /**
+ * Raw SQL predicate for "visible in the standard (Recents) listing".
+ *
+ * Shared by the `"standard"` bucket of {@link conversationTypeClause} (list +
+ * count) and by every match path in {@link searchConversations} (FTS content,
+ * LIKE content fallback, and title LIKE) so the listing and search can never
+ * drift: anything the sidebar shows in Recents is also findable by search,
+ * and vice versa.
+ *
+ * Two arms:
+ * - Foreground rows: not background/scheduled/private by type, and not routed
+ *   to the `system:background` / `system:scheduled` groups.
+ * - Surfaced rows (`surfaced_at IS NOT NULL`): background/scheduled rows
+ *   explicitly promoted via the surface API. Private rows stay excluded
+ *   unconditionally, and subagent runs are excluded from the surfaced arm so
+ *   they can never reach the sidebar.
+ *
+ * @param alias Table name or alias qualifying the column references
+ *              (e.g. `"c"` in the search joins).
+ */
+function standardListingVisibilitySql(alias = "conversations"): string {
+  return (
+    `((${alias}.conversation_type NOT IN ('background', 'scheduled', 'private')` +
+    ` AND COALESCE(${alias}.group_id, 'system:all') NOT IN ('system:background', 'system:scheduled'))` +
+    ` OR (${alias}.surfaced_at IS NOT NULL` +
+    ` AND ${alias}.conversation_type != 'private'` +
+    ` AND (${alias}.source IS NULL OR ${alias}.source != 'subagent')))`
+  );
+}
+
+/**
  * SQL predicate selecting which bucket {@link listConversations} and
  * {@link countConversations} return, keyed by the canonical
  * {@link ConversationType}:
@@ -105,10 +135,9 @@ function conversationTypeClause(type: ConversationType) {
   switch (type) {
     case "standard":
       // Surfaced rows (`surfaced_at IS NOT NULL`) are promoted into the
-      // standard listing even when they're background/scheduled. Private rows
-      // stay excluded unconditionally, and subagent runs are excluded from
-      // the surfaced arm so they can never reach the sidebar.
-      return sql`((${conversations.conversationType} NOT IN ('background', 'scheduled', 'private') AND COALESCE(group_id, 'system:all') NOT IN ('system:background', 'system:scheduled')) OR (${conversations.surfacedAt} IS NOT NULL AND ${conversations.conversationType} != 'private' AND ${notSubagent}))`;
+      // standard listing even when they're background/scheduled — see
+      // standardListingVisibilitySql for the full predicate semantics.
+      return sql.raw(standardListingVisibilitySql());
     case "background":
       return sql`(${conversations.conversationType} IN ('background', 'scheduled') OR group_id IN ('system:background', 'system:scheduled')) AND ${notSubagent}`;
     case "scheduled":
@@ -424,7 +453,7 @@ export function searchConversations(
         FROM messages_fts f
         JOIN messages m ON m.id = f.message_id
         JOIN conversations c ON c.id = m.conversation_id
-        WHERE messages_fts MATCH ? AND c.conversation_type NOT IN ('background', 'scheduled', 'private') AND COALESCE(c.group_id, 'system:all') NOT IN ('system:background', 'system:scheduled') AND c.archived_at IS NULL
+        WHERE messages_fts MATCH ? AND ${standardListingVisibilitySql("c")} AND c.archived_at IS NULL
         LIMIT 1000
       `,
         ftsMatch,
@@ -449,7 +478,7 @@ export function searchConversations(
       SELECT DISTINCT m.conversation_id
       FROM messages m
       JOIN conversations c ON c.id = m.conversation_id
-      WHERE m.content LIKE ? ESCAPE '\\' AND c.conversation_type NOT IN ('background', 'scheduled', 'private') AND COALESCE(c.group_id, 'system:all') NOT IN ('system:background', 'system:scheduled') AND c.archived_at IS NULL
+      WHERE m.content LIKE ? ESCAPE '\\' AND ${standardListingVisibilitySql("c")} AND c.archived_at IS NULL
       LIMIT 1000
     `,
       likePattern,
@@ -463,8 +492,7 @@ export function searchConversations(
     .from(conversations)
     .where(
       and(
-        sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private')`,
-        sql`COALESCE(group_id, 'system:all') NOT IN ('system:background', 'system:scheduled')`,
+        sql.raw(standardListingVisibilitySql()),
         sql`${conversations.title} LIKE ${titlePattern} ESCAPE '\\'`,
         sql`${conversations.archivedAt} IS NULL`,
       ),

@@ -17,6 +17,7 @@ import {
   getMessageRoleStatsByConversation,
   listConversations,
   listConversationsBySource,
+  searchConversations,
 } from "../conversation-queries.js";
 import { getDb } from "../db-connection.js";
 import { initializeDb } from "../db-init.js";
@@ -557,6 +558,115 @@ describe("listConversationsBySource", () => {
 
     expect(results).toHaveLength(1);
     expect(results[0]!.title).toBe("sub-1");
+  });
+});
+
+describe("searchConversations · surfaced conversations", () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  function insertMessage(
+    conversationId: string,
+    content: string,
+    createdAt = 1000,
+  ): void {
+    rawRun(
+      "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)",
+      `msg-${conversationId}-${createdAt}`,
+      conversationId,
+      "user",
+      content,
+      createdAt,
+    );
+  }
+
+  function setSurfaced(conversationId: string): void {
+    rawRun(
+      "UPDATE conversations SET surfaced_at = ? WHERE id = ?",
+      Date.now(),
+      conversationId,
+    );
+  }
+
+  test("a surfaced background conversation is found by title search", () => {
+    const surfaced = createConversation({
+      title: "Quarterly metrics rollup",
+      conversationType: "background",
+    });
+    setSurfaced(surfaced.id);
+
+    const results = searchConversations("Quarterly metrics");
+
+    expect(results.map((r) => r.conversationId)).toEqual([surfaced.id]);
+  });
+
+  test("a surfaced background conversation is found by content search", () => {
+    const surfaced = createConversation({
+      title: "bg-run",
+      conversationType: "background",
+    });
+    setSurfaced(surfaced.id);
+    insertMessage(surfaced.id, "the flux capacitor needs recalibration");
+
+    const results = searchConversations("flux capacitor");
+
+    expect(results.map((r) => r.conversationId)).toEqual([surfaced.id]);
+    expect(results[0]!.matchingMessages).toHaveLength(1);
+  });
+
+  test("a non-surfaced background conversation stays excluded from search", () => {
+    const background = createConversation({
+      title: "Quarterly metrics rollup",
+      conversationType: "background",
+    });
+    insertMessage(background.id, "the flux capacitor needs recalibration");
+
+    expect(searchConversations("Quarterly metrics")).toEqual([]);
+    expect(searchConversations("flux capacitor")).toEqual([]);
+  });
+
+  test("private conversations are never included, even with surfaced_at set", () => {
+    const priv = createConversation("Quarterly metrics rollup");
+    setConversationType(priv.id, "private");
+    setSurfaced(priv.id);
+    insertMessage(priv.id, "the flux capacitor needs recalibration");
+
+    expect(searchConversations("Quarterly metrics")).toEqual([]);
+    expect(searchConversations("flux capacitor")).toEqual([]);
+  });
+
+  test("surfaced subagent runs stay excluded from search", () => {
+    const subagent = createConversation({
+      title: "Quarterly metrics rollup",
+      conversationType: "background",
+      source: "subagent",
+    });
+    setSurfaced(subagent.id);
+    insertMessage(subagent.id, "the flux capacitor needs recalibration");
+
+    expect(searchConversations("Quarterly metrics")).toEqual([]);
+    expect(searchConversations("flux capacitor")).toEqual([]);
+  });
+
+  test("LIKE content fallback (non-FTS-tokenizable query) honors surfacing", () => {
+    // Single-char queries produce no FTS tokens, exercising the LIKE fallback.
+    const surfaced = createConversation({
+      title: "bg-run",
+      conversationType: "background",
+    });
+    setSurfaced(surfaced.id);
+    insertMessage(surfaced.id, "review the C§ draft");
+
+    const hidden = createConversation({
+      title: "bg-hidden",
+      conversationType: "background",
+    });
+    insertMessage(hidden.id, "another C§ mention", 2000);
+
+    const results = searchConversations("C§");
+
+    expect(results.map((r) => r.conversationId)).toEqual([surfaced.id]);
   });
 });
 

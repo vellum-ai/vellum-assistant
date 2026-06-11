@@ -44,7 +44,10 @@ mock.module("../../sync/resource-sync-events.js", () => ({
   },
 }));
 
-import { createConversation } from "../../../memory/conversation-crud.js";
+import {
+  createConversation,
+  getConversation,
+} from "../../../memory/conversation-crud.js";
 import { getDb } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
 import { conversations } from "../../../memory/schema.js";
@@ -74,6 +77,10 @@ const surfaceHandler = findHandler(
   "surfaceConversation",
 );
 const listHandler = findHandler(CONVERSATION_LIST_ROUTES, "listConversations");
+const reorderHandler = findHandler(
+  CONVERSATION_MANAGEMENT_ROUTES,
+  "reorderConversations",
+);
 
 interface SurfaceResponse {
   ok: boolean;
@@ -243,6 +250,64 @@ describe("GET /v1/conversations — surfaced rows in the default listing", () =>
       [backgroundId, scheduledId].sort(),
     );
     expect(listIds({ conversationType: "scheduled" })).toEqual([scheduledId]);
+  });
+
+  test("moving a surfaced conversation to system:background clears the promotion", () => {
+    const backgroundId = seed("Background run", "background");
+    surfaceHandler({
+      pathParams: { id: backgroundId },
+      body: { surfaced: true },
+    });
+    expect(listIds()).toEqual([backgroundId]);
+
+    // Move-to-Group sends only groupId/isPinned through the reorder
+    // endpoint — the demotion out of Recents must happen in the same
+    // server-side write, with no second API call from the client.
+    reorderHandler({
+      body: {
+        updates: [
+          { conversationId: backgroundId, groupId: "system:background" },
+        ],
+      },
+    });
+
+    expect(getConversation(backgroundId)?.surfacedAt).toBeNull();
+    expect(listIds()).toEqual([]);
+    expect(listIds({ conversationType: "background" })).toEqual([backgroundId]);
+  });
+
+  test("moving a surfaced conversation to system:scheduled clears the promotion", () => {
+    const scheduledId = seed("Scheduled run", "scheduled");
+    surfaceHandler({
+      pathParams: { id: scheduledId },
+      body: { surfaced: true },
+    });
+    expect(listIds()).toEqual([scheduledId]);
+
+    reorderHandler({
+      body: {
+        updates: [{ conversationId: scheduledId, groupId: "system:scheduled" }],
+      },
+    });
+
+    expect(getConversation(scheduledId)?.surfacedAt).toBeNull();
+    expect(listIds()).toEqual([]);
+  });
+
+  test("moving a surfaced conversation to a non-demoting group keeps the promotion", () => {
+    const backgroundId = seed("Background run", "background");
+    surfaceHandler({
+      pathParams: { id: backgroundId },
+      body: { surfaced: true },
+    });
+
+    reorderHandler({
+      body: {
+        updates: [{ conversationId: backgroundId, groupId: "system:all" }],
+      },
+    });
+
+    expect(getConversation(backgroundId)?.surfacedAt).toBeGreaterThan(0);
   });
 
   test("archived surfaced rows stay out of the default (active) listing", () => {

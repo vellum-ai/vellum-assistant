@@ -2605,8 +2605,18 @@ export function batchSetDisplayOrders(
         ) {
           safeGroupId = "system:all";
         }
+        // Moving a conversation into the Scheduled/Background system groups
+        // is an explicit demotion out of Recents, so clear any `surfaced_at`
+        // promotion in the same write — otherwise the surfaced marker would
+        // keep the row in the standard listing and the move would appear to
+        // do nothing.
+        const clearsSurfaced =
+          safeGroupId === "system:background" ||
+          safeGroupId === "system:scheduled";
         rawRun(
-          "UPDATE conversations SET display_order = ?, is_pinned = ?, group_id = ? WHERE id = ?",
+          `UPDATE conversations SET display_order = ?, is_pinned = ?, group_id = ?${
+            clearsSurfaced ? ", surfaced_at = NULL" : ""
+          } WHERE id = ?`,
           update.displayOrder,
           safeGroupId === "system:pinned" ? 1 : 0,
           safeGroupId,
