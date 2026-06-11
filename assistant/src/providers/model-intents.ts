@@ -13,7 +13,7 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
   anthropic: {
     balanced: "claude-sonnet-4-6",
     "latency-optimized": "claude-haiku-4-5-20251001",
-    "quality-optimized": "claude-opus-4-8",
+    "quality-optimized": "claude-fable-5",
     "vision-optimized": "claude-opus-4-6",
   },
   openai: {
