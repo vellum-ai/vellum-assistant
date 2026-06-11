@@ -1160,6 +1160,11 @@ enum LogExporter {
         return val == nil ? "(empty)" : "(set)"
     }
 
+    /// Returns a copy of the dictionary with every value replaced by its presence flag.
+    private nonisolated static func redactAllValues(_ dict: [String: Any]) -> [String: Any] {
+        dict.mapValues { redactValue($0) }
+    }
+
     /// Fetches the workspace config from the daemon and writes a sanitized copy
     /// with sensitive values replaced by presence flags.
     private nonisolated static func writeSanitizedWorkspaceConfig(to url: URL) async {
@@ -1181,11 +1186,8 @@ enum LogExporter {
         var config = config
 
         // Strip API key values — preserve which providers have keys configured
-        if var apiKeys = config["apiKeys"] as? [String: Any] {
-            for key in apiKeys.keys {
-                apiKeys[key] = redactValue(apiKeys[key])
-            }
-            config["apiKeys"] = apiKeys
+        if let apiKeys = config["apiKeys"] as? [String: Any] {
+            config["apiKeys"] = redactAllValues(apiKeys)
         }
 
         // Strip ingress webhook secret
@@ -1204,11 +1206,8 @@ enum LogExporter {
                 if entry["apiKey"] != nil {
                     entry["apiKey"] = redactValue(entry["apiKey"])
                 }
-                if var env = entry["env"] as? [String: Any] {
-                    for envKey in env.keys {
-                        env[envKey] = redactValue(env[envKey])
-                    }
-                    entry["env"] = env
+                if let env = entry["env"] as? [String: Any] {
+                    entry["env"] = redactAllValues(env)
                 }
                 entries[name] = entry
             }
@@ -1228,17 +1227,11 @@ enum LogExporter {
             for name in servers.keys {
                 var server = servers[name]!
                 if var transport = server["transport"] as? [String: Any] {
-                    if var headers = transport["headers"] as? [String: Any] {
-                        for key in headers.keys {
-                            headers[key] = redactValue(headers[key])
-                        }
-                        transport["headers"] = headers
+                    if let headers = transport["headers"] as? [String: Any] {
+                        transport["headers"] = redactAllValues(headers)
                     }
-                    if var env = transport["env"] as? [String: Any] {
-                        for key in env.keys {
-                            env[key] = redactValue(env[key])
-                        }
-                        transport["env"] = env
+                    if let env = transport["env"] as? [String: Any] {
+                        transport["env"] = redactAllValues(env)
                     }
                     server["transport"] = transport
                 }
@@ -1253,11 +1246,8 @@ enum LogExporter {
            var agents = acp["agents"] as? [String: [String: Any]] {
             for name in agents.keys {
                 var agent = agents[name]!
-                if var env = agent["env"] as? [String: Any] {
-                    for key in env.keys {
-                        env[key] = redactValue(env[key])
-                    }
-                    agent["env"] = env
+                if let env = agent["env"] as? [String: Any] {
+                    agent["env"] = redactAllValues(env)
                 }
                 agents[name] = agent
             }
