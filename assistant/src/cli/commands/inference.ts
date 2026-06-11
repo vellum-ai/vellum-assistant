@@ -30,9 +30,17 @@ interface InferenceSendResult {
   };
 }
 
-const DEFAULT_INFERENCE_IPC_TIMEOUT_MS = 32 * 60 * 1000;
+const DEFAULT_INFERENCE_TIMEOUT_MS = 32 * 60 * 1000;
 const MAX_TIMER_TIMEOUT_MS = 2_147_483_647;
 const MAX_INFERENCE_TIMEOUT_SECONDS = Math.floor(MAX_TIMER_TIMEOUT_MS / 1000);
+
+/**
+ * Margin added to the body deadline to derive the IPC wait budget. Keeping the
+ * IPC budget slightly larger than the server-side provider timeout ensures the
+ * server's clean abort fires first and returns a structured error rather than
+ * the IPC layer timing out the call.
+ */
+const IPC_TIMEOUT_MARGIN_MS = 30 * 1000;
 
 function parsePositiveIntegerOption(
   raw: string | undefined,
@@ -158,10 +166,14 @@ Examples:
         }
 
         const maxTokens = parsedMaxTokens.value;
+        // Provider deadline the daemon enforces (passed in the route body).
         const timeoutMs =
           parsedTimeoutSeconds.value !== undefined
             ? parsedTimeoutSeconds.value * 1000
-            : DEFAULT_INFERENCE_IPC_TIMEOUT_MS;
+            : DEFAULT_INFERENCE_TIMEOUT_MS;
+        // IPC wait budget: a margin above the body deadline so the server's
+        // clean abort fires before the IPC layer times out the call.
+        const ipcTimeoutMs = timeoutMs + IPC_TIMEOUT_MARGIN_MS;
 
         // Determine user message: positional args or stdin.
         let messageText = messageParts.length > 0 ? messageParts.join(" ") : "";
@@ -182,7 +194,10 @@ Examples:
         }
 
         // Build IPC body
-        const body: Record<string, unknown> = { message: messageText };
+        const body: Record<string, unknown> = {
+          message: messageText,
+          timeoutMs,
+        };
         if (systemPrompt) body.systemPrompt = systemPrompt;
         if (model) body.model = model;
         if (profile) body.profile = profile;
@@ -191,7 +206,7 @@ Examples:
         const ipcResult = await cliIpcCall<InferenceSendResult>(
           "inference_send",
           { body },
-          { timeoutMs },
+          { timeoutMs: ipcTimeoutMs },
         );
 
         if (!ipcResult.ok) {

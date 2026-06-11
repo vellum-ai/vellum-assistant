@@ -25,6 +25,14 @@ const stubProvider: unknown = {
 const getConfiguredProviderSpy = mock(async () => stubProvider);
 mock.module("../../../providers/provider-send-message.js", () => ({
   getConfiguredProvider: getConfiguredProviderSpy,
+  // The handler calls createTimeout for the abort signal; provide a real
+  // implementation so the signal it passes to sendMessage is a genuine
+  // AbortSignal (asserted by the time-bound tests below).
+  createTimeout: (ms: number) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    return { signal: controller.signal, cleanup: () => clearTimeout(timer) };
+  },
 }));
 
 const sttListProviderIdsSpy = mock(() => ["openai-whisper", "deepgram"]);
