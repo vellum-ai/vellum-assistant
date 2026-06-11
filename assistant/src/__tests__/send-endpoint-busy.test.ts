@@ -20,6 +20,7 @@ import {
   getConversationByKey,
   getOrCreateConversation,
 } from "../memory/conversation-key-store.js";
+import { createConversation } from "../memory/conversation-crud.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 mock.module("../util/logger.js", () => ({
@@ -122,6 +123,7 @@ mock.module("../runtime/local-actor-identity.js", () => ({
 
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import { rawGet } from "../memory/raw-query.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import type { ApprovalConversationGenerator } from "../runtime/http-types.js";
@@ -404,6 +406,82 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     expect(body.messageId).toBeDefined();
     expect(typeof body.conversationId).toBe("string");
     expect(body.conversationId.length).toBeGreaterThan(0);
+
+    await stopServer();
+  });
+
+  test("promotes interactive scheduled runs to recents on send", async () => {
+    const runConversation = createConversation({
+      title: "scheduled run",
+      conversationType: "scheduled",
+      source: "schedule",
+      groupId: "system:scheduled",
+    });
+    await startServer(() => makeCompletingConversation());
+
+    const res = await fetch(messagesUrl(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+      body: JSON.stringify({
+        conversationKey: runConversation.id,
+        content: "Follow up",
+        sourceChannel: "vellum",
+        interface: "macos",
+      }),
+    });
+    const body = (await res.json()) as {
+      accepted: boolean;
+      messageId: string;
+      conversationId: string;
+      movedToGroupId?: string;
+    };
+
+    expect(res.status).toBe(202);
+    expect(body.accepted).toBe(true);
+    expect(body.conversationId).toBe(runConversation.id);
+    expect(body.movedToGroupId).toBe("system:all");
+    const row = rawGet<{ group_id: string | null }>(
+      "SELECT group_id FROM conversations WHERE id = ?",
+      runConversation.id,
+    );
+    expect(row?.group_id).toBe("system:all");
+
+    await stopServer();
+  });
+
+  test("does not promote automated scheduled run messages", async () => {
+    const runConversation = createConversation({
+      title: "automated scheduled run",
+      conversationType: "scheduled",
+      source: "schedule",
+      groupId: "system:scheduled",
+    });
+    await startServer(() => makeCompletingConversation());
+
+    const res = await fetch(messagesUrl(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+      body: JSON.stringify({
+        conversationKey: runConversation.id,
+        content: "Automated update",
+        sourceChannel: "vellum",
+        interface: "macos",
+        automated: true,
+      }),
+    });
+    const body = (await res.json()) as {
+      accepted: boolean;
+      movedToGroupId?: string;
+    };
+
+    expect(res.status).toBe(202);
+    expect(body.accepted).toBe(true);
+    expect(body.movedToGroupId).toBeUndefined();
+    const row = rawGet<{ group_id: string | null }>(
+      "SELECT group_id FROM conversations WHERE id = ?",
+      runConversation.id,
+    );
+    expect(row?.group_id).toBe("system:scheduled");
 
     await stopServer();
   });

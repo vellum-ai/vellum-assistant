@@ -16879,6 +16879,8 @@ paths:
                     type: boolean
                   requestId:
                     type: string
+                  movedToGroupId:
+                    type: string
                 required:
                   - accepted
                 additionalProperties: false

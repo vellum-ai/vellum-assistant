@@ -19,6 +19,7 @@ import {
 } from "@/utils/conversation-predicates";
 import {
   findConversation,
+  updateArchivedConversationsCache,
   updateAllConversationCaches,
   updateBackgroundConversationsCache,
   updateConversationsCache,
@@ -88,6 +89,55 @@ export function removeConversation(
     return filtered.length === conversations.length ? conversations : filtered;
   };
   updateAllConversationCaches(queryClient, assistantId, drop);
+}
+
+export function moveConversationToGroup(
+  queryClient: QueryClient,
+  assistantId: string | null,
+  conversationId: string,
+  groupId: string,
+): void {
+  const existing = findConversation(queryClient, assistantId, conversationId);
+  if (!existing || existing.groupId === groupId) return;
+
+  const moved: Conversation = {
+    ...existing,
+    groupId,
+    isPinned: groupId === "system:pinned",
+    displayOrder: undefined,
+  };
+  const drop = (conversations: Conversation[]) => {
+    const next = conversations.filter((c) => c.conversationId !== conversationId);
+    return next.length === conversations.length ? conversations : next;
+  };
+
+  updateAllConversationCaches(queryClient, assistantId, drop);
+
+  if (moved.archivedAt != null) {
+    updateArchivedConversationsCache(queryClient, assistantId, (conversations) => [
+      moved,
+      ...conversations,
+    ]);
+    return;
+  }
+  if (isScheduledConversation(moved)) {
+    updateScheduledConversationsCache(queryClient, assistantId, (conversations) => [
+      moved,
+      ...conversations,
+    ]);
+    return;
+  }
+  if (isBackgroundConversation(moved)) {
+    updateBackgroundConversationsCache(queryClient, assistantId, (conversations) => [
+      moved,
+      ...conversations,
+    ]);
+    return;
+  }
+  updateConversationsCache(queryClient, assistantId, (conversations) => [
+    moved,
+    ...conversations,
+  ]);
 }
 
 /**

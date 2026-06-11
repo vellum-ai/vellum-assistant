@@ -73,6 +73,17 @@ function archiveStatusClause(status: ArchiveStatusFilter) {
   }
 }
 
+function displayGroupExpr() {
+  return sql`COALESCE(
+    group_id,
+    CASE
+      WHEN ${conversations.conversationType} = 'scheduled' THEN 'system:scheduled'
+      WHEN ${conversations.conversationType} = 'background' THEN 'system:background'
+      ELSE 'system:all'
+    END
+  )`;
+}
+
 /**
  * SQL predicate selecting which bucket {@link listConversations} and
  * {@link countConversations} return, keyed by the canonical
@@ -99,13 +110,14 @@ function archiveStatusClause(status: ArchiveStatusFilter) {
  */
 function conversationTypeClause(type: ConversationType) {
   const notSubagent = sql`(${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`;
+  const displayGroup = displayGroupExpr();
   switch (type) {
     case "standard":
-      return sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private') AND COALESCE(group_id, 'system:all') NOT IN ('system:background', 'system:scheduled')`;
+      return sql`${conversations.conversationType} != 'private' AND ${displayGroup} NOT IN ('system:background', 'system:scheduled') AND ${notSubagent}`;
     case "background":
-      return sql`(${conversations.conversationType} IN ('background', 'scheduled') OR group_id IN ('system:background', 'system:scheduled')) AND ${notSubagent}`;
+      return sql`${displayGroup} IN ('system:background', 'system:scheduled') AND ${notSubagent}`;
     case "scheduled":
-      return sql`(${conversations.conversationType} = 'scheduled' OR group_id = 'system:scheduled') AND ${notSubagent}`;
+      return sql`${displayGroup} = 'system:scheduled' AND ${notSubagent}`;
   }
 }
 
@@ -233,8 +245,9 @@ export function listPinnedConversations(
     .from(conversations)
     .where(
       and(
-        sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private')`,
+        sql`${conversations.conversationType} != 'private'`,
         sql`is_pinned = 1`,
+        sql`${conversations.source} IS NULL OR ${conversations.source} != 'subagent'`,
         ...(archiveCond ? [archiveCond] : []),
       ),
     )
@@ -417,7 +430,18 @@ export function searchConversations(
         FROM messages_fts f
         JOIN messages m ON m.id = f.message_id
         JOIN conversations c ON c.id = m.conversation_id
-        WHERE messages_fts MATCH ? AND c.conversation_type NOT IN ('background', 'scheduled', 'private') AND COALESCE(c.group_id, 'system:all') NOT IN ('system:background', 'system:scheduled') AND c.archived_at IS NULL
+        WHERE messages_fts MATCH ?
+          AND c.conversation_type != 'private'
+          AND COALESCE(
+            c.group_id,
+            CASE
+              WHEN c.conversation_type = 'scheduled' THEN 'system:scheduled'
+              WHEN c.conversation_type = 'background' THEN 'system:background'
+              ELSE 'system:all'
+            END
+          ) NOT IN ('system:background', 'system:scheduled')
+          AND (c.source IS NULL OR c.source != 'subagent')
+          AND c.archived_at IS NULL
         LIMIT 1000
       `,
         ftsMatch,
@@ -442,7 +466,18 @@ export function searchConversations(
       SELECT DISTINCT m.conversation_id
       FROM messages m
       JOIN conversations c ON c.id = m.conversation_id
-      WHERE m.content LIKE ? ESCAPE '\\' AND c.conversation_type NOT IN ('background', 'scheduled', 'private') AND COALESCE(c.group_id, 'system:all') NOT IN ('system:background', 'system:scheduled') AND c.archived_at IS NULL
+      WHERE m.content LIKE ? ESCAPE '\\'
+        AND c.conversation_type != 'private'
+        AND COALESCE(
+          c.group_id,
+          CASE
+            WHEN c.conversation_type = 'scheduled' THEN 'system:scheduled'
+            WHEN c.conversation_type = 'background' THEN 'system:background'
+            ELSE 'system:all'
+          END
+        ) NOT IN ('system:background', 'system:scheduled')
+        AND (c.source IS NULL OR c.source != 'subagent')
+        AND c.archived_at IS NULL
       LIMIT 1000
     `,
       likePattern,
@@ -456,8 +491,9 @@ export function searchConversations(
     .from(conversations)
     .where(
       and(
-        sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private')`,
-        sql`COALESCE(group_id, 'system:all') NOT IN ('system:background', 'system:scheduled')`,
+        sql`${conversations.conversationType} != 'private'`,
+        sql`${displayGroupExpr()} NOT IN ('system:background', 'system:scheduled')`,
+        sql`${conversations.source} IS NULL OR ${conversations.source} != 'subagent'`,
         sql`${conversations.title} LIKE ${titlePattern} ESCAPE '\\'`,
         sql`${conversations.archivedAt} IS NULL`,
       ),

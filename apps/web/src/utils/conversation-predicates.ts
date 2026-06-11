@@ -8,11 +8,13 @@
 import type { Conversation } from "@/types/conversation-types";
 
 export function isBackgroundConversation(conversation: Conversation): boolean {
+  if (conversation.groupId === "system:all") return false;
   return (
-    conversation.conversationType === "background" ||
-    conversation.conversationType === "scheduled" ||
     conversation.groupId === "system:background" ||
-    conversation.groupId === "system:scheduled"
+    conversation.groupId === "system:scheduled" ||
+    (conversation.groupId == null &&
+      (conversation.conversationType === "background" ||
+        conversation.conversationType === "scheduled"))
   );
 }
 
@@ -24,9 +26,11 @@ export function isBackgroundConversation(conversation: Conversation): boolean {
  * filtered through `!isScheduledConversation` before it is cached.
  */
 export function isScheduledConversation(conversation: Conversation): boolean {
+  if (conversation.groupId === "system:all") return false;
   return (
-    conversation.conversationType === "scheduled" ||
-    conversation.groupId === "system:scheduled"
+    conversation.groupId === "system:scheduled" ||
+    (conversation.groupId == null &&
+      conversation.conversationType === "scheduled")
   );
 }
 

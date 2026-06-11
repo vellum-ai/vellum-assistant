@@ -337,6 +337,7 @@ export type PostMessageResult =
        *  id, on the legacy flow it's the resolved/echoed id. */
       conversationId: string;
       messageId: string;
+      movedToGroupId?: string;
     }
   | {
       ok: true;
@@ -348,6 +349,7 @@ export type PostMessageResult =
        *  id, on the legacy flow it's the resolved/echoed id. */
       conversationId: string;
       requestId?: string;
+      movedToGroupId?: string;
     }
   | { ok: false; status: number; error: { code?: string; detail?: string } };
 
@@ -613,6 +615,10 @@ export async function postChatMessage(
       queued: true,
       assistantId,
       conversationId: resolvedConversationId,
+      movedToGroupId:
+        typeof sendData.movedToGroupId === "string"
+          ? sendData.movedToGroupId
+          : undefined,
       requestId:
         typeof sendData.requestId === "string" ? sendData.requestId : undefined,
     };
@@ -631,6 +637,10 @@ export async function postChatMessage(
     assistantId,
     conversationId: resolvedConversationId,
     messageId: sendData.messageId,
+    movedToGroupId:
+      typeof sendData.movedToGroupId === "string"
+        ? sendData.movedToGroupId
+        : undefined,
   };
 }
 

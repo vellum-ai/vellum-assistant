@@ -39,6 +39,7 @@ import { endTurn } from "@/domains/chat/turn-coordinator";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import {
+  moveConversationToGroup,
   prependConversation,
   removeConversation,
   resolveDraftKey,
@@ -286,6 +287,14 @@ export function useSendMessage({
           },
         };
       }
+      if (postResult.movedToGroupId) {
+        moveConversationToGroup(
+          queryClient,
+          postResult.assistantId,
+          postResult.conversationId,
+          postResult.movedToGroupId,
+        );
+      }
       // Success — drain the ref so subsequent messages omit the field.
       pendingOnboardingContextRef.current = null;
       if (onboardingDraftConversationIdRef.current === activeConversationId) {
@@ -462,7 +471,7 @@ export function useSendMessage({
         resolvedConversationId: postResult.conversationId,
       };
     },
-    [activeConversationId, assistantId, startReconciliationLoop],
+    [activeConversationId, assistantId, queryClient, startReconciliationLoop],
   );
 
   // -------------------------------------------------------------------------
@@ -557,6 +566,14 @@ export function useSendMessage({
             );
             setError({ message: detail, code: postResult.error.code ?? undefined });
             return;
+          }
+          if (postResult.movedToGroupId) {
+            moveConversationToGroup(
+              queryClient,
+              assistantId,
+              postResult.conversationId,
+              postResult.movedToGroupId,
+            );
           }
           if (!postResult.queued) {
             // The daemon processed the message directly (turn finished

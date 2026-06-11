@@ -60,6 +60,28 @@ describe("groupConversations · bucket routing", () => {
     expect(result.recents).toEqual([]);
   });
 
+  test("routes promoted scheduled conversations into recents when groupId is system:all", () => {
+    const result = groupConversations([
+      makeConversation({
+        conversationId: "promoted-scheduled",
+        conversationType: "scheduled",
+        groupId: "system:all",
+      }),
+      makeConversation({
+        conversationId: "promoted-background",
+        conversationType: "background",
+        groupId: "system:all",
+      }),
+    ]);
+
+    expect(result.recents.map((c) => c.conversationId).sort()).toEqual([
+      "promoted-background",
+      "promoted-scheduled",
+    ]);
+    expect(result.scheduled).toEqual([]);
+    expect(result.background).toEqual([]);
+  });
+
   test("routes conversationType=background into background bucket", () => {
     const result = groupConversations([
       makeConversation({

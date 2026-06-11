@@ -55,8 +55,10 @@ export function isConversationPinned(c: Conversation): boolean {
 }
 
 function isBackground(c: Conversation): boolean {
+  if (c.groupId === "system:all") return false;
   return (
-    c.conversationType === "background" || c.groupId === "system:background"
+    c.groupId === "system:background" ||
+    (c.groupId == null && c.conversationType === "background")
   );
 }
 
@@ -86,6 +88,7 @@ function shouldBucketInSlackSection(c: Conversation): boolean {
 export function getEffectiveGroupId(c: Conversation): string {
   if (isConversationPinned(c)) return "system:pinned";
   if (c.groupId && !c.groupId.startsWith("system:")) return c.groupId;
+  if (c.groupId === "system:all") return "system:all";
   if (shouldBucketInSlackSection(c)) return "system:slack";
   if (isScheduledConversation(c)) return "system:scheduled";
   if (isBackground(c)) return "system:background";

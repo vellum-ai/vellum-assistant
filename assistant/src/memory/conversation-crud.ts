@@ -552,7 +552,13 @@ export function createConversation(
   const conversationType: ConversationCreateType =
     requestedConversationType ?? "standard";
   const source = opts.source ?? "user";
-  const groupId = opts.groupId;
+  const groupId =
+    opts.groupId ??
+    (conversationType === "scheduled"
+      ? "system:scheduled"
+      : conversationType === "background"
+        ? "system:background"
+        : "system:all");
   const id = uuid();
   const memoryScopeId = "default";
 
@@ -615,7 +621,7 @@ export function createConversation(
   // Set via raw SQL after the INSERT succeeds.
   // Always set group_id — default to "system:all" when none provided.
   {
-    const effectiveGroupId = groupId ?? "system:all";
+    const effectiveGroupId = groupId;
     for (let attempt = 0; ; attempt++) {
       try {
         rawRun(
@@ -671,6 +677,35 @@ export function countConversationsByScheduleJobId(
       "SELECT COUNT(*) AS c FROM conversations WHERE schedule_job_id = ?",
       scheduleJobId,
     )?.c ?? 0
+  );
+}
+
+export function promoteConversationToRecentsIfNeeded(
+  conversationId: string,
+): boolean {
+  ensureGroupMigration();
+  ensureDisplayOrderMigration();
+  const row = rawGet<{ group_id: string | null }>(
+    "SELECT group_id FROM conversations WHERE id = ?",
+    conversationId,
+  );
+  if (
+    row?.group_id !== "system:scheduled" &&
+    row?.group_id !== "system:background"
+  ) {
+    return false;
+  }
+
+  return (
+    rawRun(
+      `UPDATE conversations
+          SET group_id = 'system:all',
+              is_pinned = 0,
+              display_order = NULL
+        WHERE id = ?
+          AND group_id IN ('system:scheduled', 'system:background')`,
+      conversationId,
+    ) > 0
   );
 }
 

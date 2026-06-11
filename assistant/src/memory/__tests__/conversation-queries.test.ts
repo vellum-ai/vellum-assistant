@@ -367,6 +367,31 @@ describe("listConversations", () => {
     expect(scheduledList).toHaveLength(0);
   });
 
+  test("foreground fetch includes promoted scheduled rows by display group", () => {
+    // GIVEN a scheduled run conversation whose display group was promoted to Recents
+    createConversation({
+      title: "promoted-schedule",
+      conversationType: "scheduled",
+      source: "schedule",
+      groupId: "system:scheduled",
+    });
+    rawRun(
+      "UPDATE conversations SET group_id = 'system:all' WHERE title = ?",
+      "promoted-schedule",
+    );
+
+    // WHEN listing foreground conversations
+    const foreground = listConversations(100, "standard");
+
+    // THEN it appears in Recents even though its provenance remains scheduled
+    expect(foreground.map((c) => c.title)).toContain("promoted-schedule");
+    expect(countConversations("standard")).toBe(1);
+
+    // AND it no longer appears in the Scheduled / Background sidebar buckets
+    expect(listConversations(100, "scheduled")).toHaveLength(0);
+    expect(listConversations(100, "background")).toHaveLength(0);
+  });
+
   describe("archiveStatus", () => {
     test("defaults to active — archived rows are excluded", () => {
       // GIVEN a live conversation and an archived one

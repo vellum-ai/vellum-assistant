@@ -90,6 +90,7 @@ import {
   hasMessages,
   type MessageRow,
   provenanceFromTrustContext,
+  promoteConversationToRecentsIfNeeded,
   setConversationInferenceProfile,
 } from "../../memory/conversation-crud.js";
 import {
@@ -1320,6 +1321,16 @@ export async function handleSendMessage(
   }
 
   const smDeps = deps.sendMessageDeps;
+  const shouldPromoteInteractiveRunConversation =
+    body.automated !== true &&
+    sourceChannel === "vellum" &&
+    isInteractiveInterface(sourceInterface);
+  const movedToGroupId =
+    shouldPromoteInteractiveRunConversation &&
+    promoteConversationToRecentsIfNeeded(mapping.conversationId)
+      ? "system:all"
+      : undefined;
+  const movedResponseFields = movedToGroupId ? { movedToGroupId } : {};
 
   // Notify all connected clients that the conversation list changed when
   // this is the first message in a standard conversation, so sidebars on
@@ -1337,6 +1348,13 @@ export async function handleSendMessage(
         originClientId,
       );
     }
+  }
+  if (movedToGroupId) {
+    publishConversationListAndMetadataChanged(
+      "reordered",
+      mapping.conversationId,
+      originClientId,
+    );
   }
 
   // Build transport metadata from the request so the daemon can inject
@@ -1592,6 +1610,7 @@ export async function handleSendMessage(
         accepted: true,
         messageId: persisted.id,
         conversationId,
+        ...movedResponseFields,
       };
 
       if (isFirstOnboarding) {
@@ -1713,6 +1732,7 @@ export async function handleSendMessage(
       return {
         accepted: true,
         conversationId: mapping.conversationId,
+        ...movedResponseFields,
         ...(inlineReplyResult.messageId
           ? { messageId: inlineReplyResult.messageId }
           : {}),
@@ -1800,6 +1820,7 @@ export async function handleSendMessage(
       queued: true,
       conversationId: mapping.conversationId,
       requestId,
+      ...movedResponseFields,
     };
   }
 
@@ -1884,6 +1905,7 @@ export async function handleSendMessage(
           accepted: true,
           messageId: persisted.id,
           conversationId: mapping.conversationId,
+          ...movedResponseFields,
         };
       }
 
@@ -1909,6 +1931,7 @@ export async function handleSendMessage(
         accepted: true,
         messageId: persisted.id,
         conversationId: mapping.conversationId,
+        ...movedResponseFields,
       };
 
       // Defer event publishing to next tick so the HTTP response reaches the
@@ -1991,6 +2014,7 @@ export async function handleSendMessage(
         accepted: true,
         messageId: persisted.id,
         conversationId: mapping.conversationId,
+        ...movedResponseFields,
       };
     }
 
@@ -2063,6 +2087,7 @@ export async function handleSendMessage(
       accepted: true,
       messageId: persisted.id,
       conversationId,
+      ...movedResponseFields,
     };
   }
 
@@ -2092,6 +2117,7 @@ export async function handleSendMessage(
           accepted: true,
           messageId: persisted.id,
           conversationId,
+          ...movedResponseFields,
         };
       }
 
@@ -2151,6 +2177,7 @@ export async function handleSendMessage(
         accepted: true,
         messageId: persisted.id,
         conversationId,
+        ...movedResponseFields,
       };
     } finally {
       conversation.setProcessing(false);
@@ -2176,6 +2203,7 @@ export async function handleSendMessage(
       accepted: true,
       messageId,
       conversationId: mapping.conversationId,
+      ...movedResponseFields,
     };
   }
 
@@ -2207,6 +2235,7 @@ export async function handleSendMessage(
     accepted: true,
     messageId,
     conversationId: mapping.conversationId,
+    ...movedResponseFields,
   };
 }
 
@@ -2713,6 +2742,7 @@ export const ROUTES: RouteDefinition[] = [
       messageId: z.string().optional(),
       queued: z.boolean().optional(),
       requestId: z.string().optional(),
+      movedToGroupId: z.string().optional(),
     }),
     handler: async (args) =>
       handleSendMessage(args, {

@@ -15,6 +15,7 @@ import {
   markConversationSeenLocal,
   prependConversation,
   removeConversation,
+  moveConversationToGroup,
   resolveDraftKey,
   appendGroup,
   patchGroup,
@@ -273,6 +274,62 @@ describe("removeConversation", () => {
     seedForeground(qc, original);
 
     removeConversation(qc, ASSISTANT_ID, "nonexistent");
+
+    expect(getForeground(qc)).toBe(original);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// moveConversationToGroup
+// ---------------------------------------------------------------------------
+
+describe("moveConversationToGroup", () => {
+  test("moves a scheduled conversation from scheduled cache to foreground recents", () => {
+    seedForeground(qc, [makeConversation({ conversationId: "existing" })]);
+    seedScheduled(qc, [
+      makeConversation({
+        conversationId: "run-1",
+        conversationType: "scheduled",
+        groupId: "system:scheduled",
+        lastMessageAt: 3000,
+      }),
+    ]);
+
+    moveConversationToGroup(qc, ASSISTANT_ID, "run-1", "system:all");
+
+    expect(getScheduled(qc)).toEqual([]);
+    expect(getForeground(qc).map((c) => [c.conversationId, c.groupId])).toEqual([
+      ["run-1", "system:all"],
+      ["existing", undefined],
+    ]);
+  });
+
+  test("moves a background conversation from background cache to foreground recents", () => {
+    seedForeground(qc, []);
+    seedBackground(qc, [
+      makeConversation({
+        conversationId: "run-1",
+        conversationType: "background",
+        groupId: "system:background",
+      }),
+    ]);
+
+    moveConversationToGroup(qc, ASSISTANT_ID, "run-1", "system:all");
+
+    expect(getBackground(qc)).toEqual([]);
+    expect(getForeground(qc)[0]).toMatchObject({
+      conversationId: "run-1",
+      groupId: "system:all",
+    });
+  });
+
+  test("no-ops when the conversation is already in the target group", () => {
+    const original = [
+      makeConversation({ conversationId: "run-1", groupId: "system:all" }),
+    ];
+    seedForeground(qc, original);
+
+    moveConversationToGroup(qc, ASSISTANT_ID, "run-1", "system:all");
 
     expect(getForeground(qc)).toBe(original);
   });
