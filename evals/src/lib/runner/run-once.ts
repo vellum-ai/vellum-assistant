@@ -646,6 +646,7 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
         sessionLabel,
         cliArgv,
         profileId: input.profile.id,
+        profileManifest: input.profile.manifest,
         testId: input.test.id,
         status: "failed",
         startedAt,
