@@ -24,10 +24,10 @@ If you've built Personal AI on OpenClaw, Hermes Agent, or Claude Code, you know 
 | **Identity**                  | Behavior lives in SOUL.md. During onboarding the assistant observes how you communicate and writes its own personality files. It keeps a per-user journal of reflections and uses NOW.md as a scratchpad for current focus and active threads. |
 | **Proactivity**               | Every hour the assistant re-reads its notes, looks for anything unfinished or due soon, and messages you if something needs attention. Notifications go to the right channel and won't interrupt an active conversation. |
 | **Security**                  | Actor identity (guardian, trusted, unknown) is resolved once and enforced everywhere; unknown actors can't read memory, trigger tools, or escalate. Credentials live in a separate process and never reach the model. Every tool call runs in a sandbox. The default is to deny. |
-| **Native channels**           | macOS, iOS, Web, Voice, Email, Telegram, Slack, Twilio. One assistant, one memory, every channel. |
-| **Managed OAuth**             | Slack, Notion, Google, HubSpot, Linear, Discord, Twitter, Telegram, Twilio. No hand-rolled token refresh. |
-| **Cloud or self-hosted**      | Managed runtime on Vellum Platform, or self-hosted. Same codebase, same data model. |
-| **Open source under MIT**     | 25K+ commits, 121+ releases, public roadmap. |
+| **Channels**           | macOS, iOS, Web, Voice, Email, Telegram, Slack, Twilio. One assistant, one memory, every channel. |
+| **OAuth**             | Slack, Notion, Google, HubSpot, Linear, Discord, Twitter, Telegram, Twilio. No hand-rolled token refresh. |
+| **Hosting**      | Managed runtime on Vellum Platform, or self-hosted. Same codebase, same data model. |
+| **Open source**     | 25K+ commits, 121+ releases, public roadmap. |
 
 ---
 
