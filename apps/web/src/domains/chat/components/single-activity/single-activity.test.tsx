@@ -296,6 +296,11 @@ describe("SingleActivity — web variant", () => {
     );
     expect(getByTestId("inline-web-link")).toBeTruthy();
     expect(getByText("Web Search")).toBeTruthy();
+    // The flex-col wrapper uses items-start so the header button hugs its
+    // content width rather than stretching to fill the row.
+    expect(getByTestId("inline-web-link").parentElement?.className).toContain(
+      "items-start",
+    );
   });
 
   test("rotates the WebsiteCarousel in the info slot while loading", () => {
