@@ -1,7 +1,7 @@
 import { ArrowUp, Loader2, Play, Square } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
 import { Tag } from "@vellumai/design-library/components/tag";
 
@@ -33,13 +33,14 @@ import { useDoctorSSE } from "@/domains/settings/components/panels/use-doctor-ss
 import {
   assistantsDoctorHistoryListOptions,
   assistantsDoctorHistoryRetrieveOptions,
-  useAssistantsDoctorSessionsCreateMutation,
   useAssistantsDoctorSessionsMessagesCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { type Options, assistantsDoctorSessionsCreate } from "@/generated/api/sdk.gen";
+import type { AssistantsDoctorSessionsCreateData } from "@/generated/api/types.gen";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { extractErrorMessage } from "@/utils/api-errors";
+import { ApiError, extractErrorMessage } from "@/utils/api-errors";
 import { isPointerCoarse } from "@/utils/pointer";
 
 // ---------------------------------------------------------------------------
@@ -103,11 +104,12 @@ export function DoctorPanel() {
       },
     }),
     enabled:
-      !!assistantId && !!latestHistorySessionId && sessionId === null && storeEntries.length === 0,
+      !!assistantId && !!latestHistorySessionId && !historyDismissed && sessionId === null && storeEntries.length === 0,
   });
 
-  // Derive history entries from query cache (no store copy for completed sessions)
-  const historyDetail = historyDetailQuery.data;
+  // Derive history entries from query cache (no store copy for completed sessions).
+  // When historyDismissed is true, treat cache as empty so the UI shows idle state.
+  const historyDetail = historyDismissed ? undefined : historyDetailQuery.data;
   const historyStatus = historyDetail
     ? mapPersistedStatusToPanelStatus(historyDetail.status)
     : null;
@@ -123,6 +125,7 @@ export function DoctorPanel() {
   // This is NOT "copying server state to client state" — it's seeding the store
   // with the initial entries before SSE takes over appending new ones.
   useEffect(() => {
+    if (historyDismissed) return;
     if (sessionId !== null) return;
     if (storeEntries.length > 0) return;
     if (!historyDetail || !latestHistorySessionId) return;
@@ -136,7 +139,7 @@ export function DoctorPanel() {
     store.setSessionId(latestHistorySessionId);
     store.setSessionStatus("active");
     connectSSE(assistantId, latestHistorySessionId);
-  }, [sessionId, storeEntries.length, historyDetail, historyStatus, latestHistorySessionId, assistantId, connectSSE]);
+  }, [historyDismissed, sessionId, storeEntries.length, historyDetail, historyStatus, latestHistorySessionId, assistantId, connectSSE]);
 
   // Capture query errors for observability
   useEffect(() => {
@@ -155,7 +158,26 @@ export function DoctorPanel() {
   // Generated mutation hooks — used directly, no wrappers
   // ---------------------------------------------------------------------------
 
-  const startMutation = useAssistantsDoctorSessionsCreateMutation({
+  // Custom mutationFn so we can inspect response.status for 429 rate-limit
+  // handling. The generated useAssistantsDoctorSessionsCreateMutation hook
+  // uses throwOnError which discards the HTTP status from the thrown error.
+  const startMutation = useMutation({
+    async mutationFn(options: Options<AssistantsDoctorSessionsCreateData>) {
+      const { data, error, response } = await assistantsDoctorSessionsCreate({
+        ...options,
+        throwOnError: false,
+      });
+      if (error) {
+        if (response?.status === 429) {
+          throw new ApiError(
+            429,
+            "You've used all of your available Doctor sessions for this month. Please try again next month.",
+          );
+        }
+        throw error;
+      }
+      return data!;
+    },
     onSuccess(data) {
       const store = useDoctorPanelStore.getState();
       store.setSessionId(data.session_id);
@@ -166,10 +188,14 @@ export function DoctorPanel() {
       connectSSE(assistantId, data.session_id);
     },
     onError(error) {
-      captureError(error, { context: "start_doctor_session" });
+      if (!(error instanceof ApiError && error.status === 429)) {
+        captureError(error, { context: "start_doctor_session" });
+      }
       useDoctorPanelStore.getState().appendEntry({
         kind: "error",
-        content: extractErrorMessage(error, undefined, "Failed to start doctor session"),
+        content: error instanceof ApiError
+          ? error.message
+          : extractErrorMessage(error, undefined, "Failed to start doctor session"),
       });
     },
   });
