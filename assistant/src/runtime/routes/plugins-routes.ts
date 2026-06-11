@@ -191,6 +191,21 @@ const pluginDetailsResponseSchema = z.object({
   ref: z
     .string()
     .describe("Git ref the catalog metadata / README were resolved at."),
+  artifact: z
+    .object({
+      url: z
+        .string()
+        .describe("HTTPS URL the prebuilt client artifact is downloaded from."),
+      sha256: z
+        .string()
+        .describe(
+          "Lowercase 64-char hex SHA-256 the download is verified against.",
+        ),
+    })
+    .nullable()
+    .describe(
+      "Prebuilt client artifact from `package.json` `vellum.artifact`, or null when the plugin ships none or its descriptor is incomplete (e.g. a placeholder sha256).",
+    ),
 });
 
 const pluginInstallRequestSchema = z.object({
