@@ -20524,7 +20524,7 @@ paths:
                   description: Display name
                 description:
                   type: string
-                  description: Authored schedule description
+                  description: Authored schedule description. Defaults to the schedule name when omitted for backward compatibility.
                 expression:
                   type: string
                   description: Cron or RRULE expression
@@ -20544,7 +20544,6 @@ paths:
                   description: Currently must be 'execute'
               required:
                 - name
-                - description
                 - expression
                 - message
               additionalProperties: false

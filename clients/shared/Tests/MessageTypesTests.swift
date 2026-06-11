@@ -201,6 +201,47 @@ final class MessageTypesTests: XCTestCase {
         XCTAssertEqual(schedule.cadenceDescription, "Every day at 9:00 AM")
     }
 
+    func testDecodesSchedulesListResponseWithoutCadenceDescription() throws {
+        let json = Data(
+            """
+            {
+              "type": "schedules_list_response",
+              "schedules": [
+                {
+                  "id": "schedule-123",
+                  "name": "Morning brief",
+                  "enabled": true,
+                  "syntax": "cron",
+                  "expression": "0 9 * * *",
+                  "cronExpression": "0 9 * * *",
+                  "timezone": "America/Denver",
+                  "message": "Send the morning brief",
+                  "nextRunAt": 1781000000000,
+                  "lastRunAt": null,
+                  "lastStatus": null,
+                  "description": "Every day at 9:00 AM",
+                  "mode": "notify",
+                  "status": "active",
+                  "routingIntent": "new",
+                  "isOneShot": false
+                }
+              ]
+            }
+            """.utf8
+        )
+
+        let message = try decoder.decode(ServerMessage.self, from: json)
+
+        guard case .schedulesListResponse(let response) = message else {
+            XCTFail("Expected .schedulesListResponse, got \(message)")
+            return
+        }
+
+        let schedule = try XCTUnwrap(response.schedules.first)
+        XCTAssertEqual(schedule.description, "")
+        XCTAssertEqual(schedule.cadenceDescription, "Every day at 9:00 AM")
+    }
+
     // MARK: - host_browser_request
 
     func testDecodes_hostBrowserRequest_withAllFields() throws {

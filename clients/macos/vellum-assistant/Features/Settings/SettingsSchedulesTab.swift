@@ -568,7 +568,12 @@ struct SettingsSchedulesTab: View {
     private func saveEdits(_ schedule: ScheduleItem) {
         var updates: [String: Any] = [:]
         if editName != schedule.name { updates["name"] = editName }
-        if editDescription != schedule.description { updates["description"] = editDescription }
+        let trimmedDescription = editDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedDescription.isEmpty {
+            loadError = "Description is required."
+            return
+        }
+        if trimmedDescription != schedule.description { updates["description"] = trimmedDescription }
         let originalExpression = schedule.expression ?? schedule.cronExpression ?? ""
         if editExpression != originalExpression { updates["expression"] = editExpression }
         if editMessage != schedule.message { updates["message"] = editMessage }
