@@ -54,6 +54,12 @@ const providerCalls: Array<{
   userText: string;
 }> = [];
 
+// The sweep now routes through `runOneShotLLM`, which imports
+// `getConfiguredProvider`, `userMessage`, `extractToolUse`, `createTimeout`,
+// and `extractAllText` from this module — so the mock must export all five.
+// `createTimeout` returns a real (never-firing) timer so the helper's
+// finally-cleanup runs without a network call; `extractAllText` is only used
+// on the text path (not the sweep's tool path) but must exist as an export.
 mock.module("../../../providers/provider-send-message.js", () => ({
   getConfiguredProvider: async () => providerStub,
   userMessage: (text: string) => ({
@@ -62,6 +68,16 @@ mock.module("../../../providers/provider-send-message.js", () => ({
   }),
   extractToolUse: (response: ProviderResponse) =>
     response.content.find((b): b is ToolUseContent => b.type === "tool_use"),
+  extractAllText: (response: ProviderResponse) =>
+    response.content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join(" "),
+  createTimeout: (ms: number) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    return { signal: controller.signal, cleanup: () => clearTimeout(timer) };
+  },
 }));
 
 // emitNotificationSignal spy — captures every notification the sweep emits

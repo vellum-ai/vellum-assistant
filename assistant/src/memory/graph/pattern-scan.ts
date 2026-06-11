@@ -8,17 +8,40 @@
 // Also detects behavioral patterns in the assistant's own actions.
 // ---------------------------------------------------------------------------
 
+import { z } from "zod";
+
 import type { AssistantConfig } from "../../config/types.js";
-import {
-  extractToolUse,
-  getConfiguredProvider,
-  userMessage,
-} from "../../providers/provider-send-message.js";
+import { runOneShotLLM } from "../../providers/one-shot-llm.js";
+import { userMessage } from "../../providers/provider-send-message.js";
 import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { createEdge, createNode, queryNodes } from "./store.js";
 
 const log = getLogger("graph-pattern-scan");
+
+/**
+ * Pattern-scan tool input. Encodes what the previous manual
+ * `toolBlock.input as {...}` cast assumed. `patterns` is the array the loop
+ * iterates; each element is dropped (`continue`) downstream if it has fewer
+ * than 3 valid source nodes, so the schema only needs to guarantee the
+ * iterated fields exist with the right types. `partOfStory` stays optional.
+ */
+const PatternScanResultSchema = z.object({
+  patterns: z
+    .array(
+      z.object({
+        content: z.string(),
+        type: z.string(),
+        significance: z.number(),
+        source_node_ids: z.array(z.string()),
+        partOfStory: z.string().optional(),
+      }),
+    )
+    .optional(),
+});
+
+/** Generous timeout for the pattern-scan background batch call. */
+const PATTERN_SCAN_TIMEOUT_MS = 60_000;
 
 // ---------------------------------------------------------------------------
 // Pattern scan prompt
@@ -141,11 +164,6 @@ export async function runPatternScan(
     return result;
   }
 
-  const provider = await getConfiguredProvider("patternScan");
-  if (!provider) {
-    throw new BackendUnavailableError("Provider unavailable for pattern scan");
-  }
-
   const systemPrompt = buildPatternScanPrompt(
     allNodes.map((n) => ({
       id: n.id,
@@ -155,7 +173,10 @@ export async function runPatternScan(
     })),
   );
 
-  const response = await provider.sendMessage(
+  // `onUnavailable: "throw"` preserves the prior BackendUnavailableError
+  // semantics for the no-provider case.
+  const llmResult = await runOneShotLLM(
+    "patternScan",
     [
       userMessage(
         "Analyze this memory sample for recurring patterns. Only report patterns you're confident about.",
@@ -163,30 +184,63 @@ export async function runPatternScan(
     ],
     {
       tools: [PATTERN_TOOL_SCHEMA],
+      toolChoice: "detect_patterns",
+      schema: PatternScanResultSchema,
       systemPrompt,
-      config: {
-        callSite: "patternScan" as const,
-        tool_choice: { type: "tool" as const, name: "detect_patterns" },
-      },
+      timeoutMs: PATTERN_SCAN_TIMEOUT_MS,
+      onUnavailable: "throw",
     },
   );
 
-  const toolBlock = extractToolUse(response);
-  if (!toolBlock) {
-    log.warn("No tool_use block in pattern scan response");
+  if (llmResult.status !== "ok") {
+    // Required-job semantics: pattern scan runs as the `graph_pattern_scan`
+    // memory job, and `jobs-worker.ts` calls `completeMemoryJob()` when this
+    // returns normally — the maintenance checkpoint has already advanced at
+    // enqueue time. A transient transport failure must NOT return an empty
+    // result, or the worker marks the job COMPLETED and the scan is silently
+    // skipped for a full interval. We throw so `classifyError`
+    // (memory/job-utils.ts) routes the failure to defer/retry.
+    //
+    // Critically, we preserve the error's fatal-vs-transient shape rather than
+    // blanket-wrapping every failure in `BackendUnavailableError`:
+    //  - `timeout`: a stalled provider connection IS transient, so we throw
+    //    `BackendUnavailableError` (classified retryable). The abort error in
+    //    `llmResult.error` carries no status, so wrapping it gives the worker
+    //    the right signal.
+    //  - `provider_error`: re-throw the ORIGINAL provider error preserved on
+    //    `llmResult.error`. `classifyError` inspects its HTTP status / message,
+    //    so a fatal 4xx (auth / bad request from the forced-tool call) fails
+    //    fast instead of being wrapped into a "transient" outage that retries
+    //    for the full backoff window. If the original is already a
+    //    `BackendUnavailableError`, re-throw as-is; if it's somehow missing,
+    //    fall back to `BackendUnavailableError`.
+    //
+    // Malformed model output (`tool_use_missing` / `schema_mismatch`) is NOT
+    // transient — retrying won't help — so it keeps degrading to "no patterns
+    // detected", the same empty result the old `!toolBlock` path produced.
+    if (llmResult.status === "failure" && llmResult.reason === "timeout") {
+      throw new BackendUnavailableError("Pattern scan LLM call timed out");
+    }
+    if (
+      llmResult.status === "failure" &&
+      llmResult.reason === "provider_error"
+    ) {
+      if (llmResult.error !== undefined) {
+        throw llmResult.error;
+      }
+      throw new BackendUnavailableError(
+        "Pattern scan LLM provider call failed",
+      );
+    }
+    log.warn(
+      { reason: llmResult.status === "failure" ? llmResult.reason : undefined },
+      "Pattern scan produced no usable tool output",
+    );
     result.latencyMs = Date.now() - start;
     return result;
   }
 
-  const input = toolBlock.input as {
-    patterns?: Array<{
-      content: string;
-      type: string;
-      significance: number;
-      source_node_ids: string[];
-      partOfStory?: string;
-    }>;
-  };
+  const input = llmResult.data;
 
   const existingIds = new Set(allNodes.map((n) => n.id));
   const now = Date.now();

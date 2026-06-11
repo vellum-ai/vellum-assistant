@@ -31,11 +31,8 @@ import {
   resolveUserName,
 } from "../../daemon/identity-helpers.js";
 import { emitNotificationSignal } from "../../notifications/emit-signal.js";
-import {
-  extractToolUse,
-  getConfiguredProvider,
-  userMessage,
-} from "../../providers/provider-send-message.js";
+import { runOneShotLLM } from "../../providers/one-shot-llm.js";
+import { userMessage } from "../../providers/provider-send-message.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
@@ -99,6 +96,13 @@ const SweepResultSchema = z.object({
 });
 
 /**
+ * Generous timeout for the sweep's single forced-tool call. The sweep is a
+ * background batch job, so a stalled provider connection must not wedge the
+ * memory worker indefinitely.
+ */
+const SWEEP_TIMEOUT_MS = 60_000;
+
+/**
  * Job handler. Reads recent messages + buffer, asks the configured provider
  * for additional remember-able entries, and appends each entry to
  * `memory/buffer.md` + `memory/archive/<today>.md` via the same helper
@@ -140,12 +144,6 @@ export async function memoryV2SweepJob(
 
     const existingBuffer = readBufferText(memoryDir);
 
-    const provider = await getConfiguredProvider("memoryV2Sweep");
-    if (!provider) {
-      log.warn("memoryV2Sweep provider unavailable; sweep skipped");
-      return 0;
-    }
-
     const systemPrompt = renderSweepPrompt({
       assistantName: getAssistantName(),
       userName: resolveUserName(workspaceDir),
@@ -154,30 +152,47 @@ export async function memoryV2SweepJob(
       `## existingBuffer\n\n${existingBuffer || "(empty)"}\n\n` +
       `## recentMessages\n\n${recentText}`;
 
-    const response = await provider.sendMessage([userMessage(userText)], {
-      tools: [SWEEP_TOOL],
-      systemPrompt,
-      config: {
-        callSite: "memoryV2Sweep" as const,
-        tool_choice: { type: "tool" as const, name: SWEEP_TOOL_NAME },
+    // `onUnavailable: "null"` preserves the prior "no provider → return 0"
+    // contract. Schema validation and the timeout now live in the helper; any
+    // non-`ok` status (unavailable, timeout, tool_use_missing, schema_mismatch)
+    // degrades to returning 0 without writes, matching the old behavior.
+    const llmResult = await runOneShotLLM(
+      "memoryV2Sweep",
+      [userMessage(userText)],
+      {
+        tools: [SWEEP_TOOL],
+        toolChoice: SWEEP_TOOL_NAME,
+        schema: SweepResultSchema,
+        systemPrompt,
+        timeoutMs: SWEEP_TIMEOUT_MS,
+        onUnavailable: "null",
       },
-    });
+    );
 
-    const toolBlock = extractToolUse(response);
-    if (!toolBlock || toolBlock.name !== SWEEP_TOOL_NAME) {
-      log.debug("Sweep model returned no tool_use block");
-      return 0;
-    }
-    const parsed = SweepResultSchema.safeParse(toolBlock.input);
-    if (!parsed.success) {
-      log.warn(
-        { error: parsed.error.message },
-        "Sweep tool input did not match schema",
+    if (llmResult.status !== "ok") {
+      // Preserve the prior failure contract: a provider exception (or a
+      // stalled connection that hit the timeout) must surface via the
+      // `activity.failed` notification, so re-throw into the outer catch. The
+      // "model responded but the output was unusable" cases (no provider,
+      // missing tool_use, schema mismatch) return 0 silently — matching the
+      // old `!toolBlock` / bad-shape / no-provider paths.
+      if (
+        llmResult.status === "failure" &&
+        (llmResult.reason === "provider_error" ||
+          llmResult.reason === "timeout")
+      ) {
+        throw llmResult.error instanceof Error
+          ? llmResult.error
+          : new Error(`memory v2 sweep LLM call failed: ${llmResult.reason}`);
+      }
+      log.debug(
+        { status: llmResult.status },
+        "Sweep produced no usable tool output; nothing written",
       );
       return 0;
     }
 
-    const written = appendEntries(memoryDir, parsed.data.entries);
+    const written = appendEntries(memoryDir, llmResult.data.entries);
     if (written > 0) {
       log.info({ written }, "Memory v2 sweep wrote new buffer entries");
     }

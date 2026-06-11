@@ -45,6 +45,7 @@ import { z } from "zod";
 
 import { cachedTextBlock } from "../../../providers/cache-control.js";
 import {
+  createTimeout,
   extractToolUse,
   getConfiguredProvider,
 } from "../../../providers/provider-send-message.js";
@@ -91,6 +92,15 @@ export interface SelectorPool {
 
 /** Tool name forced via `tool_choice`. Shared constant so tests can match it. */
 const SELECT_PAGES_TOOL_NAME = "select_pages";
+
+/**
+ * Per-attempt timeout for the selector's forced-tool call. The selector runs
+ * in the per-turn routing path and degrades to deterministic lanes on failure,
+ * but a stalled provider connection must still be bounded — each
+ * `retryForResult` attempt gets a fresh timeout. The selector reasons over a
+ * compact candidate pool, so a 60s budget is generous.
+ */
+const SELECT_TIMEOUT_MS = 60_000;
 
 /** Finder-line snippets are truncated to keep the dynamic tail compact. */
 const SNIPPET_MAX_CHARS = 300;
@@ -239,19 +249,29 @@ export async function selectPool(
   // we give up. `null` from an attempt means "unusable, retry"; the provider
   // layer already backs off transient throws, so this loop adds no delay.
   const parsed = await retryForResult(async () => {
-    const response = await provider.sendMessage([userMsg], {
-      tools: [SELECT_PAGES_TOOL],
-      systemPrompt: SYSTEM_PROMPT,
-      config: {
-        callSite: "memoryV3SelectL2" as const,
-        tool_choice: { type: "tool" as const, name: SELECT_PAGES_TOOL_NAME },
-        // The last block of this one-shot message varies every turn; the
-        // provider's auto-applied turn-start breakpoint would land on it and
-        // pay cache_creation with no future hit. The stable-prefix block
-        // above carries its own breakpoint instead.
-        disableTurnStartCache: true,
-      },
-    });
+    // Fresh timeout per attempt — a stalled attempt aborts and `retryForResult`
+    // re-prompts (or, on the final attempt, surfaces null → deterministic
+    // lanes). The provider layer already backs off transient throws.
+    const { signal, cleanup } = createTimeout(SELECT_TIMEOUT_MS);
+    let response;
+    try {
+      response = await provider.sendMessage([userMsg], {
+        tools: [SELECT_PAGES_TOOL],
+        systemPrompt: SYSTEM_PROMPT,
+        config: {
+          callSite: "memoryV3SelectL2" as const,
+          tool_choice: { type: "tool" as const, name: SELECT_PAGES_TOOL_NAME },
+          // The last block of this one-shot message varies every turn; the
+          // provider's auto-applied turn-start breakpoint would land on it and
+          // pay cache_creation with no future hit. The stable-prefix block
+          // above carries its own breakpoint instead.
+          disableTurnStartCache: true,
+        },
+        signal,
+      });
+    } finally {
+      cleanup();
+    }
     const toolBlock = extractToolUse(response);
     if (!toolBlock || toolBlock.name !== SELECT_PAGES_TOOL_NAME) return null;
     const result = SelectPagesSchema.safeParse(toolBlock.input);

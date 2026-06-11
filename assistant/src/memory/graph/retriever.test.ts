@@ -59,9 +59,11 @@ mock.module("./graph-search.js", () => ({
   },
 }));
 
-// Returning `null` from getConfiguredProvider causes rerankAndDedup and
-// dedupCrossCategory to fall back to the candidate list without calling an
-// LLM, keeping these tests fully offline.
+// Returning `null` from getConfiguredProvider causes rerankAndDedup,
+// dedupForTurn, and dedupCrossCategory (now routed through `runOneShotLLM`) to
+// resolve `{ status: "unavailable" }` and fall back to the candidate list
+// without calling an LLM, keeping these tests fully offline. The helper also
+// imports `createTimeout` and `extractAllText`, so the mock must export them.
 mock.module("../../providers/provider-send-message.js", () => ({
   getConfiguredProvider: async () => null,
   userMessage: (text: string) => ({
@@ -69,6 +71,12 @@ mock.module("../../providers/provider-send-message.js", () => ({
     content: [{ type: "text" as const, text }],
   }),
   extractToolUse: () => null,
+  extractAllText: () => "",
+  createTimeout: (ms: number) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    return { signal: controller.signal, cleanup: () => clearTimeout(timer) };
+  },
 }));
 
 import { resetDbForTesting } from "../../__tests__/db-test-helpers.js";

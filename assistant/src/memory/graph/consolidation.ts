@@ -10,8 +10,11 @@
 // (same format as extraction) that is applied to the graph.
 // ---------------------------------------------------------------------------
 
+import { z } from "zod";
+
 import type { AssistantConfig } from "../../config/types.js";
 import {
+  createTimeout,
   extractToolUse,
   getConfiguredProvider,
   userMessage,
@@ -228,6 +231,57 @@ function getRandomSample(scopeId: string, n: number = 30): MemoryNode[] {
 
 const CHUNK_SIZE = 25;
 
+/**
+ * Generous timeouts for the consolidation background batch calls. Both the
+ * fast duplicate-scan pass and the full per-chunk consolidation run inside the
+ * daily consolidation job, where a stalled provider connection would otherwise
+ * wedge the worker. The dupe-scan compares one-line previews, so it gets a
+ * shorter budget than the full chunk pass that reasons over complete prose.
+ */
+const DUPE_SCAN_TIMEOUT_MS = 60_000;
+const CONSOLIDATE_CHUNK_TIMEOUT_MS = 120_000;
+
+/**
+ * Tool input for `report_duplicate_groups`. Mirrors the prior
+ * `{ groups?: string[][] }` cast; `groups` stays optional so an absent list
+ * degrades to "no duplicate groups" exactly as before.
+ */
+const DuplicateGroupsSchema = z.object({
+  groups: z.array(z.array(z.string())).optional(),
+});
+
+/**
+ * Per-item update schema for `consolidate_diff`. Encodes what the prior cast
+ * assumed AND validates the two previously-unchecked fields: `fidelity` is the
+ * exact node-fidelity enum, and `event_date` is `number | null`. A single
+ * update whose `fidelity`/`event_date` fails validation is skipped (with a
+ * warn) rather than failing the whole batch — matching how the loop already
+ * tolerates missing optional fields. The top-level `delete_ids` / `merge_edges`
+ * arrays are validated as a whole since their elements have no
+ * partially-tolerable fields.
+ */
+const ConsolidateUpdateSchema = z.object({
+  id: z.string(),
+  content: z.string().optional(),
+  fidelity: z.enum(["vivid", "clear", "faded", "gist", "gone"]).optional(),
+  narrativeRole: z.string().optional(),
+  partOfStory: z.string().optional(),
+  event_date: z.number().nullable().optional(),
+});
+
+const ConsolidateDiffSchema = z.object({
+  // `updates` elements are validated per-item in the loop (via
+  // `ConsolidateUpdateSchema`) so a single malformed update is skipped rather
+  // than failing the whole batch — only the array-of-objects shape is checked
+  // here. `delete_ids` / `merge_edges` have no partially-tolerable fields, so
+  // they're validated strictly as a whole.
+  updates: z.array(z.record(z.string(), z.unknown())).optional(),
+  delete_ids: z.array(z.string()).optional(),
+  merge_edges: z
+    .array(z.object({ survivor_id: z.string(), deleted_id: z.string() }))
+    .optional(),
+});
+
 // ---------------------------------------------------------------------------
 // Duplicate detection — fast LLM call on compact listings
 // ---------------------------------------------------------------------------
@@ -279,24 +333,54 @@ async function identifyDuplicateGroups(
 
   const systemPrompt = `You are scanning a list of memory nodes for DUPLICATES — nodes that describe the exact same specific event or fact. Group duplicates together. Two nodes are duplicates ONLY if they describe the same underlying thing with substantially the same details. Be conservative — nodes about the same person or topic but with different details, timestamps, or context are NOT duplicates. Only include nodes that have at least one true duplicate.`;
 
-  const response = await provider.sendMessage([userMessage(listing)], {
-    tools: [DUPE_DETECT_TOOL],
-    systemPrompt,
-    config: {
-      callSite: "memoryConsolidation" as const,
-      tool_choice: { type: "tool" as const, name: "report_duplicate_groups" },
-    },
-  });
+  const { signal, cleanup } = createTimeout(DUPE_SCAN_TIMEOUT_MS);
+  let response;
+  try {
+    response = await provider.sendMessage([userMessage(listing)], {
+      tools: [DUPE_DETECT_TOOL],
+      systemPrompt,
+      config: {
+        callSite: "memoryConsolidation" as const,
+        tool_choice: { type: "tool" as const, name: "report_duplicate_groups" },
+      },
+      signal,
+    });
+  } catch (err) {
+    // Graceful degradation: this function's contract is "best-effort dupe scan
+    // — return [] on any failure" (see the no-provider early return above).
+    // A timeout (AbortError) or transient provider error must NOT propagate,
+    // because the only caller (`consolidatePartition`) has no try/catch around
+    // this call — a throw here would abandon the whole partition (losing the
+    // singleton fidelity/narrative pass too). Treat as "no dupes found".
+    log.warn(
+      {
+        callSite: "memoryConsolidation",
+        aborted: signal.aborted,
+        err: err instanceof Error ? err.message : String(err),
+      },
+      "Duplicate-scan LLM call failed (timeout or error); treating as no dupes",
+    );
+    return [];
+  } finally {
+    cleanup();
+  }
 
   const toolBlock = extractToolUse(response);
   if (!toolBlock) return [];
 
-  const input = toolBlock.input as { groups?: string[][] };
-  if (!input.groups) return [];
+  const parsed = DuplicateGroupsSchema.safeParse(toolBlock.input);
+  if (!parsed.success) {
+    log.warn(
+      { callSite: "memoryConsolidation", error: parsed.error.message },
+      "Duplicate-group tool input did not match schema; treating as no dupes",
+    );
+    return [];
+  }
+  if (!parsed.data.groups) return [];
 
   const nodeMap = new Map(nodes.map((n) => [n.id, n]));
 
-  return (input.groups ?? [])
+  return parsed.data.groups
     .map((ids) =>
       ids.filter((id) => nodeMap.has(id)).map((id) => nodeMap.get(id)!),
     )
@@ -449,21 +533,43 @@ async function consolidateChunk(
     dedupedEdges,
   );
 
-  const response = await provider.sendMessage(
-    [
-      userMessage(
-        "Consolidate this partition. Focus on merging duplicates and fading old memories.",
-      ),
-    ],
-    {
-      tools: [CONSOLIDATE_TOOL_SCHEMA],
-      systemPrompt,
-      config: {
-        callSite: "memoryConsolidation" as const,
-        tool_choice: { type: "tool" as const, name: "consolidate_diff" },
+  const { signal, cleanup } = createTimeout(CONSOLIDATE_CHUNK_TIMEOUT_MS);
+  let response;
+  try {
+    response = await provider.sendMessage(
+      [
+        userMessage(
+          "Consolidate this partition. Focus on merging duplicates and fading old memories.",
+        ),
+      ],
+      {
+        tools: [CONSOLIDATE_TOOL_SCHEMA],
+        systemPrompt,
+        config: {
+          callSite: "memoryConsolidation" as const,
+          tool_choice: { type: "tool" as const, name: "consolidate_diff" },
+        },
+        signal,
       },
-    },
-  );
+    );
+  } catch (err) {
+    // Required-job semantics: this chunk MUST surface as a failed/retryable
+    // job (it already throws BackendUnavailableError on no-provider above, and
+    // `runConsolidation` wraps each partition so the partition is dropped, not
+    // the whole job). A bare timeout aborts with a DOMException AbortError,
+    // which `classifyError` (memory/job-utils.ts) would otherwise treat as
+    // fatal → no retry. Translate the abort into BackendUnavailableError so the
+    // existing handler defers/retries it like any other transient backend
+    // outage. Non-abort errors keep their own classification.
+    if (signal.aborted) {
+      throw new BackendUnavailableError(
+        "Consolidation chunk LLM call timed out",
+      );
+    }
+    throw err;
+  } finally {
+    cleanup();
+  }
 
   const toolBlock = extractToolUse(response);
   if (!toolBlock) {
@@ -471,31 +577,41 @@ async function consolidateChunk(
     return result;
   }
 
-  const input = toolBlock.input as {
-    updates?: Array<{
-      id: string;
-      content?: string;
-      fidelity?: string;
-      narrativeRole?: string;
-      partOfStory?: string;
-      event_date?: number | null;
-    }>;
-    delete_ids?: string[];
-    merge_edges?: Array<{ survivor_id: string; deleted_id: string }>;
-  };
+  const parsed = ConsolidateDiffSchema.safeParse(toolBlock.input);
+  if (!parsed.success) {
+    log.warn(
+      { callSite: "memoryConsolidation", error: parsed.error.message },
+      "Consolidation diff did not match schema; skipping chunk",
+    );
+    return result;
+  }
+  const input = parsed.data;
 
   // Build nodeMap once upfront; patch entries after each updateNode() so
   // later iterations always read fresh in-memory state.
   const nodeMap = new Map(nodes.map((n) => [n.id, n]));
 
   // Apply updates
-  for (const update of input.updates ?? []) {
+  for (const rawUpdate of input.updates ?? []) {
+    // Per-item strict validation: a single update whose `id`/`fidelity`/
+    // `event_date` is malformed is skipped with a warn rather than failing the
+    // whole chunk — the loop already tolerates missing optional fields, so a
+    // bad field on one item shouldn't lose the other items' valid rewrites.
+    const updateParse = ConsolidateUpdateSchema.safeParse(rawUpdate);
+    if (!updateParse.success) {
+      log.warn(
+        { callSite: "memoryConsolidation", error: updateParse.error.message },
+        "Consolidation update item failed validation; skipping item",
+      );
+      continue;
+    }
+    const update = updateParse.data;
+
     if (!nodeIds.has(update.id)) continue; // safety: only update nodes in this partition
 
     const changes: Partial<MemoryNode> = {};
     if (update.content) changes.content = update.content;
-    if (update.fidelity)
-      changes.fidelity = update.fidelity as MemoryNode["fidelity"];
+    if (update.fidelity) changes.fidelity = update.fidelity;
     if (update.narrativeRole !== undefined)
       changes.narrativeRole = update.narrativeRole || null;
     if (update.partOfStory !== undefined)
@@ -681,6 +797,23 @@ export async function runConsolidation(
         "Partition consolidation complete",
       );
     } catch (err) {
+      // A backend outage (no provider, or a chunk-level timeout translated to
+      // `BackendUnavailableError` in `consolidateChunk`) is different in kind
+      // from a single bad partition: it will affect every partition, and the
+      // job worker (`graphConsolidateJob` → `completeMemoryJob()`) treats a
+      // normal return as success and advances the maintenance checkpoint. If we
+      // degraded this to a zero-result partition, a stalled provider would
+      // silently skip consolidation for a full interval. Re-throw so
+      // `classifyError` routes it to defer/retry. Other per-partition errors
+      // keep the established "contain one bad partition" contract below — they
+      // degrade to a zero-result partition so the rest of the job proceeds.
+      if (err instanceof BackendUnavailableError) {
+        log.warn(
+          { partition: partition.name, err: err.message },
+          "Partition consolidation hit a backend outage; failing the job for retry",
+        );
+        throw err;
+      }
       log.warn(
         {
           partition: partition.name,

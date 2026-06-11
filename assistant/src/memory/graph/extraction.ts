@@ -14,6 +14,7 @@ import { and, asc, desc, eq, gt } from "drizzle-orm";
 import type { AssistantConfig } from "../../config/types.js";
 import { buildCoreIdentityContext } from "../../prompts/system-prompt.js";
 import {
+  createTimeout,
   extractToolUse,
   getConfiguredProvider,
   userMessage,
@@ -49,6 +50,14 @@ import type {
 } from "./types.js";
 
 const log = getLogger("graph-extraction");
+
+/**
+ * Generous timeout for the extraction LLM call. Extraction processes a whole
+ * conversation transcript (the largest single input of any memory background
+ * job), so it gets the longest budget — but it must still be bounded so a
+ * stalled provider connection can't wedge the memory worker indefinitely.
+ */
+const EXTRACTION_TIMEOUT_MS = 120_000;
 
 // ---------------------------------------------------------------------------
 // Extraction system prompt
@@ -1071,14 +1080,34 @@ export async function runGraphExtraction(
         ),
       ];
 
-  const response = await provider.sendMessage(extractionMessages, {
-    tools: [EXTRACT_TOOL_SCHEMA],
-    systemPrompt,
-    config: {
-      callSite: "memoryExtraction" as const,
-      tool_choice: { type: "tool" as const, name: "extract_graph_diff" },
-    },
-  });
+  const { signal, cleanup } = createTimeout(EXTRACTION_TIMEOUT_MS);
+  let response;
+  try {
+    response = await provider.sendMessage(extractionMessages, {
+      tools: [EXTRACT_TOOL_SCHEMA],
+      systemPrompt,
+      config: {
+        callSite: "memoryExtraction" as const,
+        tool_choice: { type: "tool" as const, name: "extract_graph_diff" },
+      },
+      signal,
+    });
+  } catch (err) {
+    // Required-job semantics: extraction already throws BackendUnavailableError
+    // on no-provider above, and `graphExtractJob` re-throws so the worker can
+    // observe the failure. A bare timeout aborts with a DOMException AbortError
+    // that `classifyError` (memory/job-utils.ts) would treat as fatal → no
+    // retry. Translate the abort into BackendUnavailableError so the worker
+    // defers/retries it like any other transient backend outage; bootstrap's
+    // per-conversation catch already tolerates the throw. Non-abort errors keep
+    // their own classification.
+    if (signal.aborted) {
+      throw new BackendUnavailableError("Graph extraction LLM call timed out");
+    }
+    throw err;
+  } finally {
+    cleanup();
+  }
 
   const toolBlock = extractToolUse(response);
   if (!toolBlock) {

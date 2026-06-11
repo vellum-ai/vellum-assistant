@@ -9,18 +9,51 @@
 // high-significance nodes to re-evaluate arc assignments.
 // ---------------------------------------------------------------------------
 
+import { z } from "zod";
+
 import type { AssistantConfig } from "../../config/types.js";
-import {
-  extractToolUse,
-  getConfiguredProvider,
-  userMessage,
-} from "../../providers/provider-send-message.js";
+import { runOneShotLLM } from "../../providers/one-shot-llm.js";
+import { userMessage } from "../../providers/provider-send-message.js";
 import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { queryNodes, updateNode } from "./store.js";
 import type { MemoryNode } from "./types.js";
 
 const log = getLogger("graph-narrative");
+
+/**
+ * Tool input for `refine_narratives`. Encodes what the previous
+ * `toolBlock.input as {...}` cast assumed AND supplies the null guards the old
+ * code lacked: `updates` and `arcs_summary` default to `[]` so the iteration
+ * sites can no longer crash on a missing array. `narrativeRole`/`partOfStory`
+ * are nullable strings (the model returns `null` to clear a role).
+ */
+const RefineNarrativesSchema = z.object({
+  updates: z
+    .array(
+      z.object({
+        id: z.string(),
+        narrativeRole: z.string().nullish(),
+        partOfStory: z.string().nullish(),
+      }),
+    )
+    .default([]),
+  arcs_summary: z
+    .array(
+      z.object({
+        name: z.string(),
+        description: z.string(),
+        node_count: z.number(),
+      }),
+    )
+    .default([]),
+});
+
+/**
+ * Generous timeout for the narrative-refinement background batch call (runs
+ * monthly over up to 150 nodes).
+ */
+const NARRATIVE_TIMEOUT_MS = 60_000;
 
 // ---------------------------------------------------------------------------
 // Narrative refinement prompt
@@ -165,13 +198,6 @@ export async function runNarrativeRefinement(
     .sort((a, b) => b.significance - a.significance)
     .slice(0, 150);
 
-  const provider = await getConfiguredProvider("narrativeRefinement");
-  if (!provider) {
-    throw new BackendUnavailableError(
-      "Provider unavailable for narrative refinement",
-    );
-  }
-
   const candidateIds = new Set(candidates.map((n) => n.id));
 
   const systemPrompt = buildNarrativePrompt(
@@ -186,7 +212,10 @@ export async function runNarrativeRefinement(
     })),
   );
 
-  const response = await provider.sendMessage(
+  // `onUnavailable: "throw"` preserves the prior BackendUnavailableError for
+  // the no-provider case.
+  const llmResult = await runOneShotLLM(
+    "narrativeRefinement",
     [
       userMessage(
         "Review and refine the narrative structure of these memories. Identify story arcs and assign roles with the benefit of hindsight.",
@@ -194,36 +223,60 @@ export async function runNarrativeRefinement(
     ],
     {
       tools: [NARRATIVE_TOOL_SCHEMA],
+      toolChoice: "refine_narratives",
+      schema: RefineNarrativesSchema,
       systemPrompt,
-      config: {
-        callSite: "narrativeRefinement" as const,
-        tool_choice: { type: "tool" as const, name: "refine_narratives" },
-      },
+      timeoutMs: NARRATIVE_TIMEOUT_MS,
+      onUnavailable: "throw",
     },
   );
 
-  const toolBlock = extractToolUse(response);
-  if (!toolBlock) {
-    log.warn("No tool_use block in narrative refinement response");
+  if (llmResult.status !== "ok") {
+    // Required-job semantics (mirrors pattern-scan): narrative refinement runs
+    // as a memory maintenance job whose worker calls `completeMemoryJob()` when
+    // this returns normally, and the checkpoint has already advanced at enqueue
+    // time. A transient transport failure must throw so `classifyError` routes
+    // it to defer/retry — otherwise the weekly refinement is silently skipped
+    // for a full interval. We preserve the error's fatal-vs-transient shape
+    // rather than blanket-wrapping in `BackendUnavailableError`:
+    //  - `timeout`: a stalled provider IS transient → throw
+    //    `BackendUnavailableError` (classified retryable).
+    //  - `provider_error`: re-throw the ORIGINAL provider error on
+    //    `llmResult.error` so `classifyError` can fail fast on a fatal 4xx
+    //    instead of treating it as a transient outage. Already-
+    //    `BackendUnavailableError` errors re-throw as-is; a missing error
+    //    falls back to `BackendUnavailableError`.
+    // Malformed model output (`tool_use_missing` / `schema_mismatch`) is not
+    // transient, so it keeps degrading to "no updates" — the same empty result
+    // the old `!toolBlock` path produced.
+    if (llmResult.status === "failure" && llmResult.reason === "timeout") {
+      throw new BackendUnavailableError(
+        "Narrative refinement LLM call timed out",
+      );
+    }
+    if (
+      llmResult.status === "failure" &&
+      llmResult.reason === "provider_error"
+    ) {
+      if (llmResult.error !== undefined) {
+        throw llmResult.error;
+      }
+      throw new BackendUnavailableError(
+        "Narrative refinement LLM provider call failed",
+      );
+    }
+    log.warn(
+      { reason: llmResult.status === "failure" ? llmResult.reason : undefined },
+      "Narrative refinement produced no usable tool output",
+    );
     result.latencyMs = Date.now() - start;
     return result;
   }
 
-  const input = toolBlock.input as {
-    updates?: Array<{
-      id: string;
-      narrativeRole?: string | null;
-      partOfStory?: string | null;
-    }>;
-    arcs_summary?: Array<{
-      name: string;
-      description: string;
-      node_count: number;
-    }>;
-  };
+  const input = llmResult.data;
 
   // Apply updates
-  for (const update of input.updates ?? []) {
+  for (const update of input.updates) {
     if (!candidateIds.has(update.id)) continue;
 
     const changes: Partial<MemoryNode> = { lastConsolidated: Date.now() };
@@ -245,7 +298,7 @@ export async function runNarrativeRefinement(
   }
 
   // Record arc summaries
-  result.arcs = (input.arcs_summary ?? []).map((a) => ({
+  result.arcs = input.arcs_summary.map((a) => ({
     name: a.name,
     description: a.description,
     nodeCount: a.node_count,
