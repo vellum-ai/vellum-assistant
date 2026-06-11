@@ -48,6 +48,7 @@ function makeCtx(content: string): PostToolUseContext {
     toolResponse: makeToolResponse(content),
     messages: [],
     additionalContext: null,
+    model: "claude-test-model",
     maxInputTokens: MAX_INPUT_TOKENS,
     logger: noopLogger,
   };

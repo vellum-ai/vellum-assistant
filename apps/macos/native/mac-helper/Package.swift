@@ -14,10 +14,12 @@ let package = Package(
         .executableTarget(
             name: "MacHelperExecutable",
             dependencies: ["MacHelperCore"],
+            exclude: ["Info.plist"],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("Carbon"),
+                .linkedFramework("IOKit"),
                 .linkedFramework("Speech"),
             ]
         ),

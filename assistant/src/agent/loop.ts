@@ -298,25 +298,27 @@ export type AgentEvent =
       /** The running history before injection stripping and compaction. */
       messages: Message[];
     }
-  | {
+  | ({
       /**
        * Emitted after the loop's inline mid-loop compaction pipeline runs,
        * immediately before re-injection — whether or not the pipeline actually
-       * compacted. The daemon's event dispatcher always commits `messages` (the
-       * stripped pre-compaction history) as the conversation's durable message
-       * state, so re-injection (the post-compaction hook) re-applies
-       * injections onto the stripped base rather than stacking on top of the
-       * still-injected messages. When `result.compacted` is set it
-       * additionally commits the durable compaction result (DB-record fields,
-       * graph-memory side effects, SSE) and flips the per-turn re-injection
-       * guards on the handler state.
+       * compacted. Carries the pipeline's `ContextWindowResult` unnested into
+       * the event, so `messages` here is the pipeline's output history. The
+       * pre-compaction history lives on the paired `context_compacting` start
+       * event (correlated by `compactionId`); consumers that need the
+       * stripped pre-compaction base re-derive it from the start event via
+       * `stripInjectionsForCompaction`.
+       *
+       * The daemon's event dispatcher commits the stripped pre-compaction
+       * base as the conversation's durable message state, so re-injection
+       * (the post-compaction hook) re-applies injections onto the stripped
+       * base rather than stacking on top of the still-injected messages.
+       * When `compacted` is set it additionally commits the durable
+       * compaction result (DB-record fields, graph-memory side effects, SSE)
+       * and projects Slack provenance from the pre-compaction base.
        *
        * Treated as a critical event: a failed durable commit re-throws so the
        * turn aborts rather than re-injecting against half-applied state.
-       *
-       * `messages` is the stripped pre-compaction history the summary was
-       * built from; the dispatcher uses it to project Slack provenance onto
-       * the compacted result.
        */
       type: "compaction_completed";
       /** Correlates this end event with its `context_compacting` pair. */
@@ -330,9 +332,7 @@ export type AgentEvent =
       startedAt: number;
       /** Epoch ms when the compaction pipeline returned. */
       finishedAt: number;
-      result: ContextWindowResult;
-      messages: Message[];
-    }
+    } & ContextWindowResult)
   | {
       /**
        * Emitted right after the loop strips runtime injections from the
@@ -782,10 +782,10 @@ export class AgentLoop {
         onEvent,
       );
     }
-    // Emit unconditionally: the dispatcher commits the stripped `messages` as the
-    // durable message base whether or not the pipeline compacted (re-injection
-    // reads it), and runs the durable compaction commit only when
-    // `result.compacted`.
+    // Emit unconditionally: the dispatcher commits the stripped pre-compaction
+    // base (re-derived from the start event) as the durable message base
+    // whether or not the pipeline compacted (re-injection reads it), and runs
+    // the durable compaction commit only when `compacted`.
     await onEvent({
       type: "compaction_completed",
       compactionId,
@@ -793,8 +793,7 @@ export class AgentLoop {
       trigger,
       startedAt,
       finishedAt: Date.now(),
-      result: compactResult,
-      messages: rawHistory,
+      ...compactResult,
     });
     const exhausted = compactResult.exhausted ?? false;
     const autoCompressApplied = compactResult.autoCompressApplied ?? false;
@@ -1746,6 +1745,7 @@ export class AgentLoop {
             toolResponse: block as ToolResultContent,
             messages: history,
             additionalContext: null,
+            model: response.model,
             maxInputTokens: contextWindowTokens,
             logger: rlog,
           };

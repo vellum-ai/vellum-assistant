@@ -33,6 +33,9 @@ import type {
   PowerEvent,
   ResolvedHotkey,
   ShowNotificationPayload,
+  SystemPermissionKind,
+  SystemPermissionStateItem,
+  SystemPermissionsState,
   TextInsertionResult,
   UpdateState,
   VellumCommand,
@@ -83,6 +86,15 @@ export interface VellumBridge {
       setPartials(enable: boolean): Promise<DictationPartialsResult>;
       onPartial(callback: (event: DictationPartialEvent) => void): () => void;
     };
+  };
+  permissions: {
+    getState(): Promise<SystemPermissionsState>;
+    request(kind: SystemPermissionKind): Promise<SystemPermissionStateItem>;
+    openSettings(
+      kind: SystemPermissionKind,
+    ): Promise<SystemPermissionStateItem>;
+    quitAndReopen(): Promise<void>;
+    onState(callback: (state: SystemPermissionsState) => void): () => void;
   };
   commands: {
     on(callback: (command: VellumCommand) => void): () => void;

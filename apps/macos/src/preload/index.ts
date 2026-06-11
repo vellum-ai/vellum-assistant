@@ -19,6 +19,9 @@ import type {
   PowerEvent,
   ResolvedHotkey,
   ShowNotificationPayload,
+  SystemPermissionKind,
+  SystemPermissionStateItem,
+  SystemPermissionsState,
   TextInsertionResult,
   UpdateState,
   VellumBridge,
@@ -43,6 +46,9 @@ export type {
   PowerEvent,
   ResolvedHotkey,
   ShowNotificationPayload,
+  SystemPermissionKind,
+  SystemPermissionStateItem,
+  SystemPermissionsState,
   TextInsertionResult,
   UpdateState,
   VellumBridge,
@@ -172,6 +178,38 @@ const bridge: VellumBridge = {
           ipcRenderer.off("vellum:helper:dictation:partial", handler);
         };
       },
+    },
+  },
+  permissions: {
+    getState: (): Promise<SystemPermissionsState> =>
+      ipcRenderer.invoke(
+        "vellum:permissions:getState",
+      ) as Promise<SystemPermissionsState>,
+    request: (kind: SystemPermissionKind): Promise<SystemPermissionStateItem> =>
+      ipcRenderer.invoke(
+        "vellum:permissions:request",
+        kind,
+      ) as Promise<SystemPermissionStateItem>,
+    openSettings: (
+      kind: SystemPermissionKind,
+    ): Promise<SystemPermissionStateItem> =>
+      ipcRenderer.invoke(
+        "vellum:permissions:openSettings",
+        kind,
+      ) as Promise<SystemPermissionStateItem>,
+    quitAndReopen: (): Promise<void> =>
+      ipcRenderer.invoke("vellum:permissions:quitAndReopen") as Promise<void>,
+    onState: (callback) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        state: SystemPermissionsState,
+      ) => {
+        callback(state);
+      };
+      ipcRenderer.on("vellum:permissions:state", handler);
+      return () => {
+        ipcRenderer.off("vellum:permissions:state", handler);
+      };
     },
   },
   commands: {

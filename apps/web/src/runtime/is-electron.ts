@@ -35,6 +35,10 @@ import type {
   PowerEventKind,
   ResolvedHotkey,
   ShowNotificationPayload,
+  SystemPermissionKind,
+  SystemPermissionStateItem,
+  SystemPermissionStatus,
+  SystemPermissionsState,
   TextInsertionResult,
   UpdateState,
   UpdateStatus,
@@ -61,6 +65,10 @@ export type {
   PowerEvent,
   PowerEventKind,
   ResolvedHotkey,
+  SystemPermissionKind,
+  SystemPermissionStateItem,
+  SystemPermissionStatus,
+  SystemPermissionsState,
   UpdateState,
   UpdateStatus,
   VellumCommand,
@@ -119,6 +127,17 @@ declare global {
             callback: (event: DictationPartialEvent) => void,
           ): () => void;
         };
+      };
+      permissions?: {
+        getState(): Promise<SystemPermissionsState>;
+        request(
+          kind: SystemPermissionKind,
+        ): Promise<SystemPermissionStateItem>;
+        openSettings(
+          kind: SystemPermissionKind,
+        ): Promise<SystemPermissionStateItem>;
+        quitAndReopen(): Promise<void>;
+        onState(callback: (state: SystemPermissionsState) => void): () => void;
       };
       commands: {
         on(callback: (command: VellumCommand) => void): () => void;

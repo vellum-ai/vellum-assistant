@@ -10,9 +10,9 @@ import {
   handleStatus,
   handleToolCall,
   handleToolResult,
-  parseDoctorEvent,
-} from "@/domains/settings/components/panels/use-doctor-sse";
-import type { StreamContext } from "@/domains/settings/components/panels/use-doctor-sse";
+} from "@/domains/settings/components/panels/doctor-event-handlers";
+import { parseDoctorEvent } from "@/domains/settings/components/panels/doctor-event-schema";
+import type { DoctorPanelContext } from "@/domains/settings/components/panels/doctor-panel-store";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -20,7 +20,7 @@ import type { StreamContext } from "@/domains/settings/components/panels/use-doc
 
 let idCounter = 0;
 
-function createMockContext(initialEntries: ChatEntry[] = []): StreamContext & {
+function createMockContext(initialEntries: ChatEntry[] = []): DoctorPanelContext & {
   entries: ChatEntry[];
   calls: Record<string, unknown[]>;
 } {
@@ -39,12 +39,8 @@ function createMockContext(initialEntries: ChatEntry[] = []): StreamContext & {
       return entries;
     },
     calls,
-    setEntries: (updater) => {
-      if (typeof updater === "function") {
-        entries = updater(entries);
-      } else {
-        entries = updater;
-      }
+    updateEntries: (updater) => {
+      entries = updater(entries);
     },
     setThinking: (v) => calls.setThinking.push(v),
     setPendingApproval: (v) => calls.setPendingApproval.push(v),

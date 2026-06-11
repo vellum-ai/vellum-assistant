@@ -11,7 +11,7 @@
  * back to the personal-intelligence benchmark via `getTestsDir()` so the
  * legacy `evals tests list` surface keeps working.
  */
-import { readdir, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { assertSafeId, getTestsDir, resolveUnder } from "./catalog";
 
 import type { TestSetupCommand } from "./setup-command";
@@ -29,6 +29,20 @@ export interface TestDef {
   metricsDir: string;
   /** Absolute paths to each `.ts` file in the metrics directory, sorted. */
   metricPaths: string[];
+  /**
+   * Lifecycle status declared in SPEC.md YAML frontmatter (e.g.
+   * `status: experimental`). Experimental units are excluded from default
+   * (unfiltered) benchmark runs until they pass QA; an explicit `--filter`
+   * still runs them. Undefined when the SPEC has no frontmatter status.
+   */
+  status?: string;
+}
+
+function parseSpecStatus(spec: string): string | undefined {
+  const frontmatter = spec.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!frontmatter) return undefined;
+  const status = frontmatter[1].match(/^status:\s*(\S+)\s*$/m);
+  return status?.[1];
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -65,15 +79,16 @@ export async function loadTestDef(
   const setupPath = resolveUnder(unitsDir, id, "setup.ts");
   const metricsDir = resolveUnder(unitsDir, id, "metrics");
 
+  let spec: string;
   try {
-    await stat(specPath);
+    spec = await readFile(specPath, "utf8");
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ENOENT") {
       throw new Error(`Test "${id}" is missing SPEC.md — expected ${specPath}`);
     }
     throw new Error(
-      `Failed to stat test "${id}" SPEC.md at ${specPath}: ${(err as Error).message}`,
+      `Failed to read test "${id}" SPEC.md at ${specPath}: ${(err as Error).message}`,
     );
   }
 
@@ -96,5 +111,6 @@ export async function loadTestDef(
     setupCommands: await loadSetupCommands(setupPath),
     metricsDir,
     metricPaths,
+    status: parseSpecStatus(spec),
   };
 }

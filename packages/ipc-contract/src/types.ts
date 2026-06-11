@@ -101,6 +101,48 @@ export type FnPushToTalkResult =
   | { ok: false; reason: string };
 
 // ---------------------------------------------------------------------------
+// System permissions
+// ---------------------------------------------------------------------------
+
+export const SYSTEM_PERMISSION_KINDS = [
+  "accessibility",
+  "screen",
+  "microphone",
+  "speechRecognition",
+  "inputMonitoring",
+  "automation",
+  "notifications",
+] as const;
+
+export type SystemPermissionKind =
+  (typeof SYSTEM_PERMISSION_KINDS)[number];
+
+export const SYSTEM_PERMISSION_STATUSES = [
+  "unknown",
+  "restricted",
+  "denied",
+  "not-determined",
+  "granted",
+] as const;
+
+export type SystemPermissionStatus =
+  (typeof SYSTEM_PERMISSION_STATUSES)[number];
+
+export interface SystemPermissionStateItem {
+  kind: SystemPermissionKind;
+  status: SystemPermissionStatus;
+  canRequest: boolean;
+  canOpenSettings: boolean;
+  requiresRestart: boolean;
+  error?: string;
+}
+
+export type SystemPermissionsState = Record<
+  SystemPermissionKind,
+  SystemPermissionStateItem
+>;
+
+// ---------------------------------------------------------------------------
 // Status & connectivity
 // ---------------------------------------------------------------------------
 

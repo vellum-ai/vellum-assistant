@@ -6631,9 +6631,10 @@ paths:
       description:
         Return the chronological list of compaction events that ran in the same agent turn as the call identified
         by `callId`. Turn bounds are walked from the `messages` table (real user messages — tool-result user messages
-        are not boundaries). Projected from `llm_request_logs` rows where `call_site = "compactionAgent"`. When the
-        conversation has no other messages around the selected call, every compaction strictly before the call's
-        `createdAt` is in scope. Drives the Inspector's Compaction tab.
+        are not boundaries). Served from the first-class compaction log when `compactionLogs.destination = "clickhouse"`
+        is configured, falling back to the legacy projection over `llm_request_logs` rows where `call_site =
+        "compactionAgent"`. When the conversation has no other messages around the selected call, every compaction
+        strictly before the call's `createdAt` is in scope. Drives the Inspector's Compaction tab.
       tags:
         - conversations
       responses:

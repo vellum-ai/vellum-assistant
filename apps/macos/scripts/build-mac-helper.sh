@@ -4,7 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PACKAGE_DIR="$ROOT_DIR/native/mac-helper"
 OUTPUT_DIR="$ROOT_DIR/resources"
-OUTPUT="$OUTPUT_DIR/vellum-mac-helper"
+OUTPUT_BUNDLE="$OUTPUT_DIR/vellum-mac-helper.app"
+OUTPUT="$OUTPUT_BUNDLE/Contents/MacOS/vellum-mac-helper"
+OUTPUT_INFO_PLIST="$OUTPUT_BUNDLE/Contents/Info.plist"
+INFO_PLIST="$PACKAGE_DIR/Sources/MacHelperExecutable/Info.plist"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "build-mac-helper: skipping non-macOS host"
@@ -36,8 +39,12 @@ BUILD_ARGS+=(
 )
 
 mkdir -p "$OUTPUT_DIR"
-rm -f "$OUTPUT_DIR/hotkey-helper"
+rm -f "$OUTPUT_DIR/hotkey-helper" "$OUTPUT_DIR/vellum-mac-helper" "$OUTPUT_DIR/Info.plist"
+rm -rf "$OUTPUT_BUNDLE"
+mkdir -p "$OUTPUT_BUNDLE/Contents/MacOS"
 xcrun swift build "${BUILD_ARGS[@]}"
 BUILD_DIR="$(xcrun swift build "${BUILD_ARGS[@]}" --show-bin-path)"
 cp "$BUILD_DIR/vellum-mac-helper" "$OUTPUT"
+cp "$INFO_PLIST" "$OUTPUT_INFO_PLIST"
 chmod 755 "$OUTPUT"
+codesign --force --sign - --entitlements "$ROOT_DIR/scripts/entitlements/helper.plist" "$OUTPUT_BUNDLE"

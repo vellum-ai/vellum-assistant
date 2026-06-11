@@ -5,6 +5,7 @@ build/
 resources/bun
 resources/hotkey-helper
 resources/vellum-mac-helper
+resources/vellum-mac-helper.app
 resources/web-dist
 native/hotkey-helper/.build/
 native/mac-helper/.build/
