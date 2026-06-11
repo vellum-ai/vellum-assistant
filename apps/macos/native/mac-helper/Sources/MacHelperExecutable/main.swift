@@ -67,6 +67,9 @@ final class MacHelper: @unchecked Sendable {
     // Bumped on every dictation.setPartials so a pending speech-authorization
     // callback can tell the session it was starting has since been stopped.
     private var dictationGeneration = 0
+    // Whether the current dictation session has produced any partial or
+    // error callback — read by the on-device watchdog on the main queue.
+    private var dictationSawActivity = false
 
     init(isDisclaimed: Bool) {
         self.isDisclaimed = isDisclaimed
@@ -255,9 +258,16 @@ final class MacHelper: @unchecked Sendable {
 
     private func startDictationSession(requireOnDevice: Bool = true) -> [String: Any] {
         let generation = dictationGeneration
+        dictationSawActivity = false
         let session = DictationPartialsSession(
             requireOnDevice: requireOnDevice,
             emit: { [weak self] text in
+                DispatchQueue.main.async {
+                    guard let self, generation == self.dictationGeneration else {
+                        return
+                    }
+                    self.dictationSawActivity = true
+                }
                 self?.writeNotification(
                     method: "dictation.partial",
                     params: ["text": text]
@@ -274,6 +284,7 @@ final class MacHelper: @unchecked Sendable {
                     guard let self, generation == self.dictationGeneration else {
                         return
                     }
+                    self.dictationSawActivity = true
                     self.writeNotification(
                         method: "dictation.error",
                         params: [
@@ -292,10 +303,40 @@ final class MacHelper: @unchecked Sendable {
         do {
             try session.start()
             dictationSession = session
+            if requireOnDevice {
+                scheduleOnDeviceWatchdog(generation: generation)
+            }
             return ["enabled": true]
         } catch {
             log("dictation partials failed to start: \(error.localizedDescription)")
             return ["enabled": false, "reason": error.localizedDescription]
+        }
+    }
+
+    /// A pinned on-device task with a half-installed dictation asset can
+    /// hang without ever calling back — no partial, no error (observed when
+    /// the Dictation toggle was flipped while offline, so the model never
+    /// finished downloading). Error-driven retry can't catch that, so a
+    /// pinned session that stays silent is restarted on the server path.
+    private func scheduleOnDeviceWatchdog(generation: Int) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+            guard
+                let self,
+                generation == self.dictationGeneration,
+                !self.dictationSawActivity,
+                self.dictationSession != nil
+            else { return }
+            self.writeNotification(
+                method: "dictation.error",
+                params: [
+                    "message": "on-device recognition produced no output; retrying on the server path",
+                    "onDevice": true,
+                    "willRetryServer": true,
+                ]
+            )
+            self.dictationSession?.stop()
+            self.dictationSession = nil
+            _ = self.startDictationSession(requireOnDevice: false)
         }
     }
 
