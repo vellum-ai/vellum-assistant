@@ -12,12 +12,13 @@
  *     no thinking). The derived tool glyph + activity label + optional risk
  *     badge.
  *   - `variant="web"` — a LONE web search. An inline link reading
- *     "Web Search | <rotating {@link WebsiteCarousel}>" (or static `info` when
- *     no carousel items) that, unlike the other two variants, expands IN PLACE
- *     (controlled via `expanded`/`onExpandChange`) to reveal the favicon result
- *     row (and `+N more` overflow), or the error row for a `web_search_error`
- *     step — it does NOT open the drawer, so its trailing glyph is an up/down
- *     chevron rather than `ChevronRight`.
+ *     "Web Search | <latest page title>" — while the search is in flight the
+ *     info slot rotates the searched sites via {@link WebsiteCarousel}; once
+ *     settled it shows the latest page title as static text. Unlike the other
+ *     two variants it expands IN PLACE (controlled via `expanded`/`onExpandChange`)
+ *     to reveal the clickable favicon result pills (and `+N more` overflow), or
+ *     the error row for a `web_search_error` step — it does NOT open the drawer,
+ *     so its trailing glyph is an up/down chevron rather than `ChevronRight`.
  *
  * The thinking/tool variants render the same minimal, container-less button
  * (leading glyph + label + optional risk badge + trailing chevron) and toggle
@@ -153,11 +154,24 @@ export function SingleActivity(props: SingleActivityProps) {
               <Globe className="size-4 shrink-0" aria-hidden />
             )}
           </span>
-          <span>Web Search</span>
-          <span aria-hidden className="text-[var(--content-tertiary)]">
+          <span className="shrink-0">Web Search</span>
+          <span aria-hidden className="shrink-0 text-[var(--content-tertiary)]">
             |
           </span>
-          <span className="min-w-0">{carouselNode ?? info}</span>
+          {/* While searching, rotate through the sites being searched; once
+              settled, show the latest page title as static text (the carousel's
+              absolutely-positioned chip has no intrinsic width inline, so it
+              only belongs in the loading state where the fixed-width slot gives
+              it room). */}
+          {state === "loading" && carouselNode ? (
+            <span className="inline-flex w-[220px] min-w-0 items-center">
+              {carouselNode}
+            </span>
+          ) : (
+            <span className="min-w-0 max-w-[280px] truncate text-[var(--content-default)]">
+              {info}
+            </span>
+          )}
           <ExpandChevron
             className="size-3.5 shrink-0 text-[var(--content-tertiary)]"
             aria-hidden

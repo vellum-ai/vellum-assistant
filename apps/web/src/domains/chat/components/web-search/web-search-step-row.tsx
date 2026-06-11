@@ -174,12 +174,24 @@ export function WebSearchStepRow({
   return (
     <div className="flex flex-wrap items-center gap-1">
       {step.results.map((r) => (
-        <FaviconChip
+        // Each result is a clickable, bordered pill (like a tool step pill) that
+        // opens the source in a new tab. Mirrors the chat's external-link
+        // convention (`target="_blank"` anchors).
+        <a
           key={r.rank}
-          faviconUrl={r.faviconUrl}
-          title={r.title}
-          domain={r.domain}
-        />
+          href={r.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="web-search-result-pill"
+          className="max-w-full no-underline"
+        >
+          <FaviconChip
+            faviconUrl={r.faviconUrl}
+            title={r.title}
+            domain={r.domain}
+            className="cursor-pointer border border-[var(--border-element)] hover:bg-[var(--surface-hover)]"
+          />
+        </a>
       ))}
       {overflowResults.length > 0 ? (
         <OverflowChip results={overflowResults} />

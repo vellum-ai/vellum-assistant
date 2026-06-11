@@ -298,11 +298,28 @@ describe("SingleActivity — web variant", () => {
     expect(getByText("Web Search")).toBeTruthy();
   });
 
-  test("mounts the WebsiteCarousel in the info slot when carouselItems is non-empty", () => {
+  test("rotates the WebsiteCarousel in the info slot while loading", () => {
     const { container } = render(
       <SingleActivity
         variant="web"
         info="en.wikipedia.org"
+        carouselItems={RESULTS}
+        state="loading"
+        step={WEB_STEP}
+        expanded={false}
+        onExpandChange={() => {}}
+      />,
+    );
+    // The carousel renders favicon chips for the rotating sites; its fixed-height
+    // ticker wrapper is its tell. Only shown while the search is in flight.
+    expect(container.querySelector(".h-\\[28px\\]")).toBeTruthy();
+  });
+
+  test("shows the latest page title (not the carousel) once settled", () => {
+    const { getByText, container } = render(
+      <SingleActivity
+        variant="web"
+        info="Visit Toronto — Official Tourism"
         carouselItems={RESULTS}
         state="complete"
         step={WEB_STEP}
@@ -310,9 +327,10 @@ describe("SingleActivity — web variant", () => {
         onExpandChange={() => {}}
       />,
     );
-    // The carousel renders favicon chips for the rotating sites; its fixed-height
-    // ticker wrapper is its tell.
-    expect(container.querySelector(".h-\\[28px\\]")).toBeTruthy();
+    // Settled state shows the latest page title as static text, never the
+    // (zero-width-inline) carousel — even when carouselItems are present.
+    expect(getByText("Visit Toronto — Official Tourism")).toBeTruthy();
+    expect(container.querySelector(".h-\\[28px\\]")).toBeNull();
   });
 
   test("shows the static info text when carouselItems is empty", () => {
@@ -402,6 +420,27 @@ describe("SingleActivity — web variant", () => {
     // is empty here, so these can only come from the expanded step row.
     expect(getByText("Toronto - Wikipedia")).toBeTruthy();
     expect(getByText("Visit Toronto")).toBeTruthy();
+  });
+
+  test("expanded result pills are external links to the source URL", () => {
+    const { getAllByTestId } = render(
+      <SingleActivity
+        variant="web"
+        info="en.wikipedia.org"
+        carouselItems={[]}
+        state="complete"
+        step={WEB_STEP}
+        expanded
+        onExpandChange={() => {}}
+      />,
+    );
+    const pills = getAllByTestId("web-search-result-pill");
+    expect(pills.length).toBe(2);
+    expect(pills[0]!.getAttribute("href")).toBe(
+      "https://en.wikipedia.org/wiki/Toronto",
+    );
+    expect(pills[0]!.getAttribute("target")).toBe("_blank");
+    expect(pills[0]!.getAttribute("rel")).toContain("noopener");
   });
 
   test("loading state renders the three-dot indicator", () => {

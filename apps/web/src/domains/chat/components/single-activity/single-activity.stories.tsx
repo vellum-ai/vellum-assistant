@@ -216,7 +216,7 @@ const WEB_ERROR_STEP: Extract<
 export const WebSearchCollapsed: Story = {
   args: {
     variant: "web",
-    info: "en.wikipedia.org",
+    info: "Visit Toronto — Official Tourism",
     carouselItems: WEB_RESULTS,
     state: "complete",
     step: WEB_STEP,
@@ -232,7 +232,7 @@ export const WebSearchCollapsed: Story = {
 export const WebSearchExpanded: Story = {
   args: {
     variant: "web",
-    info: "en.wikipedia.org",
+    info: "Visit Toronto — Official Tourism",
     carouselItems: WEB_RESULTS,
     state: "complete",
     step: WEB_STEP,
