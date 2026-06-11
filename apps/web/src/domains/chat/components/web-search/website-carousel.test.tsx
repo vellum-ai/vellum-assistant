@@ -236,8 +236,8 @@ describe("WebsiteCarousel — reduced motion", () => {
         return <div {...rest}>{children}</div>;
       };
       // The mock module bleeds across files in the same `bun test` run, so
-      // also stub `motion.span` (used by `WebSearchProgressCard`'s header
-      // carousel) — otherwise downstream suites that touch that card render
+      // also stub `motion.span` (used by the header carousel) — otherwise
+      // downstream suites that touch that card render
       // `undefined` and crash. Span is rendered as a passthrough since the
       // y-offset assertion only inspects `motion.div`.
       const motionSpan = ({

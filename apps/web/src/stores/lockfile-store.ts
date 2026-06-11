@@ -26,17 +26,25 @@ import type { Lockfile } from "@/runtime/local-mode-host";
 
 interface LockfileState {
   lockfile: Lockfile | null;
+  /**
+   * Whether `lockfile` reflects authoritative data (a host read/write or its
+   * persisted mirror) rather than a transient empty fallback written when
+   * nothing has loaded. Subscribers that reconcile state away — e.g. the
+   * resolved-assistants sync — must ignore non-committed writes.
+   */
+  committed: boolean;
 }
 
 interface LockfileActions {
-  setLockfile: (lockfile: Lockfile) => void;
+  setLockfile: (lockfile: Lockfile, committed?: boolean) => void;
 }
 
 type LockfileStore = LockfileState & LockfileActions;
 
 const useLockfileStoreBase = create<LockfileStore>((set) => ({
   lockfile: null,
-  setLockfile: (lockfile) => set({ lockfile }),
+  committed: false,
+  setLockfile: (lockfile, committed = true) => set({ lockfile, committed }),
 }));
 
 export const useLockfileStore = createSelectors(useLockfileStoreBase);

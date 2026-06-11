@@ -549,4 +549,20 @@ describe("SingleActivity — web variant", () => {
       "text-[var(--system-negative-strong)]",
     );
   });
+
+  test("null step (loading) renders expanded body empty without crashing", () => {
+    const { getByTestId, queryByText } = render(
+      <SingleActivity
+        variant="web"
+        info=""
+        carouselItems={[]}
+        state="loading"
+        step={null}
+        expanded
+        onExpandChange={() => {}}
+      />,
+    );
+    expect(getByTestId("inline-web-link")).toBeTruthy();
+    expect(queryByText("Toronto - Wikipedia")).toBeNull();
+  });
 });

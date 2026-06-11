@@ -152,7 +152,20 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
           next[idx] = { ...entry, organizationId: next[idx]!.organizationId };
           return { assistants: next };
         }
-        return { assistants: [...state.assistants, entry] };
+        // New entry: the API payload has no org field, but the lockfile may
+        // already know it (a lifecycle refresh can land before the lockfile
+        // subscription seeds the list).
+        const lockfileOrg = useLockfileStore
+          .getState()
+          .lockfile?.assistants.find(
+            (a) => a.assistantId === assistant.id,
+          )?.organizationId;
+        return {
+          assistants: [
+            ...state.assistants,
+            { ...entry, organizationId: lockfileOrg },
+          ],
+        };
       }),
 
     remove: (assistantId) =>
@@ -206,10 +219,13 @@ export const useResolvedAssistantsStore = createSelectors(
 // Subscriptions
 // ---------------------------------------------------------------------------
 
-// In local mode, keep the resolved list in sync with the lockfile.
+// In local mode, keep the resolved list in sync with the lockfile. Only
+// committed lockfiles count: the empty placeholder written when nothing has
+// loaded (e.g. a failed host read at boot) must not mark the list hydrated
+// and reconcile away a still-valid selection.
 if (isLocalMode()) {
   useLockfileStore.subscribe((state) => {
-    if (state.lockfile) {
+    if (state.lockfile && state.committed) {
       useResolvedAssistantsStoreBase.getState().setFromLockfile(state.lockfile);
     }
   });
