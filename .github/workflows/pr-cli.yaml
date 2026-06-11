@@ -50,7 +50,7 @@ jobs:
         run: bun run typecheck
 
       - name: Compile check
-        run: bun build --compile src/index.ts --outfile /dev/null
+        run: bun build --compile --external react-devtools-core src/index.ts --outfile /dev/null
 
       - name: Test
         run: bun run test
