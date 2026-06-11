@@ -372,7 +372,7 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Nudges + ghost text
   // -------------------------------------------------------------------------
-  const nudges = useAppNudges(messages, conversations.length, liveAssistantMessageId);
+  const nudges = useAppNudges(messages, conversations.length, liveAssistantMessageId, activeConversationId);
 
   const lastCompleteAssistantMsgId = useMemo<string | null>(() => {
     const last = messages[messages.length - 1];
