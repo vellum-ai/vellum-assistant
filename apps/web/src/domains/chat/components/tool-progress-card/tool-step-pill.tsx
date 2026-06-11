@@ -80,7 +80,7 @@ export type ToolStepPillProps = ToolStepPillToolProps | ToolStepPillWebProps;
  * enough that descenders ("g", "p", "y") get clipped without extra leading.
  */
 const BASE_CLASSES =
-  "inline-flex min-w-0 max-w-full items-center gap-1 self-start rounded-full px-2 py-1 text-left leading-normal";
+  "inline-flex min-w-0 items-center gap-1 self-start rounded-full px-2 py-1 text-left leading-normal";
 
 /** Cursor / transition / focus-ring affordances when the pill is a button. */
 const INTERACTIVE_BASE =
@@ -152,7 +152,7 @@ function WebStepPill({
       data-testid="tool-step-pill"
       data-variant="web"
       aria-label={ariaLabel ?? `Open ${label}`}
-      className={`${BASE_CLASSES} ${INTERACTIVE_BASE} no-underline hover:bg-[var(--surface-active)] ${idleColorClasses(tone)}`}
+      className={`${BASE_CLASSES} ${INTERACTIVE_BASE} max-w-[240px] no-underline hover:bg-[var(--surface-active)] ${idleColorClasses(tone)}`}
     >
       <PillFavicon faviconUrl={faviconUrl} domain={domain} label={label} />
       <Typography
@@ -242,7 +242,7 @@ export function ToolStepPill(props: ToolStepPillProps) {
           aria-label={ariaLabel ?? `View details: ${label}`}
           onClick={onClick}
           onKeyDown={handleKeyDown}
-          className={`${BASE_CLASSES} ${INTERACTIVE_BASE} ${hoverClass} ${colorClasses}`}
+          className={`${BASE_CLASSES} ${INTERACTIVE_BASE} max-w-full ${hoverClass} ${colorClasses}`}
         >
           {labelContent}
           <RiskBadge level={riskLevel} onClick={onRiskBadgeClick} />
@@ -258,7 +258,7 @@ export function ToolStepPill(props: ToolStepPillProps) {
         aria-pressed={active}
         aria-label={ariaLabel ?? `View details: ${label}`}
         onClick={onClick}
-        className={`${BASE_CLASSES} ${INTERACTIVE_BASE} ${hoverClass} ${colorClasses}`}
+        className={`${BASE_CLASSES} ${INTERACTIVE_BASE} max-w-full ${hoverClass} ${colorClasses}`}
       >
         {labelContent}
         <RiskBadge level={riskLevel} />
@@ -269,7 +269,7 @@ export function ToolStepPill(props: ToolStepPillProps) {
   return (
     <span
       data-testid="tool-step-pill"
-      className={`${BASE_CLASSES} ${colorClasses}`}
+      className={`${BASE_CLASSES} max-w-full ${colorClasses}`}
     >
       {labelContent}
       <RiskBadge level={riskLevel} />
