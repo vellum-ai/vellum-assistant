@@ -27,7 +27,6 @@ If you've built Personal AI on OpenClaw, Hermes Agent, or Claude Code, you know 
 | **Channels**           | macOS, iOS, Web, Voice, Email, Telegram, Slack, Twilio. One assistant, one memory, every channel. |
 | **OAuth**             | Slack, Notion, Google, HubSpot, Linear, Discord, Twitter, Telegram, Twilio. No hand-rolled token refresh. |
 | **Hosting**      | Managed runtime on Vellum Platform, or self-hosted. Same codebase, same data model. |
-| **Open source**     | 25K+ commits, 121+ releases, public roadmap. |
 
 ---
 
