@@ -39,9 +39,16 @@ mock.module("../util/secure-keys.js", () => ({
 
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import { conversations, toolInvocations } from "../memory/schema.js";
+import {
+  conversations,
+  llmRequestLogs,
+  toolInvocations,
+} from "../memory/schema.js";
 import { RouteError } from "../runtime/routes/errors.js";
-import { ROUTES } from "../runtime/routes/log-export-routes.js";
+import {
+  MAX_EXPORT_LLM_REQUEST_LOG_ROWS,
+  ROUTES,
+} from "../runtime/routes/log-export-routes.js";
 import {
   MAX_SWEEP_FILE_BYTES,
   OVERSIZED_FILE_NOTE,
@@ -502,6 +509,61 @@ describe("POST /v1/export — workspace allowlist", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Export manifest row-cap truncation
+// ---------------------------------------------------------------------------
+
+describe("POST /v1/export — manifest truncatedSections", () => {
+  async function readManifest(
+    body: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const res = await callExport(body);
+    const dir = await extractArchive(res);
+    try {
+      return JSON.parse(
+        readFileSync(join(dir, "export-manifest.json"), "utf-8"),
+      ) as Record<string, unknown>;
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  test("omits truncatedSections when no section hits its row cap", async () => {
+    const manifest = await readManifest({ full: true });
+    expect(manifest.type).toBe("full-export");
+    expect(manifest).not.toHaveProperty("truncatedSections");
+  });
+
+  test("surfaces truncatedSections when a full-export dump exceeds its row cap", async () => {
+    // Seed limit + 1 rows for the cheapest capped section (llm-request-logs)
+    // so capRows detects truncation without a COUNT query.
+    const db = getDb();
+    const now = Date.now();
+    db.insert(conversations)
+      .values({ id: "conv-cap-test", createdAt: now, updatedAt: now })
+      .run();
+    const rows = Array.from(
+      { length: MAX_EXPORT_LLM_REQUEST_LOG_ROWS + 1 },
+      (_, i) => ({
+        id: `llm-log-cap-${i}`,
+        conversationId: "conv-cap-test",
+        requestPayload: "{}",
+        responsePayload: "{}",
+        createdAt: now + i,
+      }),
+    );
+    // Chunked inserts keep each statement under SQLite's bind-variable limit.
+    for (let i = 0; i < rows.length; i += 500) {
+      db.insert(llmRequestLogs)
+        .values(rows.slice(i, i + 500))
+        .run();
+    }
+
+    const manifest = await readManifest({ full: true });
+    expect(manifest.truncatedSections).toEqual(["llm-request-logs"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Export-time secret sweep
 // ---------------------------------------------------------------------------
 
@@ -580,12 +642,12 @@ describe("POST /v1/export — staged-file secret sweep", () => {
     }
   });
 
-  test("sweeps non-allowlisted staged files that sniff as text; leaves binary files untouched", () => {
+  test("sweeps arbitrary-extension staged files that sniff as text; leaves binary files untouched", () => {
     const staging = mkdtempSync(join(tmpdir(), "redact-staged-sniff-"));
     try {
       // Conversation attachments are staged wholesale with arbitrary user
-      // extensions — they bypass the extension allowlist but must still be
-      // swept when they sniff as text.
+      // extensions — sweep eligibility is decided by content sniffing, not
+      // file extension, so they must still be swept when they sniff as text.
       const attachmentsDir = join(
         staging,
         "workspace",
