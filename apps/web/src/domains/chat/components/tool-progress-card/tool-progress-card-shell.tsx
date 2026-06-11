@@ -105,8 +105,7 @@ export interface ToolProgressCardShellProps {
   children: ReactNode;
   /**
    * `data-testid` for the outer card wrapper. Defaults to
-   * `tool-progress-card-shell`; consumers (e.g. `WebSearchProgressCard`)
-   * override to preserve existing integration-test hooks.
+   * `tool-progress-card-shell`.
    */
   "data-testid"?: string;
   /**
@@ -198,8 +197,8 @@ function StatusIndicator({
  * height-animated expanded body region. Consumers supply the per-step
  * content via `children`.
  *
- * Extracted from `WebSearchProgressCard` so non-web tool cards and
- * subagent progress cards can adopt the same visual language without
+ * Shared shell so non-web tool cards and subagent progress cards can
+ * adopt the same visual language without
  * duplicating the rounded container, expand/collapse animation, and
  * `prefers-reduced-motion` handling.
  */
