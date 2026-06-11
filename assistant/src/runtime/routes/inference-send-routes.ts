@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { getConfigReadOnly } from "../../config/loader.js";
 import {
+  createTimeout,
   extractAllText,
   getConfiguredProvider,
   userMessage,
@@ -16,6 +17,21 @@ import {
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+/**
+ * Default provider timeout for this user-facing one-shot inference endpoint
+ * when the caller supplies none. Matches the CLI's documented default wait
+ * (`assistant inference send` waits up to 32 minutes), so long-running prompts
+ * are not server-cancelled before the CLI's IPC budget elapses.
+ */
+const DEFAULT_INFERENCE_TIMEOUT_MS = 32 * 60 * 1000;
+
+/**
+ * Hard ceiling on the caller-supplied `timeoutMs`. A small margin above the
+ * 32-minute default keeps a misbehaving or unbounded client from pinning a
+ * provider connection open indefinitely.
+ */
+const MAX_INFERENCE_TIMEOUT_MS = 35 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Handler
@@ -31,6 +47,15 @@ async function handleInferenceSend({ body = {} }: RouteHandlerArgs) {
   const model = body.model as string | undefined;
   const profile = body.profile as string | undefined;
   const maxTokens = body.maxTokens as number | undefined;
+  const requestedTimeoutMs = body.timeoutMs as number | undefined;
+
+  // Honor the caller's deadline (the CLI's `--timeout-seconds`), clamped to a
+  // sane ceiling. Defaults to the CLI's documented 32-minute wait so long
+  // inferences are not server-cancelled before the client's IPC budget.
+  const timeoutMs =
+    requestedTimeoutMs !== undefined
+      ? Math.min(requestedTimeoutMs, MAX_INFERENCE_TIMEOUT_MS)
+      : DEFAULT_INFERENCE_TIMEOUT_MS;
 
   // Validate --profile against the configured profile catalog.
   if (profile !== undefined) {
@@ -56,25 +81,29 @@ async function handleInferenceSend({ body = {} }: RouteHandlerArgs) {
     );
   }
 
-  const response = await provider.sendMessage([userMessage(message)], {
-    systemPrompt,
-    config: {
-      callSite: "inference",
-      max_tokens: maxTokens,
-      model,
-    },
-  });
+  const { signal, cleanup } = createTimeout(timeoutMs);
+  try {
+    const response = await provider.sendMessage([userMessage(message)], {
+      systemPrompt,
+      config: {
+        callSite: "inference",
+        max_tokens: maxTokens,
+        model,
+      },
+      signal,
+    });
 
-  const text = extractAllText(response);
-
-  return {
-    response: text,
-    model: response.model,
-    usage: {
-      inputTokens: response.usage.inputTokens,
-      outputTokens: response.usage.outputTokens,
-    },
-  };
+    return {
+      response: extractAllText(response),
+      model: response.model,
+      usage: {
+        inputTokens: response.usage.inputTokens,
+        outputTokens: response.usage.outputTokens,
+      },
+    };
+  } finally {
+    cleanup();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -101,6 +130,11 @@ export const ROUTES: RouteDefinition[] = [
       model: z.string().optional(),
       profile: z.string().optional(),
       maxTokens: z.number().int().positive().optional(),
+      /**
+       * Caller-supplied provider deadline in ms. Clamped server-side to a
+       * 35-minute ceiling; defaults to the CLI's 32-minute wait when omitted.
+       */
+      timeoutMs: z.number().int().positive().optional(),
     }),
     responseBody: z.object({
       response: z.string(),

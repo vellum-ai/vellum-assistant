@@ -20,7 +20,10 @@ import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
 import { LLMCallSiteEnum } from "../../config/schemas/llm.js";
-import { getConfiguredProvider } from "../../providers/provider-send-message.js";
+import {
+  createTimeout,
+  getConfiguredProvider,
+} from "../../providers/provider-send-message.js";
 import {
   listProviderIds as sttListProviderIds,
   supportsBoundary as sttSupportsBoundary,
@@ -38,10 +41,20 @@ import type { SkillIpcRoute } from "../skill-ipc-types.js";
 // -- Param schemas --------------------------------------------------------
 
 /**
+ * Default timeout for a skill LLM completion when the caller supplies none.
+ * Generous (120s) because first-party skills — the meet-join consent monitor
+ * and chat-opportunity detector — flow through this route and pass their own
+ * tighter `timeoutMs`. Without any bound a stalled provider call would block
+ * the skill IPC channel indefinitely.
+ */
+const DEFAULT_LLM_COMPLETE_TIMEOUT_MS = 120_000;
+
+/**
  * LLM completion request. The IPC surface only accepts the serializable
  * subset of `Provider.sendMessage(messages, options?)`.
- * Non-serializable fields (`onEvent`, `signal`) are intentionally omitted —
- * streaming deltas and per-call cancellation belong on future streaming
+ * The non-serializable `signal` is replaced by a serializable `timeoutMs`:
+ * callers express cancellation as a deadline the daemon enforces locally via
+ * `createTimeout`. Streaming deltas (`onEvent`) belong on future streaming
  * routes, not this one-shot RPC.
  */
 const ProvidersLlmCompleteParams = z.object({
@@ -50,6 +63,8 @@ const ProvidersLlmCompleteParams = z.object({
   tools: z.array(z.unknown()).optional(),
   systemPrompt: z.string().optional(),
   config: z.record(z.string(), z.unknown()).optional(),
+  /** Caller-supplied deadline in ms. Defaults to 120s when omitted. */
+  timeoutMs: z.number().int().positive().optional(),
 });
 
 const ProvidersSttSupportsBoundaryParams = z.object({
@@ -68,19 +83,30 @@ const ProvidersSecureKeysGetParams = z.object({
 // -- Handlers -------------------------------------------------------------
 
 async function handleLlmComplete(params?: Record<string, unknown>) {
-  const { callSite, messages, tools, systemPrompt, config } =
+  const { callSite, messages, tools, systemPrompt, config, timeoutMs } =
     ProvidersLlmCompleteParams.parse(params);
   const provider = await getConfiguredProvider(callSite);
   if (!provider) {
+    // The skill IPC server serializes a thrown Error's message as the wire
+    // `error` field, so a plain Error is the structured error convention here
+    // (matching sibling skill-route handlers).
     throw new Error(
       `host.providers.llm.complete: no provider configured for callSite '${callSite}'`,
     );
   }
-  return provider.sendMessage(messages as Message[], {
-    tools: tools as ToolDefinition[] | undefined,
-    systemPrompt,
-    config: { ...((config as SendMessageConfig) ?? {}), callSite },
-  });
+  const { signal, cleanup } = createTimeout(
+    timeoutMs ?? DEFAULT_LLM_COMPLETE_TIMEOUT_MS,
+  );
+  try {
+    return await provider.sendMessage(messages as Message[], {
+      tools: tools as ToolDefinition[] | undefined,
+      systemPrompt,
+      config: { ...((config as SendMessageConfig) ?? {}), callSite },
+      signal,
+    });
+  } finally {
+    cleanup();
+  }
 }
 
 function handleSttListProviderIds(): string[] {

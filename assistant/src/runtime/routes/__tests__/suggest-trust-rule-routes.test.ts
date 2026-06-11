@@ -1,14 +1,18 @@
 /**
- * Unit tests for the suggest_trust_rule IPC route handler.
+ * Unit tests for the suggest_trust_rule route handler.
  *
- * Covers:
- * - Happy path: provider returns tool_use block → correct SuggestTrustRuleResponse
- * - No provider: getConfiguredProvider returns null → throws
- * - No tool block: provider returns non-tool response → throws
+ * The handler delegates to the shared `runOneShotLLM` helper (tool mode +
+ * zod schema + timeout). These tests mock that helper to exercise the
+ * handler's result-status → RouteError mapping and response shaping:
+ * - ok: validated tool input → correct SuggestTrustRuleResponse
+ * - unavailable: no provider → ServiceUnavailableError (503)
+ * - failure: unusable output → BadGatewayError (502)
  * - directoryScopeOptions is optional: passes through correctly when absent
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { BadGatewayError, ServiceUnavailableError } from "../errors.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — must be defined before importing the module under test
@@ -21,48 +25,29 @@ mock.module("../../../util/logger.js", () => ({
     }),
 }));
 
-let mockSendMessage = mock(async () => ({
-  content: [
-    {
-      type: "tool_use",
-      id: "tu_1",
-      name: "suggest_trust_rule",
-      input: {
-        pattern: "rm -rf *",
-        risk: "high",
-        scope: "/workspace/myproject/*",
-        description: "Any recursive removal",
-      },
-    },
-  ],
-  model: "test-model",
-  usage: { inputTokens: 10, outputTokens: 20 },
-  stopReason: "tool_use",
-}));
+type OneShotResult =
+  | { status: "ok"; data: Record<string, unknown>; response: unknown }
+  | { status: "unavailable" }
+  | { status: "failure"; reason: string; response?: unknown };
 
-let mockProvider: { sendMessage: typeof mockSendMessage } | null = {
-  sendMessage: mockSendMessage,
-};
-
-let mockExtractToolUseResult: unknown = {
-  type: "tool_use",
-  id: "tu_1",
-  name: "suggest_trust_rule",
-  input: {
+let mockResult: OneShotResult = {
+  status: "ok",
+  data: {
     pattern: "rm -rf *",
     risk: "high",
     scope: "/workspace/myproject/*",
     description: "Any recursive removal",
   },
+  response: { model: "test-model" },
 };
 
+const runOneShotLLMSpy = mock(async () => mockResult);
+
+mock.module("../../../providers/one-shot-llm.js", () => ({
+  runOneShotLLM: runOneShotLLMSpy,
+}));
+
 mock.module("../../../providers/provider-send-message.js", () => ({
-  getConfiguredProvider: async () => mockProvider,
-  createTimeout: () => ({
-    signal: new AbortController().signal,
-    cleanup: () => {},
-  }),
-  extractToolUse: () => mockExtractToolUseResult,
   userMessage: (text: string) => ({ role: "user", content: text }),
 }));
 
@@ -110,35 +95,16 @@ const baseRequest = {
 
 describe("suggestTrustRuleRoute", () => {
   beforeEach(() => {
-    mockSendMessage = mock(async () => ({
-      content: [
-        {
-          type: "tool_use",
-          id: "tu_1",
-          name: "suggest_trust_rule",
-          input: {
-            pattern: "rm -rf *",
-            risk: "high",
-            scope: "/workspace/myproject/*",
-            description: "Any recursive removal",
-          },
-        },
-      ],
-      model: "test-model",
-      usage: { inputTokens: 10, outputTokens: 20 },
-      stopReason: "tool_use",
-    }));
-    mockProvider = { sendMessage: mockSendMessage };
-    mockExtractToolUseResult = {
-      type: "tool_use",
-      id: "tu_1",
-      name: "suggest_trust_rule",
-      input: {
+    runOneShotLLMSpy.mockClear();
+    mockResult = {
+      status: "ok",
+      data: {
         pattern: "rm -rf *",
         risk: "high",
         scope: "/workspace/myproject/*",
         description: "Any recursive removal",
       },
+      response: { model: "test-model" },
     };
   });
 
@@ -162,48 +128,50 @@ describe("suggestTrustRuleRoute", () => {
       });
     });
 
-    test("passes callSite 'trustRuleSuggestion' and tool_choice to provider", async () => {
+    test("invokes runOneShotLLM with the trustRuleSuggestion call site and forced tool", async () => {
       await suggestTrustRuleRoute.handler({
         body: baseRequest as unknown as Record<string, unknown>,
       });
 
-      expect(mockSendMessage).toHaveBeenCalledTimes(1);
-      const callArgs = mockSendMessage.mock.calls[0] as unknown[];
-      const options = callArgs[1] as {
-        config: {
-          callSite: string;
-          tool_choice: { type: string; name: string };
-        };
+      expect(runOneShotLLMSpy).toHaveBeenCalledTimes(1);
+      const callArgs = runOneShotLLMSpy.mock.calls[0] as unknown[];
+      expect(callArgs[0]).toBe("trustRuleSuggestion");
+      const opts = callArgs[2] as {
+        tools: { name: string }[];
+        toolChoice: string;
+        schema: unknown;
       };
-      expect(options.config.callSite).toBe("trustRuleSuggestion");
-      expect(options.config.tool_choice).toEqual({
-        type: "tool",
-        name: "suggest_trust_rule",
-      });
+      expect(opts.toolChoice).toBe("suggest_trust_rule");
+      expect(opts.tools[0]?.name).toBe("suggest_trust_rule");
+      expect(opts.schema).toBeDefined();
     });
   });
 
   describe("no provider", () => {
-    test("throws when getConfiguredProvider returns null", async () => {
-      mockProvider = null;
+    test("throws ServiceUnavailableError (503) when the helper reports unavailable", async () => {
+      mockResult = { status: "unavailable" };
 
-      await expect(
-        suggestTrustRuleRoute.handler({
-          body: baseRequest as unknown as Record<string, unknown>,
-        }),
-      ).rejects.toThrow("No LLM provider configured for trustRuleSuggestion");
+      const promise = suggestTrustRuleRoute.handler({
+        body: baseRequest as unknown as Record<string, unknown>,
+      });
+      await expect(promise).rejects.toBeInstanceOf(ServiceUnavailableError);
+      await expect(promise).rejects.toMatchObject({ statusCode: 503 });
     });
   });
 
-  describe("no tool block", () => {
-    test("throws when extractToolUse returns undefined", async () => {
-      mockExtractToolUseResult = undefined;
+  describe("unusable LLM output", () => {
+    test("throws BadGatewayError (502) when the helper reports a failure", async () => {
+      mockResult = {
+        status: "failure",
+        reason: "tool_use_missing",
+        response: { model: "test-model" },
+      };
 
-      await expect(
-        suggestTrustRuleRoute.handler({
-          body: baseRequest as unknown as Record<string, unknown>,
-        }),
-      ).rejects.toThrow("No tool_use block in trust rule suggestion response");
+      const promise = suggestTrustRuleRoute.handler({
+        body: baseRequest as unknown as Record<string, unknown>,
+      });
+      await expect(promise).rejects.toBeInstanceOf(BadGatewayError);
+      await expect(promise).rejects.toMatchObject({ statusCode: 502 });
     });
   });
 

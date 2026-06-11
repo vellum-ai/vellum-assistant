@@ -25,6 +25,14 @@ const stubProvider: unknown = {
 const getConfiguredProviderSpy = mock(async () => stubProvider);
 mock.module("../../../providers/provider-send-message.js", () => ({
   getConfiguredProvider: getConfiguredProviderSpy,
+  // The handler calls createTimeout for the abort signal; provide a real
+  // implementation so the signal it passes to sendMessage is a genuine
+  // AbortSignal (asserted by the time-bound tests below).
+  createTimeout: (ms: number) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ms);
+    return { signal: controller.signal, cleanup: () => clearTimeout(timer) };
+  },
 }));
 
 const sttListProviderIdsSpy = mock(() => ["openai-whisper", "deepgram"]);
@@ -167,6 +175,44 @@ describe("host.providers.llm.complete", () => {
         messages: [],
       }),
     ).rejects.toThrow(/no provider configured/);
+  });
+
+  test("passes an abort signal to sendMessage so the call is time-bounded", async () => {
+    await providersLlmCompleteRoute.handler({
+      callSite: "mainAgent",
+      messages: [],
+    });
+
+    const call = sendMessageSpy.mock.calls[0] as unknown as [
+      unknown[],
+      { signal?: AbortSignal },
+    ];
+    expect(call[1]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("accepts a caller-supplied timeoutMs", async () => {
+    await providersLlmCompleteRoute.handler({
+      callSite: "mainAgent",
+      messages: [],
+      timeoutMs: 5_000,
+    });
+
+    expect(sendMessageSpy).toHaveBeenCalledTimes(1);
+    const call = sendMessageSpy.mock.calls[0] as unknown as [
+      unknown[],
+      { signal?: AbortSignal },
+    ];
+    expect(call[1]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("rejects a non-positive timeoutMs", async () => {
+    await expect(
+      providersLlmCompleteRoute.handler({
+        callSite: "mainAgent",
+        messages: [],
+        timeoutMs: 0,
+      }),
+    ).rejects.toThrow();
   });
 });
 

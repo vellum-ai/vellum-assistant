@@ -283,7 +283,7 @@ describe("--max-tokens", () => {
 // ---------------------------------------------------------------------------
 
 describe("--timeout-seconds", () => {
-  test("uses a long default IPC timeout for inference calls", async () => {
+  test("uses a long default timeout in body and a slightly larger IPC budget", async () => {
     const { exitCode, stdout } = await runCommand([
       "inference",
       "send",
@@ -294,10 +294,14 @@ describe("--timeout-seconds", () => {
     expect(exitCode).toBe(0);
     expect(JSON.parse(stdout).ok).toBe(true);
     expect(lastIpcCall!.method).toBe("inference_send");
-    expect(lastIpcCall!.options!.timeoutMs).toBe(32 * 60 * 1000);
+    // Body deadline matches the documented 32-minute default.
+    const body = lastIpcCall!.params!.body as { timeoutMs?: number };
+    expect(body.timeoutMs).toBe(32 * 60 * 1000);
+    // IPC budget is larger than the body deadline so the server aborts first.
+    expect(lastIpcCall!.options!.timeoutMs).toBe(32 * 60 * 1000 + 30 * 1000);
   });
 
-  test("passes custom timeout to IPC call", async () => {
+  test("passes custom timeout to both the body and IPC budget", async () => {
     const { exitCode } = await runCommand([
       "llm",
       "send",
@@ -308,7 +312,9 @@ describe("--timeout-seconds", () => {
 
     expect(exitCode).toBe(0);
     expect(lastIpcCall!.method).toBe("inference_send");
-    expect(lastIpcCall!.options!.timeoutMs).toBe(300_000);
+    const body = lastIpcCall!.params!.body as { timeoutMs?: number };
+    expect(body.timeoutMs).toBe(300_000);
+    expect(lastIpcCall!.options!.timeoutMs).toBe(300_000 + 30 * 1000);
   });
 
   test("errors on invalid timeout value", async () => {
