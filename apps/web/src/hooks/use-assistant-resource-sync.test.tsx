@@ -335,4 +335,82 @@ describe("useAssistantResourceSync", () => {
     emit((syncEvent([SYNC_TAGS.assistantAvatar]) as unknown) as AssistantEvent);
     expect(spy).not.toHaveBeenCalled();
   });
+
+  test("invalidates all resource caches on sse.opened (non-fresh reconnect)", async () => {
+    const queryClient = freshQueryClient();
+    const calls: unknown[] = [];
+    queryClient.invalidateQueries = ((arg: unknown) => {
+      calls.push(arg);
+      return Promise.resolve();
+    }) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    await waitFor(() => {
+      expect(calls.length).toBeGreaterThanOrEqual(12);
+    });
+    const queryKeys = calls
+      .map((arg) => (arg as { queryKey?: readonly unknown[] }).queryKey)
+      .filter(Boolean);
+    expect(queryKeys).toEqual(
+      expect.arrayContaining([
+        avatarQueryKey("asst-1"),
+        assistantIdentityQueryKey("asst-1"),
+        assistantDaemonConfigQueryKey("asst-1"),
+        assistantSoundsConfigQueryKey("asst-1"),
+        assistantSchedulesQueryKey("asst-1"),
+      ]) as never
+    );
+  });
+
+  test("does NOT invalidate on sse.opened with cause='fresh'", () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    publish("sse.opened", { assistantId: "asst-1", cause: "fresh" });
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  test("invalidates all resource caches on app.resume", async () => {
+    const queryClient = freshQueryClient();
+    const calls: unknown[] = [];
+    queryClient.invalidateQueries = ((arg: unknown) => {
+      calls.push(arg);
+      return Promise.resolve();
+    }) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    publish("app.resume", { signal: "visibility" });
+    await waitFor(() => {
+      expect(calls.length).toBeGreaterThanOrEqual(12);
+    });
+    const queryKeys = calls
+      .map((arg) => (arg as { queryKey?: readonly unknown[] }).queryKey)
+      .filter(Boolean);
+    expect(queryKeys).toEqual(
+      expect.arrayContaining([
+        avatarQueryKey("asst-1"),
+        assistantIdentityQueryKey("asst-1"),
+        assistantDaemonConfigQueryKey("asst-1"),
+        assistantSoundsConfigQueryKey("asst-1"),
+        assistantSchedulesQueryKey("asst-1"),
+      ]) as never
+    );
+  });
+
+  test("does NOT invalidate on app.resume when assistant is not active", () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useAssistantResourceSync("asst-1", false), {
+      wrapper: createWrapper(queryClient),
+    });
+    publish("app.resume", { signal: "visibility" });
+    expect(spy).not.toHaveBeenCalled();
+  });
 });
