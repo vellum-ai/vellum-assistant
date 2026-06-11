@@ -272,10 +272,10 @@ describe("VoiceInputButton — session breadcrumb", () => {
     expect(typeof crumb.data.locale).toBe("string");
   });
 
-  test("uses native Apple Speech text when batch STT fails", async () => {
+  test("uses native Apple Speech text when batch STT is not configured", async () => {
     postSttTranscribeImpl = async () => ({
       status: "error" as const,
-      reason: "network" as const,
+      reason: "config-missing" as const,
     });
     const stopNativePartials = mock(() => {});
     startNativeDictationPartialsImpl = async (onPartial) => {

@@ -191,8 +191,6 @@ type DictationSessionOutcome =
   | "cancelled"
   | "aborted";
 
-const NATIVE_PARTIALS_FALLBACK_DELAY_MS = 750;
-
 /**
  * One breadcrumb per dictation session, emitted when the session reaches a
  * terminal state. Carries only metrics (duration, locale, final transcript
@@ -317,9 +315,6 @@ export const VoiceInputButton = forwardRef<
   const nativePartialsStartRef = useRef<Promise<void> | null>(null);
   const nativePartialsGenerationRef = useRef(0);
   const nativePartialsAttemptedSessionRef = useRef<number | null>(null);
-  const nativePartialsFallbackTimerRef = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
   const nativePartialsTextRef = useRef("");
 
   const onStreamReadyRef = useRef(onStreamReady);
@@ -365,20 +360,13 @@ export const VoiceInputButton = forwardRef<
     dictationStreamRef.current = null;
   }, []);
 
-  const clearNativeFallbackTimer = useCallback(() => {
-    if (nativePartialsFallbackTimerRef.current === null) return;
-    clearTimeout(nativePartialsFallbackTimerRef.current);
-    nativePartialsFallbackTimerRef.current = null;
-  }, []);
-
   const stopNativePartials = useCallback(() => {
     nativePartialsGenerationRef.current += 1;
-    clearNativeFallbackTimer();
     nativePartialsStopRef.current?.();
     nativePartialsStopRef.current = null;
     nativePartialsStartRef.current = null;
     nativePartialsTextRef.current = "";
-  }, [clearNativeFallbackTimer]);
+  }, []);
 
   const startNativePartialsFallback = useCallback(
     (sessionId: number) => {
@@ -423,7 +411,6 @@ export const VoiceInputButton = forwardRef<
     cancelledStartRef.current = true;
     stopSpeechRecognition();
     stopDictationStream();
-    clearNativeFallbackTimer();
     nativePartialsGenerationRef.current += 1;
     const recorder = mediaRecorderRef.current;
     if (!recorder) return;
@@ -439,7 +426,6 @@ export const VoiceInputButton = forwardRef<
     vsStopRecording,
     stopSpeechRecognition,
     stopDictationStream,
-    clearNativeFallbackTimer,
   ]);
 
   /**
@@ -797,36 +783,22 @@ export const VoiceInputButton = forwardRef<
       return;
     }
 
+    // Start the Apple Speech fallback immediately so it has live microphone
+    // audio before a later batch-STT failure (including "provider not
+    // configured") needs a final fallback transcript. The runtime wrapper
+    // no-ops off Electron.
+    stopNativePartials();
+    startNativePartialsFallback(sessionId);
+
     // Recording is live — open the daemon streaming session for interim
     // transcripts. Null / later failure means no live partials from that
-    // source; the recorder above is untouched either way.
+    // source; the recorder above is untouched either way. Native partials
+    // still collect in the background and only display while the stream is
+    // not live.
     stopDictationStream();
     dictationStreamRef.current = startDictationStream({
       onPartial: publishInterim,
-      onUnavailable: () => startNativePartialsFallback(sessionId),
     });
-
-    // Fall back to the mac helper's local Apple Speech recognizer whenever
-    // the daemon stream is missing, the device is offline, or the stream
-    // doesn't become live promptly. The helper text also becomes the final
-    // fallback if batch STT later fails.
-    stopNativePartials();
-    if (
-      !dictationStreamRef.current ||
-      (typeof navigator !== "undefined" && navigator.onLine === false)
-    ) {
-      startNativePartialsFallback(sessionId);
-    } else {
-      nativePartialsFallbackTimerRef.current = setTimeout(() => {
-        nativePartialsFallbackTimerRef.current = null;
-        if (
-          mediaRecorderRef.current &&
-          !dictationStreamRef.current?.isLive()
-        ) {
-          startNativePartialsFallback(sessionId);
-        }
-      }, NATIVE_PARTIALS_FALLBACK_DELAY_MS);
-    }
   }, [
     assistantId,
     onBeforeStart,
