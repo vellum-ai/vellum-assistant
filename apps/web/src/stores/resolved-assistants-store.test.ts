@@ -5,6 +5,8 @@ import {
   useResolvedAssistantsStore,
   type ResolvedAssistant,
 } from "@/stores/resolved-assistants-store";
+import { SELECTED_ASSISTANT_STORAGE_KEY } from "@/assistant/selected-assistant-storage";
+import { useLockfileStore } from "@/stores/lockfile-store";
 import type { Lockfile, LockfileAssistant } from "@/runtime/local-mode-host";
 
 // A platform entry is identified by `cloud === "vellum"` and carries an
@@ -24,7 +26,13 @@ const localAssistant: LockfileAssistant = {
 };
 
 beforeEach(() => {
-  useResolvedAssistantsStore.setState({ assistants: [] });
+  localStorage.removeItem(SELECTED_ASSISTANT_STORAGE_KEY);
+  useLockfileStore.setState({ lockfile: null, committed: false });
+  useResolvedAssistantsStore.setState({
+    assistants: [],
+    selectedAssistantId: null,
+    assistantsHydrated: false,
+  });
 });
 
 describe("setFromLockfile", () => {
@@ -39,6 +47,18 @@ describe("setFromLockfile", () => {
     expect(entry.id).toBe("asst-platform");
     expect(entry.isPlatformHosted).toBe(true);
     expect(entry.organizationId).toBe("org-1");
+  });
+
+  it("copies version from lockfile entries", () => {
+    const lockfile: Lockfile = {
+      assistants: [{ ...localAssistant, version: "0.7.0" }],
+      activeAssistant: null,
+    };
+    useResolvedAssistantsStore.getState().setFromLockfile(lockfile);
+
+    expect(useResolvedAssistantsStore.getState().assistants[0].version).toBe(
+      "0.7.0",
+    );
   });
 
   it("leaves organizationId undefined for local entries", () => {
@@ -68,6 +88,7 @@ describe("upsertFromApi", () => {
       name: "Platform (refreshed)",
       created: "2026-01-01T00:00:00Z",
       is_local: false,
+      current_release_version: "0.7.0",
     } as Parameters<
       ReturnType<typeof useResolvedAssistantsStore.getState>["upsertFromApi"]
     >[0]);
@@ -75,6 +96,29 @@ describe("upsertFromApi", () => {
     const entry = useResolvedAssistantsStore.getState().assistants[0];
     expect(entry.id).toBe("asst-platform");
     expect(entry.name).toBe("Platform (refreshed)");
+    expect(entry.organizationId).toBe("org-1");
+    expect(entry.version).toBe("0.7.0");
+  });
+
+  it("seeds organizationId from the lockfile cache when inserting a new entry", () => {
+    // A lifecycle refresh can land before the lockfile subscription has seeded
+    // the resolved list; the insert must still pick up the org the lockfile knows.
+    useLockfileStore.getState().setLockfile({
+      assistants: [platformAssistant],
+      activeAssistant: null,
+    });
+
+    useResolvedAssistantsStore.getState().upsertFromApi({
+      id: "asst-platform",
+      name: "Platform",
+      created: "2026-01-01T00:00:00Z",
+      is_local: false,
+    } as Parameters<
+      ReturnType<typeof useResolvedAssistantsStore.getState>["upsertFromApi"]
+    >[0]);
+
+    const entry = useResolvedAssistantsStore.getState().assistants[0];
+    expect(entry.id).toBe("asst-platform");
     expect(entry.organizationId).toBe("org-1");
   });
 });
@@ -119,5 +163,60 @@ describe("assistantsValidForOrg", () => {
 
   it("drops cross-org platform entries", () => {
     expect(assistantsValidForOrg([otherOrg], "org-1")).toEqual([]);
+  });
+});
+
+describe("setSelectedAssistant", () => {
+  it("moves the reactive slice and the persisted key together", () => {
+    useResolvedAssistantsStore.getState().setSelectedAssistant("asst-1");
+    expect(useResolvedAssistantsStore.getState().selectedAssistantId).toBe(
+      "asst-1",
+    );
+    expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBe("asst-1");
+
+    useResolvedAssistantsStore.getState().setSelectedAssistant(null);
+    expect(useResolvedAssistantsStore.getState().selectedAssistantId).toBeNull();
+    expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBeNull();
+  });
+});
+
+describe("selection reconcile on hydration", () => {
+  it("clears a selection absent from the lockfile (the ghost case)", () => {
+    useResolvedAssistantsStore.getState().setSelectedAssistant("asst-ghost");
+    useResolvedAssistantsStore.getState().setFromLockfile({
+      assistants: [localAssistant],
+      activeAssistant: null,
+    });
+    expect(useResolvedAssistantsStore.getState().selectedAssistantId).toBeNull();
+    expect(localStorage.getItem(SELECTED_ASSISTANT_STORAGE_KEY)).toBeNull();
+  });
+
+  it("preserves a selection still present in the lockfile", () => {
+    useResolvedAssistantsStore.getState().setSelectedAssistant("asst-local");
+    useResolvedAssistantsStore.getState().setFromLockfile({
+      assistants: [localAssistant],
+      activeAssistant: null,
+    });
+    expect(useResolvedAssistantsStore.getState().selectedAssistantId).toBe(
+      "asst-local",
+    );
+  });
+
+  it("does NOT clear a cross-org selection on the org-scoped API list", () => {
+    // setFromApi reflects only the active org's assistants; a selection for a
+    // different org must survive (it's filtered on read, never deleted here).
+    const apiEntry = {
+      id: "asst-active-org",
+      name: "Active",
+      created: "2026-01-01T00:00:00Z",
+      is_local: false,
+    } as Parameters<
+      ReturnType<typeof useResolvedAssistantsStore.getState>["upsertFromApi"]
+    >[0];
+    useResolvedAssistantsStore.getState().setSelectedAssistant("asst-other-org");
+    useResolvedAssistantsStore.getState().setFromApi([apiEntry]);
+    expect(useResolvedAssistantsStore.getState().selectedAssistantId).toBe(
+      "asst-other-org",
+    );
   });
 });

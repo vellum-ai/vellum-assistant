@@ -158,21 +158,46 @@ export const MIN_SCRIPT_TIMEOUT_SECONDS = 1;
 export const MAX_SCRIPT_TIMEOUT_SECONDS = 30 * 60;
 
 // ---------------------------------------------------------------------------
-// Sorting
+// Grouping
 // ---------------------------------------------------------------------------
 
-export function sortSchedules(schedules: Schedule[]): {
+export interface GroupedSchedules {
   recurring: Schedule[];
-  oneTime: Schedule[];
-} {
+  upcomingOneTime: Schedule[];
+  pastOneTime: Schedule[];
+}
+
+// Keyed on the lifecycle status, not lastRunAt/nextRunAt alone: a failed
+// attempt awaiting retry keeps lastRunAt set, and an in-flight run is
+// `firing` with nextRunAt already due — both are still live, not past.
+function isPastOneTime(schedule: Schedule, now: number): boolean {
+  if (schedule.status === "fired" || schedule.status === "cancelled") {
+    return true;
+  }
+  if (schedule.status === "firing") return false;
+  // active: an enabled one-shot still fires on the next daemon wake even if
+  // overdue; a disabled one whose time has passed never will.
+  return (
+    schedule.nextRunAt == null ||
+    (!schedule.enabled && schedule.nextRunAt <= now)
+  );
+}
+
+export function groupSchedules(
+  schedules: Schedule[],
+  now: number,
+): GroupedSchedules {
   const recurring: Schedule[] = [];
-  const oneTime: Schedule[] = [];
+  const upcomingOneTime: Schedule[] = [];
+  const pastOneTime: Schedule[] = [];
 
   for (const s of schedules) {
-    if (s.isOneShot) {
-      oneTime.push(s);
-    } else {
+    if (!s.isOneShot) {
       recurring.push(s);
+    } else if (isPastOneTime(s, now)) {
+      pastOneTime.push(s);
+    } else {
+      upcomingOneTime.push(s);
     }
   }
 
@@ -181,13 +206,37 @@ export function sortSchedules(schedules: Schedule[]): {
     return (a.nextRunAt ?? Infinity) - (b.nextRunAt ?? Infinity);
   });
 
-  oneTime.sort((a, b) => {
+  upcomingOneTime.sort(
+    (a, b) => (a.nextRunAt ?? Infinity) - (b.nextRunAt ?? Infinity),
+  );
+
+  pastOneTime.sort((a, b) => {
     const aTime = a.lastRunAt ?? a.nextRunAt ?? 0;
     const bTime = b.lastRunAt ?? b.nextRunAt ?? 0;
     return bTime - aTime;
   });
 
-  return { recurring, oneTime };
+  return { recurring, upcomingOneTime, pastOneTime };
+}
+
+export interface PastOneTimeStatus {
+  label: string;
+  tone: TagTone;
+}
+
+export function pastOneTimeStatus(schedule: Schedule): PastOneTimeStatus {
+  // Failure wins over cancellation: failOneShotPermanently (retry cap
+  // exhausted) records status "cancelled" with lastStatus "error".
+  if (schedule.lastStatus === "error" || schedule.lastStatus === "failed") {
+    return { label: "Failed", tone: "negative" };
+  }
+  if (schedule.status === "cancelled") {
+    return { label: "Cancelled", tone: "neutral" };
+  }
+  if (schedule.lastRunAt != null) {
+    return { label: "Completed", tone: "positive" };
+  }
+  return { label: "Expired", tone: "neutral" };
 }
 
 // ---------------------------------------------------------------------------

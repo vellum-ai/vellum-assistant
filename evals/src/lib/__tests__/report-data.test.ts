@@ -19,6 +19,7 @@ import {
 import {
   findExecutionRunId,
   listReportSessions,
+  readProfileInSession,
   readReportRun,
   readReportSession,
   readTestInSession,
@@ -464,6 +465,68 @@ describe("report data", () => {
     const p2 = test?.profiles.find((p) => p.profileId === "p2");
     expect(p2?.scoreTotal).toBe(0.15);
     expect(p2?.metrics.map((m) => m.name)).toEqual(["acc", "cost"]);
+  });
+
+  test("readProfileInSession exposes every test score + manifest for one profile", async () => {
+    // GIVEN a session where profile p1 ran two tests and p2 ran one,
+    // and p1's run carries a manifest snapshot
+    const sessionTag = `session-profile-detail-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const runIdA = await freshRunId("profile-detail-a");
+    const runIdB = await freshRunId("profile-detail-b");
+    const runIdC = await freshRunId("profile-detail-c");
+
+    await Promise.all([
+      writeRunMetadata(runIdA, {
+        runId: runIdA,
+        sessionId: sessionTag,
+        profileId: "p1",
+        profileManifest: {
+          species: "vellum",
+          description: "bare baseline",
+        },
+        testId: "t1",
+        status: "completed",
+        artifactDir: runArtifacts(runIdA).runDir,
+      }),
+      writeRunMetadata(runIdB, {
+        runId: runIdB,
+        sessionId: sessionTag,
+        profileId: "p1",
+        testId: "t2",
+        status: "completed",
+        artifactDir: runArtifacts(runIdB).runDir,
+      }),
+      writeRunMetadata(runIdC, {
+        runId: runIdC,
+        sessionId: sessionTag,
+        profileId: "p2",
+        testId: "t1",
+        status: "completed",
+        artifactDir: runArtifacts(runIdC).runDir,
+      }),
+    ]);
+
+    await writeMetricResults(runIdA, [{ name: "acc", score: 1 }]);
+    await writeMetricResults(runIdB, [{ name: "acc", score: 0 }]);
+    await writeMetricResults(runIdC, [{ name: "acc", score: 0.5 }]);
+
+    // WHEN we read the profile drill-in for p1
+    const profile = await readProfileInSession(sessionTag, "p1");
+
+    // THEN it lists only p1's two tests, with its manifest and overall score
+    expect(profile).toBeDefined();
+    expect(profile?.info?.description).toBe("bare baseline");
+    expect(profile?.tests.map((t) => t.testId)).toEqual(["t1", "t2"]);
+    // AND the overall score is the equal-weighted mean of p1's runs (1, 0)
+    expect(profile?.scoreTotal).toBeCloseTo(0.5, 10);
+  });
+
+  test("readProfileInSession returns undefined for an unknown profile", async () => {
+    // GIVEN a session with no run for the requested profile
+    // WHEN/THEN reading a missing profile resolves to undefined
+    expect(
+      await readProfileInSession("no-such-session", "ghost"),
+    ).toBeUndefined();
   });
 
   test("findExecutionRunId resolves (sessionId, testId, profileId)", async () => {

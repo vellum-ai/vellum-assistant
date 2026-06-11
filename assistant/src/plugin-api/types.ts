@@ -315,6 +315,13 @@ export interface PostToolUseContext {
    */
   additionalContext: string | null;
   /**
+   * Model id reported by the provider for the assistant turn that issued
+   * this tool call (e.g. `claude-opus-4-8`,
+   * `accounts/fireworks/models/kimi-k2p6`). Hooks use it to vary coaching by
+   * model family — some models need earlier or firmer steering than others.
+   */
+  readonly model: string;
+  /**
    * The model's context-window size in tokens. Plugins derive their own
    * character budget from this (e.g. a share of the window) rather than
    * receiving a precomputed limit.
@@ -331,93 +338,89 @@ export interface PostToolUseContext {
 // ─── Stop hook context ───────────────────────────────────────────────────────
 
 /**
- * Binary outcome of the `stop` hook. The agent loop seeds it to `"stop"`
- * and acts on the value the chain settles on:
+ * Why an agent turn reached a terminal state. Supplied to the `stop` hook via
+ * {@link StopContext.exitReason} and emitted on the `agent_loop_exit` event,
+ * then persisted onto the final `llm_request_logs` row of the turn (rows from
+ * intermediate turns keep a NULL reason, which is how downstream tooling and
+ * the LLM Context Inspector tell "loop kept going" from "loop is done").
  *
- * - `"stop"`     — let the turn end; the loop yields the assistant response
- *                  to the user. This is the default.
- * - `"continue"` — re-query the model. The hook is responsible for appending
- *                  the follow-up turn it wants the model to see to
- *                  {@link StopContext.messages} before returning.
- *
- * To abort with an error a hook should throw — the loop's error handler
- * surfaces it. There is intentionally no error decision value.
+ * Values are stable wire/DB strings — they are written to SQLite and surfaced
+ * over the inspector wire format, so renaming any of them is a breaking change.
  */
-export type StopDecision = "continue" | "stop";
+export type AgentLoopExitReason =
+  /** User cancellation observed before the turn's next provider call. */
+  | "aborted_pre_call"
+  /** Assistant message had no tool-use blocks (or no tool executor). */
+  | "no_tool_calls"
+  /** User cancellation observed while building the tool-results message. */
+  | "aborted_post_response"
+  /** User cancellation observed mid-tool-execution; completed results kept. */
+  | "aborted_during_tools"
+  /** A tool result requested handing back to the user. */
+  | "yield_to_user"
+  /** The orchestrator yielded at a checkpoint to process a queued message. */
+  | "checkpoint_handoff"
+  /** Context-window recovery exhausted and the turn ended with an error. */
+  | "context_too_large"
+  /**
+   * An auto-compress rerun (post-emergency-compaction, post-tier reducer)
+   * still yielded at the mid-loop budget checkpoint — the turn terminated with
+   * no further recovery layer to re-enter. A pure observability signal so the
+   * silent stall is attributable instead of leaving the exit reason NULL.
+   */
+  | "budget_yield_unrecovered"
+  /** Provider stopped because the configured output-token limit was reached. */
+  | "max_tokens_reached"
+  /** User cancellation landed after a non-terminal checkpoint yield. */
+  | "aborted_after_checkpoint"
+  /** User cancellation observed while the catch handler synthesized an error turn. */
+  | "aborted_via_error"
+  /** An unhandled error ended the turn. */
+  | "error";
 
 /**
- * Context passed to the `stop` hook. Fires at the run's stop boundary — the
- * point where the loop has nothing more to produce this turn and is about to
- * hand back to the user. There are two stop moments:
+ * Context passed to the `stop` hook — the loop's definitive terminal hook.
  *
- * - **Successful stop.** The model yielded a response with no tool calls.
- *   {@link error} is absent, {@link responseContent} holds the turn's content,
- *   and {@link stopReason} carries the provider's stop reason. The default
- *   empty-response plugin uses this to re-query when a turn came back empty or
- *   as a provider refusal.
- * - **Error stop.** The provider rejected the call before any response
- *   existed. {@link error} holds the rejection, {@link responseContent} is
- *   empty, and {@link stopReason} is `null`. A hook that recognizes the
- *   rejection (e.g. history-repair on an ordering violation) may repair
- *   {@link messages} and set {@link decision} to `"continue"` to retry;
- *   otherwise the loop surfaces the error. Hooks that only act on a real
- *   response must guard on {@link error} and ignore error stops.
+ * It fires exactly once per run, after the loop has committed to ending and
+ * will not run another iteration this run. Unlike `post-model-call` (which owns
+ * the model-call-outcome retry decision), `stop` cannot continue the loop: by
+ * the time it runs the turn's outcome is settled. That guarantee makes it the
+ * home for teardown — a hook can release per-turn resources or clear per-turn
+ * state knowing nothing will re-enter the loop this run.
  *
- * The hook decides the outcome by setting {@link decision}. When it sets
- * `"continue"` it must also leave {@link messages} as the history the next
- * iteration should send — a successful-stop hook appends its follow-up turn
- * (e.g. a nudge `user` message); an error-stop hook replaces the history with
- * a repaired one. A hook that needs to reason about just the current response
- * cycle (e.g. whether an earlier turn already delivered visible text) derives
- * that boundary from the history itself — the messages after the last genuine
- * user prompt — rather than an index, since mid-run compaction can rewrite the
- * array.
+ * It fires on every terminal exit: a no-tool reply, a max-tokens stop, a
+ * yield-to-user, an exhausted context-overflow recovery, a user abort, or an
+ * unhandled error. It also fires on a `checkpoint_handoff`, which ends the run
+ * for teardown purposes even though the orchestrator resumes the conversation
+ * in a fresh run. {@link exitReason} reports which one and {@link error}
+ * carries the rejection when the turn ended on one, so a hook that should act
+ * only on a particular ending guards on {@link exitReason}.
  *
- * Multiple plugins' hooks chain in registration order — each sees the
- * previous hook's `decision` and `messages` mutations.
+ * Multiple plugins' hooks chain in registration order over the same context.
  */
 export interface StopContext {
   /** Conversation ID the run belongs to. */
   readonly conversationId: string;
   /**
-   * Full conversation history: the inbound conversation followed by every
-   * message produced this run. A hook that sets `decision` to `"continue"`
-   * appends its follow-up turn here; the loop carries the result into the
-   * next iteration.
+   * Full conversation history at the terminal stop — the inbound conversation
+   * followed by every message produced this run. Provided for inspection;
+   * mutating it has no effect, since the loop will not run again this turn.
    */
-  messages: Message[];
+  readonly messages: ReadonlyArray<Message>;
   /**
-   * Content blocks of the assistant turn that triggered the stop. Guaranteed
-   * to contain no `tool_use` blocks — the hook only fires at the boundary
-   * where the model stopped requesting tools.
-   *
-   * Writable: a hook may rewrite the turn by assigning new content — e.g. the
-   * default empty-response plugin replaces a provider `refusal` (which zeroes
-   * the response) with a plain-text apology. The loop persists the final value
-   * and streams any text not already emitted live (nothing streams live for a
-   * turn the model left empty), so a rewrite reaches the user. Later hooks in
-   * the chain observe the rewritten content.
-   */
-  responseContent: ReadonlyArray<ContentBlock>;
-  /**
-   * Provider-reported stop reason for the assistant turn (e.g. `"refusal"`,
-   * `"end_turn"`). `null` when the provider didn't report one, including every
-   * error stop (no response existed to carry a stop reason).
-   */
-  readonly stopReason: string | null;
-  /**
-   * The provider rejection that ended the turn, on an error stop. Absent on a
-   * successful stop (the model returned a response). A hook that recovers from
-   * a specific rejection class inspects this and may repair {@link messages}
-   * and set {@link decision} to `"continue"`; hooks that only act on a real
-   * response must return early when it is present.
+   * The provider rejection that ended the turn, when it ended on one (e.g. an
+   * unrecoverable error after recovery hooks declined to retry). Absent on a
+   * clean stop.
    */
   readonly error?: Error;
   /**
-   * Seeded to `"stop"`. A hook sets it to `"continue"` to force another loop
-   * iteration; later hooks in the chain may override it.
+   * Which terminal state the turn reached. A `checkpoint_handoff` fires this
+   * hook for teardown — the run pauses so the orchestrator can drain a queued
+   * message — but is not emitted as an `agent_loop_exit`, since the
+   * conversation resumes in a fresh run. `aborted_after_checkpoint` is a
+   * control transfer that re-enters the loop and so never reaches this hook.
    */
-  decision: StopDecision;
+  readonly exitReason: AgentLoopExitReason;
   /**
    * Logger scoped to the current turn. The same instance is shared by
    * every hook in the chain, so plugins should tag their structured log
@@ -500,10 +503,11 @@ export type PostModelCallDecision = "continue" | "stop";
  *   early.
  *
  * The retry decision is honored only at actionable outcomes — a no-tool reply
- * or a `mainAgent` rejection — and is ignored on tool-bearing turns (the loop
- * already runs the tools) and non-`mainAgent` call sites. Runs for every
- * finalized message regardless of call site; hooks MUST self-gate on
- * {@link callSite} / {@link conversationId}. Mutate in place or return a new
+ * or a provider rejection — and is ignored on tool-bearing turns (the loop
+ * already runs the tools). The loop does not gate the decision on call site, so
+ * a hook that should only retry the user-facing turn MUST self-gate on
+ * {@link callSite} / {@link conversationId} to avoid re-querying background,
+ * subagent, or compaction calls. Mutate in place or return a new
  * context; throwing is contained by the loop (the original content is kept and
  * the outcome is treated as `"stop"`). Multiple plugins' hooks chain in
  * registration order — each sees the previous hook's `decision` and mutations.

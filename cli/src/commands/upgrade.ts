@@ -6,6 +6,7 @@ import {
   findAssistantByName,
   getActiveAssistant,
   loadAllAssistants,
+  normalizeVersion,
   resolveCloud,
   saveAssistantEntry,
   type AssistantEntry,
@@ -19,13 +20,21 @@ import {
 } from "../lib/docker";
 import {
   fetchLatestStableVersion,
-  resolveImageRefs,
+  fetchReleases,
+  resolveImageRefsDetailed,
 } from "../lib/platform-releases";
 import {
   authHeaders,
+  fetchAssistantDetail,
+  fetchUpgradeInProgress,
   getPlatformUrl,
   readPlatformToken,
 } from "../lib/platform-client";
+import { checkManagedHealth } from "../lib/health-check.js";
+import {
+  evaluateUpgradePoll,
+  resolveUpgradeTarget,
+} from "../lib/upgrade-preflight.js";
 import {
   createBackup,
   pruneOldBackups,
@@ -46,7 +55,11 @@ import {
   UPGRADE_PROGRESS,
   waitForReady,
 } from "../lib/upgrade-lifecycle.js";
-import { compareVersions } from "../lib/version-compat.js";
+import {
+  compareVersions,
+  stripVersionPrefix,
+  versionsEqual,
+} from "../lib/version-compat.js";
 import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
 
 interface UpgradeArgs {
@@ -55,6 +68,8 @@ interface UpgradeArgs {
   latest: boolean;
   prepare: boolean;
   finalize: boolean;
+  noWait: boolean;
+  force: boolean;
 }
 
 function parseArgs(): UpgradeArgs {
@@ -64,6 +79,8 @@ function parseArgs(): UpgradeArgs {
   let latest = false;
   let prepare = false;
   let finalize = false;
+  let noWait = false;
+  let force = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -90,6 +107,12 @@ function parseArgs(): UpgradeArgs {
       );
       console.log(
         "  --finalize           Run post-upgrade steps only (broadcast complete, workspace commit)",
+      );
+      console.log(
+        "  --no-wait            Platform assistants only: return after the upgrade request is accepted instead of waiting for completion",
+      );
+      console.log(
+        "  --force              Docker assistants only: reinstall even when already on the target version",
       );
       console.log("");
       console.log("Examples:");
@@ -121,6 +144,10 @@ function parseArgs(): UpgradeArgs {
       prepare = true;
     } else if (arg === "--finalize") {
       finalize = true;
+    } else if (arg === "--no-wait") {
+      noWait = true;
+    } else if (arg === "--force") {
+      force = true;
     } else if (!arg.startsWith("-")) {
       name = arg;
     } else {
@@ -142,7 +169,18 @@ function parseArgs(): UpgradeArgs {
     process.exit(1);
   }
 
-  return { name, version, latest, prepare, finalize };
+  if (noWait && (prepare || finalize)) {
+    console.error(
+      "Error: --no-wait cannot be combined with --prepare or --finalize.",
+    );
+    emitCliError(
+      "UNKNOWN",
+      "--no-wait cannot be combined with --prepare or --finalize",
+    );
+    process.exit(1);
+  }
+
+  return { name, version, latest, prepare, finalize, noWait, force };
 }
 
 /**
@@ -190,6 +228,7 @@ function resolveTargetAssistant(nameArg: string | null): AssistantEntry {
 async function upgradeDocker(
   entry: AssistantEntry,
   version: string | null,
+  force: boolean,
 ): Promise<void> {
   const instanceName = entry.assistantId;
   const res = dockerResourceNames(instanceName);
@@ -197,35 +236,10 @@ async function upgradeDocker(
   const versionTag =
     version ?? (cliPkg.version ? `v${cliPkg.version}` : "latest");
 
-  // Fetch the current running version from the health endpoint.
-  // This is used for logging, commit messages, and version-direction guards.
+  // Capture current migration state and running version for rollback targeting
+  // and version guards. Must happen while the daemon is still running (before
+  // containers are stopped).
   let currentVersion: string | undefined;
-
-  console.log("🔍 Resolving image references...");
-  const { imageTags } = await resolveImageRefs(versionTag);
-
-  console.log(
-    `🔄 Upgrading Docker assistant '${instanceName}' to ${versionTag}...\n`,
-  );
-
-  // Capture rollback state from existing containers BEFORE pulling new
-  // images or stopping anything.  captureImageRefs uses the immutable
-  // image digest ({{.Image}}), but capturing first keeps the intent
-  // explicit and avoids relying on container-inspect ordering subtleties.
-  console.log("📸 Capturing current image references for rollback...");
-  const previousImageRefs = await captureImageRefs(res);
-  if (previousImageRefs) {
-    console.log(
-      `   Captured refs for ${Object.keys(previousImageRefs).length} service(s)\n`,
-    );
-  } else {
-    console.log(
-      "   Could not capture all container refs (fresh install or partial deployment)\n",
-    );
-  }
-
-  // Capture current migration state and running version for rollback targeting.
-  // Must happen while daemon is still running (before containers are stopped).
   let preMigrationState: {
     dbVersion?: number;
     lastWorkspaceMigrationId?: string;
@@ -264,6 +278,53 @@ async function upgradeDocker(
       emitCliError("VERSION_DIRECTION", msg);
       process.exit(1);
     }
+  }
+
+  // No-op guard: skip the full stop/start cycle (real downtime) when already
+  // on the target version. --force allows an intentional reinstall/repair.
+  if (currentVersion && versionsEqual(versionTag, currentVersion)) {
+    if (!force) {
+      console.log(
+        `✅ Already on ${versionTag}. Nothing to do. Pass --force to reinstall.`,
+      );
+      return;
+    }
+    console.log(`🔁 Reinstalling ${versionTag} (--force)...\n`);
+  }
+
+  console.log("🔍 Resolving image references...");
+  const resolution = await resolveImageRefsDetailed(versionTag);
+  if (resolution.status === "version-not-found") {
+    const msg = `Version ${versionTag} not found in platform releases.`;
+    console.error(msg);
+    emitCliError("MISSING_VERSION", msg);
+    process.exit(1);
+  }
+  if (resolution.status === "dockerhub-fallback") {
+    console.warn(
+      `⚠️  Platform unreachable — falling back to DockerHub tags for ${versionTag}.`,
+    );
+  }
+  const { imageTags } = resolution;
+
+  console.log(
+    `🔄 Upgrading Docker assistant '${instanceName}' to ${versionTag}...\n`,
+  );
+
+  // Capture rollback state from existing containers BEFORE pulling new
+  // images or stopping anything.  captureImageRefs uses the immutable
+  // image digest ({{.Image}}), but capturing first keeps the intent
+  // explicit and avoids relying on container-inspect ordering subtleties.
+  console.log("📸 Capturing current image references for rollback...");
+  const previousImageRefs = await captureImageRefs(res);
+  if (previousImageRefs) {
+    console.log(
+      `   Captured refs for ${Object.keys(previousImageRefs).length} service(s)\n`,
+    );
+  } else {
+    console.log(
+      "   Could not capture all container refs (fresh install or partial deployment)\n",
+    );
   }
 
   // Persist rollback state to lockfile BEFORE any destructive changes.
@@ -435,6 +496,7 @@ async function upgradeDocker(
       previousContainerInfo: entry.containerInfo,
       previousDbMigrationVersion: preMigrationState.dbVersion,
       previousWorkspaceMigrationId: preMigrationState.lastWorkspaceMigrationId,
+      version: normalizeVersion(versionTag),
       // Preserve the backup path so `vellum rollback` can restore it later
       preUpgradeBackupPath: backupPath ?? undefined,
     };
@@ -669,9 +731,112 @@ interface UpgradeApiResponse {
   version: string | null;
 }
 
+const PLATFORM_POLL_INTERVAL_MS = 3_000;
+const PLATFORM_POLL_HEARTBEAT_MS = 30_000;
+const PLATFORM_HEALTH_CONFIRM_TIMEOUT_MS = 120_000;
+const PLATFORM_HEALTH_CONFIRM_INTERVAL_MS = 5_000;
+
+const UPGRADE_IN_PROGRESS_MSG =
+  "An upgrade is already in progress for this assistant. Check `vellum ps`.";
+
+function platformUpgradeTimeoutMs(): number {
+  const override = process.env.VELLUM_PLATFORM_UPGRADE_TIMEOUT_MS;
+  if (override) {
+    const parsed = parseInt(override, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return 600_000;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Poll the platform until the upgrade completes, then confirm health.
+ * Mirrors the web UI's Software Updates flow (poll the DB-backed
+ * `current_release_version` rather than the gateway, which bounces while
+ * the service group restarts).
+ */
+async function waitForPlatformUpgrade(
+  entry: AssistantEntry,
+  token: string,
+  pollTarget: string | null,
+  initialVersion: string | null,
+): Promise<void> {
+  const timeoutMs = platformUpgradeTimeoutMs();
+  const start = Date.now();
+  let sawInProgress = false;
+  let lastHeartbeat = start;
+  let observedVersion: string | null = initialVersion;
+
+  console.log(
+    pollTarget
+      ? `⏳ Waiting for the upgrade to ${pollTarget} to complete...`
+      : "⏳ Waiting for the upgrade to complete...",
+  );
+
+  while (Date.now() - start < timeoutMs) {
+    await sleep(PLATFORM_POLL_INTERVAL_MS);
+
+    // The in-progress lock is only needed when we don't know the target
+    // version (server resolved "latest" without reporting it).
+    const [detail, inProgress] = await Promise.all([
+      fetchAssistantDetail(token, entry.assistantId, entry.runtimeUrl),
+      pollTarget
+        ? Promise.resolve(null)
+        : fetchUpgradeInProgress(token, entry.assistantId, entry.runtimeUrl),
+    ]);
+    if (detail) observedVersion = detail.currentReleaseVersion;
+    if (inProgress === true) sawInProgress = true;
+
+    const verdict = evaluateUpgradePoll({
+      targetVersion: pollTarget,
+      initialVersion,
+      observedVersion,
+      inProgress,
+      sawInProgress,
+    });
+
+    if (verdict === "complete") {
+      const finalVersion = observedVersion ?? pollTarget ?? "unknown";
+      const healthDeadline = Date.now() + PLATFORM_HEALTH_CONFIRM_TIMEOUT_MS;
+      while (Date.now() < healthDeadline) {
+        const health = await checkManagedHealth(
+          entry.runtimeUrl || getPlatformUrl(),
+          entry.assistantId,
+        );
+        if (health.status === "healthy") {
+          console.log(
+            `✅ Upgraded to ${finalVersion} — assistant is healthy.`,
+          );
+          return;
+        }
+        await sleep(PLATFORM_HEALTH_CONFIRM_INTERVAL_MS);
+      }
+      console.warn(
+        `⚠️  Upgraded to ${finalVersion}, but the health check did not confirm. Check \`vellum ps\`.`,
+      );
+      return;
+    }
+
+    if (Date.now() - lastHeartbeat >= PLATFORM_POLL_HEARTBEAT_MS) {
+      const elapsedSec = Math.round((Date.now() - start) / 1000);
+      console.log(`   Still upgrading... (${elapsedSec}s elapsed)`);
+      lastHeartbeat = Date.now();
+    }
+  }
+
+  const timeoutMin = Math.round(timeoutMs / 60_000);
+  console.warn(
+    `⚠️  Upgrade request was accepted but completion was not confirmed within ${timeoutMin} minutes. The platform may still be working — check \`vellum ps\` or the web settings page.`,
+  );
+}
+
 async function upgradePlatform(
   entry: AssistantEntry,
   version: string | null,
+  wait: boolean,
 ): Promise<void> {
   console.log(
     `🔄 Upgrading platform-hosted assistant '${entry.assistantId}'...\n`,
@@ -686,12 +851,78 @@ async function upgradePlatform(
     process.exit(1);
   }
 
+  // Pre-flight (all best-effort except an explicit version that the
+  // platform doesn't know about): resolve the target, detect no-ops and
+  // downgrades before POSTing, and bail if an upgrade is already running.
+  const [assistantDetail, health] = await Promise.all([
+    fetchAssistantDetail(token, entry.assistantId, entry.runtimeUrl),
+    checkManagedHealth(
+      entry.runtimeUrl || getPlatformUrl(),
+      entry.assistantId,
+    ),
+  ]);
+  // Health probe first, DB-backed field as the sleeping-assistant fallback.
+  const currentVersion =
+    health.version ?? assistantDetail?.currentReleaseVersion ?? undefined;
+
+  const releaseChannel = assistantDetail?.releaseChannel ?? "stable";
+  // Target the same platform as the detail/health/POST calls — the entry's
+  // platform may differ from the active lockfile default.
+  const releases = await fetchReleases({
+    channel: releaseChannel,
+    platformUrl: entry.runtimeUrl,
+  });
+
+  const resolution = resolveUpgradeTarget({
+    explicitVersion: version,
+    releases,
+    currentVersion,
+  });
+
+  if (resolution.kind === "version-not-found") {
+    const msg = `Version ${version} not found in platform releases (channel: ${releaseChannel}).`;
+    console.error(msg);
+    emitCliError("MISSING_VERSION", msg);
+    process.exit(1);
+  }
+
+  if (resolution.isNoOp && resolution.target) {
+    console.log(`✅ Already on ${resolution.target}. Nothing to do.`);
+    return;
+  }
+
+  if (resolution.isDowngrade && resolution.target && currentVersion) {
+    const msg = `Cannot upgrade to an older version (${resolution.target} < ${currentVersion}). Use \`vellum rollback --version ${resolution.target}\` instead.`;
+    console.error(msg);
+    emitCliError("VERSION_DIRECTION", msg);
+    process.exit(1);
+  }
+
+  if (resolution.kind === "no-releases") {
+    console.warn(
+      "⚠️  Platform releases unavailable — requesting latest from server.",
+    );
+  }
+
+  const inProgress = await fetchUpgradeInProgress(
+    token,
+    entry.assistantId,
+    entry.runtimeUrl,
+  );
+  if (inProgress === true) {
+    console.error(UPGRADE_IN_PROGRESS_MSG);
+    emitCliError("PLATFORM_API_ERROR", UPGRADE_IN_PROGRESS_MSG);
+    process.exit(1);
+  }
+
+  if (currentVersion && resolution.target) {
+    console.log(`   ${currentVersion} → ${resolution.target}\n`);
+  }
+
   const headers = await authHeaders(token, entry.runtimeUrl);
 
-  const url = `${entry.runtimeUrl || getPlatformUrl()}/v1/assistants/upgrade/`;
-  const body: { assistant_id?: string; version?: string } = {
-    assistant_id: entry.assistantId,
-  };
+  const url = `${entry.runtimeUrl || getPlatformUrl()}/v1/assistants/${encodeURIComponent(entry.assistantId)}/upgrade/`;
+  const body: { version?: string } = {};
   if (version) {
     body.version = version;
   }
@@ -720,6 +951,13 @@ async function upgradePlatform(
     process.exit(1);
   }
 
+  if (response.status === 409) {
+    const text = await response.text();
+    console.error(UPGRADE_IN_PROGRESS_MSG);
+    emitCliError("PLATFORM_API_ERROR", UPGRADE_IN_PROGRESS_MSG, text);
+    process.exit(1);
+  }
+
   if (!response.ok) {
     const text = await response.text();
     console.error(
@@ -744,6 +982,13 @@ async function upgradePlatform(
 
   const result = (await response.json()) as UpgradeApiResponse;
 
+  // The server resolves "latest" itself; a no-op response means nothing was
+  // actually kicked off, so don't poll for a completion that will never come.
+  if (result.detail?.includes("Already on the latest")) {
+    console.warn(`⚠️  ${result.detail}`);
+    return;
+  }
+
   // NOTE: We intentionally do NOT broadcast a "complete" event here.
   // The platform API returning 200 only means "upgrade request accepted" —
   // the service group has not yet restarted with the new version.  The
@@ -755,6 +1000,17 @@ async function upgradePlatform(
   if (result.version) {
     console.log(`   Version: ${result.version}`);
   }
+
+  if (!wait) {
+    return;
+  }
+
+  await waitForPlatformUpgrade(
+    entry,
+    token,
+    result.version ?? resolution.target,
+    currentVersion ?? null,
+  );
 }
 
 /**
@@ -865,6 +1121,7 @@ async function upgradeFinalize(
  */
 async function resolveLatestAndMaybeSelfUpdate(
   name: string | null,
+  flags: { noWait: boolean; force: boolean },
 ): Promise<string> {
   console.log("🔍 Fetching latest stable release...");
   const latestVersion = await fetchLatestStableVersion();
@@ -893,7 +1150,7 @@ async function resolveLatestAndMaybeSelfUpdate(
     console.log(`🔄 Updating CLI to ${latestTag}...`);
     const installResult = spawnSync(
       "bun",
-      ["install", "-g", `vellum@${latestVersion}`],
+      ["install", "-g", `vellum@${stripVersionPrefix(latestVersion)}`],
       { stdio: "inherit" },
     );
     if (installResult.error || installResult.status !== 0) {
@@ -907,10 +1164,13 @@ async function resolveLatestAndMaybeSelfUpdate(
     console.log(`✅ CLI updated to ${latestTag}\n`);
 
     // Re-exec with the updated CLI. Pass --version instead of --latest
-    // to avoid re-fetching and to prevent infinite re-exec loops.
+    // to avoid re-fetching and to prevent infinite re-exec loops; forward
+    // the other flags so the re-exec keeps the requested semantics.
     const reexecArgs = ["upgrade"];
     if (name) reexecArgs.push(name);
     reexecArgs.push("--version", latestTag);
+    if (flags.noWait) reexecArgs.push("--no-wait");
+    if (flags.force) reexecArgs.push("--force");
 
     console.log(`🚀 Re-running upgrade with updated CLI...\n`);
     const reexecResult = spawnSync("vellum", reexecArgs, {
@@ -927,7 +1187,8 @@ async function resolveLatestAndMaybeSelfUpdate(
 }
 
 export async function upgrade(): Promise<void> {
-  const { name, version, latest, prepare, finalize } = parseArgs();
+  const { name, version, latest, prepare, finalize, noWait, force } =
+    parseArgs();
   const entry = resolveTargetAssistant(name);
 
   if (prepare) {
@@ -945,7 +1206,10 @@ export async function upgrade(): Promise<void> {
   // as the explicit target for the rest of the upgrade flow.
   let effectiveVersion = version;
   if (latest) {
-    const latestTag = await resolveLatestAndMaybeSelfUpdate(name);
+    const latestTag = await resolveLatestAndMaybeSelfUpdate(name, {
+      noWait,
+      force,
+    });
     effectiveVersion = latestTag;
   }
 
@@ -953,12 +1217,12 @@ export async function upgrade(): Promise<void> {
 
   try {
     if (cloud === "docker") {
-      await upgradeDocker(entry, effectiveVersion);
+      await upgradeDocker(entry, effectiveVersion, force);
       return;
     }
 
     if (cloud === "vellum") {
-      await upgradePlatform(entry, effectiveVersion);
+      await upgradePlatform(entry, effectiveVersion, !noWait);
       return;
     }
   } catch (err) {

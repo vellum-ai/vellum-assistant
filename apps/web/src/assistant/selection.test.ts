@@ -1,8 +1,9 @@
 /**
  * Unit tests for `resolveSelectedAssistantId` — the unified read path shared by
- * platform and local selection. Covers the resolution order: valid per-org
- * cache hit → drop wrong-org → lockfile activeAssistant → first valid → unknown
- * id pass-through.
+ * platform and local selection. There is ONE selection; the org is a read-time
+ * filter. Covers the resolution order: valid selected id → drop wrong-org →
+ * lockfile activeAssistant → first valid, plus the hydration-gated pass-through
+ * for an unknown id.
  *
  * bun's `mock.module` is process-global, so this file must run on its own.
  */
@@ -18,26 +19,31 @@ const ORG_B = "org-b";
 
 // Mutable fixtures the mocks read so each test can stage its own world.
 let assistants: ResolvedAssistant[] = [];
-let selectedPlatformAssistantByOrg: Record<string, string> = {};
-let tabLocalId: string | null = null;
+let selectedAssistantId: string | null = null;
+let assistantsHydrated = true;
 let activeLocal: LockfileAssistant | undefined;
 
+const storeSetSelectedAssistantMock = mock((_id: string | null) => {});
 mock.module("@/stores/resolved-assistants-store", () => ({
   assistantsValidForOrg,
   useResolvedAssistantsStore: {
-    getState: () => ({ assistants, selectedPlatformAssistantByOrg }),
+    getState: () => ({
+      assistants,
+      selectedAssistantId,
+      assistantsHydrated,
+      setSelectedAssistant: storeSetSelectedAssistantMock,
+    }),
   },
 }));
+const setActiveLockfileAssistantMock = mock(async (_id: string) => {});
 mock.module("@/lib/local-mode", () => ({
-  getTabLocalSelectedAssistantId: () => tabLocalId,
   getActiveAssistant: () => activeLocal,
-  setActiveLockfileAssistant: async () => {},
-}));
-mock.module("@/stores/organization-store", () => ({
-  useOrganizationStore: { getState: () => ({ currentOrganizationId: ORG_A }) },
+  setActiveLockfileAssistant: setActiveLockfileAssistantMock,
 }));
 
-const { resolveSelectedAssistantId } = await import("./selection");
+const { resolveSelectedAssistantId, setSelectedAssistant } = await import(
+  "./selection"
+);
 
 function platformAssistant(
   id: string,
@@ -57,60 +63,65 @@ function lockfileAssistant(assistantId: string): LockfileAssistant {
 
 beforeEach(() => {
   assistants = [];
-  selectedPlatformAssistantByOrg = {};
-  tabLocalId = null;
+  selectedAssistantId = null;
+  assistantsHydrated = true;
   activeLocal = undefined;
+  storeSetSelectedAssistantMock.mockClear();
+  setActiveLockfileAssistantMock.mockClear();
 });
 
 describe("resolveSelectedAssistantId", () => {
-  test("valid cached per-org selection passes through", () => {
+  test("valid selected id passes through", () => {
     assistants = [platformAssistant("asst-1", ORG_A)];
-    selectedPlatformAssistantByOrg = { [ORG_A]: "asst-1" };
+    selectedAssistantId = "asst-1";
     expect(resolveSelectedAssistantId(ORG_A)).toBe("asst-1");
   });
 
-  test("wrong-org cached selection is dropped and falls back", () => {
+  test("wrong-org selection is dropped and falls back", () => {
     // asst-b is owned by ORG_B; asst-a is the only valid one for ORG_A.
     assistants = [
       platformAssistant("asst-b", ORG_B),
       platformAssistant("asst-a", ORG_A),
     ];
-    selectedPlatformAssistantByOrg = { [ORG_A]: "asst-b" };
+    selectedAssistantId = "asst-b";
     expect(resolveSelectedAssistantId(ORG_A)).toBe("asst-a");
   });
 
-  test("empty cache falls back to lockfile activeAssistant when valid", () => {
+  test("empty selection falls back to lockfile activeAssistant when valid", () => {
     assistants = [platformAssistant("asst-1", ORG_A)];
     activeLocal = lockfileAssistant("asst-1");
     expect(resolveSelectedAssistantId(ORG_A)).toBe("asst-1");
   });
 
-  test("empty cache + stale active falls back to first valid assistant", () => {
+  test("empty selection + stale active falls back to first valid assistant", () => {
     assistants = [platformAssistant("asst-1", ORG_A)];
     // active id no longer resolves to a valid entry for this org.
     activeLocal = lockfileAssistant("asst-stale");
     expect(resolveSelectedAssistantId(ORG_A)).toBe("asst-1");
   });
 
-  test("unknown PER-ORG candidate passes through (404 net clears that store)", () => {
-    assistants = [platformAssistant("asst-1", ORG_A)];
-    selectedPlatformAssistantByOrg = { [ORG_A]: "asst-unknown" };
+  test("unknown selected id passes through while NOT hydrated (pre-load)", () => {
+    // The list may simply not have arrived yet, so don't drop the selection.
+    assistantsHydrated = false;
+    assistants = [];
+    selectedAssistantId = "asst-unknown";
     expect(resolveSelectedAssistantId(ORG_A)).toBe("asst-unknown");
   });
 
-  test("an unknown TAB-LOCAL candidate is NOT passed through", () => {
-    // Regression: the 404 net only clears selectedPlatformAssistantByOrg, not
-    // the tab-local key, so a stale tab-local id must fall to a valid one
-    // rather than loop on the platform retrieve endpoint.
+  test("unknown selected id is a ghost once hydrated and falls through", () => {
+    // Regression for the ghost bug: a hydrated list that doesn't contain the
+    // selection means it's genuinely gone — fall through, never return it.
+    assistantsHydrated = true;
     assistants = [platformAssistant("asst-1", ORG_A)];
-    tabLocalId = "asst-stale-tab";
+    selectedAssistantId = "asst-unknown";
     expect(resolveSelectedAssistantId(ORG_A)).toBe("asst-1");
   });
 
-  test("a tab-local pick is used when it resolves to a valid assistant", () => {
-    assistants = [platformAssistant("asst-1", ORG_A)];
-    tabLocalId = "asst-1";
-    expect(resolveSelectedAssistantId(ORG_A)).toBe("asst-1");
+  test("hydrated unknown selection with no valid assistants resolves to null", () => {
+    assistantsHydrated = true;
+    assistants = [];
+    selectedAssistantId = "asst-unknown";
+    expect(resolveSelectedAssistantId(ORG_A)).toBeNull();
   });
 
   test("a stale lockfile active with no resolved entry is NOT passed through", () => {
@@ -119,5 +130,21 @@ describe("resolveSelectedAssistantId", () => {
     assistants = [platformAssistant("asst-1", ORG_A)];
     activeLocal = lockfileAssistant("asst-stale");
     expect(resolveSelectedAssistantId(ORG_A)).toBe("asst-1");
+  });
+});
+
+describe("setSelectedAssistant", () => {
+  test("an id records the selection and mirrors it into the lockfile", async () => {
+    await setSelectedAssistant("asst-1");
+
+    expect(storeSetSelectedAssistantMock).toHaveBeenCalledWith("asst-1");
+    expect(setActiveLockfileAssistantMock).toHaveBeenCalledWith("asst-1");
+  });
+
+  test("null clears the selection and skips the lockfile mirror", async () => {
+    await setSelectedAssistant(null);
+
+    expect(storeSetSelectedAssistantMock).toHaveBeenCalledWith(null);
+    expect(setActiveLockfileAssistantMock).not.toHaveBeenCalled();
   });
 });

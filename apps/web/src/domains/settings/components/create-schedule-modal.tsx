@@ -148,6 +148,7 @@ function CreateScheduleModalInner({
   const timezone = useEffectiveTimezone();
 
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [message, setMessage] = useState("");
   const [mode, setMode] = useState<"simple" | "advanced">("simple");
   const [cadence, setCadence] = useState<Cadence>(DEFAULT_CADENCE);
@@ -156,6 +157,7 @@ function CreateScheduleModalInner({
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const trimmedName = name.trim();
+  const trimmedDescription = description.trim();
   const trimmedMessage = message.trim();
   const trimmedRaw = rawExpression.trim();
 
@@ -173,6 +175,7 @@ function CreateScheduleModalInner({
 
   const canSubmit =
     trimmedName.length > 0 &&
+    trimmedDescription.length > 0 &&
     trimmedMessage.length > 0 &&
     expression.length > 0 &&
     !submitting;
@@ -185,6 +188,7 @@ function CreateScheduleModalInner({
     try {
       const payload: CreateSchedulePayload = {
         name: trimmedName,
+        description: trimmedDescription,
         expression,
         message: trimmedMessage,
         // Schedules always run in the user's current timezone — inferred here
@@ -231,6 +235,16 @@ function CreateScheduleModalInner({
               required
               autoFocus
               fullWidth
+            />
+
+            <Textarea
+              label="Description"
+              placeholder="What is this schedule for?"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              required
+              fullWidth
+              rows={2}
             />
 
             <Field label="Repeat">

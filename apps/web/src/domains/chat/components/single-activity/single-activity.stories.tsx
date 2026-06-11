@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
+import type { WebSearchResultItem } from "@/assistant/web-activity-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
 import { useViewerStore } from "@/stores/viewer-store";
 
 import { SingleActivity } from "./single-activity";
@@ -147,7 +149,7 @@ export const ToolActive: Story = {
       useViewerStore.getState().openToolDetail({
         toolCallId: "tc-active",
         toolName: "bash",
-        title: "Working (bash)",
+        title: "Working",
         activity: "Checking the current time",
         input: {},
         status: "completed",
@@ -166,5 +168,107 @@ export const ToolError: Story = {
       input: { command: "exit 1", activity: "Running a failing command" },
       riskLevel: "low",
     }),
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Web variant
+// ---------------------------------------------------------------------------
+
+const WEB_RESULTS: WebSearchResultItem[] = [
+  {
+    rank: 1,
+    title: "Toronto - Wikipedia",
+    url: "https://en.wikipedia.org/wiki/Toronto",
+    domain: "en.wikipedia.org",
+  },
+  {
+    rank: 2,
+    title: "Visit Toronto — Official Tourism",
+    url: "https://www.destinationtoronto.com",
+    domain: "destinationtoronto.com",
+  },
+];
+
+const WEB_STEP: Extract<ToolCallCardStep, { kind: "web_search" }> = {
+  kind: "web_search",
+  title: "Searched the web",
+  durationLabel: "1s",
+  linkCount: 2,
+  results: WEB_RESULTS,
+};
+
+const WEB_ERROR_STEP: Extract<
+  ToolCallCardStep,
+  { kind: "web_search_error" }
+> = {
+  kind: "web_search_error",
+  title: "Web search failed",
+  durationLabel: "1s",
+  errorMessage: "Search provider unavailable",
+};
+
+/**
+ * Collapsed — an inline "Web Search | <rotating chips>" link. The rotating
+ * `WebsiteCarousel` cycles through the searched sites in the info slot; the
+ * trailing down-chevron signals it expands in place.
+ */
+export const WebSearchCollapsed: Story = {
+  args: {
+    variant: "web",
+    info: "Visit Toronto — Official Tourism",
+    carouselItems: WEB_RESULTS,
+    state: "complete",
+    step: WEB_STEP,
+    expanded: false,
+    onExpandChange: () => {},
+  },
+};
+
+/**
+ * Expanded — the same link with the favicon result row revealed in place
+ * beneath the header (and `+N more` overflow when clamped).
+ */
+export const WebSearchExpanded: Story = {
+  args: {
+    variant: "web",
+    info: "Visit Toronto — Official Tourism",
+    carouselItems: WEB_RESULTS,
+    state: "complete",
+    step: WEB_STEP,
+    expanded: true,
+    onExpandChange: () => {},
+  },
+};
+
+/**
+ * Loading — the leading glyph becomes the shared three-dot indicator while the
+ * search is in flight.
+ */
+export const WebSearchLoading: Story = {
+  args: {
+    variant: "web",
+    info: "Searching the web",
+    carouselItems: WEB_RESULTS,
+    state: "loading",
+    step: WEB_STEP,
+    expanded: false,
+    onExpandChange: () => {},
+  },
+};
+
+/**
+ * Error — the header takes the negative tone and, when expanded, the step body
+ * renders the error chip with the provider message.
+ */
+export const WebSearchError: Story = {
+  args: {
+    variant: "web",
+    info: "Web search failed",
+    carouselItems: [],
+    state: "error",
+    step: WEB_ERROR_STEP,
+    expanded: true,
+    onExpandChange: () => {},
   },
 };

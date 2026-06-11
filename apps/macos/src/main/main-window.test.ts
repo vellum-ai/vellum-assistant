@@ -448,18 +448,18 @@ describe("installMainWindow", () => {
 });
 
 describe("onboarding window sizing", () => {
-  test("creates a 440×630 default-size but still resizable window when onboarding is active", () => {
+  test("creates a 440×660 default-size but still resizable window when onboarding is active", () => {
     onboardingActive = true;
     ensureVisible();
     const win = constructed[0];
     if (!win) throw new Error("expected a window");
     expect(win.opts.width).toBe(440);
-    expect(win.opts.height).toBe(630);
+    expect(win.opts.height).toBe(660);
     expect(win.opts.useContentSize).toBe(true);
-    // The 440×630 default is also the floor (mirrors Swift `contentMinSize`),
-    // so the chrome-less flow can't be dragged below its content.
+    // The 440×660 default is also the floor, so the chrome-less flow can't
+    // be dragged below its content.
     expect(win.opts.minWidth).toBe(440);
-    expect(win.opts.minHeight).toBe(630);
+    expect(win.opts.minHeight).toBe(660);
     // Onboarding is the default size only — the window stays resizable
     // (no `resizable: false` opt), so it inherits the Electron default.
     expect(win.opts.resizable).toBeUndefined();
@@ -490,9 +490,9 @@ describe("onboarding window sizing", () => {
     setOnboarding(true);
 
     expect(writeOnboardingActiveMock).toHaveBeenCalledWith(true);
-    expect(win.stub.setContentSize).toHaveBeenCalledWith(440, 630);
+    expect(win.stub.setContentSize).toHaveBeenCalledWith(440, 660);
     // Entering onboarding clamps the minimum to the compact content size.
-    expect(win.stub.setMinimumSize).toHaveBeenCalledWith(440, 630);
+    expect(win.stub.setMinimumSize).toHaveBeenCalledWith(440, 660);
     expect(win.stub.center).toHaveBeenCalled();
     // The window stays resizable across the transition — never locked.
     expect(win.stub.setResizable).not.toHaveBeenCalled();
@@ -547,7 +547,7 @@ describe("onboarding window sizing", () => {
     );
 
     expect(writeOnboardingActiveMock).toHaveBeenCalledWith(true);
-    expect(win.stub.setContentSize).toHaveBeenCalledWith(440, 630);
+    expect(win.stub.setContentSize).toHaveBeenCalledWith(440, 660);
   });
 
   test("centres the macOS traffic lights for a main-app window on creation", () => {

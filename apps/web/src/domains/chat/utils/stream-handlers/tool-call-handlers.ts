@@ -45,7 +45,7 @@ export function handleToolResult(
 ): void {
   ctx.turnActions.onToolResult();
   // Forward structured tool activity metadata (web_search / web_fetch) onto
-  // the turn store so the new WebSearchProgressCard can render during the
+  // the turn store so the web-search inline link can render during the
   // active turn. Metadata is live-only — the store clears it on idle
   // transitions; historical reopens continue through the existing
   // `result: string` flow below (parsed for fallback chips).

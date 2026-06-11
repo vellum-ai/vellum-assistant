@@ -28,8 +28,13 @@ import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
 import { type Plugin, PluginExecutionError } from "../types.js";
 import compactionPkg from "./compaction/package.json" with { type: "json" };
 import emptyResponsePostModelCall from "./empty-response/hooks/post-model-call.js";
+import emptyResponseStop from "./empty-response/hooks/stop.js";
 import { resetEmptyResponseNudgeStoreForTests } from "./empty-response/nudge-state-store.js";
 import emptyResponsePkg from "./empty-response/package.json" with { type: "json" };
+import explorationDriftPostToolUse, {
+  resetExplorationDriftStateForTests,
+} from "./exploration-drift/hooks/post-tool-use.js";
+import explorationDriftPkg from "./exploration-drift/package.json" with { type: "json" };
 import historyRepairPostModelCall from "./history-repair/hooks/post-model-call.js";
 import historyRepairStop from "./history-repair/hooks/stop.js";
 import historyRepairUserPromptSubmit from "./history-repair/hooks/user-prompt-submit.js";
@@ -70,7 +75,8 @@ export const defaultCompactionPlugin: Plugin = {
 /**
  * `empty-response` — a `post-model-call` hook that re-queries the model when a
  * turn yields with no tool calls but came back empty (or as a provider
- * refusal).
+ * refusal); the `stop` hook clears the one-shot nudge bound on a terminal stop
+ * so the next run nudges afresh.
  */
 export const defaultEmptyResponsePlugin: Plugin = {
   manifest: {
@@ -79,6 +85,7 @@ export const defaultEmptyResponsePlugin: Plugin = {
   },
   hooks: {
     "post-model-call": emptyResponsePostModelCall,
+    stop: emptyResponseStop,
   },
 };
 
@@ -192,6 +199,25 @@ export const defaultToolErrorPlugin: Plugin = {
 };
 
 /**
+ * `exploration-drift` — a `post-tool-use` hook that detects exploration
+ * drift — a long unbroken run of exploration tool calls (bash, file_read,
+ * file_list) with no user-facing text, or (on loop-prone models such as Kimi
+ * K2.6 and MiniMax M3) the model re-issuing a byte-identical exploration call — and nudges
+ * the model via `additionalContext` to summarize progress for the user and
+ * delegate the remaining investigation to an `investigator` subagent rather
+ * than continuing inline.
+ */
+export const defaultExplorationDriftPlugin: Plugin = {
+  manifest: {
+    name: explorationDriftPkg.name,
+    version: explorationDriftPkg.version,
+  },
+  hooks: {
+    "post-tool-use": explorationDriftPostToolUse,
+  },
+};
+
+/**
  * `tool-result-truncate` — a `post-tool-use` hook that tail-drops an oversized
  * tool result down to a character budget derived from the model's context
  * window before the result is sent to the provider.
@@ -218,6 +244,7 @@ function getAllDefaultPlugins(): readonly Plugin[] {
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
     defaultToolErrorPlugin,
+    defaultExplorationDriftPlugin,
     defaultHistoryRepairPlugin,
     defaultImageRecoveryPlugin,
     defaultCompactionPlugin,
@@ -265,5 +292,6 @@ export function resetPluginRegistryAndRegisterDefaults(): void {
   resetEmptyResponseNudgeStoreForTests();
   resetRepairStateStoreForTests();
   resetImageRecoveryStoreForTests();
+  resetExplorationDriftStateForTests();
   registerDefaultPlugins();
 }

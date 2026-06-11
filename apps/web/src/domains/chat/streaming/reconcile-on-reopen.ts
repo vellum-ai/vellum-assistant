@@ -17,10 +17,9 @@
  *   - `"debug"`  — manual `_vellumDebug.events.reconnectClient()`
  *                  trigger; takes the same standalone-reconcile path as
  *                  `"resume"` so QA can exercise post-reconnect catch-up.
- *   - `"watchdog"` / `"error"` — transport-level recovery; prefer the
- *                  sync router's `dispatchReconnect()` (it returns the
- *                  active conversation's refreshed messages in the
- *                  same roundtrip), fall back to standalone reconcile.
+ *   - `"watchdog"` / `"error"` — transport-level recovery; runs
+ *                  `reconcileActive()` to refresh the active
+ *                  conversation's messages.
  *                  `"watchdog"` additionally records the rescue
  *                  outcome to Sentry so stalled-turn recoveries are
  *                  observable.
@@ -40,10 +39,7 @@ import {
   resolvePlatformTag,
 } from "@/lib/diagnostics";
 import type { BusEventPayload } from "@/lib/event-bus";
-import type {
-  ActiveConversationMessagesRefreshResult,
-  WebSyncReconnectResult,
-} from "@/lib/sync/web-sync-router";
+import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 
 // Derived from the bus payload so this handler can't drift from the
 // canonical `sse.opened` cause union in `event-bus.ts`.
@@ -54,12 +50,10 @@ export interface ReconcileOnReopenDeps {
   assistantId: string;
   /** Active conversation key; included in every diagnostic. */
   conversationId: string;
-  /** Reconcile the active conversation; standalone-fallback path. */
-  reconcileActive: () => Promise<ActiveConversationMessagesRefreshResult>;
+  /** Reconcile the active conversation against the server transcript. */
+  reconcileActive: () => Promise<ReconcileActiveConversationResult>;
   /** Start the reconciliation loop on a given epoch. */
   startReconciliationLoop: (epoch: number) => void;
-  /** Dispatch a sync-router reconnect; returns undefined when no router is mounted. */
-  dispatchReconnect: () => Promise<WebSyncReconnectResult | undefined>;
 }
 
 export interface ReconcileOnReopen {
@@ -121,7 +115,7 @@ async function runTransportRecoveryReconcile(
   epoch: number,
   cause: "watchdog" | "error",
 ): Promise<void> {
-  const { assistantId, conversationId, dispatchReconnect } = deps;
+  const { assistantId, conversationId } = deps;
   recordLifecycleDiagnostic("sse_stream_reconnect", {
     assistantId,
     conversationId,
@@ -129,20 +123,14 @@ async function runTransportRecoveryReconcile(
     cause,
   });
   const startedAt = Date.now();
-  let reconcileResult: ActiveConversationMessagesRefreshResult;
-  // Both paths to the reconcile result can reject: the sync router's
-  // `dispatchReconnect()` and the standalone `reconcileActive()`
-  // fallback. Failure here is a transport-recovery failure — log it and
-  // bail. Without the catch, the rejection would surface as an
-  // unhandled promise rejection because the bus subscriber that calls
-  // us is `void`-firing this fn. The stale-epoch guard below would
-  // never run, and the bus's next reopen would have no idea anything
-  // went wrong.
+  let reconcileResult: ReconcileActiveConversationResult;
+  // The reconcile can reject (daemon unreachable, network error).
+  // Failure here is a transport-recovery failure — log it and bail.
+  // Without the catch, the rejection would surface as an unhandled
+  // promise rejection because the bus subscriber that calls us is
+  // `void`-firing this fn.
   try {
-    const syncReconnectResult = await dispatchReconnect();
-    reconcileResult =
-      syncReconnectResult?.activeConversationMessages ??
-      (await deps.reconcileActive());
+    reconcileResult = await deps.reconcileActive();
   } catch (err) {
     recordDiagnostic("sse_post_reconnect_reconcile_failed", {
       assistantId,
@@ -201,7 +189,7 @@ function recordWatchdogRescue(
   conversationId: string,
   epoch: number,
   startedAt: number,
-  reconcileResult: ActiveConversationMessagesRefreshResult,
+  reconcileResult: ReconcileActiveConversationResult,
 ): void {
   const latencyMs = Date.now() - startedAt;
   recordDiagnostic("sse_post_watchdog_reconcile_result", {

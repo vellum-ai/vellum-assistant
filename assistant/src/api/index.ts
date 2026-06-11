@@ -49,6 +49,7 @@ import { UISurfaceCompleteEventSchema } from "./events/ui-surface-complete.js";
 import { UISurfaceDismissEventSchema } from "./events/ui-surface-dismiss.js";
 import { UISurfaceShowEventSchema } from "./events/ui-surface-show.js";
 import { UISurfaceUpdateEventSchema } from "./events/ui-surface-update.js";
+import { UsageProgressEventSchema } from "./events/usage-progress.js";
 import { UsageUpdateEventSchema } from "./events/usage-update.js";
 import { UserMessageEchoEventSchema } from "./events/user-message-echo.js";
 
@@ -311,6 +312,10 @@ export {
   UISurfaceUpdateEventSchema,
 } from "./events/ui-surface-update.js";
 export {
+  type UsageProgressEvent,
+  UsageProgressEventSchema,
+} from "./events/usage-progress.js";
+export {
   type UsageUpdateEvent,
   UsageUpdateEventSchema,
 } from "./events/usage-update.js";
@@ -497,6 +502,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   UISurfaceDismissEventSchema,
   UISurfaceShowEventSchema,
   UISurfaceUpdateEventSchema,
+  UsageProgressEventSchema,
   UsageUpdateEventSchema,
   UserMessageEchoEventSchema,
 ]);

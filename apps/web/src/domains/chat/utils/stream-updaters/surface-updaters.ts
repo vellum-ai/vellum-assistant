@@ -9,42 +9,14 @@
  */
 
 import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
-import type { ConversationContentBlock } from "@vellumai/assistant-api";
+import {
+  removeSurfaceBlock,
+  upsertSurfaceBlock,
+} from "@/domains/chat/utils/map-message-surfaces";
 import {
   findAssistantRowIndexByMessageId,
   withMergedAlias,
 } from "@/domains/chat/utils/stream-updaters/shared";
-
-/**
- * Insert or update the `surface` block carrying `surface` (matched by
- * `surfaceId`), keeping the `contentBlocks` projection in lockstep with the
- * positional `surfaces` array as the surface streams show → update → complete.
- */
-function upsertSurfaceBlock(
-  blocks: ConversationContentBlock[] | undefined,
-  surface: Surface,
-): ConversationContentBlock[] {
-  const next = [...(blocks ?? [])];
-  const existingIdx = next.findIndex(
-    (b) => b.type === "surface" && b.surface.surfaceId === surface.surfaceId,
-  );
-  if (existingIdx === -1) {
-    next.push({ type: "surface", surface });
-  } else {
-    next[existingIdx] = { type: "surface", surface };
-  }
-  return next;
-}
-
-/** Drop the `surface` block matching `surfaceId` from a block projection. */
-function removeSurfaceBlock(
-  blocks: ConversationContentBlock[] | undefined,
-  surfaceId: string,
-): ConversationContentBlock[] | undefined {
-  return blocks?.filter(
-    (b) => !(b.type === "surface" && b.surface.surfaceId === surfaceId),
-  );
-}
 
 // ---------------------------------------------------------------------------
 // ui_surface_show

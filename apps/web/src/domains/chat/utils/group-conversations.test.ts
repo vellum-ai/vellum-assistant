@@ -2,11 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 
 import type { Conversation, ConversationGroup } from "@/types/conversation-types";
-import {
-  buildMoveToGroupTargets,
-  getEffectiveGroupId,
-  groupConversations,
-} from "@/domains/chat/utils/group-conversations";
+import { groupConversations } from "@/domains/chat/utils/group-conversations";
 
 function makeConversation(overrides: Partial<Conversation>): Conversation {
   return {
@@ -174,21 +170,6 @@ describe("groupConversations · bucket routing", () => {
     ]);
     expect(result.background.map((c) => c.conversationId)).toEqual([
       "background-slack",
-    ]);
-  });
-
-  test("treats Slack as a virtual effective group for move target filtering", () => {
-    const conversation = makeConversation({
-      conversationId: "slack",
-      originChannel: "slack",
-    });
-
-    expect(getEffectiveGroupId(conversation)).toBe("system:slack");
-    expect(buildMoveToGroupTargets(conversation).map((g) => g.id)).toEqual([
-      "system:pinned",
-      "system:scheduled",
-      "system:background",
-      "system:all",
     ]);
   });
 
@@ -699,25 +680,5 @@ describe("groupConversations · surfaced promotion to recents", () => {
     ]);
     expect(result.recents).toEqual([]);
     expect(result.background).toEqual([]);
-  });
-
-  test("getEffectiveGroupId reports system:all for surfaced conversations", () => {
-    expect(
-      getEffectiveGroupId(
-        makeConversation({
-          conversationId: "bg-surfaced",
-          conversationType: "background",
-          surfacedAt: 1704067200000,
-        }),
-      ),
-    ).toBe("system:all");
-    expect(
-      getEffectiveGroupId(
-        makeConversation({
-          conversationId: "sched-plain",
-          conversationType: "scheduled",
-        }),
-      ),
-    ).toBe("system:scheduled");
   });
 });

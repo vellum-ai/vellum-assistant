@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Check, Monitor } from "lucide-react";
 
-import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
+import { setSelectedAssistant } from "@/assistant/selection";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { DetailCard } from "@/components/detail-card";
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
@@ -67,7 +67,7 @@ export function AssistantPicker() {
                     size="compact"
                     disabled={a.status !== "active"}
                     onClick={() => {
-                      void selectPlatformAssistant(a.id);
+                      void setSelectedAssistant(a.id);
                       toast.success("Switched active assistant.");
                     }}
                   >

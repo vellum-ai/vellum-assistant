@@ -151,6 +151,15 @@ index file and rerun.
    and the single `longmemeval-v2-judge` metric
 6. flip `run.json` to `status: "completed"` (or `"failed"` on throw)
 
+The question turn is bounded by a time budget, not an event count:
+`runIngestAsk` ends it once the stream goes quiet (`quietMs`, 30s) or the
+`questionMaxMs` wall-clock cap (6 min) elapses, whichever comes first. If
+the agent never composes an answer within that budget, the run is still a
+**completed** run scored `0` — "too slow to answer" is a real, gradable
+outcome that belongs in the denominator, not an excluded `failed` run.
+Only genuine harness faults (an ingest that never reaches its completion
+sentinel, or a turn that emits zero events) throw and mark `failed`.
+
 The wrapped progress reporter + heartbeat ticker that both
 `runEvalOnce` and `runLongMemEvalV2Unit` install at the top of their
 try/finally now come from a shared
@@ -159,25 +168,27 @@ extract that replaced the inlined `// PR-6 follow-up` blocks. Both
 runners call `createRunProgressLifecycle({ runId, userProgress })`
 and `dispose()` from their `finally`.
 
-### Usage / cost (PR-9)
+### Usage / cost
 
-`usage.json` is now written for every V2 run, mirroring what
-`runEvalOnce` (the simulator path) already does. The runner folds two
-sources through the shared `summarizeAssistantUsage` + pricing pass:
+`usage.json` is written for every V2 run, mirroring what `runEvalOnce`
+(the simulator path) already does. The runner folds two sources through
+the shared `summarizeAssistantUsage` + pricing pass:
 
-- **Agent events** — `runIngestAsk` exposes the ingest-turn and
-  question-turn event streams; both pass through the summarizer so any
-  `type: "usage"` events the adapter emitted contribute to per-model
-  totals and cost. Same shape, same pricing table, same diagnostics as
-  the simulator runs.
+- **Assistant usage** — token counts the egress jail's recording sidecar
+  parsed out of the assistant's _observed_ model traffic, exposed as
+  `recordedUsage` on `runIngestAsk`'s result. This is the un-spoofable
+  cost authority (see `evals/AGENTS.md`): an assistant or its adapter
+  can choose what events to emit, so cost is taken from the wire, never
+  from emitted events. Same shape, same pricing table, same diagnostics
+  as the simulator runs.
 - **LLM judge** — when the eval_function is `llm_abstention_checker`
   or `llm_gotchas_checker`, the OpenAI chat-completions response's
   `usage` block is translated to the canonical evals shape (renaming
   `prompt_tokens`/`completion_tokens` → `input_tokens`/`output_tokens`
   and stamping `provider: "openai"` + `model: <evaluatorModel>` +
   `source: "longmemeval-v2-judge"`) and surfaced as
-  `EvalResult.usage`. The runner synthesizes a single fake usage event
-  from it and rolls it into the same summarizer pass.
+  `EvalResult.usage`. The judge is the harness's own call, not assistant
+  traffic, so it prices from its own usage block.
 
 Deterministic eval_functions never produce a judge usage record, and
 the LLM judge omits `usage` entirely when the upstream response had no
@@ -243,4 +254,4 @@ read per `evals run` invocation.
 
 - **Phase 2** — full 451-question small tier sweep against the canonical
   profile set, feeding the cost/latency Pareto chart now that usage/cost
-  telemetry (PR-9) is wired end-to-end.
+  telemetry is wired end-to-end.

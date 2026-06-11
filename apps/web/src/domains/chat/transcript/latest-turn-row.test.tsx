@@ -53,12 +53,12 @@ import type {
 
 import { LatestTurnRow } from "@/domains/chat/transcript/latest-turn-row";
 
-import { textBodyWithBlocks } from "@/domains/chat/utils/message-test-helpers";
+import { textBody } from "@/domains/chat/utils/message-test-helpers";
 function userMessageItem(id: string, content: string): MessageItem {
   const msg: DisplayMessage = {
     id,
     role: "user",
-    ...textBodyWithBlocks(content),
+    ...textBody(content),
   };
   return { kind: "message", key: id, message: msg };
 }
@@ -67,7 +67,7 @@ function assistantMessageItem(id: string, content: string): MessageItem {
   const msg: DisplayMessage = {
     id,
     role: "assistant",
-    ...textBodyWithBlocks(content),
+    ...textBody(content),
   };
   return { kind: "message", key: id, message: msg };
 }

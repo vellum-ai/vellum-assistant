@@ -74,7 +74,17 @@ interface FakeAgentHarness {
   sends: () => string[];
 }
 
-function makeFakeAgent(responses: AgentEvent[][]): FakeAgentHarness {
+/**
+ * Build the agent stub. `usageRecords` models what the egress jail's
+ * recording sidecar observed on the wire (the assistant's real model
+ * traffic) — the runner reads these via `readUsageRecords()` to price the
+ * run, NOT the usage carried on emitted events. Omit to leave the agent
+ * without the capability (the runner then prices only the judge's usage).
+ */
+function makeFakeAgent(
+  responses: AgentEvent[][],
+  usageRecords?: Array<Record<string, unknown>>,
+): FakeAgentHarness {
   const writes: WorkspaceFileWrite[] = [];
   const sends: string[] = [];
   const queues = responses.map((q) => q.slice());
@@ -121,6 +131,11 @@ function makeFakeAgent(responses: AgentEvent[][]): FakeAgentHarness {
     // satisfy the interface.
     async runSetupCommand(_command: TestSetupCommand): Promise<void> {},
   };
+
+  if (usageRecords) {
+    agent.readUsageRecords = async () =>
+      usageRecords.map((record) => ({ ...record }));
+  }
 
   return {
     agent,
@@ -327,6 +342,45 @@ describe("runLongMemEvalV2Unit", () => {
     expect(result.metrics[0]!.score).toBe(0);
   });
 
+  test("marks status=completed and scores 0 when the question turn produces no answer in time", async () => {
+    // GIVEN an ingest turn that completes on the sentinel
+    // AND a question turn that emits only non-text events (retrieval /
+    // thinking) and never composes an answer before its time budget elapses
+    const runId = `lme-v2-runner-noanswer-${Date.now()}`;
+    runIdsToCleanup.push(runId);
+    const harness = makeFakeAgent([
+      [textEvent("Ready.")],
+      [{ message: { type: "tool_use_start", toolName: "lookup" } }],
+    ]);
+    nextAgent = harness.agent;
+
+    // WHEN the unit runs
+    const result = await runLongMemEvalV2Unit({
+      profile: profileFor("p1"),
+      item: makeItem(),
+      trajectoryReader: trajectoryReader(),
+      runId,
+      questionMaxMs: 200,
+      quietMs: 50,
+    });
+
+    // THEN the run is a completed miss, not an errored/failed run: it scores
+    // 0 and counts in the denominator, with a time-based reason and no judge
+    // function attribution (the judge never ran).
+    expect(result.metrics[0]!.score).toBe(0);
+    expect(result.metrics[0]!.reason).toMatch(/within the question turn's/);
+    expect(result.metrics[0]!.reason).toMatch(/time budget/);
+    expect(
+      (result.metrics[0]!.metadata as Record<string, unknown>)["function"],
+    ).toBe("no-answer");
+
+    const meta = JSON.parse(
+      await readFile(runArtifacts(runId).metadataPath, "utf8"),
+    );
+    expect(meta.status).toBe("completed");
+    expect(meta.error).toBeUndefined();
+  });
+
   test("marks status=failed when the ingest turn produces no events", async () => {
     const runId = `lme-v2-runner-fail-${Date.now()}`;
     runIdsToCleanup.push(runId);
@@ -352,42 +406,42 @@ describe("runLongMemEvalV2Unit", () => {
   });
 
   /**
-   * PR-9: usage.json was not being written for the V2 benchmark because
-   * the runner never summarized the agent's events. These tests lock
-   * down the new behaviour:
+   * Cost is sourced from the egress jail's observed model traffic
+   * (`readUsageRecords()`), not from usage carried on assistant-emitted
+   * events — an assistant or its adapter could under-report by choosing
+   * what to emit, so the jail is the un-spoofable authority. These tests
+   * lock down the behaviour:
    *
-   *  - agent-side usage from both conversations is folded through the
+   *  - assistant usage comes from the jail's records, folded through the
    *    same `summarizeAssistantUsage` the simulator runner uses
-   *  - LLM-judge usage (when the judge surfaced a usage block) is
-   *    merged in alongside as a third entry
+   *  - LLM-judge usage (the harness's own grading call) is merged in
+   *    alongside as a separate entry
    *  - deterministic judges contribute nothing to usage.json
-   *  - a judge that returns no usage block leaves agent-only totals in
+   *  - a judge that returns no usage block leaves assistant-only totals in
    *    place (no fabricated zeros)
+   *  - usage carried on emitted events is NOT priced
    */
-  test("writes usage.json from agent events on a deterministic-judge run", async () => {
+  test("prices the egress jail's observed usage on a deterministic-judge run", async () => {
     const runId = `lme-v2-runner-usage-${Date.now()}`;
     runIdsToCleanup.push(runId);
 
-    const harness = makeFakeAgent([
+    const harness = makeFakeAgent(
+      [[textEvent("Ready.")], [textEvent("The laptop was blue.")]],
       [
-        textEvent("Ready."),
-        usageEvent({
+        {
           provider: "anthropic",
           model: "claude-sonnet-4-6",
           input_tokens: 1000,
           output_tokens: 100,
-        }),
-      ],
-      [
-        textEvent("The laptop was blue."),
-        usageEvent({
+        },
+        {
           provider: "anthropic",
           model: "claude-sonnet-4-6",
           input_tokens: 500,
           output_tokens: 30,
-        }),
+        },
       ],
-    ]);
+    );
     nextAgent = harness.agent;
 
     await runLongMemEvalV2Unit({
@@ -401,8 +455,8 @@ describe("runLongMemEvalV2Unit", () => {
     const usage = JSON.parse(
       await readFile(runArtifacts(runId).usagePath, "utf8"),
     );
-    // Two ingest + question conversations both contributed a usage row.
-    // No judge entry because the eval_function was deterministic.
+    // Both jail-observed model calls contributed a usage row. No judge
+    // entry because the eval_function was deterministic.
     expect(usage.requests).toHaveLength(2);
     expect(usage.totalInputTokens).toBe(1500);
     expect(usage.totalOutputTokens).toBe(130);
@@ -413,31 +467,72 @@ describe("runLongMemEvalV2Unit", () => {
     expect(usage.totalCostUsd).toBeGreaterThan(0);
   });
 
-  test("merges LLM judge usage into usage.json alongside agent usage", async () => {
-    const runId = `lme-v2-runner-judge-usage-${Date.now()}`;
+  test("does not price usage carried on assistant-emitted events", async () => {
+    const runId = `lme-v2-runner-no-event-usage-${Date.now()}`;
     runIdsToCleanup.push(runId);
 
+    // GIVEN an agent that emits a usage event but whose egress jail
+    // observed nothing (no readUsageRecords capability).
     const harness = makeFakeAgent([
       [
         textEvent("Ready."),
         usageEvent({
           provider: "anthropic",
           model: "claude-sonnet-4-6",
-          input_tokens: 800,
-          output_tokens: 50,
+          input_tokens: 9999,
+          output_tokens: 9999,
         }),
       ],
+      [textEvent("The laptop was blue.")],
+    ]);
+    nextAgent = harness.agent;
+
+    // WHEN the run completes
+    await runLongMemEvalV2Unit({
+      profile: profileFor("p1"),
+      item: makeItem(),
+      trajectoryReader: trajectoryReader(),
+      runId,
+      quietMs: 50,
+    });
+
+    // THEN the emitted usage is ignored — no priced rows, no token
+    // totals, and cost reads "missing" rather than reflecting the event.
+    const usage = JSON.parse(
+      await readFile(runArtifacts(runId).usagePath, "utf8"),
+    );
+    expect(usage.requests).toHaveLength(0);
+    expect(usage.totalInputTokens).toBeUndefined();
+    expect(usage.totalOutputTokens).toBeUndefined();
+    expect(usage.totalCostUsd).toBeUndefined();
+    expect(usage.costStatus).toBe("missing");
+  });
+
+  test("merges LLM judge usage into usage.json alongside assistant usage", async () => {
+    const runId = `lme-v2-runner-judge-usage-${Date.now()}`;
+    runIdsToCleanup.push(runId);
+
+    const harness = makeFakeAgent(
       [
+        [textEvent("Ready.")],
         // Hypothesis text that the LLM judge will grade.
-        textEvent("The premise is wrong because X."),
-        usageEvent({
+        [textEvent("The premise is wrong because X.")],
+      ],
+      [
+        {
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          input_tokens: 800,
+          output_tokens: 50,
+        },
+        {
           provider: "anthropic",
           model: "claude-sonnet-4-6",
           input_tokens: 300,
           output_tokens: 20,
-        }),
+        },
       ],
-    ]);
+    );
     nextAgent = harness.agent;
 
     // Mock OpenAI chat completions for the LLM judge call. Returns a
@@ -513,22 +608,21 @@ describe("runLongMemEvalV2Unit", () => {
     expect(usage.costDiagnostics ?? []).toHaveLength(0);
   });
 
-  test("LLM judge with no usage block: usage.json has agent rows only", async () => {
+  test("LLM judge with no usage block: usage.json has assistant rows only", async () => {
     const runId = `lme-v2-runner-no-judge-usage-${Date.now()}`;
     runIdsToCleanup.push(runId);
 
-    const harness = makeFakeAgent([
+    const harness = makeFakeAgent(
+      [[textEvent("Ready.")], [textEvent("The premise is wrong because X.")]],
       [
-        textEvent("Ready."),
-        usageEvent({
+        {
           provider: "anthropic",
           model: "claude-sonnet-4-6",
           input_tokens: 800,
           output_tokens: 50,
-        }),
+        },
       ],
-      [textEvent("The premise is wrong because X.")],
-    ]);
+    );
     nextAgent = harness.agent;
 
     // Judge response with no usage block — local non-OpenAI endpoints
@@ -567,7 +661,7 @@ describe("runLongMemEvalV2Unit", () => {
     const usage = JSON.parse(
       await readFile(runArtifacts(runId).usagePath, "utf8"),
     );
-    // Only the single ingest-turn usage row.
+    // Only the single jail-observed assistant row; no judge row.
     expect(usage.requests).toHaveLength(1);
     expect(usage.totalInputTokens).toBe(800);
     expect(usage.totalOutputTokens).toBe(50);

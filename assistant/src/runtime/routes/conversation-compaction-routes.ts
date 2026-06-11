@@ -34,30 +34,37 @@
  * which has no compaction immediately before it but had several
  * earlier in the same turn. The turn is the right unit of analysis.
  *
- * # Data model decision (in progress)
+ * # Data sources
  *
- * Today the trail is projected from `llm_request_logs` rows alone — no
- * `compaction_logs` table exists yet (#32055 remains a draft). This MVP
- * route exists precisely to test whether the projected shape is enough.
- * If real-world use surfaces UX needs that aren't in `llm_request_logs`
- * (most likely: per-event duration, structured before/after counts,
- * trigger reason), that becomes the concrete justification for the new
- * table. Until then, missing fields surface as `null` and the Compaction
- * tab renders `"Unavailable"` for them.
+ * When `compactionLogs.destination = "clickhouse"` is configured, the
+ * trail is served from the first-class compaction log: the agent loop's
+ * start/end event pairs written by
+ * `memory/compaction-log-store-clickhouse.ts`. Those rows carry real
+ * durations, summary-model token totals, and trigger reasons — none of
+ * which exist on `llm_request_logs`.
  *
- * In particular, `durationMs` is always `null` for now — the column
- * doesn't exist on `llm_request_logs` and we deliberately ship the route
- * without it to surface the gap in the UI.
+ * The legacy projection over `llm_request_logs` rows with
+ * `call_site = "compactionAgent"` remains as the fallback: it serves
+ * turns that predate the compaction log (the table is append-only from
+ * the moment the destination is configured), assistants that never opt
+ * in, and reads where the ClickHouse query fails. On the legacy path
+ * `durationMs` is always `null` — the column doesn't exist on
+ * `llm_request_logs`.
  */
 
 import { z } from "zod";
 
+import {
+  type CompactionLogEvent,
+  getCompactionLogStore,
+} from "../../memory/compaction-log-store-clickhouse.js";
 import {
   getConversation,
   getTurnTimeBounds,
 } from "../../memory/conversation-crud.js";
 import { getLlmRequestLogSource } from "../../memory/llm-request-log-source.js";
 import type { LogRow } from "../../memory/llm-request-log-store.js";
+import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import {
@@ -65,6 +72,8 @@ import {
   normalizeLlmContextPayloads,
 } from "./llm-context-normalization.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+const log = getLogger("conversation-compaction-routes");
 
 /**
  * Wire shape for a single compaction event. Mirrors the React Query
@@ -81,12 +90,9 @@ export interface CompactionTrailEvent {
   inputTokens: number | null;
   outputTokens: number | null;
   /**
-   * Per-call wall-clock latency, in milliseconds. **Always `null` for
-   * now** — `llm_request_logs` doesn't carry a duration column. Surfacing
-   * the gap in the UI is intentional: if engineers consistently miss
-   * having latency here, that's a concrete signal to extend the row
-   * (either as a column on `llm_request_logs` or on a dedicated
-   * `compaction_logs` table per the open data-model decision).
+   * Per-attempt wall-clock latency, in milliseconds. Populated from the
+   * compaction log when configured; always `null` on the legacy
+   * `llm_request_logs` path, which has no duration column.
    */
   durationMs: number | null;
   responsePreview: string | null;
@@ -172,6 +178,33 @@ export function projectLogRowToCompactionTrailEvent(
   };
 }
 
+/**
+ * Project a paired compaction-log event into the trail wire shape. Token
+ * counts are the summarizer's own usage (what the compaction itself cost),
+ * matching what the legacy path derived from the compaction agent's
+ * request/response payloads.
+ *
+ * Exported only for unit tests; the route handler is the sole production
+ * caller.
+ */
+export function projectCompactionLogEventToTrailEvent(
+  event: CompactionLogEvent,
+): CompactionTrailEvent {
+  return {
+    id: event.compactionId,
+    createdAt: event.startedAt,
+    model: event.summaryModel,
+    provider: null,
+    inputTokens: event.summaryInputTokens,
+    outputTokens: event.summaryOutputTokens,
+    durationMs: event.durationMs,
+    responsePreview: event.summaryText,
+    requestMessageCount: event.preMessageCount,
+    stopReason: event.reason,
+    estimatedCostUsd: null,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
@@ -232,6 +265,40 @@ async function handleGetCompactionTrail({
     turnBounds !== null ? turnBounds.startTime - 1 : null;
   const beforeCreatedAt: number =
     turnBounds !== null ? turnBounds.endTime + 1 : selectedCall.createdAt;
+  // Prefer the first-class compaction log when the assistant has opted
+  // in. Zero rows means the turn predates the log (it is append-only from
+  // the moment the destination is configured), so fall through to the
+  // legacy projection rather than returning an empty trail; same for a
+  // failed ClickHouse read. Writes are best-effort and the start/end rows
+  // land independently, so an event without its end row (no `finishedAt`)
+  // means the end write failed or is lagging — in that case the legacy
+  // projection may still have the summarizer call details, so fall back
+  // rather than serve a trail with null model/tokens/duration.
+  const compactionStore = getCompactionLogStore();
+  if (compactionStore) {
+    try {
+      const events = await compactionStore.getEventsBetween(
+        conversationId,
+        afterCreatedAt,
+        beforeCreatedAt,
+      );
+      if (
+        events.length > 0 &&
+        events.every((event) => event.finishedAt !== null)
+      ) {
+        return {
+          conversationId,
+          events: events.map(projectCompactionLogEventToTrailEvent),
+        };
+      }
+    } catch (err) {
+      log.warn(
+        { err, conversationId, callId },
+        "Compaction log read failed; falling back to llm_request_logs projection",
+      );
+    }
+  }
+
   const logs = await source.getCompactionLogsBetween(
     conversationId,
     afterCreatedAt,
@@ -259,7 +326,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Get the compaction trail leading up to an LLM call",
     description:
-      "Return the chronological list of compaction events that ran in the same agent turn as the call identified by `callId`. Turn bounds are walked from the `messages` table (real user messages — tool-result user messages are not boundaries). Projected from `llm_request_logs` rows where `call_site = \"compactionAgent\"`. When the conversation has no other messages around the selected call, every compaction strictly before the call's `createdAt` is in scope. Drives the Inspector's Compaction tab.",
+      'Return the chronological list of compaction events that ran in the same agent turn as the call identified by `callId`. Turn bounds are walked from the `messages` table (real user messages — tool-result user messages are not boundaries). Served from the first-class compaction log when `compactionLogs.destination = "clickhouse"` is configured, falling back to the legacy projection over `llm_request_logs` rows where `call_site = "compactionAgent"`. When the conversation has no other messages around the selected call, every compaction strictly before the call\'s `createdAt` is in scope. Drives the Inspector\'s Compaction tab.',
     tags: ["conversations"],
     pathParams: [
       {

@@ -8,6 +8,10 @@
 import { isSurfaceInteractive, type DisplayMessage } from "@/domains/chat/types/types";
 
 import { attachConfirmationToToolCall, ERROR_MESSAGES } from "@/domains/chat/utils/chat";
+import {
+  filterMessageSurfaces,
+  mapMessageSurfaces,
+} from "@/domains/chat/utils/map-message-surfaces";
 import { mapMessageToolCalls } from "@/domains/chat/utils/map-message-tool-calls";
 import type { PendingConfirmationState, PendingSecretState } from "@/domains/chat/types";
 import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
@@ -93,20 +97,9 @@ export function dismissInteractiveSurfaces(
   if (interactiveIds.size === 0) {
     return { updatedMessages: prev, dismissedIds: interactiveIds };
   }
-  const updatedMessages = prev.map((msg) => {
-    if (!msg.surfaces || msg.surfaces.length === 0) return msg;
-    const remaining = msg.surfaces.filter(
-      (s) => !interactiveIds.has(s.surfaceId),
-    );
-    if (remaining.length === msg.surfaces.length) return msg;
-    return {
-      ...msg,
-      surfaces: remaining,
-      contentOrder: msg.contentOrder?.filter(
-        (e) => !(e.type === "surface" && interactiveIds.has(e.id)),
-      ),
-    };
-  });
+  const updatedMessages = prev.map((msg) =>
+    filterMessageSurfaces(msg, (s) => !interactiveIds.has(s.surfaceId)),
+  );
   return { updatedMessages, dismissedIds: interactiveIds };
 }
 
@@ -127,20 +120,17 @@ export function completeSubmittedSurface(
       actionId === "dismiss" ||
       matchedAction?.style === "secondary";
     const updated = [...prev];
-    updated[i] = {
-      ...prev[i]!,
-      surfaces: prev[i]!.surfaces?.map((s) =>
-        s.surfaceId === surfaceId
-          ? {
-              ...s,
-              completed: true,
-              completionSummary: isCancellation
-                ? "Cancelled"
-                : matchedAction?.label ?? undefined,
-            }
-          : s,
-      ),
-    };
+    updated[i] = mapMessageSurfaces(prev[i]!, (s) =>
+      s.surfaceId === surfaceId
+        ? {
+            ...s,
+            completed: true,
+            completionSummary: isCancellation
+              ? "Cancelled"
+              : matchedAction?.label ?? undefined,
+          }
+        : s,
+    );
     return updated;
   }
   return prev;

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { EventEmitter } from "node:events";
+import { writeFile } from "node:fs/promises";
 
 import { FakeChild } from "./test-helpers";
 
@@ -66,6 +67,7 @@ mock.module("electron", () => ({
       handlers[channel] = handler;
     },
     on: mock(() => undefined),
+    removeAllListeners: mock(() => undefined),
   },
 }));
 
@@ -103,8 +105,12 @@ const {
   __resetForTesting,
   __setPlatformForTesting,
   __setSupervisorOptionsForTesting,
+  getMacHelperAppPath,
   getMacHelperPath,
   installHotkeyHelper,
+  queryFreshMacHelperPermission,
+  requestMacHelperInputMonitoringPermission,
+  requestMacHelperSpeechRecognitionPermission,
 } = await import("./hotkey-helper");
 
 const invokeFnPushToTalk = (enable: boolean) =>
@@ -150,17 +156,83 @@ afterEach(() => {
 });
 
 describe("getMacHelperPath", () => {
+  test("resolves dev helper app from app path resources", () => {
+    expect(getMacHelperAppPath()).toBe(
+      "/repo/apps/macos/resources/vellum-mac-helper.app",
+    );
+  });
+
   test("resolves dev helper from app path resources", () => {
     expect(getMacHelperPath()).toBe(
-      "/repo/apps/macos/resources/vellum-mac-helper",
+      "/repo/apps/macos/resources/vellum-mac-helper.app/Contents/MacOS/vellum-mac-helper",
+    );
+  });
+
+  test("resolves packaged helper app from process.resourcesPath", () => {
+    appState.isPackaged = true;
+    expect(getMacHelperAppPath()).toBe(
+      "/mock/resources/bin/vellum-mac-helper.app",
     );
   });
 
   test("resolves packaged helper from process.resourcesPath", () => {
     appState.isPackaged = true;
     expect(getMacHelperPath()).toBe(
-      "/mock/resources/bin/vellum-mac-helper",
+      "/mock/resources/bin/vellum-mac-helper.app/Contents/MacOS/vellum-mac-helper",
     );
+  });
+});
+
+describe("permission request launchers", () => {
+  test("reads a permission status from a fresh helper process", async () => {
+    const pending = queryFreshMacHelperPermission("speechRecognition");
+    await wait(10);
+
+    expect(spawnCalls[0]?.[0]).toBe("open");
+    const args = spawnCalls[0]?.[1] ?? [];
+    expect(args.slice(0, 4)).toEqual([
+      "-n",
+      "/repo/apps/macos/resources/vellum-mac-helper.app",
+      "--args",
+      "--permission-status",
+    ]);
+    expect(args[4]).toBe("speechRecognition");
+    expect(args[5]).toBe("--status-output");
+    expect(args[6]).toBeString();
+
+    await writeFile(args[6]!, "{\"status\":\"granted\"}");
+    lastChild?.emit("exit", 0);
+    expect(await pending).toBe("granted");
+  });
+
+  test("launches the helper app for Speech Recognition prompts", async () => {
+    const pending = requestMacHelperSpeechRecognitionPermission();
+
+    expect(spawnCalls[0]?.[0]).toBe("open");
+    expect(spawnCalls[0]?.[1]).toEqual([
+      "-n",
+      "/repo/apps/macos/resources/vellum-mac-helper.app",
+      "--args",
+      "--request-speech-recognition",
+    ]);
+
+    lastChild?.emit("exit", 0);
+    await expect(pending).resolves.toBeUndefined();
+  });
+
+  test("launches the helper app for Input Monitoring prompts", async () => {
+    const pending = requestMacHelperInputMonitoringPermission();
+
+    expect(spawnCalls[0]?.[0]).toBe("open");
+    expect(spawnCalls[0]?.[1]).toEqual([
+      "-n",
+      "/repo/apps/macos/resources/vellum-mac-helper.app",
+      "--args",
+      "--request-input-monitoring",
+    ]);
+
+    lastChild?.emit("exit", 0);
+    await expect(pending).resolves.toBeUndefined();
   });
 });
 
@@ -198,7 +270,7 @@ describe("installHotkeyHelper", () => {
       state: { status: "running" },
     });
     expect(spawnCalls[0]?.[0]).toBe(
-      "/repo/apps/macos/resources/vellum-mac-helper",
+      "/repo/apps/macos/resources/vellum-mac-helper.app/Contents/MacOS/vellum-mac-helper",
     );
   });
 
@@ -261,7 +333,7 @@ describe("installHotkeyHelper", () => {
     const pending = invokeFnPushToTalk(true);
 
     expect(spawnCalls[0]?.[0]).toBe(
-      "/repo/apps/macos/resources/vellum-mac-helper",
+      "/repo/apps/macos/resources/vellum-mac-helper.app/Contents/MacOS/vellum-mac-helper",
     );
     expect(lastChild?.stdin.writes[0]).toContain("\"jsonrpc\":\"2.0\"");
     expect(lastChild?.stdin.writes[0]).toContain(

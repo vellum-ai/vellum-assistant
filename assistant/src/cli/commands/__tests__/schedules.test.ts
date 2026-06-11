@@ -151,7 +151,8 @@ describe("schedules list", () => {
             retryCount: 0,
             maxRetries: 3,
             retryBackoffMs: 60_000,
-            description: "Every 30 minutes",
+            description: "Authored heartbeat check",
+            cadenceDescription: "Every 30 minutes",
             mode: "execute",
             status: "active",
             routingIntent: "all_channels",
@@ -175,6 +176,8 @@ describe("schedules list", () => {
         expect.objectContaining({
           id: "schedule-1",
           name: "Heartbeat",
+          description: "Authored heartbeat check",
+          cadenceDescription: "Every 30 minutes",
         }),
       ],
     });
@@ -201,7 +204,8 @@ describe("schedules list", () => {
             retryCount: 0,
             maxRetries: 3,
             retryBackoffMs: 60_000,
-            description: "Every 30 minutes",
+            description: "Authored heartbeat check",
+            cadenceDescription: "Every 30 minutes",
             mode: "execute",
             status: "active",
             routingIntent: "all_channels",
@@ -219,6 +223,7 @@ describe("schedules list", () => {
     expect(logLines.join("\n")).toContain("ID");
     expect(logLines.join("\n")).toContain("Heartbeat");
     expect(logLines.join("\n")).toContain("Every 30 minutes (UTC)");
+    expect(logLines.join("\n")).not.toContain("Authored heartbeat check");
   });
 
   test("sets exit code on IPC failure", async () => {
@@ -376,6 +381,8 @@ describe("schedules create", () => {
       "Heartbeat",
       "--expression",
       "*/30 * * * *",
+      "--description",
+      "Checks service heartbeat",
       "--message",
       "run heartbeat",
     ]);
@@ -388,6 +395,7 @@ describe("schedules create", () => {
           body: {
             name: "Heartbeat",
             expression: "*/30 * * * *",
+            description: "Checks service heartbeat",
             message: "run heartbeat",
             enabled: true,
           },
@@ -395,6 +403,39 @@ describe("schedules create", () => {
       },
     ]);
     expect(logLines).toEqual(["Created schedule: Heartbeat"]);
+  });
+
+  test("requires a description", async () => {
+    const { exitCode } = await runCommand([
+      "schedules",
+      "create",
+      "Heartbeat",
+      "--expression",
+      "*/30 * * * *",
+      "--message",
+      "run heartbeat",
+    ]);
+
+    expect(exitCode).not.toBe(0);
+    expect(ipcCalls).toEqual([]);
+  });
+
+  test("rejects an empty description", async () => {
+    const { exitCode } = await runCommand([
+      "schedules",
+      "create",
+      "Heartbeat",
+      "--expression",
+      "*/30 * * * *",
+      "--description",
+      "   ",
+      "--message",
+      "run heartbeat",
+    ]);
+
+    expect(exitCode).not.toBe(0);
+    expect(ipcCalls).toEqual([]);
+    expect(errorLines).toEqual(["description is required"]);
   });
 
   test("passes --timezone through to the request body", async () => {
@@ -408,6 +449,8 @@ describe("schedules create", () => {
       "0 9 * * MON-FRI",
       "--message",
       "morning summary",
+      "--description",
+      "Summarizes weekday mornings",
       "--timezone",
       "America/New_York",
     ]);
@@ -421,6 +464,7 @@ describe("schedules create", () => {
             name: "Morning",
             expression: "0 9 * * MON-FRI",
             message: "morning summary",
+            description: "Summarizes weekday mornings",
             enabled: true,
             timezone: "America/New_York",
           },
@@ -440,6 +484,8 @@ describe("schedules create", () => {
       "0 0 * * *",
       "--message",
       "placeholder",
+      "--description",
+      "Draft schedule",
       "--no-enabled",
     ]);
 
@@ -452,6 +498,7 @@ describe("schedules create", () => {
             name: "Drafted",
             expression: "0 0 * * *",
             message: "placeholder",
+            description: "Draft schedule",
             enabled: false,
           },
         },
@@ -480,7 +527,8 @@ describe("schedules create", () => {
             retryCount: 0,
             maxRetries: 3,
             retryBackoffMs: 60_000,
-            description: "Every 30 minutes",
+            description: "Checks service heartbeat",
+            cadenceDescription: "Every 30 minutes",
             mode: "execute",
             status: "active",
             routingIntent: "all_channels",
@@ -500,12 +548,20 @@ describe("schedules create", () => {
       "*/30 * * * *",
       "--message",
       "run heartbeat",
+      "--description",
+      "Checks service heartbeat",
       "--json",
     ]);
 
     expect(exitCode).toBe(0);
     expect(JSON.parse(stdout)).toEqual({
-      schedules: [expect.objectContaining({ id: "new-schedule-id" })],
+      schedules: [
+        expect.objectContaining({
+          id: "new-schedule-id",
+          description: "Checks service heartbeat",
+          cadenceDescription: "Every 30 minutes",
+        }),
+      ],
     });
     expect(logLines).toEqual([]);
   });
@@ -524,6 +580,8 @@ describe("schedules create", () => {
       "not-a-cron",
       "--message",
       "noop",
+      "--description",
+      "Invalid test schedule",
     ]);
 
     expect(exitCode).toBe(10);

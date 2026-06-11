@@ -123,9 +123,7 @@ function makeStopCtx(overrides: Partial<StopContext> = {}): StopContext {
   return {
     conversationId: "conv-1",
     messages: historyWithUserTurns(3),
-    responseContent: [{ type: "text", text: "reply 3" }],
-    stopReason: "end_turn",
-    decision: "stop",
+    exitReason: "no_tool_calls",
     logger: noopLogger,
     ...overrides,
   };
@@ -275,18 +273,20 @@ describe("title-generate stop hook", () => {
     expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(1);
   });
 
-  test("defers when an earlier hook chose to continue the run", async () => {
-    // GIVEN a third-user-turn stop that an earlier hook flipped to "continue"
+  test("does not regenerate on a non-success terminal exit", async () => {
+    // GIVEN a third-user-turn stop that ended on a provider error rather than
+    // a finalized no-tool reply
     const ctx = makeStopCtx({
       messages: historyWithUserTurns(3),
-      decision: "continue",
+      exitReason: "error",
+      error: new Error("provider rejected"),
     });
 
     // WHEN the stop hook runs and any deferred work flushes
     await stop(ctx);
     await flushMacrotasks();
 
-    // THEN it defers to the eventual terminal stop rather than re-titling now
+    // THEN no regeneration fires — there is no new topic to re-title from
     expect(queueRegenerateConversationTitleMock).toHaveBeenCalledTimes(0);
   });
 

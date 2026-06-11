@@ -3,11 +3,45 @@ import { ChevronRight } from "lucide-react";
 import { ScheduleUsageStats } from "@/domains/settings/components/schedule-shared-ui";
 import {
   formatTimestamp,
+  type PastOneTimeStatus,
   type ScheduleRowUsage,
 } from "@/domains/settings/utils/schedule-formatters";
+import { Tag } from "@vellumai/design-library/components/tag";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import type { Schedule } from "@/domains/settings/types/schedules";
+
+function cadenceTextForRow(schedule: Schedule): string | null {
+  const cadence = schedule.cadenceDescription.trim();
+  if (!cadence) return null;
+  if (schedule.isOneShot) return null;
+  if (cadence === schedule.description.trim()) return null;
+  return cadence;
+}
+
+function descriptionTextForRow(schedule: Schedule): string | null {
+  const description = schedule.description.trim();
+  if (!description) return null;
+  if (description.toLowerCase() === schedule.name.trim().toLowerCase()) {
+    return null;
+  }
+  return description;
+}
+
+function timestampTextForRow(
+  schedule: Schedule,
+  isPast: boolean,
+): string | null {
+  if (schedule.lastRunAt != null) {
+    return `Last ${formatTimestamp(schedule.lastRunAt)}`;
+  }
+  if (schedule.nextRunAt != null) {
+    return isPast
+      ? `Scheduled ${formatTimestamp(schedule.nextRunAt)}`
+      : `Next ${formatTimestamp(schedule.nextRunAt)}`;
+  }
+  return null;
+}
 
 export function ScheduleRow({
   schedule,
@@ -15,14 +49,19 @@ export function ScheduleRow({
   onClick,
   onToggle,
   onOpenUsage,
+  pastStatus,
 }: {
   schedule: Schedule;
   usage: ScheduleRowUsage;
   onClick: () => void;
-  onToggle: (enabled: boolean) => void;
+  onToggle?: (enabled: boolean) => void;
   onOpenUsage: () => void;
+  /** When set, the row is an elapsed one-shot: status tag instead of toggle. */
+  pastStatus?: PastOneTimeStatus;
 }) {
-  const displayRunAt = schedule.lastRunAt ?? schedule.nextRunAt;
+  const cadenceText = cadenceTextForRow(schedule);
+  const descriptionText = descriptionTextForRow(schedule);
+  const timestampText = timestampTextForRow(schedule, pastStatus != null);
 
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-[var(--surface-hover)] [&+&]:border-t [&+&]:border-[var(--border-base)]">
@@ -36,10 +75,19 @@ export function ScheduleRow({
             {schedule.name}
           </span>
         </div>
-        <div className="mt-0.5 flex items-center gap-3 text-body-small-default text-[var(--content-tertiary)]">
-          <span className="truncate">{schedule.description}</span>
-          {displayRunAt ? (
-            <span className="shrink-0">{formatTimestamp(displayRunAt)}</span>
+        <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-body-small-default text-[var(--content-tertiary)]">
+          {descriptionText ? (
+            <span className="min-w-[12rem] max-w-full flex-1 truncate">
+              {descriptionText}
+            </span>
+          ) : null}
+          {cadenceText ? (
+            <span className="shrink-0 text-[var(--content-secondary)]">
+              {cadenceText}
+            </span>
+          ) : null}
+          {timestampText ? (
+            <span className="shrink-0">{timestampText}</span>
           ) : null}
         </div>
       </button>
@@ -49,11 +97,15 @@ export function ScheduleRow({
           usage={usage}
           onOpenUsage={onOpenUsage}
         />
-        <Toggle
-          checked={schedule.enabled}
-          onChange={onToggle}
-          aria-label={`Toggle ${schedule.name}`}
-        />
+        {pastStatus ? (
+          <Tag tone={pastStatus.tone}>{pastStatus.label}</Tag>
+        ) : (
+          <Toggle
+            checked={schedule.enabled}
+            onChange={(enabled) => onToggle?.(enabled)}
+            aria-label={`Toggle ${schedule.name}`}
+          />
+        )}
         <button
           type="button"
           onClick={onClick}

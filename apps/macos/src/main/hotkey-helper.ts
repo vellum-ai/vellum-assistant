@@ -1,6 +1,19 @@
-import { BrowserWindow, app, type WebContents } from "electron";
+import { BrowserWindow, app, ipcMain, type WebContents } from "electron";
+import { spawn } from "node:child_process";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
+
+import type {
+  DictationPartialEvent,
+  DictationPartialsResult,
+  FnPushToTalkResult,
+  HelperRestartResult,
+  HelperState,
+  HotkeyEvent,
+  HotkeyEventState,
+} from "@vellumai/ipc-contract";
 
 import { handle } from "./ipc";
 import log from "./logger";
@@ -10,28 +23,26 @@ import {
   type MacHelperState,
 } from "./sidecar/mac-helper";
 
-export type HotkeyEventState = "down" | "up";
+export type {
+  DictationPartialEvent,
+  DictationPartialsResult,
+  FnPushToTalkResult,
+  HelperRestartResult,
+  HelperState,
+  HotkeyEvent,
+  HotkeyEventState,
+};
 
-export interface HotkeyEvent {
-  kind: "fnPushToTalk";
-  state: HotkeyEventState;
-}
+export type MacHelperPermissionKind =
+  | "speechRecognition"
+  | "inputMonitoring";
 
-export type FnPushToTalkResult =
-  | { ok: true; enabled: boolean }
-  | { ok: false; reason: string };
-
-export type HelperRestartResult =
-  | { ok: true; state: MacHelperState }
-  | { ok: false; reason: string; state: MacHelperState };
-
-export type DictationPartialsResult =
-  | { ok: true; enabled: boolean }
-  | { ok: false; reason: string };
-
-export interface DictationPartialEvent {
-  text: string;
-}
+export type MacHelperPermissionStatus =
+  | "unknown"
+  | "restricted"
+  | "denied"
+  | "not-determined"
+  | "granted";
 
 const HOTKEY_EVENT_SCHEMA = z.object({
   kind: z.literal("fnPushToTalk"),
@@ -42,13 +53,36 @@ const HOTKEY_RESULT_SCHEMA = z.object({
   enabled: z.boolean(),
 });
 
+const HELPER_PERMISSION_STATUS_SCHEMA = z.object({
+  status: z.enum([
+    "unknown",
+    "restricted",
+    "denied",
+    "not-determined",
+    "granted",
+  ]),
+});
+
 const DICTATION_PARTIAL_SCHEMA = z.object({
   text: z.string(),
+});
+
+const DICTATION_ERROR_SCHEMA = z.object({
+  message: z.string(),
+  onDevice: z.boolean(),
+  willRetryServer: z.boolean(),
+});
+
+const DICTATION_TRANSCRIBE_RESULT_SCHEMA = z.object({
+  ok: z.boolean(),
+  reason: z.string().optional(),
 });
 
 const DICTATION_RESULT_SCHEMA = z.object({
   enabled: z.boolean(),
   reason: z.string().optional(),
+  // Which input device the helper's recognizer tap actually captures.
+  tap: z.string().optional(),
 });
 
 let platformForTesting: NodeJS.Platform | null = null;
@@ -67,10 +101,19 @@ const getPlatform = (): NodeJS.Platform =>
   platformForTesting ?? process.platform;
 
 export const getMacHelperPath = (): string => {
+  return path.join(
+    getMacHelperAppPath(),
+    "Contents",
+    "MacOS",
+    "vellum-mac-helper",
+  );
+};
+
+export const getMacHelperAppPath = (): string => {
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, "bin", "vellum-mac-helper");
+    return path.join(process.resourcesPath, "bin", "vellum-mac-helper.app");
   }
-  return path.join(app.getAppPath(), "resources", "vellum-mac-helper");
+  return path.join(app.getAppPath(), "resources", "vellum-mac-helper.app");
 };
 
 const makeClient = (): MacHelperClient =>
@@ -110,6 +153,107 @@ const ping = async (): Promise<"pong"> => {
   return "pong";
 };
 
+export const queryMacHelperPermission = async (
+  kind: MacHelperPermissionKind,
+): Promise<MacHelperPermissionStatus> => {
+  const result = await client.call("permission.status", { kind });
+  return HELPER_PERMISSION_STATUS_SCHEMA.parse(result).status;
+};
+
+export const queryFreshMacHelperPermission = async (
+  kind: MacHelperPermissionKind,
+): Promise<MacHelperPermissionStatus> => {
+  const result = await queryBundledMacHelperPermission(kind);
+  return HELPER_PERMISSION_STATUS_SCHEMA.parse(result).status;
+};
+
+export const requestMacHelperSpeechRecognitionPermission =
+  async (): Promise<void> => {
+    await openMacHelperApp(["--request-speech-recognition"]);
+  };
+
+export const requestMacHelperInputMonitoringPermission =
+  async (): Promise<void> => {
+    await openMacHelperApp(["--request-input-monitoring"]);
+  };
+
+const queryBundledMacHelperPermission = async (
+  kind: MacHelperPermissionKind,
+): Promise<unknown> => {
+  const tempDir = await mkdtemp(
+    path.join(tmpdir(), "vellum-mac-helper-permission-"),
+  );
+  const outputPath = path.join(tempDir, "status.json");
+
+  try {
+    await openMacHelperApp(
+      [
+        "--permission-status",
+        kind,
+        "--status-output",
+        outputPath,
+      ],
+    );
+    return await readPermissionStatusFile(outputPath);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+};
+
+const openMacHelperApp = async (
+  helperArgs: string[],
+): Promise<void> => {
+  await new Promise<void>((resolve, reject) => {
+    const args = [
+      "-n",
+      getMacHelperAppPath(),
+      "--args",
+      ...helperArgs,
+    ];
+    const child = spawn("open", args, { stdio: "ignore" });
+    let settled = false;
+
+    const settle = (err?: Error) => {
+      if (settled) return;
+      settled = true;
+      if (err) {
+        reject(err);
+      } else {
+        resolve();
+      }
+    };
+
+    child.once("error", settle);
+    child.once("exit", (code) => {
+      if (code === 0) {
+        settle();
+      } else {
+        settle(new Error(`open exited with code ${code ?? "unknown"}`));
+      }
+    });
+  });
+};
+
+const readPermissionStatusFile = async (
+  outputPath: string,
+): Promise<unknown> => {
+  const deadline = Date.now() + 5_000;
+  let lastError: unknown = null;
+
+  while (Date.now() < deadline) {
+    try {
+      return JSON.parse(await readFile(outputPath, "utf8"));
+    } catch (err) {
+      lastError = err;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("mac helper permission status did not appear");
+};
+
 interface HotkeyOwner {
   webContents: WebContents;
   cleanup: () => void;
@@ -119,12 +263,24 @@ interface HotkeyOwner {
 // session's host. Partial notifications route only there.
 let dictationPartialsOwner: WebContents | null = null;
 
+// The renderer's push pipeline downsamples to 16 kHz mono Int16 (the
+// pcm-downsample worklet contract).
+const DICTATION_PUSH_SAMPLE_RATE = 16000;
+
 const setDictationPartials = async (
   webContents: WebContents,
   enable: boolean,
+  deviceName?: string,
+  pushAudio?: boolean,
 ): Promise<DictationPartialsResult> => {
   try {
-    const result = await client.call("dictation.setPartials", { enable });
+    const result = await client.call("dictation.setPartials", {
+      enable,
+      ...(deviceName ? { deviceName } : {}),
+      ...(pushAudio
+        ? { pushAudio: true, sampleRate: DICTATION_PUSH_SAMPLE_RATE }
+        : {}),
+    });
     const parsed = DICTATION_RESULT_SCHEMA.safeParse(result);
     if (!parsed.success) {
       return {
@@ -133,9 +289,28 @@ const setDictationPartials = async (
       };
     }
     if (enable && !parsed.data.enabled) {
+      log.warn(
+        `[mac-helper] dictation partials enable refused (wc=${webContents.id}): ${parsed.data.reason ?? "unavailable"}`,
+      );
       return { ok: false, reason: parsed.data.reason ?? "unavailable" };
     }
+    const previousOwner = dictationPartialsOwner;
     dictationPartialsOwner = enable ? webContents : null;
+    // The finalized transcript (and the final partial flush) arrive AFTER
+    // disable — keep routing to the window that just stopped recording.
+    dictationFinalOwner = webContents;
+    if (enable) {
+      forwardedPartialCount = 0;
+      audioChunkCount = 0;
+    }
+    const replaced =
+      previousOwner && previousOwner !== webContents && !previousOwner.isDestroyed()
+        ? ` (replaced wc=${previousOwner.id})`
+        : "";
+    const tap = enable && parsed.data.tap ? ` tap=${parsed.data.tap}` : "";
+    log.info(
+      `[mac-helper] dictation partials ${enable ? "enabled" : "disabled"} by wc=${webContents.id}${replaced}${tap}`,
+    );
     return { ok: true, enabled: parsed.data.enabled };
   } catch (err) {
     return {
@@ -145,9 +320,54 @@ const setDictationPartials = async (
   }
 };
 
+let forwardedPartialCount = 0;
+let audioChunkCount = 0;
+// The window that should receive post-disable dictation events (the final
+// partial flush and `dictation.finalized`) — survives the owner being
+// nulled by the disable call.
+let dictationFinalOwner: WebContents | null = null;
+
+const toAudioBuffer = (chunk: unknown): Buffer | null => {
+  if (Buffer.isBuffer(chunk)) return chunk;
+  if (chunk instanceof Uint8Array) return Buffer.from(chunk);
+  if (chunk instanceof ArrayBuffer) return Buffer.from(new Uint8Array(chunk));
+  return null;
+};
+
+const dictationEventTarget = (): WebContents | null => {
+  if (dictationPartialsOwner && !dictationPartialsOwner.isDestroyed()) {
+    return dictationPartialsOwner;
+  }
+  if (dictationFinalOwner && !dictationFinalOwner.isDestroyed()) {
+    return dictationFinalOwner;
+  }
+  return null;
+};
+
 const sendDictationPartialToOwner = (event: DictationPartialEvent): void => {
-  if (!dictationPartialsOwner || dictationPartialsOwner.isDestroyed()) return;
-  dictationPartialsOwner.send("vellum:helper:dictation:partial", event);
+  forwardedPartialCount += 1;
+  const owner = dictationEventTarget();
+  if (forwardedPartialCount === 1 || forwardedPartialCount % 25 === 0) {
+    // Count/length only — transcript content must never be logged.
+    log.info(
+      `[mac-helper] dictation partial #${forwardedPartialCount} chars=${event.text.length} → ${owner ? `wc=${owner.id}` : "DROPPED (no owner)"}`,
+    );
+  }
+  if (!owner) return;
+  owner.send("vellum:helper:dictation:partial", event);
+};
+
+const sendDictationTextEventToOwner = (
+  kind: "finalized" | "transcribed",
+  event: DictationPartialEvent,
+): void => {
+  const owner = dictationEventTarget();
+  // Length only — transcript content must never be logged.
+  log.info(
+    `[mac-helper] dictation ${kind} chars=${event.text.length} → ${owner ? `wc=${owner.id}` : "DROPPED (no owner)"}`,
+  );
+  if (!owner) return;
+  owner.send(`vellum:helper:dictation:${kind}`, event);
 };
 
 const hotkeyOwners = new Map<number, HotkeyOwner>();
@@ -340,6 +560,7 @@ const handleHelperState = (state: MacHelperState): void => {
   // The partials session lived in the dead helper process; the renderer's
   // session simply continues without live text.
   dictationPartialsOwner = null;
+  dictationFinalOwner = null;
   sendSyntheticHotkeyUpIfNeeded();
 };
 
@@ -360,6 +581,9 @@ let installed = false;
 let unsubscribeHotkeyEvents: (() => void) | null = null;
 let unsubscribeHelperState: (() => void) | null = null;
 let unsubscribeDictationPartials: (() => void) | null = null;
+let unsubscribeDictationFinalized: (() => void) | null = null;
+let unsubscribeDictationTranscribed: (() => void) | null = null;
+let unsubscribeDictationError: (() => void) | null = null;
 
 export const installHotkeyHelper = (): void => {
   if (installed) return;
@@ -379,6 +603,31 @@ export const installHotkeyHelper = (): void => {
       sendDictationPartialToOwner(event);
     },
   );
+  unsubscribeDictationFinalized = client.onNotification(
+    "dictation.finalized",
+    DICTATION_PARTIAL_SCHEMA,
+    (event) => {
+      sendDictationTextEventToOwner("finalized", event);
+    },
+  );
+  unsubscribeDictationTranscribed = client.onNotification(
+    "dictation.transcribed",
+    DICTATION_PARTIAL_SCHEMA,
+    (event) => {
+      sendDictationTextEventToOwner("transcribed", event);
+    },
+  );
+  unsubscribeDictationError = client.onNotification(
+    "dictation.error",
+    DICTATION_ERROR_SCHEMA,
+    (event) => {
+      // Field-debuggable trace for recognition dying mid-session (the
+      // helper retries on the server path when the on-device pin fails).
+      log.warn(
+        `[mac-helper] dictation recognition error (onDevice=${event.onDevice}, retryServer=${event.willRetryServer}): ${event.message}`,
+      );
+    },
+  );
   unsubscribeHelperState = client.onState(handleHelperState);
 
   handle("vellum:helper:ping", z.tuple([]), () => ping());
@@ -396,8 +645,66 @@ export const installHotkeyHelper = (): void => {
 
   handle(
     "vellum:helper:dictation:setPartials",
-    z.tuple([z.boolean()]),
-    ([enable], event) => setDictationPartials(event.sender, enable),
+    z.tuple([z.boolean(), z.string().optional(), z.boolean().optional()]),
+    ([enable, deviceName, pushAudio], event) =>
+      setDictationPartials(event.sender, enable, deviceName, pushAudio),
+  );
+
+  // High-frequency fire-and-forget PCM from the partials owner — plain
+  // `on`, not `handle`: a round-trip per ~100ms chunk buys nothing.
+  ipcMain.on("vellum:helper:dictation:audio", (event, chunk: unknown) => {
+    if (event.sender !== dictationPartialsOwner) {
+      audioChunkCount += 1;
+      if (audioChunkCount === 1 || audioChunkCount % 50 === 0) {
+        log.warn(
+          `[mac-helper] dictation audio chunk #${audioChunkCount} DROPPED (sender wc=${event.sender.id} is not the partials owner)`,
+        );
+      }
+      return;
+    }
+    const buf = toAudioBuffer(chunk);
+    if (!buf || buf.length === 0) return;
+    audioChunkCount += 1;
+    if (audioChunkCount === 1 || audioChunkCount % 50 === 0) {
+      // Byte counts only — never audio content.
+      log.info(
+        `[mac-helper] dictation audio chunk #${audioChunkCount} → helper (${buf.length} bytes)`,
+      );
+    }
+    void client
+      .call("dictation.appendAudio", { audio: buf.toString("base64") })
+      .catch(() => {
+        // Helper restarting mid-session — chunks are best-effort.
+      });
+  });
+
+  handle(
+    "vellum:helper:dictation:transcribe",
+    z.tuple([z.unknown()]),
+    async ([audio], event): Promise<{ ok: boolean; reason?: string }> => {
+      const buf = toAudioBuffer(audio);
+      if (!buf || buf.length === 0) {
+        return { ok: false, reason: "empty audio" };
+      }
+      // Route the upcoming `dictation.transcribed` to the requester.
+      dictationFinalOwner = event.sender;
+      try {
+        const result = await client.call("dictation.transcribe", {
+          audio: buf.toString("base64"),
+          sampleRate: DICTATION_PUSH_SAMPLE_RATE,
+        });
+        const parsed = DICTATION_TRANSCRIBE_RESULT_SCHEMA.safeParse(result);
+        if (!parsed.success) {
+          return { ok: false, reason: "invalid transcribe result" };
+        }
+        return parsed.data;
+      } catch (err) {
+        return {
+          ok: false,
+          reason: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
   );
 
   app.on("before-quit", () => {
@@ -410,6 +717,7 @@ export const installHotkeyHelper = (): void => {
 
 export const __resetForTesting = (): void => {
   installed = false;
+  ipcMain.removeAllListeners("vellum:helper:dictation:audio");
   platformForTesting = null;
   supervisorOptionsForTesting = {};
   helperRegistered = false;
@@ -423,7 +731,14 @@ export const __resetForTesting = (): void => {
   unsubscribeHelperState = null;
   unsubscribeDictationPartials?.();
   unsubscribeDictationPartials = null;
+  unsubscribeDictationError?.();
+  unsubscribeDictationError = null;
+  unsubscribeDictationFinalized?.();
+  unsubscribeDictationFinalized = null;
+  unsubscribeDictationTranscribed?.();
+  unsubscribeDictationTranscribed = null;
   dictationPartialsOwner = null;
+  dictationFinalOwner = null;
   for (const owner of hotkeyOwners.values()) owner.cleanup();
   hotkeyOwners.clear();
   activeHotkeyOwnerId = null;

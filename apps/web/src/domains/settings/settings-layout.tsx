@@ -9,15 +9,12 @@ import { routes } from "@/utils/routes";
 import { SETTINGS_SIDEBAR } from "@/utils/settings-navigation";
 import { SidebarShell } from "@/components/sidebar-shell";
 import { SidebarTree } from "@/components/sidebar-tree";
-import { useSettingsSync } from "@/domains/settings/hooks/use-settings-sync";
 
 /**
  * React Router layout route for `/assistant/settings/*`.
  *
  * Renders the SidebarShell (responsive overlay panel with sidebar
  * navigation) and an `<Outlet />` for the active settings tab page.
- * Also mounts the settings sync bridge to keep TanStack Query caches
- * fresh while the user is on any settings page.
  */
 export function SettingsLayout() {
   const settingsDeveloperNav = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
@@ -72,8 +69,6 @@ export function SettingsLayout() {
     if (match) return match.label;
     return "Settings";
   }, [pathname]);
-
-  useSettingsSync();
 
   return (
     <SidebarShell

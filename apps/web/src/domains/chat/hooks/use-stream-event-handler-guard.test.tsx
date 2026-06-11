@@ -79,8 +79,6 @@ function renderHandler(
         cancelReconciliation: () => {},
         startReconciliationLoop: () => {},
         setAssetsRefreshKey: () => {},
-        scheduleConversationListRefetch: () => {},
-        dispatchSyncChanged: () => {},
       }),
     { wrapper },
   );
@@ -167,8 +165,8 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
       } as unknown as AssistantEvent,
       0,
     );
-    // sync_changed routes through dispatchSyncChanged (provided as
-    // a noop); the global event passing the guard is the key point.
+    // sync_changed is a no-op in the stream handler (bus subscribers
+    // own it). The global event passing the guard is the key point.
     // No "wrong_conversation" diagnostic should be recorded — implicit
     // assertion that we got here without an early return.
     expect(true).toBe(true);

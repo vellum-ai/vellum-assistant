@@ -23,6 +23,7 @@ import {
 import { SYNC_TAGS } from "@/lib/sync/types";
 import type { SyncChangedEvent } from "@/lib/sync/types";
 import { __resetForTesting, publish } from "@/lib/event-bus";
+import { getClientId } from "@/lib/telemetry/client-identity";
 
 function createWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -334,5 +335,39 @@ describe("useAssistantResourceSync", () => {
     rerender({ active: false });
     emit((syncEvent([SYNC_TAGS.assistantAvatar]) as unknown) as AssistantEvent);
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  test("self-echo suppression: ignores sync_changed from same client", () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    const selfEvent = {
+      ...syncEvent([SYNC_TAGS.assistantAvatar]),
+      originClientId: getClientId(),
+    };
+    emit((selfEvent as unknown) as AssistantEvent);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  test("self-echo suppression: processes sync_changed from different client", async () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    const otherEvent = {
+      ...syncEvent([SYNC_TAGS.assistantAvatar]),
+      originClientId: "other-client-id",
+    };
+    emit((otherEvent as unknown) as AssistantEvent);
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith({
+        queryKey: avatarQueryKey("asst-1"),
+      });
+    });
   });
 });

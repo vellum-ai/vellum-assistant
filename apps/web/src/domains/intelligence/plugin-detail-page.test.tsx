@@ -79,6 +79,7 @@ describe("PluginDetailPage", () => {
       source: { kind: "github", repo: "example-org/caveman", ref: "v1.8.2" },
       readme: "# Caveman\n\nMakes the agent speak in grunts.",
       ref: "v1.8.2",
+      artifact: null,
     });
 
     // README markdown is rendered.
@@ -104,6 +105,7 @@ describe("PluginDetailPage", () => {
       source: null,
       readme: null,
       ref: "main",
+      artifact: null,
     });
 
     expect(html).toContain("Remove");
@@ -111,5 +113,73 @@ describe("PluginDetailPage", () => {
     expect(html).not.toContain("external");
     // No README falls back to an explanatory line.
     expect(html).toContain("ship a README");
+    // With no artifact descriptor, no download affordance is offered.
+    expect(html).not.toContain("Download");
+  });
+
+  test("offers a generic download linked to the artifact when an installed plugin ships one", () => {
+    const url =
+      "https://github.com/example-org/dynamic-notch/releases/download/v1.0.0/DynamicNotch.dmg";
+    const html = renderDetail("dynamic-notch", {
+      name: "dynamic-notch",
+      installed: true,
+      description: "A dynamic notch companion.",
+      homepage: null,
+      license: "MIT",
+      version: "1.0.0",
+      source: { kind: "github", repo: "example-org/dynamic-notch", ref: "v1.0.0" },
+      readme: "# Dynamic Notch",
+      ref: "v1.0.0",
+      artifact: { url, sha256: "a".repeat(64) },
+    });
+
+    // With no label on the artifact, the button falls back to a generic name.
+    expect(html).toContain("Download");
+    expect(html).toContain(`href="${url}"`);
+    // The plugin is installed, so Remove is still available alongside it.
+    expect(html).toContain("Remove");
+  });
+
+  test("uses the artifact's label for the download button when one is provided", () => {
+    const url =
+      "https://github.com/example-org/dynamic-notch/releases/download/v1.0.0/DynamicNotch.dmg";
+    const html = renderDetail("dynamic-notch", {
+      name: "dynamic-notch",
+      installed: true,
+      description: "A dynamic notch companion.",
+      homepage: null,
+      license: "MIT",
+      version: "1.0.0",
+      source: { kind: "github", repo: "example-org/dynamic-notch", ref: "v1.0.0" },
+      readme: "# Dynamic Notch",
+      ref: "v1.0.0",
+      artifact: { url, sha256: "a".repeat(64), label: "Download for macOS" },
+    });
+
+    // The plugin-provided label names the download.
+    expect(html).toContain("Download for macOS");
+    expect(html).toContain(`href="${url}"`);
+  });
+
+  test("does not offer a download before an artifact-bearing plugin is installed", () => {
+    const html = renderDetail("dynamic-notch", {
+      name: "dynamic-notch",
+      installed: false,
+      description: "A dynamic notch companion.",
+      homepage: null,
+      license: "MIT",
+      version: "1.0.0",
+      source: { kind: "github", repo: "example-org/dynamic-notch", ref: "v1.0.0" },
+      readme: "# Dynamic Notch",
+      ref: "v1.0.0",
+      artifact: {
+        url: "https://github.com/example-org/dynamic-notch/releases/download/v1.0.0/DynamicNotch.dmg",
+        sha256: "a".repeat(64),
+      },
+    });
+
+    // The install gate hides the download until the plugin is installed.
+    expect(html).toContain("Install");
+    expect(html).not.toContain("Download");
   });
 });

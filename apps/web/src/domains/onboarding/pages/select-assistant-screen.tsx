@@ -2,11 +2,13 @@ import { Check, Cloud, Laptop } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
+import { resolveSelectedAssistantId } from "@/assistant/selection";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { formatRelativeDate } from "@/utils/format-date";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
+import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
+import { useOrganizationStore } from "@/stores/organization-store";
 import {
   useResolvedAssistantsStore,
   type ResolvedAssistant,
@@ -29,8 +31,11 @@ export function SelectAssistantScreen() {
   const [searchParams] = useSearchParams();
   const fromLogin = searchParams.get("fromLogin") === "1";
   const fromSettings = searchParams.get("fromSettings") === "1";
+  const electron = isElectron();
   const hasPlatformSession = useHasPlatformSession();
   const assistants = useResolvedAssistantsStore.use.assistants();
+  const currentOrganizationId =
+    useOrganizationStore.use.currentOrganizationId();
   const {
     loading: loginLoading,
     error: loginError,
@@ -51,12 +56,14 @@ export function SelectAssistantScreen() {
   const [autoSkipping, setAutoSkipping] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Default selection to first accessible assistant
+  // Default selection: the app's known selected assistant when accessible,
+  // else the first accessible assistant.
   useEffect(() => {
-    if (selected == null && accessibleAssistants.length > 0) {
-      setSelected(accessibleAssistants[0].id);
-    }
-  }, [selected, accessibleAssistants]);
+    if (selected != null || accessibleAssistants.length === 0) return;
+    const resolved = resolveSelectedAssistantId(currentOrganizationId);
+    const match = accessibleAssistants.find((a) => a.id === resolved);
+    setSelected(match?.id ?? accessibleAssistants[0].id);
+  }, [selected, accessibleAssistants, currentOrganizationId]);
 
   const handleConnect = async (assistant: ResolvedAssistant) => {
     setConnecting(true);
@@ -65,7 +72,6 @@ export function SelectAssistantScreen() {
       if (assistant.isLocal) {
         await useAuthStore.getState().connectLocalAssistant(assistant.id);
       } else {
-        await selectPlatformAssistant(assistant.id);
         await useAuthStore.getState().connectPlatformAssistant(assistant.id);
       }
       void navigate(routes.assistant, { replace: true });
@@ -116,15 +122,15 @@ export function SelectAssistantScreen() {
 
   return (
     <OnboardingLayout>
-      <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center px-6 pb-40 pt-16 text-[var(--content-default)]">
+      <div className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-4 electron-prechat-type" : "min-h-screen px-6 pb-40 pt-16"} text-[var(--content-default)]`}>
         <h1
-          className="text-3xl font-semibold tracking-tight"
+          className={electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}
           style={{ animation: "fadeInUp 0.5s ease-out 0.1s both" }}
         >
           Choose an Assistant
         </h1>
         <p
-          className="mt-3 text-body-medium-lighter text-[var(--content-tertiary)]"
+          className={`text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-3"}`}
           style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
         >
           Select which assistant you&rsquo;d like to use.
@@ -137,7 +143,7 @@ export function SelectAssistantScreen() {
         )}
 
         <div
-          className="mt-10 flex w-full flex-col gap-3"
+          className={`flex w-full flex-col ${electron ? "mt-8 gap-2" : "mt-10 gap-3"}`}
           style={{ animation: "fadeInUp 0.5s ease-out 0.4s both" }}
         >
           {assistants.map((assistant) => {
@@ -158,7 +164,7 @@ export function SelectAssistantScreen() {
         </div>
 
         <div
-          className="mt-8 flex w-full flex-col gap-2"
+          className={`mt-8 flex w-full flex-col ${electron ? "gap-2.5" : "gap-2"}`}
           style={{ animation: "fadeInUp 0.5s ease-out 0.5s both" }}
         >
           {accessibleAssistants.length > 0 && (
@@ -166,7 +172,7 @@ export function SelectAssistantScreen() {
               variant="primary"
               size="regular"
               fullWidth
-              className="h-11 text-base"
+              className={electron ? undefined : "h-11 text-base"}
               onClick={onContinue}
               disabled={!selected || connecting}
             >
@@ -177,7 +183,7 @@ export function SelectAssistantScreen() {
             variant="outlined"
             size="regular"
             fullWidth
-            className="h-11 text-base"
+            className={electron ? undefined : "h-11 text-base"}
             onClick={() =>
               void navigate(
                 `${routes.onboarding.hosting}?from=select-assistant`,
@@ -192,7 +198,7 @@ export function SelectAssistantScreen() {
               variant="outlined"
               size="regular"
               fullWidth
-              className="h-11 text-base"
+              className={electron ? undefined : "h-11 text-base"}
               onClick={loginLoading ? cancelLogin : () => void login()}
               disabled={connecting}
             >
@@ -203,7 +209,7 @@ export function SelectAssistantScreen() {
             variant="outlined"
             size="regular"
             fullWidth
-            className="h-11 text-base"
+            className={electron ? undefined : "h-11 text-base"}
             onClick={onBack}
             disabled={connecting || loginLoading}
           >
@@ -229,6 +235,10 @@ function AssistantCard({
   onSelect: () => void;
 }) {
   const subtitle = assistantSubtitle(assistant);
+  // Electron compacts the card to the Swift client's onboarding-card metrics
+  // (12px padding, 12px radius, 12px icon→text gap, 11px secondary text) so
+  // the picker reads at the same density as the native windows.
+  const electron = isElectron();
 
   return (
     <button
@@ -236,7 +246,8 @@ function AssistantCard({
       onClick={onSelect}
       disabled={disabled}
       className={[
-        "group flex w-full items-center gap-4 rounded-2xl border px-5 py-4 text-left",
+        "group flex w-full items-center border text-left",
+        electron ? "gap-3 rounded-lg p-3" : "gap-4 rounded-2xl px-5 py-4",
         "transition-all duration-200 ease-out",
         disabled
           ? "cursor-not-allowed opacity-50"
@@ -248,7 +259,8 @@ function AssistantCard({
     >
       <div
         className={[
-          "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors duration-200",
+          "flex shrink-0 items-center justify-center transition-colors duration-200",
+          electron ? "h-8 w-8 rounded-lg" : "h-10 w-10 rounded-xl",
           selected && !disabled
             ? "bg-[var(--primary-base)]/15 text-[var(--primary-base)]"
             : "bg-[var(--surface-tertiary)] text-[var(--content-secondary)]",
@@ -267,13 +279,13 @@ function AssistantCard({
             {assistantLabel(assistant)}
           </span>
           {badge && (
-            <span className="rounded-full bg-[var(--surface-tertiary)] px-2 py-0.5 text-body-small-default text-[var(--content-tertiary)]">
+            <span className={`rounded-full bg-[var(--surface-tertiary)] px-2 py-0.5 text-[var(--content-tertiary)] ${electron ? "text-label-medium-default" : "text-body-small-default"}`}>
               {badge}
             </span>
           )}
         </div>
         {subtitle && (
-          <span className="mt-0.5 block text-body-small-default text-[var(--content-tertiary)]">
+          <span className={`mt-0.5 block text-[var(--content-tertiary)] ${electron ? "text-label-medium-default" : "text-body-small-default"}`}>
             {subtitle}
           </span>
         )}

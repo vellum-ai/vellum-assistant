@@ -418,8 +418,12 @@ function ScopeControls({
     navigate(qs ? `${base}?${qs}` : base);
   };
 
+  // A native select's intrinsic minimum width is its widest option, so
+  // long message previews would otherwise push it past the viewport on
+  // phones. `w-full min-w-0 truncate` lets it shrink to the container
+  // and ellipsize the selected label instead.
   return (
-    <div className="flex items-center justify-end gap-2">
+    <div className="flex flex-wrap items-center justify-end gap-2">
       <label
         htmlFor="inspector-scope-select"
         className="text-label-default"
@@ -429,7 +433,7 @@ function ScopeControls({
       </label>
       <select
         id="inspector-scope-select"
-        className="rounded-md border px-2 py-1 text-label-default"
+        className="w-full min-w-0 truncate rounded-md border px-2 py-1 text-label-default sm:w-auto sm:max-w-md"
         style={{
           borderColor: "var(--border-base)",
           background: "var(--surface-base)",

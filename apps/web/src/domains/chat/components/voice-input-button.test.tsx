@@ -28,8 +28,14 @@ mock.module("@sentry/react", () => ({
 }));
 
 const postSttTranscribeSpy = mock(
-  async (_blob: Blob, _assistantId: string, _signal?: AbortSignal) => ({
-    status: "ok" as const,
+  async (
+    _blob: Blob,
+    _assistantId: string,
+    _signal?: AbortSignal,
+  ): Promise<
+    { status: "ok"; text: string } | { status: "error"; reason: string }
+  > => ({
+    status: "ok",
     text: "hello world",
   }),
 );
@@ -37,19 +43,37 @@ mock.module("@/domains/chat/voice/stt-api", () => ({
   postSttTranscribe: postSttTranscribeSpy,
 }));
 
-// No daemon stream and no native helper partials — live interim text is not
-// under test, and returning null from both exercises the default web path.
+// The daemon stream defaults to unavailable (null) — live interim text from
+// that source is not under test; the fallback tests swap in a fake handle to
+// drive the stream-death path.
+interface FakeDictationStreamArgs {
+  onPartial: (text: string) => void;
+}
+let dictationStreamImpl: (
+  args: FakeDictationStreamArgs,
+) => { isLive: () => boolean; stop: () => void } | null = () => null;
 mock.module("@/domains/chat/voice/dictation-stream", () => ({
-  startDictationStream: () => null,
+  startDictationStream: (args: FakeDictationStreamArgs) =>
+    dictationStreamImpl(args),
 }));
+
+// Native helper partials default to unavailable (the plain web path); the
+// fallback tests swap in an implementation that emits text.
+let nativePartialsImpl: (
+  onPartial: (text: string) => void,
+) => Promise<(() => void | Promise<string | null>) | null> = async () => null;
+let transcribeBlobImpl: () => Promise<string | null> = async () => null;
 mock.module("@/runtime/native-dictation-partials", () => ({
-  startNativeDictationPartials: async () => null,
+  startNativeDictationPartials: (onPartial: (text: string) => void) =>
+    nativePartialsImpl(onPartial),
+  transcribeNativeAudioBlob: () => transcribeBlobImpl(),
 }));
 
 mock.module("@/runtime/native-auth", () => ({
   useIsNativePlatform: () => false,
 }));
 mock.module("@/utils/voice-input-device", () => ({
+  getVoiceInputMediaStream: async () => fakeStream,
   voiceInputAudioConstraints: () => true,
 }));
 
@@ -244,5 +268,165 @@ describe("VoiceInputButton — session breadcrumb", () => {
     expect(crumb.data.finalLength).toBe("hello world".length);
     expect(crumb.data.durationMs).toBeGreaterThanOrEqual(0);
     expect(typeof crumb.data.locale).toBe("string");
+  });
+});
+
+describe("VoiceInputButton — native partials fallback", () => {
+  beforeEach(() => {
+    addBreadcrumbSpy.mockClear();
+    postSttTranscribeSpy.mockClear();
+    useVoiceRecordingStore.getState().reset();
+  });
+
+  afterEach(() => {
+    nativePartialsImpl = async () => null;
+    transcribeBlobImpl = async () => null;
+    dictationStreamImpl = () => null;
+    cleanup();
+    useVoiceRecordingStore.getState().reset();
+  });
+
+  test("native Apple Speech text becomes the final transcript when batch STT fails", async () => {
+    nativePartialsImpl = async (onPartial) => {
+      onPartial("offline transcript");
+      return () => {};
+    };
+    postSttTranscribeSpy.mockImplementationOnce(async () => ({
+      status: "error",
+      reason: "network",
+    }));
+
+    const onTranscript = mock(async (_text: string) => {});
+    await startSession(onTranscript);
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(onTranscript).toHaveBeenCalledWith("offline transcript");
+    });
+    expect(lastBreadcrumb().data.outcome).toBe("completed");
+  });
+
+  test("recognizer final transcript delivered after stop becomes the transcript", async () => {
+    // A 1-2s dictation ends before the first partial: live text stays
+    // empty, and the full utterance arrives only via the post-stop
+    // finalized result.
+    nativePartialsImpl = async () => {
+      return () => Promise.resolve("the full final sentence");
+    };
+    postSttTranscribeSpy.mockImplementationOnce(async () => ({
+      status: "error",
+      reason: "network",
+    }));
+
+    const onTranscript = mock(async (_text: string) => {});
+    await startSession(onTranscript);
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(onTranscript).toHaveBeenCalledWith("the full final sentence");
+    });
+    expect(lastBreadcrumb().data.outcome).toBe("completed");
+  });
+
+  test("successful batch STT takes priority over native partials text", async () => {
+    nativePartialsImpl = async (onPartial) => {
+      onPartial("offline transcript");
+      return () => {};
+    };
+
+    const onTranscript = mock(async (_text: string) => {});
+    await startSession(onTranscript);
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(onTranscript).toHaveBeenCalledWith("hello world");
+    });
+  });
+
+  test("whole-recording native transcribe wins when batch fails", async () => {
+    // The blob transcript covers the complete utterance; streamed partials
+    // can miss the leading words on short dictations.
+    nativePartialsImpl = async (onPartial) => {
+      onPartial("partial tail");
+      return () => Promise.resolve("streamed final");
+    };
+    transcribeBlobImpl = async () => "the complete utterance";
+    postSttTranscribeSpy.mockImplementationOnce(async () => ({
+      status: "error",
+      reason: "network",
+    }));
+
+    const onTranscript = mock(async (_text: string) => {});
+    await startSession(onTranscript);
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(onTranscript).toHaveBeenCalledWith("the complete utterance");
+    });
+    expect(lastBreadcrumb().data.outcome).toBe("completed");
+  });
+
+  test("native recognizer runs alongside a silent stream and wins the fallback", async () => {
+    let streamOnPartial: ((text: string) => void) | undefined;
+    dictationStreamImpl = (args) => {
+      streamOnPartial = args.onPartial;
+      // A stream whose daemon is reachable (localhost) but whose provider
+      // is not: the handle exists, never goes live, never errors.
+      return { isLive: () => false, stop: () => {} };
+    };
+    nativePartialsImpl = async (onPartial) => {
+      onPartial("offline transcript");
+      return () => {};
+    };
+    postSttTranscribeSpy.mockImplementationOnce(async () => ({
+      status: "error",
+      reason: "network",
+    }));
+
+    const onTranscript = mock(async (_text: string) => {});
+    await startSession(onTranscript);
+
+    // The recognizer started eagerly — its text is already live even though
+    // the stream handle exists.
+    await waitFor(() => {
+      expect(useVoiceRecordingStore.getState().interimTranscript).toBe(
+        "offline transcript",
+      );
+    });
+    act(() => streamOnPartial?.("stream words"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    // Native text outranks the stream's partial transcript.
+    await waitFor(() => {
+      expect(onTranscript).toHaveBeenCalledWith("offline transcript");
+    });
+  });
+
+  test("stream text alone survives when the native helper is unavailable", async () => {
+    let streamOnPartial: ((text: string) => void) | undefined;
+    dictationStreamImpl = (args) => {
+      streamOnPartial = args.onPartial;
+      return { isLive: () => false, stop: () => {} };
+    };
+    postSttTranscribeSpy.mockImplementationOnce(async () => ({
+      status: "error",
+      reason: "network",
+    }));
+
+    const onTranscript = mock(async (_text: string) => {});
+    await startSession(onTranscript);
+
+    act(() => streamOnPartial?.("stream words"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(onTranscript).toHaveBeenCalledWith("stream words");
+    });
   });
 });

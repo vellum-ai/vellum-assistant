@@ -5,20 +5,16 @@
  * - On a provider rejection carrying an image-too-large error, the hook
  *   downscales the oversized image blocks in the working history (a text note
  *   when resize is a no-op on this host), persists the same downgrade durably,
- *   and asks the loop to continue.
- * - Bounded to one pass per turn via the per-conversation recovery state: a
- *   second consecutive image rejection is left to surface; the bound clears at
- *   the turn boundary.
- * - Leaves the bound intact across a mid-turn tool-bearing turn so a later
- *   image rejection is still the exhausted second attempt.
- * - Ignores non-image errors and finalized (non-error) replies.
+ *   marks the per-conversation bound, and asks the loop to continue.
+ * - Bounded to one pass per turn via that bound: a second consecutive image
+ *   rejection is left to surface (the bound is cleared by the `stop` hook, not
+ *   here).
+ * - Ignores non-image errors, tool-bearing turns, and finalized (non-error)
+ *   replies — none of which it ever touches the bound for.
  *
  * `stop` (terminal cleanup):
- * - Clears the recovery bound on a terminal stop, covering the retry the loop's
- *   per-run backstop overrides — the one terminal `post-model-call` cannot
- *   resolve — so the next turn recovers afresh.
- * - Leaves the bound intact on a `"continue"` stop, where a hook is re-querying
- *   the model this turn.
+ * - Clears the recovery bound unconditionally on the definitive terminal stop,
+ *   so the next turn always recovers afresh no matter how the turn ended.
  *
  * Uses the real SQLite DB wired up via `test-preload.ts` (per-file temp
  * workspace) so the durable-persist leg exercises the same path production does.
@@ -154,9 +150,7 @@ function makeStopCtx(overrides: Partial<StopContext> = {}): StopContext {
   return {
     conversationId: "conv-stop",
     messages: [],
-    responseContent: [],
-    stopReason: null,
-    decision: "stop",
+    exitReason: "no_tool_calls",
     logger: noopLogger,
     ...overrides,
   };
@@ -254,39 +248,12 @@ describe("image-recovery post-model-call hook — direct", () => {
     expect(ctx.decision).toBe("stop");
     expect(ctx.messages).toEqual(messages);
 
-    // AND the exhausted bound is cleared so the next turn recovers afresh.
-    expect(isImageRecoveryAttempted(conversationId)).toBe(false);
+    // AND the bound stays marked — the hook never clears it; the `stop` hook
+    // clears it at the turn boundary.
+    expect(isImageRecoveryAttempted(conversationId)).toBe(true);
   });
 
-  test("a finalized reply clears the bound so a later turn recovers again", async () => {
-    // GIVEN a conversation that already attempted a recovery this turn.
-    const conversationId = "conv-reset";
-    markImageRecoveryAttempted(conversationId);
-
-    // AND a finalized no-tool reply ends that turn, which the hook resolves as
-    // terminal.
-    await postModelCall(
-      makePostModelCallCtx({
-        conversationId,
-        content: [{ type: "text", text: "done" }],
-        stopReason: "end_turn",
-      }),
-    );
-    expect(isImageRecoveryAttempted(conversationId)).toBe(false);
-
-    // WHEN a later turn hits an image-too-large rejection.
-    const ctx = makePostModelCallCtx({
-      conversationId,
-      messages: oversizedImageHistory(),
-      error: new Error(IMAGE_ERROR_MESSAGE),
-    });
-    await postModelCall(ctx);
-
-    // THEN the hook recovers independently of the prior turn.
-    expect(ctx.decision).toBe("continue");
-  });
-
-  test("a mid-turn tool-bearing turn keeps the bound", async () => {
+  test("a mid-turn tool-bearing turn is a no-op", async () => {
     // GIVEN this turn already recovered an image rejection (bound marked), then
     // the model returns a tool-bearing turn that the loop continues mid-run.
     const conversationId = "conv-tool-turn";
@@ -299,13 +266,11 @@ describe("image-recovery post-model-call hook — direct", () => {
     // WHEN the hook runs on that tool-bearing turn.
     await postModelCall(ctx);
 
-    // THEN it leaves the bound intact, so a later image rejection in the same
-    // turn is recognized as this hook's exhausted second attempt rather than a
-    // fresh first one.
+    // THEN it leaves the bound alone — there is no provider rejection to act on.
     expect(isImageRecoveryAttempted(conversationId)).toBe(true);
   });
 
-  test("a non-image outcome already continuing this turn keeps the bound", async () => {
+  test("a non-image error while continuing is a no-op", async () => {
     // GIVEN this turn already recovered an image rejection (bound marked), then
     // an earlier hook (e.g. history-repair on an ordering rejection) recovered a
     // different error and set the decision to continue.
@@ -320,10 +285,8 @@ describe("image-recovery post-model-call hook — direct", () => {
     // WHEN the image-recovery hook runs after that earlier hook.
     await postModelCall(ctx);
 
-    // THEN it leaves the in-flight continue alone and keeps its bound, so a
-    // later image rejection in the same turn is recognized as the exhausted
-    // second attempt rather than a fresh first one. The error retry has no
-    // loop-side cap, so clearing here could loop the provider call forever.
+    // THEN it leaves the in-flight continue and the bound alone — it only acts
+    // on an image-too-large rejection.
     expect(ctx.decision).toBe("continue");
     expect(isImageRecoveryAttempted(conversationId)).toBe(true);
   });
@@ -370,32 +333,30 @@ describe("image-recovery stop hook — direct", () => {
     resetImageRecoveryStoreForTests();
   });
 
-  test("a terminal stop clears a bound the backstop stranded", async () => {
-    // GIVEN a turn marked a recovery-retry, but the loop's per-run backstop
-    // refused the continue and surfaced the rejection through the terminal stop
-    // chain without re-running post-model-call — so the bound is stranded.
+  test("a terminal stop clears the recovery bound", async () => {
+    // GIVEN a turn marked a recovery-retry.
     const conversationId = "conv-backstop";
     markImageRecoveryAttempted(conversationId);
 
     // WHEN the terminal stop hook runs.
     await stop(makeStopCtx({ conversationId }));
 
-    // THEN the stranded bound is cleared so the next turn recovers afresh.
+    // THEN the bound is cleared so the next turn recovers afresh.
     expect(isImageRecoveryAttempted(conversationId)).toBe(false);
   });
 
-  test("a continuing stop keeps the bound for the in-flight retry", async () => {
-    // GIVEN a turn marked a recovery-retry, and a stop hook is re-querying the
-    // model this turn (decision is continue).
-    const conversationId = "conv-continue";
+  test("clears the bound regardless of how the turn ended", async () => {
+    // GIVEN a turn marked a recovery-retry that ends on an abort rather than a
+    // finalized reply.
+    const conversationId = "conv-abort";
     markImageRecoveryAttempted(conversationId);
 
-    // WHEN the stop hook runs on that continuing stop.
-    await stop(makeStopCtx({ conversationId, decision: "continue" }));
+    // WHEN the terminal stop hook runs for that exit.
+    await stop(makeStopCtx({ conversationId, exitReason: "aborted_pre_call" }));
 
-    // THEN the bound survives so a later image rejection this turn is still
-    // recognized as the exhausted second attempt.
-    expect(isImageRecoveryAttempted(conversationId)).toBe(true);
+    // THEN the bound is still cleared — `stop` is the definitive terminal, so
+    // the next turn always recovers afresh.
+    expect(isImageRecoveryAttempted(conversationId)).toBe(false);
   });
 });
 

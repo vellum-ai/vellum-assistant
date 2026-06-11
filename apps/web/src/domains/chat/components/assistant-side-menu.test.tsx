@@ -76,21 +76,7 @@ describe("AssistantSideMenu · Conversations category rows", () => {
         title: "Pinned thread",
         isPinned: true,
       }),
-      makeConversation({
-        conversationId: "s1",
-        conversationType: "scheduled",
-      }),
-      makeConversation({
-        conversationId: "b1",
-        conversationType: "background",
-        source: "heartbeat",
-      }),
       makeConversation({ conversationId: "r1", title: "Recent thread" }),
-      makeConversation({
-        conversationId: "rf1",
-        conversationType: "background",
-        source: "auto-analysis",
-      }),
     ];
 
     const html = renderMenu({ conversations });
@@ -98,8 +84,8 @@ describe("AssistantSideMenu · Conversations category rows", () => {
     expect(html).toContain(">Conversations<");
     expect(html).toContain(">Pinned<");
     expect(html).toContain(">Pinned thread<");
-    expect(html).toContain(">Scheduled<");
-    expect(html).toContain(">Background<");
+    expect(html).not.toContain(">Scheduled<");
+    expect(html).not.toContain(">Background<");
     expect(html).toContain(">Recent thread<");
     expect(html).not.toContain(">Recents<");
     expect(html).not.toContain(">Slack<");
@@ -109,7 +95,7 @@ describe("AssistantSideMenu · Conversations category rows", () => {
     );
   });
 
-  test("renders Slack as a conditional peer section between Recents and Scheduled", () => {
+  test("renders Slack as a conditional peer section after Recents", () => {
     const conversations = [
       makeConversation({ conversationId: "regular", title: "Regular thread" }),
       makeConversation({
@@ -125,13 +111,9 @@ describe("AssistantSideMenu · Conversations category rows", () => {
     expect(html).not.toContain(">Pinned<");
 
     const recentThreadIndex = html.indexOf(">Regular thread<");
-    const scheduledIndex = html.indexOf(">Scheduled<");
-    const backgroundIndex = html.indexOf(">Background<");
     const slackIndex = html.indexOf(">Slack<");
     expect(recentThreadIndex).toBeGreaterThanOrEqual(0);
     expect(slackIndex).toBeGreaterThan(recentThreadIndex);
-    expect(scheduledIndex).toBeGreaterThan(slackIndex);
-    expect(backgroundIndex).toBeGreaterThan(scheduledIndex);
   });
 
   test("renders Pinned as a top-level section when non-empty", () => {
@@ -165,28 +147,21 @@ describe("AssistantSideMenu · Conversations category rows", () => {
     expect(collapsedHtml).not.toContain('aria-label="Pinned"');
   });
 
-  test("omits chat count badges from category buckets and subgroups", () => {
+  test("omits chat count badges from the Conversations section rows", () => {
     const conversations = [
-      makeConversation({
-        conversationId: "background-alpha",
-        title: "Background Alpha",
-        conversationType: "background",
-        source: "heartbeat",
-      }),
-      makeConversation({
-        conversationId: "background-beta",
-        title: "Background Beta",
-        conversationType: "background",
-        source: "heartbeat",
-      }),
       makeConversation({
         conversationId: "recent-alpha",
         title: "Recent Alpha",
+      }),
+      makeConversation({
+        conversationId: "recent-beta",
+        title: "Recent Beta",
       }),
     ];
 
     const html = renderMenu({ conversations });
 
+    expect(html).toContain(">Conversations<");
     expect(html).not.toContain(">2<");
     expect(html).not.toContain(">1<");
   });
@@ -296,29 +271,25 @@ describe("AssistantSideMenu · new conversation affordance", () => {
     onSelectConversation: () => {},
   };
 
-  test("renders the pencil as a link when a href generator is supplied", () => {
+  test("renders the new-conversation pencil button when onStartNewConversation is supplied", () => {
     const html = renderToStaticMarkup(
       createElement(AssistantSideMenu, {
         ...baseProps,
         onStartNewConversation: () => {},
-        getNewConversationHref: () => "/assistant/conversations/draft-xyz",
       }),
     );
 
     expect(html).toContain('aria-label="New conversation"');
-    expect(html).toContain('href="/assistant/conversations/draft-xyz"');
+    // It is a plain icon button, not a navigation link.
+    expect(html).not.toContain('<a aria-label="New conversation"');
   });
 
-  test("falls back to a plain button when no href generator is supplied", () => {
+  test("omits the new-conversation button when onStartNewConversation is absent", () => {
     const html = renderToStaticMarkup(
-      createElement(AssistantSideMenu, {
-        ...baseProps,
-        onStartNewConversation: () => {},
-      }),
+      createElement(AssistantSideMenu, { ...baseProps }),
     );
 
-    expect(html).toContain('aria-label="New conversation"');
-    expect(html).not.toContain("/assistant/conversations/");
+    expect(html).not.toContain('aria-label="New conversation"');
   });
 });
 

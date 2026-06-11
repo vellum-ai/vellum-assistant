@@ -21,7 +21,7 @@ function buildToolCall(
 }
 
 describe("deriveStepLabel", () => {
-  test("bash → Working (bash) with truncated command and code icon", () => {
+  test("bash → Working with truncated command and code icon", () => {
     const result = deriveStepLabel(
       buildToolCall({
         name: "bash",
@@ -29,7 +29,7 @@ describe("deriveStepLabel", () => {
       }),
     );
     expect(result).toEqual({
-      title: "Working (bash)",
+      title: "Working",
       info: "echo hello world",
       activity: "",
       iconName: "code",
@@ -45,7 +45,7 @@ describe("deriveStepLabel", () => {
       }),
     );
     expect(result.iconName).toBe("code");
-    expect(result.title).toBe("Working (bash)");
+    expect(result.title).toBe("Working");
     expect(result.info.length).toBe(80);
     expect(result.info.endsWith("…")).toBe(true);
   });
@@ -263,7 +263,7 @@ describe("deriveStepLabel", () => {
       }),
     );
     // Inner tool drives title/info/iconName; outer activity overrides inner.
-    expect(result.title).toBe("Working (bash)");
+    expect(result.title).toBe("Working");
     expect(result.info).toBe("echo hi");
     expect(result.iconName).toBe("code");
     expect(result.activity).toBe("outer activity wins");

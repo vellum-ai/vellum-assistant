@@ -1,5 +1,4 @@
 
-import { captureError } from "@/lib/sentry/capture-error";
 import { type MutableRefObject, useCallback } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -11,14 +10,17 @@ import {
   snapshotConversationCaches,
   type ConversationCacheSnapshot,
 } from "@/utils/conversation-cache";
+import { executeBulkWithFallback } from "@/utils/bulk-with-fallback";
 import {
+  conversationsArchiveBulkPost,
   conversationsByIdArchivePost,
   conversationsByIdUnarchivePost,
   conversationsReorderPost,
+  conversationsSeenBulkPost,
   conversationsSeenPost,
   conversationsUnreadPost,
 } from "@/generated/daemon/sdk.gen";
-
+import { captureError } from "@/lib/sentry/capture-error";
 import { haptic } from "@/utils/haptics";
 
 import type { Conversation } from "@/types/conversation-types";
@@ -309,13 +311,6 @@ export function useConversationActions({
     [handleMoveToGroup, prePinGroupIdsRef],
   );
 
-  const handleRemoveFromGroup = useCallback(
-    (conversation: Conversation) => {
-      handleMoveToGroup(conversation, "system:all");
-    },
-    [handleMoveToGroup],
-  );
-
   const handleRenameConversation = useCallback(
     (conversation: Conversation) => {
       if (!assistantId) return;
@@ -348,26 +343,27 @@ export function useConversationActions({
         });
       }
 
-      try {
-        await Promise.allSettled(
-          unread.map(async (c) => {
-            try {
-              await conversationsSeenPost({
-                path: { assistant_id: assistantId },
-                body: { conversationId: c.conversationId },
-                throwOnError: true,
-              });
-            } catch (err) {
-              patchConversation(queryClient, assistantId, c.conversationId, {
-                hasUnseenLatestAssistantMessage: true,
-              });
-              captureError(err, { context: "markAllReadInGroup" });
-            }
+      await executeBulkWithFallback({
+        items: unread,
+        bulkCall: () =>
+          conversationsSeenBulkPost({
+            path: { assistant_id: assistantId },
+            body: { conversationIds: unread.map((c) => c.conversationId) },
           }),
-        );
-      } finally {
-        void invalidateConversationQueries(queryClient, assistantId);
-      }
+        fallbackFn: (c) =>
+          conversationsSeenPost({
+            path: { assistant_id: assistantId },
+            body: { conversationId: c.conversationId },
+            throwOnError: true,
+          }),
+        rollbackItem: (c) =>
+          patchConversation(queryClient, assistantId, c.conversationId, {
+            hasUnseenLatestAssistantMessage: true,
+          }),
+        context: "markAllReadInGroup",
+      });
+
+      void invalidateConversationQueries(queryClient, assistantId);
     },
     [assistantId, queryClient],
   );
@@ -405,28 +401,28 @@ export function useConversationActions({
         }
       }
 
-      try {
-        await Promise.allSettled(
-          groupConversations.map(async (c) => {
-            try {
-              await conversationsByIdArchivePost({
-                path: {
-                  assistant_id: assistantId,
-                  id: c.conversationId,
-                },
-                throwOnError: true,
-              });
-            } catch (err) {
-              patchConversation(queryClient, assistantId, c.conversationId, {
-                archivedAt: c.archivedAt,
-              });
-              captureError(err, { context: "archiveAllInGroup" });
-            }
+      await executeBulkWithFallback({
+        items: groupConversations,
+        bulkCall: () =>
+          conversationsArchiveBulkPost({
+            path: { assistant_id: assistantId },
+            body: {
+              conversationIds: groupConversations.map((c) => c.conversationId),
+            },
           }),
-        );
-      } finally {
-        void invalidateConversationQueries(queryClient, assistantId);
-      }
+        fallbackFn: (c) =>
+          conversationsByIdArchivePost({
+            path: { assistant_id: assistantId, id: c.conversationId },
+            throwOnError: true,
+          }),
+        rollbackItem: (c) =>
+          patchConversation(queryClient, assistantId, c.conversationId, {
+            archivedAt: c.archivedAt,
+          }),
+        context: "archiveAllInGroup",
+      });
+
+      void invalidateConversationQueries(queryClient, assistantId);
     },
     [
       activeConversationId,
@@ -444,8 +440,6 @@ export function useConversationActions({
     handleMarkConversationUnread,
     handleMarkConversationRead,
     handleTogglePinConversation,
-    handleMoveToGroup,
-    handleRemoveFromGroup,
     handleRenameConversation,
     handleMarkAllReadInGroup,
     handleArchiveAllInGroup,

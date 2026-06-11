@@ -788,6 +788,13 @@ describe("web_search_tool_result structural guard", () => {
     // tool_result is relevant. Same reasoning as agent/loop.ts above.
     "plugins/defaults/tool-error/hooks/post-tool-use.ts",
 
+    // Counts unbroken runs of locally-executed exploration tools (bash,
+    // file_read, file_list) to detect inline drift. Server-side web search
+    // results (web_search_tool_result) are not produced by the tool executor;
+    // any non-exploration block simply bounds the trailing run, which is the
+    // conservative direction (fewer nudges). Same reasoning as agent/loop.ts.
+    "plugins/defaults/exploration-drift/hooks/post-tool-use.ts",
+
     // Reconciles synthesized cancellation tool_results for locally-executed
     // tools only. Same reasoning as agent/loop.ts above.
     "daemon/conversation-agent-loop.ts",

@@ -1,7 +1,8 @@
-import type {
-  SubagentEventEvent,
-  SubagentSpawnedEvent,
-  SubagentStatusChangedEvent,
+import {
+  type SubagentEventEvent,
+  type SubagentSpawnedEvent,
+  type SubagentStatusChangedEvent,
+  UsageProgressEventSchema,
 } from "@vellumai/assistant-api";
 
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -47,18 +48,12 @@ export function handleSubagentEvent(
 
   const inner = event.event;
   if (inner.type === "usage_progress") {
-    const data = inner as unknown as Record<string, unknown>;
-    const inputTokens =
-      typeof data.inputTokens === "number" ? data.inputTokens : 0;
-    const outputTokens =
-      typeof data.outputTokens === "number" ? data.outputTokens : 0;
-    const estimatedCost =
-      typeof data.estimatedCost === "number" ? data.estimatedCost : 0;
+    const parsed = UsageProgressEventSchema.safeParse(inner);
     store.updateUsage({
       subagentId: event.subagentId,
-      inputTokens,
-      outputTokens,
-      estimatedCost,
+      inputTokens: parsed.success ? parsed.data.inputTokens : 0,
+      outputTokens: parsed.success ? parsed.data.outputTokens : 0,
+      estimatedCost: parsed.success ? parsed.data.estimatedCost : 0,
     });
     return;
   }

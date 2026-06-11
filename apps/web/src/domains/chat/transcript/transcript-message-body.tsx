@@ -27,10 +27,12 @@ import {
   isSuppressedUiTool,
 } from "@/domains/chat/transcript/message-content";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
-import { getSlackLinkUrl, type Surface } from "@/domains/chat/types/types";
+import { getSlackLinkUrl } from "@/domains/chat/types/types";
+import { wireSurfaceToDisplay } from "@/domains/chat/utils/map-runtime-message";
 import { isPointerCoarse } from "@/utils/pointer";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { ConversationMessageSurface } from "@vellumai/assistant-api";
 import {
   isInteractiveClickTarget,
   lookupSubagentEntriesForMessage,
@@ -43,13 +45,12 @@ import {
  * Renders a `DisplayMessage`'s body by walking its unified `contentBlocks`
  * projection — grouped by `groupContentBlocks`. Each block embeds its own
  * referent, so there are no positional resolvers: text comes straight off the
- * block, thinking text and timing off the block, and tool calls off
- * `block.toolCall`. Surfaces resolve the client-narrowed `Surface` from
- * `message.surfaces` by id (placement / orphaned binding live on the display
- * projection, not the wire block) — the block stream drives ordering and
- * presence. Leaf components and visual chrome (single/multi activity cards,
- * surface router, user bubbles, attachments, subagent cards, Slack attribution,
- * hover actions) live in `transcript-message-body-shared`.
+ * block, thinking text and timing off the block, tool calls off
+ * `block.toolCall`, and surfaces off `block.surface` (narrowed to the display
+ * `Surface` via `wireSurfaceToDisplay`). Leaf components and visual chrome
+ * (single/multi activity cards, surface router, user bubbles, attachments,
+ * subagent cards, Slack attribution, hover actions) live in
+ * `transcript-message-body-shared`.
  */
 export function TranscriptMessageBody({
   message,
@@ -132,12 +133,6 @@ export function TranscriptMessageBody({
   const byToolUseId = useSubagentStore.use.byToolUseId();
   const claimedSpawnIds = new Set<string>();
 
-  // Resolve the client `Surface` for a surface block by id. The block stream
-  // dictates ordering and presence; the rich display object (placement,
-  // orphaned binding) lives on `message.surfaces`.
-  const resolveSurfaceById = (surfaceId: string): Surface | undefined =>
-    message.surfaces?.find((s) => s.surfaceId === surfaceId);
-
   const renderTextWithInlineSurfaces = (text: string, key: string) => {
     const inlineSegments = parseInlineSurfaces(text);
     if (inlineSegments) {
@@ -197,24 +192,21 @@ export function TranscriptMessageBody({
     );
   };
 
-  const renderSurfaceNode = (surfaceId: string, key: string): ReactNode => {
-    const surface = resolveSurfaceById(surfaceId);
-    if (!surface) {
-      return null;
-    }
-    return (
-      <div key={key} className="w-full">
-        <SurfaceRouter
-          surface={surface}
-          onAction={onSurfaceAction}
-          onOpenApp={onOpenApp}
-          onOpenDocument={onOpenDocument}
-          assistantId={assistantId}
-          toolCalls={message.toolCalls}
-        />
-      </div>
-    );
-  };
+  const renderSurfaceNode = (
+    surface: ConversationMessageSurface,
+    key: string,
+  ): ReactNode => (
+    <div key={key} className="w-full">
+      <SurfaceRouter
+        surface={wireSurfaceToDisplay(surface)}
+        onAction={onSurfaceAction}
+        onOpenApp={onOpenApp}
+        onOpenDocument={onOpenDocument}
+        assistantId={assistantId}
+        toolCalls={message.toolCalls}
+      />
+    </div>
+  );
 
   // Render one `activity` group (a contiguous thinking + tool run) into its
   // combined `MultiActivityGroup`, a lone inline link, or a bare thinking
@@ -367,38 +359,16 @@ export function TranscriptMessageBody({
       return renderTextWithInlineSurfaces(group.text, `b-text-${gi}`);
     }
     if (group.type === "surface") {
-      return renderSurfaceNode(group.surface.surfaceId, `b-surface-${gi}`);
+      return renderSurfaceNode(group.surface, `b-surface-${gi}`);
     }
     return renderActivityGroup(group.items, `b-activity-${gi}`, gi === lastGroupIndex);
   };
-
-  // Surfaces present on the row but absent from the block stream (not every
-  // surface is ordered into `contentBlocks`) still render in their own region,
-  // matching the legacy tail.
-  const renderedSurfaceIds = new Set(
-    groups.flatMap((g) => (g.type === "surface" ? [g.surface.surfaceId] : [])),
-  );
-  const orphanSurfaces =
-    message.surfaces?.filter((s) => !renderedSurfaceIds.has(s.surfaceId)) ?? [];
 
   const wrapperClass = `group/msg flex ${isUser ? "justify-end" : "justify-start"}`;
   const columnClass = `flex w-full flex-col gap-2 ${isUser ? "items-end" : "items-start"}`;
 
   const trailer = (
     <>
-      {orphanSurfaces.map((surface) => (
-        <div key={surface.surfaceId} className="w-full">
-          <SurfaceRouter
-            surface={surface}
-            onAction={onSurfaceAction}
-            onOpenApp={onOpenApp}
-            onOpenDocument={onOpenDocument}
-            assistantId={assistantId}
-            assistantDisplayName={assistantDisplayName}
-            toolCalls={message.toolCalls}
-          />
-        </div>
-      ))}
       <SlackMessageAttribution
         message={message}
         assistantDisplayName={assistantDisplayName}
