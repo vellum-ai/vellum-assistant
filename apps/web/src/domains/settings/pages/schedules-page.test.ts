@@ -616,6 +616,35 @@ describe("SystemTaskRow", () => {
     expect(detailClicks).toBe(1);
   });
 
+  test("cost metric opens usage without opening system task details", () => {
+    let detailClicks = 0;
+    let usageClicks = 0;
+
+    render(
+      createElement(SystemTaskRow, {
+        name: "Heartbeat",
+        subtitle: "Every 5 min",
+        enabled: true,
+        nextRunAt: 1_761_792_000_000,
+        lastRunAt: 1_761_792_003_000,
+        usage: readySystemTaskUsage,
+        onClick: () => {
+          detailClicks += 1;
+        },
+        onOpenUsage: () => {
+          usageClicks += 1;
+        },
+        showToggle: false,
+        onToggle: () => {},
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /view usage/i }));
+
+    expect(usageClicks).toBe(1);
+    expect(detailClicks).toBe(0);
+  });
+
   test("omits list-level run now while keeping status and usage content", () => {
     render(
       createElement(SystemTaskRow, {
@@ -688,6 +717,8 @@ describe("system task toggles", () => {
         onRetry: () => {},
         onSelectHeartbeat: () => {},
         onSelectConsolidation: () => {},
+        onOpenHeartbeatUsage: () => {},
+        onOpenConsolidationUsage: () => {},
         showSystemTaskToggles: true,
         onToggleHeartbeat: (enabled: boolean) => {
           toggleCalls.push(enabled);

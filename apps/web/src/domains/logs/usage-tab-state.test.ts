@@ -146,6 +146,20 @@ describe("usage URL state", () => {
       range: "today",
       groupBy: "schedule",
       scheduleId: "schedule-123",
+      selectedGroupKey: undefined,
+    });
+  });
+
+  test("reads a selected grouped usage value outside schedule filtering", () => {
+    const params = new URLSearchParams(
+      "range=7d&groupBy=task&selectedGroup=heartbeatAgent",
+    );
+
+    expect(readUsageUrlState(params)).toEqual({
+      range: "7d",
+      groupBy: "task",
+      scheduleId: undefined,
+      selectedGroupKey: "heartbeatAgent",
     });
   });
 
@@ -158,6 +172,7 @@ describe("usage URL state", () => {
       range: "7d",
       groupBy: "task",
       scheduleId: undefined,
+      selectedGroupKey: undefined,
     });
   });
 
@@ -170,6 +185,18 @@ describe("usage URL state", () => {
       range: "7d",
       groupBy: "task",
       scheduleId: undefined,
+      selectedGroupKey: undefined,
+    });
+  });
+
+  test("ignores blank selected group params", () => {
+    const params = new URLSearchParams("range=7d&groupBy=task&selectedGroup=");
+
+    expect(readUsageUrlState(params)).toEqual({
+      range: "7d",
+      groupBy: "task",
+      scheduleId: undefined,
+      selectedGroupKey: undefined,
     });
   });
 
@@ -197,7 +224,9 @@ describe("usage URL state", () => {
 
   test("updates group-by to schedule without dropping a schedule filter", () => {
     const params = buildUsageSearchParams(
-      new URLSearchParams("range=90d&groupBy=task&scheduleId=schedule-123"),
+      new URLSearchParams(
+        "range=90d&groupBy=task&scheduleId=schedule-123&selectedGroup=heartbeatAgent",
+      ),
       { groupBy: "schedule" },
     );
 
@@ -213,5 +242,20 @@ describe("usage URL state", () => {
     );
 
     expect(params.toString()).toBe("range=90d&groupBy=schedule");
+  });
+
+  test("sets and clears a selected grouped usage value", () => {
+    const withSelection = buildUsageSearchParams(
+      new URLSearchParams("range=7d&groupBy=task"),
+      { selectedGroupKey: "memoryV2Consolidation" },
+    );
+    expect(withSelection.toString()).toBe(
+      "range=7d&groupBy=task&selectedGroup=memoryV2Consolidation",
+    );
+
+    const cleared = buildUsageSearchParams(withSelection, {
+      selectedGroupKey: null,
+    });
+    expect(cleared.toString()).toBe("range=7d&groupBy=task");
   });
 });

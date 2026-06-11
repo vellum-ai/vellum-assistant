@@ -15,7 +15,11 @@ import {
     type UsageTrendChartLegendItem,
 } from "@/domains/logs/components/usage-trend-chart";
 import { formatCost, formatTokens } from "@/domains/logs/format";
-import { decorateUsageBreakdownGroups } from "@/domains/logs/group-labels";
+import {
+    decorateUsageBreakdownGroups,
+    resolveUsageGroupLabel,
+    type UsageGroupLabelMetadata,
+} from "@/domains/logs/group-labels";
 import { fetchUsageProfileMetadata } from "@/domains/logs/profile-metadata";
 import {
     fetchUsageBreakdown,
@@ -28,6 +32,7 @@ import {
     formatBreakdownTokensShort,
 } from "@/domains/logs/usage-breakdown-format";
 import {
+    buildUsageSeriesLegend,
     decorateUsageSeriesGroups,
     seriesFromDailyBuckets,
     usageSeriesKeyForGroupValue,
@@ -50,6 +55,8 @@ import type {
     UsageBreakdownResponse,
     UsageGroupBreakdown,
     UsageGroupBy,
+    UsageSeriesBucket,
+    UsageSeriesGroupBy,
     UsageTimeRange,
     UsageTotals,
 } from "@/domains/logs/usage-types";
@@ -93,7 +100,7 @@ const COST_OPTIMIZATION_PROMPT = [
 export function UsageTab({ assistantId }: UsageTabProps) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { range, groupBy, scheduleId } = useMemo(
+  const { range, groupBy, scheduleId, selectedGroupKey } = useMemo(
     () => readUsageUrlState(searchParams),
     [searchParams],
   );
@@ -364,6 +371,24 @@ export function UsageTab({ assistantId }: UsageTabProps) {
 
     return buildSelectedScheduleLegendItems(schedulesQuery.data, scheduleId);
   }, [effectiveGroupBy, scheduleId, schedulesQuery.data]);
+  const selectedGroupLegendItems = useMemo(() => {
+    if (!selectedGroupKey || !seriesGroupBy || effectiveGroupBy === "schedule") {
+      return undefined;
+    }
+
+    return buildSelectedGroupLegendItems(
+      decoratedSeriesBuckets,
+      seriesGroupBy,
+      selectedGroupKey,
+      usageGroupMetadata,
+    );
+  }, [
+    decoratedSeriesBuckets,
+    effectiveGroupBy,
+    selectedGroupKey,
+    seriesGroupBy,
+    usageGroupMetadata,
+  ]);
 
   const handleGroupByChange = (nextGroupBy: UsageGroupBy) => {
     if (nextGroupBy === groupBy && effectiveGroupBy !== groupBy) {
@@ -373,6 +398,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
     updateUsageSearchParams({
       groupBy: nextGroupBy,
       scheduleId: nextGroupBy === "schedule" ? undefined : null,
+      selectedGroupKey: null,
     });
   };
 
@@ -421,7 +447,9 @@ export function UsageTab({ assistantId }: UsageTabProps) {
               <UsageTrendChart
                 buckets={buckets}
                 isHourly={isHourly}
-                legendItems={selectedScheduleLegendItems}
+                legendItems={
+                  selectedScheduleLegendItems ?? selectedGroupLegendItems
+                }
               />
             )}
           />
@@ -474,6 +502,60 @@ function buildSelectedScheduleLegendItems(
 
 function unknownScheduleLabel(scheduleId: string) {
   return `Unknown schedule (${scheduleId})`;
+}
+
+function buildSelectedGroupLegendItems(
+  buckets: readonly UsageSeriesBucket[] | undefined,
+  groupBy: UsageSeriesGroupBy,
+  selectedGroupKey: string,
+  metadata: UsageGroupLabelMetadata,
+): UsageTrendChartLegendItem[] {
+  const selectedSeriesKey = usageSeriesKeyForGroupValue(
+    selectedGroupKey,
+    groupBy,
+  );
+  const bucketLegend = buildUsageSeriesLegend(buckets ?? []);
+  const hasSelectedGroup = bucketLegend.items.some(
+    (item) => item.seriesKey === selectedSeriesKey,
+  );
+  const items = hasSelectedGroup
+    ? bucketLegend.items
+    : [
+        {
+          seriesKey: selectedSeriesKey,
+          label: selectedGroupLabel(groupBy, selectedGroupKey, metadata),
+        },
+        ...bucketLegend.items,
+      ];
+
+  return items.map((item, colorIndex) => ({
+    seriesKey: item.seriesKey,
+    label: item.label,
+    colorIndex,
+    state: item.seriesKey === selectedSeriesKey ? "active" : "inactive",
+  }));
+}
+
+function selectedGroupLabel(
+  groupBy: UsageGroupBy,
+  selectedGroupKey: string,
+  metadata: UsageGroupLabelMetadata,
+) {
+  return resolveUsageGroupLabel(
+    groupBy,
+    {
+      group: selectedGroupKey,
+      groupId: selectedGroupKey,
+      groupKey: selectedGroupKey,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalCacheCreationTokens: 0,
+      totalCacheReadTokens: 0,
+      totalEstimatedCostUsd: 0,
+      eventCount: 0,
+    },
+    metadata,
+  );
 }
 
 function CostAssistantSection({

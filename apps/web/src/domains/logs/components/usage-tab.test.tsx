@@ -38,8 +38,36 @@ const fetchUsageTotalsMock = mock(
 const fetchUsageBreakdownMock = mock(
   async (
     _assistantId: string,
-    params: { scheduleId?: string },
+    params: { groupBy?: string; scheduleId?: string },
   ): Promise<UsageBreakdownResponse> => {
+    if (params.groupBy === "task") {
+      return {
+        breakdown: [
+          {
+            group: "heartbeatAgent",
+            groupId: "heartbeatAgent",
+            groupKey: "heartbeatAgent",
+            totalInputTokens: 120,
+            totalOutputTokens: 80,
+            totalCacheCreationTokens: 0,
+            totalCacheReadTokens: 0,
+            totalEstimatedCostUsd: 0.03,
+            eventCount: 2,
+          },
+          {
+            group: "mainAgent",
+            groupId: "mainAgent",
+            groupKey: "mainAgent",
+            totalInputTokens: 40,
+            totalOutputTokens: 20,
+            totalCacheCreationTokens: 0,
+            totalCacheReadTokens: 0,
+            totalEstimatedCostUsd: 0.01,
+            eventCount: 1,
+          },
+        ],
+      };
+    }
     const selectedScheduleId = params.scheduleId ?? "schedule-123";
     const selectedSchedule = defaultSchedules.find(
       (schedule) => schedule.id === selectedScheduleId,
@@ -64,8 +92,41 @@ const fetchUsageBreakdownMock = mock(
 const fetchUsageSeriesMock = mock(
   async (
     _assistantId: string,
-    params: { scheduleId?: string },
+    params: { groupBy?: string; scheduleId?: string },
   ): Promise<UsageSeriesResponse> => {
+    if (params.groupBy === "task") {
+      return {
+        buckets: [
+          {
+            bucketId: "2026-06-01",
+            date: "2026-06-01",
+            displayLabel: "Jun 1",
+            totalInputTokens: 160,
+            totalOutputTokens: 100,
+            totalEstimatedCostUsd: 0.04,
+            eventCount: 3,
+            groups: {
+              [usageSeriesKeyForGroupValue("heartbeatAgent", "task")]: {
+                group: "heartbeatAgent",
+                groupKey: "heartbeatAgent",
+                totalInputTokens: 120,
+                totalOutputTokens: 80,
+                totalEstimatedCostUsd: 0.03,
+                eventCount: 2,
+              },
+              [usageSeriesKeyForGroupValue("mainAgent", "task")]: {
+                group: "mainAgent",
+                groupKey: "mainAgent",
+                totalInputTokens: 40,
+                totalOutputTokens: 20,
+                totalEstimatedCostUsd: 0.01,
+                eventCount: 1,
+              },
+            },
+          },
+        ],
+      };
+    }
     const selectedScheduleId = params.scheduleId ?? "schedule-123";
     const selectedSeriesKey = usageSeriesKeyForGroupValue(
       selectedScheduleId,
@@ -100,6 +161,23 @@ const fetchUsageSeriesMock = mock(
   },
 );
 const fetchUsageDailyMock = mock(async () => ({ buckets: [] }));
+const fetchUsageCallSiteCatalogMock = mock(async () => ({
+  domains: [{ id: "agentLoop", displayName: "Agent Loop" }],
+  callSites: [
+    {
+      id: "heartbeatAgent",
+      displayName: "Heartbeat Agent",
+      description: "Runs background tasks and proactive checks.",
+      domain: "agentLoop",
+    },
+    {
+      id: "mainAgent",
+      displayName: "Main Agent",
+      description: "Handles user messages.",
+      domain: "agentLoop",
+    },
+  ],
+}));
 class UsageRequestError extends Error {
   status: number;
 
@@ -123,6 +201,25 @@ mock.module("@/domains/logs/usage-api", () => ({
   fetchUsageSeries: fetchUsageSeriesMock,
   fetchUsageTotals: fetchUsageTotalsMock,
 }));
+mock.module("@/domains/logs/call-site-metadata", () => ({
+  buildCallSiteMetadataMap: (
+    catalog: {
+      callSites: Array<{
+        id: string;
+        displayName: string;
+        description: string;
+        domain: string;
+      }>;
+    } | null | undefined,
+  ) =>
+    Object.fromEntries(
+      (catalog?.callSites ?? []).map((callSite) => [
+        callSite.id,
+        callSite,
+      ]),
+    ),
+  fetchUsageCallSiteCatalog: fetchUsageCallSiteCatalogMock,
+}));
 
 const { UsageTab } = await import("./usage-tab");
 
@@ -134,6 +231,7 @@ afterEach(() => {
   fetchUsageBreakdownMock.mockClear();
   fetchUsageSeriesMock.mockClear();
   fetchUsageDailyMock.mockClear();
+  fetchUsageCallSiteCatalogMock.mockClear();
 });
 
 function renderUsageTab(initialEntry: string) {
@@ -226,6 +324,31 @@ describe("UsageTab", () => {
     expect(legendItems.map((item) => item.label.textContent)).toEqual([
       "Unknown schedule (schedule-deleted)",
       "Evening digest",
+    ]);
+    expect(legendItems.map((item) => item.state)).toEqual([
+      "active",
+      "inactive",
+    ]);
+  });
+
+  test("renders URL-selected task usage as an active legend item", async () => {
+    const { container } = renderUsageTab(
+      "/assistant/logs/usage?range=7d&groupBy=task&selectedGroup=heartbeatAgent",
+    );
+
+    await waitFor(() =>
+      expect(fetchUsageSeriesMock.mock.calls).toHaveLength(1),
+    );
+
+    expect(screen.getByText("Daily Trend by Action")).toBeTruthy();
+    expect(fetchUsageTotalsMock.mock.calls[0]?.[1]?.scheduleId).toBeUndefined();
+    expect(fetchUsageBreakdownMock.mock.calls[0]?.[1]?.scheduleId).toBeUndefined();
+    expect(fetchUsageSeriesMock.mock.calls[0]?.[1]?.scheduleId).toBeUndefined();
+
+    const legendItems = readLegendItems(container);
+    expect(legendItems.map((item) => item.label.textContent)).toEqual([
+      "Heartbeat Agent",
+      "Main Agent",
     ]);
     expect(legendItems.map((item) => item.state)).toEqual([
       "active",

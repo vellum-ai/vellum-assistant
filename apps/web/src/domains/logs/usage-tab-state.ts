@@ -57,12 +57,14 @@ export interface UsageUrlState {
   range: UsageTimeRange;
   groupBy: UsageGroupBy;
   scheduleId: string | undefined;
+  selectedGroupKey: string | undefined;
 }
 
 export interface UsageSearchParamsUpdate {
   range?: UsageTimeRange;
   groupBy?: UsageGroupBy;
   scheduleId?: string | null;
+  selectedGroupKey?: string | null;
 }
 
 export function readUsageUrlState(
@@ -78,6 +80,8 @@ export function readUsageUrlState(
     groupBy,
     scheduleId:
       groupBy === "schedule" ? readUsageScheduleId(searchParams) : undefined,
+    selectedGroupKey:
+      groupBy === "schedule" ? undefined : readSelectedGroupKey(searchParams),
   };
 }
 
@@ -89,6 +93,16 @@ export function readUsageScheduleId(
     return undefined;
   }
   return scheduleId;
+}
+
+function readSelectedGroupKey(
+  searchParams: URLSearchParams,
+): string | undefined {
+  const selectedGroup = searchParams.get("selectedGroup");
+  if (!selectedGroup || selectedGroup.trim().length === 0) {
+    return undefined;
+  }
+  return selectedGroup;
 }
 
 export function buildUsageSearchParams(
@@ -110,8 +124,21 @@ export function buildUsageSearchParams(
       next.set("scheduleId", update.scheduleId);
     }
   }
+  if (update.selectedGroupKey !== undefined) {
+    if (
+      update.selectedGroupKey === null ||
+      update.selectedGroupKey.trim().length === 0
+    ) {
+      next.delete("selectedGroup");
+    } else {
+      next.set("selectedGroup", update.selectedGroupKey);
+    }
+  }
   if (next.get("groupBy") !== "schedule") {
     next.delete("scheduleId");
+  }
+  if (next.get("groupBy") === "schedule") {
+    next.delete("selectedGroup");
   }
 
   return next;

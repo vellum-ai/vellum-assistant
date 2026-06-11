@@ -33,4 +33,10 @@ describe("routes", () => {
       "/assistant/logs/usage?range=7d&groupBy=schedule&scheduleId=schedule+with+spaces",
     );
   });
+
+  test("builds task-selected usage URLs", () => {
+    expect(routes.logs.usageForTask("memoryV2Consolidation")).toBe(
+      "/assistant/logs/usage?range=7d&groupBy=task&selectedGroup=memoryV2Consolidation",
+    );
+  });
 });

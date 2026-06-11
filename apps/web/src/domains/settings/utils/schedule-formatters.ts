@@ -109,6 +109,11 @@ export const SYSTEM_TASK_URL_IDS = {
   consolidation: "system-consolidation",
 } as const satisfies Record<SystemTaskKind, string>;
 
+export const SYSTEM_TASK_USAGE_TASK_KEYS = {
+  heartbeat: "heartbeatAgent",
+  consolidation: "memoryV2Consolidation",
+} as const satisfies Record<SystemTaskKind, string>;
+
 export const SYSTEM_TASK_STATS_RUN_LIMIT = 100;
 
 export function shouldShowSystemTaskToggles(

@@ -62,6 +62,14 @@ export const routes = {
       });
       return `${LOGS_USAGE_PATH}?${params.toString()}`;
     },
+    usageForTask: (taskKey: string) => {
+      const params = new URLSearchParams({
+        range: "7d",
+        groupBy: "task",
+        selectedGroup: taskKey,
+      });
+      return `${LOGS_USAGE_PATH}?${params.toString()}`;
+    },
     emails: r("/assistant/logs/emails"),
     systemEvents: r("/assistant/logs/system-events"),
   },

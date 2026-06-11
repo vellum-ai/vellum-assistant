@@ -33,6 +33,7 @@ interface SystemTaskRowProps {
   statusLabel?: string;
   statusTone?: TagTone;
   onClick: () => void;
+  onOpenUsage?: () => void;
   onToggle?: (enabled: boolean) => void;
 }
 
@@ -48,6 +49,7 @@ export function SystemTaskRow({
   statusLabel,
   statusTone = "neutral",
   onClick,
+  onOpenUsage,
   onToggle,
 }: SystemTaskRowProps) {
   return (
@@ -56,49 +58,54 @@ export function SystemTaskRow({
         type="button"
         onClick={onClick}
         aria-label={`Open ${name}`}
-        className="flex min-w-0 flex-1 cursor-pointer flex-wrap items-center gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+        className="min-w-0 flex-1 cursor-pointer text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
       >
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-body-medium-default text-[var(--content-default)]">
-              {name}
-            </span>
-          </div>
-          <div className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]">
-            {subtitle}
-          </div>
-          {helperText ? (
-            <div className="mt-0.5 text-body-small-default text-[var(--content-secondary)]">
-              {helperText}
-            </div>
-          ) : null}
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-body-small-default text-[var(--content-tertiary)]">
-            {nextRunAt ? (
-              <span>Next: {formatTimestamp(nextRunAt)}</span>
-            ) : null}
-            {lastRunAt ? (
-              <span>Last: {formatTimestamp(lastRunAt)}</span>
-            ) : null}
-          </div>
+        <div className="flex items-center gap-2">
+          <span className="truncate text-body-medium-default text-[var(--content-default)]">
+            {name}
+          </span>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
-          <ScheduleUsageStats scheduleName={name} usage={usage} />
-          {showToggle ? null : statusLabel ? (
-            <Tag tone={statusTone}>{statusLabel}</Tag>
-          ) : (
-            <span
-              className="h-2 w-2 rounded-full"
-              style={{
-                backgroundColor: enabled
-                  ? "var(--system-positive-strong)"
-                  : "var(--content-disabled)",
-              }}
-              aria-label={enabled ? "enabled" : "disabled"}
-            />
-          )}
-          <ChevronRight className="h-4 w-4 text-[var(--content-tertiary)]" />
+        <div className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]">
+          {subtitle}
+        </div>
+        {helperText ? (
+          <div className="mt-0.5 text-body-small-default text-[var(--content-secondary)]">
+            {helperText}
+          </div>
+        ) : null}
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-body-small-default text-[var(--content-tertiary)]">
+          {nextRunAt ? <span>Next: {formatTimestamp(nextRunAt)}</span> : null}
+          {lastRunAt ? <span>Last: {formatTimestamp(lastRunAt)}</span> : null}
         </div>
       </button>
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
+        <ScheduleUsageStats
+          scheduleName={name}
+          usage={usage}
+          onOpenUsage={onOpenUsage}
+        />
+        {showToggle ? null : statusLabel ? (
+          <Tag tone={statusTone}>{statusLabel}</Tag>
+        ) : (
+          <span
+            className="h-2 w-2 rounded-full"
+            style={{
+              backgroundColor: enabled
+                ? "var(--system-positive-strong)"
+                : "var(--content-disabled)",
+            }}
+            aria-label={enabled ? "enabled" : "disabled"}
+          />
+        )}
+        <button
+          type="button"
+          onClick={onClick}
+          aria-label={`Open ${name} details`}
+          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)]"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
       {showToggle && onToggle ? (
         <Toggle
           checked={enabled}
@@ -124,6 +131,8 @@ interface SystemTasksSectionProps {
   onRetry: () => void;
   onSelectHeartbeat: () => void;
   onSelectConsolidation: () => void;
+  onOpenHeartbeatUsage: () => void;
+  onOpenConsolidationUsage: () => void;
   showSystemTaskToggles: boolean;
   onToggleHeartbeat: (enabled: boolean) => void;
 }
@@ -138,6 +147,8 @@ export function SystemTasksSection({
   onRetry,
   onSelectHeartbeat,
   onSelectConsolidation,
+  onOpenHeartbeatUsage,
+  onOpenConsolidationUsage,
   showSystemTaskToggles,
   onToggleHeartbeat,
 }: SystemTasksSectionProps) {
@@ -180,6 +191,7 @@ export function SystemTasksSection({
               usage={heartbeatUsage}
               showToggle={showSystemTaskToggles}
               onClick={onSelectHeartbeat}
+              onOpenUsage={onOpenHeartbeatUsage}
               onToggle={onToggleHeartbeat}
             />
           ) : null}
@@ -202,6 +214,7 @@ export function SystemTasksSection({
               }
               statusTone={consolidationConfig.enabled ? "neutral" : "warning"}
               onClick={onSelectConsolidation}
+              onOpenUsage={onOpenConsolidationUsage}
             />
           ) : null}
           {hasError ? (

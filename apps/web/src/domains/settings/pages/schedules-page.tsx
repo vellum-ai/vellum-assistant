@@ -19,6 +19,7 @@ import {
   scheduleUsageSummaryQueryOptions,
   shouldShowSystemTaskToggles,
   sortSchedules,
+  SYSTEM_TASK_USAGE_TASK_KEYS,
   SYSTEM_TASK_URL_IDS,
   systemTaskKindFromUrlId,
   type ScheduleRowUsage,
@@ -403,6 +404,14 @@ export function SchedulesPage() {
         }
         onSelectConsolidation={() =>
           navigateToSchedule(SYSTEM_TASK_URL_IDS.consolidation)
+        }
+        onOpenHeartbeatUsage={() =>
+          navigate(routes.logs.usageForTask(SYSTEM_TASK_USAGE_TASK_KEYS.heartbeat))
+        }
+        onOpenConsolidationUsage={() =>
+          navigate(
+            routes.logs.usageForTask(SYSTEM_TASK_USAGE_TASK_KEYS.consolidation),
+          )
         }
         showSystemTaskToggles={showSystemTaskToggles}
         onToggleHeartbeat={(enabled) =>
