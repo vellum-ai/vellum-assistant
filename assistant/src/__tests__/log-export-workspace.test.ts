@@ -36,9 +36,12 @@ mock.module("../util/secure-keys.js", () => ({
   getSecureKeyAsync: async () => undefined,
 }));
 
+import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import { conversations, toolInvocations } from "../memory/schema.js";
 import { RouteError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/log-export-routes.js";
+import { redactStagedExportFiles } from "../runtime/routes/redact-staged-export.js";
 
 initializeDb();
 
@@ -472,6 +475,123 @@ describe("POST /v1/export — workspace allowlist", () => {
       expect(entries).toContain("2025-01-15T00-00-00.000Z_conv-jan15");
       expect(entries).toContain("2025-01-20T00-00-00.000Z_conv-jan20");
       expect(entries).toContain("2025-01-25T00-00-00.000Z_conv-jan25");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Export-time secret sweep
+// ---------------------------------------------------------------------------
+
+// A synthetic OpenAI project key that matches the scanner's
+// `sk-proj-[A-Za-z0-9\-_]{40,}` pattern while deliberately dodging its
+// placeholder filtering: no "test"/"example"/"xxxx"-style segments, not a
+// repeated character, and it ends with an alphanumeric so the trailing `\b`
+// boundary holds.
+const RAW_OPENAI_PROJECT_KEY =
+  "sk-proj-Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0Uv1Wx2Yz3Ab4Cd5Ef6Gh";
+const REDACTION_MARKER = '<redacted type="OpenAI Project Key" />';
+
+// NOTE: these tests intentionally run after every other describe block in
+// this file — they seed a workspace conversation and an audit DB row that
+// contain a raw secret, which would otherwise leak into the exports made by
+// the earlier (clean-state) tests.
+describe("POST /v1/export — staged-file secret sweep", () => {
+  test("clean staged files are left byte-identical and report filesRedacted: 0", () => {
+    const staging = mkdtempSync(join(tmpdir(), "redact-staged-clean-"));
+    try {
+      mkdirSync(join(staging, "daemon-logs"), { recursive: true });
+      const seeded: Record<string, string> = {
+        "audit-data.json": JSON.stringify(
+          [{ id: "ti-1", toolName: "bash", input: "{}" }],
+          null,
+          2,
+        ),
+        "daemon-logs/assistant-2025-01-10.log": "log entry from Jan 10\n",
+        "notes.md": "# clean notes\n",
+      };
+      for (const [rel, content] of Object.entries(seeded)) {
+        writeFileSync(join(staging, rel), content, "utf-8");
+      }
+
+      const result = redactStagedExportFiles(staging);
+
+      expect(result).toEqual({ filesScanned: 3, filesRedacted: 0 });
+      for (const [rel, content] of Object.entries(seeded)) {
+        expect(readFileSync(join(staging, rel), "utf-8")).toBe(content);
+      }
+    } finally {
+      rmSync(staging, { recursive: true, force: true });
+    }
+  });
+
+  test("redacts raw keys from workspace conversation files in the archive", async () => {
+    seedConversation(
+      "2025-01-30T00-00-00.000Z_conv-secret",
+      JSON.stringify({
+        role: "user",
+        content: `export OPENAI_API_KEY="${RAW_OPENAI_PROJECT_KEY}"`,
+      }) + "\n",
+    );
+
+    const res = await callExport();
+    const dir = await extractArchive(res);
+    try {
+      const content = readFileSync(
+        join(
+          dir,
+          "workspace",
+          "conversations",
+          "2025-01-30T00-00-00.000Z_conv-secret",
+          "messages.jsonl",
+        ),
+        "utf-8",
+      );
+      expect(content).toContain(REDACTION_MARKER);
+      expect(content).not.toContain(RAW_OPENAI_PROJECT_KEY);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("redacts legacy audit rows and keeps audit-data.json valid JSON", async () => {
+    // Simulate a row written before write-time input redaction shipped: the
+    // raw key sits in the persisted `input` column, where no structural
+    // sanitizer can retroactively fix it.
+    const db = getDb();
+    const now = Date.now();
+    db.insert(conversations)
+      .values({ id: "conv-legacy-audit", createdAt: now, updatedAt: now })
+      .run();
+    db.insert(toolInvocations)
+      .values({
+        id: "ti-legacy-audit",
+        conversationId: "conv-legacy-audit",
+        toolName: "bash",
+        input: JSON.stringify({
+          command: `export OPENAI_API_KEY="${RAW_OPENAI_PROJECT_KEY}"`,
+        }),
+        result: "{}",
+        decision: "allow",
+        riskLevel: "low",
+        durationMs: 5,
+        createdAt: now,
+      })
+      .run();
+
+    const res = await callExport();
+    const dir = await extractArchive(res);
+    try {
+      const content = readFileSync(join(dir, "audit-data.json"), "utf-8");
+      expect(content).not.toContain(RAW_OPENAI_PROJECT_KEY);
+      // The sweep must keep the file parseable — redaction goes through a
+      // JSON-aware path rather than splicing quoted markers into raw JSON.
+      const rows = JSON.parse(content) as Array<{ id: string; input: string }>;
+      const row = rows.find((r) => r.id === "ti-legacy-audit");
+      expect(row).toBeDefined();
+      expect(row!.input).toContain(REDACTION_MARKER);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
