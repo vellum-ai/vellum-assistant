@@ -21,10 +21,11 @@ Codex ACP sessions no longer fail with a bare "Authentication required"
 error. When Codex asks for authentication, the assistant now authenticates
 it automatically using your API key and retries.
 
-- Provide a key by setting \`OPENAI_API_KEY\` (or \`CODEX_API_KEY\`) under
-  \`acp.agents.codex.env\` in config.json, or store it in the credential
-  vault with \`assistant credentials set --service acp --field
-  openai_api_key\` (config.json wins if both are set).
+- Store your key in the credential vault with \`assistant credentials set
+  --service acp --field openai_api_key <key>\` (use \`--field codex_api_key\`
+  for \`CODEX_API_KEY\`). If you already set \`OPENAI_API_KEY\` or
+  \`CODEX_API_KEY\` under \`acp.agents.codex.env\` in config.json, those
+  explicit values take precedence.
 - If you sign in with ChatGPT instead, nothing changes: \`codex login\` in
   the workspace keeps working.
 - When no usable key is available, spawn failures now list the auth
