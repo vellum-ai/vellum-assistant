@@ -34,7 +34,6 @@ export interface UseMessageLifecycleParams {
   activeConversationId: string | null;
   conversationExistsOnServer: boolean;
   latestPageOldestTimestamp: number | null;
-  scheduleConversationListRefetch: () => void;
   cancelScheduledRefetch: () => void;
   reachability: UseAssistantReachabilityResult;
   reachabilityReadyEpoch: number;
@@ -62,7 +61,6 @@ export function useMessageLifecycle({
   activeConversationId,
   conversationExistsOnServer,
   latestPageOldestTimestamp,
-  scheduleConversationListRefetch,
   cancelScheduledRefetch,
   reachability,
   reachabilityReadyEpoch,
@@ -94,7 +92,6 @@ export function useMessageLifecycle({
     assistantId,
     reachabilityReadyEpoch,
     invalidateAvatar: avatarInvalidate,
-    scheduleConversationListRefetch,
     reconcileActiveConversation,
   });
 
@@ -106,7 +103,6 @@ export function useMessageLifecycle({
     cancelReconciliation,
     startReconciliationLoop,
     setAssetsRefreshKey,
-    scheduleConversationListRefetch,
     dispatchSyncChanged,
   });
 

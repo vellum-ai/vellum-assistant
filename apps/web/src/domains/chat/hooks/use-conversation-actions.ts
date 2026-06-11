@@ -11,6 +11,7 @@ import {
   snapshotConversationCaches,
   type ConversationCacheSnapshot,
 } from "@/utils/conversation-cache";
+import { batchExecute } from "@/utils/batch-execute";
 import {
   conversationsByIdArchivePost,
   conversationsByIdUnarchivePost,
@@ -341,26 +342,32 @@ export function useConversationActions({
         });
       }
 
-      try {
-        await Promise.allSettled(
-          unread.map(async (c) => {
-            try {
-              await conversationsSeenPost({
-                path: { assistant_id: assistantId },
-                body: { conversationId: c.conversationId },
-                throwOnError: true,
-              });
-            } catch (err) {
-              patchConversation(queryClient, assistantId, c.conversationId, {
-                hasUnseenLatestAssistantMessage: true,
-              });
-              captureError(err, { context: "markAllReadInGroup" });
-            }
-          }),
+      const { abortedAt, succeeded } = await batchExecute(
+        unread,
+        async (c) => {
+          try {
+            await conversationsSeenPost({
+              path: { assistant_id: assistantId },
+              body: { conversationId: c.conversationId },
+              throwOnError: true,
+            });
+          } catch (err) {
+            patchConversation(queryClient, assistantId, c.conversationId, {
+              hasUnseenLatestAssistantMessage: true,
+            });
+            throw err;
+          }
+        },
+      );
+      if (abortedAt !== null) {
+        captureError(
+          new Error(
+            `markAllReadInGroup: aborted at batch ${abortedAt}, ${succeeded}/${unread.length} succeeded`,
+          ),
+          { context: "markAllReadInGroup", bestEffort: true },
         );
-      } finally {
-        void invalidateConversationQueries(queryClient, assistantId);
       }
+      void invalidateConversationQueries(queryClient, assistantId);
     },
     [assistantId, queryClient],
   );
@@ -398,28 +405,34 @@ export function useConversationActions({
         }
       }
 
-      try {
-        await Promise.allSettled(
-          groupConversations.map(async (c) => {
-            try {
-              await conversationsByIdArchivePost({
-                path: {
-                  assistant_id: assistantId,
-                  id: c.conversationId,
-                },
-                throwOnError: true,
-              });
-            } catch (err) {
-              patchConversation(queryClient, assistantId, c.conversationId, {
-                archivedAt: c.archivedAt,
-              });
-              captureError(err, { context: "archiveAllInGroup" });
-            }
-          }),
+      const { abortedAt, succeeded } = await batchExecute(
+        groupConversations,
+        async (c) => {
+          try {
+            await conversationsByIdArchivePost({
+              path: {
+                assistant_id: assistantId,
+                id: c.conversationId,
+              },
+              throwOnError: true,
+            });
+          } catch (err) {
+            patchConversation(queryClient, assistantId, c.conversationId, {
+              archivedAt: c.archivedAt,
+            });
+            throw err;
+          }
+        },
+      );
+      if (abortedAt !== null) {
+        captureError(
+          new Error(
+            `archiveAllInGroup: aborted at batch ${abortedAt}, ${succeeded}/${groupConversations.length} succeeded`,
+          ),
+          { context: "archiveAllInGroup", bestEffort: true },
         );
-      } finally {
-        void invalidateConversationQueries(queryClient, assistantId);
       }
+      void invalidateConversationQueries(queryClient, assistantId);
     },
     [
       activeConversationId,
