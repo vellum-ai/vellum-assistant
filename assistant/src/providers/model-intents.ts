@@ -13,7 +13,7 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
   anthropic: {
     balanced: "claude-sonnet-4-6",
     "latency-optimized": "claude-haiku-4-5-20251001",
-    "quality-optimized": "claude-opus-4-8",
+    "quality-optimized": "claude-fable-5",
     "vision-optimized": "claude-opus-4-6",
   },
   openai: {
@@ -43,7 +43,7 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
   openrouter: {
     balanced: "anthropic/claude-sonnet-4.6",
     "latency-optimized": "anthropic/claude-haiku-4.5",
-    "quality-optimized": "anthropic/claude-opus-4.8",
+    "quality-optimized": "anthropic/claude-fable-5",
     "vision-optimized": "anthropic/claude-opus-4.6",
   },
 };

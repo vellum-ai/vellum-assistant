@@ -185,10 +185,11 @@ describe("AgentLoop compaction start/end event pair", () => {
     expect(end!.finishedAt).toBeGreaterThanOrEqual(end!.startedAt);
     expect(end!.finishedAt).toBeLessThanOrEqual(after);
 
-    // Start carries the pre-compaction history size; end carries the result.
-    expect(start!.preMessageCount).toBeGreaterThan(0);
+    // Start carries the pre-compaction history; end carries the result and
+    // the stripped history the summary was built from.
+    expect(start!.messages.length).toBeGreaterThan(0);
     expect(end!.result.compacted).toBe(true);
-    expect(end!.basis.length).toBeGreaterThan(0);
+    expect(end!.messages.length).toBeGreaterThan(0);
 
     // Start precedes end in the event stream.
     expect(events.indexOf(start!)).toBeLessThan(events.indexOf(end!));

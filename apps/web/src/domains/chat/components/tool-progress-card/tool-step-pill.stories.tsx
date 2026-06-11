@@ -141,6 +141,45 @@ export const Web: Story = {
   },
 };
 
+/**
+ * Several web pills laid out the way `WebSearchStepRow` renders them — a
+ * `flex flex-wrap` row. The 240px per-pill cap (with truncation) lets 2–3
+ * pills sit on each row instead of one-per-row even with long page titles.
+ */
+export const WebResults: Story = {
+  parameters: {
+    controls: { disable: true },
+  },
+  render: () => (
+    <div className="flex max-w-[600px] flex-wrap gap-1">
+      <ToolStepPill
+        variant="web"
+        label="Toronto - Wikipedia, the free encyclopedia"
+        url="https://en.wikipedia.org/wiki/Toronto"
+        domain="en.wikipedia.org"
+      />
+      <ToolStepPill
+        variant="web"
+        label="Toronto travel guide: the best things to do in the city"
+        url="https://www.timeout.com/toronto"
+        domain="timeout.com"
+      />
+      <ToolStepPill
+        variant="web"
+        label="Visit Toronto — official tourism site for the city of Toronto"
+        url="https://www.destinationtoronto.com"
+        domain="destinationtoronto.com"
+      />
+      <ToolStepPill
+        variant="web"
+        label="Weather in Toronto — 7 day forecast and conditions"
+        url="https://weather.gc.ca/city/pages/on-143_metric_e.html"
+        domain="weather.gc.ca"
+      />
+    </div>
+  ),
+};
+
 export const AllVariants: Story = {
   parameters: {
     controls: { disable: true },

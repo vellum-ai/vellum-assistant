@@ -1792,6 +1792,15 @@ jobs:
             .dependencies["@vellumai/vellum-gateway"] = $v |
             .dependencies["@vellumai/web"] = $v
           ' package.json > tmp && mv tmp package.json
+      # npm only honors "overrides" in the root package.json, so they are
+      # ignored when end users run `npm install -g vellum`. Shipping an
+      # npm-shrinkwrap.json generated with the overrides applied makes npm
+      # follow the same resolution for installed copies of the package.
+      - name: Generate npm-shrinkwrap.json
+        working-directory: meta
+        run: |
+          npm install --package-lock-only
+          npm shrinkwrap
       - name: Publish
         working-directory: meta
         env:
@@ -1931,6 +1940,16 @@ jobs:
         with:
           node-version-file: .nvmrc
           registry-url: https://registry.npmjs.org
+
+      # npm only honors "overrides" in the root package.json, so they are
+      # ignored when end users run `npm install -g vellum`. Shipping an
+      # npm-shrinkwrap.json generated with the overrides applied makes npm
+      # follow the same resolution for installed copies of the package.
+      - name: Generate npm-shrinkwrap.json
+        working-directory: meta
+        run: |
+          npm install --package-lock-only
+          npm shrinkwrap
 
       - name: Publish meta-package
         env:

@@ -2,6 +2,16 @@ import { BrowserWindow, app, type WebContents } from "electron";
 import path from "node:path";
 import { z } from "zod";
 
+import type {
+  DictationPartialEvent,
+  DictationPartialsResult,
+  FnPushToTalkResult,
+  HelperRestartResult,
+  HelperState,
+  HotkeyEvent,
+  HotkeyEventState,
+} from "@vellumai/ipc-contract";
+
 import { handle } from "./ipc";
 import log from "./logger";
 import {
@@ -10,28 +20,15 @@ import {
   type MacHelperState,
 } from "./sidecar/mac-helper";
 
-export type HotkeyEventState = "down" | "up";
-
-export interface HotkeyEvent {
-  kind: "fnPushToTalk";
-  state: HotkeyEventState;
-}
-
-export type FnPushToTalkResult =
-  | { ok: true; enabled: boolean }
-  | { ok: false; reason: string };
-
-export type HelperRestartResult =
-  | { ok: true; state: MacHelperState }
-  | { ok: false; reason: string; state: MacHelperState };
-
-export type DictationPartialsResult =
-  | { ok: true; enabled: boolean }
-  | { ok: false; reason: string };
-
-export interface DictationPartialEvent {
-  text: string;
-}
+export type {
+  DictationPartialEvent,
+  DictationPartialsResult,
+  FnPushToTalkResult,
+  HelperRestartResult,
+  HelperState,
+  HotkeyEvent,
+  HotkeyEventState,
+};
 
 const HOTKEY_EVENT_SCHEMA = z.object({
   kind: z.literal("fnPushToTalk"),

@@ -55,6 +55,7 @@ import {
   WebSearchStepRow,
 } from "@/domains/chat/components/web-search/web-search-step-row";
 import { WebsiteCarousel } from "@/domains/chat/components/web-search/website-carousel";
+import { SiteFavicon } from "@/domains/chat/components/web-search/site-favicon";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { WebSearchResultItem } from "@/assistant/web-activity-types";
@@ -79,8 +80,8 @@ export type SingleActivityProps =
       carouselItems: WebSearchResultItem[];
       /** Card-level state: drives the leading indicator (loading -> dots). */
       state: "loading" | "complete" | "error";
-      /** The single web step to render when expanded (favicon chips / error). */
-      step: Extract<ToolCallCardStep, { kind: "web_search" | "web_search_error" }>;
+      /** The single web step to render when expanded (favicon chips / error). Null during the brief loading window before metadata arrives. */
+      step: Extract<ToolCallCardStep, { kind: "web_search" | "web_search_error" }> | null;
       /** Controlled expand state + change handler (owned by the caller). */
       expanded: boolean;
       onExpandChange: (next: boolean) => void;
@@ -121,11 +122,15 @@ export function SingleActivity(props: SingleActivityProps) {
   );
 
   if (props.variant === "web") {
-    const { info, state, step, expanded, onExpandChange } = props;
+    const { info, carouselItems, state, step, expanded, onExpandChange } =
+      props;
     const isError = state === "error";
+    // The settled header shows the LAST result's title (`info`); pull the
+    // matching result so we can render its favicon immediately left of it.
+    const latest = carouselItems.at(-1);
     const ExpandChevron = expanded ? ChevronUp : ChevronDown;
     return (
-      <div className="flex flex-col">
+      <div className="flex flex-col items-start">
         <button
           type="button"
           data-testid="inline-web-link"
@@ -167,6 +172,19 @@ export function SingleActivity(props: SingleActivityProps) {
             <span className="inline-flex w-[220px] min-w-0 items-center">
               {carouselNode}
             </span>
+          ) : latest &&
+            (latest.faviconUrl || latest.domain || latest.title) ? (
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              <SiteFavicon
+                faviconUrl={latest.faviconUrl}
+                domain={latest.domain}
+                title={info}
+                className="shrink-0"
+              />
+              <span className="min-w-0 max-w-[280px] truncate text-[var(--content-default)]">
+                {info}
+              </span>
+            </span>
           ) : (
             <span className="min-w-0 max-w-[280px] truncate text-[var(--content-default)]">
               {info}
@@ -177,7 +195,7 @@ export function SingleActivity(props: SingleActivityProps) {
             aria-hidden
           />
         </button>
-        {expanded ? (
+        {expanded && step != null ? (
           <div className="pl-6">
             {step.kind === "web_search_error" ? (
               <WebSearchErrorRow step={step} />

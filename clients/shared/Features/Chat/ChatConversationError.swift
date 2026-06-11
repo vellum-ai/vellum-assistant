@@ -67,13 +67,13 @@ public enum ConversationErrorCategory: Equatable, Sendable {
         case .rateLimit:
             return "Wait 30–60 seconds, then click Retry."
         case .managedUsageLimit:
-            return "This is a Vellum-managed usage limit. Wait for it to reset or switch to your API key in Settings."
+            return "This is a Vellum-managed usage limit. Wait for it to reset or switch to your API key in Settings → Models & Services."
         case .providerOverloaded:
             return "This is usually temporary — click Retry in a moment."
         case .providerApi:
-            return "This is usually temporary — click Retry, or check your API key in Settings if it persists."
+            return "This is usually temporary — click Retry, or check your API key in Settings → Models & Services if it persists."
         case .providerBilling:
-            return "Add funds with your provider or update your API key in Settings."
+            return "Add funds with your provider or update your API key in Settings → Models & Services."
         case .providerOrdering:
             return "This is usually temporary — click Retry to continue."
         case .providerWebSearch:
@@ -89,9 +89,9 @@ public enum ConversationErrorCategory: Equatable, Sendable {
         case .authenticationRequired:
             return "Sign in or check your credentials in Settings to continue."
         case .providerNotConfigured:
-            return "Add your API key in Settings to continue."
+            return "Add your API key in Settings → Models & Services to continue."
         case .providerInvalidKey:
-            return "Update the API key in Settings — the provider rejected the current one."
+            return "Update the API key in Settings → Models & Services — the provider rejected the current one."
         case .managedKeyInvalid:
             return "The assistant API key is being refreshed. Please retry in a moment."
         case .unknown:
@@ -218,7 +218,7 @@ public struct ConversationError: Equatable {
 
     private static func recoverySuggestion(for category: ConversationErrorCategory, errorCategory: String?) -> String {
         if isManagedCreditsExhausted(errorCategory) {
-            return "Add credits to your Vellum account or switch to your API key in Settings."
+            return "Add credits to your Vellum account or switch to your API key in Settings → Models & Services."
         }
         if isProviderBilling(category: category, errorCategory: errorCategory) {
             return ConversationErrorCategory.providerBilling.recoverySuggestion

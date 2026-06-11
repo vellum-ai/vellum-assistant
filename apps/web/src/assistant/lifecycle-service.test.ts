@@ -45,12 +45,16 @@ mock.module("@/lib/auth/gateway-session", () => ({
 }));
 
 const isLocalModeMock = mock(() => false);
+const getSelectedAssistantMock = mock(
+  (): { assistantId: string } | undefined => undefined,
+);
+const getLocalGatewayUrlMock = mock((): string | undefined => undefined);
 mock.module("@/lib/local-mode", () => ({
   isLocalMode: isLocalModeMock,
   isLocalAssistant: () => false,
   isPlatformAssistant: () => false,
-  getSelectedAssistant: () => null,
-  getLocalGatewayUrl: () => null,
+  getSelectedAssistant: getSelectedAssistantMock,
+  getLocalGatewayUrl: getLocalGatewayUrlMock,
 }));
 
 // Sentry is a side-effect-only dep here; silence it.
@@ -110,9 +114,20 @@ beforeEach(() => {
   // tests will silently inherit the previous test's stub.
   isGatewayAuthModeMock.mockImplementation(() => false);
   isLocalModeMock.mockImplementation(() => false);
+  getSelectedAssistantMock.mockImplementation(() => undefined);
+  getLocalGatewayUrlMock.mockImplementation(() => undefined);
   getAssistantMock.mockImplementation(async () => ({ ok: false, status: 404 }));
   getAssistantHealthzMock.mockImplementation(async () => ({ ok: true }));
   lifecycleService.__resetForTesting();
+  // Deterministic baseline for the selection subscription's diff. Reset
+  // AFTER __resetForTesting (state is `loading`, gateway mode is false)
+  // so the write itself can't republish.
+  useResolvedAssistantsStore.setState({
+    assistants: [],
+    assistantsHydrated: false,
+    selectedAssistantId: null,
+  });
+  localStorage.removeItem("vellum:selectedAssistantId");
 });
 
 afterEach(() => {
@@ -695,5 +710,145 @@ describe("lifecycleService — reachability probe", () => {
     expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
       "loading",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Selection subscription — gateway-mode republish
+//
+// The service subscribes to the resolved-assistants store's
+// `selectedAssistantId` slice (real store here, so the store action
+// exercises the subscription directly): any selection write while
+// gateway-auth mode is on and the lifecycle is past `loading`
+// re-runs the gateway short-circuit, republishing `activeAssistantId`
+// and the self-hosted connection.
+// ---------------------------------------------------------------------------
+
+describe("lifecycleService — selection subscription", () => {
+  /** Drive the service into the gateway-auth active state. */
+  async function driveGatewayActive(assistantId: string): Promise<void> {
+    isGatewayAuthModeMock.mockImplementation(() => true);
+    getLocalGatewayUrlMock.mockImplementation(
+      () => "/assistant/__gateway/1111",
+    );
+    getSelectedAssistantMock.mockImplementation(() => ({ assistantId }));
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.respondToInputs();
+    expect(
+      useResolvedAssistantsStore.getState().activeAssistantId,
+    ).toBe(assistantId);
+  }
+
+  test("selection write republishes activeAssistantId and the connection", async () => {
+    await driveGatewayActive("asst-a");
+    getLocalGatewayUrlMock.mockImplementation(
+      () => "/assistant/__gateway/2222",
+    );
+    getSelectedAssistantMock.mockImplementation(() => ({
+      assistantId: "asst-b",
+    }));
+    setSelfHostedConnectionMock.mockClear();
+
+    useResolvedAssistantsStore.getState().setSelectedAssistant("asst-b");
+
+    expect(
+      useResolvedAssistantsStore.getState().activeAssistantId,
+    ).toBe("asst-b");
+    expect(setSelfHostedConnectionMock).toHaveBeenCalledTimes(1);
+    const arg = setSelfHostedConnectionMock.mock.calls[0]![0] as {
+      url: string;
+    };
+    expect(arg.url).toContain("/assistant/__gateway/2222");
+  });
+
+  test("no republish while the lifecycle is still loading", () => {
+    isGatewayAuthModeMock.mockImplementation(() => true);
+
+    useResolvedAssistantsStore.getState().setSelectedAssistant("asst-early");
+
+    expect(
+      useResolvedAssistantsStore.getState().activeAssistantId,
+    ).toBeNull();
+    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
+      "loading",
+    );
+    expect(setSelfHostedConnectionMock).not.toHaveBeenCalled();
+  });
+
+  test("no republish outside gateway-auth mode", async () => {
+    // Drive to active via the platform path.
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: true,
+      status: 200,
+      data: {
+        id: "asst-platform",
+        status: "active",
+        is_local: false,
+        maintenance_mode: { enabled: false },
+      },
+    }));
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+    setSelfHostedConnectionMock.mockClear();
+
+    useResolvedAssistantsStore.getState().setSelectedAssistant("asst-other");
+
+    expect(
+      useResolvedAssistantsStore.getState().activeAssistantId,
+    ).toBe("asst-platform");
+    expect(setSelfHostedConnectionMock).not.toHaveBeenCalled();
+  });
+
+  test("same-id write does not republish", async () => {
+    await driveGatewayActive("asst-a");
+    useResolvedAssistantsStore.getState().setSelectedAssistant("asst-a");
+    setSelfHostedConnectionMock.mockClear();
+
+    useResolvedAssistantsStore.getState().setSelectedAssistant("asst-a");
+
+    expect(setSelfHostedConnectionMock).not.toHaveBeenCalled();
+  });
+
+  test("reconcile-driven clear republishes the fallback assistant", async () => {
+    await driveGatewayActive("asst-gone");
+    useResolvedAssistantsStore.getState().setSelectedAssistant("asst-gone");
+    // After the ghost is reconciled away, the lockfile fallback wins.
+    getSelectedAssistantMock.mockImplementation(() => ({
+      assistantId: "asst-fallback",
+    }));
+
+    // Lockfile load without the selected id → reconcile clears the slice
+    // → subscription republishes from the lockfile fallback.
+    useResolvedAssistantsStore
+      .getState()
+      .setFromLockfile({ assistants: [], activeAssistant: null });
+
+    expect(
+      useResolvedAssistantsStore.getState().selectedAssistantId,
+    ).toBeNull();
+    expect(
+      useResolvedAssistantsStore.getState().activeAssistantId,
+    ).toBe("asst-fallback");
+  });
+
+  test("selection clear after resetForLogout does not resurrect an active state", async () => {
+    await driveGatewayActive("asst-a");
+    useResolvedAssistantsStore.getState().setSelectedAssistant("asst-a");
+
+    lifecycleService.resetForLogout();
+    useResolvedAssistantsStore.getState().setSelectedAssistant(null);
+
+    expect(
+      useResolvedAssistantsStore.getState().activeAssistantId,
+    ).toBeNull();
+    expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
+      kind: "loading",
+    });
   });
 });

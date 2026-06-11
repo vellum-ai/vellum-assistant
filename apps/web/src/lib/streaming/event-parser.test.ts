@@ -2268,6 +2268,43 @@ describe("parseAssistantEvent", () => {
     });
   });
 
+  describe("usage_progress", () => {
+    test("parses usage_progress with all required fields", () => {
+      const event = parseEvent({
+        type: "usage_progress",
+        conversationId: "conv-1",
+        inputTokens: 100,
+        outputTokens: 50,
+        estimatedCost: 0.0021,
+        model: "claude-sonnet-4",
+      });
+      expect(event).toEqual({
+        type: "usage_progress",
+        conversationId: "conv-1",
+        inputTokens: 100,
+        outputTokens: 50,
+        estimatedCost: 0.0021,
+        model: "claude-sonnet-4",
+      });
+    });
+
+    test("returns unknown when a required field is missing", () => {
+      const data = {
+        type: "usage_progress",
+        conversationId: "conv-1",
+        inputTokens: 100,
+        outputTokens: 50,
+      };
+      const event = parseEvent(data);
+      expect(event).toEqual({
+        type: "unknown",
+        rawType: "usage_progress",
+        data,
+        conversationId: "conv-1",
+      });
+    });
+  });
+
   // ---------------------------------------------------------------------
   // identity_changed (schema-validated)
   // ---------------------------------------------------------------------

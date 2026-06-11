@@ -103,6 +103,21 @@ class AssistantLifecycleService {
 
   constructor() {
     subscribeAssistantUnreachable(() => this.onUnreachable());
+    // Republish `activeAssistantId` whenever the selection changes, at the
+    // store funnel so every writer (and future ones) is covered — gateway-auth
+    // mode has no other republish path while connected (the React effect's
+    // deps pin the resolved selection to null there). The `loading` guard
+    // keeps the initial publish owned by `respondToInputs` and prevents a
+    // mid-logout clear from resurrecting an active state (`resetForLogout`
+    // runs before the clear). Fires synchronously inside the write, bypassing
+    // the `ready` guard — must not read `this.inputs`. Platform mode is
+    // deliberately not handled here: its resolver-fed effect path already
+    // re-checks, and acting on it would double-fetch with stale inputs.
+    useResolvedAssistantsStore.subscribe((state, prevState) => {
+      if (state.selectedAssistantId === prevState.selectedAssistantId) return;
+      if (!isGatewayAuthMode() || this.state.kind === "loading") return;
+      this.applyGatewayAuthShortCircuit();
+    });
   }
 
   // ---------------------------------------------------------------------------

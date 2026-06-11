@@ -1,7 +1,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { voiceInputAudioConstraints } from "@/utils/voice-input-device";
+import { getVoiceInputMediaStream } from "@/utils/voice-input-device";
 
 /**
  * Real-time microphone amplitude via Web Audio API.
@@ -89,8 +89,7 @@ export function useAudioAmplitude({
       attachStream(externalStream);
     } else {
       // Open our own stream; we own its lifecycle.
-      navigator.mediaDevices
-        .getUserMedia({ audio: voiceInputAudioConstraints() })
+      getVoiceInputMediaStream()
         .then((stream) => {
           if (cancelled) {
             for (const track of stream.getTracks()) {

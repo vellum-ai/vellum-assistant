@@ -151,6 +151,15 @@ index file and rerun.
    and the single `longmemeval-v2-judge` metric
 6. flip `run.json` to `status: "completed"` (or `"failed"` on throw)
 
+The question turn is bounded by a time budget, not an event count:
+`runIngestAsk` ends it once the stream goes quiet (`quietMs`, 30s) or the
+`questionMaxMs` wall-clock cap (6 min) elapses, whichever comes first. If
+the agent never composes an answer within that budget, the run is still a
+**completed** run scored `0` — "too slow to answer" is a real, gradable
+outcome that belongs in the denominator, not an excluded `failed` run.
+Only genuine harness faults (an ingest that never reaches its completion
+sentinel, or a turn that emits zero events) throw and mark `failed`.
+
 The wrapped progress reporter + heartbeat ticker that both
 `runEvalOnce` and `runLongMemEvalV2Unit` install at the top of their
 try/finally now come from a shared

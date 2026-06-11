@@ -17,6 +17,10 @@ import type {
 import { getConfig } from "../config/loader.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
+import {
+  recordCompactionEndBestEffort,
+  recordCompactionStartBestEffort,
+} from "../memory/compaction-log-writer-clickhouse.js";
 import { projectAssistantMessage } from "../memory/conversation-attention-store.js";
 import {
   deleteMessageById,
@@ -298,14 +302,14 @@ export interface EventHandlerDeps {
   /**
    * Commit a successful inline compaction to durable state. Invoked from the
    * `compaction_completed` dispatch case (when `result.compacted`) with the
-   * loop's compaction result and the stripped pre-compaction `basis`. Supplied
+   * loop's compaction result and the stripped pre-compaction `messages`. Supplied
    * by the orchestrator because the body writes Conversation DB-record fields,
    * projects Slack provenance, and emits transport the loop is intentionally
    * blind to.
    */
   readonly applyCompaction: (
     result: ContextWindowResult,
-    basis: Message[],
+    messages: Message[],
   ) => Promise<void>;
 }
 
@@ -2311,6 +2315,7 @@ export async function dispatchAgentEvent(
         break;
       }
       case "context_compacting":
+        recordCompactionStartBestEffort(deps.ctx.conversationId, event);
         deps.ctx.emitActivityState("thinking", "context_compacting", {
           requestId: deps.reqId,
           statusText: "Compacting context",
@@ -2325,7 +2330,7 @@ export async function dispatchAgentEvent(
         deps.onEvent(event);
         break;
       case "compaction_completed":
-        // Always commit the loop-stripped `basis` as the durable message base
+        // Always commit the loop-stripped `messages` as the durable message base
         // so re-injection re-applies onto the stripped history even when the
         // pipeline ran but did not compact. When it did compact, commit the
         // durable result (DB-record fields, Slack provenance, SSE) — which
@@ -2334,9 +2339,10 @@ export async function dispatchAgentEvent(
         // so the committed history is in place in time. A failed durable
         // commit re-throws below to abort the turn rather than re-injecting
         // against half-applied state.
-        deps.ctx.messages = event.basis;
+        recordCompactionEndBestEffort(deps.ctx.conversationId, event);
+        deps.ctx.messages = event.messages;
         if (event.result.compacted) {
-          await deps.applyCompaction(event.result, event.basis);
+          await deps.applyCompaction(event.result, event.messages);
         }
         break;
       case "history_stripped":

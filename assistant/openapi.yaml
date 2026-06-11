@@ -5959,6 +5959,7 @@ paths:
                                 - macos_notification_view
                                 - macos_conversation_opened
                                 - ios_conversation_opened
+                                - web_bulk_mark_read
                                 - telegram_inbound_message
                                 - telegram_callback
                                 - slack_inbound_message
@@ -6322,6 +6323,7 @@ paths:
                               - macos_notification_view
                               - macos_conversation_opened
                               - ios_conversation_opened
+                              - web_bulk_mark_read
                               - telegram_inbound_message
                               - telegram_callback
                               - slack_inbound_message
@@ -6522,6 +6524,7 @@ paths:
                               - macos_notification_view
                               - macos_conversation_opened
                               - ios_conversation_opened
+                              - web_bulk_mark_read
                               - telegram_inbound_message
                               - telegram_callback
                               - slack_inbound_message
@@ -7117,6 +7120,44 @@ paths:
           required: true
           schema:
             type: string
+  /v1/conversations/archive/bulk:
+    post:
+      operationId: conversations_archive_bulk_post
+      summary: Bulk archive conversations
+      description: Archive multiple conversations in one request. Emits a single sync invalidation for the entire batch.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  archived:
+                    type: number
+                required:
+                  - ok
+                  - archived
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationIds:
+                  minItems: 1
+                  type: array
+                  items:
+                    type: string
+              required:
+                - conversationIds
+              additionalProperties: false
   /v1/conversations/attention:
     get:
       operationId: conversations_attention_get
@@ -7537,6 +7578,7 @@ paths:
                               - macos_notification_view
                               - macos_conversation_opened
                               - ios_conversation_opened
+                              - web_bulk_mark_read
                               - telegram_inbound_message
                               - telegram_callback
                               - slack_inbound_message
@@ -8543,6 +8585,46 @@ paths:
                   type: number
               required:
                 - conversationId
+              additionalProperties: false
+  /v1/conversations/seen/bulk:
+    post:
+      operationId: conversations_seen_bulk_post
+      summary: Bulk mark conversations as seen
+      description:
+        Mark multiple conversations as seen in one request. Emits a single sync invalidation for the entire batch
+        instead of per-conversation events.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  updated:
+                    type: number
+                required:
+                  - ok
+                  - updated
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationIds:
+                  minItems: 1
+                  type: array
+                  items:
+                    type: string
+              required:
+                - conversationIds
               additionalProperties: false
   /v1/conversations/switch:
     post:
@@ -12942,6 +13024,23 @@ paths:
                   - source
                   - refreshing
                 additionalProperties: false
+      parameters:
+        - name: localHour
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 23
+          description: Optional client-local hour of day used only when refreshing generated greetings.
+        - name: localMinute
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 59
+          description: Optional client-local minute used only when refreshing generated greetings.
   /v1/image-generation/generate:
     post:
       operationId: imagegeneration_generate_post
@@ -19486,6 +19585,24 @@ paths:
                   ref:
                     type: string
                     description: Git ref the catalog metadata / README were resolved at.
+                  artifact:
+                    anyOf:
+                      - type: object
+                        properties:
+                          url:
+                            type: string
+                            description: HTTPS URL the prebuilt client artifact is downloaded from.
+                          sha256:
+                            type: string
+                            description: Lowercase 64-char hex SHA-256 the download is verified against.
+                        required:
+                          - url
+                          - sha256
+                        additionalProperties: false
+                      - type: "null"
+                    description:
+                      Prebuilt client artifact from `package.json` `vellum.artifact`, or null when the plugin ships none or its
+                      descriptor is incomplete (e.g. a placeholder sha256).
                 required:
                   - name
                   - installed
@@ -19496,6 +19613,7 @@ paths:
                   - source
                   - readme
                   - ref
+                  - artifact
                 additionalProperties: false
         "400":
           description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).

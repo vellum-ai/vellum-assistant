@@ -17,7 +17,7 @@ import type { ToolCallRuleContext } from "@/domains/chat/rule-editor-actions";
 export const ERROR_MESSAGES: Record<string, string> = {
   rate_limit_exceeded: "Too many requests. Please wait a moment and try again.",
   invalid_api_key:
-    "The API key for this provider is invalid or expired. Please check your settings.",
+    "The API key for this provider is invalid or expired. Check your API key in Settings → Models & Services.",
 };
 
 const GLOBAL_STREAM_EVENT_TYPE_NAMES = [

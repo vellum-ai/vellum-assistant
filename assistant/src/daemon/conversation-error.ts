@@ -255,7 +255,7 @@ export function classifyConversationError(
     return {
       code: "PROVIDER_NOT_CONFIGURED",
       userMessage:
-        "No compatible provider connection found for this profile. Check your provider connections in Settings.",
+        "No compatible provider connection found for this profile. Check your provider connections in Settings → Models & Services.",
       retryable: true,
       debugDetails,
       errorCategory: "provider_not_configured",
@@ -333,15 +333,6 @@ function classifyCore(
         };
       }
       return invalidApiKeyClassification(attribution);
-    }
-    if (error.statusCode === 401) {
-      return {
-        code: "PROVIDER_INVALID_KEY",
-        userMessage:
-          "Your API key is invalid or expired. Update it in Settings or switch to managed mode.",
-        retryable: false,
-        errorCategory: "provider_invalid_key",
-      };
     }
     if (error.statusCode === 402) {
       if (isManagedBalanceError(error)) {
@@ -543,7 +534,7 @@ function providerBillingClassification(): Omit<
   return {
     code: "PROVIDER_BILLING",
     userMessage:
-      "Your API provider account or key needs credits. Add funds with the provider or update the key in Settings.",
+      "Your API provider account or key needs credits. Add funds with the provider or update the key in Settings → Models & Services.",
     retryable: false,
     errorCategory: "provider_billing",
   };
@@ -583,8 +574,8 @@ function invalidApiKeyClassification(
   return {
     code: "PROVIDER_INVALID_KEY",
     userMessage: target
-      ? `The API key${target} was rejected by the provider. Update it in Settings.`
-      : "Your API key was rejected by the provider. Update it in Settings.",
+      ? `The API key${target} was rejected by the provider. Update it in Settings → Models & Services.`
+      : "Your API key was rejected by the provider. Update it in Settings → Models & Services.",
     retryable: false,
     errorCategory: "provider_invalid_key",
     ...(attribution?.connectionName
@@ -610,8 +601,8 @@ function providerNotConfiguredClassification(
   return {
     code: "PROVIDER_NOT_CONFIGURED",
     userMessage: target
-      ? `No API key configured${target}. Add one in Settings to start chatting.`
-      : "No API key configured for inference. Add one in Settings to start chatting.",
+      ? `No API key configured${target}. Add one in Settings → Models & Services to start chatting.`
+      : "No API key configured for inference. Add one in Settings → Models & Services to start chatting.",
     retryable: true,
     errorCategory: "provider_not_configured",
     ...(attribution?.connectionName

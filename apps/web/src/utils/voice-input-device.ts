@@ -12,11 +12,31 @@ export function getPreferredInputDeviceId(): string {
 
 /**
  * Audio constraints for voice capture, honoring the microphone chosen on the
- * Voice settings page. The `deviceId` is a preference rather than `exact` so
- * capture falls back to the system default when the saved device is
- * unplugged instead of failing with an `OverconstrainedError`.
+ * Voice settings page. Uses `exact` so Chromium 130+ actually selects the
+ * device (ideal constraints are silently ignored since that version).
  */
 export function voiceInputAudioConstraints(): MediaTrackConstraints | true {
   const deviceId = getPreferredInputDeviceId();
-  return deviceId ? { deviceId } : true;
+  return deviceId ? { deviceId: { exact: deviceId } } : true;
+}
+
+/**
+ * Opens a mic stream honoring the user's device preference. Falls back to the
+ * system default if the saved device is unavailable (unplugged, revoked, etc.)
+ * rather than failing with an `OverconstrainedError`.
+ */
+export async function getVoiceInputMediaStream(): Promise<MediaStream> {
+  const constraints = voiceInputAudioConstraints();
+  try {
+    return await navigator.mediaDevices.getUserMedia({ audio: constraints });
+  } catch (err) {
+    if (
+      constraints !== true &&
+      err instanceof DOMException &&
+      err.name === "OverconstrainedError"
+    ) {
+      return navigator.mediaDevices.getUserMedia({ audio: true });
+    }
+    throw err;
+  }
 }

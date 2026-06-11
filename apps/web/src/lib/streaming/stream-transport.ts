@@ -10,6 +10,8 @@
 import { client } from "@/generated/api/client.gen";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import { parseAssistantEvent } from "@/lib/streaming/event-parser";
+import { normalizeSSEPayload } from "@/lib/streaming/sse-payload";
+import { toError } from "@/utils/to-error";
 
 import { getReconnectCursor } from "@/lib/streaming/reconnect-cursor";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
@@ -245,11 +247,13 @@ export function subscribeEvents(
             ...getClientRegistrationHeaders(),
           },
           signal: abortController.signal,
-          // Keep reconnect behavior controlled by this function.
-          sseMaxRetryAttempts: 1,
+          // All reconnect behavior is owned by this function's
+          // reconnect() loop — SDK-level retries would bypass the
+          // watchdog, debug registry, reconnect cursor, and the
+          // onReconnect reconciliation callback.
+          sseMaxRetryAttempts: 0,
           onSseError: (error) => {
-            streamError =
-              error instanceof Error ? error : new Error("Stream disconnected");
+            streamError = toError(error, "Stream disconnected");
           },
           onSseEvent: (event) => {
             // Fires for every parsed SSE chunk including heartbeat
@@ -312,32 +316,8 @@ export function subscribeEvents(
           // callback ordering.
           watchdog.arm(abortController, reconnectCount);
 
-          const data =
-            typeof payload === "string"
-              ? (() => {
-                  try {
-                    const parsed = JSON.parse(payload);
-                    if (
-                      parsed &&
-                      typeof parsed === "object" &&
-                      !Array.isArray(parsed)
-                    ) {
-                      return parsed as Record<string, unknown>;
-                    }
-                  } catch {
-                    // not JSON
-                  }
-                  return null;
-                })()
-              : payload &&
-                  typeof payload === "object" &&
-                  !Array.isArray(payload)
-                ? (payload as Record<string, unknown>)
-                : null;
-
-          if (!data) {
-            continue;
-          }
+          const data = normalizeSSEPayload(payload);
+          if (!data) continue;
 
           // Stream proved healthy — reset the reconnect counter so transient
           // drops after a long-lived connection get a fresh budget.
@@ -392,9 +372,7 @@ export function subscribeEvents(
       if (cancelled) return;
       const reconnected = await reconnect();
       if (!reconnected) {
-        onError(
-          err instanceof Error ? err : new Error("Stream connection failed"),
-        );
+        onError(toError(err, "Stream connection failed"));
       }
     } finally {
       // Report the connection's end reason to the debug registry, which
@@ -418,7 +396,7 @@ export function subscribeEvents(
 
   connect().catch((err) => {
     if (!cancelled) {
-      onError(err instanceof Error ? err : new Error("Stream setup failed"));
+      onError(toError(err, "Stream setup failed"));
     }
   });
 

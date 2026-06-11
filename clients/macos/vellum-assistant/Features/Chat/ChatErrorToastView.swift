@@ -348,7 +348,7 @@ struct MissingApiKeyBanner: View {
                 Text("API key required")
                     .font(VFont.bodySmallEmphasised)
                     .foregroundStyle(VColor.contentEmphasized)
-                Text("Add an API key in Settings to start chatting.")
+                Text("Add an API key in Settings → Models & Services to start chatting.")
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentSecondary)
             }
@@ -393,12 +393,12 @@ struct InvalidApiKeyBanner: View {
 
     private var subtitle: String {
         if let profileName, !profileName.isEmpty {
-            return "The API key for profile \u{201C}\(profileName)\u{201D} was rejected by the provider. Update it in Settings."
+            return "The API key for profile \u{201C}\(profileName)\u{201D} was rejected by the provider. Update it in Settings → Models & Services."
         }
         if let connectionName, !connectionName.isEmpty {
-            return "The API key for connection \u{201C}\(connectionName)\u{201D} was rejected by the provider. Update it in Settings."
+            return "The API key for connection \u{201C}\(connectionName)\u{201D} was rejected by the provider. Update it in Settings → Models & Services."
         }
-        return "The API key was rejected by the provider. Update it in Settings."
+        return "The API key was rejected by the provider. Update it in Settings → Models & Services."
     }
 
     var body: some View {

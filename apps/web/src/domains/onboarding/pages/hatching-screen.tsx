@@ -304,9 +304,11 @@ export function HatchingScreen() {
           }
           await loadLockfile();
           if (result.assistantId) {
-            useResolvedAssistantsStore
-              .getState()
-              .setSelectedAssistant(result.assistantId);
+            // The selection key is written synchronously, so the /readyz loop
+            // below resolves the new assistant's gateway URL. The lifecycle's
+            // selection subscription may briefly point at the not-yet-ready
+            // gateway; the re-prime below converges it.
+            void setSelectedAssistant(result.assistantId);
           }
 
           // Wait for the gateway + daemon to be fully ready before proceeding.

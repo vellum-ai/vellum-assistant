@@ -23,18 +23,27 @@ let selectedAssistantId: string | null = null;
 let assistantsHydrated = true;
 let activeLocal: LockfileAssistant | undefined;
 
+const storeSetSelectedAssistantMock = mock((_id: string | null) => {});
 mock.module("@/stores/resolved-assistants-store", () => ({
   assistantsValidForOrg,
   useResolvedAssistantsStore: {
-    getState: () => ({ assistants, selectedAssistantId, assistantsHydrated }),
+    getState: () => ({
+      assistants,
+      selectedAssistantId,
+      assistantsHydrated,
+      setSelectedAssistant: storeSetSelectedAssistantMock,
+    }),
   },
 }));
+const setActiveLockfileAssistantMock = mock(async (_id: string) => {});
 mock.module("@/lib/local-mode", () => ({
   getActiveAssistant: () => activeLocal,
-  setActiveLockfileAssistant: async () => {},
+  setActiveLockfileAssistant: setActiveLockfileAssistantMock,
 }));
 
-const { resolveSelectedAssistantId } = await import("./selection");
+const { resolveSelectedAssistantId, setSelectedAssistant } = await import(
+  "./selection"
+);
 
 function platformAssistant(
   id: string,
@@ -57,6 +66,8 @@ beforeEach(() => {
   selectedAssistantId = null;
   assistantsHydrated = true;
   activeLocal = undefined;
+  storeSetSelectedAssistantMock.mockClear();
+  setActiveLockfileAssistantMock.mockClear();
 });
 
 describe("resolveSelectedAssistantId", () => {
@@ -119,5 +130,21 @@ describe("resolveSelectedAssistantId", () => {
     assistants = [platformAssistant("asst-1", ORG_A)];
     activeLocal = lockfileAssistant("asst-stale");
     expect(resolveSelectedAssistantId(ORG_A)).toBe("asst-1");
+  });
+});
+
+describe("setSelectedAssistant", () => {
+  test("an id records the selection and mirrors it into the lockfile", async () => {
+    await setSelectedAssistant("asst-1");
+
+    expect(storeSetSelectedAssistantMock).toHaveBeenCalledWith("asst-1");
+    expect(setActiveLockfileAssistantMock).toHaveBeenCalledWith("asst-1");
+  });
+
+  test("null clears the selection and skips the lockfile mirror", async () => {
+    await setSelectedAssistant(null);
+
+    expect(storeSetSelectedAssistantMock).toHaveBeenCalledWith(null);
+    expect(setActiveLockfileAssistantMock).not.toHaveBeenCalled();
   });
 });

@@ -20,6 +20,7 @@ import {
   CLIENT_FLAG_QUERY_KEY,
 } from "@/lib/sync/query-tags";
 import { SYNC_TAGS } from "@/lib/sync/types";
+import { getClientId } from "@/lib/telemetry/client-identity";
 
 /**
  * Subscribes to feature-flag-related sync events via the event bus.
@@ -40,6 +41,7 @@ export function useFeatureFlagBusSync(
     if (!assistantId || !isAssistantActive) return;
     const event = envelope.message;
     if (event.type !== "sync_changed") return;
+    if (event.originClientId && event.originClientId === getClientId()) return;
     for (const tag of event.tags) {
       if (tag === SYNC_TAGS.featureFlagsClient) {
         void queryClient.invalidateQueries({
