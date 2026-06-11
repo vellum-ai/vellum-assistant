@@ -7,7 +7,7 @@
  * provider or model is absent.
  */
 
-import { getModelsForProvider } from "@/assistant/llm-model-catalog";
+import { getModelsForProvider, type LlmCatalogModel } from "@/assistant/llm-model-catalog";
 
 export interface ProfileParamVisibility {
   maxTokens: boolean;
@@ -48,8 +48,19 @@ function knownOpenRouterReasoningModel(modelId: string): boolean {
   );
 }
 
+/**
+ * Case-insensitive exact-id catalog lookup. `resolveProfileParamVisibility`
+ * lowercases the model id for its prefix/substring heuristics, but catalog
+ * ids can be mixed-case (e.g. minimax's "MiniMax-M3"), so an exact `===`
+ * find would never match those entries.
+ */
+function findCatalogModel(provider: string, modelId: string): LlmCatalogModel | undefined {
+  const id = modelId.toLowerCase();
+  return getModelsForProvider(provider).find((m) => m.id.toLowerCase() === id);
+}
+
 function modelSupportsThinking(provider: string, modelId: string): boolean {
-  const entry = getModelsForProvider(provider).find((m) => m.id === modelId);
+  const entry = findCatalogModel(provider, modelId);
   if (entry?.supportsThinking !== undefined) return entry.supportsThinking;
 
   if (provider === "anthropic") return true;
