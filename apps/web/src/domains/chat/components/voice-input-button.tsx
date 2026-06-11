@@ -385,12 +385,27 @@ export const VoiceInputButton = forwardRef<
       );
       return;
     }
+    // The helper taps the same physical device the recording stream
+    // captures — its default tap is the system-default input, which on a
+    // docked Mac can be a dormant built-in mic. Chromium may decorate USB
+    // labels with a trailing "(vid:pid)" that CoreAudio names lack.
+    const deviceName = streamRef.current
+      ?.getAudioTracks()[0]
+      ?.label.replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)$/i, "");
+    let partialCount = 0;
     void startNativeDictationPartials((text) => {
+      partialCount += 1;
+      if (partialCount === 1 || partialCount % 25 === 0) {
+        // Count/length only — transcript content must never be logged.
+        console.info(
+          `dictation: native partial #${partialCount} chars=${text.length}`,
+        );
+      }
       nativePartialsTextRef.current = text;
       if (!dictationStreamRef.current?.isLive()) {
         publishInterim(text);
       }
-    }).then((stop) => {
+    }, deviceName || undefined).then((stop) => {
       // The unavailable case logs its reason in native-dictation-partials.
       if (!stop) return;
       console.info("dictation: native partials running");
@@ -716,17 +731,17 @@ export const VoiceInputButton = forwardRef<
 
         // Character counts only — transcript content must never be logged.
         console.info(
-          `dictation: finalize batchChars=${text.length} nativeChars=${nativeText.length} streamChars=${streamText.length} webChars=${fallbackText.length} failure=${daemonFailure ?? "none"}`,
+          `dictation: finalize mode=native-first batchChars=${text.length} nativeChars=${nativeText.length} streamChars=${streamText.length} webChars=${fallbackText.length} failure=${daemonFailure ?? "none"}`,
         );
 
-        // Batch text is the authority. When it fails (offline, provider
-        // down), the native recognizer's transcript is the most complete
-        // substitute — it runs for the whole session and works without
-        // network. Stream text covers sessions where the helper couldn't
-        // run (permission denied, old shell); the Web Speech accumulator
-        // only matters in plain browsers — inside Electron the API ships
-        // without a speech service, so it stays empty.
-        if (!text && nativeText) {
+        // TEST MODE: the native Apple Speech transcript wins outright when
+        // present — batch STT is the backup while we shake out why the
+        // native path produces nothing on this machine. Restore batch-first
+        // (`if (!text && nativeText)`) once verified. Stream text covers
+        // sessions where the helper couldn't run; the Web Speech
+        // accumulator only matters in plain browsers — inside Electron the
+        // API ships without a speech service, so it stays empty.
+        if (nativeText) {
           text = nativeText;
         }
         if (!text && streamText) {

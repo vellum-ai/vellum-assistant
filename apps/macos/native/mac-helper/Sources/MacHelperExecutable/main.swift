@@ -67,6 +67,10 @@ final class MacHelper: @unchecked Sendable {
     // Bumped on every dictation.setPartials so a pending speech-authorization
     // callback can tell the session it was starting has since been stopped.
     private var dictationGeneration = 0
+    // The renderer's recording device (Chromium track label) — the helper
+    // taps this same device so the native recognizer hears what the
+    // MediaRecorder hears, not whatever the system default happens to be.
+    private var dictationDeviceName: String?
     // Whether the current dictation session has produced any partial or
     // error callback — read by the on-device watchdog on the main queue.
     private var dictationSawActivity = false
@@ -106,7 +110,10 @@ final class MacHelper: @unchecked Sendable {
                     "dictation.setPartials requires enable"
                 )
             }
-            return self.setDictationPartials(enable: enable)
+            return self.setDictationPartials(
+                enable: enable,
+                deviceName: object["deviceName"] as? String
+            )
         }
         return router
     }()
@@ -182,10 +189,13 @@ final class MacHelper: @unchecked Sendable {
     /// Start/stop local speech-recognition partials (`dictation.partial`
     /// notifications). The renderer enables this for the dictation overlay
     /// whenever daemon streaming STT is unreachable.
-    private func setDictationPartials(enable: Bool) -> [String: Any] {
+    private func setDictationPartials(
+        enable: Bool, deviceName: String? = nil
+    ) -> [String: Any] {
         dictationGeneration += 1
         dictationSession?.stop()
         dictationSession = nil
+        dictationDeviceName = deviceName
 
         guard enable else {
             return ["enabled": false]
@@ -217,9 +227,31 @@ final class MacHelper: @unchecked Sendable {
         // from that point on.
         let generation = dictationGeneration
         requestSpeechIfNeeded { [weak self] speechGranted in
-            guard speechGranted else { return }
-            Self.requestMicIfNeeded { micGranted in
-                guard micGranted else { return }
+            guard speechGranted else {
+                // A silent return here is a black hole the renderer can't
+                // see — it was told `authorizing: true` and waits forever.
+                self?.writeNotification(
+                    method: "dictation.error",
+                    params: [
+                        "message": "speech recognition permission not granted",
+                        "onDevice": true,
+                        "willRetryServer": false,
+                    ]
+                )
+                return
+            }
+            Self.requestMicIfNeeded { [weak self] micGranted in
+                guard micGranted else {
+                    self?.writeNotification(
+                        method: "dictation.error",
+                        params: [
+                            "message": "microphone permission not granted",
+                            "onDevice": true,
+                            "willRetryServer": false,
+                        ]
+                    )
+                    return
+                }
                 DispatchQueue.main.async {
                     guard
                         let self,
@@ -261,6 +293,7 @@ final class MacHelper: @unchecked Sendable {
         dictationSawActivity = false
         let session = DictationPartialsSession(
             requireOnDevice: requireOnDevice,
+            inputDeviceName: dictationDeviceName,
             emit: { [weak self] text in
                 DispatchQueue.main.async {
                     guard let self, generation == self.dictationGeneration else {
@@ -306,7 +339,7 @@ final class MacHelper: @unchecked Sendable {
             if requireOnDevice {
                 scheduleOnDeviceWatchdog(generation: generation)
             }
-            return ["enabled": true]
+            return ["enabled": true, "tap": session.tappedDevice]
         } catch {
             log("dictation partials failed to start: \(error.localizedDescription)")
             return ["enabled": false, "reason": error.localizedDescription]
@@ -326,10 +359,13 @@ final class MacHelper: @unchecked Sendable {
                 !self.dictationSawActivity,
                 self.dictationSession != nil
             else { return }
+            let heardAudio = self.dictationSession?.heardAudio == true
+            let tap = self.dictationSession?.tappedDevice ?? "unknown"
             self.writeNotification(
                 method: "dictation.error",
                 params: [
-                    "message": "on-device recognition produced no output; retrying on the server path",
+                    "message":
+                        "on-device recognition produced no output (heardAudio=\(heardAudio), tap=\(tap)); retrying on the server path",
                     "onDevice": true,
                     "willRetryServer": true,
                 ]

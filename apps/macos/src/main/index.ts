@@ -431,7 +431,10 @@ app.on("web-contents-created", (_event, contents) => {
   // session can read.
   contents.on("console-message", (event) => {
     if (event.level === "debug") return;
-    const line = `[renderer] ${event.message}`;
+    // wc id disambiguates which window a line came from — dictation partials
+    // route to a single owner window, so cross-window confusion is invisible
+    // without it.
+    const line = `[renderer wc=${contents.id}] ${event.message}`;
     if (event.level === "error") log.error(line);
     else if (event.level === "warning") log.warn(line);
     else log.info(line);

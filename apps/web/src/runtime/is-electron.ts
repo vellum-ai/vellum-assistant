@@ -114,7 +114,10 @@ declare global {
           onEvent(callback: (event: HotkeyEvent) => void): () => void;
         };
         dictation?: {
-          setPartials(enable: boolean): Promise<DictationPartialsResult>;
+          setPartials(
+            enable: boolean,
+            deviceName?: string,
+          ): Promise<DictationPartialsResult>;
           onPartial(
             callback: (event: DictationPartialEvent) => void,
           ): () => void;

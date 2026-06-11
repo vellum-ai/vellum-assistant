@@ -19,9 +19,15 @@ import { isElectron } from "@/runtime/is-electron";
  * to `onPartial`. Resolves a stop function on success, or `null` when the
  * capability is unavailable (off Electron, old shell, speech permission
  * denied, recognizer unavailable).
+ *
+ * `deviceName` is the recording stream's track label — the helper taps that
+ * same device so the recognizer hears what the MediaRecorder hears instead
+ * of the system-default input (which on a docked Mac is often a dormant
+ * built-in mic).
  */
 export async function startNativeDictationPartials(
   onPartial: (text: string) => void,
+  deviceName?: string,
 ): Promise<(() => void) | null> {
   const dictation = isElectron()
     ? window.vellum?.helper?.dictation
@@ -36,7 +42,7 @@ export async function startNativeDictationPartials(
   });
 
   try {
-    const result = await dictation.setPartials(true);
+    const result = await dictation.setPartials(true, deviceName);
     if (!result.ok) {
       console.info("native-dictation-partials: unavailable:", result.reason);
       unsubscribe();

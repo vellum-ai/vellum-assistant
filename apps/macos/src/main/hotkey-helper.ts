@@ -52,6 +52,8 @@ const DICTATION_ERROR_SCHEMA = z.object({
 const DICTATION_RESULT_SCHEMA = z.object({
   enabled: z.boolean(),
   reason: z.string().optional(),
+  // Which input device the helper's recognizer tap actually captures.
+  tap: z.string().optional(),
 });
 
 let platformForTesting: NodeJS.Platform | null = null;
@@ -125,9 +127,13 @@ let dictationPartialsOwner: WebContents | null = null;
 const setDictationPartials = async (
   webContents: WebContents,
   enable: boolean,
+  deviceName?: string,
 ): Promise<DictationPartialsResult> => {
   try {
-    const result = await client.call("dictation.setPartials", { enable });
+    const result = await client.call("dictation.setPartials", {
+      enable,
+      ...(deviceName ? { deviceName } : {}),
+    });
     const parsed = DICTATION_RESULT_SCHEMA.safeParse(result);
     if (!parsed.success) {
       return {
@@ -136,9 +142,22 @@ const setDictationPartials = async (
       };
     }
     if (enable && !parsed.data.enabled) {
+      log.warn(
+        `[mac-helper] dictation partials enable refused (wc=${webContents.id}): ${parsed.data.reason ?? "unavailable"}`,
+      );
       return { ok: false, reason: parsed.data.reason ?? "unavailable" };
     }
+    const previousOwner = dictationPartialsOwner;
     dictationPartialsOwner = enable ? webContents : null;
+    if (enable) forwardedPartialCount = 0;
+    const replaced =
+      previousOwner && previousOwner !== webContents && !previousOwner.isDestroyed()
+        ? ` (replaced wc=${previousOwner.id})`
+        : "";
+    const tap = enable && parsed.data.tap ? ` tap=${parsed.data.tap}` : "";
+    log.info(
+      `[mac-helper] dictation partials ${enable ? "enabled" : "disabled"} by wc=${webContents.id}${replaced}${tap}`,
+    );
     return { ok: true, enabled: parsed.data.enabled };
   } catch (err) {
     return {
@@ -148,9 +167,22 @@ const setDictationPartials = async (
   }
 };
 
+let forwardedPartialCount = 0;
+
 const sendDictationPartialToOwner = (event: DictationPartialEvent): void => {
-  if (!dictationPartialsOwner || dictationPartialsOwner.isDestroyed()) return;
-  dictationPartialsOwner.send("vellum:helper:dictation:partial", event);
+  forwardedPartialCount += 1;
+  const owner =
+    dictationPartialsOwner && !dictationPartialsOwner.isDestroyed()
+      ? dictationPartialsOwner
+      : null;
+  if (forwardedPartialCount === 1 || forwardedPartialCount % 25 === 0) {
+    // Count/length only — transcript content must never be logged.
+    log.info(
+      `[mac-helper] dictation partial #${forwardedPartialCount} chars=${event.text.length} → ${owner ? `wc=${owner.id}` : "DROPPED (no owner)"}`,
+    );
+  }
+  if (!owner) return;
+  owner.send("vellum:helper:dictation:partial", event);
 };
 
 const hotkeyOwners = new Map<number, HotkeyOwner>();
@@ -411,8 +443,9 @@ export const installHotkeyHelper = (): void => {
 
   handle(
     "vellum:helper:dictation:setPartials",
-    z.tuple([z.boolean()]),
-    ([enable], event) => setDictationPartials(event.sender, enable),
+    z.tuple([z.boolean(), z.string().optional()]),
+    ([enable, deviceName], event) =>
+      setDictationPartials(event.sender, enable, deviceName),
   );
 
   app.on("before-quit", () => {

@@ -39,5 +39,9 @@ mkdir -p "$OUTPUT_DIR"
 rm -f "$OUTPUT_DIR/hotkey-helper"
 xcrun swift build "${BUILD_ARGS[@]}"
 BUILD_DIR="$(xcrun swift build "${BUILD_ARGS[@]}" --show-bin-path)"
+# Remove before copying: overwriting a signed Mach-O in place reuses the
+# inode, and the kernel's stale signature cache SIGKILLs the next spawn
+# (exit 137). A fresh inode sidesteps it.
+rm -f "$OUTPUT"
 cp "$BUILD_DIR/vellum-mac-helper" "$OUTPUT"
 chmod 755 "$OUTPUT"
