@@ -10,6 +10,8 @@ import { Readable, Writable } from "node:stream";
 
 import type {
   Agent,
+  AuthMethod,
+  AuthMethodEnvVar,
   Client,
   InitializeResponse,
   NewSessionResponse,
@@ -21,6 +23,31 @@ import { getLogger } from "../util/logger.js";
 import type { AcpAgentConfig } from "./types.js";
 
 const log = getLogger("acp");
+
+/**
+ * JSON-RPC error code agents use to signal that authentication is required
+ * (matches the SDK's RequestError.authRequired()).
+ */
+const AUTH_REQUIRED_CODE = -32000;
+
+/**
+ * Detects the ACP auth-required error. Checks the `code` property rather than
+ * `instanceof acp.RequestError` so plain JSON-RPC error objects are also
+ * recognized.
+ */
+function isAuthRequiredError(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { code?: unknown }).code === AUTH_REQUIRED_CODE
+  );
+}
+
+function isEnvVarMethod(
+  method: AuthMethod,
+): method is AuthMethodEnvVar & { type: "env_var" } {
+  return "type" in method && method.type === "env_var";
+}
 
 /**
  * Factory function type for creating ACP client handlers.
@@ -54,7 +81,7 @@ export class AcpAgentProcess {
     this.proc = spawn(this.config.command, this.config.args, {
       cwd,
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, ...this.config.env },
+      env: this.childEnv(),
     });
 
     const stream = acp.ndJsonStream(
@@ -133,6 +160,105 @@ export class AcpAgentProcess {
   }
 
   /**
+   * Authentication methods the agent advertised at initialize.
+   * Returns an empty array before initialize() resolves.
+   */
+  get authMethods(): AuthMethod[] {
+    return this.initializeResponse?.authMethods ?? [];
+  }
+
+  /**
+   * Authenticates with the agent using one of its advertised auth methods.
+   */
+  async authenticate(methodId: string): Promise<void> {
+    if (!this.connection) {
+      throw new Error(`ACP agent "${this.agentId}" is not spawned`);
+    }
+
+    log.info({ agentId: this.agentId, methodId }, "Authenticating ACP agent");
+
+    await this.connection.authenticate({ methodId });
+  }
+
+  /**
+   * Selects the first advertised env_var auth method whose required variables
+   * are all present (non-empty) in the env the agent process was spawned with.
+   *
+   * Terminal-type and agent-driven (untyped) methods are never selected:
+   * auto-triggering an interactive login would hang the headless daemon.
+   */
+  private selectEnvVarAuthMethod(): AuthMethod | undefined {
+    const env = this.childEnv();
+
+    return this.authMethods.find((method) => {
+      if (!isEnvVarMethod(method)) return false;
+
+      const requiredVars = method.vars.filter((v) => !v.optional);
+      if (requiredVars.length === 0) return false;
+
+      return requiredVars.every((v) => {
+        const value = env[v.name];
+        return typeof value === "string" && value.length > 0;
+      });
+    });
+  }
+
+  /** The environment the agent child process is spawned with. */
+  private childEnv(): NodeJS.ProcessEnv {
+    return { ...process.env, ...this.config.env };
+  }
+
+  /**
+   * Runs an operation, and if the agent rejects with the ACP auth-required
+   * error, authenticates via a satisfiable env_var auth method and retries
+   * the operation exactly once.
+   */
+  private async withAuthRetry<T>(op: () => Promise<T>): Promise<T> {
+    try {
+      return await op();
+    } catch (err) {
+      if (!isAuthRequiredError(err)) throw err;
+
+      const method = this.selectEnvVarAuthMethod();
+      if (!method) {
+        throw new Error(
+          `ACP agent "${this.agentId}" requires authentication. ` +
+            `Advertised methods: ${this.describeAuthMethods()}. ` +
+            "Set the required env var under acp.agents.<id>.env in config.json, " +
+            "store it via 'assistant credentials set --service acp --field <field>', " +
+            "or complete the agent's own login flow in the workspace.",
+        );
+      }
+
+      log.info(
+        { agentId: this.agentId, methodId: method.id },
+        "ACP agent returned auth_required; authenticating with env_var method",
+      );
+
+      await this.authenticate(method.id);
+      return await op();
+    }
+  }
+
+  /**
+   * Renders the agent's advertised auth methods for error messages, e.g.
+   * `"Login with ChatGPT" (chatgpt), "Use OPENAI_API_KEY" (env var OPENAI_API_KEY)`.
+   */
+  private describeAuthMethods(): string {
+    if (this.authMethods.length === 0) return "none";
+
+    return this.authMethods
+      .map((method) => {
+        if (isEnvVarMethod(method)) {
+          const varNames = method.vars.map((v) => v.name).join(", ");
+          return `"${method.name}" (env var ${varNames})`;
+        }
+        return `"${method.name}" (${method.id})`;
+      })
+      .join(", ");
+  }
+
+  /**
    * Creates a new ACP session in the specified working directory.
    * Returns the session ID.
    */
@@ -143,10 +269,9 @@ export class AcpAgentProcess {
 
     log.info({ agentId: this.agentId, cwd }, "Creating ACP session");
 
-    const result: NewSessionResponse = await this.connection.newSession({
-      cwd,
-      mcpServers: [],
-    });
+    const result: NewSessionResponse = await this.withAuthRetry(() =>
+      this.connection!.newSession({ cwd, mcpServers: [] }),
+    );
 
     return result.sessionId;
   }
@@ -166,7 +291,9 @@ export class AcpAgentProcess {
 
     log.info({ agentId: this.agentId, sessionId, cwd }, "Loading ACP session");
 
-    await this.connection.loadSession({ sessionId, cwd, mcpServers: [] });
+    await this.withAuthRetry(() =>
+      this.connection!.loadSession({ sessionId, cwd, mcpServers: [] }),
+    );
   }
 
   /**
@@ -183,7 +310,9 @@ export class AcpAgentProcess {
 
     log.info({ agentId: this.agentId, sessionId, cwd }, "Resuming ACP session");
 
-    await this.connection.resumeSession({ sessionId, cwd, mcpServers: [] });
+    await this.withAuthRetry(() =>
+      this.connection!.resumeSession({ sessionId, cwd, mcpServers: [] }),
+    );
   }
 
   /**

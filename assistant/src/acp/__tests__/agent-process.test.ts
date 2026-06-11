@@ -6,9 +6,9 @@
  * connection is stubbed directly so no child process is spawned.
  */
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
-import type { InitializeResponse } from "@agentclientprotocol/sdk";
+import type { AuthMethod, InitializeResponse } from "@agentclientprotocol/sdk";
 
 import { AcpAgentProcess } from "../agent-process.js";
 
@@ -157,5 +157,219 @@ describe("AcpAgentProcess loadSession/resumeSession", () => {
     await expect(
       proc.resumeSession("session-1", "/tmp/project"),
     ).rejects.toThrow('ACP agent "test-agent" is not spawned');
+  });
+});
+
+describe("AcpAgentProcess auth_required retry", () => {
+  // The merged child env includes process.env, so the advertised var names use
+  // a VELLUM_TEST_ prefix guaranteed absent from the test process env. The
+  // structure mirrors codex-acp's real advertisement: an agent-driven browser
+  // login (no `type`, must never be auto-selected) followed by two env_var
+  // methods, in that order.
+  const CODEX_VAR = "VELLUM_TEST_FAKE_CODEX_API_KEY";
+  const OPENAI_VAR = "VELLUM_TEST_FAKE_OPENAI_API_KEY";
+
+  const codexLikeAuthMethods: AuthMethod[] = [
+    { id: "chatgpt", name: "Login with ChatGPT" },
+    {
+      type: "env_var",
+      id: "codex-api-key",
+      name: "Use CODEX_API_KEY",
+      vars: [{ name: CODEX_VAR }],
+    },
+    {
+      type: "env_var",
+      id: "openai-api-key",
+      name: "Use OPENAI_API_KEY",
+      vars: [{ name: OPENAI_VAR }],
+    },
+  ];
+
+  const authRequiredError = { code: -32000, message: "Authentication required" };
+
+  /**
+   * Creates a process whose connection is stubbed with mocks, then runs
+   * initialize() so the advertised authMethods are captured.
+   */
+  async function setupAuthProcess(options: {
+    env?: Record<string, string>;
+    authMethods?: AuthMethod[];
+    /** Rejections to throw from successive newSession calls before succeeding. */
+    newSessionRejections?: unknown[];
+    loadSessionRejections?: unknown[];
+    resumeSessionRejections?: unknown[];
+  }) {
+    const proc = new AcpAgentProcess(
+      "codex",
+      { command: "echo", args: [], env: options.env },
+      () => {
+        throw new Error("client factory should not be called in this test");
+      },
+    );
+
+    function failThenSucceed(rejections: unknown[], result: unknown) {
+      let calls = 0;
+      return mock(() => {
+        const rejection = rejections[calls];
+        calls += 1;
+        return rejection != null
+          ? Promise.reject(rejection)
+          : Promise.resolve(result);
+      });
+    }
+
+    const newSession = failThenSucceed(options.newSessionRejections ?? [], {
+      sessionId: "session-1",
+    });
+    const loadSession = failThenSucceed(options.loadSessionRejections ?? [], {});
+    const resumeSession = failThenSucceed(
+      options.resumeSessionRejections ?? [],
+      {},
+    );
+    const authenticate = mock(() => Promise.resolve({}));
+
+    (proc as unknown as { connection: unknown }).connection = {
+      initialize: () =>
+        Promise.resolve({
+          protocolVersion: 1,
+          authMethods: options.authMethods ?? codexLikeAuthMethods,
+        }),
+      newSession,
+      loadSession,
+      resumeSession,
+      authenticate,
+    };
+
+    await proc.initialize();
+
+    return { proc, newSession, loadSession, resumeSession, authenticate };
+  }
+
+  test("createSession does not authenticate when newSession succeeds", async () => {
+    const { proc, newSession, authenticate } = await setupAuthProcess({
+      env: { [OPENAI_VAR]: "sk-test" },
+    });
+
+    const sessionId = await proc.createSession("/tmp/project");
+
+    expect(sessionId).toBe("session-1");
+    expect(newSession).toHaveBeenCalledTimes(1);
+    expect(authenticate).not.toHaveBeenCalled();
+  });
+
+  test("auth_required with OPENAI-style key authenticates and retries once", async () => {
+    const { proc, newSession, authenticate } = await setupAuthProcess({
+      env: { [OPENAI_VAR]: "sk-test" },
+      newSessionRejections: [authRequiredError],
+    });
+
+    const sessionId = await proc.createSession("/tmp/project");
+
+    expect(sessionId).toBe("session-1");
+    expect(authenticate).toHaveBeenCalledTimes(1);
+    expect(authenticate).toHaveBeenCalledWith({ methodId: "openai-api-key" });
+    expect(newSession).toHaveBeenCalledTimes(2);
+  });
+
+  test("auth_required with CODEX-style key selects the earlier advertised method", async () => {
+    const { proc, authenticate } = await setupAuthProcess({
+      env: { [CODEX_VAR]: "sk-codex" },
+      newSessionRejections: [authRequiredError],
+    });
+
+    await proc.createSession("/tmp/project");
+
+    expect(authenticate).toHaveBeenCalledTimes(1);
+    expect(authenticate).toHaveBeenCalledWith({ methodId: "codex-api-key" });
+  });
+
+  test("auth_required with no satisfiable env_var method throws an actionable error", async () => {
+    const { proc, newSession, authenticate } = await setupAuthProcess({
+      env: {},
+      newSessionRejections: [authRequiredError],
+    });
+
+    const promise = proc.createSession("/tmp/project");
+
+    await expect(promise).rejects.toThrow(
+      'ACP agent "codex" requires authentication',
+    );
+    await expect(promise).rejects.toThrow("Login with ChatGPT");
+    await expect(promise).rejects.toThrow(CODEX_VAR);
+    await expect(promise).rejects.toThrow(OPENAI_VAR);
+    expect(authenticate).not.toHaveBeenCalled();
+    expect(newSession).toHaveBeenCalledTimes(1);
+  });
+
+  test("a second auth_required after authenticating propagates without a retry loop", async () => {
+    const { proc, newSession, authenticate } = await setupAuthProcess({
+      env: { [OPENAI_VAR]: "sk-test" },
+      newSessionRejections: [authRequiredError, authRequiredError],
+    });
+
+    await expect(proc.createSession("/tmp/project")).rejects.toMatchObject({
+      code: -32000,
+    });
+    expect(authenticate).toHaveBeenCalledTimes(1);
+    expect(newSession).toHaveBeenCalledTimes(2);
+  });
+
+  test("an absent optional var does not block satisfiability", async () => {
+    const { proc, authenticate } = await setupAuthProcess({
+      env: { [OPENAI_VAR]: "sk-test" },
+      authMethods: [
+        {
+          type: "env_var",
+          id: "openai-api-key",
+          name: "Use OPENAI_API_KEY",
+          vars: [
+            { name: OPENAI_VAR },
+            { name: "VELLUM_TEST_FAKE_OPTIONAL_VAR", optional: true },
+          ],
+        },
+      ],
+      newSessionRejections: [authRequiredError],
+    });
+
+    await proc.createSession("/tmp/project");
+
+    expect(authenticate).toHaveBeenCalledWith({ methodId: "openai-api-key" });
+  });
+
+  test("loadSession authenticates and retries on auth_required", async () => {
+    const { proc, loadSession, authenticate } = await setupAuthProcess({
+      env: { [OPENAI_VAR]: "sk-test" },
+      loadSessionRejections: [authRequiredError],
+    });
+
+    await proc.loadSession("session-1", "/tmp/project");
+
+    expect(authenticate).toHaveBeenCalledWith({ methodId: "openai-api-key" });
+    expect(loadSession).toHaveBeenCalledTimes(2);
+  });
+
+  test("resumeSession authenticates and retries on auth_required", async () => {
+    const { proc, resumeSession, authenticate } = await setupAuthProcess({
+      env: { [OPENAI_VAR]: "sk-test" },
+      resumeSessionRejections: [authRequiredError],
+    });
+
+    await proc.resumeSession("session-1", "/tmp/project");
+
+    expect(authenticate).toHaveBeenCalledWith({ methodId: "openai-api-key" });
+    expect(resumeSession).toHaveBeenCalledTimes(2);
+  });
+
+  test("a non-auth error propagates without authenticating", async () => {
+    const { proc, newSession, authenticate } = await setupAuthProcess({
+      env: { [OPENAI_VAR]: "sk-test" },
+      newSessionRejections: [{ code: -32603, message: "Internal error" }],
+    });
+
+    await expect(proc.createSession("/tmp/project")).rejects.toMatchObject({
+      code: -32603,
+    });
+    expect(authenticate).not.toHaveBeenCalled();
+    expect(newSession).toHaveBeenCalledTimes(1);
   });
 });
