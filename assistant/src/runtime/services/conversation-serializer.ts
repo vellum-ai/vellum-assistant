@@ -94,6 +94,37 @@ function buildForkParent(
   };
 }
 
+/**
+ * Resolve the wire-level `groupId` for a conversation summary.
+ *
+ * Surfaced conversations (`surfaced_at IS NOT NULL`) render in the Recents
+ * grouping on every client, but legacy clients (the macOS Swift app) bucket
+ * purely by `groupId` and do not decode `surfacedAt`. Normalize the
+ * *serialized* `groupId` to `"system:all"` for surfaced rows so those
+ * clients render them in Recents without code changes — the persisted
+ * `group_id` is untouched, so clearing `surfaced_at` (demotion) makes
+ * serialization return the original group again.
+ *
+ * Mirrors web's `getEffectiveGroupId` precedence: an explicit pin
+ * (`system:pinned`) or a user-created custom group wins over surfacing, so
+ * only the system Background/Scheduled groups (and the null fallback, which
+ * legacy clients re-derive into those buckets from `source`) are rewritten.
+ */
+function resolveSerializedGroupId(
+  conversation: ConversationRow,
+  persistedGroupId: string | null,
+): string | null {
+  if (conversation.surfacedAt == null) return persistedGroupId;
+  if (
+    persistedGroupId == null ||
+    persistedGroupId === "system:background" ||
+    persistedGroupId === "system:scheduled"
+  ) {
+    return "system:all";
+  }
+  return persistedGroupId;
+}
+
 function buildChannelBinding(binding: ExternalConversationBinding) {
   const externalChatName =
     binding.externalChatName?.trim() ||
@@ -213,7 +244,10 @@ export function serializeConversationSummary(params: {
             displayOrder: displayMeta.displayOrder,
           }
         : {}),
-    groupId: displayMeta?.groupId ?? null,
+    groupId: resolveSerializedGroupId(
+      conversation,
+      displayMeta?.groupId ?? null,
+    ),
     ...(forkParent ? { forkParent } : {}),
     ...(conversation.archivedAt != null
       ? { archivedAt: conversation.archivedAt }

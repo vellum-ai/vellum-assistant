@@ -8,6 +8,11 @@
 import type { Conversation } from "@/types/conversation-types";
 
 export function isBackgroundConversation(conversation: Conversation): boolean {
+  // Surfaced conversations (`surfacedAt != null`) are explicitly promoted
+  // into the Recents grouping, so they get full foreground treatment —
+  // unread badges, mark read/unread, next-conversation selection — even
+  // though their underlying type is still background/scheduled.
+  if (conversation.surfacedAt != null) return false;
   return (
     conversation.conversationType === "background" ||
     conversation.conversationType === "scheduled" ||
@@ -22,6 +27,11 @@ export function isBackgroundConversation(conversation: Conversation): boolean {
  * disjoint from the background-only cache: the daemon's `background` filter
  * still returns scheduled rows for back-compat, so the background list is
  * filtered through `!isScheduledConversation` before it is cached.
+ *
+ * Unlike `isBackgroundConversation`, this is a *type* classifier, not a
+ * foreground-visibility predicate — it intentionally ignores `surfacedAt`.
+ * A surfaced scheduled row is still a scheduled job (it stays in the
+ * scheduled filtered listing/cache); surfacing only adds Recents visibility.
  */
 export function isScheduledConversation(conversation: Conversation): boolean {
   return (
