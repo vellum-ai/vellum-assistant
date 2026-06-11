@@ -16,7 +16,7 @@
 
 ## What it does
 
-If you've built Personal AI on OpenClaw, Hermes Agent, or Claude Code, you know the gap between a working prototype and a production system. Vellum closes it, MIT-licensed.
+If you've built Personal AI on OpenClaw, Hermes Agent, or Claude Code, you know the gap between a working prototype and a production system. Vellum closes it.
 
 | Area                          | Summary |
 | ----------------------------- | --- |
