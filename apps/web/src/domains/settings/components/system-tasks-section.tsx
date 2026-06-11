@@ -30,11 +30,11 @@ interface SystemTaskRowProps {
   nextRunAt: number | null;
   lastRunAt: number | null;
   usage: ScheduleRowUsage;
-  showToggle: boolean;
   helperText?: string;
   statusLabel?: string;
   statusTone?: TagTone;
   onClick: () => void;
+  /** When provided, the row shows a toggle instead of a status dot/tag. */
   onToggle?: (enabled: boolean) => void;
 }
 
@@ -45,7 +45,6 @@ export function SystemTaskRow({
   nextRunAt,
   lastRunAt,
   usage,
-  showToggle,
   helperText,
   statusLabel,
   statusTone = "neutral",
@@ -85,7 +84,7 @@ export function SystemTaskRow({
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
           <ScheduleUsageStats scheduleName={name} usage={usage} />
-          {showToggle ? null : statusLabel ? (
+          {onToggle ? null : statusLabel ? (
             <Tag tone={statusTone}>{statusLabel}</Tag>
           ) : (
             <span
@@ -101,7 +100,7 @@ export function SystemTaskRow({
           <ChevronRight className="h-4 w-4 text-[var(--content-tertiary)]" />
         </div>
       </button>
-      {showToggle && onToggle ? (
+      {onToggle ? (
         <Toggle
           checked={enabled}
           onChange={onToggle}
@@ -126,7 +125,6 @@ interface SystemTasksSectionProps {
   onRetry: () => void;
   onSelectHeartbeat: () => void;
   onSelectConsolidation: () => void;
-  showSystemTaskToggles: boolean;
   onToggleHeartbeat: (enabled: boolean) => void;
 }
 
@@ -140,7 +138,6 @@ export function SystemTasksSection({
   onRetry,
   onSelectHeartbeat,
   onSelectConsolidation,
-  showSystemTaskToggles,
   onToggleHeartbeat,
 }: SystemTasksSectionProps) {
   const showHeartbeat = heartbeatConfig != null;
@@ -189,7 +186,6 @@ export function SystemTasksSection({
           nextRunAt={heartbeatConfig.nextRunAt}
           lastRunAt={heartbeatConfig.lastRunAt}
           usage={heartbeatUsage}
-          showToggle={showSystemTaskToggles}
           onClick={onSelectHeartbeat}
           onToggle={onToggleHeartbeat}
         />
@@ -207,7 +203,6 @@ export function SystemTasksSection({
           nextRunAt={consolidationConfig.nextRunAt}
           lastRunAt={consolidationConfig.lastRunAt}
           usage={consolidationUsage}
-          showToggle={false}
           statusLabel={consolidationConfig.enabled ? undefined : "Paused"}
           statusTone="warning"
           onClick={onSelectConsolidation}

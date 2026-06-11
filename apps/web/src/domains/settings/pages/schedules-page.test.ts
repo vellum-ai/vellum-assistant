@@ -84,7 +84,6 @@ const {
   formatTimestamp,
   groupSchedules,
   pastOneTimeStatus,
-  shouldShowSystemTaskToggles,
 } = await import("@/domains/settings/utils/schedule-formatters");
 const { RecentRunsCard } = await import(
   "@/domains/settings/components/recent-runs-card"
@@ -937,8 +936,6 @@ describe("SystemTaskRow", () => {
         onClick: () => {
           detailClicks += 1;
         },
-        showToggle: false,
-        onToggle: () => {},
       }),
     );
 
@@ -958,8 +955,6 @@ describe("SystemTaskRow", () => {
         lastRunAt: 1_761_792_003_000,
         usage: readySystemTaskUsage,
         onClick: () => {},
-        showToggle: false,
-        onToggle: () => {},
       }),
     );
 
@@ -975,29 +970,43 @@ describe("SystemTaskRow", () => {
 });
 
 describe("system task toggles", () => {
-  test("only presents system task toggles after the feature flag has hydrated on", () => {
-    expect(shouldShowSystemTaskToggles(false, true)).toBe(false);
-    expect(shouldShowSystemTaskToggles(true, false)).toBe(false);
-    expect(shouldShowSystemTaskToggles(true, true)).toBe(true);
-  });
+  test("heartbeat row always renders a toggle that reports the new state", () => {
+    const toggleCalls: boolean[] = [];
 
-  test("hides the system task toggle when the presentation flag is off", () => {
     render(
-      createElement(SystemTaskRow, {
-        name: "Heartbeat",
-        subtitle: "Every 1 hr",
-        enabled: true,
-        nextRunAt: null,
-        lastRunAt: null,
-        usage: readySystemTaskUsage,
-        showToggle: false,
-        onClick: () => {},
-        onToggle: () => {},
+      createElement(SystemTasksSection, {
+        heartbeatConfig: {
+          enabled: true,
+          intervalMs: 60 * 60_000,
+          activeHoursStart: null,
+          activeHoursEnd: null,
+          cronExpression: null,
+          timezone: null,
+          nextRunAt: null,
+          lastRunAt: null,
+          success: true,
+        },
+        consolidationConfig: undefined,
+        heartbeatUsage: readySystemTaskUsage,
+        consolidationUsage: readySystemTaskUsage,
+        isLoading: false,
+        hasError: false,
+        onRetry: () => {},
+        onSelectHeartbeat: () => {},
+        onSelectConsolidation: () => {},
+        onToggleHeartbeat: (enabled: boolean) => {
+          toggleCalls.push(enabled);
+        },
       }),
     );
 
-    expect(screen.queryByLabelText("Toggle Heartbeat")).toBeNull();
-    expect(screen.queryByRole("button", { name: /run now/i })).toBeNull();
+    // System jobs are collapsed by default — expand the disclosure first.
+    fireEvent.click(screen.getByRole("button", { name: /System/i }));
+
+    const toggle = screen.getByLabelText("Toggle Heartbeat");
+    fireEvent.click(toggle);
+
+    expect(toggleCalls).toEqual([false]);
   });
 
   test("consolidation never renders an automatic-run toggle", () => {
@@ -1021,7 +1030,6 @@ describe("system task toggles", () => {
         onRetry: () => {},
         onSelectHeartbeat: () => {},
         onSelectConsolidation: () => {},
-        showSystemTaskToggles: true,
         onToggleHeartbeat: (enabled: boolean) => {
           toggleCalls.push(enabled);
         },

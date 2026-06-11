@@ -111,13 +111,6 @@ export const SYSTEM_TASK_URL_IDS = {
 
 export const SYSTEM_TASK_STATS_RUN_LIMIT = 100;
 
-export function shouldShowSystemTaskToggles(
-  hasHydrated: boolean,
-  flagEnabled: boolean,
-): boolean {
-  return hasHydrated && flagEnabled;
-}
-
 export function systemTaskKindFromUrlId(
   scheduleId: string | undefined,
 ): SystemTaskKind | null {
