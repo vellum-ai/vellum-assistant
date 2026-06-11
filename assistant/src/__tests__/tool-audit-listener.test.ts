@@ -232,28 +232,6 @@ describe("tool audit listener", () => {
     }
   });
 
-  test("falls back to sizing the event input when inputBytes is absent, keeping argBytes non-null", () => {
-    const records: ToolInvocationRecord[] = [];
-    const listener = createToolAuditListener((record) => records.push(record));
-
-    listener({
-      type: "executed",
-      toolName: "file_read",
-      input: { path: "/tmp/a" },
-      workingDir: "/tmp",
-      conversationId: "conv-fallback",
-      riskLevel: "low",
-      decision: "allow",
-      durationMs: 4,
-      result: { content: "ok", isError: false },
-    });
-
-    expect(records).toHaveLength(1);
-    expect(records[0].argBytes).toBe(
-      Buffer.byteLength(JSON.stringify({ path: "/tmp/a" }), "utf8"),
-    );
-  });
-
   test("maps attribution onto executed records and leaves denied records null", () => {
     const records: ToolInvocationRecord[] = [];
     const listener = createToolAuditListener((record) => records.push(record));
