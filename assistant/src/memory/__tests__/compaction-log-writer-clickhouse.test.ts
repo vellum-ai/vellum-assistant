@@ -48,7 +48,10 @@ const startEvent: CompactionStartEvent = {
   requestId: "req-1",
   trigger: "budget",
   startedAt: 1000,
-  preMessageCount: 12,
+  messages: [
+    { role: "user", content: [{ type: "text", text: "hi" }] },
+    { role: "assistant", content: [{ type: "text", text: "hello" }] },
+  ],
 };
 
 const result: ContextWindowResult = {
@@ -78,7 +81,7 @@ const endEvent: CompactionEndEvent = {
   startedAt: 1000,
   finishedAt: 1500,
   result,
-  basis: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+  messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
 };
 
 describe("ClickHouseCompactionLogWriter", () => {
@@ -104,7 +107,7 @@ describe("ClickHouseCompactionLogWriter", () => {
     expect(row.phase).toBe("start");
     expect(row.trigger).toBe("budget");
     expect(row.started_at).toBe(1000);
-    expect(row.pre_message_count).toBe(12);
+    expect(row.pre_message_count).toBe(2);
     // End-only fields stay at their sentinels on the start row.
     expect(row.finished_at).toBe(0);
     expect(row.duration_ms).toBe(-1);
