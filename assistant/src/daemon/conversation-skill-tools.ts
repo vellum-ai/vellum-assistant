@@ -47,6 +47,18 @@ const log = getLogger("conversation-skill-tools");
  */
 const NO_TOOLS_VERSION = "__no_tools__";
 
+/**
+ * Whether a tracked version-hash entry corresponds to tools that were actually
+ * registered. Absent entries and the no-tools sentinel registered nothing, so
+ * every teardown path must consult this before calling `unregisterSkillTools`
+ * — the registry refcounts, and a spurious unregister would decrement counts
+ * held by other conversations. This helper is the single owner of the
+ * sentinel check; do not compare against `NO_TOOLS_VERSION` elsewhere.
+ */
+function hasRegisteredTools(trackedHash: string | undefined): boolean {
+  return trackedHash !== undefined && trackedHash !== NO_TOOLS_VERSION;
+}
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -104,7 +116,7 @@ export interface ProjectSkillToolsOptions {
   cache?: SkillProjectionCache;
   /** Telemetry context for skill_loaded events; absent disables recording. */
   telemetry?: {
-    conversationId: string | null;
+    conversationId: string;
     attribution: UsageAttributionSnapshot | null;
   };
 }
@@ -167,15 +179,11 @@ function recordSkillLoadedTelemetry(
   try {
     if (!isVellumProducedSkill(skill)) return;
     const catalogEntry = getCachedCatalogSync().find((s) => s.id === skill.id);
-    const columns = toAttributionColumns(telemetry.attribution);
     recordSkillLoadedEvent({
-      conversationId: telemetry.conversationId ?? undefined,
+      conversationId: telemetry.conversationId,
       skillName: skill.id,
       skillUpdatedAt: catalogEntry?.updatedAt,
-      provider: columns.provider ?? undefined,
-      model: columns.model ?? undefined,
-      inferenceProfile: columns.inferenceProfile ?? undefined,
-      inferenceProfileSource: columns.inferenceProfileSource ?? undefined,
+      ...toAttributionColumns(telemetry.attribution),
     });
   } catch (err) {
     log.debug(
@@ -341,7 +349,7 @@ export function projectSkillTools(
   // with the no-tools sentinel never registered anything — skip them so we
   // don't decrement refcounts held by other conversations.
   for (const id of removedIds) {
-    if (prevActive.get(id) === NO_TOOLS_VERSION) continue;
+    if (!hasRegisteredTools(prevActive.get(id))) continue;
     log.info({ skillId: id }, "Unregistering tools for deactivated skill");
     unregisterSkillTools(id);
   }
@@ -368,16 +376,16 @@ export function projectSkillTools(
 
     // A skill that newly became active counts as one `skill_loaded`, whether
     // or not it ships a TOOLS.json — instruction-only skills (the common case
-    // for catalog installs) must be counted too, so this runs before the
-    // manifest gate. The once-per-activation guard (`prevActive`) is
+    // for catalog installs) must be counted too. The event is recorded only
+    // once the skill lands in `successfulEntries`, so a failed registration
+    // is retried (and counted) on a later turn instead of emitting one row
+    // per failing turn. The once-per-activation guard (`prevActive`) is
     // in-memory per-conversation state: after conversation disposal or a
     // daemon restart, re-projection re-emits skill_loaded for already-active
     // skills. That is intentional — a re-load after restart is a load.
     // Downstream consumers that need activation-level uniqueness dedup on
     // (conversation_id, skill_name).
-    if (!prevActive.has(skillId)) {
-      recordSkillLoadedTelemetry(skill, options?.telemetry);
-    }
+    const prevHash = prevActive.get(skillId);
 
     const manifest = loadManifestForSkill(skill);
     if (!manifest) {
@@ -385,8 +393,7 @@ export function projectSkillTools(
       // activation so it isn't re-recorded every turn. If tools were
       // registered on a previous turn (manifest removed or corrupted since),
       // tear them down like the transiently-failed path would.
-      const prevHash = prevActive.get(skillId);
-      if (prevHash !== undefined && prevHash !== NO_TOOLS_VERSION) {
+      if (hasRegisteredTools(prevHash)) {
         log.info(
           { skillId },
           "Unregistering tools for skill whose manifest is no longer loadable",
@@ -394,6 +401,9 @@ export function projectSkillTools(
         unregisterSkillTools(skillId);
       }
       successfulEntries.set(skillId, NO_TOOLS_VERSION);
+      if (prevHash === undefined) {
+        recordSkillLoadedTelemetry(skill, options?.telemetry);
+      }
       continue;
     }
 
@@ -419,18 +429,23 @@ export function projectSkillTools(
 
     if (tools.length > 0) {
       let accepted = tools;
-      const prevHash = prevActive.get(skillId);
-      if (prevHash === undefined || prevHash === NO_TOOLS_VERSION) {
-        // Newly active skill (already recorded above), or a previously
-        // manifest-less activation whose TOOLS.json has since appeared —
-        // register for the first time. There is nothing to unregister in the
-        // sentinel case: no tools were ever registered for it.
-        accepted = registerSkillTools(skillId, tools);
-        if (prevHash === NO_TOOLS_VERSION) {
-          // Gaining a manifest re-registers the skill — like a version-hash
-          // change, that counts as a new load.
-          recordSkillLoadedTelemetry(skill, options?.telemetry);
+      if (!hasRegisteredTools(prevHash)) {
+        // Newly active skill, or a previously manifest-less activation whose
+        // TOOLS.json has since appeared — register for the first time. There
+        // is nothing to unregister in the sentinel case: no tools were ever
+        // registered for it.
+        try {
+          accepted = registerSkillTools(skillId, tools);
+        } catch (err) {
+          log.error({ err, skillId }, "Failed to register skill tools");
+          // Not added to successfulEntries — registration (and the
+          // skill_loaded record below) is retried next turn.
+          continue;
         }
+        // A first successful registration counts as the load; a manifest-less
+        // activation gaining a TOOLS.json re-registers, which — like a
+        // version-hash change — counts as a new load.
+        recordSkillLoadedTelemetry(skill, options?.telemetry);
       } else if (prevHash !== currentHash) {
         // Hash changed — unregister stale tools, then re-register with new definitions
         log.info(
@@ -482,7 +497,7 @@ export function projectSkillTools(
       !successfulEntries.has(id) &&
       !alreadyUnregistered.has(id) &&
       // Sentinel entries registered no tools — nothing to unregister.
-      prevActive.get(id) !== NO_TOOLS_VERSION
+      hasRegisteredTools(prevActive.get(id))
     ) {
       log.info(
         { skillId: id },
@@ -517,7 +532,7 @@ export function resetSkillToolProjection(
       // Sentinel entries (active skills without a manifest) registered no
       // tools — skip them so we don't decrement refcounts held by other
       // conversations.
-      if (hash === NO_TOOLS_VERSION) continue;
+      if (!hasRegisteredTools(hash)) continue;
       unregisterSkillTools(id);
     }
     trackedIds.clear();
