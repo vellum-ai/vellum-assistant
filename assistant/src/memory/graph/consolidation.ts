@@ -797,6 +797,23 @@ export async function runConsolidation(
         "Partition consolidation complete",
       );
     } catch (err) {
+      // A backend outage (no provider, or a chunk-level timeout translated to
+      // `BackendUnavailableError` in `consolidateChunk`) is different in kind
+      // from a single bad partition: it will affect every partition, and the
+      // job worker (`graphConsolidateJob` → `completeMemoryJob()`) treats a
+      // normal return as success and advances the maintenance checkpoint. If we
+      // degraded this to a zero-result partition, a stalled provider would
+      // silently skip consolidation for a full interval. Re-throw so
+      // `classifyError` routes it to defer/retry. Other per-partition errors
+      // keep the established "contain one bad partition" contract below — they
+      // degrade to a zero-result partition so the rest of the job proceeds.
+      if (err instanceof BackendUnavailableError) {
+        log.warn(
+          { partition: partition.name, err: err.message },
+          "Partition consolidation hit a backend outage; failing the job for retry",
+        );
+        throw err;
+      }
       log.warn(
         {
           partition: partition.name,

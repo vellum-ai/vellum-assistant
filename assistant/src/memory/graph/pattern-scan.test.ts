@@ -8,6 +8,14 @@
 // partially iterated. The no-provider path still throws
 // BackendUnavailableError.
 //
+// Round-3 review follow-up — error fidelity at the job boundary:
+//   - `timeout` (stalled provider): throws BackendUnavailableError (transient →
+//     defer/retry).
+//   - `provider_error`: re-throws the ORIGINAL provider error so `classifyError`
+//     can fail fast on a fatal 4xx instead of wrapping every failure in a
+//     "transient" BackendUnavailableError. An already-BackendUnavailableError
+//     re-throws as-is.
+//
 // Only the provider boundary is mocked; SQLite/store run unmocked against the
 // in-process test DB so the assertions reflect real graph state.
 // ---------------------------------------------------------------------------
@@ -214,20 +222,41 @@ describe("runPatternScan — schema validation + degradation", () => {
     await expect(runPatternScan(SCOPE, DEFAULT_CONFIG)).rejects.toThrow();
   });
 
-  test("re-throws BackendUnavailableError on a provider error (transient) so the worker retries", async () => {
+  test("re-throws the ORIGINAL provider error so classifyError can fail fast on a fatal 4xx", async () => {
     seedNodes(12);
     const before = queryNodes({ scopeId: SCOPE }).length;
-    // A transport failure (provider.sendMessage throws, signal NOT aborted)
-    // surfaces as `reason: "provider_error"`. The pattern-scan job must re-throw
-    // BackendUnavailableError so `classifyError` defers/retries instead of
-    // marking the job COMPLETED and skipping the scan for a full interval.
-    providerStub = makeThrowingProvider(new Error("upstream 503"));
+    // A non-retryable provider error (e.g. a 400 bad-request / 401 auth error
+    // from the forced-tool call) surfaces as `reason: "provider_error"` with the
+    // original error preserved on `llmResult.error`. The job must re-throw that
+    // ORIGINAL error — NOT a BackendUnavailableError wrapper — so `classifyError`
+    // inspects its 4xx status and fails the job fast instead of deferring/retrying
+    // a doomed request for the full backoff window.
+    const fatalError = Object.assign(new Error("bad request"), { status: 400 });
+    providerStub = makeThrowingProvider(fatalError);
 
-    await expect(runPatternScan(SCOPE, DEFAULT_CONFIG)).rejects.toBeInstanceOf(
-      BackendUnavailableError,
+    await expect(runPatternScan(SCOPE, DEFAULT_CONFIG)).rejects.toBe(
+      fatalError,
     );
+    // The original error propagates, not a BackendUnavailableError wrapper.
+    await expect(
+      runPatternScan(SCOPE, DEFAULT_CONFIG),
+    ).rejects.not.toBeInstanceOf(BackendUnavailableError);
     // No graph writes on a failed scan.
     expect(queryNodes({ scopeId: SCOPE }).length).toBe(before);
+  });
+
+  test("re-throws an already-BackendUnavailableError provider error as-is (transient)", async () => {
+    seedNodes(12);
+    // When the provider itself throws a BackendUnavailableError (e.g. a backend
+    // that classifies its own outage), `reason: "provider_error"` carries it on
+    // `llmResult.error` and the job re-throws it unchanged — still transient, so
+    // `classifyError` / `handleJobError` defers and retries.
+    const backendErr = new BackendUnavailableError("provider backend down");
+    providerStub = makeThrowingProvider(backendErr);
+
+    await expect(runPatternScan(SCOPE, DEFAULT_CONFIG)).rejects.toBe(
+      backendErr,
+    );
   });
 
   test("re-throws BackendUnavailableError on a timeout (transient) so the worker retries", async () => {

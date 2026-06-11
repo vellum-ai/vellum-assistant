@@ -235,21 +235,35 @@ export async function runNarrativeRefinement(
     // Required-job semantics (mirrors pattern-scan): narrative refinement runs
     // as a memory maintenance job whose worker calls `completeMemoryJob()` when
     // this returns normally, and the checkpoint has already advanced at enqueue
-    // time. A transient transport failure (timeout / provider error) must
-    // re-throw BackendUnavailableError so `classifyError` routes it to
-    // defer/retry — otherwise the weekly refinement is silently skipped for a
-    // full interval. Malformed model output (`tool_use_missing` /
-    // `schema_mismatch`) is not transient, so it keeps degrading to "no
-    // updates" — the same empty result the old `!toolBlock` path produced.
+    // time. A transient transport failure must throw so `classifyError` routes
+    // it to defer/retry — otherwise the weekly refinement is silently skipped
+    // for a full interval. We preserve the error's fatal-vs-transient shape
+    // rather than blanket-wrapping in `BackendUnavailableError`:
+    //  - `timeout`: a stalled provider IS transient → throw
+    //    `BackendUnavailableError` (classified retryable).
+    //  - `provider_error`: re-throw the ORIGINAL provider error on
+    //    `llmResult.error` so `classifyError` can fail fast on a fatal 4xx
+    //    instead of treating it as a transient outage. Already-
+    //    `BackendUnavailableError` errors re-throw as-is; a missing error
+    //    falls back to `BackendUnavailableError`.
+    // Malformed model output (`tool_use_missing` / `schema_mismatch`) is not
+    // transient, so it keeps degrading to "no updates" — the same empty result
+    // the old `!toolBlock` path produced.
+    if (llmResult.status === "failure" && llmResult.reason === "timeout") {
+      throw new BackendUnavailableError(
+        "Narrative refinement LLM call timed out",
+      );
+    }
     if (
       llmResult.status === "failure" &&
-      (llmResult.reason === "timeout" || llmResult.reason === "provider_error")
+      llmResult.reason === "provider_error"
     ) {
-      throw llmResult.error instanceof BackendUnavailableError
-        ? llmResult.error
-        : new BackendUnavailableError(
-            `Narrative refinement LLM call failed (${llmResult.reason})`,
-          );
+      if (llmResult.error !== undefined) {
+        throw llmResult.error;
+      }
+      throw new BackendUnavailableError(
+        "Narrative refinement LLM provider call failed",
+      );
     }
     log.warn(
       { reason: llmResult.status === "failure" ? llmResult.reason : undefined },

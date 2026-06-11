@@ -196,24 +196,41 @@ export async function runPatternScan(
     // Required-job semantics: pattern scan runs as the `graph_pattern_scan`
     // memory job, and `jobs-worker.ts` calls `completeMemoryJob()` when this
     // returns normally — the maintenance checkpoint has already advanced at
-    // enqueue time. A transient transport failure (timeout / provider error)
-    // must NOT return an empty result, or the worker marks the job COMPLETED
-    // and the scan is silently skipped for a full interval. Re-throw
-    // BackendUnavailableError so `classifyError` (memory/job-utils.ts) routes
-    // it to defer/retry, matching `consolidateChunk` / `runGraphExtraction`
-    // and the sweep job. Malformed model output (`tool_use_missing` /
-    // `schema_mismatch`) is NOT transient — retrying won't help — so it keeps
-    // degrading to "no patterns detected", the same empty result the old
-    // `!toolBlock` path produced.
+    // enqueue time. A transient transport failure must NOT return an empty
+    // result, or the worker marks the job COMPLETED and the scan is silently
+    // skipped for a full interval. We throw so `classifyError`
+    // (memory/job-utils.ts) routes the failure to defer/retry.
+    //
+    // Critically, we preserve the error's fatal-vs-transient shape rather than
+    // blanket-wrapping every failure in `BackendUnavailableError`:
+    //  - `timeout`: a stalled provider connection IS transient, so we throw
+    //    `BackendUnavailableError` (classified retryable). The abort error in
+    //    `llmResult.error` carries no status, so wrapping it gives the worker
+    //    the right signal.
+    //  - `provider_error`: re-throw the ORIGINAL provider error preserved on
+    //    `llmResult.error`. `classifyError` inspects its HTTP status / message,
+    //    so a fatal 4xx (auth / bad request from the forced-tool call) fails
+    //    fast instead of being wrapped into a "transient" outage that retries
+    //    for the full backoff window. If the original is already a
+    //    `BackendUnavailableError`, re-throw as-is; if it's somehow missing,
+    //    fall back to `BackendUnavailableError`.
+    //
+    // Malformed model output (`tool_use_missing` / `schema_mismatch`) is NOT
+    // transient — retrying won't help — so it keeps degrading to "no patterns
+    // detected", the same empty result the old `!toolBlock` path produced.
+    if (llmResult.status === "failure" && llmResult.reason === "timeout") {
+      throw new BackendUnavailableError("Pattern scan LLM call timed out");
+    }
     if (
       llmResult.status === "failure" &&
-      (llmResult.reason === "timeout" || llmResult.reason === "provider_error")
+      llmResult.reason === "provider_error"
     ) {
-      throw llmResult.error instanceof BackendUnavailableError
-        ? llmResult.error
-        : new BackendUnavailableError(
-            `Pattern scan LLM call failed (${llmResult.reason})`,
-          );
+      if (llmResult.error !== undefined) {
+        throw llmResult.error;
+      }
+      throw new BackendUnavailableError(
+        "Pattern scan LLM provider call failed",
+      );
     }
     log.warn(
       { reason: llmResult.status === "failure" ? llmResult.reason : undefined },
