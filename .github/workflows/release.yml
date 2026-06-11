@@ -3202,7 +3202,7 @@ jobs:
       - name: Install shared packages
         uses: ./.github/actions/install-shared-packages
         with:
-          packages: packages/service-contracts packages/ces-client packages/assistant-client
+          packages: packages/service-contracts packages/ces-client packages/assistant-client packages/gateway-client
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
