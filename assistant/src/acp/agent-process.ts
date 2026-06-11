@@ -62,6 +62,12 @@ export class AcpAgentProcess {
   private proc: ChildProcess | null = null;
   private connection: acp.ClientSideConnection | null = null;
   private initializeResponse: InitializeResponse | null = null;
+  /**
+   * Merged env captured at spawn() so auth satisfiability checks match the
+   * env the child process actually received, even if process.env changes
+   * afterwards.
+   */
+  private spawnedEnv: NodeJS.ProcessEnv | null = null;
 
   constructor(
     public readonly agentId: string,
@@ -78,10 +84,11 @@ export class AcpAgentProcess {
       "Spawning ACP agent process",
     );
 
+    this.spawnedEnv = { ...process.env, ...this.config.env };
     this.proc = spawn(this.config.command, this.config.args, {
       cwd,
       stdio: ["pipe", "pipe", "pipe"],
-      env: this.childEnv(),
+      env: this.spawnedEnv,
     });
 
     const stream = acp.ndJsonStream(
@@ -121,13 +128,11 @@ export class AcpAgentProcess {
    * Initializes the ACP connection by negotiating protocol version and capabilities.
    */
   async initialize(): Promise<InitializeResponse> {
-    if (!this.connection) {
-      throw new Error(`ACP agent "${this.agentId}" is not spawned`);
-    }
+    const connection = this.requireConnection();
 
     log.info({ agentId: this.agentId }, "Initializing ACP connection");
 
-    const response = await this.connection.initialize({
+    const response = await connection.initialize({
       protocolVersion: acp.PROTOCOL_VERSION,
       clientInfo: { name: "vellum", version: "1.0.0" },
       clientCapabilities: {
@@ -175,7 +180,8 @@ export class AcpAgentProcess {
    * auto-triggering an interactive login would hang the headless daemon.
    */
   private selectEnvVarAuthMethod(): AuthMethod | undefined {
-    const env = this.childEnv();
+    const env = this.spawnedEnv;
+    if (!env) return undefined;
 
     return this.authMethods.find((method) => {
       if (!isEnvVarMethod(method)) return false;
@@ -190,9 +196,15 @@ export class AcpAgentProcess {
     });
   }
 
-  /** The environment the agent child process is spawned with. */
-  private childEnv(): NodeJS.ProcessEnv {
-    return { ...process.env, ...this.config.env };
+  /**
+   * Returns the live connection, throwing the standard not-spawned error if
+   * the agent was never spawned or its process has since exited.
+   */
+  private requireConnection(): acp.ClientSideConnection {
+    if (!this.connection) {
+      throw new Error(`ACP agent "${this.agentId}" is not spawned`);
+    }
+    return this.connection;
   }
 
   /**
@@ -205,6 +217,10 @@ export class AcpAgentProcess {
       return await op();
     } catch (err) {
       if (!isAuthRequiredError(err)) throw err;
+
+      // The agent may have exited between the auth_required rejection and
+      // this retry path; fail with the standard not-spawned error.
+      const connection = this.requireConnection();
 
       const method = this.selectEnvVarAuthMethod();
       if (!method) {
@@ -222,7 +238,7 @@ export class AcpAgentProcess {
         "ACP agent returned auth_required; authenticating with env_var method",
       );
 
-      await this.connection!.authenticate({ methodId: method.id });
+      await connection.authenticate({ methodId: method.id });
       return await op();
     }
   }
@@ -250,14 +266,12 @@ export class AcpAgentProcess {
    * Returns the session ID.
    */
   async createSession(cwd: string): Promise<string> {
-    if (!this.connection) {
-      throw new Error(`ACP agent "${this.agentId}" is not spawned`);
-    }
+    this.requireConnection();
 
     log.info({ agentId: this.agentId, cwd }, "Creating ACP session");
 
     const result: NewSessionResponse = await this.withAuthRetry(() =>
-      this.connection!.newSession({ cwd, mcpServers: [] }),
+      this.requireConnection().newSession({ cwd, mcpServers: [] }),
     );
 
     return result.sessionId;
@@ -272,14 +286,12 @@ export class AcpAgentProcess {
    * VellumAcpClientHandler.beginReplaySuppression).
    */
   async loadSession(sessionId: string, cwd: string): Promise<void> {
-    if (!this.connection) {
-      throw new Error(`ACP agent "${this.agentId}" is not spawned`);
-    }
+    this.requireConnection();
 
     log.info({ agentId: this.agentId, sessionId, cwd }, "Loading ACP session");
 
     await this.withAuthRetry(() =>
-      this.connection!.loadSession({ sessionId, cwd, mcpServers: [] }),
+      this.requireConnection().loadSession({ sessionId, cwd, mcpServers: [] }),
     );
   }
 
@@ -291,14 +303,16 @@ export class AcpAgentProcess {
    * (see supportsSessionResume).
    */
   async resumeSession(sessionId: string, cwd: string): Promise<void> {
-    if (!this.connection) {
-      throw new Error(`ACP agent "${this.agentId}" is not spawned`);
-    }
+    this.requireConnection();
 
     log.info({ agentId: this.agentId, sessionId, cwd }, "Resuming ACP session");
 
     await this.withAuthRetry(() =>
-      this.connection!.resumeSession({ sessionId, cwd, mcpServers: [] }),
+      this.requireConnection().resumeSession({
+        sessionId,
+        cwd,
+        mcpServers: [],
+      }),
     );
   }
 
@@ -307,16 +321,14 @@ export class AcpAgentProcess {
    * Returns the prompt response (includes stopReason).
    */
   async prompt(sessionId: string, text: string): Promise<PromptResponse> {
-    if (!this.connection) {
-      throw new Error(`ACP agent "${this.agentId}" is not spawned`);
-    }
+    const connection = this.requireConnection();
 
     log.info(
       { agentId: this.agentId, sessionId },
       "Sending prompt to ACP agent",
     );
 
-    return this.connection.prompt({
+    return connection.prompt({
       sessionId,
       prompt: [{ type: "text", text }],
     });
@@ -326,16 +338,14 @@ export class AcpAgentProcess {
    * Cancels an ongoing prompt in the specified session.
    */
   async cancel(sessionId: string): Promise<void> {
-    if (!this.connection) {
-      throw new Error(`ACP agent "${this.agentId}" is not spawned`);
-    }
+    const connection = this.requireConnection();
 
     log.info(
       { agentId: this.agentId, sessionId },
       "Cancelling ACP session prompt",
     );
 
-    await this.connection.cancel({ sessionId });
+    await connection.cancel({ sessionId });
   }
 
   /**
@@ -350,6 +360,7 @@ export class AcpAgentProcess {
     }
     this.connection = null;
     this.initializeResponse = null;
+    this.spawnedEnv = null;
   }
 
   /**
@@ -381,5 +392,6 @@ export class AcpAgentProcess {
     this.proc = null;
     this.connection = null;
     this.initializeResponse = null;
+    this.spawnedEnv = null;
   }
 }
