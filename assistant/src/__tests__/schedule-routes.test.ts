@@ -441,6 +441,32 @@ describe("GET /schedules — default defer exclusion", () => {
     expect(noSource.createdFromConversationArchivedAt).toBeNull();
   });
 
+  test("returns authored descriptions separately from cadence descriptions", () => {
+    createSchedule({
+      name: "Described schedule",
+      description: "Review the morning queue",
+      cronExpression: "0 9 * * *",
+      message: "review queue",
+      syntax: "cron",
+    });
+
+    const route = findRoute("schedules", "GET");
+    const result = route.handler({}) as {
+      schedules: Array<{
+        name: string;
+        description: string;
+        cadenceDescription: string;
+      }>;
+    };
+
+    expect(result.schedules).toHaveLength(1);
+    expect(result.schedules[0]).toMatchObject({
+      name: "Described schedule",
+      description: "Review the morning queue",
+      cadenceDescription: "Every day at 9:00 AM",
+    });
+  });
+
   test("mutation responses also exclude deferred wakes", () => {
     createSchedule({
       name: "Agent schedule",
@@ -997,6 +1023,7 @@ describe("POST /schedules — create", () => {
   test("creates a recurring execute schedule with defaults", () => {
     const result = postCreate({
       name: "Morning ping",
+      description: "Start the morning workflow",
       expression: "0 9 * * *",
       message: "good morning",
     });
@@ -1006,6 +1033,7 @@ describe("POST /schedules — create", () => {
     expect(job.mode).toBe("execute");
     expect(job.expression).toBe("0 9 * * *");
     expect(job.syntax).toBe("cron");
+    expect(job.description).toBe("Start the morning workflow");
     expect(job.enabled).toBe(true);
     expect(job.timezone).toBeNull();
   });
@@ -1013,12 +1041,14 @@ describe("POST /schedules — create", () => {
   test("trims whitespace and accepts an explicit timezone", () => {
     postCreate({
       name: "  Trimmed  ",
+      description: "  Trimmed description  ",
       expression: "  0 9 * * *  ",
       message: "hi",
       timezone: " America/New_York ",
     });
     const job = listSchedules()[0];
     expect(job.name).toBe("Trimmed");
+    expect(job.description).toBe("Trimmed description");
     expect(job.expression).toBe("0 9 * * *");
     expect(job.timezone).toBe("America/New_York");
   });
@@ -1027,6 +1057,7 @@ describe("POST /schedules — create", () => {
     const expression = "DTSTART:20260101T000000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO";
     postCreate({
       name: "Weekly",
+      description: "Weekly wake",
       expression,
       message: "monday wake",
     });
@@ -1045,12 +1076,24 @@ describe("POST /schedules — create", () => {
     expect(() => postCreate({ name: "x", expression: "* * * * *" })).toThrow(
       "message is required",
     );
+    expect(() =>
+      postCreate({ name: "x", expression: "* * * * *", message: "hi" }),
+    ).toThrow("description is required");
+    expect(() =>
+      postCreate({
+        name: "x",
+        description: "   ",
+        expression: "* * * * *",
+        message: "hi",
+      }),
+    ).toThrow("description is required");
   });
 
   test("rejects non-execute modes", () => {
     expect(() =>
       postCreate({
         name: "x",
+        description: "Run the thing",
         expression: "* * * * *",
         message: "hi",
         mode: "notify",
@@ -1060,7 +1103,12 @@ describe("POST /schedules — create", () => {
 
   test("rejects an unparseable expression", () => {
     expect(() =>
-      postCreate({ name: "x", expression: "not-a-cron", message: "hi" }),
+      postCreate({
+        name: "x",
+        description: "Run the thing",
+        expression: "not-a-cron",
+        message: "hi",
+      }),
     ).toThrow("could not be parsed");
   });
 
@@ -1068,6 +1116,7 @@ describe("POST /schedules — create", () => {
     expect(() =>
       postCreate({
         name: "x",
+        description: "Run the thing",
         expression: "99 99 99 99 99",
         message: "hi",
       }),
@@ -1077,12 +1126,45 @@ describe("POST /schedules — create", () => {
   test("respects enabled=false", () => {
     postCreate({
       name: "Off",
+      description: "Disabled schedule",
       expression: "0 9 * * *",
       message: "hi",
       enabled: false,
     });
     const job = listSchedules()[0];
     expect(job.enabled).toBe(false);
+  });
+});
+
+// ── PATCH /schedules/:id — description ───────────────────────────────────
+
+describe("PATCH /schedules/:id — description", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  test("updates authored descriptions", () => {
+    const schedule = createSchedule({
+      name: "Description update",
+      description: "Original description",
+      cronExpression: "0 9 * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+
+    const route = findRoute("schedules/:id", "PATCH");
+    const result = route.handler({
+      pathParams: { id: schedule.id },
+      body: { description: "Updated description" },
+    }) as {
+      schedules: Array<{ id: string; description: string }>;
+    };
+
+    expect(result.schedules[0]).toMatchObject({
+      id: schedule.id,
+      description: "Updated description",
+    });
+    expect(listSchedules()[0].description).toBe("Updated description");
   });
 });
 
