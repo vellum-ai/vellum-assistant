@@ -76,11 +76,9 @@ export function ScheduleRow({
           </span>
         </div>
         {descriptionText ? (
-          <div className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]">
-            <span className="min-w-[12rem] max-w-full truncate">
-              {descriptionText}
-            </span>
-          </div>
+          <p className="mt-0.5 truncate text-body-small-default text-[var(--content-tertiary)]">
+            {descriptionText}
+          </p>
         ) : null}
       </button>
       {(cadenceText || timestampText) && (
