@@ -41,6 +41,7 @@ import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { createTarGz } from "./archive-utils.js";
 import { InternalError } from "./errors.js";
 import { collectWorkspaceData } from "./log-export/workspace-allowlist.js";
+import { redactStagedExportFiles } from "./redact-staged-export.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("log-export-routes");
@@ -343,6 +344,13 @@ async function handleExport({
       "utf-8",
     );
 
+    // --- Secret-redaction sweep over every staged text file ---
+    // Belt-and-suspenders over the structural sanitizers above: catches
+    // legacy audit rows persisted with plaintext inputs (written before
+    // write-time redaction existed) and secrets sitting in copied workspace
+    // conversation files.
+    const redactionResult = redactStagedExportFiles(staging);
+
     log.info(
       {
         auditCount: auditRows.length,
@@ -353,6 +361,8 @@ async function handleExport({
         full: full ?? false,
         workspaceEntries: workspaceResult.entries.length,
         workspaceBytes: workspaceResult.totalBytes,
+        redactionScanned: redactionResult.filesScanned,
+        redactionRedacted: redactionResult.filesRedacted,
       },
       "Export collected, creating tar.gz archive",
     );
