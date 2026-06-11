@@ -4,7 +4,6 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { StepIndicatorDots } from "@/domains/onboarding/components/step-indicator-dots";
-import { SystemPermissionsCard } from "@/components/system-permissions-card";
 import {
     emitOnboardingFunnelStepCompleted,
     getOnboardingFunnelSessionId,
@@ -225,15 +224,6 @@ export function PrivacyScreen() {
             </div>
           </div>
         </Card>
-
-        {electron && (
-          <div
-            className="mt-4 w-full"
-            style={{ animation: "fadeInUp 0.5s ease-out 0.45s both" }}
-          >
-            <SystemPermissionsCard compact />
-          </div>
-        )}
 
         <div
           className={`flex w-full items-start ${electron ? "mt-4" : "mt-6"}`}
