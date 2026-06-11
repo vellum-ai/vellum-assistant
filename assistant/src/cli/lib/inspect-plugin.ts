@@ -119,12 +119,10 @@ export class PluginInspectNotFoundError extends Error {
   }
 }
 
-/** Options that control which plugin to inspect and at what marketplace ref. */
+/** Options that control which plugin to inspect. */
 export interface InspectPluginOptions {
   /** Install name (kebab-case directory name). */
   readonly name: string;
-  /** Ref of the canonical repo to read the marketplace pin from. Defaults to {@link DEFAULT_PLUGIN_REF}. */
-  readonly ref?: string;
 }
 
 /** Dependencies injected by the caller. */
@@ -188,7 +186,7 @@ export async function inspectPlugin(
   deps: InspectPluginDeps,
 ): Promise<PluginInspection> {
   const name = sanitizePluginName(opts.name);
-  const marketplaceRef = opts.ref ?? DEFAULT_PLUGIN_REF;
+  const marketplaceRef = DEFAULT_PLUGIN_REF;
 
   const entry = readInstalledPlugin(name, {
     workspacePluginsDir: deps.workspacePluginsDir,

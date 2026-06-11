@@ -46,17 +46,17 @@ export function registerPluginsCommand(program: Command): void {
         "after",
         `
 Examples:
-  $ assistant plugins install simple-memory
-  $ assistant plugins install simple-memory --force
-  $ assistant plugins install simple-memory --ref my-feature-branch
+  $ assistant plugins install example
+  $ assistant plugins install example --force
+  $ assistant plugins install example --ref my-feature-branch
   $ assistant plugins list
   $ assistant plugins list --json
-  $ assistant plugins inspect level-up
-  $ assistant plugins inspect level-up --json
-  $ assistant plugins search memory
-  $ assistant plugins search "^simple"
-  $ assistant plugins search memory --json
-  $ assistant plugins uninstall simple-memory`,
+  $ assistant plugins inspect example
+  $ assistant plugins inspect example --json
+  $ assistant plugins search example
+  $ assistant plugins search "^example"
+  $ assistant plugins search example --json
+  $ assistant plugins uninstall example`,
       );
 
       plugins
@@ -159,57 +159,49 @@ Examples:
         .description(
           "Show a plugin's local install metadata and the marketplace pin, and whether an update is available",
         )
-        .option(
-          "--ref <ref>",
-          "Read the marketplace pin from this ref of the catalog (default: main)",
-        )
         .option("--json", "Emit machine-readable JSON instead of a summary")
-        .action(
-          async (name: string, opts: { ref?: string; json?: boolean }) => {
-            try {
-              const inspection = await inspectPlugin(
-                { name, ref: opts.ref },
-                { fetch: globalThis.fetch.bind(globalThis) },
-              );
+        .action(async (name: string, opts: { json?: boolean }) => {
+          try {
+            const inspection = await inspectPlugin(
+              { name },
+              { fetch: globalThis.fetch.bind(globalThis) },
+            );
 
-              if (opts.json) {
-                process.stdout.write(
-                  JSON.stringify(inspection, null, 2) + "\n",
-                );
-                return;
-              }
-
-              // Logged after the JSON early-return: the CLI logger writes
-              // info to stdout, which would otherwise corrupt --json output.
-              log.info(
-                {
-                  name: inspection.name,
-                  installed: inspection.installed,
-                  status: inspection.status,
-                },
-                "plugin inspect",
-              );
-
-              for (const line of formatInspection(inspection)) {
-                console.log(line);
-              }
-            } catch (err) {
-              if (err instanceof PluginInspectNotFoundError) {
-                console.error(err.message);
-                process.exitCode = 1;
-                return;
-              }
-              if (err instanceof InvalidPluginNameError) {
-                console.error(err.message);
-                process.exitCode = 1;
-                return;
-              }
-              const message = err instanceof Error ? err.message : String(err);
-              console.error(`Plugin inspect failed: ${message}`);
-              process.exitCode = 1;
+            if (opts.json) {
+              process.stdout.write(JSON.stringify(inspection, null, 2) + "\n");
+              return;
             }
-          },
-        );
+
+            // Logged after the JSON early-return: the CLI logger writes
+            // info to stdout, which would otherwise corrupt --json output.
+            log.info(
+              {
+                name: inspection.name,
+                installed: inspection.installed,
+                status: inspection.status,
+              },
+              "plugin inspect",
+            );
+
+            for (const line of formatInspection(inspection)) {
+              console.log(line);
+            }
+          } catch (err) {
+            if (err instanceof PluginInspectNotFoundError) {
+              console.error(err.message);
+              process.exitCode = 1;
+              return;
+            }
+            if (err instanceof InvalidPluginNameError) {
+              console.error(err.message);
+              process.exitCode = 1;
+              return;
+            }
+            const message = err instanceof Error ? err.message : String(err);
+            console.error(`Plugin inspect failed: ${message}`);
+            process.exitCode = 1;
+          }
+        });
 
       plugins
         .command("search <query>")
