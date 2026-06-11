@@ -74,7 +74,8 @@ function createSlackStore(): { rawDb: Database; store: SlackStore } {
       thread_ts TEXT PRIMARY KEY,
       channel_id TEXT,
       tracked_at INTEGER NOT NULL,
-      expires_at INTEGER NOT NULL
+      expires_at INTEGER NOT NULL,
+      detached_at INTEGER
     );
     CREATE TABLE slack_seen_events (
       event_id TEXT PRIMARY KEY,

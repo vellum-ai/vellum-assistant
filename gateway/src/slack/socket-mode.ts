@@ -727,19 +727,35 @@ export class SlackSocketModeClient {
         channelEvent.channel &&
         this.shouldTrackBotOwnThreadReply(channelEvent.channel)
       ) {
-        this.store.trackThread(
-          channelEvent.thread_ts!,
-          channelEvent.channel,
-          ACTIVE_THREAD_TTL_MS,
-        );
-        log.info(
-          {
-            eventId: eventPayload.event_id,
-            channel: channelEvent.channel,
-            threadTs: channelEvent.thread_ts,
-          },
-          "Tracked thread after bot's own thread reply",
-        );
+        // An explicitly detached (muted) thread must not be re-armed by
+        // the bot's own posts — most immediately the Socket Mode echo of
+        // the mute confirmation that handleSlackMuteCommand sends right
+        // after detaching. Only a human re-engagement (e.g. a fresh
+        // app_mention) clears the marker, via trackThread below.
+        if (this.store.isThreadDetached(channelEvent.thread_ts!)) {
+          log.info(
+            {
+              eventId: eventPayload.event_id,
+              channel: channelEvent.channel,
+              threadTs: channelEvent.thread_ts,
+            },
+            "Skipped tracking bot's own reply in explicitly muted thread",
+          );
+        } else {
+          this.store.trackThread(
+            channelEvent.thread_ts!,
+            channelEvent.channel,
+            ACTIVE_THREAD_TTL_MS,
+          );
+          log.info(
+            {
+              eventId: eventPayload.event_id,
+              channel: channelEvent.channel,
+              threadTs: channelEvent.thread_ts,
+            },
+            "Tracked thread after bot's own thread reply",
+          );
+        }
       }
       return;
     }
