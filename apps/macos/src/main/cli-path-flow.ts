@@ -97,9 +97,9 @@ export async function runInstallCliCommandFlow(): Promise<void> {
     } catch (err) {
       throw new Error(
         `The vellum command was installed at ${getWrapperPath()}, but ` +
-          `downloading the CLI runtime failed: ${errorMessage(err)}. It will be ` +
-          'retried the next time it\'s needed — or run "Install vellum ' +
-          'Command" again to retry now.',
+          `downloading the CLI runtime failed: ${errorMessage(err)}. Use ` +
+          '"Repair vellum Command" in the Vellum menu to retry now — or it ' +
+          "will be retried automatically the next time it's needed.",
       );
     }
 

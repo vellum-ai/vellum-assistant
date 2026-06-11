@@ -36,6 +36,7 @@ const getCliPathInstallStateMock = mock(
   async (): Promise<CliPathInstallState> => ({
     kind: "installed",
     inPath: true,
+    runtimeReady: true,
   }),
 );
 const installWrapperMock = mock(
@@ -81,7 +82,7 @@ beforeEach(() => {
 
   showMessageBoxMock.mockResolvedValue({ response: 0, checkboxChecked: false });
   ensureCliInstalledMock.mockResolvedValue(undefined);
-  setState({ kind: "installed", inPath: true });
+  setState({ kind: "installed", inPath: true, runtimeReady: true });
   installWrapperMock.mockReturnValue("installed");
   uninstallWrapperMock.mockReturnValue("removed");
 });
@@ -124,7 +125,7 @@ describe("runInstallCliCommandFlow", () => {
   });
 
   test("provisions the CLI runtime before showing success", async () => {
-    setState({ kind: "installed", inPath: true });
+    setState({ kind: "installed", inPath: true, runtimeReady: true });
 
     await runInstallCliCommandFlow();
 
@@ -134,7 +135,7 @@ describe("runInstallCliCommandFlow", () => {
     expect(lastDialog()?.message).toBe("Vellum CLI installed");
   });
 
-  test("CLI runtime download failure reports the wrapper as installed and retryable", async () => {
+  test("CLI runtime download failure points at the Repair menu item", async () => {
     ensureCliInstalledMock.mockRejectedValue(new Error("registry unreachable"));
 
     await runInstallCliCommandFlow();
@@ -145,11 +146,12 @@ describe("runInstallCliCommandFlow", () => {
     expect(title).toBe("Failed to install vellum command");
     expect(message).toContain(`The vellum command was installed at ${WRAPPER_PATH}`);
     expect(message).toContain("registry unreachable");
-    expect(message).toContain("retried");
+    expect(message).toContain('"Repair vellum Command"');
+    expect(message).toContain("retried automatically");
   });
 
   test("installed + inPath shows success without touching the clipboard", async () => {
-    setState({ kind: "installed", inPath: true });
+    setState({ kind: "installed", inPath: true, runtimeReady: true });
 
     await runInstallCliCommandFlow();
 
@@ -161,7 +163,7 @@ describe("runInstallCliCommandFlow", () => {
   });
 
   test("installed but not in PATH copies the export line to the clipboard", async () => {
-    setState({ kind: "installed", inPath: false });
+    setState({ kind: "installed", inPath: false, runtimeReady: true });
 
     await runInstallCliCommandFlow();
 
@@ -176,6 +178,7 @@ describe("runInstallCliCommandFlow", () => {
       kind: "shadowed",
       shadowedBy: "/opt/homebrew/bin/vellum",
       inPath: true,
+      runtimeReady: true,
     });
 
     await runInstallCliCommandFlow();
@@ -191,6 +194,7 @@ describe("runInstallCliCommandFlow", () => {
       kind: "shadowed",
       shadowedBy: "/opt/homebrew/bin/vellum",
       inPath: false,
+      runtimeReady: true,
     });
 
     await runInstallCliCommandFlow();

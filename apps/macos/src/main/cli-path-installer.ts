@@ -8,7 +8,12 @@ import {
 import { homedir } from "node:os";
 import path from "node:path";
 
-import { getCliLocatorPath, shQuote, writeFileAtomicSync } from "./cli-installer";
+import {
+  getCliLocatorPath,
+  isCliInstalled,
+  shQuote,
+  writeFileAtomicSync,
+} from "./cli-installer";
 import {
   findExecutablesInPath,
   resolveShellPath,
@@ -102,8 +107,13 @@ export function installWrapper(opts: {
 export type CliPathInstallState =
   | { kind: "not-installed" }
   | { kind: "foreign-file" }
-  | { kind: "installed"; inPath: boolean }
-  | { kind: "shadowed"; shadowedBy: string; inPath: boolean };
+  | { kind: "installed"; inPath: boolean; runtimeReady: boolean }
+  | {
+      kind: "shadowed";
+      shadowedBy: string;
+      inPath: boolean;
+      runtimeReady: boolean;
+    };
 
 function realpathOr(p: string): string {
   try {
@@ -120,14 +130,20 @@ function realpathOr(p: string): string {
  * to the wrapper itself don't count. Never throws — when login-shell PATH
  * resolution fails (null), degrades to `installed` with `inPath: false`
  * rather than reporting states we can't actually attest to.
+ *
+ * `runtimeReady` reports whether the pinned CLI runtime is provisioned; when
+ * false the wrapper exists but can't run, and the menu offers a repair path.
  */
 export async function getCliPathInstallState(): Promise<CliPathInstallState> {
   const ownership = readWrapperOwnership();
   if (ownership === "absent") return { kind: "not-installed" };
   if (ownership === "foreign") return { kind: "foreign-file" };
 
+  const runtimeReady = isCliInstalled();
   const shellPath = await resolveShellPath();
-  if (shellPath === null) return { kind: "installed", inPath: false };
+  if (shellPath === null) {
+    return { kind: "installed", inPath: false, runtimeReady };
+  }
 
   const wrapperPath = getWrapperPath();
   const [firstHit] = findExecutablesInPath("vellum", shellPath);
@@ -139,9 +155,9 @@ export async function getCliPathInstallState(): Promise<CliPathInstallState> {
     firstHitIsWrapper || splitPathEntries(shellPath).includes(getWrapperDir());
 
   if (firstHit !== undefined && !firstHitIsWrapper) {
-    return { kind: "shadowed", shadowedBy: firstHit, inPath };
+    return { kind: "shadowed", shadowedBy: firstHit, inPath, runtimeReady };
   }
-  return { kind: "installed", inPath };
+  return { kind: "installed", inPath, runtimeReady };
 }
 
 /** Remove the wrapper, but only if it's one we installed. */

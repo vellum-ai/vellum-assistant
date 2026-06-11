@@ -69,15 +69,25 @@ const cliPathFlowItem = (
 const cliPathItems = (): MenuItemConstructorOptions[] => {
   // Only packaged builds manage the shared ~/.local/bin/vellum wrapper.
   if (!app.isPackaged) return [];
-  const kind = cliPathState?.kind;
-  if (kind === "installed" || kind === "shadowed") {
+  const cliState = cliPathState;
+  if (cliState?.kind === "installed" || cliState?.kind === "shadowed") {
     return [
-      ...(kind === "shadowed"
+      ...(cliState.kind === "shadowed"
         ? [
             {
               label: "⚠ vellum is shadowed by another install",
               enabled: false,
             },
+          ]
+        : []),
+      // Wrapper exists but the CLI runtime never provisioned; the install
+      // flow is idempotent, so re-running it doubles as repair.
+      ...(!cliState.runtimeReady
+        ? [
+            cliPathFlowItem(
+              "Repair vellum Command\u2026",
+              runInstallCliCommandFlow,
+            ),
           ]
         : []),
       cliPathFlowItem("Uninstall vellum Command", runUninstallCliCommandFlow),
