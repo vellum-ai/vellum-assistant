@@ -217,24 +217,30 @@ describe("groupSchedules", () => {
     const upcoming = schedule({
       id: "u1",
       isOneShot: true,
+      status: "active",
+      enabled: true,
       lastRunAt: null,
       nextRunAt: now + 60_000,
     });
-    const elapsed = schedule({
+    const expired = schedule({
       id: "p1",
       isOneShot: true,
+      status: "active",
+      enabled: false,
       lastRunAt: null,
       nextRunAt: now - 60_000,
     });
     const completed = schedule({
       id: "p2",
       isOneShot: true,
+      status: "fired",
+      enabled: true,
       lastRunAt: now - 120_000,
       nextRunAt: now - 120_000,
     });
 
     const grouped = groupSchedules(
-      [completed, recurring, upcoming, elapsed],
+      [completed, recurring, upcoming, expired],
       now,
     );
 
@@ -247,6 +253,8 @@ describe("groupSchedules", () => {
     const retrying = schedule({
       id: "retry-1",
       isOneShot: true,
+      status: "active",
+      enabled: true,
       lastRunAt: now - 60_000,
       lastStatus: "error",
       nextRunAt: now + 60_000,
@@ -256,6 +264,33 @@ describe("groupSchedules", () => {
 
     expect(grouped.upcomingOneTime.map((s) => s.id)).toEqual(["retry-1"]);
     expect(grouped.pastOneTime).toEqual([]);
+  });
+
+  test("in-flight and overdue-but-enabled one-shots stay out of the past bucket", () => {
+    const firing = schedule({
+      id: "firing-1",
+      isOneShot: true,
+      status: "firing",
+      enabled: true,
+      lastRunAt: now - 1_000,
+      nextRunAt: now - 1_000,
+    });
+    const overdue = schedule({
+      id: "overdue-1",
+      isOneShot: true,
+      status: "active",
+      enabled: true,
+      lastRunAt: null,
+      nextRunAt: now - 60_000,
+    });
+
+    const grouped = groupSchedules([firing, overdue], now);
+
+    expect(grouped.pastOneTime).toEqual([]);
+    expect(grouped.upcomingOneTime.map((s) => s.id)).toEqual([
+      "overdue-1",
+      "firing-1",
+    ]);
   });
 
   test("orders upcoming one-shots soonest first", () => {
@@ -296,6 +331,11 @@ describe("pastOneTimeStatus", () => {
     expect(
       pastOneTimeStatus(schedule({ lastRunAt: null, nextRunAt: 1 })),
     ).toEqual({ label: "Expired", tone: "neutral" });
+    expect(
+      pastOneTimeStatus(
+        schedule({ status: "cancelled", lastRunAt: 1_761_792_000_000 }),
+      ),
+    ).toEqual({ label: "Cancelled", tone: "neutral" });
   });
 });
 

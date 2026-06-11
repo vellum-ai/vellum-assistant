@@ -174,11 +174,20 @@ export interface GroupedSchedules {
   pastOneTime: Schedule[];
 }
 
-// A one-shot with a future nextRunAt is upcoming even when lastRunAt is set:
-// a failed attempt with retries left keeps lastRunAt while the backend
-// schedules the retry in the future.
+// Keyed on the lifecycle status, not lastRunAt/nextRunAt alone: a failed
+// attempt awaiting retry keeps lastRunAt set, and an in-flight run is
+// `firing` with nextRunAt already due — both are still live, not past.
 function isPastOneTime(schedule: Schedule, now: number): boolean {
-  return schedule.nextRunAt == null || schedule.nextRunAt <= now;
+  if (schedule.status === "fired" || schedule.status === "cancelled") {
+    return true;
+  }
+  if (schedule.status === "firing") return false;
+  // active: an enabled one-shot still fires on the next daemon wake even if
+  // overdue; a disabled one whose time has passed never will.
+  return (
+    schedule.nextRunAt == null ||
+    (!schedule.enabled && schedule.nextRunAt <= now)
+  );
 }
 
 export function groupSchedules(
@@ -223,6 +232,9 @@ export interface PastOneTimeStatus {
 }
 
 export function pastOneTimeStatus(schedule: Schedule): PastOneTimeStatus {
+  if (schedule.status === "cancelled") {
+    return { label: "Cancelled", tone: "neutral" };
+  }
   if (schedule.lastRunAt != null) {
     return schedule.lastStatus === "error" || schedule.lastStatus === "failed"
       ? { label: "Failed", tone: "negative" }
