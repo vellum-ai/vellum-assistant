@@ -1,77 +1,64 @@
 import { useCallback, useRef } from "react";
+import { z } from "zod";
 
 import type { ChatEntry, NewChatEntry } from "@/domains/settings/components/panels/doctor-history";
-import { buildVellumHeaders } from "@/lib/auth/request-headers";
+import { assistantsDoctorSessionsEventsRetrieve } from "@/generated/api";
 import { captureError } from "@/lib/sentry/capture-error";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 
 // ---------------------------------------------------------------------------
-// SSE event protocol
+// SSE event protocol — Zod-validated discriminated union
 // ---------------------------------------------------------------------------
 
-type DoctorEvent =
-  | { type: "message"; content: string }
-  | { type: "message_delta"; content: string }
-  | {
-      type: "tool_call";
-      toolName: string;
-      input: Record<string, unknown>;
-      id: string;
-    }
-  | {
-      type: "tool_result";
-      toolCallId: string;
-      content: string;
-      isError: boolean;
-    }
-  | {
-      type: "approval_required";
-      toolName: string;
-      input: Record<string, unknown>;
-      id: string;
-      description: string;
-    }
-  | { type: "backup_prompt"; toolName: string }
-  | { type: "status"; status: "active" | "completed" | "error" }
-  | { type: "error"; message: string };
-
-const VALID_EVENT_TYPES = new Set([
-  "message",
-  "message_delta",
-  "tool_call",
-  "tool_result",
-  "approval_required",
-  "backup_prompt",
-  "status",
-  "error",
+export const DoctorEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("message"), content: z.string() }),
+  z.object({ type: z.literal("message_delta"), content: z.string() }),
+  z.object({
+    type: z.literal("tool_call"),
+    toolName: z.string(),
+    input: z.record(z.string(), z.unknown()),
+    id: z.string(),
+  }),
+  z.object({
+    type: z.literal("tool_result"),
+    toolCallId: z.string(),
+    content: z.string(),
+    isError: z.boolean(),
+  }),
+  z.object({
+    type: z.literal("approval_required"),
+    toolName: z.string(),
+    input: z.record(z.string(), z.unknown()),
+    id: z.string(),
+    description: z.string(),
+  }),
+  z.object({ type: z.literal("backup_prompt"), toolName: z.string() }),
+  z.object({
+    type: z.literal("status"),
+    status: z.union([z.literal("active"), z.literal("completed"), z.literal("error")]),
+  }),
+  z.object({ type: z.literal("error"), message: z.string() }),
 ]);
 
-function parseDoctorEvent(raw: string): DoctorEvent | null {
+export type DoctorEvent = z.infer<typeof DoctorEventSchema>;
+
+const SESSION_EXPIRED_STATUSES = new Set([404, 410]);
+
+export function parseDoctorEvent(payload: Record<string, unknown> | string): DoctorEvent | null {
   try {
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null) return null;
-    const obj = parsed as Record<string, unknown>;
-    if (typeof obj.type !== "string" || !VALID_EVENT_TYPES.has(obj.type)) {
-      return null;
-    }
-    return obj as unknown as DoctorEvent;
+    const obj: unknown = typeof payload === "string" ? JSON.parse(payload) : payload;
+    const result = DoctorEventSchema.safeParse(obj);
+    return result.success ? result.data : null;
   } catch {
     return null;
   }
-}
-
-function buildSSEHeaders(): Record<string, string> {
-  return buildVellumHeaders({
-    Accept: "text/event-stream",
-    ...getClientRegistrationHeaders(),
-  });
 }
 
 // ---------------------------------------------------------------------------
 // Pure event handlers
 // ---------------------------------------------------------------------------
 
-interface StreamContext {
+export interface StreamContext {
   setEntries: React.Dispatch<React.SetStateAction<ChatEntry[]>>;
   setThinking: (v: boolean) => void;
   setPendingApproval: (v: boolean) => void;
@@ -83,7 +70,7 @@ interface StreamContext {
   setStreamingEntryId: (id: string | null) => void;
 }
 
-function handleMessageDelta(ctx: StreamContext, event: { content: string }): void {
+export function handleMessageDelta(ctx: StreamContext, event: { content: string }): void {
   ctx.setThinking(false);
   const currentId = ctx.getStreamingEntryId();
   if (!currentId) {
@@ -102,12 +89,12 @@ function handleMessageDelta(ctx: StreamContext, event: { content: string }): voi
   }
 }
 
-function handleMessageComplete(ctx: StreamContext): void {
+export function handleMessageComplete(ctx: StreamContext): void {
   ctx.setThinking(false);
   ctx.setStreamingEntryId(null);
 }
 
-function handleToolCall(
+export function handleToolCall(
   ctx: StreamContext,
   event: { toolName: string; input: Record<string, unknown>; id: string },
 ): void {
@@ -125,7 +112,7 @@ function handleToolCall(
   });
 }
 
-function handleToolResult(
+export function handleToolResult(
   ctx: StreamContext,
   event: { toolCallId: string; content: string; isError: boolean },
 ): void {
@@ -150,7 +137,7 @@ function handleToolResult(
   });
 }
 
-function handleApprovalRequired(
+export function handleApprovalRequired(
   ctx: StreamContext,
   event: { toolName: string; input: Record<string, unknown>; id: string; description: string },
 ): void {
@@ -168,7 +155,7 @@ function handleApprovalRequired(
   });
 }
 
-function handleBackupPrompt(ctx: StreamContext, event: { toolName: string }): void {
+export function handleBackupPrompt(ctx: StreamContext, event: { toolName: string }): void {
   ctx.setThinking(false);
   ctx.setPendingBackup(true);
   ctx.appendEntry({
@@ -178,7 +165,7 @@ function handleBackupPrompt(ctx: StreamContext, event: { toolName: string }): vo
   });
 }
 
-function handleStatus(
+export function handleStatus(
   ctx: StreamContext,
   event: { status: "active" | "completed" | "error" },
 ): boolean {
@@ -198,9 +185,10 @@ function handleStatus(
   return false;
 }
 
-function handleError(ctx: StreamContext, event: { message: string }): void {
+export function handleError(ctx: StreamContext, event: { message: string }): void {
   ctx.setThinking(false);
   ctx.setPendingApproval(false);
+  ctx.setPendingBackup(false);
   ctx.setStreamingEntryId(null);
   ctx.appendEntry({ kind: "error", content: event.message });
 }
@@ -249,7 +237,6 @@ export function useDoctorSSE(callbacks: DoctorSSECallbacks) {
       const controller = new AbortController();
       controllerRef.current = controller;
 
-      const url = `/v1/assistants/${assistantId}/doctor/sessions/${sessionId}/events/`;
       let streamEndedTerminally = false;
 
       const isCurrentStream = () => controllerRef.current === controller;
@@ -310,60 +297,74 @@ export function useDoctorSSE(callbacks: DoctorSSECallbacks) {
       }
 
       (async () => {
+        let streamError: Error | null = null;
+        let sessionExpired = false;
+        let failedStatus: number | null = null;
         try {
-          const response = await fetch(url, {
+          const { stream } = await assistantsDoctorSessionsEventsRetrieve({
+            path: { assistant_id: assistantId, session_id: sessionId },
+            headers: {
+              Accept: "text/event-stream, application/json",
+              ...getClientRegistrationHeaders(),
+            },
             signal: controller.signal,
-            credentials: "include",
-            headers: buildSSEHeaders(),
+            sseMaxRetryAttempts: 0,
+            fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+              const response = await globalThis.fetch(input, init);
+              if (!response.ok) {
+                failedStatus = response.status;
+                if (SESSION_EXPIRED_STATUSES.has(response.status)) {
+                  sessionExpired = true;
+                }
+              }
+              return response;
+            }) as typeof globalThis.fetch,
+            onSseError: (error) => {
+              if (sessionExpired) return;
+              streamError =
+                error instanceof Error
+                  ? error
+                  : new Error("Doctor stream disconnected");
+            },
           });
 
           if (!isCurrentStream()) return;
 
-          if (!response.ok || !response.body) {
+          for await (const payload of stream) {
+            if (!isCurrentStream()) return;
+            const event = parseDoctorEvent(payload);
+            if (event) {
+              dispatchEvent(event);
+            }
+          }
+
+          if (!isCurrentStream()) return;
+
+          if (sessionExpired) {
+            streamEndedTerminally = true;
             ctx.setThinking(false);
             ctx.setStreamingEntryId(null);
-            if (response.status === 404 || response.status === 410) {
-              streamEndedTerminally = true;
-              ctx.setSessionStatus("completed");
-              ctx.setPendingApproval(false);
-              ctx.appendEntry({
-                kind: "status",
-                content:
-                  "Previous session expired. Start a new session to continue.",
-              });
-            } else {
-              failStream(
-                `Failed to connect to event stream (${response.status})`,
-              );
-            }
+            ctx.setSessionStatus("completed");
+            ctx.setPendingApproval(false);
+            ctx.appendEntry({
+              kind: "status",
+              content:
+                "Previous session expired. Start a new session to continue.",
+            });
             return;
           }
 
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = "";
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? "";
-
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed || trimmed.startsWith(":")) continue;
-              if (trimmed.startsWith("data: ")) {
-                const event = parseDoctorEvent(trimmed.slice(6));
-                if (event) {
-                  dispatchEvent(event);
-                }
-              }
-            }
+          if (streamError) {
+            captureError(streamError, { context: "doctor_sse_stream" });
+            failStream(
+              failedStatus
+                ? `Failed to connect to event stream (${failedStatus}). Start a new session to continue.`
+                : "Event stream disconnected. Start a new session to continue.",
+            );
+            return;
           }
 
-          if (!controller.signal.aborted && !streamEndedTerminally) {
+          if (!streamEndedTerminally) {
             failStream(
               "Doctor event stream ended before the session completed. Start a new session to continue.",
             );

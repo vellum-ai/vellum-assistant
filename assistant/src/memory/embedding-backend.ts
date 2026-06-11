@@ -462,7 +462,7 @@ export async function getMemoryBackendStatus(config: AssistantConfig): Promise<{
   model: string | null;
   reason: string | null;
 }> {
-  if (!config.memory.enabled) {
+  if (config.memory.enabled === false) {
     return {
       enabled: false,
       degraded: false,

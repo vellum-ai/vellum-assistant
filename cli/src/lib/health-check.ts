@@ -1,3 +1,5 @@
+import { loopbackSafeFetch } from "./loopback-fetch.js";
+
 export const HEALTH_CHECK_TIMEOUT_MS = 1500;
 
 interface HealthResponse {
@@ -44,7 +46,7 @@ export async function checkManagedHealth(
       HEALTH_CHECK_TIMEOUT_MS,
     );
 
-    const response = await fetch(url, {
+    const response = await loopbackSafeFetch(url, {
       signal: controller.signal,
       headers,
     });
@@ -105,7 +107,7 @@ export async function fetchManagedPs(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-    const response = await fetch(psUrl, {
+    const response = await loopbackSafeFetch(psUrl, {
       signal: controller.signal,
       headers,
     });
@@ -144,7 +146,7 @@ async function fetchLegacyConnectionStatus(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-    const response = await fetch(url, {
+    const response = await loopbackSafeFetch(url, {
       method: "POST",
       signal: controller.signal,
       headers,
@@ -188,7 +190,7 @@ export async function checkHealth(
       headers["Authorization"] = `Bearer ${bearerToken}`;
     }
 
-    const response = await fetch(url, {
+    const response = await loopbackSafeFetch(url, {
       signal: controller.signal,
       headers,
     });

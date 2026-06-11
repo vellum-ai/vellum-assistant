@@ -11,6 +11,7 @@ import {
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { Assistant } from "@/generated/api/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import { useOrganizationStore } from "@/stores/organization-store";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Tag } from "@vellumai/design-library/components/tag";
@@ -55,7 +56,10 @@ export function AssistantLifecyclePanel() {
           try {
             const list = await listAssistants();
             if (list.ok) {
-              await syncPlatformAssistantsToLockfile(list.data);
+              await syncPlatformAssistantsToLockfile(
+                list.data,
+                useOrganizationStore.getState().currentOrganizationId ?? undefined,
+              );
             }
           } catch {
             // Sync failed — the assistant was still created.

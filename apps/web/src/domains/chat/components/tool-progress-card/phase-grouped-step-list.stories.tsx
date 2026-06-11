@@ -15,7 +15,7 @@ function toolStep(overrides: Partial<
   return {
     kind: "tool",
     durationLabel: "2s",
-    title: "Working (bash)",
+    title: "Working",
     info: "date",
     activity: "Checking the current time",
     iconName: "code",
@@ -48,7 +48,7 @@ export default meta;
 type Story = StoryObj<typeof PhaseGroupedStepList>;
 
 /**
- * A mixed run: Thinking → Working (bash) → Thinking. Each contiguous same-phase
+ * A mixed run: Thinking → Working → Thinking. Each contiguous same-phase
  * run collapses into its own phase section with header + indented pills.
  */
 export const MixedRun: Story = {
@@ -64,7 +64,7 @@ export const MixedRun: Story = {
   },
 };
 
-/** A tool-only run with two bash steps grouped under one "Working (bash)" header. */
+/** A tool-only run with two bash steps grouped under one "Working" header. */
 export const ToolOnly: Story = {
   args: {
     steps: [

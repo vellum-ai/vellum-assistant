@@ -116,11 +116,19 @@ export const routeTree = [
     // outside auth middleware and RootLayout for fast load.
     { path: "/assistant/quick-input", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/quick-input-page").then((m) => m.QuickInputPage) } },
 
+    // Command palette — focused floating Electron BrowserWindow opened by
+    // the app menu's Cmd/Ctrl+K accelerator. Standalone and unauthenticated
+    // so it does not depend on ChatLayout being mounted in the main window.
+    { path: "/assistant/floating/command-palette", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/command-palette/command-palette-window-page").then((m) => m.CommandPaletteWindowPage) } },
+
     // Dictation overlay — live transcription pill rendered inside the
     // Electron dictation overlay BrowserWindow (a click-through floating
     // panel pinned top-center of the screen while push-to-talk dictation
     // is active). Same pattern as Quick Input: sibling of `/assistant`,
     // outside auth middleware and RootLayout for fast load.
+    { path: "/assistant/floating/dictation-overlay", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/dictation-overlay-page").then((m) => m.DictationOverlayPage) } },
+    // Legacy direct path retained so old dev windows do not blank during
+    // rolling Electron/web updates.
     { path: "/assistant/dictation-overlay", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/dictation-overlay-page").then((m) => m.DictationOverlayPage) } },
 
     // Assistant routes — auth-protected app with layout

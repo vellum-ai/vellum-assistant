@@ -35,13 +35,15 @@ import {
     navigateToConversation,
     navigateToNewConversation,
 } from "@/domains/chat/utils/conversation-navigation";
-import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { haptic } from "@/utils/haptics";
 
 import {
     useConversationGroupsQuery,
     useConversationListQuery,
 } from "@/hooks/conversation-queries";
+import { openCommandPaletteWindow } from "@/runtime/command-palette-window";
+import { isElectron } from "@/runtime/is-electron";
+import { useIsNativePlatform } from "@/runtime/native-auth";
 import { openPopoutWindow } from "@/runtime/popout-window";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -52,7 +54,7 @@ import type { Conversation } from "@/types/conversation-types";
 import { requestComposerFocus } from "./composer-focus";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
-import { OfflineBanner } from "@/components/offline-banner";
+import { StatusBanner } from "@/components/status-banner";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-palette-orchestrator";
@@ -192,6 +194,7 @@ export function ChatLayout() {
   const topBarRightSlot = useChatLayoutSlotsStore.use.topBarRightSlot();
   const authUser = useAuthStore.use.user();
   const showLlmInspector = canUseLlmInspector(authUser);
+  const isNative = useIsNativePlatform();
 
   // --- Assistant identity from store (written by ChatPage) ---
   const assistantName = useAssistantIdentityStore.use.name();
@@ -312,21 +315,12 @@ export function ChatLayout() {
     [navigate],
   );
 
-  // A fresh draft URL per call so the sidebar pencil can render as a link and
-  // each open-in-new-tab gesture lands on its own draft conversation.
-  const getNewConversationHref = useCallback(
-    () => routes.conversation(createDraftConversationId()),
-    [],
-  );
-
   const {
     handleArchiveConversation,
     handleUnarchiveConversation,
     handleMarkConversationUnread,
     handleMarkConversationRead,
     handleTogglePinConversation,
-    handleMoveToGroup,
-    handleRemoveFromGroup,
     handleRenameConversation,
     handleMarkAllReadInGroup,
     handleArchiveAllInGroup,
@@ -348,7 +342,6 @@ export function ChatLayout() {
     <ChatConversationHeader
       assistantId={assistantId}
       activeConversation={activeConversation}
-      conversationGroups={conversationGroups}
       headerSupplements={headerSupplements}
       showLlmInspector={showLlmInspector}
       onArchive={handleArchiveConversation}
@@ -356,8 +349,6 @@ export function ChatLayout() {
       onMarkUnread={handleMarkConversationUnread}
       onMarkRead={handleMarkConversationRead}
       onPinToggle={handleTogglePinConversation}
-      onMoveToGroup={handleMoveToGroup}
-      onRemoveFromGroup={handleRemoveFromGroup}
       onRename={handleRenameConversation}
     />
   ) : null);
@@ -420,7 +411,13 @@ export function ChatLayout() {
       void navigate(routes.home);
     },
     commandPalette: () => {
-      useCommandPaletteStore.getState().toggle();
+      void openCommandPaletteWindow()
+        .then((opened) => {
+          if (!opened) useCommandPaletteStore.getState().toggle();
+        })
+        .catch(() => {
+          useCommandPaletteStore.getState().toggle();
+        });
     },
     previousConversation: () => {
       if (!activeConversationId || conversations.length === 0) return;
@@ -437,6 +434,36 @@ export function ChatLayout() {
       );
       const next = conversations[idx + 1];
       if (next) handleSelectConversation(next.conversationId);
+    },
+    openConversation: (command) => {
+      if (command.kind === "openConversation") {
+        handleSelectConversation(command.conversationId);
+      }
+    },
+    openLibrary: () => {
+      void navigate(routes.library.root);
+    },
+    openIdentity: () => {
+      void navigate(routes.identity);
+    },
+    navigateBack: () => {
+      navigate(-1);
+    },
+    navigateForward: () => {
+      navigate(1);
+    },
+    zoomIn: () => {
+      document.body.style.zoom = String(
+        parseFloat(document.body.style.zoom || "1") + 0.1,
+      );
+    },
+    zoomOut: () => {
+      document.body.style.zoom = String(
+        Math.max(0.5, parseFloat(document.body.style.zoom || "1") - 0.1),
+      );
+    },
+    actualSize: () => {
+      document.body.style.zoom = "1";
     },
     popOut: () => {
       if (!activeConversationId) {
@@ -501,6 +528,17 @@ export function ChatLayout() {
     [navigate],
   );
 
+  const handleOpenInNewWindow = useCallback(
+    (conversation: Conversation) => {
+      if (isElectron()) {
+        void openPopoutWindow(conversation.conversationId);
+      } else {
+        window.open(routes.conversation(conversation.conversationId), "_blank");
+      }
+    },
+    [],
+  );
+
   const renderSideMenu = (args: SideMenuRenderArgs): ReactNode => (
     <AssistantSideMenu
       assistantId={assistantId ?? ""}
@@ -516,7 +554,6 @@ export function ChatLayout() {
       attentionConversationIds={attentionConversationIds}
       onSelectConversation={handleSelectConversation}
       onStartNewConversation={startNewConversation}
-      getNewConversationHref={getNewConversationHref}
       isIntelligenceActive={isIdentityActive}
       onOpenIntelligence={handleOpenIdentity}
       isLibraryActive={isLibraryActive}
@@ -529,12 +566,11 @@ export function ChatLayout() {
       onUnarchiveConversation={handleUnarchiveConversation}
       onMarkConversationUnread={handleMarkConversationUnread}
       onMarkConversationRead={handleMarkConversationRead}
-      onMoveToGroup={handleMoveToGroup}
-      onRemoveFromGroup={handleRemoveFromGroup}
       onRenameGroup={handleRenameGroup}
       onDeleteGroup={handleDeleteGroup}
       onMarkAllReadInGroup={handleMarkAllReadInGroup}
       onArchiveAllInGroup={handleArchiveAllInGroup}
+      onOpenInNewWindow={isNative ? undefined : handleOpenInNewWindow}
       onInspect={showLlmInspector ? handleInspectConversation : undefined}
       footerAction={
         <PreferencesMenu
@@ -568,7 +604,7 @@ export function ChatLayout() {
         />
       )}
 
-      {!isPopout && <OfflineBanner />}
+      {!isPopout && <StatusBanner />}
 
       {isMobile ? (
         <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
@@ -644,5 +680,3 @@ export function ChatLayout() {
     </>
   );
 }
-
-

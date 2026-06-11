@@ -51,6 +51,12 @@ export interface VoiceRecordingState {
    */
   interimTranscript: string;
   /**
+   * Smoothed live mic level in the range 0..1 while recording. Published
+   * globally so the Electron dictation overlay can mirror the composer
+   * waveform without opening a second capture graph.
+   */
+  audioLevel: number;
+  /**
    * Front-app insertion failure (`dictation-automation-denied` /
    * `dictation-paste-blocked`) flagged during the current session. The
    * session still finalizes into `done` — the transcript soft-lands in the
@@ -67,6 +73,7 @@ export interface VoiceRecordingActions {
   fail: (code: string) => void;
   reset: () => void;
   setInterimTranscript: (text: string) => void;
+  setAudioLevel: (level: number) => void;
   flagDictationInsertionError: (code: string) => void;
 }
 
@@ -103,6 +110,7 @@ const useVoiceRecordingStoreBase = create<VoiceRecordingStore>()((set) => ({
   phase: "idle",
   errorCode: null,
   interimTranscript: "",
+  audioLevel: 0,
   dictationInsertionError: null,
 
   startRecording: () => {
@@ -111,13 +119,19 @@ const useVoiceRecordingStoreBase = create<VoiceRecordingStore>()((set) => ({
       phase: "recording",
       errorCode: null,
       interimTranscript: "",
+      audioLevel: 0,
       dictationInsertionError: null,
     });
   },
 
   stopRecording: () => {
     clearDismissTimer();
-    set({ phase: "processing", errorCode: null, interimTranscript: "" });
+    set({
+      phase: "processing",
+      errorCode: null,
+      interimTranscript: "",
+      audioLevel: 0,
+    });
   },
 
   finalize: () => {
@@ -144,12 +158,18 @@ const useVoiceRecordingStoreBase = create<VoiceRecordingStore>()((set) => ({
       phase: "idle",
       errorCode: null,
       interimTranscript: "",
+      audioLevel: 0,
       dictationInsertionError: null,
     });
   },
 
   setInterimTranscript: (text: string) => {
     set({ interimTranscript: text });
+  },
+
+  setAudioLevel: (level: number) => {
+    const clamped = Math.max(0, Math.min(1, level));
+    set({ audioLevel: clamped });
   },
 
   flagDictationInsertionError: (code: string) => {

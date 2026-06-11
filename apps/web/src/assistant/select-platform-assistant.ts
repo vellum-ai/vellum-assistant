@@ -1,24 +1,15 @@
-import { setActiveLockfileAssistant } from "@/lib/local-mode";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { useOrganizationStore } from "@/stores/organization-store";
+import { setSelectedAssistant } from "@/assistant/selection";
 
 /**
  * Switch the active platform assistant.
  *
- * Writes the per-org selection — the source `use-lifecycle.ts` resolves the
- * active assistant from when the `multi-platform-assistant` flag is on — and
- * mirrors it into the lockfile `activeAssistant` so the macOS tray, the CLI,
- * and the native client agree (a no-op in the browser, where there is no
- * lockfile host).
+ * Thin alias over the unified `setSelectedAssistant` write path so all writes
+ * (the selection slice/key + lockfile `activeAssistant` mirror) go through one
+ * place. The name/signature is kept for existing callers (e.g.
+ * `assistant-picker.tsx`).
  */
 export async function selectPlatformAssistant(
   assistantId: string,
 ): Promise<void> {
-  const orgId = useOrganizationStore.getState().currentOrganizationId;
-  if (orgId) {
-    useResolvedAssistantsStore
-      .getState()
-      .setSelectedPlatformAssistant(orgId, assistantId);
-  }
-  await setActiveLockfileAssistant(assistantId);
+  await setSelectedAssistant(assistantId);
 }

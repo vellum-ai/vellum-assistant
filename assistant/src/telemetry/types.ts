@@ -34,6 +34,27 @@ export interface TelemetryEventBase {
   assistant_version: string | null;
 }
 
+/**
+ * Base for telemetry events that occur in the context of a model call.
+ * Standardizes model attribution across event types — field names/shapes
+ * mirror the existing llm_usage event so downstream consumers (dbt, admin
+ * charts) can join/group consistently.
+ *
+ * `provider`/`model` are nullable on the wire because rows persisted before
+ * the attribution columns existed, and rows whose attribution resolution
+ * failed, must still ship; the platform serializer accepts null.
+ */
+export interface ModelTelemetryEventBase extends TelemetryEventBase {
+  /** Provider serving the call, e.g. "anthropic", "fireworks". */
+  provider: string | null;
+  /** Model id active for the call, e.g. "claude-fable-5". */
+  model: string | null;
+  /** Inference profile slug. Null when no profile applied. */
+  inference_profile: string | null;
+  /** How the profile was attributed (same enum as llm_usage). */
+  inference_profile_source: UsageAttributionProfileSource | null;
+}
+
 /** LLM usage event — one per provider API call. */
 export interface LlmUsageTelemetryEvent extends TelemetryEventBase {
   type: "llm_usage";
@@ -226,26 +247,45 @@ export interface AuthFallbackTelemetryEvent extends TelemetryEventBase {
 }
 
 /**
- * Tool execution event — one per tool invocation, sourced from the
- * `tool_invocations` audit table. Skill-routed calls appear under their
- * underlying tool name; `skill_id` identifies the triggering skill.
- * Carries NO raw input/output — only tool identity, permission
- * outcome, risk class, duration, and parent conversation.
+ * Tool-executed event — one per tool invocation. Carries NO tool
+ * args/inputs or result contents (customer PII per ToS) — payload sizes
+ * and metadata only; no raw error messages. Identity/attribution come
+ * from the upload envelope per the per-event-wins contract. Not to be
+ * confused with the since-reverted `tool_execution` permission-audit
+ * event, which no longer exists on the wire.
  */
-export interface ToolExecutionTelemetryEvent extends TelemetryEventBase {
-  type: "tool_execution";
+export interface ToolExecutedTelemetryEvent extends ModelTelemetryEventBase {
+  type: "tool_executed";
   tool_name: string;
   /**
-   * Triggering skill id for skill-routed calls. Null for direct tool
-   * calls and for rows recorded before the `skill_id` column existed.
+   * `"errored"` means the invocation failed at the execution layer — a
+   * thrown error / infra failure (audit decision `"error"`). A tool that
+   * runs to completion but returns an `isError` result payload still
+   * counts as `"fulfilled"`: it executed.
    */
-  skill_id: string | null;
-  /** Permission outcome: "allow" | "error" | "denied". */
-  decision: string;
-  /** Executor risk classification. */
-  risk_level: string;
+  status: "fulfilled" | "errored";
   duration_ms: number;
-  conversation_id: string;
+  /** Serialized tool-argument size in bytes. Null when unknown. */
+  arg_bytes: number | null;
+  /** Serialized tool-result size in bytes. Null when unknown. */
+  result_bytes: number | null;
+  conversation_id: string | null;
+}
+
+/**
+ * Skill-loaded event — one per skill load. Emitted only for
+ * Vellum-produced skills (bundled, or managed with vellum origin).
+ * Metadata only — no skill output or conversation content.
+ */
+export interface SkillLoadedTelemetryEvent extends ModelTelemetryEventBase {
+  type: "skill_loaded";
+  skill_name: string;
+  /**
+   * ISO 8601 timestamp — the catalog's `updatedAt`, effectively the
+   * skill version. Null when the catalog carries no timestamp.
+   */
+  skill_updated_at: string | null;
+  conversation_id: string | null;
 }
 
 /** Discriminated union of all telemetry event types. */
@@ -255,4 +295,5 @@ export type TelemetryEvent =
   | LifecycleTelemetryEvent
   | OnboardingTelemetryEvent
   | AuthFallbackTelemetryEvent
-  | ToolExecutionTelemetryEvent;
+  | ToolExecutedTelemetryEvent
+  | SkillLoadedTelemetryEvent;

@@ -27,7 +27,7 @@ describe("clearUserScopedStorage", () => {
     localStorage.setItem("vellum:lastViewedConversation:asst-1", "conv-1");
     localStorage.setItem("vellum:sidebar-open-categories:asst-1", "{}");
     localStorage.setItem("vellum:sidebar-open-custom-groups:asst-1", "{}");
-    localStorage.setItem("vellum:currentAssistantId:org-1", "asst-1");
+    localStorage.setItem("vellum:selectedAssistantId", "asst-1");
     localStorage.setItem("vellum:nudge-prefs", "{}");
     localStorage.setItem("vellum:chatDrafts:asst-1", '{"text":"hi"}');
     localStorage.setItem("vellum:ctxwindow:asst-1", "4096");

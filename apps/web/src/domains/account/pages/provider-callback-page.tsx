@@ -13,6 +13,7 @@ import {
 import { classifyCallbackFlows } from "@/domains/account/social-auth";
 import { isLocalMode, syncPlatformAssistantsToLockfile } from "@/lib/local-mode";
 import { useAuthStore } from "@/stores/auth-store";
+import { useOrganizationStore } from "@/stores/organization-store";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
 import { routes } from "@/utils/routes";
 
@@ -61,7 +62,10 @@ export function ProviderCallbackPage() {
               try {
                 const assistants = await listAssistants();
                 if (assistants.ok && assistants.data.length > 0) {
-                  await syncPlatformAssistantsToLockfile(assistants.data);
+                  await syncPlatformAssistantsToLockfile(
+                    assistants.data,
+                    useOrganizationStore.getState().currentOrganizationId ?? undefined,
+                  );
                   if (!returnTo) {
                     navigate(routes.assistant, { replace: true });
                     break;
@@ -113,7 +117,7 @@ export function ProviderCallbackPage() {
             href={VELLUM_COMMUNITY_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--primary-base)] px-6 py-3 text-sm font-medium text-white no-underline transition-colors hover:bg-[var(--primary-hover)]"
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--primary-base)] px-6 py-3 text-sm font-medium text-[var(--content-inset)] no-underline transition-colors hover:bg-[var(--primary-hover)]"
           >
             Join the community
           </a>
@@ -141,7 +145,7 @@ export function ProviderCallbackPage() {
         <div className="flex flex-col items-center gap-4">
           <Link
             to={routes.account.login}
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--primary-base)] px-6 py-3 text-sm font-medium text-white no-underline transition-colors hover:bg-[var(--primary-hover)]"
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--primary-base)] px-6 py-3 text-sm font-medium text-[var(--content-inset)] no-underline transition-colors hover:bg-[var(--primary-hover)]"
           >
             Back to sign in
           </Link>

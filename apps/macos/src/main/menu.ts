@@ -4,12 +4,27 @@ import { z } from "zod";
 import { openAboutWindow } from "./about";
 import { checkForUpdates } from "./auto-update";
 import {
+  isCliPathFlowInFlight,
+  runInstallCliCommandFlow,
+  runUninstallCliCommandFlow,
+} from "./cli-path-flow";
+import {
+  type CliPathInstallState,
+  getCliPathInstallState,
+} from "./cli-path-installer";
+import {
   acceleratorOption,
   dispatchToFocused,
   type VellumCommand,
 } from "./commands";
+import {
+  closeCommandPaletteWindow,
+  isCommandPaletteWindowFocused,
+  openCommandPaletteWindow,
+} from "./command-palette-window";
 import { areChromeDevToolsEnabled } from "./devtools";
 import { handle } from "./ipc";
+import { dispatchToMain } from "./main-window";
 import { onSettingChange, readSetting } from "./settings";
 import { readOnboardingActive } from "./window-state";
 
@@ -21,15 +36,94 @@ const state: MenuState = {
   hasPlatformSession: false,
 };
 
+// Null until the first detection completes; the menu shows the Install item
+// in the meantime (the install flow is safe to run from any state).
+let cliPathState: CliPathInstallState | null = null;
+
+export const refreshCliPathMenuState = async (): Promise<void> => {
+  if (app.isPackaged) {
+    try {
+      cliPathState = await getCliPathInstallState();
+    } catch {
+      cliPathState = null;
+    }
+  }
+  applyMenu();
+};
+
+const cliPathFlowItem = (
+  label: string,
+  flow: () => Promise<void>,
+): MenuItemConstructorOptions => ({
+  label,
+  enabled: !isCliPathFlowInFlight(),
+  click: async () => {
+    const flowDone = flow();
+    // Re-render immediately so the item is disabled while the flow runs.
+    applyMenu();
+    await flowDone;
+    await refreshCliPathMenuState();
+  },
+});
+
+const cliPathItems = (): MenuItemConstructorOptions[] => {
+  // Only packaged builds manage the shared ~/.local/bin/vellum wrapper.
+  if (!app.isPackaged) return [];
+  const cliState = cliPathState;
+  if (cliState?.kind === "installed" || cliState?.kind === "shadowed") {
+    return [
+      ...(cliState.kind === "shadowed"
+        ? [
+            {
+              label: "⚠ vellum is shadowed by another install",
+              enabled: false,
+            },
+          ]
+        : []),
+      // Wrapper exists but the CLI runtime never provisioned; the install
+      // flow is idempotent, so re-running it doubles as repair.
+      ...(!cliState.runtimeReady
+        ? [
+            cliPathFlowItem(
+              "Repair vellum Command\u2026",
+              runInstallCliCommandFlow,
+            ),
+          ]
+        : []),
+      cliPathFlowItem("Uninstall vellum Command", runUninstallCliCommandFlow),
+    ];
+  }
+  return [
+    cliPathFlowItem("Install vellum Command\u2026", runInstallCliCommandFlow),
+  ];
+};
+
 const isDeveloperMenuEnabled = (): boolean => {
   const flags = readSetting("featureFlags");
   return flags?.["developer-menu-items"] === true;
+};
+
+export const dispatchMenuCommand = (command: VellumCommand): void => {
+  if (command.kind === "commandPalette") {
+    if (isCommandPaletteWindowFocused()) {
+      closeCommandPaletteWindow();
+      return;
+    }
+    openCommandPaletteWindow();
+    return;
+  }
+  if (isCommandPaletteWindowFocused()) {
+    dispatchToMain(command);
+    return;
+  }
+  dispatchToFocused(command);
 };
 
 const buildTemplate = (): MenuItemConstructorOptions[] => {
   const isDev = !app.isPackaged;
   const chromeDevToolsEnabled = areChromeDevToolsEnabled();
   const developerMenuEnabled = isDeveloperMenuEnabled();
+  const cliItems = cliPathItems();
 
   const fileItem = (
     label: string,
@@ -37,7 +131,7 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
   ): MenuItemConstructorOptions => ({
     label,
     ...acceleratorOption(command.kind),
-    click: () => dispatchToFocused(command),
+    click: () => dispatchMenuCommand(command),
   });
 
   return [
@@ -65,15 +159,17 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
           label: "Settings\u2026",
           ...acceleratorOption("openSettings"),
           enabled: !readOnboardingActive(),
-          click: () => dispatchToFocused({ kind: "openSettings" }),
+          click: () => dispatchMenuCommand({ kind: "openSettings" }),
         },
         { type: "separator" },
+        ...cliItems,
+        ...(cliItems.length > 0 ? [{ type: "separator" as const }] : []),
         { role: "services" },
         { type: "separator" },
         {
           label: "Log Out",
           enabled: state.hasPlatformSession,
-          click: () => dispatchToFocused({ kind: "logout" }),
+          click: () => dispatchMenuCommand({ kind: "logout" }),
         },
         { type: "separator" },
         { role: "hide" },
@@ -109,7 +205,7 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
         {
           label: "Find\u2026",
           ...acceleratorOption("find"),
-          click: () => dispatchToFocused({ kind: "find" }),
+          click: () => dispatchMenuCommand({ kind: "find" }),
         },
       ],
     },
@@ -151,11 +247,11 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
             submenu: [
               {
                 label: "Replay Onboarding",
-                click: () => dispatchToFocused({ kind: "replayOnboarding" }),
+                click: () => dispatchMenuCommand({ kind: "replayOnboarding" }),
               },
               {
                 label: "Preview PreChat",
-                click: () => dispatchToFocused({ kind: "previewPrechat" }),
+                click: () => dispatchMenuCommand({ kind: "previewPrechat" }),
               },
               {
                 label: "Replay Hatch Failure",
@@ -181,7 +277,7 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
       submenu: [
         {
           label: "Send Feedback\u2026",
-          click: () => dispatchToFocused({ kind: "shareFeedback" }),
+          click: () => dispatchMenuCommand({ kind: "shareFeedback" }),
         },
         { type: "separator" },
         {
@@ -239,4 +335,9 @@ export const installApplicationMenu = (): void => {
   });
 
   applyMenu();
+
+  // Detect the vellum CLI install state asynchronously so menu setup never
+  // waits on (or breaks from) login-shell PATH resolution; packaged-only
+  // gating lives inside refreshCliPathMenuState.
+  void refreshCliPathMenuState();
 };

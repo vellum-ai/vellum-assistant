@@ -311,13 +311,6 @@ export function useConversationActions({
     [handleMoveToGroup, prePinGroupIdsRef],
   );
 
-  const handleRemoveFromGroup = useCallback(
-    (conversation: Conversation) => {
-      handleMoveToGroup(conversation, "system:all");
-    },
-    [handleMoveToGroup],
-  );
-
   const handleRenameConversation = useCallback(
     (conversation: Conversation) => {
       if (!assistantId) return;
@@ -447,8 +440,6 @@ export function useConversationActions({
     handleMarkConversationUnread,
     handleMarkConversationRead,
     handleTogglePinConversation,
-    handleMoveToGroup,
-    handleRemoveFromGroup,
     handleRenameConversation,
     handleMarkAllReadInGroup,
     handleArchiveAllInGroup,

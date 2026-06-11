@@ -44,6 +44,14 @@ export type VellumCommand =
   | { kind: "previousConversation" }
   | { kind: "nextConversation" }
   | { kind: "commandPalette" }
+  | { kind: "openConversation"; conversationId: string }
+  | { kind: "openLibrary" }
+  | { kind: "openIdentity" }
+  | { kind: "navigateBack" }
+  | { kind: "navigateForward" }
+  | { kind: "zoomIn" }
+  | { kind: "zoomOut" }
+  | { kind: "actualSize" }
   | { kind: "selectAssistant"; assistantId: string }
   | { kind: "createAssistant" }
   | { kind: "retireAssistant"; assistantId: string }
@@ -143,7 +151,7 @@ export interface DictationPartialEvent {
  * reason as `VellumCommand`.
  */
 export type DictationOverlayState =
-  | { kind: "recording"; transcription: string }
+  | { kind: "recording"; transcription: string; audioLevel?: number }
   | { kind: "processing" }
   | { kind: "done" }
   | { kind: "error"; message: string };
@@ -299,6 +307,11 @@ declare global {
         set(key: string, accelerator: string | null): Promise<void>;
         onChange(callback: (catalog: ResolvedHotkey[]) => void): () => void;
       };
+      // Optional: older Electron shells predate the launch-at-login channel.
+      launchAtLogin?: {
+        get(): Promise<boolean>;
+        set(enabled: boolean): Promise<void>;
+      };
       featureFlags?: {
         set(flags: Record<string, boolean>): void;
       };
@@ -351,6 +364,7 @@ declare global {
         ): Promise<LockfileWriteResult>;
         replacePlatformAssistants(
           platformAssistants: Array<Record<string, unknown>>,
+          organizationId?: string,
         ): Promise<LockfileWriteResult>;
         retire(assistantId: string): Promise<{ ok: boolean; error?: string }>;
         // Optional: older Electron shells predate the wake IPC channel. The
@@ -420,6 +434,13 @@ declare global {
       quickInput?: {
         submit(message: string): Promise<void>;
         dismiss(): Promise<void>;
+      };
+      // Optional: older Electron shells predate the standalone command palette
+      // window channel. Fall back to the in-page palette when absent.
+      commandPalette?: {
+        open(): Promise<void>;
+        dismiss(): Promise<void>;
+        select(command: VellumCommand): Promise<void>;
       };
       // Optional: older Electron shells predate the dictation overlay channel.
       dictationOverlay?: {

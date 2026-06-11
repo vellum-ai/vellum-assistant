@@ -39,7 +39,7 @@ import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
 import { useElectronFeatureFlagBridge } from "@/runtime/electron-feature-flags";
 import { GlobalPushToTalkBridge } from "@/domains/chat/voice/global-push-to-talk-bridge";
 import { TimezoneSync } from "@/components/timezone-sync";
-import { UpdateBanner } from "@/components/update-banner";
+import { UpdateToast } from "@/components/update-toast";
 import { retireAssistant } from "@/assistant/retire-service";
 import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
 import { CreateAssistantDialog } from "@/components/create-assistant-dialog";
@@ -253,7 +253,7 @@ export function RootLayout() {
         flexDirection: "column",
       }}
     >
-      <UpdateBanner />
+      <UpdateToast />
       <div className="flex min-w-0 flex-col overflow-hidden w-full" style={{ flex: "1 1 0%", minHeight: 0 }}>
         <Outlet />
       </div>

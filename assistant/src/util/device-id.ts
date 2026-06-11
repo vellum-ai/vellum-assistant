@@ -6,6 +6,9 @@
  * extensible for future per-device metadata.
  *
  * Path resolution:
+ *   - All modes: the `VELLUM_DEVICE_ID` env var takes precedence when set
+ *     and is never written to device.json (see getDeviceIdOverride in
+ *     config/env-registry.ts).
  *   - Containerized (IS_CONTAINERIZED=true): `/home/assistant/.vellum/device.json`
  *     — the assistant user's persistent home dir, kept off the shared data
  *     volume. Not affected by VELLUM_ENVIRONMENT because the container fs
@@ -24,7 +27,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { getIsContainerized } from "../config/env-registry.js";
+import {
+  getDeviceIdOverride,
+  getIsContainerized,
+} from "../config/env-registry.js";
 import { getLogger } from "./logger.js";
 import { getXdgVellumConfigDirName } from "./platform.js";
 
@@ -66,14 +72,22 @@ function resolveDeviceIdPaths(): { dir: string; file: string } {
  *
  * Resolution order:
  *   1. Cached in-memory value (populated on first call)
- *   2. `deviceId` field from device.json
- *   3. Generate a new UUID, persist it to device.json, and return it
+ *   2. `VELLUM_DEVICE_ID` env var (CLI-injected; see env-registry)
+ *   3. `deviceId` field from device.json
+ *   4. Generate a new UUID, persist it to device.json, and return it
  *
  * On any read/write error the generated UUID is still cached so the
  * process uses a consistent ID for the remainder of its lifetime.
  */
 export function getDeviceId(): string {
   if (cached !== undefined) {
+    return cached;
+  }
+
+  const fromEnv = getDeviceIdOverride();
+  if (fromEnv) {
+    cached = fromEnv;
+    log.info({ deviceId: cached }, "Resolved device ID from VELLUM_DEVICE_ID");
     return cached;
   }
 

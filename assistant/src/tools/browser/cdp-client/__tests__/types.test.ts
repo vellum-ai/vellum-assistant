@@ -79,7 +79,12 @@ describe("cdp-client re-exports", () => {
   });
 
   test("ScopedCdpClient exposes kind and conversationId", () => {
-    const kinds: CdpClientKind[] = ["local", "extension", "cdp-inspect"];
+    const kinds: CdpClientKind[] = [
+      "local",
+      "extension",
+      "cdp-inspect",
+      "host-bridge",
+    ];
     for (const kind of kinds) {
       const scoped: ScopedCdpClient = {
         kind,

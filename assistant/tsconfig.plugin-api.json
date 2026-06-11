@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": false,
+    "emitDeclarationOnly": true,
+    "sourceMap": false,
+    "outDir": "./.plugin-api-build/dts",
+    "rootDir": "./src"
+  },
+  "include": ["src/plugin-api/index.ts"]
+}

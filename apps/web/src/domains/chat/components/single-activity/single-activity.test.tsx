@@ -16,7 +16,9 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
+import type { WebSearchResultItem } from "@/assistant/web-activity-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
 
 // The viewer store imports the generated daemon SDK, which isn't built in
 // CI/worktree checkouts. Stub the two endpoints it references so the module
@@ -234,6 +236,261 @@ describe("SingleActivity — tool variant", () => {
       />,
     );
     expect(getByTestId("inline-tool-link").className).toContain(
+      "text-[var(--system-negative-strong)]",
+    );
+  });
+});
+
+describe("SingleActivity — web variant", () => {
+  function makeResult(
+    overrides: Partial<WebSearchResultItem> = {},
+  ): WebSearchResultItem {
+    return {
+      rank: 1,
+      title: "Toronto - Wikipedia",
+      url: "https://en.wikipedia.org/wiki/Toronto",
+      domain: "en.wikipedia.org",
+      ...overrides,
+    };
+  }
+
+  const RESULTS: WebSearchResultItem[] = [
+    makeResult(),
+    makeResult({
+      rank: 2,
+      title: "Visit Toronto",
+      url: "https://www.destinationtoronto.com",
+      domain: "destinationtoronto.com",
+    }),
+  ];
+
+  const WEB_STEP: Extract<ToolCallCardStep, { kind: "web_search" }> = {
+    kind: "web_search",
+    title: "Searched the web",
+    durationLabel: "1s",
+    linkCount: 2,
+    results: RESULTS,
+  };
+
+  const ERROR_STEP: Extract<
+    ToolCallCardStep,
+    { kind: "web_search_error" }
+  > = {
+    kind: "web_search_error",
+    title: "Web search failed",
+    durationLabel: "1s",
+    errorMessage: "Search provider unavailable",
+  };
+
+  test("renders the 'Web Search' label in the header", () => {
+    const { getByTestId, getByText } = render(
+      <SingleActivity
+        variant="web"
+        info="en.wikipedia.org"
+        carouselItems={RESULTS}
+        state="complete"
+        step={WEB_STEP}
+        expanded={false}
+        onExpandChange={() => {}}
+      />,
+    );
+    expect(getByTestId("inline-web-link")).toBeTruthy();
+    expect(getByText("Web Search")).toBeTruthy();
+  });
+
+  test("rotates the WebsiteCarousel in the info slot while loading", () => {
+    const { container } = render(
+      <SingleActivity
+        variant="web"
+        info="en.wikipedia.org"
+        carouselItems={RESULTS}
+        state="loading"
+        step={WEB_STEP}
+        expanded={false}
+        onExpandChange={() => {}}
+      />,
+    );
+    // The carousel renders favicon chips for the rotating sites; its fixed-height
+    // ticker wrapper is its tell. Only shown while the search is in flight.
+    expect(container.querySelector(".h-\\[28px\\]")).toBeTruthy();
+  });
+
+  test("shows the latest page title (not the carousel) once settled", () => {
+    const { getByText, container } = render(
+      <SingleActivity
+        variant="web"
+        info="Visit Toronto — Official Tourism"
+        carouselItems={RESULTS}
+        state="complete"
+        step={WEB_STEP}
+        expanded={false}
+        onExpandChange={() => {}}
+      />,
+    );
+    // Settled state shows the latest page title as static text, never the
+    // (zero-width-inline) carousel — even when carouselItems are present.
+    expect(getByText("Visit Toronto — Official Tourism")).toBeTruthy();
+    expect(container.querySelector(".h-\\[28px\\]")).toBeNull();
+  });
+
+  test("shows the static info text when carouselItems is empty", () => {
+    const { getByText, container } = render(
+      <SingleActivity
+        variant="web"
+        info="en.wikipedia.org"
+        carouselItems={[]}
+        state="complete"
+        step={WEB_STEP}
+        expanded={false}
+        onExpandChange={() => {}}
+      />,
+    );
+    expect(getByText("en.wikipedia.org")).toBeTruthy();
+    // No carousel ticker wrapper when there are no items.
+    expect(container.querySelector(".h-\\[28px\\]")).toBeNull();
+  });
+
+  test("collapsed hides the favicon result row", () => {
+    const { queryByTestId } = render(
+      <SingleActivity
+        variant="web"
+        info="en.wikipedia.org"
+        carouselItems={[]}
+        state="complete"
+        step={WEB_STEP}
+        expanded={false}
+        onExpandChange={() => {}}
+      />,
+    );
+    // FaviconChip rows carry a title attribute; none should render collapsed.
+    expect(queryByTestId("web-search-overflow-chip")).toBeNull();
+  });
+
+  test("clicking the header calls onExpandChange(true) when collapsed", () => {
+    let next: boolean | undefined;
+    const { getByTestId } = render(
+      <SingleActivity
+        variant="web"
+        info="en.wikipedia.org"
+        carouselItems={[]}
+        state="complete"
+        step={WEB_STEP}
+        expanded={false}
+        onExpandChange={(v) => {
+          next = v;
+        }}
+      />,
+    );
+    fireEvent.click(getByTestId("inline-web-link"));
+    expect(next).toBe(true);
+  });
+
+  test("clicking the header calls onExpandChange(false) when expanded", () => {
+    let next: boolean | undefined;
+    const { getByTestId } = render(
+      <SingleActivity
+        variant="web"
+        info="en.wikipedia.org"
+        carouselItems={[]}
+        state="complete"
+        step={WEB_STEP}
+        expanded
+        onExpandChange={(v) => {
+          next = v;
+        }}
+      />,
+    );
+    fireEvent.click(getByTestId("inline-web-link"));
+    expect(next).toBe(false);
+  });
+
+  test("expanded reveals the favicon result row (WebSearchStepRow)", () => {
+    const { getByText } = render(
+      <SingleActivity
+        variant="web"
+        info="en.wikipedia.org"
+        carouselItems={[]}
+        state="complete"
+        step={WEB_STEP}
+        expanded
+        onExpandChange={() => {}}
+      />,
+    );
+    // FaviconChip renders each result's title as the chip label. carouselItems
+    // is empty here, so these can only come from the expanded step row.
+    expect(getByText("Toronto - Wikipedia")).toBeTruthy();
+    expect(getByText("Visit Toronto")).toBeTruthy();
+  });
+
+  test("expanded result pills are ToolStepPill web links to the source URL", () => {
+    const { getAllByTestId } = render(
+      <SingleActivity
+        variant="web"
+        info="en.wikipedia.org"
+        carouselItems={[]}
+        state="complete"
+        step={WEB_STEP}
+        expanded
+        onExpandChange={() => {}}
+      />,
+    );
+    // Web results render as the shared ToolStepPill (web variant) — an anchor
+    // pill opening the source in a new tab.
+    const pills = getAllByTestId("tool-step-pill");
+    expect(pills.length).toBe(2);
+    expect(pills[0]!.tagName.toLowerCase()).toBe("a");
+    expect(pills[0]!.getAttribute("data-variant")).toBe("web");
+    expect(pills[0]!.getAttribute("href")).toBe(
+      "https://en.wikipedia.org/wiki/Toronto",
+    );
+    expect(pills[0]!.getAttribute("target")).toBe("_blank");
+    expect(pills[0]!.getAttribute("rel")).toContain("noopener");
+  });
+
+  test("loading state renders the three-dot indicator", () => {
+    const { getByTestId } = render(
+      <SingleActivity
+        variant="web"
+        info="en.wikipedia.org"
+        carouselItems={[]}
+        state="loading"
+        step={WEB_STEP}
+        expanded={false}
+        onExpandChange={() => {}}
+      />,
+    );
+    expect(getByTestId("inline-web-loading")).toBeTruthy();
+  });
+
+  test("a web_search_error step renders the error chip when expanded", () => {
+    const { getByTestId, getByText } = render(
+      <SingleActivity
+        variant="web"
+        info="en.wikipedia.org"
+        carouselItems={[]}
+        state="error"
+        step={ERROR_STEP}
+        expanded
+        onExpandChange={() => {}}
+      />,
+    );
+    expect(getByTestId("web-search-error-chip")).toBeTruthy();
+    expect(getByText("Search provider unavailable")).toBeTruthy();
+  });
+
+  test("error state applies the negative tone to the header", () => {
+    const { getByTestId } = render(
+      <SingleActivity
+        variant="web"
+        info="en.wikipedia.org"
+        carouselItems={[]}
+        state="error"
+        step={ERROR_STEP}
+        expanded={false}
+        onExpandChange={() => {}}
+      />,
+    );
+    expect(getByTestId("inline-web-link").className).toContain(
       "text-[var(--system-negative-strong)]",
     );
   });

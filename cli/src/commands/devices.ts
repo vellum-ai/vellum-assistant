@@ -28,6 +28,7 @@ import {
   canPromptForConfirmation,
   confirmAction,
 } from "../lib/confirm-action.js";
+import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
 
 interface DeviceRecord {
   hashedDeviceId: string;
@@ -108,7 +109,7 @@ async function listDevices(entry: AssistantEntry, base: string): Promise<void> {
 
   let response: Response;
   try {
-    response = await fetch(`${base}/v1/devices`, {
+    response = await loopbackSafeFetch(`${base}/v1/devices`, {
       method: "GET",
       headers: getClientRegistrationHeaders(CLI_INTERFACE_ID),
     });
@@ -186,7 +187,7 @@ async function revokeDevice(
 
   let response: Response;
   try {
-    response = await fetch(`${base}/v1/devices/revoke`, {
+    response = await loopbackSafeFetch(`${base}/v1/devices/revoke`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

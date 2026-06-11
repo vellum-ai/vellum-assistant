@@ -11,14 +11,15 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { createMockLoggerModule } from "../../../__tests__/helpers/mock-logger.js";
 import type { ToolContext } from "../../types.js";
-import type { BrowserMode, CdpClientKind } from "../cdp-client/types.js";
+import { CdpError } from "../cdp-client/errors.js";
+import type { CdpClientKind, InternalBrowserMode } from "../cdp-client/types.js";
 
 // ---------------------------------------------------------------------------
 // Captured call state
 // ---------------------------------------------------------------------------
 
 interface CdpClientCallOpts {
-  mode?: BrowserMode;
+  mode?: InternalBrowserMode;
   targetClientId?: string;
 }
 
@@ -196,5 +197,51 @@ describe("acquireCdpClientWithMode: target_client_id overrides sticky backend mo
     expect(getCdpClientMock).toHaveBeenCalledTimes(1);
     expect(getCdpClientCalls[0].mode).toBe("extension");
     expect(getCdpClientCalls[0].targetClientId).toBe("host-client-fresh");
+  });
+
+  test("sticky host-bridge + no target_client_id → getCdpClient receives mode:host-bridge", async () => {
+    // A prior turn succeeded on the desktop SSE bridge; the memo holds the
+    // internal-only "host-bridge" kind and must round-trip through the
+    // factory's pinned path.
+    stickyKind = "host-bridge";
+
+    await executeBrowserAttach({}, makeContext("sticky-bridge-honored"));
+
+    expect(getCdpClientMock).toHaveBeenCalledTimes(1);
+    expect(getCdpClientCalls[0].mode).toBe("host-bridge");
+  });
+
+  test("sticky host-bridge + target_client_id → getCdpClient receives mode:extension", async () => {
+    stickyKind = "host-bridge";
+
+    await executeBrowserAttach(
+      { target_client_id: "host-client-bridge" },
+      makeContext("sticky-bridge-override"),
+    );
+
+    expect(getCdpClientMock).toHaveBeenCalledTimes(1);
+    expect(getCdpClientCalls[0].mode).toBe("extension");
+    expect(getCdpClientCalls[0].targetClientId).toBe("host-client-bridge");
+  });
+
+  test("sticky host-bridge gone → memo cleared and auto retry runs", async () => {
+    // The pinned host-bridge build throws (bridge disconnected or an
+    // extension connected since the memo was written); the acquire layer
+    // must clear the stale memo and retry with fresh auto selection.
+    stickyKind = "host-bridge";
+    getCdpClientMock.mockImplementationOnce(() => {
+      getCdpClientCalls.push({ mode: "host-bridge" });
+      throw new CdpError(
+        "transport_error",
+        'Pinned mode "host-bridge" unavailable: a Chrome Extension is now connected',
+      );
+    });
+
+    await executeBrowserAttach({}, makeContext("sticky-bridge-fallback"));
+
+    expect(getCdpClientMock).toHaveBeenCalledTimes(2);
+    expect(getCdpClientCalls[0].mode).toBe("host-bridge");
+    expect(getCdpClientCalls[1].mode).toBe("auto");
+    expect(clearPreferredBackendKindMock).toHaveBeenCalledTimes(1);
   });
 });

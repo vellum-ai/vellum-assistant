@@ -2,7 +2,7 @@ import { ChevronLeft, ChevronRight, Loader2, Lock, Send, Shield } from "lucide-r
 import { type FormEvent, useCallback, useMemo, useState } from "react";
 
 import type { Surface } from "@/domains/chat/types/types";
-import { Toggle } from "@vellumai/design-library";
+import { Button, Toggle } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 
@@ -61,7 +61,7 @@ function renderField(
 ) {
   const errorMsg = validationErrors[field.id];
   const inputClasses =
-    "w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--field-bg)] px-3 py-2 text-body-medium-lighter text-[var(--content-default)] focus:border-forest-600 focus:outline-none focus:ring-1 focus:ring-forest-600";
+    "w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--field-bg)] px-3 py-2 text-body-medium-lighter text-[var(--content-default)] focus:border-[var(--primary-base)] focus:outline-none focus:ring-1 focus:ring-[var(--primary-base)]";
   const errorClasses = errorMsg
     ? " border-[var(--system-negative-strong)]"
     : "";
@@ -169,7 +169,7 @@ function PageProgress({ current, total }: { current: number; total: number }) {
         <div
           key={i}
           className={`h-1.5 flex-1 rounded-full transition-colors ${
-            i <= current ? "bg-forest-500" : "bg-[var(--border-subtle)]"
+            i <= current ? "bg-[var(--primary-base)]" : "bg-[var(--border-subtle)]"
           }`}
         />
       ))}
@@ -315,12 +315,12 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
             <label className="mb-1 block text-body-medium-default text-[var(--content-strong)]">
               {field.label}
               {field.required && (
-                <span className="ml-0.5 text-danger-500">*</span>
+                <span className="ml-0.5 text-[var(--system-negative-strong)]">*</span>
               )}
             </label>
             {renderField(field, values[field.id] ?? "", handleChange, validationErrors)}
             {validationErrors[field.id] && (
-              <p className="mt-1 text-body-small-default text-danger-500">
+              <p className="mt-1 text-body-small-default text-[var(--system-negative-strong)]">
                 {validationErrors[field.id]}
               </p>
             )}
@@ -330,44 +330,40 @@ export function FormSurface({ surface, onAction }: FormSurfaceProps) {
         <div className="flex items-center justify-between pt-2">
           <div>
             {isMultiPage && currentPage > 0 && (
-              <button
-                type="button"
+              <Button
+                variant="outlined"
                 onClick={handleBack}
                 disabled={isSubmitting}
-                className="flex items-center gap-1 rounded-lg border border-[var(--border-element)] bg-[var(--surface-lift)] px-3 py-2 text-body-medium-default text-[var(--content-strong)] transition-colors hover:bg-[var(--surface-hover)] disabled:opacity-50"
+                leftIcon={<ChevronLeft />}
               >
-                <ChevronLeft className="h-4 w-4" />
                 {backLabel}
-              </button>
+              </Button>
             )}
           </div>
 
           <div>
             {isMultiPage && !isLastPage ? (
-              <button
-                type="button"
+              <Button
+                variant="primary"
                 onClick={handleNext}
                 disabled={isSubmitting}
-                className="flex items-center gap-1 rounded-lg bg-forest-600 px-4 py-2 text-body-medium-default text-white transition-colors hover:bg-forest-700 disabled:opacity-50"
+                rightIcon={<ChevronRight />}
               >
                 {nextLabel}
-                <ChevronRight className="h-4 w-4" />
-              </button>
+              </Button>
             ) : (
-              <button
+              <Button
+                variant="primary"
                 type="submit"
                 disabled={isSubmitting}
-                className="flex items-center gap-2 rounded-lg bg-forest-600 px-4 py-2 text-body-medium-default text-white transition-colors hover:bg-forest-700 disabled:opacity-50"
+                leftIcon={
+                  isSubmitting ? <Loader2 className="animate-spin" />
+                    : hasPasswordFields ? <Shield />
+                    : <Send />
+                }
               >
-                {isSubmitting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : hasPasswordFields ? (
-                  <Shield className="h-4 w-4" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
                 {submitLabel}
-              </button>
+              </Button>
             )}
           </div>
         </div>

@@ -283,9 +283,15 @@ export function Button({
     alignItems: "center",
     justifyContent: "center",
   };
+  // Size the icon with an explicit dimension (`[&_svg]:size-3.5`) rather than
+  // `size-full`. `size-full` makes the SVG fill whatever element it lands in,
+  // which breaks when the `asChild`/Slot path (especially nested under a
+  // tooltip Slot) collapses the icon span and the button box onto one element:
+  // the SVG would then fill the 24px button box instead of the 14px icon box.
+  // A fixed size keeps the icon at the intended dimension regardless of nesting.
   const iconOnlyClass = cn(
-    "inline-flex items-center justify-center shrink-0 size-3.5 [&_svg]:size-full",
-    expandOnMobile && "max-md:size-4",
+    "inline-flex items-center justify-center shrink-0 size-3.5 [&_svg]:size-3.5",
+    expandOnMobile && "max-md:size-4 max-md:[&_svg]:size-4",
   );
 
   const Comp = asChild ? Slot : "button";

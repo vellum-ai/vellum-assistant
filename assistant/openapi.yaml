@@ -4539,55 +4539,6 @@ paths:
                   - lastRunAt
                   - success
                 additionalProperties: false
-    put:
-      operationId: consolidation_config_put
-      summary: Update consolidation config
-      description: Update the memory v2 consolidation schedule configuration.
-      tags:
-        - consolidation
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  available:
-                    type: boolean
-                  enabled:
-                    type: boolean
-                  intervalMs:
-                    type: number
-                  nextRunAt:
-                    anyOf:
-                      - type: number
-                      - type: "null"
-                  lastRunAt:
-                    anyOf:
-                      - type: number
-                      - type: "null"
-                  success:
-                    type: boolean
-                required:
-                  - available
-                  - enabled
-                  - intervalMs
-                  - nextRunAt
-                  - lastRunAt
-                  - success
-                additionalProperties: false
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                enabled:
-                  description: Enable or disable automatic consolidation
-                  type: boolean
-              additionalProperties: false
   /v1/consolidation/run-now:
     post:
       operationId: consolidation_runnow_post
@@ -6021,6 +5972,8 @@ paths:
                           additionalProperties: false
                         archivedAt:
                           type: number
+                        surfacedAt:
+                          type: number
                         inferenceProfile:
                           type: string
                         isProcessing:
@@ -6383,6 +6336,8 @@ paths:
                         additionalProperties: false
                       archivedAt:
                         type: number
+                      surfacedAt:
+                        type: number
                       inferenceProfile:
                         type: string
                       isProcessing:
@@ -6581,6 +6536,8 @@ paths:
                           - title
                         additionalProperties: false
                       archivedAt:
+                        type: number
+                      surfacedAt:
                         type: number
                       inferenceProfile:
                         type: string
@@ -6990,6 +6947,56 @@ paths:
           required: true
           schema:
             type: string
+  /v1/conversations/{id}/surface:
+    post:
+      operationId: conversations_by_id_surface_post
+      summary: Surface a conversation into Recents
+      description:
+        Explicitly promote a background or scheduled conversation into the default conversation listing (the
+        Recents sidebar grouping), or demote it with surfaced=false. Conversations are never surfaced automatically.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  conversationId:
+                    type: string
+                  surfacedAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description: Epoch-ms timestamp of the promotion, or null when cleared.
+                required:
+                  - ok
+                  - conversationId
+                  - surfacedAt
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                surfaced:
+                  type: boolean
+                  description: true to surface the conversation into Recents, false to clear the promotion.
+              required:
+                - surfaced
+              additionalProperties: false
   /v1/conversations/{id}/unarchive:
     post:
       operationId: conversations_by_id_unarchive_post
@@ -7583,6 +7590,8 @@ paths:
                           - title
                         additionalProperties: false
                       archivedAt:
+                        type: number
+                      surfacedAt:
                         type: number
                       inferenceProfile:
                         type: string
@@ -11264,6 +11273,14 @@ paths:
                     required:
                       - connected
                     additionalProperties: false
+                  capabilities:
+                    type: object
+                    properties:
+                      memoryOptOut:
+                        type: boolean
+                    required:
+                      - memoryOptOut
+                    additionalProperties: false
                   profiler:
                     type: object
                     properties:
@@ -11348,6 +11365,7 @@ paths:
                   - cpu
                   - migrations
                   - ces
+                  - capabilities
                 additionalProperties: false
   /v1/healthz:
     get:
@@ -11432,6 +11450,14 @@ paths:
                     required:
                       - connected
                     additionalProperties: false
+                  capabilities:
+                    type: object
+                    properties:
+                      memoryOptOut:
+                        type: boolean
+                    required:
+                      - memoryOptOut
+                    additionalProperties: false
                   profiler:
                     type: object
                     properties:
@@ -11516,6 +11542,7 @@ paths:
                   - cpu
                   - migrations
                   - ces
+                  - capabilities
                 additionalProperties: false
   /v1/heartbeat/checklist:
     get:
@@ -20380,9 +20407,9 @@ paths:
                             - type: number
                             - type: "null"
                         description:
-                          anyOf:
-                            - type: string
-                            - type: "null"
+                          type: string
+                        cadenceDescription:
+                          type: string
                         mode:
                           type: string
                           enum:
@@ -20432,6 +20459,7 @@ paths:
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
                         - description
+                        - cadenceDescription
                         - mode
                         - status
                         - routingIntent
@@ -20529,9 +20557,9 @@ paths:
                             - type: number
                             - type: "null"
                         description:
-                          anyOf:
-                            - type: string
-                            - type: "null"
+                          type: string
+                        cadenceDescription:
+                          type: string
                         mode:
                           type: string
                           enum:
@@ -20581,6 +20609,7 @@ paths:
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
                         - description
+                        - cadenceDescription
                         - mode
                         - status
                         - routingIntent
@@ -20602,6 +20631,9 @@ paths:
                 name:
                   type: string
                   description: Display name
+                description:
+                  type: string
+                  description: Authored schedule description. Defaults to the schedule name when omitted for backward compatibility.
                 expression:
                   type: string
                   description: Cron or RRULE expression
@@ -20704,9 +20736,9 @@ paths:
                             - type: number
                             - type: "null"
                         description:
-                          anyOf:
-                            - type: string
-                            - type: "null"
+                          type: string
+                        cadenceDescription:
+                          type: string
                         mode:
                           type: string
                           enum:
@@ -20756,6 +20788,7 @@ paths:
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
                         - description
+                        - cadenceDescription
                         - mode
                         - status
                         - routingIntent
@@ -20852,9 +20885,9 @@ paths:
                             - type: number
                             - type: "null"
                         description:
-                          anyOf:
-                            - type: string
-                            - type: "null"
+                          type: string
+                        cadenceDescription:
+                          type: string
                         mode:
                           type: string
                           enum:
@@ -20904,6 +20937,7 @@ paths:
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
                         - description
+                        - cadenceDescription
                         - mode
                         - status
                         - routingIntent
@@ -20929,6 +20963,8 @@ paths:
               type: object
               properties:
                 name:
+                  type: string
+                description:
                   type: string
                 expression:
                   type: string
@@ -21043,9 +21079,9 @@ paths:
                             - type: number
                             - type: "null"
                         description:
-                          anyOf:
-                            - type: string
-                            - type: "null"
+                          type: string
+                        cadenceDescription:
+                          type: string
                         mode:
                           type: string
                           enum:
@@ -21095,6 +21131,7 @@ paths:
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
                         - description
+                        - cadenceDescription
                         - mode
                         - status
                         - routingIntent
@@ -21192,9 +21229,9 @@ paths:
                             - type: number
                             - type: "null"
                         description:
-                          anyOf:
-                            - type: string
-                            - type: "null"
+                          type: string
+                        cadenceDescription:
+                          type: string
                         mode:
                           type: string
                           enum:
@@ -21244,6 +21281,7 @@ paths:
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
                         - description
+                        - cadenceDescription
                         - mode
                         - status
                         - routingIntent
@@ -21430,9 +21468,9 @@ paths:
                             - type: number
                             - type: "null"
                         description:
-                          anyOf:
-                            - type: string
-                            - type: "null"
+                          type: string
+                        cadenceDescription:
+                          type: string
                         mode:
                           type: string
                           enum:
@@ -21482,6 +21520,7 @@ paths:
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
                         - description
+                        - cadenceDescription
                         - mode
                         - status
                         - routingIntent
@@ -22266,6 +22305,22 @@ paths:
                                 - available
                             category:
                               type: string
+                            owner:
+                              type: object
+                              properties:
+                                kind:
+                                  type: string
+                                  enum:
+                                    - skill
+                                    - mcp
+                                    - plugin
+                                    - workspace
+                                id:
+                                  type: string
+                              required:
+                                - kind
+                                - id
+                              additionalProperties: false
                             origin:
                               type: string
                               const: vellum
@@ -22304,6 +22359,22 @@ paths:
                                 - available
                             category:
                               type: string
+                            owner:
+                              type: object
+                              properties:
+                                kind:
+                                  type: string
+                                  enum:
+                                    - skill
+                                    - mcp
+                                    - plugin
+                                    - workspace
+                                id:
+                                  type: string
+                              required:
+                                - kind
+                                - id
+                              additionalProperties: false
                             origin:
                               type: string
                               const: clawhub
@@ -22362,6 +22433,22 @@ paths:
                                 - available
                             category:
                               type: string
+                            owner:
+                              type: object
+                              properties:
+                                kind:
+                                  type: string
+                                  enum:
+                                    - skill
+                                    - mcp
+                                    - plugin
+                                    - workspace
+                                id:
+                                  type: string
+                              required:
+                                - kind
+                                - id
+                              additionalProperties: false
                             origin:
                               type: string
                               const: skillssh
@@ -22435,6 +22522,22 @@ paths:
                                 - available
                             category:
                               type: string
+                            owner:
+                              type: object
+                              properties:
+                                kind:
+                                  type: string
+                                  enum:
+                                    - skill
+                                    - mcp
+                                    - plugin
+                                    - workspace
+                                id:
+                                  type: string
+                              required:
+                                - kind
+                                - id
+                              additionalProperties: false
                             origin:
                               type: string
                               const: custom
@@ -22592,6 +22695,22 @@ paths:
                               - available
                           category:
                             type: string
+                          owner:
+                            type: object
+                            properties:
+                              kind:
+                                type: string
+                                enum:
+                                  - skill
+                                  - mcp
+                                  - plugin
+                                  - workspace
+                              id:
+                                type: string
+                            required:
+                              - kind
+                              - id
+                            additionalProperties: false
                           origin:
                             type: string
                             const: vellum
@@ -22815,6 +22934,22 @@ paths:
                               - available
                           category:
                             type: string
+                          owner:
+                            type: object
+                            properties:
+                              kind:
+                                type: string
+                                enum:
+                                  - skill
+                                  - mcp
+                                  - plugin
+                                  - workspace
+                              id:
+                                type: string
+                            required:
+                              - kind
+                              - id
+                            additionalProperties: false
                           origin:
                             type: string
                             const: custom
@@ -22982,6 +23117,22 @@ paths:
                               - available
                           category:
                             type: string
+                          owner:
+                            type: object
+                            properties:
+                              kind:
+                                type: string
+                                enum:
+                                  - skill
+                                  - mcp
+                                  - plugin
+                                  - workspace
+                              id:
+                                type: string
+                            required:
+                              - kind
+                              - id
+                            additionalProperties: false
                           origin:
                             type: string
                             const: vellum
@@ -23020,6 +23171,22 @@ paths:
                               - available
                           category:
                             type: string
+                          owner:
+                            type: object
+                            properties:
+                              kind:
+                                type: string
+                                enum:
+                                  - skill
+                                  - mcp
+                                  - plugin
+                                  - workspace
+                              id:
+                                type: string
+                            required:
+                              - kind
+                              - id
+                            additionalProperties: false
                           origin:
                             type: string
                             const: clawhub
@@ -23078,6 +23245,22 @@ paths:
                               - available
                           category:
                             type: string
+                          owner:
+                            type: object
+                            properties:
+                              kind:
+                                type: string
+                                enum:
+                                  - skill
+                                  - mcp
+                                  - plugin
+                                  - workspace
+                              id:
+                                type: string
+                            required:
+                              - kind
+                              - id
+                            additionalProperties: false
                           origin:
                             type: string
                             const: skillssh
@@ -23151,6 +23334,22 @@ paths:
                               - available
                           category:
                             type: string
+                          owner:
+                            type: object
+                            properties:
+                              kind:
+                                type: string
+                                enum:
+                                  - skill
+                                  - mcp
+                                  - plugin
+                                  - workspace
+                              id:
+                                type: string
+                            required:
+                              - kind
+                              - id
+                            additionalProperties: false
                           origin:
                             type: string
                             const: custom
@@ -23499,6 +23698,22 @@ paths:
                                 - available
                             category:
                               type: string
+                            owner:
+                              type: object
+                              properties:
+                                kind:
+                                  type: string
+                                  enum:
+                                    - skill
+                                    - mcp
+                                    - plugin
+                                    - workspace
+                                id:
+                                  type: string
+                              required:
+                                - kind
+                                - id
+                              additionalProperties: false
                             origin:
                               type: string
                               const: vellum
@@ -23537,6 +23752,22 @@ paths:
                                 - available
                             category:
                               type: string
+                            owner:
+                              type: object
+                              properties:
+                                kind:
+                                  type: string
+                                  enum:
+                                    - skill
+                                    - mcp
+                                    - plugin
+                                    - workspace
+                                id:
+                                  type: string
+                              required:
+                                - kind
+                                - id
+                              additionalProperties: false
                             origin:
                               type: string
                               const: clawhub
@@ -23595,6 +23826,22 @@ paths:
                                 - available
                             category:
                               type: string
+                            owner:
+                              type: object
+                              properties:
+                                kind:
+                                  type: string
+                                  enum:
+                                    - skill
+                                    - mcp
+                                    - plugin
+                                    - workspace
+                                id:
+                                  type: string
+                              required:
+                                - kind
+                                - id
+                              additionalProperties: false
                             origin:
                               type: string
                               const: skillssh
@@ -23668,6 +23915,22 @@ paths:
                                 - available
                             category:
                               type: string
+                            owner:
+                              type: object
+                              properties:
+                                kind:
+                                  type: string
+                                  enum:
+                                    - skill
+                                    - mcp
+                                    - plugin
+                                    - workspace
+                                id:
+                                  type: string
+                              required:
+                                - kind
+                                - id
+                              additionalProperties: false
                             origin:
                               type: string
                               const: custom

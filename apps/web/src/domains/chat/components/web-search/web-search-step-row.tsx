@@ -16,7 +16,7 @@ import { useState } from "react";
 import { Popover, Typography } from "@vellumai/design-library";
 
 import type { WebSearchResultItem } from "@/assistant/web-activity-types";
-import { FaviconChip } from "@/domains/chat/components/web-search/favicon-chip";
+import { ToolStepPill } from "@/domains/chat/components/tool-progress-card/tool-step-pill";
 import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
 
 /**
@@ -174,11 +174,16 @@ export function WebSearchStepRow({
   return (
     <div className="flex flex-wrap items-center gap-1">
       {step.results.map((r) => (
-        <FaviconChip
+        // Each result is a `ToolStepPill` web variant — the same pill chrome as
+        // tool steps, with the site favicon as the glyph, that opens the source
+        // in a new tab.
+        <ToolStepPill
           key={r.rank}
+          variant="web"
+          url={r.url}
           faviconUrl={r.faviconUrl}
-          title={r.title}
           domain={r.domain}
+          label={r.title}
         />
       ))}
       {overflowResults.length > 0 ? (

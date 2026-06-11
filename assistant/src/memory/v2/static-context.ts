@@ -46,7 +46,7 @@ export function readMemoryV2StaticContent(): string | null {
   } catch {
     return null;
   }
-  if (!config.memory.enabled || !config.memory.v2.enabled) {
+  if (config.memory.enabled === false || !config.memory.v2.enabled) {
     return null;
   }
 

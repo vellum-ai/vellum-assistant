@@ -33,40 +33,4 @@ export function reconcileSnapshot(
   });
 }
 
-/**
- * Apply a freshly fetched latest page over a transcript restored from the
- * in-memory cache (the initial-load path).
- *
- * Routes through the single authoritative `reconcileMessagesWithSeq`, so
- * initial load uses the same monotonic merge as every other snapshot-apply
- * site: a stale page (`L > S`) keeps the live local rows, a fresh page
- * (`S >= L`) is authoritative. The latest page is already a projected
- * `DisplayMessage[]`, so it feeds the merge directly.
- */
-export interface ReconcileLatestHistoryOptions {
-  /** Watermark `seq` of the latest history page (`latestPage.seq`). */
-  serverSeq: number | null;
-  /** Local seq `L` as of before this page is applied. */
-  localSeq: number | null;
-  /**
-   * Oldest timestamp across all loaded history pages
-   * (`pagination.oldestLoadedTimestamp`). The snapshot may carry older pages
-   * loaded by scroll-up pagination, so the paginated-out drop boundary must
-   * be the oldest *loaded* page — not the oldest *rendered* row — or every
-   * older-page row would be discarded as out-of-window history.
-   */
-  oldestPageTimestamp?: number | null;
-}
-
-export function reconcileLatestHistorySnapshot(
-  current: DisplayMessage[],
-  latestHistory: DisplayMessage[],
-  options: ReconcileLatestHistoryOptions,
-): DisplayMessage[] {
-  return reconcileMessagesWithSeq(current, latestHistory, {
-    serverSeq: options.serverSeq,
-    localSeq: options.localSeq,
-    oldestPageTimestamp: options.oldestPageTimestamp,
-  });
-}
 

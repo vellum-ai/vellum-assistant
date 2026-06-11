@@ -1,6 +1,6 @@
 /**
  * Inline single-activity link — the lone affordance for ONE step of agent work,
- * in one of two variants:
+ * in one of three variants:
  *
  *   - `variant="thinking"` — an assistant reasoning run. A brain glyph +
  *     "Thought process", or the shared {@link ThreeDotIndicator} + "Thinking"
@@ -11,11 +11,19 @@
  *   - `variant="tool"` — a LONE renderable tool call (non-web, no confirmation,
  *     no thinking). The derived tool glyph + activity label + optional risk
  *     badge.
+ *   - `variant="web"` — a LONE web search. An inline link reading
+ *     "Web Search | <latest page title>" — while the search is in flight the
+ *     info slot rotates the searched sites via {@link WebsiteCarousel}; once
+ *     settled it shows the latest page title as static text. Unlike the other
+ *     two variants it expands IN PLACE (controlled via `expanded`/`onExpandChange`)
+ *     to reveal the clickable favicon result pills (and `+N more` overflow), or
+ *     the error row for a `web_search_error` step — it does NOT open the drawer,
+ *     so its trailing glyph is an up/down chevron rather than `ChevronRight`.
  *
- * Both variants render the same minimal, container-less button (leading glyph +
- * label + optional risk badge + trailing chevron) and toggle the shared
- * tool-detail side drawer — clicking an already-open link closes it (toggle).
- * The trailing `ChevronRight` signals "opens a drawer" (vs the card's
+ * The thinking/tool variants render the same minimal, container-less button
+ * (leading glyph + label + optional risk badge + trailing chevron) and toggle
+ * the shared tool-detail side drawer — clicking an already-open link closes it
+ * (toggle). The trailing `ChevronRight` signals "opens a drawer" (vs the card's
  * expand-in-place up/down chevron). Consistent padding lets the active highlight
  * fill behind the content without shifting layout.
  *
@@ -23,17 +31,33 @@
  * contiguous run of interleaved thinking + tool steps as one combined card.
  */
 
-import { Bolt, Brain, ChevronRight } from "lucide-react";
-import type { ReactNode } from "react";
+import {
+  Bolt,
+  Brain,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  Globe,
+} from "lucide-react";
+import { useMemo, type ReactNode } from "react";
 
 import { cn } from "@/utils/misc";
 import { RiskBadge } from "@/domains/chat/components/risk-badge";
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
 import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import { deriveStepLabel } from "@/domains/chat/components/tool-progress-card/derive-step-label";
-import { toolDetailPayloadFromToolCall } from "@/domains/chat/utils/tool-call-card-utils";
+import {
+  toolDetailPayloadFromToolCall,
+  type ToolCallCardStep,
+} from "@/domains/chat/utils/tool-call-card-utils";
+import {
+  WebSearchErrorRow,
+  WebSearchStepRow,
+} from "@/domains/chat/components/web-search/web-search-step-row";
+import { WebsiteCarousel } from "@/domains/chat/components/web-search/website-carousel";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { WebSearchResultItem } from "@/assistant/web-activity-types";
 
 export type SingleActivityProps =
   | {
@@ -46,6 +70,20 @@ export type SingleActivityProps =
   | {
       variant: "tool";
       toolCall: ChatMessageToolCall;
+    }
+  | {
+      variant: "web";
+      /** Fallback static title (latest searched website) when the carousel isn't shown. */
+      info: string;
+      /** Websites to feed the rotating WebsiteCarousel in the header info slot. */
+      carouselItems: WebSearchResultItem[];
+      /** Card-level state: drives the leading indicator (loading -> dots). */
+      state: "loading" | "complete" | "error";
+      /** The single web step to render when expanded (favicon chips / error). */
+      step: Extract<ToolCallCardStep, { kind: "web_search" | "web_search_error" }>;
+      /** Controlled expand state + change handler (owned by the caller). */
+      expanded: boolean;
+      onExpandChange: (next: boolean) => void;
     };
 
 /** The shared presentational shape both variants resolve into. */
@@ -66,6 +104,91 @@ export function SingleActivity(props: SingleActivityProps) {
   // early return (empty, settled thinking) happens after them below.
   const toggleToolDetail = useViewerStore.use.toggleToolDetail();
   const activeDetail = useViewerStore.use.activeToolDetail();
+
+  // The web variant feeds a rotating carousel into the header info slot. Memoize
+  // the element so it stays referentially stable (a fresh element each render
+  // would remount the carousel and reset its rotation). Computed unconditionally
+  // at the top level — accessing the web-only prop via a type guard — so this
+  // hook is never conditional regardless of variant.
+  const carouselItems =
+    props.variant === "web" ? props.carouselItems : undefined;
+  const carouselNode = useMemo(
+    () =>
+      carouselItems && carouselItems.length > 0 ? (
+        <WebsiteCarousel items={carouselItems} />
+      ) : null,
+    [carouselItems],
+  );
+
+  if (props.variant === "web") {
+    const { info, state, step, expanded, onExpandChange } = props;
+    const isError = state === "error";
+    const ExpandChevron = expanded ? ChevronUp : ChevronDown;
+    return (
+      <div className="flex flex-col">
+        <button
+          type="button"
+          data-testid="inline-web-link"
+          aria-expanded={expanded}
+          aria-label="Web Search"
+          onClick={() => onExpandChange(!expanded)}
+          className={cn(
+            "group inline-flex items-center gap-2 -mx-1.5 px-1.5 py-1 rounded-md text-left text-[13px] font-medium transition-colors cursor-pointer",
+            "focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-focus)]",
+            "text-[var(--content-secondary)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)]",
+            isError && "text-[var(--system-negative-strong)]",
+          )}
+        >
+          <span
+            className={cn(
+              "inline-flex shrink-0 items-center text-[var(--content-tertiary)]",
+              isError && "text-[var(--system-negative-strong)]",
+            )}
+          >
+            {state === "loading" ? (
+              <ThreeDotIndicator
+                data-testid="inline-web-loading"
+                className="shrink-0"
+              />
+            ) : (
+              <Globe className="size-4 shrink-0" aria-hidden />
+            )}
+          </span>
+          <span className="shrink-0">Web Search</span>
+          <span aria-hidden className="shrink-0 text-[var(--content-tertiary)]">
+            |
+          </span>
+          {/* While searching, rotate through the sites being searched; once
+              settled, show the latest page title as static text (the carousel's
+              absolutely-positioned chip has no intrinsic width inline, so it
+              only belongs in the loading state where the fixed-width slot gives
+              it room). */}
+          {state === "loading" && carouselNode ? (
+            <span className="inline-flex w-[220px] min-w-0 items-center">
+              {carouselNode}
+            </span>
+          ) : (
+            <span className="min-w-0 max-w-[280px] truncate text-[var(--content-default)]">
+              {info}
+            </span>
+          )}
+          <ExpandChevron
+            className="size-3.5 shrink-0 text-[var(--content-tertiary)]"
+            aria-hidden
+          />
+        </button>
+        {expanded ? (
+          <div className="pl-6">
+            {step.kind === "web_search_error" ? (
+              <WebSearchErrorRow step={step} />
+            ) : (
+              <WebSearchStepRow step={step} />
+            )}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   let view: ResolvedView;
 

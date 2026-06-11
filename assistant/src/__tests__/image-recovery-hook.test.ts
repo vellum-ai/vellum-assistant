@@ -1,14 +1,20 @@
 /**
- * Tests for the default `image-recovery` plugin's `stop` hook.
+ * Tests for the default `image-recovery` plugin's hooks.
  *
- * The hook recovers from a provider image-too-large rejection (an error stop):
- * - On a recoverable rejection it downscales the oversized image blocks in the
- *   working history (a text note when resize is a no-op on this host), persists
- *   the same downgrade durably, and asks the loop to continue.
- * - Bounded to one pass per turn via the per-conversation recovery state: a
- *   second consecutive image rejection is left to surface; the bound clears at
- *   the turn boundary.
- * - Ignores non-image errors and successful (non-error) stops.
+ * `post-model-call` (error-recovery):
+ * - On a provider rejection carrying an image-too-large error, the hook
+ *   downscales the oversized image blocks in the working history (a text note
+ *   when resize is a no-op on this host), persists the same downgrade durably,
+ *   marks the per-conversation bound, and asks the loop to continue.
+ * - Bounded to one pass per turn via that bound: a second consecutive image
+ *   rejection is left to surface (the bound is cleared by the `stop` hook, not
+ *   here).
+ * - Ignores non-image errors, tool-bearing turns, and finalized (non-error)
+ *   replies — none of which it ever touches the bound for.
+ *
+ * `stop` (terminal cleanup):
+ * - Clears the recovery bound unconditionally on the definitive terminal stop,
+ *   so the next turn always recovers afresh no matter how the turn ended.
  *
  * Uses the real SQLite DB wired up via `test-preload.ts` (per-file temp
  * workspace) so the durable-persist leg exercises the same path production does.
@@ -24,7 +30,12 @@ import {
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { HOOKS } from "../plugin-api/constants.js";
-import type { PluginLogger, StopContext } from "../plugin-api/types.js";
+import type {
+  PluginLogger,
+  PostModelCallContext,
+  StopContext,
+} from "../plugin-api/types.js";
+import postModelCall from "../plugins/defaults/image-recovery/hooks/post-model-call.js";
 import stop from "../plugins/defaults/image-recovery/hooks/stop.js";
 import {
   clearImageRecoveryAttempted,
@@ -139,7 +150,20 @@ function makeStopCtx(overrides: Partial<StopContext> = {}): StopContext {
   return {
     conversationId: "conv-stop",
     messages: [],
-    responseContent: [],
+    exitReason: "no_tool_calls",
+    logger: noopLogger,
+    ...overrides,
+  };
+}
+
+function makePostModelCallCtx(
+  overrides: Partial<PostModelCallContext> = {},
+): PostModelCallContext {
+  return {
+    conversationId: "conv-pmc",
+    callSite: "mainAgent",
+    content: [],
+    messages: [],
     stopReason: null,
     decision: "stop",
     logger: noopLogger,
@@ -147,23 +171,23 @@ function makeStopCtx(overrides: Partial<StopContext> = {}): StopContext {
   };
 }
 
-describe("image-recovery stop hook — direct", () => {
+describe("image-recovery post-model-call hook — direct", () => {
   beforeEach(() => {
     resetImageRecoveryStoreForTests();
     resetTables();
   });
 
   test("recoverable image error → recovers oversized image and continues", async () => {
-    // GIVEN an error stop carrying an image-too-large rejection over a history
-    // with an oversized image block.
+    // GIVEN a provider rejection carrying an image-too-large error over a
+    // history with an oversized image block.
     const messages = oversizedImageHistory();
-    const ctx = makeStopCtx({
+    const ctx = makePostModelCallCtx({
       messages,
       error: new Error(IMAGE_ERROR_MESSAGE),
     });
 
     // WHEN the hook runs.
-    await stop(ctx);
+    await postModelCall(ctx);
 
     // THEN it asks the loop to retry, marks the bound, and the oversized image
     // is recovered — downscaled to a smaller image or collapsed to the
@@ -191,14 +215,14 @@ describe("image-recovery stop hook — direct", () => {
       ]),
       { skipIndexing: true },
     );
-    const ctx = makeStopCtx({
+    const ctx = makePostModelCallCtx({
       conversationId: conv.id,
       messages: oversizedImageHistory(),
       error: new Error(IMAGE_ERROR_MESSAGE),
     });
 
     // WHEN the hook recovers the rejection.
-    await stop(ctx);
+    await postModelCall(ctx);
 
     // THEN the stored row no longer holds the oversized payload — it was
     // rewritten (downscaled or replaced with the unsendable note) so a later
@@ -211,100 +235,89 @@ describe("image-recovery stop hook — direct", () => {
     const conversationId = "conv-bounded";
     markImageRecoveryAttempted(conversationId);
     const messages = oversizedImageHistory();
-    const ctx = makeStopCtx({
+    const ctx = makePostModelCallCtx({
       conversationId,
       messages,
       error: new Error(IMAGE_ERROR_MESSAGE),
     });
 
     // WHEN a second image rejection reaches the hook.
-    await stop(ctx);
+    await postModelCall(ctx);
 
     // THEN it does not recover again — the error surfaces.
     expect(ctx.decision).toBe("stop");
     expect(ctx.messages).toEqual(messages);
 
-    // AND the exhausted bound is cleared so the next turn recovers afresh.
-    expect(isImageRecoveryAttempted(conversationId)).toBe(false);
+    // AND the bound stays marked — the hook never clears it; the `stop` hook
+    // clears it at the turn boundary.
+    expect(isImageRecoveryAttempted(conversationId)).toBe(true);
   });
 
-  test("a terminal stop clears the bound so a later turn recovers again", async () => {
-    // GIVEN a conversation that already attempted a recovery this turn.
-    const conversationId = "conv-reset";
-    markImageRecoveryAttempted(conversationId);
-
-    // AND a successful stop ends that turn, which the hook treats as terminal.
-    await stop(
-      makeStopCtx({
-        conversationId,
-        responseContent: [{ type: "text", text: "done" }],
-        stopReason: "end_turn",
-      }),
-    );
-    expect(isImageRecoveryAttempted(conversationId)).toBe(false);
-
-    // WHEN a later turn hits an image-too-large rejection.
-    const ctx = makeStopCtx({
-      conversationId,
-      messages: oversizedImageHistory(),
-      error: new Error(IMAGE_ERROR_MESSAGE),
-    });
-    await stop(ctx);
-
-    // THEN the hook recovers independently of the prior turn.
-    expect(ctx.decision).toBe("continue");
-  });
-
-  test("a non-image stop already continuing this turn keeps the bound", async () => {
+  test("a mid-turn tool-bearing turn is a no-op", async () => {
     // GIVEN this turn already recovered an image rejection (bound marked), then
-    // an earlier stop hook (e.g. history-repair on an ordering rejection)
-    // recovered a different error and set the decision to continue.
+    // the model returns a tool-bearing turn that the loop continues mid-run.
+    const conversationId = "conv-tool-turn";
+    markImageRecoveryAttempted(conversationId);
+    const ctx = makePostModelCallCtx({
+      conversationId,
+      content: [{ type: "tool_use", id: "tu_1", name: "do", input: {} }],
+    });
+
+    // WHEN the hook runs on that tool-bearing turn.
+    await postModelCall(ctx);
+
+    // THEN it leaves the bound alone — there is no provider rejection to act on.
+    expect(isImageRecoveryAttempted(conversationId)).toBe(true);
+  });
+
+  test("a non-image error while continuing is a no-op", async () => {
+    // GIVEN this turn already recovered an image rejection (bound marked), then
+    // an earlier hook (e.g. history-repair on an ordering rejection) recovered a
+    // different error and set the decision to continue.
     const conversationId = "conv-cross-hook";
     markImageRecoveryAttempted(conversationId);
-    const ctx = makeStopCtx({
+    const ctx = makePostModelCallCtx({
       conversationId,
       decision: "continue",
       error: new Error("messages: roles must alternate"),
     });
 
     // WHEN the image-recovery hook runs after that earlier hook.
-    await stop(ctx);
+    await postModelCall(ctx);
 
-    // THEN it leaves the in-flight continue alone and keeps its bound, so a
-    // later image rejection in the same turn is recognized as the exhausted
-    // second attempt rather than a fresh first one. The error stop retry has no
-    // loop-side cap, so clearing here could loop the provider call forever.
+    // THEN it leaves the in-flight continue and the bound alone — it only acts
+    // on an image-too-large rejection.
     expect(ctx.decision).toBe("continue");
     expect(isImageRecoveryAttempted(conversationId)).toBe(true);
   });
 
   test("non-image error is left untouched", async () => {
-    // GIVEN an error stop whose rejection is not an image-size violation.
+    // GIVEN a provider rejection that is not an image-size violation.
     const messages = oversizedImageHistory();
-    const ctx = makeStopCtx({
+    const ctx = makePostModelCallCtx({
       messages,
       error: new Error("rate limit exceeded"),
     });
 
     // WHEN the hook runs.
-    await stop(ctx);
+    await postModelCall(ctx);
 
     // THEN it defers — the decision and history are unchanged.
     expect(ctx.decision).toBe("stop");
     expect(ctx.messages).toEqual(messages);
   });
 
-  test("successful (non-error) stop is ignored", async () => {
-    // GIVEN a successful stop — the model returned a response, no error.
+  test("finalized (non-error) reply is ignored", async () => {
+    // GIVEN a finalized reply — the model returned content, no error.
     const messages = oversizedImageHistory();
-    const ctx = makeStopCtx({
+    const ctx = makePostModelCallCtx({
       messages,
-      responseContent: [{ type: "text", text: "done" }],
+      content: [{ type: "text", text: "done" }],
       stopReason: "end_turn",
     });
 
     // WHEN the hook runs.
-    await stop(ctx);
+    await postModelCall(ctx);
 
     // THEN the model response is left untouched — recovery only applies to
     // image rejections.
@@ -313,12 +326,46 @@ describe("image-recovery stop hook — direct", () => {
   });
 });
 
-describe("image-recovery stop hook — via runHook", () => {
+// ─── stop hook (terminal cleanup) ────────────────────────────────────────────
+
+describe("image-recovery stop hook — direct", () => {
+  beforeEach(() => {
+    resetImageRecoveryStoreForTests();
+  });
+
+  test("a terminal stop clears the recovery bound", async () => {
+    // GIVEN a turn marked a recovery-retry.
+    const conversationId = "conv-backstop";
+    markImageRecoveryAttempted(conversationId);
+
+    // WHEN the terminal stop hook runs.
+    await stop(makeStopCtx({ conversationId }));
+
+    // THEN the bound is cleared so the next turn recovers afresh.
+    expect(isImageRecoveryAttempted(conversationId)).toBe(false);
+  });
+
+  test("clears the bound regardless of how the turn ended", async () => {
+    // GIVEN a turn marked a recovery-retry that ends on an abort rather than a
+    // finalized reply.
+    const conversationId = "conv-abort";
+    markImageRecoveryAttempted(conversationId);
+
+    // WHEN the terminal stop hook runs for that exit.
+    await stop(makeStopCtx({ conversationId, exitReason: "aborted_pre_call" }));
+
+    // THEN the bound is still cleared — `stop` is the definitive terminal, so
+    // the next turn always recovers afresh.
+    expect(isImageRecoveryAttempted(conversationId)).toBe(false);
+  });
+});
+
+describe("image-recovery post-model-call hook — via runHook", () => {
   beforeEach(() => {
     resetPluginRegistryForTests();
     resetImageRecoveryStoreForTests();
     resetTables();
-    clearImageRecoveryAttempted("conv-stop");
+    clearImageRecoveryAttempted("conv-pmc");
   });
 
   test("registering the default plugin recovers an image rejection", async () => {
@@ -326,10 +373,10 @@ describe("image-recovery stop hook — via runHook", () => {
     registerPlugin(defaultImageRecoveryPlugin);
     const messages = oversizedImageHistory();
 
-    // WHEN the stop chain runs on an image-too-large error stop.
-    const result = await runHook<StopContext>(
-      HOOKS.STOP,
-      makeStopCtx({ messages, error: new Error(IMAGE_ERROR_MESSAGE) }),
+    // WHEN the post-model-call chain runs on an image-too-large rejection.
+    const result = await runHook<PostModelCallContext>(
+      HOOKS.POST_MODEL_CALL,
+      makePostModelCallCtx({ messages, error: new Error(IMAGE_ERROR_MESSAGE) }),
     );
 
     // THEN the working history is recovered (the rejected payload is gone) and

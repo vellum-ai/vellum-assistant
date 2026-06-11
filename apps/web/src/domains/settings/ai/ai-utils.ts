@@ -131,6 +131,10 @@ export function getWebSearchProviderKeyStorage(provider: string): string {
 export function snapshotPatchedFields(config: DaemonConfig, patch: DaemonConfigPatch): DaemonConfigPatch {
   const snapshot: DaemonConfigPatch = {};
 
+  if ("memory" in patch) {
+    snapshot.memory = config.memory ? structuredClone(config.memory) : null;
+  }
+
   if (patch.services) {
     const services: NonNullable<DaemonConfigPatch["services"]> = {};
     if ("web-search" in patch.services) {
@@ -195,6 +199,14 @@ export function snapshotPatchedFields(config: DaemonConfig, patch: DaemonConfigP
  */
 export function applyConfigPatch(config: DaemonConfig, patch: DaemonConfigPatch): DaemonConfig {
   const result: DaemonConfig = { ...config };
+
+  if ("memory" in patch) {
+    if (patch.memory === null) {
+      delete result.memory;
+    } else if (patch.memory) {
+      result.memory = { ...result.memory, ...patch.memory };
+    }
+  }
 
   if (patch.services) {
     const services: NonNullable<DaemonConfig["services"]> = { ...result.services };

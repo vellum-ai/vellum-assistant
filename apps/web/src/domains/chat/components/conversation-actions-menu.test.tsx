@@ -170,22 +170,6 @@ describe("renderConversationMenuItems", () => {
     expect(html).not.toContain("Analyze");
   });
 
-  test("renders Move to submenu when groups and handler are provided", () => {
-    const html = renderToStaticMarkup(
-      <>{renderConversationMenuItems({
-        Primitive: Menu as unknown as ConversationMenuPrimitive,
-        moveToGroups: [
-          { id: "g1", name: "Work" },
-          { id: "g2", name: "Personal" },
-        ],
-        onMoveToGroup: () => {},
-      })}</>,
-    );
-    expect(html).toContain("Move to");
-    expect(html).toContain("Work");
-    expect(html).toContain("Personal");
-  });
-
   test("renders header variant with correct item order", () => {
     const html = renderToStaticMarkup(
       <>{renderConversationMenuItems({
@@ -285,20 +269,6 @@ describe("ConversationActionsMenu — mobile panel details", () => {
     expect(html).toContain("Mark as unread");
     expect(html).toContain("pointer-events-none");
     expect(html).toContain("opacity-50");
-  });
-
-  test("onRemoveFromGroup renders in mobile Move to block", () => {
-    mockIsMobile = true;
-    const html = renderToStaticMarkup(
-      <ConversationActionsMenu
-        moveToGroups={[{ id: "g1", name: "Work" }]}
-        onMoveToGroup={() => {}}
-        onRemoveFromGroup={() => {}}
-      />,
-    );
-    expect(html).toContain("Move to");
-    expect(html).toContain("Work");
-    expect(html).toContain("Remove from group");
   });
 
   test("hides Open in New Window on native iOS bottom sheet", () => {

@@ -38,8 +38,6 @@ import {
   isLocalMode,
   getPlatformAssistants,
   getLocalAssistants,
-  clearSelectedAssistant,
-  setSelectedAssistantId,
   primeLocalGatewayConnection,
   primeLocalGatewayConnectionWithRepair,
   syncPlatformAssistantsToLockfile,
@@ -278,7 +276,10 @@ function probePlatformSession(
               ),
             ]);
             if (!isStale() && apiAssistants.ok) {
-              await syncPlatformAssistantsToLockfile(apiAssistants.data);
+              await syncPlatformAssistantsToLockfile(
+                apiAssistants.data,
+                useOrganizationStore.getState().currentOrganizationId ?? undefined,
+              );
             }
           } catch {
             // Sync failed or timed out — continue with cached lockfile data
@@ -385,7 +386,10 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
               await useOrganizationStore.getState().fetchOrganizations();
               const apiAssistants = await listAssistants();
               if (apiAssistants.ok) {
-                await syncPlatformAssistantsToLockfile(apiAssistants.data);
+                await syncPlatformAssistantsToLockfile(
+                  apiAssistants.data,
+                  useOrganizationStore.getState().currentOrganizationId ?? undefined,
+                );
                 if (getPlatformAssistants().length === 0 && getLocalAssistants().length === 0) {
                   set(authenticatedPlatformUser(user));
                   return;
@@ -479,14 +483,14 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
    * stays on the plain primitive so app launch never spawns daemon processes.
    */
   connectLocalAssistant: async (assistantId: string) => {
-    setSelectedAssistantId(assistantId);
+    useResolvedAssistantsStore.getState().setSelectedAssistant(assistantId);
     await primeLocalGatewayConnectionWithRepair();
     set(authenticatedLocalUser());
     probePlatformSessionIfReachable(set);
   },
 
   connectPlatformAssistant: async (assistantId: string) => {
-    setSelectedAssistantId(assistantId);
+    useResolvedAssistantsStore.getState().setSelectedAssistant(assistantId);
     const result = await getSession();
     if (!result.ok || !result.data.user) {
       throw new Error("Platform authentication required");
@@ -527,7 +531,10 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
             await useOrganizationStore.getState().fetchOrganizations();
             const apiAssistants = await listAssistants();
             if (apiAssistants.ok) {
-              await syncPlatformAssistantsToLockfile(apiAssistants.data);
+              await syncPlatformAssistantsToLockfile(
+                apiAssistants.data,
+                useOrganizationStore.getState().currentOrganizationId ?? undefined,
+              );
             }
           } catch {
             // Sync failed — continue with cached lockfile data.
@@ -546,7 +553,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
 
   logout: async () => {
     if (isGatewayAuthMode()) {
-      clearSelectedAssistant();
+      useResolvedAssistantsStore.getState().setSelectedAssistant(null);
       clearGatewayToken();
       clearOrganization();
       clearUserScopedStorage();

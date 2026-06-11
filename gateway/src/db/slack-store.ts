@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { and, eq, gt, isNotNull, like } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull, like } from "drizzle-orm";
 import { type GatewayDb, getGatewayDb } from "./connection.js";
 import {
   contactChannels,
@@ -9,6 +9,16 @@ import {
 } from "./schema.js";
 
 const LAST_SEEN_KEY = "global";
+
+/**
+ * Lifetime of an explicit-detach (mute) marker row. While the marker is
+ * unexpired, the bot's own thread replies do not re-arm the thread (see
+ * `isThreadDetached`); a human re-engagement clears it earlier via
+ * `trackThread`. Matches the active-thread tracking TTL: once tracking
+ * would have lapsed anyway, the marker has nothing left to protect, and
+ * `cleanupExpiredThreads` reaps it like any other expired row.
+ */
+const DETACHED_THREAD_TTL_MS = 24 * 60 * 60 * 1_000;
 
 /** Active thread row exposed for catch-up enumeration on reconnect. */
 export type ActiveThreadRow = {
@@ -34,6 +44,12 @@ export class SlackStore {
    * Track a thread the bot is participating in so unmentioned replies are
    * forwarded. `channelId` is required so reconnect catch-up can scope
    * `conversations.replies` calls to the thread's channel.
+   *
+   * Clears any explicit-detach (mute) marker: every caller represents a
+   * human re-engagement signal (an @-mention, or a reply already admitted
+   * by the active-thread filter), which re-arms a muted thread. The bot's
+   * own thread-reply echoes must check `isThreadDetached` before calling
+   * this — they are not a re-engagement signal.
    */
   trackThread(threadTs: string, channelId: string, ttlMs: number): void {
     const now = Date.now();
@@ -44,10 +60,16 @@ export class SlackStore {
         channelId,
         trackedAt: now,
         expiresAt: now + ttlMs,
+        detachedAt: null,
       })
       .onConflictDoUpdate({
         target: slackActiveThreads.threadTs,
-        set: { channelId, trackedAt: now, expiresAt: now + ttlMs },
+        set: {
+          channelId,
+          trackedAt: now,
+          expiresAt: now + ttlMs,
+          detachedAt: null,
+        },
       })
       .run();
   }
@@ -61,26 +83,87 @@ export class SlackStore {
         and(
           eq(slackActiveThreads.threadTs, threadTs),
           gt(slackActiveThreads.expiresAt, now),
+          isNull(slackActiveThreads.detachedAt),
         ),
       )
       .get();
     return row !== undefined;
   }
 
-  detachThread(threadTs: string, channelId: string): boolean {
-    const raw = (this.db as unknown as { $client: Database }).$client;
-    const changes = raw
-      .prepare(
-        "DELETE FROM slack_active_threads WHERE thread_ts = ? AND (channel_id = ? OR channel_id IS NULL)",
+  /**
+   * True when the thread carries an unexpired explicit-detach (mute)
+   * marker. Consulted by the bot-own-thread-reply tracking path so the
+   * Socket Mode echo of a mute confirmation (or any other bot-authored
+   * post) does not re-arm a thread a human just muted.
+   */
+  isThreadDetached(threadTs: string): boolean {
+    const now = Date.now();
+    const row = this.db
+      .select({ threadTs: slackActiveThreads.threadTs })
+      .from(slackActiveThreads)
+      .where(
+        and(
+          eq(slackActiveThreads.threadTs, threadTs),
+          isNotNull(slackActiveThreads.detachedAt),
+          gt(slackActiveThreads.expiresAt, now),
+        ),
       )
-      .run(threadTs, channelId).changes;
-    return changes > 0;
+      .get();
+    return row !== undefined;
+  }
+
+  /**
+   * Explicitly detach (mute) a thread. The row is converted into a
+   * detached marker rather than deleted — see `isThreadDetached` — and a
+   * marker is written even when the thread was never tracked, so the
+   * "already muted" confirmation echo cannot arm an untracked thread.
+   * Returns true when the thread was actively tracked before this call.
+   */
+  detachThread(threadTs: string, channelId: string): boolean {
+    const now = Date.now();
+    const row = this.db
+      .select({
+        channelId: slackActiveThreads.channelId,
+        expiresAt: slackActiveThreads.expiresAt,
+        detachedAt: slackActiveThreads.detachedAt,
+      })
+      .from(slackActiveThreads)
+      .where(eq(slackActiveThreads.threadTs, threadTs))
+      .get();
+    // A row tracked for a different channel is another channel's thread
+    // (thread_ts collision) — leave it alone, matching the channel guard
+    // of the previous DELETE-based implementation.
+    if (row && row.channelId != null && row.channelId !== channelId) {
+      return false;
+    }
+    const wasTracked =
+      row !== undefined && row.expiresAt > now && row.detachedAt === null;
+    this.db
+      .insert(slackActiveThreads)
+      .values({
+        threadTs,
+        channelId,
+        trackedAt: now,
+        expiresAt: now + DETACHED_THREAD_TTL_MS,
+        detachedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: slackActiveThreads.threadTs,
+        set: {
+          channelId,
+          expiresAt: now + DETACHED_THREAD_TTL_MS,
+          detachedAt: now,
+        },
+      })
+      .run();
+    return wasTracked;
   }
 
   /**
    * Returns all unexpired active threads with a known channel for reconnect
    * catch-up. Rows with a NULL `channel_id` (legacy rows from before the
-   * column was introduced) are filtered out.
+   * column was introduced) and explicit-detach markers are filtered out —
+   * a muted thread must not be fanned out during catch-up.
    */
   listActiveThreadsWithChannel(): ActiveThreadRow[] {
     const now = Date.now();
@@ -94,6 +177,7 @@ export class SlackStore {
         and(
           gt(slackActiveThreads.expiresAt, now),
           isNotNull(slackActiveThreads.channelId),
+          isNull(slackActiveThreads.detachedAt),
         ),
       )
       .all();

@@ -22,6 +22,7 @@ import type { AssistantEntry } from "./assistant-config";
 import { buildHatchConfigValues, writeInitialConfig } from "./config-utils";
 import { buildServiceRunArgs } from "./statefulset.js";
 import type { Species } from "./constants";
+import { getOrCreateHostDeviceId } from "./device-id.js";
 import { getDefaultPorts } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
 import { leaseGuardianToken } from "./guardian-token";
@@ -66,6 +67,7 @@ export {
   ASSISTANT_INTERNAL_PORT,
   GATEWAY_INTERNAL_PORT,
 } from "./environments/paths.js";
+import { loopbackSafeFetch } from "./loopback-fetch.js";
 
 /** Max time to wait for the assistant container to emit the readiness sentinel. */
 export const DOCKER_READY_TIMEOUT_MS = 5 * 60 * 1000;
@@ -882,6 +884,8 @@ function startFileWatcher(opts: {
   signingKey?: string;
   bootstrapSecret?: string;
   cesServiceToken?: string;
+  extraAssistantEnv?: Record<string, string>;
+  extraGatewayEnv?: Record<string, string>;
   gatewayPort: number;
   imageTags: Record<ServiceName, string>;
   instanceName: string;
@@ -901,6 +905,8 @@ function startFileWatcher(opts: {
     signingKey: opts.signingKey,
     bootstrapSecret: opts.bootstrapSecret,
     cesServiceToken: opts.cesServiceToken,
+    extraAssistantEnv: opts.extraAssistantEnv,
+    extraGatewayEnv: opts.extraGatewayEnv,
     gatewayPort,
     imageTags,
     instanceName,
@@ -1327,8 +1333,12 @@ export async function hatchDocker(
       extraAssistantEnv.VELLUM_DISABLE_PLATFORM =
         flagEnvVars.VELLUM_DISABLE_PLATFORM;
     }
-    const extraGatewayEnv =
-      Object.keys(flagEnvVars).length > 0 ? flagEnvVars : undefined;
+    const hostDeviceId = getOrCreateHostDeviceId();
+    extraAssistantEnv.VELLUM_DEVICE_ID = hostDeviceId;
+    const extraGatewayEnv = {
+      ...flagEnvVars,
+      VELLUM_DEVICE_ID: hostDeviceId,
+    };
     await startContainers(
       {
         signingKey,
@@ -1430,6 +1440,8 @@ export async function hatchDocker(
         signingKey,
         bootstrapSecret,
         cesServiceToken,
+        extraAssistantEnv,
+        extraGatewayEnv,
         gatewayPort,
         imageTags,
         instanceName,
@@ -1519,7 +1531,7 @@ async function waitForGatewayAndLease(opts: {
 
   while (Date.now() - start < DOCKER_READY_TIMEOUT_MS) {
     try {
-      const resp = await fetch(readyUrl, {
+      const resp = await loopbackSafeFetch(readyUrl, {
         signal: AbortSignal.timeout(5000),
       });
       if (resp.ok) {

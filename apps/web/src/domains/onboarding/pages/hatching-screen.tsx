@@ -19,7 +19,7 @@ import {
     writeSelectedVersion,
 } from "@/domains/onboarding/prefs";
 import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
-import { getLocalGatewayUrl, getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, saveLockfileAssistant, setSelectedAssistantId } from "@/lib/local-mode";
+import { getLocalGatewayUrl, getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, saveLockfileAssistant } from "@/lib/local-mode";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { avatarQueryKey } from "@/lib/sync/query-tags";
 import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
@@ -29,6 +29,7 @@ import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
 import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
 import { useAuthStore } from "@/stores/auth-store";
+import { useOrganizationStore } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { CharacterTraits } from "@/types/avatar";
 import { extractErrorMessage } from "@/utils/api-errors";
@@ -263,6 +264,8 @@ export function HatchingScreen() {
                 cloud: "vellum",
                 runtimeUrl: getPlatformRuntimeUrl(),
                 hatchedAt: new Date().toISOString(),
+                organizationId:
+                  useOrganizationStore.getState().currentOrganizationId ?? undefined,
               });
             }
             handleHatchReady();
@@ -301,7 +304,9 @@ export function HatchingScreen() {
           }
           await loadLockfile();
           if (result.assistantId) {
-            setSelectedAssistantId(result.assistantId);
+            useResolvedAssistantsStore
+              .getState()
+              .setSelectedAssistant(result.assistantId);
           }
 
           // Wait for the gateway + daemon to be fully ready before proceeding.
@@ -464,6 +469,8 @@ export function HatchingScreen() {
                 cloud: "vellum",
                 runtimeUrl: getPlatformRuntimeUrl(),
                 hatchedAt: new Date().toISOString(),
+                organizationId:
+                  useOrganizationStore.getState().currentOrganizationId ?? undefined,
               });
             }
 

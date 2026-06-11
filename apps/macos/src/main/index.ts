@@ -15,6 +15,8 @@ import { installAbout, openAboutWindow } from "./about";
 import { installAutoUpdate } from "./auto-update";
 import { APP_HOST, APP_PROTOCOL, BUNDLES_DIR_NAME, VELLUMAPP_PROTOCOL } from "./app-config";
 import { resolveAllowedOrigin } from "./app-origin";
+import { writeCliLocator } from "./cli-installer";
+import { provisionCliForWrapper } from "./cli-path-installer";
 import { installCsp } from "./csp";
 import { getDeviceId } from "./device-id";
 import { handleSync } from "./ipc";
@@ -30,6 +32,7 @@ import {
 import { handleBundleFile, installBundleFlow } from "./bundle-flow";
 import { handleFileOpen, installFileOpen, onFileOpen } from "./file-open";
 import { installAvatarIpc } from "./avatar";
+import { installCommandPaletteWindow } from "./command-palette-window";
 import { installDictationOverlay } from "./dictation-overlay-window";
 import { installDock } from "./dock";
 import {
@@ -44,6 +47,7 @@ import { installHotkeysIpc } from "./hotkeys";
 import { installPopoutWindows } from "./popout-window";
 import { installQuickInput } from "./quick-input-window";
 import { installLocalMode, resolveCliInvocation } from "./local-mode";
+import { installLoginItem, installLoginItemIpc } from "./login-item";
 import { installLockfileWatcher } from "./lockfile-watcher";
 import { installHostProxyBridge } from "./host-proxy-router";
 import "./executors/host-bash-executor"; // side-effect: registers host_bash executor
@@ -53,7 +57,7 @@ import {
   installMainWindow,
   toggleVisibility as toggleMainWindowVisibility,
 } from "./main-window";
-import { installApplicationMenu } from "./menu";
+import { installApplicationMenu, refreshCliPathMenuState } from "./menu";
 import { installNativeAuth } from "./native-auth";
 import { installConnectivityProbe } from "./connectivity-probe";
 import { installNotifications } from "./notifications";
@@ -324,11 +328,27 @@ app
     installHotkeysIpc();
     installFeatureFlagsIpc();
     installLocalMode();
+    // Refresh the PATH-wrapper locator every launch so app moves and
+    // version bumps self-heal even if no CLI invocation happens this session.
+    if (app.isPackaged) {
+      writeCliLocator();
+      // Wrapper users also get the pinned CLI provisioned eagerly so a
+      // version bump rewrites the locator now (and prunes old versions)
+      // rather than after the next in-app CLI action.
+      void provisionCliForWrapper()
+        .then((provisioned) => (provisioned ? refreshCliPathMenuState() : undefined))
+        .catch((err: unknown) => {
+          log.error("[app] startup CLI provisioning failed:", err);
+        });
+    }
+    installLoginItem();
+    installLoginItemIpc();
     installHotkeyHelper();
     installAbout();
     installAutoUpdate();
     installFeedbackIpc();
     installTextInsertionIpc();
+    installCommandPaletteWindow();
     installApplicationMenu();
     installQuickInput();
     installDictationOverlay({ onRecordingLifecycle: setDictationRecording });
