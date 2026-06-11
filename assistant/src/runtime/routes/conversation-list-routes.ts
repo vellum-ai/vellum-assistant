@@ -341,7 +341,7 @@ function handleRecordSeenBulk({ body = {}, headers }: RouteHandlerArgs) {
       recordConversationSeenSignal({
         conversationId,
         sourceChannel: "vellum",
-        signalType: "macos_conversation_opened",
+        signalType: "web_bulk_mark_read",
         confidence: "explicit",
         source: "http-api",
       });
@@ -359,7 +359,7 @@ function handleRecordSeenBulk({ body = {}, headers }: RouteHandlerArgs) {
   }
 
   if (changedIds.length > 0) {
-    publishConversationListChanged("reordered", originClientId);
+    publishConversationListChanged("seen_changed", originClientId);
   }
 
   return { ok: true, updated: changedIds.length };

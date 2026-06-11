@@ -12,8 +12,9 @@ import type { Conversation } from "@/types/conversation-types";
  * has unseen assistant messages. Fires a single POST to the daemon and
  * patches the TanStack Query cache on success.
  *
- * Extracted from `useAttentionTracking` — this is a conversation
- * lifecycle action (changing seen-state), not attention tracking.
+ * This is a conversation lifecycle action (changing seen-state), not
+ * attention tracking — it lives here because its concern is state
+ * mutation, not observation.
  */
 export function useMarkSeenOnOpen({
   assistantId,
