@@ -1321,4 +1321,120 @@ describe("resolveCallSiteConfig logitBias provenance", () => {
     });
     expect(resolveCallSiteConfig("mainAgent", llm).logitBias).toBeUndefined();
   });
+
+  // ── Shipped tuning merges UNDER a persisted call-site fragment ──────────────
+  //
+  // Backwards-compat: a *partial* persisted `llm.callSites.<id>` fragment (from
+  // a workspace migration or the model-override UI) must inherit the shipped
+  // `CALL_SITE_DEFAULTS` tuning it doesn't itself specify, rather than shadowing
+  // it wholesale. Persisted fields win per-field; the shipped default's
+  // `profile` is never pulled in on this path.
+
+  describe("shipped CALL_SITE_DEFAULTS tuning merges under a persisted fragment", () => {
+    test("partial persisted fragment inherits shipped maxTokens it omits", () => {
+      // replySuggestion ships maxTokens 60 + temperature 0.7; migration 072
+      // persists model/effort/thinking with no maxTokens.
+      const llm = LLMSchema.parse({
+        default: fullDefault,
+        callSites: {
+          replySuggestion: {
+            model: "claude-haiku-4-5-20251001",
+            effort: "low",
+            thinking: { enabled: false },
+          },
+        },
+      });
+      const resolved = resolveCallSiteConfig("replySuggestion", llm);
+      // Restored from CALL_SITE_DEFAULTS underneath the fragment.
+      expect(resolved.maxTokens).toBe(60);
+      expect(resolved.temperature).toBe(0.7);
+      // Persisted fields win.
+      expect(resolved.model).toBe("claude-haiku-4-5-20251001");
+      expect(resolved.effort).toBe("low");
+      expect(resolved.thinking.enabled).toBe(false);
+    });
+
+    test("persisted maxTokens beats the shipped default (per-field, persisted on top)", () => {
+      const llm = LLMSchema.parse({
+        default: fullDefault,
+        callSites: {
+          replySuggestion: {
+            model: "claude-haiku-4-5-20251001",
+            maxTokens: 120,
+          },
+        },
+      });
+      expect(resolveCallSiteConfig("replySuggestion", llm).maxTokens).toBe(120);
+    });
+
+    test("persisted fragment without a profile does NOT inherit the shipped default's profile", () => {
+      // The shipped notificationDecision default references profile
+      // "cost-optimized"; the persisted (migration-040-shaped) fragment has no
+      // profile. The cost-optimized profile must NOT be layered in — only the
+      // shipped tuning (maxTokens 2048) should flow under the fragment. If the
+      // shipped profile leaked, `model` would resolve to the cost-optimized
+      // profile's model instead of the default's.
+      const llm = LLMSchema.parse({
+        default: { ...fullDefault, model: "claude-default-model" },
+        profiles: {
+          "cost-optimized": {
+            model: "claude-profile-should-not-apply",
+            effort: "low",
+          },
+        },
+        callSites: {
+          notificationDecision: {
+            effort: "low",
+            thinking: { enabled: false },
+          },
+        },
+      });
+      const resolved = resolveCallSiteConfig("notificationDecision", llm);
+      // Shipped tuning restored.
+      expect(resolved.maxTokens).toBe(2048);
+      // Profile did NOT leak: model stays the default, not the profile's.
+      expect(resolved.model).toBe("claude-default-model");
+    });
+
+    test("persisted profile reference is honored and shipped tuning still merges under it", () => {
+      // When the persisted fragment DOES name a profile, that profile applies
+      // (as before), and shipped tuning still fills gaps the fragment leaves.
+      const llm = LLMSchema.parse({
+        default: { ...fullDefault, model: "claude-default-model" },
+        profiles: {
+          "cost-optimized": { model: "claude-profile-model", effort: "low" },
+        },
+        callSites: {
+          replySuggestion: { profile: "cost-optimized" },
+        },
+      });
+      const resolved = resolveCallSiteConfig("replySuggestion", llm);
+      // Named profile applies (model from the profile).
+      expect(resolved.model).toBe("claude-profile-model");
+      // Shipped tuning still merges under the fragment.
+      expect(resolved.maxTokens).toBe(60);
+      expect(resolved.temperature).toBe(0.7);
+    });
+
+    test("mainAgent persisted fragment is unaffected (no shipped tuning, profile precedence intact)", () => {
+      // mainAgent's CALL_SITE_DEFAULTS entry is `{ profile: "balanced" }` — no
+      // tuning fields — so the merge contributes nothing and the documented
+      // active-profile-above-callSite precedence is preserved.
+      const llm = LLMSchema.parse({
+        default: { ...fullDefault, model: "claude-default-model" },
+        profiles: {
+          balanced: { model: "claude-balanced-model" },
+          chosen: { model: "claude-active-model" },
+        },
+        activeProfile: "chosen",
+        callSites: { mainAgent: { maxTokens: 8000 } },
+      });
+      const resolved = resolveCallSiteConfig("mainAgent", llm);
+      // activeProfile still wins over the static mainAgent callSite entry.
+      expect(resolved.model).toBe("claude-active-model");
+      // The persisted maxTokens passes through verbatim (no shipped tuning to
+      // merge under it).
+      expect(resolved.maxTokens).toBe(8000);
+    });
+  });
 });

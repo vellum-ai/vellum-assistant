@@ -946,7 +946,6 @@ async function classifyWithLLM(
       systemPrompt,
       config: {
         callSite: "notificationDecision",
-        max_tokens: 2048,
         tool_choice: {
           type: "tool" as const,
           name: "record_notification_decision",

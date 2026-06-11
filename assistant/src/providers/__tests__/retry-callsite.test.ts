@@ -538,6 +538,224 @@ describe("RetryProvider — callSite resolution", () => {
     expect(config.thinking).toEqual({ type: "adaptive" });
   });
 
+  // ── M4: call-site-defaults tuning reaches the wire ─────────────────────────
+  //
+  // After M4, per-site `max_tokens`/`temperature` live in CALL_SITE_DEFAULTS
+  // instead of being hardcoded inline at each `sendMessage` call. These two
+  // tests pin the contract that makes that safe: (1) the default value still
+  // reaches the wire when no user override exists (behavior preserved), and
+  // (2) a `llm.callSites.<id>` override now actually changes the wire value
+  // (the bug the migration fixes — an inline literal used to clobber it).
+
+  test("CALL_SITE_DEFAULTS max_tokens reaches the wire with no user override", async () => {
+    // No `callSites.preferenceExtraction` — the resolver must fall through to
+    // CALL_SITE_DEFAULTS, where M4 moved `maxTokens: 1024`.
+    setLlmConfig({
+      default: { provider: "anthropic", model: "claude-default" },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "preferenceExtraction" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.max_tokens).toBe(1024);
+  });
+
+  test("llm.callSites.<id>.maxTokens override now changes the wire value", async () => {
+    // The bug being fixed: before M4, `preferenceExtraction` hardcoded
+    // `max_tokens: 1024` inline, so this operator override silently no-op'd.
+    // Now the override must win.
+    setLlmConfig({
+      default: { provider: "anthropic", model: "claude-default" },
+      callSites: {
+        preferenceExtraction: { maxTokens: 9999 },
+      },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "preferenceExtraction" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.max_tokens).toBe(9999);
+  });
+
+  test("memoryRetrieval default yields temperature 0 + disabled thinking on the wire", async () => {
+    // retriever.ts used to pass `{ temperature: 0, thinking: { type: "disabled" } }`
+    // inline; M4 moved both into the `memoryRetrieval` CALL_SITE_DEFAULTS entry.
+    // With no inline override, the resolved default must still produce the same
+    // wire shape — and `temperature: 0` must survive because thinking is
+    // disabled (the conflict guard would otherwise drop it).
+    setLlmConfig({
+      default: { provider: "anthropic", model: "claude-default" },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "memoryRetrieval" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.temperature).toBe(0);
+    expect(config.thinking).toEqual({ type: "disabled" });
+  });
+
+  // ── Persisted-fragment shadowing: shipped tuning merges underneath ─────────
+  //
+  // Backwards-compat fix for the M4 default-shadowing footgun: workspace
+  // migrations (072 `replySuggestion`, 040 `notificationDecision` /
+  // `preferenceExtraction` / `skillCategoryInference`, …) and the model-override
+  // UI persist a *partial* `llm.callSites.<id>` fragment — typically
+  // `{ model, effort, thinking }` with no `maxTokens`. Pre-fix, a present
+  // persisted entry shadowed `CALL_SITE_DEFAULTS` wholesale, so the tuning M4
+  // moved into the shipped defaults (e.g. replySuggestion's 60-token cap)
+  // silently vanished on existing installs. The shipped tuning must now
+  // deep-merge UNDERNEATH the persisted fragment (persisted wins per-field).
+
+  test("persisted replySuggestion fragment (migration 072 shape) still yields shipped maxTokens 60", async () => {
+    // Exactly migration 072's seeded shape: model/effort/thinking, NO maxTokens.
+    setLlmConfig({
+      default: { provider: "anthropic", model: "claude-default" },
+      callSites: {
+        replySuggestion: {
+          model: "claude-haiku-4-5-20251001",
+          effort: "low",
+          thinking: { enabled: false },
+        },
+      },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "replySuggestion" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    // 60-token cap restored from CALL_SITE_DEFAULTS underneath the fragment.
+    expect(config.max_tokens).toBe(60);
+    // Persisted model wins; shipped temperature 0.7 flows up from the default.
+    expect(config.model).toBe("claude-haiku-4-5-20251001");
+    expect(config.temperature).toBe(0.7);
+  });
+
+  test("inline effort wins over a persisted fragment's effort (replySuggestion operational invariant)", async () => {
+    // The suggestion route sends `effort: "none"` inline; migration 072 seeds
+    // `effort: "low"` into the persisted fragment. Inline config must win so
+    // the pre-M4 wire value (`none`) is preserved — `effort` lives inline,
+    // NOT in CALL_SITE_DEFAULTS, precisely so the seeded `low` can't shadow it.
+    setLlmConfig({
+      default: { provider: "anthropic", model: "claude-default" },
+      callSites: {
+        replySuggestion: {
+          model: "claude-haiku-4-5-20251001",
+          effort: "low",
+          thinking: { enabled: false },
+        },
+      },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "replySuggestion", effort: "none" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.effort).toBe("none");
+    // maxTokens still gap-filled from CALL_SITE_DEFAULTS underneath the fragment.
+    expect(config.max_tokens).toBe(60);
+  });
+
+  test("persisted maxTokens beats the shipped CALL_SITE_DEFAULTS value", async () => {
+    // User explicitly tuned replySuggestion's cap — their value must win over
+    // the shipped 60, proving the merge is per-field (persisted on top), not a
+    // blanket "shipped default always wins".
+    setLlmConfig({
+      default: { provider: "anthropic", model: "claude-default" },
+      callSites: {
+        replySuggestion: {
+          model: "claude-haiku-4-5-20251001",
+          maxTokens: 120,
+        },
+      },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "replySuggestion" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.max_tokens).toBe(120);
+  });
+
+  test("persisted notificationDecision fragment (migration 040 shape) still yields shipped maxTokens 2048", async () => {
+    // Migration 040's seeded shape: model/effort/thinking, NO maxTokens. M4
+    // moved `maxTokens: 2048` into CALL_SITE_DEFAULTS — it must survive.
+    setLlmConfig({
+      default: { provider: "anthropic", model: "claude-default" },
+      callSites: {
+        notificationDecision: {
+          model: "claude-haiku-4-5-20251001",
+          effort: "low",
+          thinking: { enabled: false },
+        },
+      },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "notificationDecision" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.max_tokens).toBe(2048);
+  });
+
   test("explicit per-call config.model wins over resolved callSite model", async () => {
     setLlmConfig({
       default: { provider: "anthropic", model: "resolved-model" },
@@ -601,15 +819,20 @@ describe("RetryProvider — thinking/temperature conflict guard", () => {
   });
 
   test("drops explicit temperature: 0 when thinking is enabled (Anthropic)", async () => {
-    // Mirrors the recall-agent / retriever shape: `temperature: 0` for
-    // determinism on a thinking-enabled profile. Same 400 risk, same fix.
+    // The `temperature: 0`-for-determinism shape (recall-agent / retriever)
+    // against a thinking-enabled profile. Same 400 risk, same fix. Uses
+    // `mainAgent` here rather than `recall`: `recall`'s CALL_SITE_DEFAULTS
+    // entry ships `thinking: { enabled: false }`, which deep-merges under an
+    // empty persisted entry and resolves thinking OFF — so the guard would
+    // never get a thinking-enabled config to exercise. `mainAgent` carries no
+    // shipped thinking override, so thinking stays inherited-enabled here.
     setLlmConfig({
       default: {
         provider: "anthropic",
         model: "claude-opus-4-7",
         thinking: { enabled: true, streamThinking: true },
       },
-      callSites: { recall: {} },
+      callSites: { mainAgent: {} },
     });
 
     let seen: SendMessageOptions | undefined;
@@ -620,7 +843,7 @@ describe("RetryProvider — thinking/temperature conflict guard", () => {
     );
 
     await wrapped.sendMessage(DUMMY_MESSAGES, {
-      config: { callSite: "recall", temperature: 0 },
+      config: { callSite: "mainAgent", temperature: 0 },
     });
 
     const config = seen?.config as Record<string, unknown>;

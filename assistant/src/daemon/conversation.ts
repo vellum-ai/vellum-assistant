@@ -735,6 +735,10 @@ export class Conversation {
       .sendMessage([warmMessage], {
         tools,
         systemPrompt,
+        // call-site-tuning:allow — reason: cache-warming request; we want the
+        // minimum 1-token completion regardless of the mainAgent profile's
+        // configured maxTokens. This must stay 1, not flow from call-site
+        // config, or warming would waste tokens generating a real response.
         config: {
           max_tokens: 1,
           callSite: "mainAgent",

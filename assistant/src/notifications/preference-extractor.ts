@@ -153,7 +153,6 @@ export async function extractPreferences(
       systemPrompt: SYSTEM_PROMPT,
       config: {
         callSite: "preferenceExtraction",
-        max_tokens: 1024,
         tool_choice: {
           type: "tool" as const,
           name: "extract_notification_preferences",

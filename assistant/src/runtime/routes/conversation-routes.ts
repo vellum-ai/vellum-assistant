@@ -2262,24 +2262,30 @@ async function generateLlmSuggestion(
   // early-termination hint; the parser below handles both tagged and
   // untagged responses so untagged "casual answer" replies still work.
   //
-  // Force `thinking: disabled` + `effort: none` so the call works on any
-  // user profile — including thinking-enabled profiles (Opus 4.x at
-  // `effort: high|xhigh`, etc.) where Anthropic 400s on `temperature` ≠ 1
-  // when thinking is enabled or in adaptive mode. A 60-token reply chip
-  // doesn't benefit from extended thinking anyway, and burning thinking
-  // tokens here would be wasteful.
+  // max_tokens (60), temperature, and thinking-disabled live in the
+  // `replySuggestion` call-site defaults (see call-site-defaults.ts) so the
+  // call works on any user profile — including thinking-enabled profiles
+  // (Opus 4.x at `effort: high|xhigh`, etc.) where Anthropic 400s on
+  // `temperature` ≠ 1 when thinking is enabled or in adaptive mode.
+  //
+  // `effort: "none"` stays INLINE (a genuine per-request operational
+  // invariant, like `stop_sequences`): it is not user-tunable and must
+  // unconditionally win over any persisted `llm.callSites.replySuggestion`
+  // fragment. Migration 072 seeds that fragment with `effort: "low"`, which
+  // pre-M4 was shadowed by this inline `none`; keeping it inline preserves the
+  // pre-M4 wire value exactly (a CALL_SITE_DEFAULTS `effort` would be overridden
+  // by the seeded `low` under the per-field merge in `resolveCallSiteConfig`).
   const response = await provider.sendMessage(
     [{ role: "user", content: [{ type: "text", text: userPrompt }] }],
     {
       tools: [],
       // no tools
       systemPrompt,
+      // `stop_sequences` + `effort` are genuine per-request hints, not
+      // call-site tuning (see comment above).
       config: {
         callSite: "replySuggestion",
-        max_tokens: 60,
         stop_sequences: ["</reply>"],
-        temperature: 0.7,
-        thinking: { type: "disabled" },
         effort: "none",
       },
     },

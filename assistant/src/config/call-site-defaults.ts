@@ -35,22 +35,31 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   },
   conversationStarters: {
     profile: "balanced",
+    maxTokens: 2048,
+    temperature: 0.7,
     effort: "low",
     thinking: { enabled: false },
   },
 
   filingAgent: { profile: "cost-optimized" },
   memoryExtraction: { profile: "cost-optimized" },
-  memoryRetrieval: { profile: "cost-optimized" },
+  // Rerank/dedup passes (retriever.ts) need deterministic output and no
+  // extended thinking; `temperature: 0` requires thinking disabled because
+  // Anthropic 400s on `temperature` ≠ 1 when thinking is enabled/adaptive.
+  memoryRetrieval: {
+    profile: "cost-optimized",
+    temperature: 0,
+    thinking: { enabled: false, streamThinking: false },
+  },
   memoryRetrospective: { profile: "cost-optimized" },
   memoryV2Migration: { profile: "cost-optimized" },
   memoryV2Sweep: { profile: "cost-optimized" },
   memoryV2Consolidation: { profile: "balanced" },
-  conversationSummarization: { profile: "cost-optimized" },
+  conversationSummarization: { profile: "cost-optimized", maxTokens: 1000 },
   conversationTitle: { profile: "cost-optimized" },
   approvalCopy: { profile: "cost-optimized" },
   approvalConversation: { profile: "cost-optimized" },
-  trustRuleSuggestion: { profile: "cost-optimized" },
+  trustRuleSuggestion: { profile: "cost-optimized", maxTokens: 512 },
   styleAnalyzer: { profile: "cost-optimized" },
   meetConsentMonitor: { profile: "cost-optimized" },
   meetChatOpportunity: { profile: "cost-optimized" },
@@ -69,7 +78,19 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   },
   replySuggestion: {
     profile: "cost-optimized",
-    effort: "low",
+    maxTokens: 60,
+    temperature: 0.7,
+    // thinking-disabled keeps the 60-token reply chip working on any user
+    // profile — `temperature` ≠ 1 requires thinking disabled (Anthropic 400s
+    // otherwise), and a short chip gains nothing from thinking.
+    //
+    // `effort` is intentionally NOT set here: the call site (suggestion route
+    // in conversation-routes.ts) sets `effort: "none"` inline as a per-request
+    // operational invariant that must unconditionally win over the migration-
+    // 072-seeded `effort: "low"` persisted fragment. A default `effort` here
+    // would be overridden by that seeded `low` under the per-field merge in
+    // `resolveCallSiteConfig` (shipped tuning sits UNDER the persisted entry),
+    // diverging from the pre-M4 wire value of `none`.
     thinking: { enabled: false },
   },
   guardianQuestionCopy: {
@@ -79,11 +100,13 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   },
   notificationDecision: {
     profile: "cost-optimized",
+    maxTokens: 2048,
     effort: "low",
     thinking: { enabled: false },
   },
   preferenceExtraction: {
     profile: "cost-optimized",
+    maxTokens: 1024,
     effort: "low",
     thinking: { enabled: false },
   },
@@ -99,6 +122,7 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   },
   skillCategoryInference: {
     profile: "cost-optimized",
+    maxTokens: 256,
     effort: "low",
     thinking: { enabled: false },
   },

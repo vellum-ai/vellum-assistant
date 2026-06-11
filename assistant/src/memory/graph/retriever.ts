@@ -155,7 +155,6 @@ Your job:
    - Importance (key relationship moments, active commitments, identity-defining events)
 3. Return the IDs in order of importance (most important first).`,
         timeoutMs: RERANK_TIMEOUT_MS,
-        config: { thinking: { type: "disabled" }, temperature: 0 },
       },
     );
 
@@ -240,7 +239,6 @@ async function dedupForTurn(
         schema: SelectItemsSchema,
         systemPrompt: `Dedupe + rerank the following numbered items. Pick the most relevant items to the query. Call the select_items tool.\n\nBe aggressive on dedup — when multiple items describe the same event, fact, or status, keep ONLY the richest version. But be generous on relevance — only cut items that are completely irrelevant to the query. If it's even tangentially related, keep it.`,
         timeoutMs: RERANK_TIMEOUT_MS,
-        config: { thinking: { type: "disabled" }, temperature: 0 },
       },
     );
 
@@ -327,7 +325,6 @@ async function dedupCrossCategory(
         schema: SelectItemsSchema,
         systemPrompt: `Deduplicate the following numbered items. When multiple items describe the same event, fact, or status, keep ONLY the richest version. Keep ALL items that are not duplicates — do not filter by relevance or topic. Call the select_items tool with every item that survives dedup.`,
         timeoutMs: RERANK_TIMEOUT_MS,
-        config: { thinking: { type: "disabled" }, temperature: 0 },
       },
     );
 

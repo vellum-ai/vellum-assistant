@@ -1605,7 +1605,7 @@ export async function draftSkill(params: {
 
             const response = await provider.sendMessage([userMessage(prompt)], {
               tools: [],
-              config: { callSite: "skillCategoryInference", max_tokens: 256 },
+              config: { callSite: "skillCategoryInference" },
               signal,
             });
             cleanup();
