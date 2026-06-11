@@ -326,8 +326,8 @@ function handleRecordSeenBulk({ body = {}, headers }: RouteHandlerArgs) {
   const changedIds: string[] = [];
 
   for (const rawId of rawIds) {
-    const conversationId = resolveOrThrow(rawId);
     try {
+      const conversationId = resolveOrThrow(rawId);
       const priorState = getAttentionStateByConversationIds([
         conversationId,
       ]).get(conversationId);
@@ -351,7 +351,7 @@ function handleRecordSeenBulk({ body = {}, headers }: RouteHandlerArgs) {
       }
     } catch (err) {
       log.error(
-        { err, conversationId },
+        { err, conversationId: rawId },
         "POST /v1/conversations/seen/bulk: failed for conversation",
       );
       // Best-effort: continue with remaining conversations.

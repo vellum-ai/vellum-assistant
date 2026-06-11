@@ -13,13 +13,14 @@ import {
 } from "@/utils/conversation-cache";
 import { batchExecute } from "@/utils/batch-execute";
 import {
+  conversationsArchiveBulkPost,
   conversationsByIdArchivePost,
   conversationsByIdUnarchivePost,
   conversationsReorderPost,
+  conversationsSeenBulkPost,
   conversationsSeenPost,
   conversationsUnreadPost,
 } from "@/generated/daemon/sdk.gen";
-import { client as daemonClient } from "@/generated/daemon/client.gen";
 
 import { haptic } from "@/utils/haptics";
 
@@ -350,13 +351,11 @@ export function useConversationActions({
         });
       }
 
-      const bulkRes = await daemonClient.post({
-        url: "/v1/assistants/{assistant_id}/conversations/seen/bulk",
+      const bulkRes = await conversationsSeenBulkPost({
         path: { assistant_id: assistantId },
         body: {
           conversationIds: unread.map((c) => c.conversationId),
         },
-        headers: { "Content-Type": "application/json" },
       });
 
       if (bulkRes.response?.status === 404) {
@@ -387,7 +386,15 @@ export function useConversationActions({
           );
         }
       } else if (bulkRes.error) {
-        throw bulkRes.error;
+        for (const c of unread) {
+          patchConversation(queryClient, assistantId, c.conversationId, {
+            hasUnseenLatestAssistantMessage: true,
+          });
+        }
+        captureError(bulkRes.error, {
+          context: "markAllReadInGroup:bulk",
+          bestEffort: true,
+        });
       }
       void invalidateConversationQueries(queryClient, assistantId);
     },
@@ -427,13 +434,11 @@ export function useConversationActions({
         }
       }
 
-      const bulkRes = await daemonClient.post({
-        url: "/v1/assistants/{assistant_id}/conversations/archive/bulk",
+      const bulkRes = await conversationsArchiveBulkPost({
         path: { assistant_id: assistantId },
         body: {
           conversationIds: groupConversations.map((c) => c.conversationId),
         },
-        headers: { "Content-Type": "application/json" },
       });
 
       if (bulkRes.response?.status === 404) {
@@ -466,7 +471,15 @@ export function useConversationActions({
           );
         }
       } else if (bulkRes.error) {
-        throw bulkRes.error;
+        for (const c of groupConversations) {
+          patchConversation(queryClient, assistantId, c.conversationId, {
+            archivedAt: c.archivedAt,
+          });
+        }
+        captureError(bulkRes.error, {
+          context: "archiveAllInGroup:bulk",
+          bestEffort: true,
+        });
       }
       void invalidateConversationQueries(queryClient, assistantId);
     },
