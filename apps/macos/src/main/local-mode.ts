@@ -23,7 +23,6 @@ import {
   ensureCliInstalled,
   getBundledBunPath,
   getCliBinPath,
-  isCliInstalled,
 } from "./cli-installer";
 
 /**
@@ -64,8 +63,8 @@ interface WakeResult {
  * Resolve how to invoke the CLI. Precedence:
  *  1. `VELLUM_CLI_PATH` env var override
  *  2. Dev source tree (when `!app.isPackaged`)
- *  3. Already-installed CLI in the user-data directory
- *  4. Lazy install via `ensureCliInstalled()`, then use the installed path
+ *  3. `ensureCliInstalled()` — early-returns when already installed and
+ *     refreshes the PATH-wrapper locator either way
  *
  * Throws when no CLI path can be resolved (e.g. install fails).
  */
@@ -81,10 +80,6 @@ export async function resolveCliInvocation(): Promise<CliInvocation> {
     if (existsSync(cliEntry)) {
       return { command: "bun", baseArgs: ["run", cliEntry] };
     }
-  }
-
-  if (isCliInstalled()) {
-    return { command: getBundledBunPath(), baseArgs: ["run", getCliBinPath()] };
   }
 
   await ensureCliInstalled();

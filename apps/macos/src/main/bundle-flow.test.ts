@@ -39,18 +39,27 @@ const getGuardianAccessTokenMock = mock(
   async () => ({ ok: true as const, accessToken: "fake-token" }),
 );
 
+// Full `@vellumai/local-mode` surface so the real `./local-mode` (imported by
+// bundle-flow for resolveCliInvocation) links cleanly.
 mock.module("@vellumai/local-mode", () => ({
   getLockfileData: getLockfileDataMock,
   resolveLockfilePaths: resolveLockfilePathsMock,
   resolveConfigDir: resolveConfigDirMock,
   getGuardianAccessToken: getGuardianAccessTokenMock,
+  replacePlatformAssistants: mock(() => ({ ok: false, error: "unused" })),
+  upsertLockfileAssistant: mock(() => ({ ok: false, error: "unused" })),
+  runHatch: mock(async () => ({ ok: false, error: "unused" })),
+  runRetire: mock(async () => ({ ok: false, error: "unused" })),
+  runWake: mock(async () => ({ ok: false, error: "unused" })),
 }));
+
+const ensureCliInstalledMock = mock(async () => undefined);
 
 mock.module("./cli-installer", () => ({
   isCliInstalled: () => true,
   getBundledBunPath: () => "/fake/bun",
   getCliBinPath: () => "/fake/cli",
-  ensureCliInstalled: async () => {},
+  ensureCliInstalled: ensureCliInstalledMock,
 }));
 
 const openBundleConfirmationMock = mock(
@@ -91,9 +100,22 @@ mock.module("./bundle-window", () => ({
   openBundleWindow: openBundleWindowMock,
 }));
 
+// Full `./app-config` surface so this mock — which leaks into co-run test
+// files via the global module registry — doesn't break sibling modules
+// (notably `./app-origin`, loaded via the real `./local-mode` → `./ipc`).
 mock.module("./app-config", () => ({
+  APP_PROTOCOL: "app",
+  APP_HOST: "vellum.ai",
+  VELLUMAPP_PROTOCOL: "vellumapp",
   BUNDLES_DIR_NAME: "bundles",
+  RENDERER_BASE_PROD: "app://vellum.ai/assistant",
+  getDevRendererBase: () => "http://localhost:5173",
+  getRendererRootUrl: () => "app://vellum.ai/assistant",
 }));
+
+// resolveCliInvocation (via the real `./local-mode`) honors this override;
+// clear it so packaged-path assertions are deterministic.
+delete process.env.VELLUM_CLI_PATH;
 
 const { handleBundleFile, resolveActiveGateway, installBundleFlow } =
   await import("./bundle-flow");
@@ -139,6 +161,7 @@ beforeEach(() => {
   installBundleConfirmationMock.mockClear();
   unpackBundleMock.mockClear();
   openBundleWindowMock.mockClear();
+  ensureCliInstalledMock.mockClear();
 
   getLockfileDataMock.mockReturnValue({ ok: false, status: 500 });
   openBundleConfirmationMock.mockResolvedValue(true);
@@ -290,6 +313,14 @@ describe("handleBundleFile", () => {
     const opts = fetchCall?.[1] as RequestInit | undefined;
     const headers = opts?.headers as Record<string, string> | undefined;
     expect(headers?.["Authorization"]).toBe("Bearer fake-token");
+  });
+
+  test("refreshes the CLI locator via ensureCliInstalled even when already installed", async () => {
+    getLockfileDataMock.mockReturnValue(makeLockfileWithPort(9000));
+
+    await handleBundleFile("/tmp/test.vellum");
+
+    expect(ensureCliInstalledMock).toHaveBeenCalledTimes(1);
   });
 
   test("success flow: scans, confirms, unpacks, opens window", async () => {
