@@ -336,6 +336,16 @@ describe("pastOneTimeStatus", () => {
         schedule({ status: "cancelled", lastRunAt: 1_761_792_000_000 }),
       ),
     ).toEqual({ label: "Cancelled", tone: "neutral" });
+    // failOneShotPermanently: retry cap exhausted → cancelled + error.
+    expect(
+      pastOneTimeStatus(
+        schedule({
+          status: "cancelled",
+          lastStatus: "error",
+          lastRunAt: 1_761_792_000_000,
+        }),
+      ),
+    ).toEqual({ label: "Failed", tone: "negative" });
   });
 });
 

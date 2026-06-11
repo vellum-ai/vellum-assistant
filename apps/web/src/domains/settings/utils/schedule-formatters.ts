@@ -232,13 +232,16 @@ export interface PastOneTimeStatus {
 }
 
 export function pastOneTimeStatus(schedule: Schedule): PastOneTimeStatus {
+  // Failure wins over cancellation: failOneShotPermanently (retry cap
+  // exhausted) records status "cancelled" with lastStatus "error".
+  if (schedule.lastStatus === "error" || schedule.lastStatus === "failed") {
+    return { label: "Failed", tone: "negative" };
+  }
   if (schedule.status === "cancelled") {
     return { label: "Cancelled", tone: "neutral" };
   }
   if (schedule.lastRunAt != null) {
-    return schedule.lastStatus === "error" || schedule.lastStatus === "failed"
-      ? { label: "Failed", tone: "negative" }
-      : { label: "Completed", tone: "positive" };
+    return { label: "Completed", tone: "positive" };
   }
   return { label: "Expired", tone: "neutral" };
 }
