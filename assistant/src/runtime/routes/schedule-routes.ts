@@ -89,6 +89,7 @@ const scheduleSchema = z.object({
   createdFromConversationExists: z.boolean(),
   createdFromConversationArchivedAt: z.number().nullable(),
   description: z.string(),
+  authoredDescription: z.string(),
   cadenceDescription: z.string(),
   mode: z.enum(["notify", "execute", "script", "wake", "workflow"]),
   status: z.enum(["active", "firing", "fired", "cancelled"]),
@@ -184,6 +185,7 @@ function serializeSchedule(
     j.createdFromConversationId,
     sourceConversationCache,
   );
+  const cadenceDescription = getCadenceDescription(j);
   return {
     id: j.id,
     name: j.name,
@@ -205,8 +207,9 @@ function serializeSchedule(
     createdFromConversationId: j.createdFromConversationId,
     createdFromConversationExists: sourceConversation.exists,
     createdFromConversationArchivedAt: sourceConversation.archivedAt,
-    description: j.description,
-    cadenceDescription: getCadenceDescription(j),
+    description: cadenceDescription,
+    authoredDescription: j.description,
+    cadenceDescription,
     mode: j.mode,
     status: j.status,
     routingIntent: j.routingIntent,

@@ -68,7 +68,7 @@ afterEach(() => {
 });
 
 describe("fetchSchedules", () => {
-  test("falls back to description when older assistants omit cadenceDescription", async () => {
+  test("treats older assistants' description as cadence when cadenceDescription is omitted", async () => {
     scheduleRows = [
       {
         id: "schedule-123",
@@ -108,7 +108,49 @@ describe("fetchSchedules", () => {
         throwOnError: false,
       },
     ]);
-    expect(result[0]?.description).toBe("Every day at 9:00 AM");
+    expect(result[0]?.description).toBe("");
+    expect(result[0]?.cadenceDescription).toBe("Every day at 9:00 AM");
+  });
+
+  test("uses authoredDescription when newer assistants preserve legacy description cadence", async () => {
+    scheduleRows = [
+      {
+        id: "schedule-123",
+        name: "Morning brief",
+        enabled: true,
+        syntax: "cron",
+        expression: "0 9 * * *",
+        cronExpression: "0 9 * * *",
+        timezone: "UTC",
+        message: "Send the morning brief",
+        script: null,
+        nextRunAt: 1_761_792_000_000,
+        lastRunAt: null,
+        lastStatus: null,
+        retryCount: 0,
+        maxRetries: 0,
+        retryBackoffMs: 60_000,
+        timeoutMs: null,
+        createdFromConversationId: null,
+        createdFromConversationExists: false,
+        createdFromConversationArchivedAt: null,
+        description: "Every day at 9:00 AM",
+        authoredDescription: "Send the morning brief before work starts",
+        cadenceDescription: "Every day at 9:00 AM",
+        mode: "execute",
+        status: "active",
+        routingIntent: "all_channels",
+        reuseConversation: true,
+        wakeConversationId: null,
+        isOneShot: false,
+      },
+    ] as unknown as SchedulesGetResponse["schedules"];
+
+    const result = await fetchSchedules("assistant-1");
+
+    expect(result[0]?.description).toBe(
+      "Send the morning brief before work starts",
+    );
     expect(result[0]?.cadenceDescription).toBe("Every day at 9:00 AM");
   });
 });

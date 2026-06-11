@@ -10,14 +10,20 @@ export type AssistantSchedule = SchedulesGetResponse["schedules"][number];
 
 function normalizeSchedule(schedule: AssistantSchedule): AssistantSchedule {
   const raw = schedule as AssistantSchedule & {
+    authoredDescription?: string;
     cadenceDescription?: string;
     description?: string;
   };
-  const description = raw.description ?? "";
+  const legacyDescription = raw.description ?? "";
+  const cadenceDescription = raw.cadenceDescription ?? legacyDescription;
+  const authoredDescription =
+    raw.authoredDescription ??
+    (raw.cadenceDescription === undefined ? "" : legacyDescription);
   return {
     ...schedule,
-    description,
-    cadenceDescription: raw.cadenceDescription ?? description,
+    description: authoredDescription,
+    authoredDescription,
+    cadenceDescription,
   };
 }
 

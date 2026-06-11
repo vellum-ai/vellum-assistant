@@ -3380,6 +3380,7 @@ public struct SchedulesListResponseSchedule: Codable, Sendable {
     public let lastRunAt: Int?
     public let lastStatus: String?
     public let description: String
+    public let authoredDescription: String
     public let cadenceDescription: String
     public let mode: String
     public let status: String
@@ -3399,6 +3400,7 @@ public struct SchedulesListResponseSchedule: Codable, Sendable {
         case lastRunAt
         case lastStatus
         case description
+        case authoredDescription
         case cadenceDescription
         case mode
         case status
@@ -3406,7 +3408,7 @@ public struct SchedulesListResponseSchedule: Codable, Sendable {
         case isOneShot
     }
 
-    public init(id: String, name: String, enabled: Bool, syntax: String, expression: String?, cronExpression: String?, timezone: String?, message: String, nextRunAt: Int, lastRunAt: Int?, lastStatus: String?, description: String, cadenceDescription: String, mode: String, status: String, routingIntent: String, isOneShot: Bool) {
+    public init(id: String, name: String, enabled: Bool, syntax: String, expression: String?, cronExpression: String?, timezone: String?, message: String, nextRunAt: Int, lastRunAt: Int?, lastStatus: String?, description: String, authoredDescription: String? = nil, cadenceDescription: String, mode: String, status: String, routingIntent: String, isOneShot: Bool) {
         self.id = id
         self.name = name
         self.enabled = enabled
@@ -3419,6 +3421,7 @@ public struct SchedulesListResponseSchedule: Codable, Sendable {
         self.lastRunAt = lastRunAt
         self.lastStatus = lastStatus
         self.description = description
+        self.authoredDescription = authoredDescription ?? description
         self.cadenceDescription = cadenceDescription
         self.mode = mode
         self.status = status
@@ -3440,11 +3443,19 @@ public struct SchedulesListResponseSchedule: Codable, Sendable {
         lastRunAt = try container.decodeIfPresent(Int.self, forKey: .lastRunAt)
         lastStatus = try container.decodeIfPresent(String.self, forKey: .lastStatus)
         let rawDescription = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
-        if let cadence = try container.decodeIfPresent(String.self, forKey: .cadenceDescription) {
+        if let authored = try container.decodeIfPresent(String.self, forKey: .authoredDescription) {
+            description = authored
+            authoredDescription = authored
+            cadenceDescription =
+                try container.decodeIfPresent(String.self, forKey: .cadenceDescription)
+                ?? rawDescription
+        } else if let cadence = try container.decodeIfPresent(String.self, forKey: .cadenceDescription) {
             description = rawDescription
+            authoredDescription = rawDescription
             cadenceDescription = cadence
         } else {
             description = ""
+            authoredDescription = ""
             cadenceDescription = rawDescription
         }
         mode = try container.decode(String.self, forKey: .mode)
