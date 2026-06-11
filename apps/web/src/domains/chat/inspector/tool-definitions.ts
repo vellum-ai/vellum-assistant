@@ -8,6 +8,7 @@
  * - Anthropic server tools: `{ type: "web_search_20250305", name, ... }`
  * - OpenAI Responses functions: `{ type: "function", name, description?, parameters }`
  * - OpenAI Chat Completions: `{ type: "function", function: { name, description?, parameters } }`
+ * - Gemini tool groups: `{ functionDeclarations: [{ name, description?, parameters }] }`
  */
 
 export interface ParsedToolDefinition {
@@ -39,11 +40,18 @@ export function parseToolDefinitions(
   }
   const parsed: ParsedToolDefinition[] = [];
   for (const raw of tools) {
-    const tool = parseTool(raw);
-    if (!tool) {
-      return null;
+    // Gemini groups several declarations under one tool entry.
+    const declarations =
+      isRecord(raw) && Array.isArray(raw.functionDeclarations)
+        ? raw.functionDeclarations
+        : [raw];
+    for (const declaration of declarations) {
+      const tool = parseTool(declaration);
+      if (!tool) {
+        return null;
+      }
+      parsed.push(tool);
     }
-    parsed.push(tool);
   }
   return parsed.length > 0 ? parsed : null;
 }

@@ -101,6 +101,35 @@ describe("parseToolDefinitions", () => {
     });
   });
 
+  test("flattens Gemini functionDeclarations tool groups", () => {
+    const tools = parseToolDefinitions({
+      tools: [
+        {
+          functionDeclarations: [
+            {
+              name: "get_weather",
+              description: "Look up the weather.",
+              parameters: {
+                type: "object",
+                properties: { city: { type: "string" } },
+              },
+            },
+            { name: "get_time" },
+          ],
+        },
+      ],
+    });
+
+    expect(tools).toHaveLength(2);
+    expect(tools![0]!.name).toBe("get_weather");
+    expect(tools![0]!.inputSchema).toEqual({
+      type: "object",
+      properties: { city: { type: "string" } },
+    });
+    expect(tools![1]!.name).toBe("get_time");
+    expect(tools![1]!.inputSchema).toBeNull();
+  });
+
   test("returns null for unrecognized payloads", () => {
     expect(parseToolDefinitions(null)).toBeNull();
     expect(parseToolDefinitions("tools")).toBeNull();
