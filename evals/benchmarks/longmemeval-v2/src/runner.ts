@@ -39,6 +39,7 @@ import {
 import type { EvalProgressReporter } from "../../../src/lib/runner/progress";
 import { createRunProgressLifecycle } from "../../../src/lib/runner/progress-lifecycle";
 import {
+  appendAssistantEvents,
   ensureRunArtifacts,
   type MetricResult,
   updateRunMetadata,
@@ -49,7 +50,11 @@ import {
 } from "../../../src/lib/metrics";
 import type { Profile } from "../../../src/lib/profile";
 import type { TranscriptTurn } from "../../../src/lib/transcript";
-import { runIngestAsk } from "../../../src/lib/runner/run-ingest-ask";
+import {
+  DEFAULT_QUESTION_MAX_MS,
+  IngestAskError,
+  runIngestAsk,
+} from "../../../src/lib/runner/run-ingest-ask";
 import { summarizeAssistantUsage } from "../../../src/lib/usage";
 
 import { type EvalOverrides, type EvalResult, evalFromSpec } from "./judge";
@@ -89,20 +94,46 @@ export interface RunLongMemEvalV2UnitInput {
   /** Caller's progress reporter. We tee every event to disk + heartbeat. */
   progress?: EvalProgressReporter;
   /**
-   * Quiet timeout (ms) for ingest + question event drains in
+   * Quiet timeout (ms) for the *question* turn's event drain in
    * `runIngestAsk`. Defaults to 30s — same default the underlying
    * runner uses, surfaced here so the harness can override per-run.
    */
   quietMs?: number;
+  /**
+   * Hard wall-clock cap (ms) for the *question* turn in `runIngestAsk`.
+   * Defaults to 6 minutes. If the agent doesn't produce an answer within
+   * this budget the run is graded as a completed miss (score 0), not an
+   * errored run. Surfaced here so the harness can override per-run.
+   */
+  questionMaxMs?: number;
+  /**
+   * Quiet timeout (ms) for the *ingest* turn's event drain in
+   * `runIngestAsk`. Defaults to 2 minutes — the ingest turn is a heavy
+   * multi-step turn whose between-step silences are far longer than a
+   * question turn's, so it needs a more generous safety net (the
+   * completion sentinel, not silence, decides when it's done). Surfaced
+   * here so the harness can override per-run.
+   */
+  ingestQuietMs?: number;
   /** Caller-side overrides applied after the per-question spec kwargs. */
   judgeOverrides?: EvalOverrides;
 }
 
 /**
- * Compose the conversation-A "ingest" prompt. Deliberately neutral —
- * it points at the staged files and asks the agent to do whatever its
- * memory layer does. We don't reveal the question text here; the
- * question turn is conversation B.
+ * Compose the conversation-A "ingest" prompt. Deliberately
+ * question-blind — it points at the staged files and asks the agent to
+ * save a single durable memory note recording that the dataset exists,
+ * where it lives, and that later questions are answered by consulting
+ * the files on demand. It does not ask the agent to read or memorize the
+ * trajectories up front, and it does not reveal the question text; the
+ * question turn is a fresh conversation B.
+ *
+ * The "save a pointer to memory, then reply Ready." contract is portable:
+ * for any species whose memory write is synchronous within the turn, the
+ * note persists into conversation B with no out-of-band "await memory"
+ * step, and the staged workspace files remain available there for
+ * on-demand retrieval. Memory-less baselines have nothing to save and
+ * still answer.
  */
 function buildIngestMessage(trajectoryCount: number): string {
   return [
@@ -111,10 +142,20 @@ function buildIngestMessage(trajectoryCount: number): string {
     `\`<trajectory_id>.json\`).`,
     `An index of the files in haystack order lives at \`${WORKSPACE_MANIFEST_PATH}\`.`,
     "",
-    "Please read through these trajectories and remember whatever you think",
-    "will be useful for answering a follow-up question about them. Use",
-    "whatever memory tools you have. When you are done ingesting, reply with",
-    'a single line: "Ready."',
+    "These files stay in your workspace. You do NOT need to read or memorize",
+    "them now. I will ask follow-up questions in a brand-new conversation that",
+    "will NOT share this chat history — so the one thing that must survive is a",
+    "memory that this dataset exists and how to use it.",
+    "",
+    "Using your memory tools, save a short, durable note recording: that this",
+    "dataset of web-agent / ServiceNow task trajectories exists, that it lives",
+    `at \`${WORKSPACE_TRAJECTORY_DIR}/\` indexed by \`${WORKSPACE_MANIFEST_PATH}\`,`,
+    "and that to answer later questions you should consult these files on",
+    "demand — reading the specific trajectories relevant to each question",
+    "rather than all of them.",
+    "",
+    "When — and only when — that note is saved to memory, reply with a single",
+    'line: "Ready."',
   ]
     .join(" \n")
     .trim();
@@ -183,6 +224,7 @@ export async function runLongMemEvalV2Unit(
   const sessionId = input.sessionId ?? input.runId;
   const sessionLabel = input.sessionLabel;
   const cliArgv = input.cliArgv;
+  const questionMaxMs = input.questionMaxMs ?? DEFAULT_QUESTION_MAX_MS;
 
   // Shared with `runEvalOnce` — wrapped reporter + 5s heartbeat ticker.
   // `dispose()` in the `finally` below stops the ticker (idempotent).
@@ -259,6 +301,8 @@ export async function runLongMemEvalV2Unit(
       ingestMessage,
       questionMessage,
       quietMs: input.quietMs,
+      questionMaxMs,
+      ingestQuietMs: input.ingestQuietMs,
     });
     progress({
       step: "send",
@@ -298,22 +342,46 @@ export async function runLongMemEvalV2Unit(
     );
     await writeIngestAssistantEvents(input.runId, ingestAskResult.ingestEvents);
 
-    progress({
-      step: "metrics",
-      status: "start",
-      message: "Grading hypothesis",
-      detail: input.item.evalFunction,
-    });
-    const evalResult = await evalFromSpec(
-      input.item.evalFunction,
-      {
-        prediction: ingestAskResult.hypothesis,
-        answer: input.item.answer,
-        questionItem: { question: input.item.question },
-      },
-      input.judgeOverrides ?? {},
-    );
-    const metric = metricFromEvalResult(evalResult, input.item);
+    let metric: MetricResult;
+    let judgeUsage: Record<string, unknown> | undefined;
+    if (!ingestAskResult.questionAnswered) {
+      // The agent produced no answer within the question turn's time budget
+      // (it ran to the `questionMaxMs` wall-clock cap, or went quiet, mid-
+      // work). Grade it as a completed miss — score 0 — rather than erroring
+      // the run. "Too slow to answer" is a real outcome that belongs in the
+      // score and the denominator, not an excluded `failed` run. No judge
+      // call is made: there's nothing to grade.
+      const budgetSeconds = Math.round(questionMaxMs / 1000);
+      metric = {
+        name: "longmemeval-v2-judge",
+        score: 0,
+        reason: `No answer produced within the question turn's ${budgetSeconds}s time budget.`,
+        metadata: {
+          function: "no-answer",
+          ability: input.item.ability,
+          questionId: input.item.questionId,
+        },
+      };
+      judgeUsage = undefined;
+    } else {
+      progress({
+        step: "metrics",
+        status: "start",
+        message: "Grading hypothesis",
+        detail: input.item.evalFunction,
+      });
+      const evalResult = await evalFromSpec(
+        input.item.evalFunction,
+        {
+          prediction: ingestAskResult.hypothesis,
+          answer: input.item.answer,
+          questionItem: { question: input.item.question },
+        },
+        input.judgeOverrides ?? {},
+      );
+      metric = metricFromEvalResult(evalResult, input.item);
+      judgeUsage = evalResult.usage;
+    }
     await writeFile(artifacts.metricsPath, JSON.stringify([metric], null, 2));
 
     // Roll usage from both conversations + the judge (if it surfaced
@@ -323,7 +391,7 @@ export async function runLongMemEvalV2Unit(
     const usageEvents = buildRunUsageEvents(
       ingestAskResult.ingestEvents,
       ingestAskResult.questionEvents,
-      evalResult.usage,
+      judgeUsage,
     );
     await writeUsage(input.runId, summarizeAssistantUsage(usageEvents)).catch(
       () => undefined,
@@ -332,8 +400,8 @@ export async function runLongMemEvalV2Unit(
     progress({
       step: "metrics",
       status: "done",
-      message: `Judge label: ${evalResult.label}`,
-      detail: evalResult.function,
+      message: `Run metric ${metric.name}=${metric.score.toFixed(2)}`,
+      detail: input.item.questionId,
     });
 
     progress({
@@ -363,6 +431,25 @@ export async function runLongMemEvalV2Unit(
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // Persist whatever events were captured before the failure so a run
+    // that aborted can still be inspected in the report: ingest-turn
+    // events (e.g. an ingest that never reached its completion sentinel)
+    // and question-turn events (e.g. conversation B emitted zero events).
+    // A question turn that ran its full time budget without composing an
+    // answer is NOT a failure — it returns and is graded as a completed
+    // miss above, so it never reaches this catch.
+    if (err instanceof IngestAskError) {
+      if (err.ingestEvents.length > 0) {
+        await writeIngestAssistantEvents(input.runId, [
+          ...err.ingestEvents,
+        ]).catch(() => undefined);
+      }
+      if (err.questionEvents.length > 0) {
+        await appendAssistantEvents(input.runId, [...err.questionEvents]).catch(
+          () => undefined,
+        );
+      }
+    }
     progress({
       step: "shutdown",
       status: "error",

@@ -1,4 +1,3 @@
-export type LeafPath = string; // dot- or slash-pathed taxonomy node
 export type Slug = string;
 
 /**
@@ -11,34 +10,54 @@ export type Slug = string;
  */
 export const MEMORY_V3_BLOCK_ID = "memory-v3" as const;
 
-export interface LeafFrontmatter {
-  path: LeafPath;
-  in_core: boolean;
-  /**
-   * Optional stable identifier for the leaf, independent of its taxonomy path.
-   * Older leaves predate this field and omit it, so it is optional.
-   */
-  id?: string;
+/**
+ * `meta` key under which the v3 cards block carries its attachment-commit
+ * callback. The injector defers its everInjected-store write (and the
+ * prune-valve schedule) into this callback; runtime assembly invokes it only
+ * when the turn's tail is a user message — the same gate as metadata capture
+ * — so a block that silently fails to attach never claims its cards in the
+ * dedup store. Shared between the producer (`injector.ts`) and the consumer
+ * (`conversation-runtime-assembly.ts`) so a rename is a compile error on both
+ * sides instead of a silent never-commit.
+ */
+export const MEMORY_V3_COMMIT_META_KEY = "memoryV3Commit" as const;
+
+/**
+ * Injection-block id for the v3 ephemeral `<memory_spotlight>` block (the
+ * current window's matched sections, re-rendered at the user tail each turn).
+ * Distinct from {@link MEMORY_V3_BLOCK_ID}: the spotlight never participates
+ * in v2 suppression and is never persisted to message metadata.
+ */
+export const MEMORY_V3_SPOTLIGHT_BLOCK_ID = "memory-v3-spotlight" as const;
+
+/**
+ * A single section of a page: the lead (text before the first `## heading`,
+ * ordinal 0) or a heading-delimited block. Over-long sections are split into
+ * multiple ordered `Section`s, each with its own consecutive `ordinal`, so each
+ * fits a typical embedding window. `text` is prefixed with a
+ * `${lastSlugSegment} — ${title}` head line for lexical/dense matching.
+ */
+export interface Section {
+  article: Slug;
+  title: string;
+  text: string;
+  ordinal: number;
 }
 
-export interface LeafNode {
-  path: LeafPath;
-  frontmatter: LeafFrontmatter;
-  description: string;
-  members: Slug[];
-  domain: string;
+/**
+ * A flat, deterministic index of every page's sections plus an article→section
+ * lookup. `byArticle` maps each article slug to the indices (into `sections`)
+ * of that article's sections, in order.
+ */
+export interface SectionIndex {
+  sections: Section[];
+  byArticle: Map<Slug, number[]>;
 }
 
-export interface LeafTree {
-  leaves: Map<LeafPath, LeafNode>;
-  byPage: Map<Slug, LeafPath[]>;
-}
-
-export interface WorkingSetEntry {
+/** A page selected from the candidate pool, with whether the turn centers on it. */
+export interface SelectedPage {
   slug: Slug;
-  selectedAtTurn: number;
   pinned: boolean;
-  lastSeenTurn: number;
 }
 
 export interface MemoryRoutingTurn {
@@ -56,4 +75,35 @@ export interface MemoryRoutingTurn {
   situationalContext?: string;
 }
 
-export type SelectionSource = "l1+l2" | "core+l2" | "needle" | "carry-forward";
+/**
+ * Canonical ordered list of the lane sources recorded per selection. The
+ * {@link SelectionSource} type is derived from this so a new lane is added in
+ * exactly one place and the runtime list (used for telemetry roll-ups and
+ * source validation) can never drift from the type.
+ *
+ * `core` / `hot` are the stable-prefix lanes (curated core set, frecency hot
+ * set); `needle` / `dense` / `edge` are the per-turn finder lanes.
+ *
+ * The `memory_v3_selections.source` column is free-text, so tightening this set
+ * needs no migration: any historical rows with retired labels (e.g. the old
+ * per-turn carry source) still read back fine via the permissive `z.string()`
+ * row schema — they just don't aggregate into a named bucket.
+ */
+export const SELECTION_SOURCES = [
+  "core",
+  "hot",
+  "needle",
+  "dense",
+  "edge",
+] as const;
+
+export type SelectionSource = (typeof SELECTION_SOURCES)[number];
+
+/**
+ * The per-turn finder lanes — the strict subset of {@link SelectionSource} a
+ * finder candidate can be tagged with at pool-build time. (`core` / `hot` are
+ * assigned by stable-prefix membership, not by a finder.) Defined via
+ * `Exclude` so it can never drift from {@link SELECTION_SOURCES}: adding a
+ * finder lane there widens this automatically.
+ */
+export type FinderLane = Exclude<SelectionSource, "core" | "hot">;

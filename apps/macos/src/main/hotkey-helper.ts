@@ -5,6 +5,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 
+import type {
+  DictationPartialEvent,
+  DictationPartialsResult,
+  FnPushToTalkResult,
+  HelperRestartResult,
+  HelperState,
+  HotkeyEvent,
+  HotkeyEventState,
+} from "@vellumai/ipc-contract";
+
 import { handle } from "./ipc";
 import log from "./logger";
 import {
@@ -13,16 +23,15 @@ import {
   type MacHelperState,
 } from "./sidecar/mac-helper";
 
-export type HotkeyEventState = "down" | "up";
-
-export interface HotkeyEvent {
-  kind: "fnPushToTalk";
-  state: HotkeyEventState;
-}
-
-export type FnPushToTalkResult =
-  | { ok: true; enabled: boolean }
-  | { ok: false; reason: string };
+export type {
+  DictationPartialEvent,
+  DictationPartialsResult,
+  FnPushToTalkResult,
+  HelperRestartResult,
+  HelperState,
+  HotkeyEvent,
+  HotkeyEventState,
+};
 
 export type MacHelperPermissionKind =
   | "speechRecognition"
@@ -34,10 +43,6 @@ export type MacHelperPermissionStatus =
   | "denied"
   | "not-determined"
   | "granted";
-
-export type HelperRestartResult =
-  | { ok: true; state: MacHelperState }
-  | { ok: false; reason: string; state: MacHelperState };
 
 const HOTKEY_EVENT_SCHEMA = z.object({
   kind: z.literal("fnPushToTalk"),
@@ -56,6 +61,15 @@ const HELPER_PERMISSION_STATUS_SCHEMA = z.object({
     "not-determined",
     "granted",
   ]),
+});
+
+const DICTATION_PARTIAL_SCHEMA = z.object({
+  text: z.string(),
+});
+
+const DICTATION_RESULT_SCHEMA = z.object({
+  enabled: z.boolean(),
+  reason: z.string().optional(),
 });
 
 let platformForTesting: NodeJS.Platform | null = null;
@@ -232,12 +246,50 @@ interface HotkeyOwner {
   cleanup: () => void;
 }
 
+// The renderer that most recently enabled dictation partials — the recording
+// session's host. Partial notifications route only there.
+let dictationPartialsOwner: WebContents | null = null;
+
+const setDictationPartials = async (
+  webContents: WebContents,
+  enable: boolean,
+): Promise<DictationPartialsResult> => {
+  try {
+    const result = await client.call("dictation.setPartials", { enable });
+    const parsed = DICTATION_RESULT_SCHEMA.safeParse(result);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        reason: "mac helper returned invalid dictation result",
+      };
+    }
+    if (enable && !parsed.data.enabled) {
+      return { ok: false, reason: parsed.data.reason ?? "unavailable" };
+    }
+    dictationPartialsOwner = enable ? webContents : null;
+    return { ok: true, enabled: parsed.data.enabled };
+  } catch (err) {
+    return {
+      ok: false,
+      reason: err instanceof Error ? err.message : String(err),
+    };
+  }
+};
+
+const sendDictationPartialToOwner = (event: DictationPartialEvent): void => {
+  if (!dictationPartialsOwner || dictationPartialsOwner.isDestroyed()) return;
+  dictationPartialsOwner.send("vellum:helper:dictation:partial", event);
+};
+
 const hotkeyOwners = new Map<number, HotkeyOwner>();
 let activeHotkeyOwnerId: number | null = null;
 let helperRegistered = false;
+let helperRegistrationSync: Promise<FnPushToTalkResult> | null = null;
 let restoreHotkeyAfterRestart = false;
 let restoreHotkeyInFlight = false;
 let pttIsDown = false;
+
+const shouldRegisterHelper = (): boolean => hotkeyOwners.size > 0;
 
 const newestOwnerId = (): number | null => {
   let id: number | null = null;
@@ -262,20 +314,8 @@ const disableFnPushToTalkForOwner = async (
 ): Promise<FnPushToTalkResult> => {
   removeHotkeyOwner(webContents.id);
 
-  if (hotkeyOwners.size > 0) {
-    return { ok: true, enabled: true };
-  }
-  restoreHotkeyAfterRestart = false;
-  if (!helperRegistered) {
-    return { ok: true, enabled: false };
-  }
-
-  const result = await fnPushToTalk(false);
-  if (result.ok) {
-    helperRegistered = false;
-    log.info("[mac-helper] disabled Fn push-to-talk");
-  }
-  return result;
+  if (hotkeyOwners.size === 0) restoreHotkeyAfterRestart = false;
+  return syncFnPushToTalkRegistration();
 };
 
 const addHotkeyOwner = (webContents: WebContents): void => {
@@ -311,21 +351,60 @@ const enableFnPushToTalkForOwner = async (
 ): Promise<FnPushToTalkResult> => {
   addHotkeyOwner(webContents);
 
-  if (helperRegistered) {
-    return { ok: true, enabled: true };
-  }
-
-  const result = await fnPushToTalk(true);
-  if (result.ok) {
-    helperRegistered = result.enabled;
-    log.info("[mac-helper] enabled Fn push-to-talk");
-  } else {
+  const result = await syncFnPushToTalkRegistration();
+  if (!result.ok) {
     log.warn(
       `[mac-helper] failed to enable Fn push-to-talk: ${result.reason}`,
     );
     removeHotkeyOwner(webContents.id);
+    void syncFnPushToTalkRegistration();
   }
   return result;
+};
+
+const setHelperRegistration = async (
+  enable: boolean,
+): Promise<FnPushToTalkResult> => {
+  const result = await fnPushToTalk(enable);
+  if (!result.ok) return result;
+
+  helperRegistered = result.enabled;
+  if (result.enabled !== enable) {
+    return {
+      ok: false,
+      reason: enable
+        ? "mac helper did not enable Fn push-to-talk"
+        : "mac helper did not disable Fn push-to-talk",
+    };
+  }
+
+  log.info(
+    enable
+      ? "[mac-helper] enabled Fn push-to-talk"
+      : "[mac-helper] disabled Fn push-to-talk",
+  );
+  return { ok: true, enabled: helperRegistered };
+};
+
+const syncFnPushToTalkRegistration = (): Promise<FnPushToTalkResult> => {
+  if (helperRegistrationSync) return helperRegistrationSync;
+
+  const sync = (async (): Promise<FnPushToTalkResult> => {
+    while (helperRegistered !== shouldRegisterHelper()) {
+      const shouldRegister = shouldRegisterHelper();
+      const result = await setHelperRegistration(shouldRegister);
+      if (!result.ok) return result;
+    }
+    return { ok: true, enabled: helperRegistered };
+  })();
+  helperRegistrationSync = sync;
+  void sync.finally(() => {
+    if (helperRegistrationSync === sync) {
+      helperRegistrationSync = null;
+    }
+  });
+
+  return sync;
 };
 
 const sendHotkeyEventToOwner = (event: HotkeyEvent): void => {
@@ -364,10 +443,9 @@ const restoreHotkeyRegistrationIfNeeded = async (): Promise<void> => {
   }
 
   restoreHotkeyInFlight = true;
-  const result = await fnPushToTalk(true);
+  const result = await syncFnPushToTalkRegistration();
   restoreHotkeyInFlight = false;
   if (result.ok) {
-    helperRegistered = result.enabled;
     restoreHotkeyAfterRestart = !result.enabled;
     if (result.enabled) {
       log.info("[mac-helper] restored Fn push-to-talk after helper restart");
@@ -390,6 +468,9 @@ const handleHelperState = (state: MacHelperState): void => {
     restoreHotkeyAfterRestart = true;
   }
   helperRegistered = false;
+  // The partials session lived in the dead helper process; the renderer's
+  // session simply continues without live text.
+  dictationPartialsOwner = null;
   sendSyntheticHotkeyUpIfNeeded();
 };
 
@@ -409,6 +490,7 @@ const restartHelper = (): HelperRestartResult => {
 let installed = false;
 let unsubscribeHotkeyEvents: (() => void) | null = null;
 let unsubscribeHelperState: (() => void) | null = null;
+let unsubscribeDictationPartials: (() => void) | null = null;
 
 export const installHotkeyHelper = (): void => {
   if (installed) return;
@@ -419,6 +501,13 @@ export const installHotkeyHelper = (): void => {
     HOTKEY_EVENT_SCHEMA,
     (event) => {
       sendHotkeyEventToOwner(event);
+    },
+  );
+  unsubscribeDictationPartials = client.onNotification(
+    "dictation.partial",
+    DICTATION_PARTIAL_SCHEMA,
+    (event) => {
+      sendDictationPartialToOwner(event);
     },
   );
   unsubscribeHelperState = client.onState(handleHelperState);
@@ -436,6 +525,12 @@ export const installHotkeyHelper = (): void => {
         : disableFnPushToTalkForOwner(event.sender),
   );
 
+  handle(
+    "vellum:helper:dictation:setPartials",
+    z.tuple([z.boolean()]),
+    ([enable], event) => setDictationPartials(event.sender, enable),
+  );
+
   app.on("before-quit", () => {
     client.shutdown({
       method: "hotkey.fnPushToTalk",
@@ -449,6 +544,7 @@ export const __resetForTesting = (): void => {
   platformForTesting = null;
   supervisorOptionsForTesting = {};
   helperRegistered = false;
+  helperRegistrationSync = null;
   restoreHotkeyAfterRestart = false;
   restoreHotkeyInFlight = false;
   pttIsDown = false;
@@ -456,6 +552,9 @@ export const __resetForTesting = (): void => {
   unsubscribeHotkeyEvents = null;
   unsubscribeHelperState?.();
   unsubscribeHelperState = null;
+  unsubscribeDictationPartials?.();
+  unsubscribeDictationPartials = null;
+  dictationPartialsOwner = null;
   for (const owner of hotkeyOwners.values()) owner.cleanup();
   hotkeyOwners.clear();
   activeHotkeyOwnerId = null;

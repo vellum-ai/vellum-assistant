@@ -83,6 +83,8 @@ export interface ComposerNoticesProps {
 
   /** True when the assistant is in maintenance/recovery mode. */
   showMaintenanceBanner: boolean;
+  /** True when this composer notice should render its own maintenance exit action. */
+  showMaintenanceExitAction?: boolean;
   /** Assistant id used by the maintenance banner's "exited" callback. */
   assistantId?: string | null;
   /** Invoked when the assistant exits maintenance mode. */
@@ -105,6 +107,7 @@ export function ComposerNotices({
   compactionCircuitOpenUntil,
   onCompactionCircuitExpired,
   showMaintenanceBanner,
+  showMaintenanceExitAction = true,
   assistantId,
   onMaintenanceExited,
 }: ComposerNoticesProps) {
@@ -177,6 +180,7 @@ export function ComposerNotices({
           <MaintenanceModeBanner
             assistantId={assistantId}
             onExited={onMaintenanceExited}
+            showExitAction={showMaintenanceExitAction}
           />
         </div>
       )}

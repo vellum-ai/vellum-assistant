@@ -29,7 +29,7 @@ import { useDeployStore } from "@/stores/deploy-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { UIContext } from "@/domains/chat/turn-selectors";
@@ -216,17 +216,15 @@ export function ActiveChatView() {
     true,
   );
 
-  // Avatar — called here for sync-router invalidation; ChatMainPanel
-  // has its own call (TanStack Query deduplicates the fetch).
-  const avatar = useAssistantAvatar(assistantId);
+  // Avatar — called here so the cache is warm; ChatMainPanel has
+  // its own call (TanStack Query deduplicates the fetch).
+  useAssistantAvatar(assistantId);
 
   // -------------------------------------------------------------------------
   // Conversation loader
   // -------------------------------------------------------------------------
   const {
     refreshConversations,
-    scheduleConversationListRefetch,
-    cancelScheduledRefetch,
     switchConversation,
     startNewConversation,
     conversationExistsOnServer,
@@ -245,25 +243,21 @@ export function ActiveChatView() {
   });
 
   // -------------------------------------------------------------------------
-  // Message lifecycle — reconciliation, sync router, stream event handling,
-  // SSE subscription, and latest-message refresh.
+  // Message lifecycle — reconciliation, stream event handling, SSE
+  // subscription, active-conversation message sync, and latest-message
+  // refresh.
   // -------------------------------------------------------------------------
   const {
     startReconciliationLoop,
     cancelReconciliation,
     reconcileActiveConversation,
-    refreshLatestMessages,
   } = useMessageLifecycle({
     assistantId,
     assistantStateKind: assistantState.kind,
     activeConversationId,
     conversationExistsOnServer,
     latestPageOldestTimestamp: historyResult.pagination.latestPageOldestTimestamp,
-    scheduleConversationListRefetch,
-    cancelScheduledRefetch,
     reachability,
-    reachabilityReadyEpoch,
-    avatarInvalidate: avatar.invalidate,
     setAssetsRefreshKey,
   });
 
@@ -362,6 +356,14 @@ export function ActiveChatView() {
     switchConversation,
   });
 
+  // Manual "Refresh" menu item — re-fetch the latest history page through the
+  // same TanStack Query invalidation the pull-to-refresh gesture uses, so the
+  // transcript reconciles through the seq frontier exactly like a page reload.
+  const invalidateHistory = historyResult.pagination.invalidate;
+  const handleRefreshLatest = useCallback(() => {
+    void invalidateHistory();
+  }, [invalidateHistory]);
+
   // -------------------------------------------------------------------------
   // Layout header slot registration — supplements, top bar right
   // -------------------------------------------------------------------------
@@ -372,7 +374,7 @@ export function ActiveChatView() {
     handleOpenInNewWindow,
     handleInspectConversation,
     handleCopyConversation,
-    refreshLatestMessages,
+    onRefresh: handleRefreshLatest,
   });
 
   // -------------------------------------------------------------------------

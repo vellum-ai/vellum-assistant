@@ -20,9 +20,10 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { startTransition, useEffect } from "react";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import { reconcileLatestHistorySnapshot } from "@/domains/chat/utils/reconcile-snapshot";
+import { reconcileMessagesWithSeq } from "@/domains/chat/utils/reconcile-with-seq";
 import { extractWirePendingConfirmation } from "@/domains/chat/utils/chat";
 import { filterDismissedSurfaces } from "@/domains/chat/utils/dismissed-surfaces-storage";
+import { mapMessageSurfaces } from "@/domains/chat/utils/map-message-surfaces";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { recordServerSeq } from "@/lib/streaming/server-seq";
 import { getLocalSeq, recordLocalSeq } from "@/lib/streaming/local-seq";
@@ -162,9 +163,10 @@ export function useConversationHistory({
           const nextMessages =
             isFreshSwitch || prev.length === 0
               ? filteredMessages
-              : reconcileLatestHistorySnapshot(prev, filteredMessages, {
+              : reconcileMessagesWithSeq(prev, filteredMessages, {
                   serverSeq: latestPageSeq,
                   localSeq: priorLocalSeq,
+                  oldestPageTimestamp: pagination.oldestLoadedTimestamp,
                 });
           return nextMessages;
         });
@@ -188,20 +190,23 @@ export function useConversationHistory({
               if (useChatSessionStore.getState().previousConversationId !== requestedConversationForSurfaces) return;
               setMessages((prev) => {
                 for (let i = prev.length - 1; i >= 0; i--) {
-                  const m = prev[i]!;
-                  const idx =
-                    m.surfaces?.findIndex(
+                  if (
+                    !prev[i]!.surfaces?.some(
                       (s) => s.surfaceId === fresh.surfaceId,
-                    ) ?? -1;
-                  if (idx === -1) continue;
+                    )
+                  ) {
+                    continue;
+                  }
                   const updated = [...prev];
-                  const newSurfaces = [...m.surfaces!];
-                  newSurfaces[idx] = {
-                    ...newSurfaces[idx]!,
-                    data: fresh.data,
-                    title: fresh.title ?? newSurfaces[idx]!.title,
-                  };
-                  updated[i] = { ...m, surfaces: newSurfaces };
+                  updated[i] = mapMessageSurfaces(prev[i]!, (s) =>
+                    s.surfaceId === fresh.surfaceId
+                      ? {
+                          ...s,
+                          data: fresh.data,
+                          title: fresh.title ?? s.title,
+                        }
+                      : s,
+                  );
                   return updated;
                 }
                 return prev;

@@ -196,6 +196,32 @@ const pendingInteractionResolver: GuardianRequestResolver = {
     // resolveConfirmation() owns pendingInteractions deregistration.
     const userDecision: UserDecision =
       decision.action === "reject" ? "deny" : "allow";
+
+    // Route-owned confirmations (e.g. the ACP spawn/steer approval gate in
+    // acp-routes.ts) carry a `directResolve` and are NOT owned by any
+    // Conversation.prompter, so handleConfirmationResponse below would no-op
+    // and the caller would block until timeout. Resolve them directly, exactly
+    // as the POST /v1/confirm route does (see approval-routes.ts).
+    if (interaction.directResolve) {
+      pendingInteractions.resolve(
+        request.id,
+        userDecision === "allow" ? "approved" : "rejected",
+      );
+      interaction.directResolve(userDecision);
+      log.info(
+        {
+          event: "resolver_tool_approval_applied",
+          requestId: request.id,
+          action: decision.action,
+          conversationId: request.conversationId,
+          toolName: request.toolName,
+          directResolve: true,
+        },
+        "Tool approval resolver: direct-resolve interaction resolved",
+      );
+      return { ok: true, applied: true };
+    }
+
     const conversation = findConversation(interaction.conversationId);
     if (!conversation) {
       return {

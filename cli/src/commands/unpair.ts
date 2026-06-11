@@ -24,7 +24,7 @@ import {
 import { deleteGuardianToken } from "../lib/guardian-token";
 
 function printUsage(): void {
-  console.log(`vellum unpair - Forget a paired assistant imported from another machine
+  console.log(`vellum unpair [beta] - Forget a paired assistant imported from another machine
 
 USAGE:
     vellum unpair <name> [--yes]

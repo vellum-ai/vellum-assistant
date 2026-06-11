@@ -18,7 +18,7 @@
     "test": "bun test",
     "test:ci": "bun scripts/run-tests.ts",
     "build:fetch-bun": "bash scripts/fetch-bun.sh",
-    "build:web": "cd ../web && bun install && bun run openapi-ts && bun run build && cd ../macos && mkdir -p resources && cp -R ../web/dist resources/web-dist",
+    "build:web": "cd ../web && bun install && bun run openapi-ts && bun run build && cd ../macos && mkdir -p resources && rm -rf resources/web-dist && cp -R ../web/dist resources/web-dist",
     "pack": "bash scripts/pack.sh",
     "pack:debug": "VELLUM_ENABLE_CHROME_DEVTOOLS=true bash scripts/pack.sh"
   },
@@ -35,6 +35,7 @@
   },
   "dependencies": {
     "@vellumai/environments": "file:../../packages/environments",
+    "@vellumai/ipc-contract": "file:../../packages/ipc-contract",
     "@vellumai/local-mode": "file:../../packages/local-mode",
     "electron-log": "5.4.4",
     "electron-updater": "6.8.9",

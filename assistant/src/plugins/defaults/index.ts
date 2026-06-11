@@ -27,10 +27,22 @@
 import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
 import { type Plugin, PluginExecutionError } from "../types.js";
 import compactionPkg from "./compaction/package.json" with { type: "json" };
+import emptyResponsePostModelCall from "./empty-response/hooks/post-model-call.js";
 import emptyResponseStop from "./empty-response/hooks/stop.js";
+import { resetEmptyResponseNudgeStoreForTests } from "./empty-response/nudge-state-store.js";
 import emptyResponsePkg from "./empty-response/package.json" with { type: "json" };
+import historyRepairPostModelCall from "./history-repair/hooks/post-model-call.js";
+import historyRepairStop from "./history-repair/hooks/stop.js";
 import historyRepairUserPromptSubmit from "./history-repair/hooks/user-prompt-submit.js";
 import historyRepairPkg from "./history-repair/package.json" with { type: "json" };
+import { resetRepairStateStoreForTests } from "./history-repair/repair-state-store.js";
+import imageRecoveryPostModelCall from "./image-recovery/hooks/post-model-call.js";
+import imageRecoveryStop from "./image-recovery/hooks/stop.js";
+import { resetImageRecoveryStoreForTests } from "./image-recovery/image-recovery-state-store.js";
+import imageRecoveryPkg from "./image-recovery/package.json" with { type: "json" };
+import memoryRetrievalPostCompact from "./memory-retrieval/hooks/post-compact.js";
+import memoryRetrievalUserPromptSubmit from "./memory-retrieval/hooks/user-prompt-submit.js";
+import memoryRetrievalPkg from "./memory-retrieval/package.json" with { type: "json" };
 import memoryV3PostCompact from "./memory-v3-shadow/hooks/post-compact.js";
 import memoryV3UserPromptSubmit from "./memory-v3-shadow/hooks/user-prompt-submit.js";
 import memoryV3Pkg from "./memory-v3-shadow/package.json" with { type: "json" };
@@ -57,8 +69,10 @@ export const defaultCompactionPlugin: Plugin = {
 };
 
 /**
- * `empty-response` — a `stop` hook that re-queries the model when a turn
- * yields with no tool calls but came back empty (or as a provider refusal).
+ * `empty-response` — a `post-model-call` hook that re-queries the model when a
+ * turn yields with no tool calls but came back empty (or as a provider
+ * refusal); the `stop` hook clears the one-shot nudge bound on a terminal stop
+ * so the next run nudges afresh.
  */
 export const defaultEmptyResponsePlugin: Plugin = {
   manifest: {
@@ -66,14 +80,39 @@ export const defaultEmptyResponsePlugin: Plugin = {
     version: emptyResponsePkg.version,
   },
   hooks: {
+    "post-model-call": emptyResponsePostModelCall,
     stop: emptyResponseStop,
   },
 };
 
 /**
- * `history-repair` — a `user-prompt-submit` hook that normalizes the working
- * message history (tool-use/tool-result pairing, role alternation) before the
- * agent loop hands it to the provider.
+ * `memory-retrieval` — assembles the turn's runtime injections (the unified
+ * `<turn_context>` block, Slack chronological transcript, NOW.md / PKB /
+ * memory-v2 / workspace blocks) via two hooks: `user-prompt-submit` runs
+ * memory-graph retrieval and the initial injection, and `post-compact`
+ * re-applies the injections onto the compacted history after a mid-turn
+ * compaction. Registered first in the chain so later `user-prompt-submit`
+ * hooks (history repair, title) see the fully memory-injected history.
+ */
+export const defaultMemoryRetrievalPlugin: Plugin = {
+  manifest: {
+    name: memoryRetrievalPkg.name,
+    version: memoryRetrievalPkg.version,
+  },
+  hooks: {
+    "user-prompt-submit": memoryRetrievalUserPromptSubmit,
+    "post-compact": memoryRetrievalPostCompact,
+  },
+};
+
+/**
+ * `history-repair` — normalizes the working message history (tool-use/tool-result
+ * pairing, role alternation). The `user-prompt-submit` hook normalizes the
+ * history before each provider call; the `post-model-call` hook handles the
+ * provider rejection where the call failed on an ordering violation,
+ * deep-repairing the history and asking the loop to retry; the `stop` hook
+ * clears the one-shot repair bound on a terminal stop so the next turn repairs
+ * afresh.
  */
 export const defaultHistoryRepairPlugin: Plugin = {
   manifest: {
@@ -82,6 +121,28 @@ export const defaultHistoryRepairPlugin: Plugin = {
   },
   hooks: {
     "user-prompt-submit": historyRepairUserPromptSubmit,
+    "post-model-call": historyRepairPostModelCall,
+    stop: historyRepairStop,
+  },
+};
+
+/**
+ * `image-recovery` — recovers from a provider image-too-large rejection. The
+ * `post-model-call` hook handles the rejection, downscaling the oversized image
+ * blocks in the working history and asking the loop to retry, and persisting
+ * the same downgrade durably so the rejected image cannot rehydrate from the
+ * stored row and re-reject on later turns; the `stop` hook clears the one-shot
+ * recovery bound on a terminal stop so the next turn recovers afresh. Bounded
+ * to one pass per turn.
+ */
+export const defaultImageRecoveryPlugin: Plugin = {
+  manifest: {
+    name: imageRecoveryPkg.name,
+    version: imageRecoveryPkg.version,
+  },
+  hooks: {
+    "post-model-call": imageRecoveryPostModelCall,
+    stop: imageRecoveryStop,
   },
 };
 
@@ -156,10 +217,12 @@ export const defaultToolResultTruncatePlugin: Plugin = {
  */
 function getAllDefaultPlugins(): readonly Plugin[] {
   return [
+    defaultMemoryRetrievalPlugin,
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
     defaultToolErrorPlugin,
     defaultHistoryRepairPlugin,
+    defaultImageRecoveryPlugin,
     defaultCompactionPlugin,
     defaultTitleGeneratePlugin,
     memoryV3ShadowPlugin,
@@ -202,5 +265,8 @@ export function registerDefaultPlugins(): void {
  */
 export function resetPluginRegistryAndRegisterDefaults(): void {
   resetPluginRegistryForTests();
+  resetEmptyResponseNudgeStoreForTests();
+  resetRepairStateStoreForTests();
+  resetImageRecoveryStoreForTests();
   registerDefaultPlugins();
 }

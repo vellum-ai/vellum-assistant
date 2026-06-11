@@ -1,7 +1,4 @@
-import {
-  dedupeDisplayMessages,
-  messagesEqual,
-} from "@/domains/chat/utils/message-merge";
+import { messagesEqual } from "@/domains/chat/utils/message-merge";
 import {
   findDisplayMessageByRuntimeIdentity,
   hasServerIdentity,
@@ -12,7 +9,7 @@ import {
   sortByTimestamp,
   timestampToMs,
 } from "@/domains/chat/utils/message-sorting";
-import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
+import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
 /**
@@ -71,7 +68,7 @@ export function reconcileMessagesWithSeq(
   options: ReconcileWithSeqOptions,
 ): DisplayMessage[] {
   if (server.length === 0) {
-    return dedupeDisplayMessages(local);
+    return local;
   }
 
   const streamAhead =
@@ -131,8 +128,6 @@ export function reconcileMessagesWithSeq(
 
   sortByTimestamp(reconciled);
 
-  const deduped = dedupeDisplayMessages(reconciled);
-
   // Stability mirrors the merge's own branch decision above. A stale snapshot
   // (`streamAhead`, `S < L`) kept the live local rows and adopted only their
   // server identity, so the merge cannot have changed any row's content — the
@@ -141,7 +136,7 @@ export function reconcileMessagesWithSeq(
   // instead of a deep content compare. This is the streaming hot path, where
   // debounced snapshots routinely lag the stream.
   if (streamAhead) {
-    return sameIdentitySequence(local, deduped) ? local : deduped;
+    return sameIdentitySequence(local, reconciled) ? local : reconciled;
   }
 
   // Authoritative snapshot (`S >= L`) or a daemon predating seq reporting: the
@@ -150,7 +145,7 @@ export function reconcileMessagesWithSeq(
   // re-persisted at the same watermark). Compare content so an authoritative
   // correction is never dropped and the poll loop still settles when nothing
   // changed.
-  return messagesEqual(local, deduped) ? local : deduped;
+  return messagesEqual(local, reconciled) ? local : reconciled;
 }
 
 /**
@@ -314,14 +309,14 @@ function findOptimisticEcho(
   }
 
   if (optimistic.role === "assistant") {
-    const optimisticText = segmentsToPlainText(optimistic.textSegments).trim();
+    const optimisticText = messagePlainText(optimistic).trim();
     if (!optimisticText) {
       return undefined;
     }
     return reconciled.find(
       (r) =>
         r.role === "assistant" &&
-        segmentsToPlainText(r.textSegments).trim().startsWith(optimisticText),
+        messagePlainText(r).trim().startsWith(optimisticText),
     );
   }
 

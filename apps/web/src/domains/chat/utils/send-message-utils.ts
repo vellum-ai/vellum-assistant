@@ -5,10 +5,14 @@
  * `useSendMessage` and suitable for direct unit testing.
  */
 
-import { isSurfaceInteractive } from "@/domains/chat/types/types";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { isSurfaceInteractive, type DisplayMessage } from "@/domains/chat/types/types";
 
 import { attachConfirmationToToolCall, ERROR_MESSAGES } from "@/domains/chat/utils/chat";
+import {
+  filterMessageSurfaces,
+  mapMessageSurfaces,
+} from "@/domains/chat/utils/map-message-surfaces";
+import { mapMessageToolCalls } from "@/domains/chat/utils/map-message-tool-calls";
 import type { PendingConfirmationState, PendingSecretState } from "@/domains/chat/types";
 import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 
@@ -40,20 +44,15 @@ export function clearConfirmationByRequestId(
 ): DisplayMessage[] {
   let anyChanged = false;
   const updated = prev.map((msg) => {
-    if (!msg.toolCalls) return msg;
-    let msgChanged = false;
-    const updatedTcs = msg.toolCalls.map((tc) => {
-      if (tc.pendingConfirmation?.requestId === requestId) {
-        msgChanged = true;
-        return { ...tc, pendingConfirmation: undefined };
-      }
-      return tc;
-    });
-    if (msgChanged) {
+    const next = mapMessageToolCalls(msg, (tc) =>
+      tc.pendingConfirmation?.requestId === requestId
+        ? { ...tc, pendingConfirmation: undefined }
+        : tc,
+    );
+    if (next !== msg) {
       anyChanged = true;
-      return { ...msg, toolCalls: updatedTcs };
     }
-    return msg;
+    return next;
   });
   return anyChanged ? updated : prev;
 }
@@ -67,20 +66,15 @@ export function clearPendingConfirmationsFromMessages(
 ): DisplayMessage[] {
   let anyChanged = false;
   const updated = prev.map((msg) => {
-    if (!msg.toolCalls) return msg;
-    let msgChanged = false;
-    const updatedTcs = msg.toolCalls.map((tc) => {
-      if (tc.pendingConfirmation) {
-        msgChanged = true;
-        return { ...tc, pendingConfirmation: undefined };
-      }
-      return tc;
-    });
-    if (msgChanged) {
+    const next = mapMessageToolCalls(msg, (tc) =>
+      tc.pendingConfirmation
+        ? { ...tc, pendingConfirmation: undefined }
+        : tc,
+    );
+    if (next !== msg) {
       anyChanged = true;
-      return { ...msg, toolCalls: updatedTcs };
     }
-    return msg;
+    return next;
   });
   return anyChanged ? updated : prev;
 }
@@ -103,20 +97,9 @@ export function dismissInteractiveSurfaces(
   if (interactiveIds.size === 0) {
     return { updatedMessages: prev, dismissedIds: interactiveIds };
   }
-  const updatedMessages = prev.map((msg) => {
-    if (!msg.surfaces || msg.surfaces.length === 0) return msg;
-    const remaining = msg.surfaces.filter(
-      (s) => !interactiveIds.has(s.surfaceId),
-    );
-    if (remaining.length === msg.surfaces.length) return msg;
-    return {
-      ...msg,
-      surfaces: remaining,
-      contentOrder: msg.contentOrder?.filter(
-        (e) => !(e.type === "surface" && interactiveIds.has(e.id)),
-      ),
-    };
-  });
+  const updatedMessages = prev.map((msg) =>
+    filterMessageSurfaces(msg, (s) => !interactiveIds.has(s.surfaceId)),
+  );
   return { updatedMessages, dismissedIds: interactiveIds };
 }
 
@@ -137,20 +120,17 @@ export function completeSubmittedSurface(
       actionId === "dismiss" ||
       matchedAction?.style === "secondary";
     const updated = [...prev];
-    updated[i] = {
-      ...prev[i]!,
-      surfaces: prev[i]!.surfaces?.map((s) =>
-        s.surfaceId === surfaceId
-          ? {
-              ...s,
-              completed: true,
-              completionSummary: isCancellation
-                ? "Cancelled"
-                : matchedAction?.label ?? undefined,
-            }
-          : s,
-      ),
-    };
+    updated[i] = mapMessageSurfaces(prev[i]!, (s) =>
+      s.surfaceId === surfaceId
+        ? {
+            ...s,
+            completed: true,
+            completionSummary: isCancellation
+              ? "Cancelled"
+              : matchedAction?.label ?? undefined,
+          }
+        : s,
+    );
     return updated;
   }
   return prev;

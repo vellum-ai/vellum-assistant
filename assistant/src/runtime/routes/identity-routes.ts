@@ -7,7 +7,6 @@ import { availableParallelism, cpus, totalmem } from "node:os";
 
 import { z } from "zod";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getCpuLimit, getIsPlatform } from "../../config/env-registry.js";
 import { resolveCallSiteConfig } from "../../config/llm-resolver.js";
 import { getConfig } from "../../config/loader.js";
@@ -36,7 +35,7 @@ import {
   readWorkspaceIdentityIntro,
   setCachedIntro,
 } from "./identity-intro-cache.js";
-import type { RouteDefinition } from "./types.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 interface MemoryInfo {
   currentMb: number;
@@ -354,6 +353,9 @@ function getDetailedHealth() {
     ces: {
       connected: cesClient?.isReady() ?? false,
     },
+    capabilities: {
+      memoryOptOut: true,
+    },
     ...(profiler ? { profiler } : {}),
   };
 }
@@ -410,12 +412,12 @@ const FALLBACK_GREETINGS = [
   "Ready when you are.",
 ];
 
-const GENERATED_GREETING_LIMIT = 4;
+const GENERATED_GREETING_LIMIT = 5;
 const GREETING_GENERATION_TIMEOUT_MS = 10_000;
 const GREETING_GENERATION_FAILURE_COOLDOWN_MS = 60_000;
 const EMPTY_STATE_GREETING_CALLSITE = "emptyStateGreeting" as const;
-const EMPTY_STATE_DYNAMIC_GREETINGS_FLAG =
-  "empty-state-dynamic-greetings" as const;
+const EXPLICIT_TIME_OF_DAY_PATTERN =
+  /\b(?:morning|afternoon|evening|tonight|midnight|noon|sunrise|sunset)\b/i;
 
 type IdentityIntroSource = "workspace" | "cache" | "fallback";
 
@@ -442,21 +444,18 @@ function identityIntroResponse(
   };
 }
 
-function getIdentityIntro(): IdentityIntroResponse {
+function getIdentityIntro({
+  queryParams = {},
+}: RouteHandlerArgs = {}): IdentityIntroResponse {
+  const localTimeContext = buildLocalTimeContext(queryParams);
+
   // 1. User-defined greetings from SOUL.md `## Greetings`
   const workspaceGreetings = readWorkspaceGreetings();
   if (workspaceGreetings) {
     return identityIntroResponse(workspaceGreetings, "workspace");
   }
 
-  const config = getConfig();
-  if (
-    !isAssistantFeatureFlagEnabled(EMPTY_STATE_DYNAMIC_GREETINGS_FLAG, config)
-  ) {
-    return identityIntroResponse(FALLBACK_GREETINGS, "fallback");
-  }
-
-  // 2. Cached LLM-generated greetings (populated by background refresh)
+  // 2. Cached LLM-generated greetings
   const cached = getCachedIntro();
   if (cached) {
     return identityIntroResponse(cached.greetings, "cache");
@@ -468,7 +467,7 @@ function getIdentityIntro(): IdentityIntroResponse {
   if (identityIntro) {
     // Still trigger background generation so the next request gets
     // LLM-generated greetings instead of the static tagline.
-    const refreshing = triggerEmptyStateGreetingGeneration();
+    const refreshing = triggerEmptyStateGreetingGeneration(localTimeContext);
     return identityIntroResponse(
       [identityIntro, ...FALLBACK_GREETINGS],
       "workspace",
@@ -477,13 +476,50 @@ function getIdentityIntro(): IdentityIntroResponse {
   }
 
   // 4. Trigger fresh generation without blocking the empty-state UI.
-  const refreshing = triggerEmptyStateGreetingGeneration();
+  const refreshing = triggerEmptyStateGreetingGeneration(localTimeContext);
 
   // 5. Generic fallback only when generation is unavailable.
   return identityIntroResponse(FALLBACK_GREETINGS, "fallback", refreshing);
 }
 
-function triggerEmptyStateGreetingGeneration(): boolean {
+function buildLocalTimeContext(
+  queryParams: Record<string, string>,
+): string | null {
+  const rawHour = queryParams.localHour;
+  const rawMinute = queryParams.localMinute;
+  if (rawHour === undefined || rawMinute === undefined) {
+    return null;
+  }
+
+  const hour = Number(rawHour);
+  const minute = Number(rawMinute);
+  if (
+    !Number.isInteger(hour) ||
+    !Number.isInteger(minute) ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return null;
+  }
+
+  const period =
+    hour >= 5 && hour < 12
+      ? "morning"
+      : hour >= 12 && hour < 17
+        ? "afternoon"
+        : hour >= 17 && hour < 21
+          ? "evening"
+          : "late night";
+  const paddedHour = String(hour).padStart(2, "0");
+  const paddedMinute = String(minute).padStart(2, "0");
+  return `${period} (${paddedHour}:${paddedMinute})`;
+}
+
+function triggerEmptyStateGreetingGeneration(
+  localTimeContext: string | null,
+): boolean {
   if (greetingGenerationInFlight) {
     return true;
   }
@@ -498,7 +534,7 @@ function triggerEmptyStateGreetingGeneration(): boolean {
 
   greetingGenerationInFlight = new Promise<void>((resolve) => {
     queueMicrotask(() => {
-      void generateEmptyStateGreetings()
+      void generateEmptyStateGreetings(localTimeContext)
         .then((greetings) => {
           lastGreetingGenerationFailureAt = greetings === null ? Date.now() : 0;
         })
@@ -512,7 +548,9 @@ function triggerEmptyStateGreetingGeneration(): boolean {
   return true;
 }
 
-async function generateEmptyStateGreetings(): Promise<string[] | null> {
+async function generateEmptyStateGreetings(
+  localTimeContext: string | null,
+): Promise<string[] | null> {
   try {
     const provider = await getConfiguredProvider(EMPTY_STATE_GREETING_CALLSITE);
     if (!provider) {
@@ -527,12 +565,18 @@ async function generateEmptyStateGreetings(): Promise<string[] | null> {
       excludeBootstrap: true,
       excludeCustomPrefix: true,
     });
+    const localTimeInstruction = localTimeContext
+      ? ` Current user-local time for subtle tone only: ${localTimeContext}.`
+      : "";
     const result = await runBtwSidechain({
       content:
         `Generate ${GENERATED_GREETING_LIMIT} short first-person greeting options for the empty new-chat screen. ` +
         "Use the assistant identity, voice, and relationship guidance from IDENTITY.md and SOUL.md. " +
         "Each greeting should feel personal and inviting, not like a generic assistant introduction. " +
-        "Return only a JSON array of strings. No markdown, keys, or explanation.",
+        "Return only a JSON array of strings. No markdown, keys, or explanation. " +
+        "Generated greetings are cached for 4 hours, so do not mention the current time " +
+        "or use explicit time-of-day words like morning, afternoon, evening, or tonight." +
+        localTimeInstruction,
       provider,
       systemPrompt,
       messages: [],
@@ -598,6 +642,7 @@ function normalizeGeneratedGreetings(values: unknown[]): string[] {
       .replace(/^["'`]+|["'`]+$/g, "")
       .trim();
     if (!greeting) continue;
+    if (EXPLICIT_TIME_OF_DAY_PATTERN.test(greeting)) continue;
 
     const key = greeting.toLowerCase();
     if (seen.has(key)) continue;
@@ -645,6 +690,10 @@ const cesHealthSchema = z.object({
   connected: z.boolean(),
 });
 
+const healthCapabilitiesSchema = z.object({
+  memoryOptOut: z.boolean(),
+});
+
 const healthDiskSchema = z.object({
   path: z.string(),
   totalMb: z.number(),
@@ -677,6 +726,7 @@ const detailedHealthSchema = z.object({
   cpu: healthCpuSchema,
   migrations: healthMigrationsSchema,
   ces: cesHealthSchema,
+  capabilities: healthCapabilitiesSchema,
   profiler: profilerStatusSchema.optional(),
 });
 
@@ -750,6 +800,20 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Returns greetings sourced from SOUL.md, the generated cache, or generic fallbacks while background generation refreshes the cache.",
     tags: ["identity"],
+    queryParams: [
+      {
+        name: "localHour",
+        schema: { type: "integer", minimum: 0, maximum: 23 },
+        description:
+          "Optional client-local hour of day used only when refreshing generated greetings.",
+      },
+      {
+        name: "localMinute",
+        schema: { type: "integer", minimum: 0, maximum: 59 },
+        description:
+          "Optional client-local minute used only when refreshing generated greetings.",
+      },
+    ],
     responseBody: z.object({
       greetings: z.array(z.string()),
       text: z.string(),

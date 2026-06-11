@@ -15,7 +15,10 @@ import { installAbout, openAboutWindow } from "./about";
 import { installAutoUpdate } from "./auto-update";
 import { APP_HOST, APP_PROTOCOL, BUNDLES_DIR_NAME, VELLUMAPP_PROTOCOL } from "./app-config";
 import { resolveAllowedOrigin } from "./app-origin";
+import { writeCliLocator } from "./cli-installer";
+import { provisionCliForWrapper } from "./cli-path-installer";
 import { installCsp } from "./csp";
+import { getDeviceId } from "./device-id";
 import { handleSync } from "./ipc";
 import { resolveAppProtocolPath } from "./app-protocol";
 import { registerVellumAppProtocol } from "./vellumapp-protocol";
@@ -29,7 +32,13 @@ import {
 import { handleBundleFile, installBundleFlow } from "./bundle-flow";
 import { handleFileOpen, installFileOpen, onFileOpen } from "./file-open";
 import { installAvatarIpc } from "./avatar";
+import { installCommandPaletteWindow } from "./command-palette-window";
+import { installDictationOverlay } from "./dictation-overlay-window";
 import { installDock } from "./dock";
+import {
+  installEscapeMonitor,
+  setDictationRecording,
+} from "./escape-monitor";
 import { installFeatureFlagsIpc } from "./feature-flags";
 import { installFeedbackIpc } from "./feedback";
 import { installGlobalShortcuts } from "./global-shortcuts";
@@ -38,6 +47,7 @@ import { installHotkeysIpc } from "./hotkeys";
 import { installPopoutWindows } from "./popout-window";
 import { installQuickInput } from "./quick-input-window";
 import { installLocalMode, resolveCliInvocation } from "./local-mode";
+import { installLoginItem, installLoginItemIpc } from "./login-item";
 import { installLockfileWatcher } from "./lockfile-watcher";
 import { installHostProxyBridge } from "./host-proxy-router";
 import "./executors/host-bash-executor"; // side-effect: registers host_bash executor
@@ -47,7 +57,7 @@ import {
   installMainWindow,
   toggleVisibility as toggleMainWindowVisibility,
 } from "./main-window";
-import { installApplicationMenu } from "./menu";
+import { installApplicationMenu, refreshCliPathMenuState } from "./menu";
 import { installNativeAuth } from "./native-auth";
 import { installConnectivityProbe } from "./connectivity-probe";
 import { installNotifications } from "./notifications";
@@ -253,29 +263,16 @@ const forwardGatewayRequest = async (
   }
 };
 
-const CSRF_COOKIE_RE = /(?:__Secure-)?csrftoken=([^;]+)/;
-
-// `app://` is not a cookieable scheme, so the renderer can't read the CSRF
-// token via `document.cookie`. Main caches it here and injects it into
-// forwarded requests; `net.fetch`'s own cookie jar supplies the cookie side.
-let cachedCsrfToken: string | null = null;
-handleSync("vellum:csrf:getToken", () => cachedCsrfToken);
-
 const resolvedConfig = resolveLocalConfigFromEnv(process.env);
 handleSync("vellum:config:get", () => ({
   webUrl: resolvedConfig.webUrl,
   platformUrl: resolvedConfig.platformUrl,
+  disablePlatform:
+    ["true", "1"].includes(
+      (process.env.VELLUM_DISABLE_PLATFORM ?? "").toLowerCase(),
+    ) || undefined,
+  deviceId: getDeviceId(),
 }));
-
-const captureCsrfToken = (response: Response): void => {
-  const setCookies = response.headers.getSetCookie?.() ?? [];
-  for (const raw of setCookies) {
-    const match = CSRF_COOKIE_RE.exec(raw);
-    if (match?.[1]) {
-      cachedCsrfToken = match[1];
-    }
-  }
-};
 
 /**
  * Forward a platform API request (`/v1/*`, `/_allauth/*`, `/accounts/*`) to
@@ -294,30 +291,22 @@ const forwardPlatformRequest = async (
     return new Response(plan.message, { status: plan.status });
   }
 
-  if (
-    plan.shouldInjectCsrfToken &&
-    cachedCsrfToken &&
-    !plan.headers.has("X-CSRFToken")
-  ) {
-    plan.headers.set("X-CSRFToken", cachedCsrfToken);
-  }
-
-  let response: Response;
   try {
-    response = await net.fetch(plan.url, {
+    return await net.fetch(plan.url, {
       method: plan.method,
       headers: plan.headers,
       body: plan.hasBody ? request.body : undefined,
       ...(plan.hasBody ? { duplex: "half" } : {}),
       redirect: "manual",
+      // Auth is header-based (X-Session-Token), not cookie-based.
+      // Omit credentials so stale session cookies in the main process's
+      // default session store never shadow the renderer's token header.
+      credentials: "omit",
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Platform unreachable";
     return new Response(message, { status: 502 });
   }
-
-  captureCsrfToken(response);
-  return response;
 };
 
 // ---------------------------------------------------------------------------
@@ -340,14 +329,31 @@ app
     installHotkeysIpc();
     installFeatureFlagsIpc();
     installLocalMode();
+    // Refresh the PATH-wrapper locator every launch so app moves and
+    // version bumps self-heal even if no CLI invocation happens this session.
+    if (app.isPackaged) {
+      writeCliLocator();
+      // Wrapper users also get the pinned CLI provisioned eagerly so a
+      // version bump rewrites the locator now (and prunes old versions)
+      // rather than after the next in-app CLI action.
+      void provisionCliForWrapper()
+        .then((provisioned) => (provisioned ? refreshCliPathMenuState() : undefined))
+        .catch((err: unknown) => {
+          log.error("[app] startup CLI provisioning failed:", err);
+        });
+    }
+    installLoginItem();
+    installLoginItemIpc();
     installHotkeyHelper();
     installPermissionsService();
     installAbout();
     installAutoUpdate();
     installFeedbackIpc();
     installTextInsertionIpc();
+    installCommandPaletteWindow();
     installApplicationMenu();
     installQuickInput();
+    installDictationOverlay({ onRecordingLifecycle: setDictationRecording });
     installPopoutWindows();
     installGlobalShortcuts();
     // Register the avatar channel before the Dock and Tray install so their
@@ -361,6 +367,7 @@ app
     // initial render reflects any status the renderer publishes during
     // bootstrap rather than briefly showing the default idle dot.
     installStatusIpc();
+    installEscapeMonitor();
     const lockfilePaths = resolveLockfilePaths(process.env);
     const runProbe = installConnectivityProbe(lockfilePaths);
     installConnectivityIpc(runProbe);

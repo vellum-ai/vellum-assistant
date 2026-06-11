@@ -1,34 +1,10 @@
 import { BrowserWindow } from "electron";
 
+import type { VellumCommand } from "@vellumai/ipc-contract";
+
 import { readHotkeyOverride } from "./settings";
 
-/**
- * Discriminated union of every command the app supports. Main is the source
- * of truth for the contract; the renderer-side mirror lives in
- * `apps/web/src/runtime/vellum-commands.ts`. Adding a variant here requires
- * a matching update there — both halves are tiny on purpose so divergence
- * is easy to spot in review.
- */
-export type VellumCommand =
-  | { kind: "newConversation" }
-  | { kind: "currentConversation" }
-  | { kind: "markCurrentUnread" }
-  | { kind: "openSettings" }
-  | { kind: "shareFeedback" }
-  | { kind: "find" }
-  | { kind: "markAllRead" }
-  | { kind: "logout" }
-  | { kind: "rePair" }
-  | { kind: "sidebarToggle" }
-  | { kind: "home" }
-  | { kind: "popOut" }
-  | { kind: "previousConversation" }
-  | { kind: "nextConversation" }
-  | { kind: "commandPalette" }
-  | { kind: "selectAssistant"; assistantId: string }
-  | { kind: "createAssistant" }
-  | { kind: "retireAssistant"; assistantId: string }
-  | { kind: "quickInputSubmit"; message: string };
+export type { VellumCommand };
 
 export type VellumCommandKind = VellumCommand["kind"];
 
@@ -57,10 +33,24 @@ export const DEFAULT_ACCELERATORS: Record<VellumCommandKind, string> = {
   previousConversation: "CmdOrCtrl+Up",
   nextConversation: "CmdOrCtrl+Down",
   commandPalette: "CmdOrCtrl+K",
+  openConversation: "",
+  openLibrary: "",
+  openIdentity: "",
+  navigateBack: "",
+  navigateForward: "",
+  zoomIn: "",
+  zoomOut: "",
+  actualSize: "",
   selectAssistant: "",
   createAssistant: "",
   retireAssistant: "",
   quickInputSubmit: "",
+  cancelActiveAction: "",
+  cancelDictation: "",
+  replayOnboarding: "",
+  previewPrechat: "",
+  replayHatchFailure: "",
+  openComponentGallery: "",
 };
 
 /**

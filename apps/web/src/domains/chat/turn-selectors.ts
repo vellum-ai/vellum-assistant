@@ -14,6 +14,11 @@ import { type TurnPhase, isSending, isThinking } from "@/domains/chat/turn-store
 
 export interface UIContext {
   hasStreamingAssistantMessage: boolean;
+  /** True when the live assistant message already carries reasoning/thinking
+   * content — i.e. an inline `SingleActivity` is showing it (and owning the
+   * streaming "Thinking" state). Gates off the standalone thinking-dots row so
+   * the two don't both render; the dots stay only for the pre-message window. */
+  hasStreamingAssistantThinking: boolean;
   hasPendingSecret: boolean;
   hasPendingConfirmation: boolean;
   hasPendingQuestion: boolean;
@@ -44,6 +49,14 @@ export interface UIContext {
  * phase moves past "thinking" (e.g. after a tool call completes before
  * any text arrives).
  *
+ * Unlike macOS, this standalone row hands off to the inline
+ * {@link SingleActivity} as soon as the live assistant message carries
+ * reasoning content (`hasStreamingAssistantThinking`) — that link renders the
+ * same three-dot "Thinking" loading state inline and is clickable to open the
+ * streaming reasoning. So the dots row is scoped to the pre-reasoning window
+ * (no assistant bubble yet, or a bubble that hasn't emitted reasoning) to avoid
+ * two competing thinking indicators.
+ *
  * Each potentially-competing UI surface has its own explicit gate:
  * pending secret/confirmation/question/contact prompts, and any
  * still-interactive transcript surface. When a user resolves one of
@@ -71,6 +84,8 @@ export function shouldShowThinkingIndicator(
     !ctx.hasPendingContactRequest &&
     !ctx.hasUncompletedVisibleSurface &&
     (isThinking(phase) || restoredProcessing || !ctx.hasStreamingAssistantMessage) &&
+    // Inline SingleActivity owns the loading state once reasoning is present.
+    !ctx.hasStreamingAssistantThinking &&
     activeToolCallCount === 0
   );
 }

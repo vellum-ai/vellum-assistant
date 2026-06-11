@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useLayoutEffect, useState } from "react";
-import { useNavigate } from "react-router";
+import { useState } from "react";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { useIsIOSWeb } from "@/runtime/platform-detection";
 import { readIOSAppDownloaded } from "@/hooks/use-ios-app-nudge";
@@ -34,16 +34,15 @@ import {
   prevStep,
   resolveNativeSteps,
   resolveWebSteps,
-  restoreNativeStep,
   type PreChatStep,
-  type PreChatStepId,
 } from "@/domains/onboarding/prechat-steps";
 import {
   DEFAULT_GROUP_ID,
   sampleSuggestionNames,
 } from "@/domains/onboarding/prechat-names";
 import { GOOGLE_TOOL_IDS } from "@/domains/onboarding/prechat-tools";
-import { readAiDataConsent, readTosAccepted } from "@/domains/onboarding/prefs";
+import { usePreChatConsentGate } from "@/domains/onboarding/use-prechat-consent-gate";
+import { usePreChatStepState } from "@/domains/onboarding/use-prechat-step-state";
 import {
   getPlatformAssistants,
   getSelectedAssistant,
@@ -73,6 +72,8 @@ function readLocalPlatformAssistantId(): string | null {
 
 export function PreChatFlow() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const isPreview = searchParams.get("preview") === "true";
   const user = useAuthStore.use.user();
   const isAuthenticated = useIsAuthenticated();
   const isAuthInitializing = useIsSessionInitializing();
@@ -103,53 +104,9 @@ export function PreChatFlow() {
     ? readLocalPlatformAssistantId()
     : null;
 
-  // Native pre-chat restores its position across reloads via sessionStorage
-  // — without this, an iOS user who's tapped through to the vibe step and
-  // hot-reloads (or returns after the OS reclaims memory) is silently
-  // dropped back to the name step. The key is user-scoped so a stale value
-  // from user A doesn't bleed into user B if they log in next in the same
-  // webview session — `useLayoutEffect` restores before paint once `userId`
-  // is known, so the user never sees an incorrect step momentarily.
-  const screenStorageKey = userId ? `prechat_native_screen:${userId}` : null;
-  const [currentStep, setCurrentStep] = useState<PreChatStepId>(() =>
-    isNative ? "nativeName" : "name",
-  );
-  const persistNativeStep = useCallback(
-    (value: PreChatStepId | null) => {
-      if (!screenStorageKey) return;
-      try {
-        if (value === null) {
-          sessionStorage.removeItem(screenStorageKey);
-        } else {
-          sessionStorage.setItem(screenStorageKey, value);
-        }
-      } catch {
-        // sessionStorage can throw under privacy modes — ignore.
-      }
-    },
-    [screenStorageKey],
-  );
-  useLayoutEffect(() => {
-    if (!screenStorageKey) return;
-    try {
-      const restored = restoreNativeStep(
-        sessionStorage.getItem(screenStorageKey),
-      );
-      if (restored) setCurrentStep(restored);
-    } catch {
-      // sessionStorage can throw under privacy modes — ignore.
-    }
-    // Restore only when the active user changes (mount, or logout→login).
-    // Omitting `currentStep` from deps so we don't re-restore mid-flow.
-  }, [screenStorageKey]);
-
-  // Persist the native position as a pure consequence of the current step, so
-  // neither transition has to remember to write it. The web flow isn't
-  // persisted — it has no WKWebView memory-reclaim problem to recover from.
-  useEffect(() => {
-    if (!isNative) return;
-    persistNativeStep(currentStep === "nativeVibe" ? "nativeVibe" : null);
-  }, [isNative, currentStep, persistNativeStep]);
+  const consentReady = usePreChatConsentGate();
+  const { currentStep, setCurrentStep, clearPersistedStep } =
+    usePreChatStepState(userId, isNative);
 
   const platformSession = useAuthStore.use.platformSession();
   const hasPlatformSession = hasLivePlatformSession(platformSession);
@@ -180,11 +137,6 @@ export function PreChatFlow() {
       isAuthenticated &&
       (!localMode || hasPlatformSession),
   });
-  // The onboarding recipe is platform-only marketing-funnel data, resolved on
-  // the platform from a UTM attribution cookie. Native and local runtimes have
-  // no marketing cohort, so the query is disabled there and the flow proceeds
-  // with a null recipe. It's server state, so it's a query keyed by user —
-  // not a hand-rolled fetch with its own loading flag and cancellation guard.
   const { data: fetchedRecipe, isLoading: recipeLoading } = useQuery({
     queryKey: ["onboarding-recipe", userId],
     queryFn: fetchOnboardingRecipe,
@@ -194,13 +146,6 @@ export function PreChatFlow() {
   const recipe = fetchedRecipe ?? null;
   const googleAssistantId =
     activeAssistant?.id ?? activeAssistantId ?? localPlatformAssistantId;
-  // The prior-assistants import and the Google connect step are both
-  // platform-backed: they require a live platform session, not merely a cached
-  // platform assistant id (which can outlive the session). Both fall out in
-  // pure local mode and run when a platform session exists (managed mode,
-  // including Electron) — gated by capability here, not special-cased
-  // downstream. While the session probe is still in flight a cached id keeps
-  // the funnel up so a returning user isn't raced past their steps.
   const platformFunnelAvailable = isPlatformFunnelAvailable({
     localMode,
     platformSession,
@@ -209,64 +154,18 @@ export function PreChatFlow() {
   const canOfferGoogleStep = platformFunnelAvailable;
   const canOfferPriorAssistants = platformFunnelAvailable;
 
-  const navigateToChatAfterLifecycleRefresh = useCallback(async () => {
+  const navigateToChatAfterLifecycleRefresh = async () => {
     await lifecycleService.checkAssistant();
     void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
-  }, [navigate]);
-
-  type ConsentSnapshot = {
-    userId: string | null;
-    decision: "pending" | "ok" | "missing";
   };
-  const [consent, setConsent] = useState<ConsentSnapshot>(() => {
-    if (isAuthInitializing || !isAuthenticated) {
-      return { userId, decision: "pending" };
-    }
-    return {
-      userId,
-      decision: readTosAccepted() && readAiDataConsent() ? "ok" : "missing",
-    };
-  });
-  const consentDecision = consent.decision;
-  useEffect(() => {
-    if (isAuthInitializing || !isAuthenticated) return;
-    if (consent.userId === userId && consent.decision !== "pending") return;
-    setConsent({
-      userId,
-      decision: readTosAccepted() && readAiDataConsent() ? "ok" : "missing",
-    });
-  }, [consent, isAuthInitializing, isAuthenticated, userId]);
-
-  useEffect(() => {
-    if (isAuthInitializing) return;
-    if (!isAuthenticated) {
-      void navigate(routes.account.login, { replace: true });
-      return;
-    }
-    if (consentDecision === "missing" && !isNative) {
-      void navigate(routes.onboarding.privacy, { replace: true });
-      return;
-    }
-    if (consentDecision === "pending") return;
-  }, [
-    consentDecision,
-    isAuthInitializing,
-    isAuthenticated,
-    isNative,
-    navigate,
-    navigateToChatAfterLifecycleRefresh,
-    userId,
-  ]);
-
-  const consentReady = isNative || consentDecision === "ok";
-  const recipeReady = !recipeLoading;
-  const shouldHidePrechat =
-    isAuthInitializing || !isAuthenticated || !consentReady || !recipeReady;
 
   function emitWebFunnelStep(
     step: (typeof ONBOARDING_FUNNEL_STEPS)[keyof typeof ONBOARDING_FUNNEL_STEPS],
     variant = webFunnelVariant,
   ): void {
+    if (isPreview) {
+      return;
+    }
     emitOnboardingFunnelStepCompleted(step, {
       userId,
       variant: resolveOnboardingFunnelVariant(variant),
@@ -277,26 +176,28 @@ export function PreChatFlow() {
     GOOGLE_TOOL_IDS.has(id),
   );
 
-  // The reachable steps are a pure function of capabilities. Local mode, the
-  // funnel variant, the connected tool, and platform all "fall out" of these
-  // predicates rather than being special-cased in the navigation handlers.
   const steps: PreChatStep[] = isNative
     ? resolveNativeSteps()
     : resolveWebSteps({
         paredDown: paredDownPrechat,
         canOfferPriorAssistants,
-        canOfferGoogleStep,
+        canOfferGoogleStep: isPreview ? false : canOfferGoogleStep,
         hasGoogleTool,
         showIOSAppStep,
       });
 
-  async function finish(args?: {
+  function completeFlow(args?: {
     connectedScopes?: string[];
     selectedPriorAssistants?: Set<string>;
-  }): Promise<void> {
+  }): void {
+    if (isPreview) {
+      navigate(-1);
+      return;
+    }
+
     const context = buildPreChatContext({
-      mode: paredDownPrechat ? "paredDown" : "control",
-      recipe,
+      mode: isNative ? "native" : paredDownPrechat ? "paredDown" : "control",
+      recipe: isNative ? null : recipe,
       selectedTools,
       selectedTasks,
       selectedPriorAssistants:
@@ -305,7 +206,7 @@ export function PreChatFlow() {
       userName,
       assistantName,
       selfIntroGreetingEnabled,
-      activationFlowEnabled,
+      activationFlowEnabled: isNative ? undefined : activationFlowEnabled,
       googleConnected,
       googleScopes,
       connectedScopes: args?.connectedScopes,
@@ -314,51 +215,16 @@ export function PreChatFlow() {
     setPendingPreChatContext(context);
     const trimmedAssistant = assistantName.trim();
     if (trimmedAssistant) setPendingAssistantName(trimmedAssistant);
-    // User finished pre-chat; the post-hatch greeting is forthcoming.
-    // Mark before navigating so the destination chat mount shows the
-    // loading gate until the greeting arrives.
-    lifecycleService.markExpectingFirstMessage();
-    await navigateToChatAfterLifecycleRefresh();
-  }
 
-  function finishNativePreChat(): void {
-    const context = buildPreChatContext({
-      mode: "native",
-      recipe: null,
-      selectedTools,
-      selectedTasks,
-      selectedPriorAssistants,
-      tone: selectedGroupId ?? DEFAULT_GROUP_ID,
-      userName,
-      assistantName,
-      selfIntroGreetingEnabled,
-      googleConnected: false,
-      googleScopes: [],
-    });
-    setPendingPreChatContext(context);
-    const trimmedAssistant = assistantName.trim();
-    if (trimmedAssistant) setPendingAssistantName(trimmedAssistant);
-    persistNativeStep(null);
-    void navigate(routes.onboarding.privacy);
-  }
-
-  // The terminal action is the only thing that differs between flows past the
-  // last step: web builds the handoff context and routes to chat, native
-  // routes to the privacy screen. Everything before it is shared.
-  const reachTerminal = (finishArgs?: {
-    connectedScopes?: string[];
-    selectedPriorAssistants?: Set<string>;
-  }): void => {
     if (isNative) {
-      finishNativePreChat();
+      clearPersistedStep();
+      void navigate(routes.onboarding.privacy);
     } else {
-      void finish(finishArgs);
+      lifecycleService.markExpectingFirstMessage();
+      void navigateToChatAfterLifecycleRefresh();
     }
-  };
+  }
 
-  // Advance past `from`: emit its funnel event, then move to the next enabled
-  // step — or reach the terminal action when `from` is the last one.
-  // `finishArgs` only matters when this advance ends the flow.
   const advance = (
     from: PreChatStep,
     finishArgs?: {
@@ -371,18 +237,16 @@ export function PreChatFlow() {
     if (next) {
       setCurrentStep(next);
     } else {
-      reachTerminal(finishArgs);
+      completeFlow(finishArgs);
     }
   };
 
-  // Back always lands on the previous enabled step, so it can never reveal a
-  // step the forward path gated off.
-  const goBack = (from: PreChatStepId): void => {
-    const previous = prevStep(steps, from);
+  const goBack = (from: PreChatStep): void => {
+    const previous = prevStep(steps, from.id);
     if (previous) setCurrentStep(previous);
   };
 
-  if (shouldHidePrechat) {
+  if (!consentReady || recipeLoading) {
     return null;
   }
 
@@ -391,13 +255,6 @@ export function PreChatFlow() {
     return null;
   }
 
-  // The reachable path is data (`steps`); rendering is one switch on the
-  // resolved step id. Native and web ids are disjoint, so both flows share the
-  // same switch and the same advance/goBack helpers — only the screen differs.
-  //
-  // Native:     NameStep → VibeStep → Privacy → Hatching → Chat
-  // Control:    NameExchange → TaskTone → Tools → PriorAssistants → Google → iOS App
-  // Pared-down: NameExchange → Google → Chat
   if (activeStep.id === "nativeName") {
     return (
       <NameStepScreen
@@ -419,7 +276,7 @@ export function PreChatFlow() {
       <VibeStepScreen
         selectedGroupId={selectedGroupId}
         onGroupChange={setSelectedGroupId}
-        onBack={() => goBack(activeStep.id)}
+        onBack={() => goBack(activeStep)}
         onContinue={() => advance(activeStep)}
         onSkip={() => advance(activeStep)}
         currentStep={1}
@@ -449,7 +306,7 @@ export function PreChatFlow() {
       <TaskToneSelectionScreen
         selectedTasks={selectedTasks}
         onChange={setSelectedTasks}
-        onBack={() => goBack(activeStep.id)}
+        onBack={() => goBack(activeStep)}
         onContinue={() => advance(activeStep)}
         onSkip={() => advance(activeStep)}
       />
@@ -461,7 +318,7 @@ export function PreChatFlow() {
       <ToolSelectionScreen
         selectedTools={selectedTools}
         onChange={setSelectedTools}
-        onBack={() => goBack(activeStep.id)}
+        onBack={() => goBack(activeStep)}
         onContinue={() => advance(activeStep)}
         onSkip={() => advance(activeStep)}
       />
@@ -473,7 +330,7 @@ export function PreChatFlow() {
       <PriorAssistantSelectionScreen
         selectedAssistants={selectedPriorAssistants}
         onChange={setSelectedPriorAssistants}
-        onBack={() => goBack(activeStep.id)}
+        onBack={() => goBack(activeStep)}
         onContinue={() => advance(activeStep)}
         onSkip={() => {
           const emptyPriorAssistants = new Set<string>();
@@ -500,7 +357,7 @@ export function PreChatFlow() {
           advance(activeStep, { connectedScopes: scopes });
         }}
         onSkip={() => advance(activeStep)}
-        onBack={() => goBack(activeStep.id)}
+        onBack={() => goBack(activeStep)}
       />
     );
   }

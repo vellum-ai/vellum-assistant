@@ -1,0 +1,287 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import {
+  fetchConsolidationConfig,
+  fetchConsolidationRuns,
+  fetchHeartbeatConfig,
+  fetchHeartbeatRuns,
+  runConsolidationNow,
+  runHeartbeatNow,
+  updateHeartbeatConfig,
+} from "@/domains/settings/api/schedules";
+import {
+  type ScheduleRowUsage,
+  SYSTEM_TASK_STATS_RUN_LIMIT,
+  SYSTEM_TASK_URL_IDS,
+  summarizeRunsForUsage,
+} from "@/domains/settings/utils/schedule-formatters";
+import { resolveScheduleUsageWindow } from "@/domains/settings/utils/schedule-usage-window";
+import { captureError } from "@/lib/sentry/capture-error";
+import { toast } from "@vellumai/design-library/components/toast";
+
+import type { SystemTaskKind } from "@/domains/settings/types/schedules";
+
+/**
+ * Encapsulates all TanStack Query composition + mutation logic for
+ * system tasks (heartbeat, consolidation). Exposes a unified interface
+ * that the page orchestrator consumes without managing 6 queries and
+ * 5 callbacks itself.
+ */
+export function useSystemTasks(assistantId: string | undefined, tz: string) {
+  const queryClient = useQueryClient();
+
+  // -------------------------------------------------------------------------
+  // Config queries
+  // -------------------------------------------------------------------------
+
+  const {
+    data: heartbeatConfig,
+    isLoading: isHeartbeatLoading,
+    isError: isHeartbeatError,
+    refetch: refetchHeartbeat,
+  } = useQuery({
+    queryKey: ["heartbeat-config", assistantId],
+    queryFn: () => fetchHeartbeatConfig(assistantId!),
+    enabled: !!assistantId,
+    staleTime: 10_000,
+  });
+
+  const {
+    data: consolidationConfig,
+    isLoading: isConsolidationLoading,
+    isError: isConsolidationError,
+    refetch: refetchConsolidation,
+  } = useQuery({
+    queryKey: ["consolidation-config", assistantId],
+    queryFn: () => fetchConsolidationConfig(assistantId!),
+    enabled: !!assistantId,
+    staleTime: 10_000,
+  });
+
+  // -------------------------------------------------------------------------
+  // Stats queries (for usage display in list view)
+  // -------------------------------------------------------------------------
+
+  const {
+    data: heartbeatRunsForStats,
+    isLoading: isHeartbeatStatsLoading,
+    isError: isHeartbeatStatsError,
+    refetch: refetchHeartbeatStats,
+  } = useQuery({
+    queryKey: [
+      "system-task-runs-summary",
+      assistantId,
+      "heartbeat",
+      SYSTEM_TASK_STATS_RUN_LIMIT,
+    ],
+    queryFn: () => fetchHeartbeatRuns(assistantId!, SYSTEM_TASK_STATS_RUN_LIMIT),
+    enabled: !!assistantId && heartbeatConfig != null,
+    staleTime: 10_000,
+  });
+
+  const {
+    data: consolidationRunsForStats,
+    isLoading: isConsolidationStatsLoading,
+    isError: isConsolidationStatsError,
+    refetch: refetchConsolidationStats,
+  } = useQuery({
+    queryKey: [
+      "system-task-runs-summary",
+      assistantId,
+      "consolidation",
+      SYSTEM_TASK_STATS_RUN_LIMIT,
+    ],
+    queryFn: () =>
+      fetchConsolidationRuns(assistantId!, SYSTEM_TASK_STATS_RUN_LIMIT),
+    enabled: !!assistantId && consolidationConfig?.available === true,
+    staleTime: 10_000,
+  });
+
+  // -------------------------------------------------------------------------
+  // Derived usage stats
+  // -------------------------------------------------------------------------
+
+  const systemStatsRange = useMemo(
+    () => resolveScheduleUsageWindow(tz),
+    [tz],
+  );
+
+  const heartbeatUsage: ScheduleRowUsage = useMemo(() => {
+    if (isHeartbeatStatsLoading) return { status: "loading" };
+    if (isHeartbeatStatsError) return { status: "error" };
+    return {
+      status: "ready",
+      summary: summarizeRunsForUsage(
+        SYSTEM_TASK_URL_IDS.heartbeat,
+        heartbeatRunsForStats,
+        systemStatsRange,
+      ),
+    };
+  }, [
+    heartbeatRunsForStats,
+    isHeartbeatStatsError,
+    isHeartbeatStatsLoading,
+    systemStatsRange,
+  ]);
+
+  const consolidationUsage: ScheduleRowUsage = useMemo(() => {
+    if (isConsolidationStatsLoading) return { status: "loading" };
+    if (isConsolidationStatsError) return { status: "error" };
+    return {
+      status: "ready",
+      summary: summarizeRunsForUsage(
+        SYSTEM_TASK_URL_IDS.consolidation,
+        consolidationRunsForStats,
+        systemStatsRange,
+      ),
+    };
+  }, [
+    consolidationRunsForStats,
+    isConsolidationStatsError,
+    isConsolidationStatsLoading,
+    systemStatsRange,
+  ]);
+
+  // -------------------------------------------------------------------------
+  // Running state + timeout cleanup
+  // -------------------------------------------------------------------------
+
+  const [isHeartbeatRunning, setIsHeartbeatRunning] = useState(false);
+  const [isConsolidationRunning, setIsConsolidationRunning] = useState(false);
+  const timeoutIdsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const scheduleDelayedInvalidation = useCallback(
+    (kind: SystemTaskKind) => {
+      if (!assistantId) return;
+      const invalidate = () => {
+        void queryClient.invalidateQueries({
+          queryKey: ["system-task-runs", assistantId, kind],
+        });
+      };
+      invalidate();
+      const t1 = setTimeout(invalidate, 1_000);
+      const t2 = setTimeout(invalidate, 5_000);
+      timeoutIdsRef.current.push(t1, t2);
+    },
+    [assistantId, queryClient],
+  );
+
+  // -------------------------------------------------------------------------
+  // Handlers
+  // -------------------------------------------------------------------------
+
+  const handleRunNow = useCallback(
+    async (kind: SystemTaskKind) => {
+      if (!assistantId) return;
+      const setRunning =
+        kind === "heartbeat" ? setIsHeartbeatRunning : setIsConsolidationRunning;
+      const runFn = kind === "heartbeat" ? runHeartbeatNow : runConsolidationNow;
+      const refetchConfig =
+        kind === "heartbeat" ? refetchHeartbeat : refetchConsolidation;
+      const refetchStats =
+        kind === "heartbeat" ? refetchHeartbeatStats : refetchConsolidationStats;
+      const successMsg =
+        kind === "heartbeat" ? "Heartbeat started." : "Consolidation queued.";
+      const skipMsg =
+        kind === "heartbeat"
+          ? "Heartbeat skipped."
+          : "Consolidation already queued or running.";
+
+      setRunning(true);
+      try {
+        const result = await runFn(assistantId);
+        void refetchConfig();
+        scheduleDelayedInvalidation(kind);
+        void refetchStats();
+        if (result.ran) {
+          toast.success(successMsg);
+        } else {
+          toast.info(skipMsg);
+        }
+      } catch (error) {
+        captureError(error, { context: `${kind}_run_now` });
+        toast.error(`Failed to run ${kind}.`);
+      } finally {
+        setRunning(false);
+      }
+    },
+    [
+      assistantId,
+      refetchConsolidation,
+      refetchConsolidationStats,
+      refetchHeartbeat,
+      refetchHeartbeatStats,
+      scheduleDelayedInvalidation,
+    ],
+  );
+
+  const handleToggle = useCallback(
+    async (kind: SystemTaskKind, enabled: boolean) => {
+      if (!assistantId) return;
+      if (kind !== "heartbeat") return;
+      const queryKey = [`${kind}-config`, assistantId];
+      const label = "Heartbeat";
+
+      try {
+        const updated = await updateHeartbeatConfig(assistantId, { enabled });
+        queryClient.setQueryData(queryKey, updated);
+        toast.success(enabled ? `${label} enabled.` : `${label} disabled.`);
+      } catch (error) {
+        captureError(error, { context: `${kind}_toggle` });
+        toast.error(`Failed to toggle ${label.toLowerCase()}.`);
+      }
+    },
+    [assistantId, queryClient],
+  );
+
+  // -------------------------------------------------------------------------
+  // Retry
+  // -------------------------------------------------------------------------
+
+  const refetchAll = useCallback(() => {
+    void refetchHeartbeat();
+    void refetchConsolidation();
+    void refetchHeartbeatStats();
+    void refetchConsolidationStats();
+  }, [
+    refetchConsolidation,
+    refetchConsolidationStats,
+    refetchHeartbeat,
+    refetchHeartbeatStats,
+  ]);
+
+  // -------------------------------------------------------------------------
+  // Cleanup pending timeouts on unmount
+  // -------------------------------------------------------------------------
+
+  useEffect(() => {
+    const ref = timeoutIdsRef;
+    return () => {
+      for (const id of ref.current) clearTimeout(id);
+      ref.current = [];
+    };
+  }, []);
+
+  return {
+    heartbeatConfig,
+    consolidationConfig,
+    heartbeatUsage,
+    consolidationUsage,
+    isLoading: isHeartbeatLoading || isConsolidationLoading,
+    hasError: isHeartbeatError || isConsolidationError,
+    hasAnySystemTask:
+      heartbeatConfig != null || consolidationConfig?.available === true,
+    isHeartbeatRunning,
+    isConsolidationRunning,
+    isHeartbeatLoading,
+    isHeartbeatError,
+    isConsolidationLoading,
+    isConsolidationError,
+    refetchHeartbeat,
+    refetchConsolidation,
+    handleRunNow,
+    handleToggle,
+    refetchAll,
+  };
+}

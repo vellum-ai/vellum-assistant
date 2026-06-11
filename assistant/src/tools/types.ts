@@ -4,7 +4,7 @@ import type {
   ExecutionTarget,
   ProxyApprovalCallback,
   SensitiveOutputBinding,
-  ToolExecutionErrorEvent,
+  ToolExecutionErrorEvent as ContractsToolExecutionErrorEvent,
   ToolExecutionStartEvent,
   ToolPermissionDeniedEvent,
   ToolPermissionPromptEvent,
@@ -13,11 +13,11 @@ import { RiskLevel } from "@vellumai/skill-host-contracts";
 import { z } from "zod";
 
 import type { InterfaceId } from "../channels/types.js";
-import type { CesClient } from "../credential-execution/client.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import type { SecretPromptResult } from "../permissions/secret-prompter.js";
 import type { ContentBlock } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
+import type { UsageAttributionSnapshot } from "../usage/attribution.js";
 
 export const DISK_PRESSURE_CLEANUP_TOOL_NAMES: ReadonlySet<string> = new Set([
   "bash",
@@ -47,12 +47,16 @@ export function isDiskPressureCleanupToolName(name: string): boolean {
 // `ToolLifecycleEvent`, `ToolLifecycleEventHandler`, `ProxyToolResolver`)
 // reference daemon-internal types (CES client, host-proxy classes,
 // `ContentBlock`, `ApprovalRequired`, `TrustClass`, `InterfaceId`,
-// `SecretPromptResult`) that can't move into a neutral package. For those,
+// `SecretPromptResult`, `UsageAttributionSnapshot`) that can't move into a
+// neutral package. For those,
 // the contracts version uses opaque placeholders (`unknown`, broadened
 // `string`) and the assistant redeclares the interface here with the
 // concrete types. The two sides are structurally independent — no
 // inheritance, no intersection — which avoids TypeScript's contravariance
 // mismatches on lifecycle-event handlers.
+// `ToolExecutionErrorEvent` is the exception: its contracts fields are all
+// concrete, so the assistant overlay simply extends it with the
+// daemon-internal telemetry fields.
 // ---------------------------------------------------------------------------
 
 export type {
@@ -64,7 +68,6 @@ export type {
   ProxyEnvVars,
   SensitiveOutputBinding,
   SensitiveOutputKind,
-  ToolExecutionErrorEvent,
   ToolExecutionStartEvent,
   ToolPermissionDeniedEvent,
   ToolPermissionPromptEvent,
@@ -159,12 +162,40 @@ export type ProxyToolResolver = (
 ) => Promise<ToolExecutionResult>;
 
 /**
+ * Telemetry fields stamped centrally by the executor's `emitLifecycleEvent`
+ * on terminal (executed/error) lifecycle events.
+ */
+export interface ExecutorTelemetryStamp {
+  /**
+   * Model attribution snapshot for the conversation at invocation time.
+   * Copied from {@link ToolContext.attribution} by the executor; `null` when
+   * resolution failed or no attribution was available.
+   */
+  attribution?: UsageAttributionSnapshot | null;
+  /**
+   * Serialized byte size of the RAW tool input, stamped by the executor
+   * before sensitive-field sanitization rewrites `input`. Only the size
+   * leaves the device, never the payload.
+   */
+  inputBytes?: number | null;
+  /**
+   * Byte size of the RAW tool result content, stamped by the executor
+   * before sensitive-output extraction rewrites `result.content`. Only
+   * stamped on `executed` events: error events carry no executor-side
+   * result — the audit listener sizes the error string it builds itself,
+   * which never goes through sanitization, so it is already raw. Only the
+   * size leaves the device, never the payload.
+   */
+  resultBytes?: number | null;
+}
+
+/**
  * `ToolExecutedEvent` carries a `result: ToolExecutionResult` field, so
  * the assistant re-declares it here to reference the assistant-side
  * `ToolExecutionResult` (which narrows `contentBlocks` to `ContentBlock[]`
  * and `cesApprovalRequired` to `ApprovalRequired`).
  */
-export interface ToolExecutedEvent {
+export interface ToolExecutedEvent extends ExecutorTelemetryStamp {
   type: "executed";
   toolName: string;
   input: Record<string, unknown>;
@@ -184,6 +215,13 @@ export interface ToolExecutedEvent {
   result: ToolExecutionResult;
 }
 
+/**
+ * Extends the contracts declaration with the assistant-side telemetry
+ * fields stamped centrally by the executor's `emitLifecycleEvent`.
+ */
+export interface ToolExecutionErrorEvent
+  extends ContractsToolExecutionErrorEvent, ExecutorTelemetryStamp {}
+
 export type ToolLifecycleEvent =
   | ToolExecutionStartEvent
   | ToolPermissionPromptEvent
@@ -194,6 +232,20 @@ export type ToolLifecycleEvent =
 export type ToolLifecycleEventHandler = (
   event: ToolLifecycleEvent,
 ) => void | Promise<void>;
+
+/**
+ * Canonical serialization used for tool-input byte sizing. Shared by the
+ * executor (raw pre-sanitization sizing) and the audit listener (stored
+ * `input` column + fallback sizing) so the two always measure the same
+ * serialization.
+ */
+export function stringifyToolInput(input: Record<string, unknown>): string {
+  try {
+    return JSON.stringify(input);
+  } catch {
+    return "[unserializable-input]";
+  }
+}
 
 export interface ToolContext {
   /** Identifier of the conversation this tool invocation belongs to. */
@@ -210,6 +262,12 @@ export interface ToolContext {
   assistantId?: string;
   /** When set, the tool execution is part of a task run. Used to retrieve ephemeral permission rules. */
   taskRunId?: string;
+  /**
+   * Model attribution snapshot for the conversation at invocation time
+   * (provider/model/profile that issued this tool call). Used by tool
+   * telemetry; never sent to the tool itself.
+   */
+  attribution?: UsageAttributionSnapshot | null;
   /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error). */
   onToolLifecycleEvent?: ToolLifecycleEventHandler;
   /** Optional resolver for proxy tools - delegates execution to an external client. */
@@ -287,8 +345,6 @@ export interface ToolContext {
   toolUseId?: string;
   /** True when the assistant is running as a platform-managed remote instance. Used to auto-approve sandboxed bash tools. */
   isPlatformHosted?: boolean;
-  /** CES RPC client for credential execution operations. When present, the executor can bridge CES approval flows. */
-  cesClient?: CesClient;
   /**
    * The interface ID of the connected client driving the current turn (e.g.
    * "macos", "chrome-extension"). Browser backend policy uses this to decide
@@ -398,7 +454,7 @@ export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>;
 export type Tool = Required<ToolDefinition>;
 
 /** The kind of extension that owns a tool. Core tools have no owner. */
-export type OwnerKind = "skill" | "mcp" | "plugin";
+export type OwnerKind = "skill" | "mcp" | "plugin" | "workspace";
 
 /**
  * Identifies which extension owns a tool (skill / plugin / MCP server).
@@ -407,6 +463,6 @@ export type OwnerKind = "skill" | "mcp" | "plugin";
  */
 export interface OwnerInfo {
   kind: OwnerKind;
-  /** ID of the owning extension (skill id / plugin name / MCP server id). */
+  /** ID of the owning extension (skill id / plugin name / MCP server id / workspace path). */
   id: string;
 }

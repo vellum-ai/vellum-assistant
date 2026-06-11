@@ -61,7 +61,7 @@ Every event name in `BusEventMap` has a typed payload. Producers:
 | Event | Payload | Produced when |
 |---|---|---|
 | `sse.event` | `AssistantEventEnvelope` | Every event the bus-owned SSE connection sees. The envelope carries transport metadata (`seq`, `conversationId`, `emittedAt`); subscribers narrow on `envelope.message.type` and filter on `envelope.conversationId` themselves. |
-| `sse.opened` | `{ assistantId; cause: "fresh" \| "error" \| "watchdog" \| "resume" }` | After each successful (re)open. `cause` lets consumers distinguish a fresh connection from a watchdog-driven recovery. |
+| `sse.opened` | `{ assistantId; cause: "fresh" \| "error" \| "watchdog" \| "resume" \| "debug" \| "anchor" }` | After each successful (re)open. `cause` lets consumers distinguish a fresh connection from a reconnect. `"debug"` is a manual `_vellumDebug.events.reconnectClient()` trigger; `"anchor"` is a cold-start anchored-replay reopen. |
 | `sse.closed` | `{ reason }` | Transport error on the SSE connection. Not published for intentional teardowns (hidden tab, reachability bounce). |
 | `app.resume` | `{ signal: "visibility" \| "app_state" \| "online" }` | Page visible, app foregrounded, or network came back online. |
 | `app.hidden` | `{ signal: "visibility" \| "app_state" }` | Page hidden or app backgrounded. |
@@ -209,12 +209,15 @@ Rules:
 
 ### Invalidate a query cache on resume
 
-```ts
-const queryClient = useQueryClient();
-useBusSubscription("app.resume", () => {
-  void queryClient.invalidateQueries({ queryKey: ["my-data"] });
-});
-```
+For generic "refetch stale data on foreground" behaviour, **don't
+subscribe to `app.resume` manually** — TQ's `focusManager` already
+handles it globally (configured in `lib/query-focus-manager.ts`).
+Every query with `refetchOnWindowFocus` (the default) re-fetches
+automatically on tab-visible and Capacitor foregrounding.
+
+Only subscribe to `app.resume` when you need *domain-specific*
+side effects that go beyond cache invalidation — for example,
+tracking time-away:
 
 ### Track time-away between hidden and resume
 
@@ -262,7 +265,8 @@ export function setupMyStore(): () => void {
 ## Don't do this
 
 - **Don't call `subscribeChatEvents` directly outside `assistant/sse-service.ts`.** Every other consumer subscribes to `bus.sse.event`. A second SSE handle from the same `clientId` will evict the first on the daemon.
-- **Don't register `document.addEventListener("visibilitychange", ...)`** in a component or store for data-refresh purposes. Subscribe to `bus.app.resume` instead. The only legitimate `visibilitychange` registration in the app is `runtime/event-sources/dom-visibility.ts`.
+- **Don't register `document.addEventListener("visibilitychange", ...)`** in a component or store for data-refresh purposes. The bus's `app.resume` signal and TQ's `focusManager` (configured in `lib/query-focus-manager.ts`) handle it. The only legitimate `visibilitychange` registration in the app is `runtime/event-sources/dom-visibility.ts`.
+- **Don't manually `invalidateQueries` inside an `app.resume` handler** for generic cache refresh. TQ's `focusManager` already re-fetches stale queries automatically. Only subscribe to `app.resume` for domain-specific side effects (e.g. computing `timeAwaySeconds`).
 - **Don't register `window.online` / `window.offline` listeners** in a component or store. Subscribe to `bus.app.online` / `bus.app.offline`.
 - **Don't add polling intervals to discover state the daemon could push.** If the daemon already knows when something resolves, emit a typed event over `/v1/events` and subscribe to it via the bus.
 - **Don't reach for the handler registry directly.** The bus exports `publish` / `subscribe` / `__resetForTesting`. The internal `Map` is module-private — there's no reactive surface to subscribe to (and that's the point; see [STATE_MANAGEMENT.md](./STATE_MANAGEMENT.md#when-zustand-does-not-apply-stateless-registries)).

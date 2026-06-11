@@ -10,6 +10,7 @@
  */
 import { getAllauthByClientV1AuthSession } from "@/generated/auth/sdk.gen";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
+import { isElectron } from "@/runtime/is-electron";
 
 const CSRF_COOKIE_NAME = import.meta.env.PROD
   ? "__Secure-csrftoken"
@@ -23,12 +24,6 @@ const CSRF_COOKIE_NAME = import.meta.env.PROD
  * last-wins semantics.
  */
 export function getCsrfToken(): string | undefined {
-  // In Electron the `app://` scheme doesn't support cookies, so
-  // `document.cookie` is always empty. Read from the preload bridge
-  // which pulls the token from main's cache via sync IPC.
-  const bridgeToken = window.vellum?.csrf?.getToken();
-  if (bridgeToken) return bridgeToken;
-
   const match = document.cookie
     .split("; ")
     .findLast((row) => row.startsWith(`${CSRF_COOKIE_NAME}=`));
@@ -47,6 +42,8 @@ function clearDuplicateCsrfCookies(): void {
 let csrfBootstrap: Promise<void> | null = null;
 
 export async function ensureCsrfCookie(): Promise<void> {
+  // Electron authenticates via a token header - no CSRF needed.
+  if (isElectron()) return;
   if (isGatewayAuthMode()) return;
 
   clearDuplicateCsrfCookies();

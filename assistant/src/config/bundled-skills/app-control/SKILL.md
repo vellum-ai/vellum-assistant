@@ -6,6 +6,7 @@ metadata:
   emoji: "🎯"
   vellum:
     display-name: "App Control"
+    category: "system"
     feature-flag: "app-control"
     activation-hints:
       - "User explicitly directs the assistant to drive a specific named app via raw input (emulator, game, OpenGL canvas, custom-rendered Electron app)"

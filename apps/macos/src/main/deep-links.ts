@@ -1,6 +1,7 @@
 import { BrowserWindow, app, type WebContents } from "electron";
 import { z } from "zod";
 
+import type { DeepLink } from "@vellumai/ipc-contract";
 import { resolveEnvironmentName } from "@vellumai/local-mode";
 
 import { handle, on } from "./ipc";
@@ -49,43 +50,54 @@ import { handleAuthCallback } from "./native-auth";
  *   - https://www.electronjs.org/docs/latest/api/app#appsetasdefaultprotocolclientprotocol-path-args
  */
 
-export type DeepLink =
-  | { kind: "send"; message: string }
-  | { kind: "openThread"; threadId: string }
-  | { kind: "authCallback"; state: string; code?: string; error?: string }
-  | { kind: "unknown"; url: string };
+/**
+ * Superset of the shared `DeepLink` — adds `authCallback`, which is
+ * intercepted in main before reaching the bridge and therefore absent
+ * from the contract's renderer-visible union.
+ */
+export type MainDeepLink =
+  | DeepLink
+  | { kind: "authCallback"; state: string; code?: string; error?: string };
 
-const BASE_SCHEMES = ["vellum:", "vellum-assistant:"] as const;
+export type { DeepLink };
 
-const SCHEME_BY_ENV: Record<string, string> = {
-  production: "vellum-assistant",
-  staging: "vellum-assistant-staging",
-  dev: "vellum-assistant-dev",
-  local: "vellum-assistant-local",
-};
+const PRODUCTION_SCHEME = "vellum-assistant";
 
-function resolveAcceptedSchemes(): string[] {
-  const schemes = [...BASE_SCHEMES] as string[];
-  const env = resolveEnvironmentName(process.env);
-  const envScheme = SCHEME_BY_ENV[env];
-  if (envScheme) {
-    const withColon = `${envScheme}:`;
-    if (!schemes.includes(withColon)) schemes.push(withColon);
-  }
-  return schemes;
+function schemeForEnv(env: string): string {
+  return env === "production" ? PRODUCTION_SCHEME : `${PRODUCTION_SCHEME}-${env}`;
 }
 
-const ACCEPTED_SCHEMES = resolveAcceptedSchemes();
+// Schemes to REGISTER with the OS via `app.setAsDefaultProtocolClient`.
+// Production claims both `vellum` and `vellum-assistant`; non-production
+// claims only the env-specific scheme to avoid hijacking production.
+export function resolveRegisteredSchemes(env: string): string[] {
+  if (env === "production") return ["vellum", PRODUCTION_SCHEME];
+  return [schemeForEnv(env)];
+}
+
+// Schemes to ACCEPT when parsing inbound URLs. Superset of registered
+// schemes — always includes `vellum:` and `vellum-assistant:` so URLs
+// routed to this build still parse correctly.
+export function resolveAcceptedSchemes(env: string): string[] {
+  const accepted = new Set(["vellum:", `${PRODUCTION_SCHEME}:`]);
+  if (env !== "production") accepted.add(`${schemeForEnv(env)}:`);
+  return [...accepted];
+}
+
+const currentEnv = resolveEnvironmentName(process.env);
+const REGISTERED_SCHEMES = resolveRegisteredSchemes(currentEnv);
+const ACCEPTED_SCHEMES = resolveAcceptedSchemes(currentEnv);
 
 /**
  * Pure parser: URL string → typed `DeepLink`. Exported for unit tests.
  *
  * Rules:
  *
- *   - Scheme MUST be `vellum:` or `vellum-assistant:`. Anything else
- *     (`javascript:`, `data:`, `file:`, foreign customs) is rejected
- *     as `kind: "unknown"` — the renderer additionally defensively
- *     validates before dispatching.
+ *   - Scheme MUST be in the accepted set (`vellum:`, `vellum-assistant:`,
+ *     plus the env-specific scheme like `vellum-assistant-dev:`).
+ *     Anything else (`javascript:`, `data:`, `file:`, foreign customs)
+ *     is rejected as `kind: "unknown"` — the renderer additionally
+ *     defensively validates before dispatching.
  *   - `vellum://send?message=…` → `{ kind: "send", message }`. Empty
  *     `message` is preserved (renderer can decide to open an empty
  *     composer).
@@ -95,7 +107,7 @@ const ACCEPTED_SCHEMES = resolveAcceptedSchemes();
  *   - Malformed URL (unparseable, percent-encoding throws) →
  *     `kind: "unknown"`.
  */
-export const parseVellumUrl = (input: string): DeepLink => {
+export const parseVellumUrl = (input: string): MainDeepLink => {
   let url: URL;
   try {
     url = new URL(input);
@@ -188,16 +200,20 @@ const broadcast = (link: DeepLink): void => {
  * on an already-visible main window.
  */
 export const handleDeepLink = (input: string): void => {
-  const link = parseVellumUrl(input);
+  const parsed = parseVellumUrl(input);
 
   // Auth callbacks are a main-process concern — the renderer doesn't
   // need to see them. Route directly to the native-auth module and
   // bring the window forward so the user sees the result.
-  if (link.kind === "authCallback") {
-    void handleAuthCallback(link.state, link.code, link.error);
+  if (parsed.kind === "authCallback") {
+    void handleAuthCallback(parsed.state, parsed.code, parsed.error);
     if (app.isReady()) void ensureMainWindowVisible();
     return;
   }
+
+  // After filtering out authCallback, the remaining variants satisfy
+  // the renderer-visible DeepLink union.
+  const link: DeepLink = parsed;
 
   if (subscribers.size === 0) pending.push(link);
   broadcast(link);
@@ -224,14 +240,12 @@ export const installDeepLinks = (): void => {
   if (installed) return;
   installed = true;
 
-  // Dynamic registration. Packaged builds also declare these in
-  // `electron-builder.yml`'s `protocols` (so `Info.plist` carries
-  // `CFBundleURLTypes`); the dynamic call is required for dev and
-  // defensive for prod. Includes the environment-specific callback
-  // scheme (e.g. `vellum-assistant-dev`) so the OS routes OAuth
-  // callbacks from the system browser back to this instance.
-  for (const scheme of ACCEPTED_SCHEMES) {
-    app.setAsDefaultProtocolClient(scheme.replace(/:$/, ""));
+  // Dynamic registration — only claim the schemes this build owns.
+  // Non-production builds register only their env-specific scheme
+  // (e.g. `vellum-assistant-dev`) to avoid hijacking production
+  // callbacks when both apps coexist.
+  for (const scheme of REGISTERED_SCHEMES) {
+    app.setAsDefaultProtocolClient(scheme);
   }
 
   app.on("will-finish-launching", () => {

@@ -168,9 +168,15 @@ describe("useEmptyStateGreeting", () => {
       refreshing: false,
     });
     expect(identityIntroCalls).toHaveLength(1);
-    expect(
-      (identityIntroCalls[0] as { path: { assistant_id: string } }).path
-    ).toEqual({ assistant_id: "asst-1" });
+    const call = identityIntroCalls[0] as {
+      path: { assistant_id: string };
+      query?: { localHour?: number; localMinute?: number };
+    };
+    expect(call.path).toEqual({ assistant_id: "asst-1" });
+    expect(call.query?.localHour).toBeGreaterThanOrEqual(0);
+    expect(call.query?.localHour).toBeLessThanOrEqual(23);
+    expect(call.query?.localMinute).toBeGreaterThanOrEqual(0);
+    expect(call.query?.localMinute).toBeLessThanOrEqual(59);
   });
 
   test("queryFn falls back to legacy text when greetings are absent", async () => {

@@ -2,7 +2,6 @@
 import { useEffect, useRef, type RefObject } from "react";
 
 import {
-  CTRL_PTT_ACTIVATOR,
   FN_PTT_ACTIVATOR,
   LS_PTT_ACTIVATION_KEY,
   eventActivatesPTT,
@@ -13,7 +12,6 @@ import {
 } from "@/utils/ptt-activator";
 import { getLocalSetting, watchSetting } from "@/utils/local-settings";
 import {
-  setFnPushToTalkEnabled,
   subscribeToHotkeyEvents,
   supportsFnPushToTalk,
   type HotkeyEvent,
@@ -23,9 +21,19 @@ import {
  * Imperative handle (subset of `VoiceInputButtonHandle`) that the hook drives.
  * Kept local to avoid a cycle with the button component.
  */
-interface PushToTalkTarget {
+export interface PushToTalkTarget {
   start: () => void;
   stop: () => void;
+}
+
+type PushToTalkTargetSource =
+  | RefObject<PushToTalkTarget | null>
+  | (() => PushToTalkTarget | null);
+
+function resolvePushToTalkTarget(
+  source: PushToTalkTargetSource,
+): PushToTalkTarget | null {
+  return typeof source === "function" ? source() : source.current;
 }
 
 /**
@@ -98,8 +106,8 @@ function playActivationBlip(): void {
  * Listens for the saved PTT activator on `window` keydown/keyup and drives
  * the provided voice-input handle. Hold-to-talk: key-down starts recording
  * after a 300 ms hold delay, key-up stops it. Only fires while the Vellum
- * tab has focus. Electron's native Fn bridge bypasses this DOM path so the
- * desktop app can keep PTT active while it is in the background.
+ * tab has focus. Electron's app-level native Fn bridge bypasses this DOM path
+ * so the desktop app can keep PTT active while it is in the background.
  *
  * The 300 ms hold delay prevents accidental activation from quick taps and
  * system shortcuts (matching the macOS `PTTActivator` behaviour). If
@@ -111,13 +119,14 @@ function playActivationBlip(): void {
  * UI without a reload.
  */
 export function usePushToTalk(
-  targetRef: RefObject<PushToTalkTarget | null>,
+  targetSource: PushToTalkTargetSource,
   options: { enabled?: boolean } = {},
 ): void {
   const { enabled = true } = options;
   const activatorRef = useRef<PTTActivator>({ kind: "off" });
   const activeRef = useRef(false);
   const activeOriginRef = useRef<"dom" | "native" | null>(null);
+  const activeTargetRef = useRef<PushToTalkTarget | null>(null);
 
   // Hold-delay state — tracked via refs so event handlers always see the
   // latest values without requiring effect re-runs.
@@ -129,28 +138,7 @@ export function usePushToTalk(
       return;
     }
 
-    let nativeFnAvailable = supportsFnPushToTalk();
-    let nativeFnRegistered = false;
-
-    const updateNativeRegistration = () => {
-      const shouldRegister =
-        nativeFnAvailable && isFnPushToTalkActivator(activatorRef.current);
-      if (nativeFnRegistered === shouldRegister) {
-        return;
-      }
-
-      nativeFnRegistered = shouldRegister;
-      void setFnPushToTalkEnabled(shouldRegister).then((ok) => {
-        if (shouldRegister && !ok) {
-          nativeFnRegistered = false;
-          nativeFnAvailable = false;
-          if (isFnPushToTalkActivator(activatorRef.current)) {
-            activatorRef.current = CTRL_PTT_ACTIVATOR;
-          }
-        }
-      });
-    };
-
+    const nativeFnAvailable = supportsFnPushToTalk();
     const readActivator = () => {
       const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
       activatorRef.current = raw
@@ -158,7 +146,6 @@ export function usePushToTalk(
         : nativeFnAvailable
           ? FN_PTT_ACTIVATOR
           : { kind: "off" };
-      updateNativeRegistration();
     };
     readActivator();
 
@@ -168,6 +155,27 @@ export function usePushToTalk(
         holdTimerRef.current = null;
       }
       holdingRef.current = false;
+    };
+
+    const startActiveTarget = (origin: "dom" | "native") => {
+      const target = resolvePushToTalkTarget(targetSource);
+      if (!target) {
+        return;
+      }
+      activeRef.current = true;
+      activeOriginRef.current = origin;
+      activeTargetRef.current = target;
+      playActivationBlip();
+      target.start();
+    };
+
+    const stopActiveTarget = () => {
+      const target =
+        activeTargetRef.current ?? resolvePushToTalkTarget(targetSource);
+      activeRef.current = false;
+      activeOriginRef.current = null;
+      activeTargetRef.current = null;
+      target?.stop();
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -209,10 +217,7 @@ export function usePushToTalk(
           return;
         }
         holdingRef.current = false;
-        activeRef.current = true;
-        activeOriginRef.current = "dom";
-        playActivationBlip();
-        targetRef.current?.start();
+        startActiveTarget("dom");
       }, PTT_HOLD_DELAY_MS);
     };
 
@@ -225,7 +230,11 @@ export function usePushToTalk(
       // For key activators with required modifiers (e.g. Ctrl+K), cancel
       // the hold if a required modifier is released before the timer fires.
       // eventDeactivatesPTT only matches the trigger key, not modifiers.
-      if (holdingRef.current && activator.kind === "key" && activator.modifiers.length > 0) {
+      if (
+        holdingRef.current &&
+        activator.kind === "key" &&
+        activator.modifiers.length > 0
+      ) {
         const k = event.key;
         const mods = activator.modifiers;
         if (
@@ -251,14 +260,12 @@ export function usePushToTalk(
       if (!activeRef.current) {
         return;
       }
-      activeRef.current = false;
-      activeOriginRef.current = null;
-      targetRef.current?.stop();
+      stopActiveTarget();
     };
 
     const handleNativeHotkey = (event: HotkeyEvent) => {
       if (
-        !nativeFnRegistered ||
+        !nativeFnAvailable ||
         !isFnPushToTalkActivator(activatorRef.current)
       ) {
         return;
@@ -268,19 +275,14 @@ export function usePushToTalk(
         if (activeRef.current) {
           return;
         }
-        activeRef.current = true;
-        activeOriginRef.current = "native";
-        playActivationBlip();
-        targetRef.current?.start();
+        startActiveTarget("native");
         return;
       }
 
       if (!activeRef.current || activeOriginRef.current !== "native") {
         return;
       }
-      activeRef.current = false;
-      activeOriginRef.current = null;
-      targetRef.current?.stop();
+      stopActiveTarget();
     };
 
     const handleBlur = () => {
@@ -291,13 +293,10 @@ export function usePushToTalk(
       // delivered by the host helper while the app is in the background, so
       // leave those sessions running until the helper sends the up event.
       if (activeRef.current && activeOriginRef.current !== "native") {
-        activeRef.current = false;
-        activeOriginRef.current = null;
-        targetRef.current?.stop();
+        stopActiveTarget();
       }
     };
 
-    const target = targetRef;
     const unsubscribeSetting = watchSetting(LS_PTT_ACTIVATION_KEY, readActivator);
     const unsubscribeNative = subscribeToHotkeyEvents(handleNativeHotkey);
 
@@ -311,18 +310,12 @@ export function usePushToTalk(
       window.removeEventListener("blur", handleBlur);
       unsubscribeSetting();
       unsubscribeNative();
-      if (nativeFnRegistered) {
-        nativeFnRegistered = false;
-        void setFnPushToTalkEnabled(false);
-      }
       cancelHold();
       if (activeRef.current) {
-        activeRef.current = false;
-        activeOriginRef.current = null;
-        target.current?.stop();
+        stopActiveTarget();
       }
     };
-  }, [enabled, targetRef]);
+  }, [enabled, targetSource]);
 }
 
 // Re-export for testing.

@@ -18,7 +18,9 @@ import { isScheduledConversation } from "@/utils/conversation-predicates";
  *   including auto-analysis (reflections). Sub-grouping by `source` is
  *   handled downstream by `backgroundSubGroups.ts`.
  * - `recents` — everything else (foreground, non-pinned), sorted by
- *   `lastMessageAt` descending.
+ *   `lastMessageAt` descending. Background/scheduled conversations with a
+ *   non-null `surfacedAt` (explicitly promoted via the daemon's surface API)
+ *   land here instead of their system buckets.
  *
  * Archived conversations (`archivedAt != null`) are excluded from every
  * bucket.
@@ -68,67 +70,6 @@ function shouldBucketInSlackSection(c: Conversation): boolean {
   return (
     isSlackConversation(c) &&
     (c.groupId == null || c.groupId === "system:all")
-  );
-}
-
-/**
- * Return the effective group ID for a conversation, used by the sidebar's
- * "Move to Group" submenu to exclude the current group from the target list.
- *
- * Priority matches `groupConversations` bucketing:
- *  1. Pinned  -> `"system:pinned"`
- *  2. Custom groupId -> the custom group id
- *  3. Slack -> `"system:slack"` (virtual section, not a move target)
- *  4. Scheduled -> `"system:scheduled"`
- *  5. Background -> `"system:background"`
- *  6. Recents (everything else) -> `"system:all"`
- */
-export function getEffectiveGroupId(c: Conversation): string {
-  if (isConversationPinned(c)) return "system:pinned";
-  if (c.groupId && !c.groupId.startsWith("system:")) return c.groupId;
-  if (shouldBucketInSlackSection(c)) return "system:slack";
-  if (isScheduledConversation(c)) return "system:scheduled";
-  if (isBackground(c)) return "system:background";
-  return "system:all";
-}
-
-// ---------------------------------------------------------------------------
-// Move-to-Group helpers
-// ---------------------------------------------------------------------------
-
-export interface MoveToGroupTarget {
-  id: string;
-  name: string;
-}
-
-/**
- * The fixed set of persisted system groups a conversation can be moved to.
- * Slack is intentionally omitted because it is a derived origin section, not
- * a group arbitrary conversations can join.
- */
-const SYSTEM_MOVE_TARGETS: readonly MoveToGroupTarget[] = [
-  { id: "system:pinned", name: "Pinned" },
-  { id: "system:scheduled", name: "Scheduled" },
-  { id: "system:background", name: "Background" },
-  { id: "system:all", name: "Recents" },
-];
-
-/**
- * Build the list of "Move to Group" targets for a conversation, excluding
- * the group it currently belongs to. System groups are always present;
- * custom groups come from the backend.
- */
-export function buildMoveToGroupTargets(
-  conversation: Conversation,
-  groups?: ConversationGroup[],
-): MoveToGroupTarget[] {
-  const customTargets: MoveToGroupTarget[] = (groups ?? [])
-    .filter((g) => !g.isSystemGroup)
-    .map((g) => ({ id: g.id, name: g.name }));
-
-  const currentGroupId = getEffectiveGroupId(conversation);
-  return [...SYSTEM_MOVE_TARGETS, ...customTargets].filter(
-    (g) => g.id !== currentGroupId,
   );
 }
 
@@ -218,6 +159,14 @@ export function groupConversations(
 
     if (shouldBucketInSlackSection(c)) {
       slack.push(c);
+      continue;
+    }
+
+    // Explicitly surfaced conversations are promoted into Recents instead
+    // of the Scheduled/Background buckets (normal lastMessageAt sort).
+    // Pinned, custom-group, and Slack precedence above stays as-is.
+    if (c.surfacedAt != null) {
+      recents.push(c);
       continue;
     }
 

@@ -18,7 +18,7 @@ import type { Database } from "bun:sqlite";
 
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import { executeScheduleCreate } from "../tools/schedule/create.js";
+import { executeScheduleCreate as rawExecuteScheduleCreate } from "../tools/schedule/create.js";
 import { executeScheduleDelete } from "../tools/schedule/delete.js";
 import { executeScheduleList } from "../tools/schedule/list.js";
 import { executeScheduleUpdate } from "../tools/schedule/update.js";
@@ -41,6 +41,16 @@ const trustedCtx: ToolContext = {
   trustClass: "trusted_contact",
 };
 
+function executeScheduleCreate(
+  input: Record<string, unknown>,
+  context: ToolContext,
+) {
+  return rawExecuteScheduleCreate(
+    { description: "Test schedule description", ...input },
+    context,
+  );
+}
+
 // ── schedule_create ─────────────────────────────────────────────────
 
 describe("schedule_create tool", () => {
@@ -53,6 +63,7 @@ describe("schedule_create tool", () => {
     const result = await executeScheduleCreate(
       {
         name: "Daily standup",
+        description: "Remind the team to join the daily standup.",
         expression: "0 9 * * 1-5",
         message: "Time for standup!",
       },
@@ -62,8 +73,16 @@ describe("schedule_create tool", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("schedule created successfully");
     expect(result.content).toContain("Daily standup");
+    expect(result.content).toContain(
+      "Description: Remind the team to join the daily standup.",
+    );
     expect(result.content).toContain("Every weekday at 9:00 AM");
     expect(result.content).toContain("Enabled: true");
+
+    const row = getRawDb()
+      .query("SELECT description FROM cron_jobs LIMIT 1")
+      .get() as { description: string };
+    expect(row.description).toBe("Remind the team to join the daily standup.");
   });
 
   test("persists the creating conversation for recurring schedules", async () => {
@@ -124,6 +143,35 @@ describe("schedule_create tool", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("name is required");
+  });
+
+  test("rejects missing description", async () => {
+    const result = await rawExecuteScheduleCreate(
+      {
+        name: "No description",
+        expression: "0 9 * * *",
+        message: "test",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("description is required");
+  });
+
+  test("rejects blank description", async () => {
+    const result = await rawExecuteScheduleCreate(
+      {
+        name: "Blank description",
+        description: "   ",
+        expression: "0 9 * * *",
+        message: "test",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("description is required");
   });
 
   test("rejects missing expression when no fire_at", async () => {
@@ -195,6 +243,7 @@ describe("schedule_create with fire_at (one-shot)", () => {
     const result = await executeScheduleCreate(
       {
         name: "One-time reminder",
+        description: "Remind the user about a one-time event.",
         fire_at: futureDate,
         message: "Don't forget!",
       },
@@ -206,7 +255,15 @@ describe("schedule_create with fire_at (one-shot)", () => {
     expect(result.content).toContain("Type: one-shot");
     expect(result.content).toContain("Mode: execute");
     expect(result.content).toContain("One-time reminder");
+    expect(result.content).toContain(
+      "Description: Remind the user about a one-time event.",
+    );
     expect(result.content).toContain("Status: active");
+
+    const row = getRawDb()
+      .query("SELECT description FROM cron_jobs LIMIT 1")
+      .get() as { description: string };
+    expect(row.description).toBe("Remind the user about a one-time event.");
   });
 
   test("persists the creating conversation for one-shot schedules", async () => {
@@ -547,6 +604,7 @@ describe("schedule_list tool", () => {
     await executeScheduleCreate(
       {
         name: "Detail Job",
+        description: "Describe the detail job purpose.",
         expression: "30 14 * * *",
         message: "Afternoon check",
       },
@@ -561,6 +619,9 @@ describe("schedule_list tool", () => {
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Schedule: Detail Job");
+    expect(result.content).toContain(
+      "Description: Describe the detail job purpose.",
+    );
     expect(result.content).toContain("Every day at 2:30 PM");
     expect(result.content).toContain("Message: Afternoon check");
     expect(result.content).toContain("Enabled: true");
@@ -598,6 +659,7 @@ describe("schedule_list with one-shot schedules", () => {
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain("One-shot Event");
+    expect(result.content).toContain("Test schedule description");
     expect(result.content).toContain("one-shot");
     expect(result.content).toContain("fire at:");
     expect(result.content).toContain("active");
@@ -717,6 +779,37 @@ describe("schedule_update tool", () => {
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Schedule updated successfully");
     expect(result.content).toContain("New Name");
+  });
+
+  test("updates the description of a schedule", async () => {
+    await executeScheduleCreate(
+      {
+        name: "Description update",
+        description: "Original purpose.",
+        expression: "0 9 * * *",
+        message: "test",
+      },
+      ctx,
+    );
+
+    const row = getRawDb().query("SELECT id FROM cron_jobs LIMIT 1").get() as {
+      id: string;
+    };
+    const result = await executeScheduleUpdate(
+      {
+        job_id: row.id,
+        description: "Updated purpose.",
+      },
+      ctx,
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toContain("Description: Updated purpose.");
+
+    const dbRow = getRawDb()
+      .query("SELECT description FROM cron_jobs WHERE id = ?")
+      .get(row.id) as { description: string };
+    expect(dbRow.description).toBe("Updated purpose.");
   });
 
   test("updates the cron expression", async () => {

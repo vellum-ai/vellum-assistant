@@ -17,15 +17,10 @@ let package = Package(
             exclude: ["Info.plist"],
             linkerSettings: [
                 .linkedFramework("AppKit"),
+                .linkedFramework("AVFoundation"),
                 .linkedFramework("Carbon"),
                 .linkedFramework("IOKit"),
                 .linkedFramework("Speech"),
-                .unsafeFlags([
-                    "-Xlinker", "-sectcreate",
-                    "-Xlinker", "__TEXT",
-                    "-Xlinker", "__info_plist",
-                    "-Xlinker", "Sources/MacHelperExecutable/Info.plist",
-                ]),
             ]
         ),
         .testTarget(

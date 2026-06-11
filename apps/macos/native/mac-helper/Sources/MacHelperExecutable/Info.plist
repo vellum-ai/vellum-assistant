@@ -2,21 +2,31 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!--
+      Embedded into the bare executable's __TEXT,__info_plist section by
+      build-mac-helper.sh. TCC consults the requesting binary's Info.plist
+      for usage strings when the helper itself (not just the responsible
+      host app) is attributed for microphone / speech-recognition access,
+      so the dictation-partials session can prompt and run without a full
+      .app bundle.
+    -->
     <key>CFBundleIdentifier</key>
-    <string>com.vellum.vellum-assistant-electron.mac-helper</string>
+    <string>ai.vellum.assistant.mac-helper</string>
     <key>CFBundleExecutable</key>
     <string>vellum-mac-helper</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Vellum Mac Helper</string>
+    <string>vellum-mac-helper</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
     <key>CFBundleVersion</key>
     <string>1</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Vellum uses the microphone to transcribe dictated voice input.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
-    <string>Vellum uses speech recognition to transcribe dictated voice input.</string>
+    <string>Vellum uses speech recognition to show your words live while you dictate.</string>
 </dict>
 </plist>

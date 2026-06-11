@@ -15,6 +15,7 @@ import {
 import { AssistantUpgrades } from "@/domains/settings/components/assistant-upgrades";
 import { DeleteAccountSection } from "@/domains/settings/components/delete-account-section";
 import { IOSAppCard } from "@/domains/settings/components/ios-app-card";
+import { LaunchAtLoginCard } from "@/domains/settings/components/launch-at-login-card";
 import { MediaEmbedsCard } from "@/domains/settings/components/media-embeds-card";
 import { PreviewReleaseChannel } from "@/domains/settings/components/preview-release-channel";
 import { ResizeCard } from "@/domains/settings/components/resize-card";
@@ -37,6 +38,7 @@ import {
     isLocalAssistant,
     isLocalMode,
 } from "@/lib/local-mode";
+import { isElectron } from "@/runtime/is-electron";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useIsAuthenticated } from "@/stores/auth-store";
@@ -217,7 +219,6 @@ export function GeneralPage() {
     refetch,
     refetchUntilResized,
   } = useAssistantWithHealthz();
-  const accountDeletion = useAssistantFeatureFlagStore.use.accountDeletion();
   const multiPlatformAssistant = useClientFeatureFlagStore.use.multiPlatformAssistant();
   const settingsSleepPolicy = useAssistantFeatureFlagStore.use.settingsSleepPolicy();
   const isAuthenticated = useIsAuthenticated();
@@ -273,7 +274,10 @@ export function GeneralPage() {
         />
       </DetailCard>
 
-      {isAuthenticated && platformGate === "full" && <ProfileCard assistant={platformAssistant} />}
+      {isAuthenticated && platformGate === "full" && (
+        // Handles are platform-only — withhold the prop for self-hosted assistants.
+        <ProfileCard assistant={isPlatformHosted ? platformAssistant : null} />
+      )}
 
       {infraGate === "full" && assistant && (
         <ResizeCard
@@ -298,6 +302,8 @@ export function GeneralPage() {
       )}
 
       <ThemeCard />
+
+      {isElectron() && <LaunchAtLoginCard />}
 
       {infraGate === "full" && platformAssistant && (
         <DetailCard title="Software Updates">
@@ -377,7 +383,7 @@ export function GeneralPage() {
         </DetailCard>
       )}
 
-      {accountDeletion && <DeleteAccountSection />}
+      <DeleteAccountSection />
     </div>
   );
 }

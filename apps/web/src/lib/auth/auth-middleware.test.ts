@@ -9,6 +9,7 @@ mock.module("@/lib/local-mode", () => ({
 }));
 
 import { authMiddleware } from "./auth-middleware";
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAuthStore, type AuthUser } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 
@@ -40,6 +41,7 @@ beforeEach(() => {
   isLocalModeMock.mockImplementation(() => true);
   hasAssistantsMock.mockImplementation(() => false);
   useAuthStore.setState(initialAuthState, true);
+  useAssistantLifecycleStore.setState({ assistantState: { kind: "error", message: "no assistant" } });
 });
 
 afterEach(() => {
@@ -82,7 +84,7 @@ describe("authMiddleware — local-mode onboarding fork", () => {
 
     const res = await runMiddleware(routes.home);
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe(routes.onboarding.welcome);
+    expect(res.headers.get("Location")).toBe(routes.welcome);
   });
 
   test("routes to hosting when a resolved platform session exists", async () => {

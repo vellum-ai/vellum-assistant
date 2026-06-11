@@ -1,7 +1,7 @@
 import type { ConversationMessage } from "@vellumai/assistant-api";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
+import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 
 /**
  * Translate the execution state a test wants into the wire fields the
@@ -23,32 +23,52 @@ export function toolCallStatusWireFields(
 }
 
 /**
- * Derive the flat plain text of a message row from its `textSegments`.
+ * Derive the flat plain text of a message row from its `contentBlocks`.
  *
  * Mirrors how the app renders and reconciles message bodies, so tests assert
  * on the same derived text the production code uses rather than a redundant
  * stored string.
  */
 export function messageText(
-  message: Pick<DisplayMessage, "textSegments"> | undefined,
+  message: Pick<DisplayMessage, "contentBlocks"> | undefined,
 ): string {
-  return segmentsToPlainText(message?.textSegments);
+  return messagePlainText(message);
 }
 
 /**
- * Build the `textSegments` + `contentOrder` for a message whose body is a
- * single text block. An empty string yields empty arrays, matching a row with
- * no text content.
+ * Build a text row's `textSegments`, `contentOrder`, and `contentBlocks` all
+ * in lockstep — the shape both the ingest boundary and the streaming updaters
+ * produce for a row whose body is a single text block. An empty string yields
+ * empty positional arrays and no blocks, matching a contentless row.
  */
 export function textBody(
   content: string,
-): Pick<DisplayMessage, "textSegments" | "contentOrder"> {
+): Pick<DisplayMessage, "textSegments" | "contentOrder" | "contentBlocks"> {
   return content
     ? {
         textSegments: [content],
         contentOrder: [{ type: "text", id: "0" }],
+        contentBlocks: [{ type: "text", text: content }],
       }
-    : { textSegments: [], contentOrder: [] };
+    : { textSegments: [], contentOrder: [], contentBlocks: [] };
+}
+
+/**
+ * Build a settled reasoning row's `thinkingSegments`, `contentOrder`, and
+ * `contentBlocks` all in lockstep — the shape the ingest boundary
+ * (`normalizeContentBlocks`) materializes for a row whose body is a run of
+ * reasoning blocks. The i-th thinking block carries the same text as
+ * `thinkingSegments[i]`, so the block-first thinking reader resolves each
+ * `thinking:i` id from the block rather than the positional fallback.
+ */
+export function thinkingBodyWithBlocks(
+  ...segments: string[]
+): Pick<DisplayMessage, "thinkingSegments" | "contentOrder" | "contentBlocks"> {
+  return {
+    thinkingSegments: segments,
+    contentOrder: segments.map((_, i) => ({ type: "thinking", id: String(i) })),
+    contentBlocks: segments.map((thinking) => ({ type: "thinking", thinking })),
+  };
 }
 
 /**

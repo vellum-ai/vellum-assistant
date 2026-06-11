@@ -23,7 +23,7 @@ import {
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { routes } from "@/utils/routes";
-import { Button, Card, ConfirmDialog } from "@vellumai/design-library";
+import { Button, Card, ConfirmDialog, toast } from "@vellumai/design-library";
 
 /**
  * Detail page for a single plugin, reached by clicking a row in the
@@ -71,7 +71,10 @@ export function PluginDetailPage() {
 
   const installMutation = useMutation({
     ...pluginsInstallPostMutation(),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      invalidate();
+      toast.success(`Installed ${name ?? "plugin"}`);
+    },
   });
 
   const removeMutation = useMutation({
@@ -193,7 +196,7 @@ function Header({
   isRemoving,
 }: HeaderProps) {
   const installed = plugin?.installed ?? false;
-  const isExternal = plugin?.source.kind === "github";
+  const isExternal = plugin?.source?.kind === "github";
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center">
@@ -280,9 +283,9 @@ function Header({
 
 function Metadata({ plugin }: { plugin: PluginsByNameGetResponse }) {
   const repo =
-    plugin.source.kind === "github" ? plugin.source.repo : "First-party";
+    plugin.source?.kind === "github" ? plugin.source.repo : "Local";
   const repoHref =
-    plugin.source.kind === "github"
+    plugin.source?.kind === "github"
       ? `https://github.com/${plugin.source.repo}`
       : null;
 

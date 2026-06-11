@@ -372,6 +372,49 @@ describe("HostAppControlProxy", () => {
       proxy.dispose();
     });
 
+    test("non-start tool with mismatched target client is rejected", async () => {
+      mockActorMap.set("client-A", "user-1");
+      mockActorMap.set("client-B", "user-1");
+      const proxy = new HostAppControlProxy("conv-1");
+      const startCtrl = new AbortController();
+
+      const pStart = proxy.request(
+        "app_control_start",
+        { tool: "start", app: "com.example.editor" },
+        "conv-1",
+        startCtrl.signal,
+        "user-1",
+        "client-A",
+      );
+      proxy.resolve(
+        (sentMessages[0] as Record<string, unknown>).requestId as string,
+        payload({ pngBase64: PNG_A }),
+      );
+      await pStart;
+      sentMessages.length = 0;
+
+      const result = await proxy.request(
+        "app_control_type",
+        {
+          tool: "type",
+          app: "com.example.editor",
+          text: "hello",
+        },
+        "conv-1",
+        new AbortController().signal,
+        "user-1",
+        "client-B",
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("client-A");
+      expect(result.content).toContain("client-B");
+      expect(result.content).toContain("app_control_start");
+      expect(sentMessages).toHaveLength(0);
+
+      proxy.dispose();
+    });
+
     test("non-start tool with case-different but otherwise matching app is allowed", async () => {
       const proxy = new HostAppControlProxy("conv-1");
       const startCtrl = new AbortController();
@@ -1297,6 +1340,7 @@ describe("HostAppControlProxy", () => {
       _setActiveAppControlSession({
         conversationId: "conv-1",
         app: "com.example.app",
+        targetClientId: "client-A",
       });
 
       const resultPromise = proxy.request(
@@ -1332,6 +1376,7 @@ describe("HostAppControlProxy", () => {
       _setActiveAppControlSession({
         conversationId: "conv-1",
         app: "com.example.app",
+        targetClientId: "client-A",
       });
 
       const resultPromise = proxy.request(

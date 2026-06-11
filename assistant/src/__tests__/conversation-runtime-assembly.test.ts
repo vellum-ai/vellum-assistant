@@ -2,6 +2,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { PostCompactContext } from "@vellumai/plugin-api";
 import { eq } from "drizzle-orm";
 
 // This test exercises v1 PKB injection. `config.memory.v2.enabled` (default
@@ -64,6 +65,8 @@ mock.module("../daemon/date-context.js", () => ({
   formatTurnTimestamp: () => FIXED_TURN_TIMESTAMP,
 }));
 
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
+import { LLMSchema } from "../config/schemas/llm.js";
 import {
   clearConversations,
   setConversation,
@@ -87,6 +90,7 @@ import {
   loadSlackChronologicalMessages,
   resolveChannelCapabilities,
   resolveTurnInboundActorContext,
+  resolveTurnModelProfileLabel,
   stripChannelCapabilityContext,
   stripInjectionsForCompaction,
   stripNowScratchpad,
@@ -1025,18 +1029,18 @@ describe("applyRuntimeInjections — injection mode", () => {
     // GIVEN the seeded live conversation `injection-mode-conv` whose
     // conversation-scoped blocks (`<active_workspace>`, `<channel_capabilities>`)
     // only resolve when `applyRuntimeInjections` finds it by conversation id
-    // AND the agent loop hands the post-compaction hook the turn-identity fields
-    // flat (`requestId`, `conversationId`, `trust`)
-    const { messages: result } = await postCompact({
+    // AND the agent loop hands the post-compaction hook the irreducible
+    // turn-identity fields flat (`requestId`, `conversationId`), with trust and
+    // actor identity self-resolved by the hook from the live conversation
+    const postCompactCtx: PostCompactContext = {
       history: baseMessages,
       requestId: "reinject-req",
       conversationId: "injection-mode-conv",
-      trust: { sourceChannel: "vellum", trustClass: "guardian" },
       isNonInteractive: false,
-      mode: "full",
-      modelProfile: null,
-      actorContext: null,
-    });
+      modelProfileKey: null,
+    };
+    await postCompact(postCompactCtx);
+    const result = postCompactCtx.history;
     const allText = result[0].content
       .filter((b): b is { type: "text"; text: string } => b.type === "text")
       .map((b) => b.text)
@@ -1506,6 +1510,113 @@ describe("resolveTurnInboundActorContext", () => {
       trustClass: "trusted_contact",
       guardianIdentity: undefined,
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveTurnModelProfileLabel
+// ---------------------------------------------------------------------------
+
+describe("resolveTurnModelProfileLabel", () => {
+  /**
+   * A null key means the active profile is unchanged since the last notified
+   * one, so there is no `model_profile` line to render this turn.
+   */
+  test("returns null when the profile key is null", () => {
+    // GIVEN a turn whose profile is unchanged since the last notification
+    const llm = LLMSchema.parse({
+      default: { provider: "anthropic", model: "claude-sonnet-4-7" },
+    });
+
+    // WHEN the label is resolved for a null key
+    const label = resolveTurnModelProfileLabel(null, "mainAgent", llm);
+
+    // THEN there is no profile line to inject
+    expect(label).toBeNull();
+  });
+
+  /**
+   * A known profile renders its configured display label paired with the model
+   * the call site resolves to.
+   */
+  test("renders the profile's label with the resolved model", () => {
+    // GIVEN a workspace with a labelled "fast" profile
+    const llm = LLMSchema.parse({
+      default: { provider: "anthropic", model: "claude-sonnet-4-7" },
+      profiles: {
+        fast: { label: "Fast", provider: "anthropic", model: "claude-haiku-4" },
+      },
+    });
+
+    // WHEN the label is resolved for that profile at the main-agent call site
+    const label = resolveTurnModelProfileLabel("fast", "mainAgent", llm);
+
+    // THEN the rendered line pairs the display label with the resolved model
+    expect(label).toBe("Fast (claude-haiku-4)");
+  });
+
+  /**
+   * A profile with no configured label falls back to its raw key so the model
+   * still gets a stable identifier.
+   */
+  test("falls back to the raw key when the profile has no label", () => {
+    // GIVEN a profile that sets a model but no display label
+    const llm = LLMSchema.parse({
+      default: { provider: "anthropic", model: "claude-sonnet-4-7" },
+      profiles: {
+        deep: { provider: "anthropic", model: "claude-opus-4" },
+      },
+    });
+
+    // WHEN the label is resolved for that profile
+    const label = resolveTurnModelProfileLabel("deep", "mainAgent", llm);
+
+    // THEN the raw key stands in for the missing label
+    expect(label).toBe("deep (claude-opus-4)");
+  });
+
+  /**
+   * A key naming a `mix` profile must announce the arm the turn's provider
+   * calls actually run on. The conversation id is threaded as the selection
+   * seed so the announced model is a deterministic function of the
+   * conversation, matching the seeded expansion the provider layer performs.
+   */
+  test("announces the seeded mix arm so it matches the turn's model", () => {
+    // GIVEN a mix profile routing between two models
+    const llm = LLMSchema.parse({
+      default: { provider: "anthropic", model: "claude-sonnet-4-7" },
+      profiles: {
+        a: { label: "Arm A", provider: "anthropic", model: "model-a" },
+        b: { label: "Arm B", provider: "anthropic", model: "model-b" },
+        ab: {
+          label: "AB",
+          mix: [
+            { profile: "a", weight: 50 },
+            { profile: "b", weight: 50 },
+          ],
+        },
+      },
+    });
+
+    // AND the model the provider calls resolve to for this conversation's seed
+    const seededModel = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "ab",
+      selectionSeed: "conv-seed-1",
+    }).model;
+
+    // WHEN the label is resolved with the same conversation seed
+    const label = resolveTurnModelProfileLabel(
+      "ab",
+      "mainAgent",
+      llm,
+      "conv-seed-1",
+    );
+
+    // THEN the announced model is the seeded arm (deterministic, not re-rolled)
+    expect(label).toBe(`AB (${seededModel})`);
+    expect(
+      resolveTurnModelProfileLabel("ab", "mainAgent", llm, "conv-seed-1"),
+    ).toBe(label);
   });
 });
 

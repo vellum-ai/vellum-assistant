@@ -33,6 +33,7 @@ export type ScheduleStatus = "active" | "firing" | "fired" | "cancelled";
 export interface ScheduleJob {
   id: string;
   name: string;
+  description: string;
   enabled: boolean;
   syntax: ScheduleSyntax;
   expression: string | null;
@@ -85,6 +86,7 @@ export function isValidCronExpression(expr: string): boolean {
 
 export function createSchedule(params: {
   name: string;
+  description?: string;
   cronExpression?: string | null;
   timezone?: string | null;
   message: string;
@@ -141,6 +143,10 @@ export function createSchedule(params: {
   const retryBackoffMs = params.retryBackoffMs ?? 60000;
   const timeoutMs = params.timeoutMs ?? null;
   const createdFromConversationId = params.createdFromConversationId ?? null;
+  const description = normalizeDescription(
+    params.description,
+    params.createdBy === "defer" ? "" : params.name,
+  );
 
   let nextRunAt: number;
   if (isOneShot) {
@@ -154,6 +160,7 @@ export function createSchedule(params: {
   const row = {
     id,
     name: params.name,
+    description,
     enabled,
     cronExpression: expression,
     scheduleSyntax: syntax,
@@ -252,6 +259,7 @@ export function updateSchedule(
   id: string,
   updates: {
     name?: string;
+    description?: string;
     cronExpression?: string;
     timezone?: string | null;
     message?: string;
@@ -313,6 +321,8 @@ export function updateSchedule(
   const set: Record<string, unknown> = { updatedAt: now };
 
   if (updates.name !== undefined) set.name = updates.name;
+  if (updates.description !== undefined)
+    set.description = normalizeDescription(updates.description);
   if (updates.cronExpression !== undefined || updates.expression !== undefined)
     set.cronExpression = newExpr;
   if (updates.syntax !== undefined) set.scheduleSyntax = newSyntax;
@@ -980,6 +990,7 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
   return {
     id: row.id,
     name: row.name,
+    description: row.description ?? "",
     enabled: row.enabled,
     syntax: row.scheduleSyntax as ScheduleSyntax,
     expression: row.cronExpression,
@@ -1006,6 +1017,14 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+function normalizeDescription(
+  value: string | undefined,
+  fallback = "",
+): string {
+  const normalized = value?.trim() ?? "";
+  return normalized || fallback;
 }
 
 function safeParseJson(

@@ -55,8 +55,12 @@ function catalog(ref: string, names: string[]): PluginCatalog {
     ref,
     matches: names.map((name) => ({
       name,
-      path: `experimental/plugins/${name}`,
-      source: { kind: "first-party" as const },
+      path: `github:acme/${name}@${"0".repeat(40)}`,
+      source: {
+        kind: "github" as const,
+        repo: `acme/${name}`,
+        ref: "0".repeat(40),
+      },
     })),
   };
 }

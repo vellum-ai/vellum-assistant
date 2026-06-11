@@ -39,6 +39,7 @@ import {
 import { installAcpConfigStub } from "../../acp/__tests__/helpers/acp-config-stub.js";
 import { installWhichStub } from "../../acp/__tests__/helpers/which-stub.js";
 import type { AcpSessionState } from "../../acp/index.js";
+import * as pendingInteractions from "../pending-interactions.js";
 
 const config = await installAcpConfigStub();
 const which = installWhichStub();
@@ -170,6 +171,31 @@ mock.module("../../tools/credentials/broker.js", () => ({
   },
 }));
 
+// Drive the spawn route's high-risk approval gate (ATL-822). `spawnSession`
+// registers a `directResolve` confirmation in `pendingInteractions` and then
+// broadcasts a `confirmation_request`. Real broadcasting needs the event hub /
+// SSE wiring, so the mock auto-resolves the freshly registered interaction
+// the same way `POST /v1/confirm` would (resolve + directResolve). Tests flip
+// `approvalBehavior` to exercise allow / deny, and read `confirmationRequests`
+// to assert the prompt's risk shape. `interaction_resolved` and other event
+// types are ignored.
+type ApprovalBehavior = "allow" | "deny";
+let approvalBehavior: ApprovalBehavior = "allow";
+const confirmationRequests: Array<Record<string, unknown>> = [];
+
+mock.module("../../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: (msg: { type?: string; requestId?: string }) => {
+    if (msg?.type !== "confirmation_request") return;
+    confirmationRequests.push(msg as Record<string, unknown>);
+    const decision = approvalBehavior;
+    const interaction = pendingInteractions.resolve(
+      msg.requestId as string,
+      decision === "allow" ? "approved" : "rejected",
+    );
+    interaction?.directResolve?.(decision);
+  },
+}));
+
 import { eq } from "drizzle-orm";
 
 import { getDb, getSqlite } from "../../memory/db-connection.js";
@@ -193,6 +219,8 @@ beforeEach(() => {
   capturedSpawns.length = 0;
   vaultStore.clear();
   metadataStore.clear();
+  approvalBehavior = "allow";
+  confirmationRequests.length = 0;
 });
 
 // ---------------------------------------------------------------------------
@@ -224,6 +252,84 @@ describe("POST /v1/acp/spawn", () => {
     await expect(handler({ body: { agent: "claude" } })).rejects.toThrow(
       "agent, task, and conversationId are required",
     );
+    // Guard runs before the approval gate — no prompt is surfaced.
+    expect(confirmationRequests).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /v1/acp/spawn — high-risk approval gate (ATL-822)
+//
+// Spawning an ACP agent is a host subprocess with auto-allowed
+// filesystem/terminal access. The skill-tool path gets the descriptor's
+// `risk: "high"` prompt via ToolExecutor; this route reaches the session
+// manager directly, so it surfaces the same confirmation itself and refuses
+// to spawn unless a guardian approves.
+// ---------------------------------------------------------------------------
+
+describe("POST /v1/acp/spawn — approval gate", () => {
+  test("surfaces a high-risk host confirmation before spawning", async () => {
+    seedVaultToken("test-token-abc123");
+
+    const handler = getSpawnHandler();
+    await handler({
+      body: {
+        agent: "claude",
+        task: "do a thing",
+        conversationId: "conv-1",
+        cwd: "/work/repo",
+      },
+    });
+
+    expect(confirmationRequests).toHaveLength(1);
+    const prompt = confirmationRequests[0];
+    expect(prompt.toolName).toBe("acp_spawn");
+    expect(prompt.riskLevel).toBe("high");
+    expect(prompt.executionTarget).toBe("host");
+    expect(prompt.conversationId).toBe("conv-1");
+    expect((prompt.input as { cwd?: string }).cwd).toBe("/work/repo");
+    // Prompt resolved "allow" → spawn proceeds.
+    expect(capturedSpawns).toHaveLength(1);
+  });
+
+  test("throws ForbiddenError and does not spawn when the guardian denies", async () => {
+    approvalBehavior = "deny";
+    seedVaultToken("test-token-abc123");
+
+    const handler = getSpawnHandler();
+    await expect(
+      handler({
+        body: {
+          agent: "claude",
+          task: "do a thing",
+          conversationId: "conv-1",
+        },
+      }),
+    ).rejects.toThrow(/guardian approval/i);
+
+    // Denied before any host side effects: no subprocess, no pending leak.
+    expect(capturedSpawns).toHaveLength(0);
+    expect(pendingInteractions.getAll()).toHaveLength(0);
+  });
+
+  test("denies (and does not spawn) when the client disconnects before approval", async () => {
+    seedVaultToken("test-token-abc123");
+    const controller = new AbortController();
+    controller.abort();
+
+    const handler = getSpawnHandler();
+    await expect(
+      handler({
+        body: {
+          agent: "claude",
+          task: "do a thing",
+          conversationId: "conv-1",
+        },
+        abortSignal: controller.signal,
+      }),
+    ).rejects.toThrow(/guardian approval/i);
+
+    expect(capturedSpawns).toHaveLength(0);
   });
 });
 

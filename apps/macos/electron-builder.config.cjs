@@ -1,6 +1,7 @@
 // @ts-check
 
 const env = process.env.VELLUM_ENVIRONMENT || "production";
+const bucketEnv = env === "production" ? "prod" : env;
 const targetArch = process.env.ELECTRON_TARGET_ARCH || "arm64";
 
 const productName =
@@ -13,13 +14,10 @@ const appId =
     ? "com.vellum.vellum-assistant-electron"
     : `com.vellum.vellum-assistant-electron-${env}`;
 
-const schemes = ["vellum", "vellum-assistant"];
-if (env !== "production") {
-  schemes.push(`vellum-assistant-${env}`);
-}
-
-const channel =
-  env === "staging" ? "beta" : env === "dev" ? "alpha" : "latest";
+const schemes =
+  env === "production"
+    ? ["vellum", "vellum-assistant"]
+    : [`vellum-assistant-${env}`];
 
 /** @type {import("electron-builder").Configuration} */
 module.exports = {
@@ -27,7 +25,7 @@ module.exports = {
   productName,
   publish: {
     provider: "generic",
-    url: `https://storage.googleapis.com/vellum-desktop-releases/electron/${channel}/${targetArch}/`,
+    url: `https://storage.googleapis.com/vellum-ai-${bucketEnv}-releases/mac-electron/${targetArch}/`,
   },
   directories: {
     output: "dist",
@@ -64,6 +62,7 @@ module.exports = {
     entitlements: "./scripts/entitlements/app.plist",
     entitlementsInherit: "./scripts/entitlements/inherit.plist",
     extendInfo: {
+      CFBundleIconName: "AppIcon",
       NSMicrophoneUsageDescription:
         "Vellum uses the microphone to record voice input for chat.",
       NSSpeechRecognitionUsageDescription:

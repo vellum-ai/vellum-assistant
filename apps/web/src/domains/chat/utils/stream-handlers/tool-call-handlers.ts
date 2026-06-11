@@ -1,7 +1,7 @@
 import {
   applyToolResult,
   upsertToolCall,
-} from "@/domains/chat/hooks/stream-message-updaters";
+} from "@/domains/chat/utils/stream-updaters/tool-call-updaters";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type {
@@ -21,7 +21,11 @@ export function handleToolUseStart(
     id: toolCallId,
     name: event.toolName,
     input: event.input,
-    startedAt: Date.now(),
+    startedAt:
+      "startedAt" in event &&
+      typeof event.startedAt === "number"
+        ? event.startedAt
+        : Date.now(),
   };
   ctx.setMessages((prev) => {
     const next = upsertToolCall(prev, newToolCall, event.messageId);
@@ -41,7 +45,7 @@ export function handleToolResult(
 ): void {
   ctx.turnActions.onToolResult();
   // Forward structured tool activity metadata (web_search / web_fetch) onto
-  // the turn store so the new WebSearchProgressCard can render during the
+  // the turn store so the web-search inline link can render during the
   // active turn. Metadata is live-only — the store clears it on idle
   // transitions; historical reopens continue through the existing
   // `result: string` flow below (parsed for fallback chips).
@@ -66,6 +70,11 @@ export function handleToolResult(
       riskScopeOptions: event.riskScopeOptions,
       riskDirectoryScopeOptions: event.riskDirectoryScopeOptions,
       activityMetadata: event.activityMetadata,
+      completedAt:
+        "completedAt" in event &&
+        typeof event.completedAt === "number"
+          ? event.completedAt
+          : undefined,
     }),
   );
 }

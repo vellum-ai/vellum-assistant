@@ -120,6 +120,7 @@ describe("AgentLoop.run — overrideProfile plumbing", () => {
     });
 
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -144,6 +145,7 @@ describe("AgentLoop.run — overrideProfile plumbing", () => {
     });
 
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -169,6 +171,7 @@ describe("AgentLoop.run — overrideProfile plumbing", () => {
     });
 
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },

@@ -13,6 +13,8 @@ import {
   isRetryableNetworkError,
   sleep,
 } from "../util/retry.js";
+import { resolveLogitBiasPreset } from "./inference/logit-bias.js";
+import { isAdaptiveThinkingOnlyModel } from "./model-catalog.js";
 import {
   isThinkingConfigDisabled,
   normalizeThinkingConfigForWire,
@@ -277,6 +279,27 @@ function normalizeSendMessageOptions(
     ) {
       nextConfig.openrouter = { only: resolved.openrouter.only };
     }
+    // Forward a profile's opted-in `logit_bias` preset only on the Fireworks
+    // (OpenAI-compatible) path. `resolved.logitBias` is set by the resolver from
+    // the single winning profile (not the deep-merge), so it can't leak from a
+    // lower-precedence profile into one that didn't opt in.
+    // `resolveLogitBiasPreset` additionally gates on the resolved model's
+    // tokenizer. Strict-schema clients (Anthropic) reject unknown body fields,
+    // hence the provider gate.
+    if (
+      providerName === "fireworks" &&
+      nextConfig.logit_bias === undefined &&
+      resolved.logitBias !== undefined &&
+      typeof nextConfig.model === "string"
+    ) {
+      const biasMap = resolveLogitBiasPreset(
+        resolved.logitBias,
+        nextConfig.model,
+      );
+      if (biasMap !== undefined) {
+        nextConfig.logit_bias = biasMap;
+      }
+    }
     // `contextWindow` and `provider` are server-side concerns, not provider
     // request parameters: effective context is resolved per call site/profile
     // by the agent/conversation path, while `provider` selection is handled by
@@ -300,6 +323,18 @@ function normalizeSendMessageOptions(
     } else {
       nextConfig.thinking = normalized;
     }
+  }
+
+  // Claude Fable always reasons with adaptive thinking and rejects an explicit
+  // `thinking: { type: "disabled" }` (Anthropic 400s the request). Drop a
+  // disabled thinking config for these models so they fall back to their
+  // always-on adaptive thinking; effort and other params are unaffected.
+  if (
+    typeof nextConfig.model === "string" &&
+    isAdaptiveThinkingOnlyModel(nextConfig.model) &&
+    isThinkingConfigDisabled(nextConfig.thinking)
+  ) {
+    delete nextConfig.thinking;
   }
 
   // thinking is Anthropic-specific on the wire; OpenRouter reads it as a
@@ -383,15 +418,30 @@ function normalizeSendMessageOptions(
   //   strip `temperature` upstream; non-Anthropic OpenRouter reasoning
   //   models don't have this exact constraint).
   const isThinkingTemperatureConflict = (() => {
-    if (nextConfig.thinking == null) return false;
-    if (isThinkingConfigDisabled(nextConfig.thinking)) return false;
+    const model = typeof nextConfig.model === "string" ? nextConfig.model : "";
+    // Claude Fable always reasons in adaptive mode, so the `temperature: 1`
+    // constraint applies even when no explicit `thinking` config is present
+    // (a disabled config was already dropped above). For every other model
+    // the constraint only applies when thinking is actually enabled.
+    if (!isAdaptiveThinkingOnlyModel(model)) {
+      if (nextConfig.thinking == null) {
+        return false;
+      }
+      if (isThinkingConfigDisabled(nextConfig.thinking)) {
+        return false;
+      }
+    }
     const temp = nextConfig.temperature;
-    if (typeof temp !== "number") return false;
-    if (temp === 1) return false;
-    if (providerName === "anthropic") return true;
+    if (typeof temp !== "number") {
+      return false;
+    }
+    if (temp === 1) {
+      return false;
+    }
+    if (providerName === "anthropic") {
+      return true;
+    }
     if (providerName === "openrouter") {
-      const model =
-        typeof nextConfig.model === "string" ? nextConfig.model : "";
       return model.startsWith("anthropic/");
     }
     return false;

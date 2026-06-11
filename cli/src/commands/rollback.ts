@@ -1,5 +1,3 @@
-import { randomBytes } from "crypto";
-
 import {
   findAssistantByName,
   getActiveAssistant,
@@ -27,9 +25,8 @@ import {
   buildProgressEvent,
   buildStartingEvent,
   buildUpgradeCommitMessage,
-  captureContainerEnv,
+  captureReplayState,
   commitWorkspaceViaGateway,
-  CONTAINER_ENV_EXCLUDE_KEYS,
   fetchCurrentVersion,
   fetchPreviousVersion,
   performDockerRollback,
@@ -308,39 +305,13 @@ export async function rollback(): Promise<void> {
       `🔄 Rolling back Docker assistant '${instanceName}' to ${previousVersion}...\n`,
     );
 
-    // Capture current container env
-    console.log("💾 Capturing existing container environment...");
-    const capturedEnv = await captureContainerEnv(res.assistantContainer);
-    console.log(
-      `   Captured ${Object.keys(capturedEnv).length} env var(s) from ${res.assistantContainer}\n`,
-    );
-
-    // Capture GUARDIAN_BOOTSTRAP_SECRET from the gateway container (it is only
-    // set on gateway, not assistant) so it persists across container restarts.
-    const gatewayEnv = await captureContainerEnv(res.gatewayContainer);
-    const bootstrapSecret = gatewayEnv["GUARDIAN_BOOTSTRAP_SECRET"];
-
-    // Extract CES_SERVICE_TOKEN from captured env, or generate fresh one
-    const cesServiceToken =
-      capturedEnv["CES_SERVICE_TOKEN"] || randomBytes(32).toString("hex");
-
-    // Extract or generate the shared JWT signing key.
-    const signingKey =
-      capturedEnv["ACTOR_TOKEN_SIGNING_KEY"] || randomBytes(32).toString("hex");
-
-    // Build extra env vars, excluding keys managed by buildServiceRunArgs
-    const envKeysSetByRunArgs = new Set(CONTAINER_ENV_EXCLUDE_KEYS);
-    for (const envVar of ["ANTHROPIC_API_KEY", "VELLUM_PLATFORM_URL"]) {
-      if (process.env[envVar]) {
-        envKeysSetByRunArgs.add(envVar);
-      }
-    }
-    const extraAssistantEnv: Record<string, string> = {};
-    for (const [key, value] of Object.entries(capturedEnv)) {
-      if (!envKeysSetByRunArgs.has(key)) {
-        extraAssistantEnv[key] = value;
-      }
-    }
+    const {
+      bootstrapSecret,
+      cesServiceToken,
+      signingKey,
+      extraAssistantEnv,
+      extraGatewayEnv,
+    } = await captureReplayState(res);
 
     // Parse gateway port from entry's runtimeUrl, fall back to default
     let gatewayPort = GATEWAY_INTERNAL_PORT;
@@ -401,6 +372,7 @@ export async function rollback(): Promise<void> {
         bootstrapSecret,
         cesServiceToken,
         extraAssistantEnv,
+        extraGatewayEnv,
         gatewayPort,
         imageTags: previousImageRefs,
         instanceName,

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   __resetForTesting,
   getElectronSessionToken,
+  primeElectronSessionToken,
 } from "@/runtime/session-token";
 
 function setBridge(token: string | null, calls?: { count: number }): void {
@@ -42,5 +43,22 @@ describe("getElectronSessionToken", () => {
   test("returns null when the bridge reports no token", () => {
     setBridge(null);
     expect(getElectronSessionToken()).toBeNull();
+  });
+
+  test("caches a null seed without re-reading the bridge", () => {
+    const calls = { count: 0 };
+    setBridge(null, calls);
+
+    expect(getElectronSessionToken()).toBeNull();
+    expect(getElectronSessionToken()).toBeNull();
+    expect(calls.count).toBe(1);
+  });
+
+  test("priming replaces a stale signed-out seed", () => {
+    setBridge(null);
+    expect(getElectronSessionToken()).toBeNull();
+
+    primeElectronSessionToken("tok");
+    expect(getElectronSessionToken()).toBe("tok");
   });
 });

@@ -374,6 +374,68 @@ export function createMailgunWebhookHandler(
         return Response.json({ error: "Internal error" }, { status: 500 });
       }
 
+      // ── Verification reply ──────────────────────────────────────
+      // Not gated by recordDenialReplyIfAllowed — verification success
+      // confirmations must always be delivered regardless of prior denial
+      // replies to this sender.
+      if (result.verificationIntercepted && result.verificationReplyText) {
+        const mailgunApiKeyForVerify = await resolveCredential(
+          credentialKey("mailgun", "api_key"),
+        );
+        if (mailgunApiKeyForVerify) {
+          const senderAddress = gatewayEvent.actor.actorExternalId;
+          const mailgunDomainForVerify = recipientAddress.split("@")[1];
+          if (mailgunDomainForVerify) {
+            try {
+              const form = new URLSearchParams();
+              form.set("from", recipientAddress);
+              form.set("to", senderAddress);
+              form.set(
+                "subject",
+                `Re: ${vellumPayload.subject ?? "(no subject)"}`,
+              );
+              form.set("text", result.verificationReplyText);
+              if (vellumPayload.messageId) {
+                form.set("h:In-Reply-To", vellumPayload.messageId);
+              }
+
+              const sendResponse = await fetch(
+                `https://api.mailgun.net/v3/${mailgunDomainForVerify}/messages`,
+                {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Basic ${Buffer.from(`api:${mailgunApiKeyForVerify}`).toString("base64")}`,
+                  },
+                  body: form,
+                },
+              );
+              if (sendResponse.ok) {
+                tlog.info(
+                  { from: recipientAddress, to: senderAddress },
+                  "Sent verification reply via Mailgun",
+                );
+              } else {
+                tlog.warn(
+                  {
+                    status: sendResponse.status,
+                    from: recipientAddress,
+                    to: senderAddress,
+                  },
+                  "Failed to send verification reply via Mailgun",
+                );
+              }
+            } catch (err) {
+              tlog.error(
+                { err, from: recipientAddress, to: senderAddress },
+                "Error sending verification reply via Mailgun",
+              );
+            }
+          }
+        }
+        dedupCache.mark(token);
+        return Response.json({ ok: true, verificationIntercepted: true });
+      }
+
       dedupCache.mark(token);
 
       if (!result.rejected) {

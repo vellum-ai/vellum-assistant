@@ -8,6 +8,19 @@ import {
 
 export type AssistantSchedule = SchedulesGetResponse["schedules"][number];
 
+function normalizeSchedule(schedule: AssistantSchedule): AssistantSchedule {
+  const raw = schedule as AssistantSchedule & {
+    cadenceDescription?: string;
+    description?: string;
+  };
+  const description = raw.description ?? "";
+  return {
+    ...schedule,
+    description,
+    cadenceDescription: raw.cadenceDescription ?? description,
+  };
+}
+
 export async function fetchSchedules(
   assistantId: string,
 ): Promise<AssistantSchedule[]> {
@@ -22,5 +35,5 @@ export async function fetchSchedules(
       extractErrorMessage(error, response, "Failed to load schedules."),
     );
   }
-  return data?.schedules ?? [];
+  return (data?.schedules ?? []).map(normalizeSchedule);
 }

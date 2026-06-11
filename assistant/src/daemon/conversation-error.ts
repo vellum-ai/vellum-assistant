@@ -2,6 +2,11 @@ import type {
   ConversationErrorCode,
   ConversationErrorEvent,
 } from "../api/events/conversation-error.js";
+import {
+  ORDERING_ERROR_PATTERNS,
+  WEB_SEARCH_ORDERING_PATTERNS,
+} from "../plugins/defaults/history-repair/terminal.js";
+import { isImageDimensionsTooLargeError } from "../plugins/defaults/image-recovery/detect.js";
 import { ConnectionResolutionError } from "../providers/connection-resolution.js";
 import { getProviderRoutingSource } from "../providers/registry.js";
 import { isAbortReason } from "../util/abort-reasons.js";
@@ -118,21 +123,6 @@ const PROVIDER_API_PATTERNS = [
   /gateway timeout/i,
 ];
 
-// Provider ordering error patterns (tool_use/tool_result mismatches)
-const ORDERING_ERROR_PATTERNS = [
-  /tool_result.*not immediately after.*tool_use/i,
-  /tool_use.*must have.*tool_result/i,
-  /tool_use_id.*without.*tool_result/i,
-  /tool_result.*tool_use_id.*not found/i,
-  /messages.*invalid.*order/i,
-];
-
-// Web-search-specific ordering error patterns
-const WEB_SEARCH_ORDERING_PATTERNS = [
-  /web_search.*tool_use.*without/i,
-  /web_search.*tool_result/i,
-];
-
 // Stale/invalid opaque `encrypted_content` token in replayed web-search results.
 // Anthropic's tokens have bounded validity; the daemon replaces historical
 // `web_search_tool_result` blocks with text summaries to avoid this, but this
@@ -147,18 +137,6 @@ const STREAMING_ERROR_PATTERNS = [
   /stream ended without producing/i,
   /request ended without sending any chunks/i,
   /stream has ended.*this shouldn't happen/i,
-];
-
-// User-initiated cancellation patterns — these should NOT produce conversation_error
-// Image-input validation patterns — Anthropic 400s with one of these messages
-// when an image block violates a hard limit. The first matches the per-side
-// pixel cap ("image dimensions exceed max allowed size"); the second matches the
-// base64 payload cap ("image exceeds 5 MB maximum: 7465044 bytes > 5242880
-// bytes"). Distinct classification matters because retrying with the same
-// oversized image is futile — the recovery path must strip or downscale it.
-const IMAGE_DIMENSIONS_TOO_LARGE_PATTERNS = [
-  /image dimensions? exceeds? max allowed size/i,
-  /image exceeds \d+\s*MB maximum/i,
 ];
 
 const VISION_NOT_SUPPORTED_PATTERNS = [
@@ -277,7 +255,7 @@ export function classifyConversationError(
     return {
       code: "PROVIDER_NOT_CONFIGURED",
       userMessage:
-        "No compatible provider connection found for this profile. Check your provider connections in Settings.",
+        "No compatible provider connection found for this profile. Check your provider connections in Settings → Models & Services.",
       retryable: true,
       debugDetails,
       errorCategory: "provider_not_configured",
@@ -355,15 +333,6 @@ function classifyCore(
         };
       }
       return invalidApiKeyClassification(attribution);
-    }
-    if (error.statusCode === 401) {
-      return {
-        code: "PROVIDER_INVALID_KEY",
-        userMessage:
-          "Your API key is invalid or expired. Update it in Settings or switch to managed mode.",
-        retryable: false,
-        errorCategory: "provider_invalid_key",
-      };
     }
     if (error.statusCode === 402) {
       if (isManagedBalanceError(error)) {
@@ -457,7 +426,7 @@ function classifyCore(
         // from "no key configured" (banner: "API key required").
         return invalidApiKeyClassification(attribution);
       }
-      if (isImageDimensionsTooLarge(message)) {
+      if (isImageDimensionsTooLargeError(message)) {
         return {
           code: "IMAGE_TOO_LARGE",
           userMessage:
@@ -497,11 +466,6 @@ function classifyCore(
 /** Check whether an error message indicates a context-too-large failure. */
 export function isContextTooLarge(message: string): boolean {
   return CONTEXT_TOO_LARGE_PATTERNS.some((p) => p.test(message));
-}
-
-/** Check whether an error message indicates an image-input dimension failure. */
-function isImageDimensionsTooLarge(message: string): boolean {
-  return IMAGE_DIMENSIONS_TOO_LARGE_PATTERNS.some((p) => p.test(message));
 }
 
 function isVisionNotSupported(message: string): boolean {
@@ -570,7 +534,7 @@ function providerBillingClassification(): Omit<
   return {
     code: "PROVIDER_BILLING",
     userMessage:
-      "Your API provider account or key needs credits. Add funds with the provider or update the key in Settings.",
+      "Your API provider account or key needs credits. Add funds with the provider or update the key in Settings → Models & Services.",
     retryable: false,
     errorCategory: "provider_billing",
   };
@@ -610,8 +574,8 @@ function invalidApiKeyClassification(
   return {
     code: "PROVIDER_INVALID_KEY",
     userMessage: target
-      ? `The API key${target} was rejected by the provider. Update it in Settings.`
-      : "Your API key was rejected by the provider. Update it in Settings.",
+      ? `The API key${target} was rejected by the provider. Update it in Settings → Models & Services.`
+      : "Your API key was rejected by the provider. Update it in Settings → Models & Services.",
     retryable: false,
     errorCategory: "provider_invalid_key",
     ...(attribution?.connectionName
@@ -637,8 +601,8 @@ function providerNotConfiguredClassification(
   return {
     code: "PROVIDER_NOT_CONFIGURED",
     userMessage: target
-      ? `No API key configured${target}. Add one in Settings to start chatting.`
-      : "No API key configured for inference. Add one in Settings to start chatting.",
+      ? `No API key configured${target}. Add one in Settings → Models & Services to start chatting.`
+      : "No API key configured for inference. Add one in Settings → Models & Services to start chatting.",
     retryable: true,
     errorCategory: "provider_not_configured",
     ...(attribution?.connectionName

@@ -283,6 +283,30 @@ describe("normalizeContentBlocks", () => {
     ]);
   });
 
+  test("synthesizes a positional tool-call id for pre-0.8.8 id-less tool calls", () => {
+    // GIVEN a pre-projection message whose wire tool call omits `id`, exactly
+    // as daemons predating the provider tool-use id do
+    const message = wireMessage({
+      id: "msg-7",
+      contentOrder: ["tool:0", "tool:1"],
+      toolCalls: [
+        { name: "bash", input: {} },
+        { name: "edit", input: {} },
+      ],
+    });
+
+    // WHEN we reconstruct the blocks
+    const result = normalizeContentBlocks(message);
+
+    // THEN each tool_use block carries the same stable id the positional
+    // `mapRuntimeToolCalls` path synthesizes, so the block-native renderer can
+    // key it instead of dropping it
+    expect(result).toEqual([
+      { type: "tool_use", toolCall: { name: "bash", input: {}, id: "tool-history-msg-7-0" } },
+      { type: "tool_use", toolCall: { name: "edit", input: {}, id: "tool-history-msg-7-1" } },
+    ]);
+  });
+
   test("strips inlined [File attachment] summaries and drops fully-consumed text", () => {
     // GIVEN a text segment whose only content is an attachment summary line
     const message = wireMessage({
@@ -342,6 +366,7 @@ describe("getChatHistory", () => {
               "Slack reply",
               "[File attachment] file.pdf, type=application/pdf",
             ],
+            contentOrder: ["text:0", "text:1"],
             slackMessage,
             timestamp: "2026-05-15T12:34:56.000Z",
           },

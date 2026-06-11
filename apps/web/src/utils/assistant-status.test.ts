@@ -50,10 +50,7 @@ describe("deriveAssistantStatus", () => {
       "loading",
       "initializing",
       "cleaning_up",
-      "retired",
-      "platform_hosted",
       "self_hosted",
-      "awaiting_version_selection",
     ];
     for (const lifecycleKind of nonActive) {
       expect(deriveAssistantStatus({ ...working, lifecycleKind })).toBe(

@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/chrome-extension",
-  "version": "0.8.8",
+  "version": "0.8.11",
   "private": true,
   "type": "module",
   "scripts": {

@@ -288,7 +288,7 @@ src/
     sentry/                        #   Sentry error reporting (init, consent control)
     auth/                          #   allauth client, CSRF, auth middleware
     feature-flags/                 #   feature flag provider
-    sync/                          #   server state sync (tag registry, router)
+    sync/                          #   server state sync (query-tag keys, sync types)
     streaming/                     #   SSE transport, event parsing, debug tracking
     api-client.ts                  #   HeyAPI configured client + interceptors
     telemetry/                     #   client identity for daemon registration
@@ -937,7 +937,7 @@ which UI surfaces are available:
 |--------|-------|---------------|
 | `isLocalMode()` | `src/lib/local-mode.ts` | `true` when `VITE_PLATFORM_MODE` is unset — the app is running against a local/self-hosted daemon, not the Vellum platform |
 | `hasPlatformSession` | `src/stores/auth-store.ts` | `true` when the user has a valid session with the Vellum platform (set asynchronously after probing the allauth session endpoint) |
-| `platformFeaturesInLocalMode` | feature flag store | Per-assistant flag (default `true`). When `false` in local mode, the API interceptor no-ops all platform client requests |
+| `isPlatformDisabled()` | `src/lib/local-mode.ts` | Env var / config setting (`VITE_VELLUM_DISABLE_PLATFORM` or `__VELLUM_CONFIG__.disablePlatform`). When `true` in local mode, the API interceptor no-ops all platform client requests |
 
 ### The five user states
 
@@ -956,7 +956,7 @@ returns one of three states:
 |-------------|---------|------|
 | `"full"` | Feature is fully functional | `hasPlatformSession` is `true` |
 | `"disabled"` | Show the UI but disable it (prompt re-login) | `hasPlatformSession` is `false`, platform features still enabled |
-| `"gated"` | Hide the UI entirely | Local mode AND `platformFeaturesInLocalMode` is `false` |
+| `"gated"` | Hide the UI entirely | Local mode AND `VITE_VELLUM_DISABLE_PLATFORM` is set |
 
 Use this hook for any UI surface that depends on the Vellum platform
 API. The three actions map to concrete UI patterns:
@@ -976,7 +976,7 @@ Some UI surfaces only make sense on platform-hosted assistants — plan
 management, machine sizing, release channels, sleep policy, system
 events. They have no meaningful behavior on a self-hosted assistant
 and should be hidden whenever the active assistant is self-hosted,
-regardless of platform login or the `platformFeaturesInLocalMode` flag.
+regardless of platform login or the `VITE_VELLUM_DISABLE_PLATFORM` env var.
 
 Pass `{ platformHostedOnly: true }` to `usePlatformGate` for these:
 
@@ -1023,9 +1023,9 @@ Truth table when `platformHostedOnly` is `true`:
 | none resolved (loading etc) | yes              | `"full"`     |
 | none resolved               | no               | `"disabled"` |
 
-The `platformFeaturesInLocalMode` flag and its hydration state do NOT
-apply to this branch — that flag gates the daemon-side API interceptor
-in local mode, which is orthogonal to "is this UI's target assistant
+The `VITE_VELLUM_DISABLE_PLATFORM` env var does NOT apply to this
+branch — that setting gates the daemon-side API interceptor in local
+mode, which is orthogonal to "is this UI's target assistant
 platform-hosted?"
 
 #### Gating network fetches: pair the gate with `useActiveAssistantIsPlatformHosted`

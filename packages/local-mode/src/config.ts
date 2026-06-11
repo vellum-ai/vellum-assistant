@@ -64,3 +64,16 @@ export function resolveConfigDir(
   }
   return path.join(xdgConfigHome, `vellum-${vellumEnv}`);
 }
+
+/**
+ * The on-disk location of an assistant's guardian token, given an already
+ * resolved config dir. The single source of truth for this path so the CLI
+ * writer and every host-seam reader agree — a divergence here is what leaves a
+ * freshly leased token unreadable and bricks the connect.
+ */
+export function guardianTokenPath(
+  configDir: string,
+  assistantId: string,
+): string {
+  return path.join(configDir, "assistants", assistantId, "guardian-token.json");
+}

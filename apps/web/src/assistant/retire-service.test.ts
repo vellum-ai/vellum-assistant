@@ -26,13 +26,20 @@ mock.module("@/assistant/api", () => ({
 }));
 
 const retireLocalAssistantMock = mock(async (_id: string) => retireLocalResult);
-const syncPlatformAssistantsToLockfileMock = mock(async (_a: unknown) => {});
+const syncPlatformAssistantsToLockfileMock = mock(
+  async (_a: unknown, _orgId?: string) => {},
+);
 mock.module("@/lib/local-mode", () => ({
   getLockfile: () => ({ assistants: lockfileAssistants, activeAssistant: null }),
   isLocalAssistant: (a: { cloud?: string }) => a.cloud !== "vellum",
   isLocalMode: () => isLocalModeValue,
   retireLocalAssistant: retireLocalAssistantMock,
   syncPlatformAssistantsToLockfile: syncPlatformAssistantsToLockfileMock,
+}));
+mock.module("@/stores/organization-store", () => ({
+  useOrganizationStore: {
+    getState: () => ({ currentOrganizationId: "org-test" }),
+  },
 }));
 
 mock.module("@/lib/navigation/navigation-resolver", () => ({
@@ -41,10 +48,10 @@ mock.module("@/lib/navigation/navigation-resolver", () => ({
     query: { kind: string },
   ) => {
     if (query.kind !== "post-retire") return { action: "allow" };
-    if (state.hasAssistants) return { action: "redirect", to: state.isLocalMode ? "/assistant/onboarding/select-assistant" : "/assistant" };
+    if (state.hasAssistants) return { action: "redirect", to: state.isLocalMode ? "/assistant/select-assistant" : "/assistant" };
     if (!state.isLocalMode) return { action: "redirect", to: "/assistant/onboarding/privacy" };
     if (state.platformSession === "present") return { action: "redirect", to: "/assistant/onboarding/hosting" };
-    return { action: "redirect", to: "/assistant/onboarding/welcome" };
+    return { action: "redirect", to: "/assistant/welcome" };
   },
 }));
 mock.module("@/lib/navigation/build-state", () => ({
@@ -68,9 +75,9 @@ mock.module("@/stores/resolved-assistants-store", () => ({
 mock.module("@/utils/routes", () => ({
   routes: {
     assistant: "/assistant",
+    welcome: "/assistant/welcome",
+    selectAssistant: "/assistant/select-assistant",
     onboarding: {
-      welcome: "/assistant/onboarding/welcome",
-      selectAssistant: "/assistant/onboarding/select-assistant",
       hosting: "/assistant/onboarding/hosting",
       prechat: "/assistant/onboarding/prechat",
       privacy: "/assistant/onboarding/privacy",
@@ -142,7 +149,10 @@ describe("retireAssistant", () => {
     // THEN it uses the platform delete (not local) and re-syncs the lockfile
     expect(retireAssistantByIdMock).toHaveBeenCalledWith("p1");
     expect(retireLocalAssistantMock).not.toHaveBeenCalled();
-    expect(syncPlatformAssistantsToLockfileMock).toHaveBeenCalled();
+    expect(syncPlatformAssistantsToLockfileMock).toHaveBeenCalledWith(
+      [{ id: "p1", is_local: false, created: "" }],
+      "org-test",
+    );
     expect(outcome.ok).toBe(true);
   });
 
@@ -181,7 +191,7 @@ describe("retireAssistant", () => {
 
     expect(outcome.ok).toBe(true);
     if (outcome.ok) {
-      expect(outcome.nextRoute).toBe("/assistant/onboarding/select-assistant");
+      expect(outcome.nextRoute).toBe("/assistant/select-assistant");
     }
   });
 
@@ -194,7 +204,7 @@ describe("retireAssistant", () => {
 
     expect(outcome.ok).toBe(true);
     if (outcome.ok) {
-      expect(outcome.nextRoute).toBe("/assistant/onboarding/welcome");
+      expect(outcome.nextRoute).toBe("/assistant/welcome");
     }
   });
 });

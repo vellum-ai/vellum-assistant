@@ -1,7 +1,4 @@
-import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
-import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import { toolCallRank } from "@/domains/chat/utils/tool-call-status";
-import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 
 export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean {
   if (a.length !== b.length) return false;
@@ -13,6 +10,7 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
       am.role !== bm.role ||
       am.timestamp !== bm.timestamp ||
       JSON.stringify(am.mergedMessageIds) !== JSON.stringify(bm.mergedMessageIds) ||
+      JSON.stringify(am.contentBlocks) !== JSON.stringify(bm.contentBlocks) ||
       JSON.stringify(am.surfaces) !== JSON.stringify(bm.surfaces) ||
       JSON.stringify(am.textSegments) !== JSON.stringify(bm.textSegments) ||
       JSON.stringify(am.contentOrder) !== JSON.stringify(bm.contentOrder) ||
@@ -29,6 +27,7 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
       "id",
       "mergedMessageIds",
       "role",
+      "contentBlocks",
       "surfaces",
       "textSegments",
       "contentOrder",
@@ -50,321 +49,12 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
   return true;
 }
 
-export function mergeByKey<T>(
-  current: T[] | undefined,
-  incoming: T[] | undefined,
-  getKey: (item: T) => string | undefined,
-  mergeItem: (current: T, incoming: T) => T = (_current, incomingItem) => incomingItem,
-): T[] | undefined {
-  if (!current || current.length === 0) return incoming;
-  if (!incoming || incoming.length === 0) return current;
-
-  const merged = [...current];
-  const indexByKey = new Map<string, number>();
-  for (let i = 0; i < merged.length; i++) {
-    const key = getKey(merged[i]!);
-    if (key) indexByKey.set(key, i);
-  }
-
-  for (const item of incoming) {
-    const key = getKey(item);
-    const existingIdx = key ? indexByKey.get(key) : undefined;
-    if (existingIdx == null) {
-      if (key) indexByKey.set(key, merged.length);
-      merged.push(item);
-      continue;
-    }
-
-    merged[existingIdx] = mergeItem(merged[existingIdx]!, item);
-  }
-
-  return merged;
-}
-
-export function mergeToolCall(
-  current: ChatMessageToolCall,
-  incoming: ChatMessageToolCall,
-): ChatMessageToolCall {
-  const preferred =
-    toolCallRank(incoming) >= toolCallRank(current) ? incoming : current;
-  const secondary = preferred === incoming ? current : incoming;
-  return {
-    ...secondary,
-    ...preferred,
-    startedAt: current.startedAt ?? incoming.startedAt,
-    completedAt: preferred.completedAt ?? secondary.completedAt,
-  };
-}
-
-function messagesShareMergedIdentity(
-  current: DisplayMessage,
-  incoming: DisplayMessage,
-): boolean {
-  const currentMergedIds = new Set(current.mergedMessageIds ?? []);
-  if (incoming.id && currentMergedIds.has(incoming.id)) return true;
-
-  const incomingMergedIds = new Set(incoming.mergedMessageIds ?? []);
-  if (current.id && incomingMergedIds.has(current.id)) return true;
-
-  return (current.mergedMessageIds ?? []).some((id) =>
-    incomingMergedIds.has(id),
-  );
-}
-
-function toolCallIdsOverlap(
-  current: ChatMessageToolCall[] | undefined,
-  incoming: ChatMessageToolCall[] | undefined,
-): boolean {
-  if (!current?.length || !incoming?.length) return false;
-  const currentIds = new Set(current.map((toolCall) => toolCall.id));
-  return incoming.some((toolCall) => currentIds.has(toolCall.id));
-}
-
-function mergeToolCallsByPosition(
-  current: ChatMessageToolCall[],
-  incoming: ChatMessageToolCall[],
-): ChatMessageToolCall[] {
-  const base = current.length >= incoming.length ? current : incoming;
-  return base.map((toolCall, idx) => {
-    const currentToolCall = current[idx];
-    const incomingToolCall = incoming[idx];
-    if (!currentToolCall || !incomingToolCall) return toolCall;
-
-    return {
-      ...mergeToolCall(currentToolCall, incomingToolCall),
-      id: toolCall.id,
-    };
-  });
-}
-
-function mergeToolCallsForMessage(
-  current: DisplayMessage,
-  incoming: DisplayMessage,
-): ChatMessageToolCall[] | undefined {
-  if (
-    messagesShareMergedIdentity(current, incoming) &&
-    current.toolCalls?.length &&
-    incoming.toolCalls?.length &&
-    !toolCallIdsOverlap(current.toolCalls, incoming.toolCalls)
-  ) {
-    return mergeToolCallsByPosition(current.toolCalls, incoming.toolCalls);
-  }
-
-  return mergeByKey(
-    current.toolCalls,
-    incoming.toolCalls,
-    (toolCall) => toolCall.id,
-    mergeToolCall,
-  );
-}
-
-export function mergeSurface(current: Surface, incoming: Surface): Surface {
-  return {
-    ...current,
-    ...incoming,
-    data: { ...current.data, ...incoming.data },
-  };
-}
-
 function mergeStringArrays(
   current: string[] | undefined,
   incoming: string[] | undefined,
 ): string[] | undefined {
   const merged = [...new Set([...(current ?? []), ...(incoming ?? [])])];
   return merged.length > 0 ? merged : undefined;
-}
-
-function messageScore(message: DisplayMessage): number {
-  // Rank duplicate rows by how much rendered content they carry so the
-  // more-complete version wins the merge — whether that's a live row with
-  // the latest streamed deltas or a server snapshot with finalized state.
-  let score = segmentsToPlainText(message.textSegments).length;
-  score += (message.textSegments?.length ?? 0) * 100;
-  score += (message.contentOrder?.length ?? 0) * 100;
-  score += (message.thinkingSegments?.length ?? 0) * 100;
-  score += (message.toolCalls?.length ?? 0) * 100;
-  score += (message.surfaces?.length ?? 0) * 50;
-  score += (message.attachments?.length ?? 0) * 50;
-  score += message.timestamp == null ? 0 : 1;
-  return score;
-}
-
-export function mergeDuplicateMessages(
-  current: DisplayMessage,
-  incoming: DisplayMessage,
-): DisplayMessage {
-  const preferred =
-    messageScore(incoming) >= messageScore(current) ? incoming : current;
-  const secondary = preferred === incoming ? current : incoming;
-  const merged: DisplayMessage = {
-    ...secondary,
-    ...preferred,
-  };
-
-  if (merged.timestamp == null) {
-    merged.timestamp = current.timestamp ?? incoming.timestamp;
-  }
-
-  const toolCalls = mergeToolCallsForMessage(current, incoming);
-  if (toolCalls) merged.toolCalls = toolCalls;
-
-  const surfaces = mergeByKey(
-    current.surfaces,
-    incoming.surfaces,
-    (surface) => surface.surfaceId,
-    mergeSurface,
-  );
-  if (surfaces) merged.surfaces = surfaces;
-
-  const attachments = mergeByKey(
-    current.attachments,
-    incoming.attachments,
-    (attachment) => attachment.id || attachment.filename,
-  );
-  if (attachments) merged.attachments = attachments;
-
-  if (current.slackMessage || incoming.slackMessage) {
-    merged.slackMessage = incoming.slackMessage ?? current.slackMessage;
-  }
-  const mergedMessageIds = mergeStringArrays(
-    current.mergedMessageIds,
-    incoming.mergedMessageIds,
-  );
-  if (mergedMessageIds) merged.mergedMessageIds = mergedMessageIds;
-
-  if (!merged.contentOrder) {
-    merged.contentOrder = current.contentOrder ?? incoming.contentOrder;
-  }
-  if (!merged.textSegments) {
-    merged.textSegments = current.textSegments ?? incoming.textSegments;
-  }
-  if (!merged.thinkingSegments) {
-    merged.thinkingSegments = current.thinkingSegments ?? incoming.thinkingSegments;
-  }
-
-  return merged;
-}
-
-function pickMoreCompleteArray<T>(
-  current: T[] | undefined,
-  incoming: T[] | undefined,
-): T[] | undefined {
-  if (!current || current.length === 0) return incoming;
-  if (!incoming || incoming.length === 0) return current;
-  return incoming.length >= current.length ? incoming : current;
-}
-
-/**
- * Merge locally-accumulated thinking segments with the server's snapshot,
- * keeping the longer text at each position and appending any extra trailing
- * segments from either side.
- *
- * The live SSE stream is normally ahead of the server's periodic snapshot, so
- * reconciliation defaults to the local copy. But thinking deltas that arrive
- * while the stream is torn down (e.g. the tab is backgrounded and the stream
- * reconnects mid-turn) are never replayed, leaving the local block truncated.
- * Picking the longer text per index lets the local copy stay ahead during
- * normal streaming while healing a truncated block once the server's snapshot
- * carries the fuller reasoning. Position alignment is preserved so the row's
- * `contentOrder` thinking ids keep resolving to the right segment.
- */
-export function mergeThinkingSegments(
-  local: string[] | undefined,
-  server: string[] | undefined,
-): string[] | undefined {
-  if (!local || local.length === 0) return server;
-  if (!server || server.length === 0) return local;
-  const length = Math.max(local.length, server.length);
-  const merged: string[] = [];
-  for (let i = 0; i < length; i++) {
-    const localSegment = local[i];
-    const serverSegment = server[i];
-    if (localSegment == null) {
-      merged.push(serverSegment!);
-    } else if (serverSegment == null) {
-      merged.push(localSegment);
-    } else {
-      merged.push(serverSegment.length > localSegment.length ? serverSegment : localSegment);
-    }
-  }
-  return merged;
-}
-
-export function mergeLatestHistoryMessage(
-  current: DisplayMessage,
-  incoming: DisplayMessage,
-): DisplayMessage {
-  const currentHasMoreText =
-    segmentsToPlainText(current.textSegments).length >
-    segmentsToPlainText(incoming.textSegments).length;
-  const merged: DisplayMessage = {
-    ...current,
-    ...incoming,
-  };
-
-  if (currentHasMoreText) {
-    merged.textSegments = current.textSegments ?? incoming.textSegments;
-  }
-
-  if (incoming.role === "user" && incoming.id) {
-    delete merged.queueStatus;
-    delete merged.queuePosition;
-  }
-
-  // Server id arrived → the row is no longer optimistic.
-  if (incoming.id && current.isOptimistic) {
-    delete merged.isOptimistic;
-  }
-
-  const toolCalls = mergeToolCallsForMessage(current, incoming);
-  if (toolCalls) merged.toolCalls = toolCalls;
-
-  const surfaces = mergeByKey(
-    current.surfaces,
-    incoming.surfaces,
-    (surface) => surface.surfaceId,
-    mergeSurface,
-  );
-  if (surfaces) merged.surfaces = surfaces;
-
-  const attachments = mergeByKey(
-    current.attachments,
-    incoming.attachments,
-    (attachment) => attachment.id || attachment.filename,
-  );
-  if (attachments) merged.attachments = attachments;
-
-  const contentOrder = pickMoreCompleteArray(
-    current.contentOrder,
-    incoming.contentOrder,
-  );
-  if (contentOrder) merged.contentOrder = contentOrder;
-
-  const textSegments = currentHasMoreText
-    ? current.textSegments ?? incoming.textSegments
-    : pickMoreCompleteArray(current.textSegments, incoming.textSegments);
-  if (textSegments) merged.textSegments = textSegments;
-
-  const thinkingSegments = pickMoreCompleteArray(
-    current.thinkingSegments,
-    incoming.thinkingSegments,
-  );
-  if (thinkingSegments) merged.thinkingSegments = thinkingSegments;
-
-  if (current.slackMessage || incoming.slackMessage) {
-    merged.slackMessage = incoming.slackMessage ?? current.slackMessage;
-  }
-  const mergedMessageIds = mergeStringArrays(
-    current.mergedMessageIds,
-    incoming.mergedMessageIds,
-  );
-  if (mergedMessageIds) merged.mergedMessageIds = mergedMessageIds;
-
-  if (merged.timestamp == null) {
-    merged.timestamp = current.timestamp ?? incoming.timestamp;
-  }
-
-  return merged;
 }
 
 /**
@@ -388,21 +78,21 @@ function concatOptionalArrays<T>(
  *
  * History payloads from the server reference array members by *position*
  * — `{ type: "text", id: "0" }`, `{ type: "attachment", id: "2" }`,
- * `{ type: "tool", id: "1" }`, `{ type: "surface", id: "0" }`. The
- * transcript renderer (`resolveSurface`, `resolveToolCall`, text-segment
- * lookup in `transcript-message-body.tsx`) first tries id-keyed lookup
- * and falls back to `parseInt(id, 10) → array[idx]` when the id matches
- * none of the array members' real ids. When we concatenate the donor's
- * `textSegments` / `attachments` / `toolCalls` / `surfaces` onto the
- * survivor's, every *positional* numeric reference in the donor's
- * contentOrder must shift by the survivor's array length so it still
- * resolves to the right member in the merged arrays.
+ * `{ type: "tool", id: "1" }`, `{ type: "surface", id: "0" }`.
+ * `normalizeContentBlocks` (api/messages.ts) walks `contentOrder` and
+ * resolves each numeric id via `parseInt(id, 10) → array[idx]` to
+ * synthesize a `contentBlocks` projection for rows the server sent
+ * without one. When we concatenate the donor's `textSegments` /
+ * `attachments` / `toolCalls` / `surfaces` onto the survivor's, every
+ * *positional* numeric reference in the donor's contentOrder must shift
+ * by the survivor's array length so it still resolves to the right
+ * member in the merged arrays.
  *
  * Streaming-shape entries carry real ids instead (text-segment object
- * `id`s, tool-use ids like `toolu_…`, surface UUIDs). Those resolve via
- * the renderer's id-keyed lookup and must pass through untouched. The
- * `/^\d+$/` gate distinguishes positional numeric ids ("0", "12") from
- * real ids ("toolu_abc", "surf-uuid", "seg-3").
+ * `id`s, tool-use ids like `toolu_…`, surface UUIDs); those are not
+ * positional and must pass through untouched. The `/^\d+$/` gate
+ * distinguishes positional numeric ids ("0", "12") from real ids
+ * ("toolu_abc", "surf-uuid", "seg-3").
  */
 function remapAdjacentContentOrder(
   entries: Array<{ type: string; id: string }> | undefined,
@@ -515,6 +205,17 @@ function foldAdjacentAssistant(
     survivor.thinkingSegments,
     donor.thinkingSegments,
   );
+  // Concatenate the unified block projections in the same survivor→donor order
+  // as the positional arrays. Blocks embed their full referents (no positional
+  // ids), so unlike `contentOrder` they need no offset remap — the donor's
+  // blocks simply append after the survivor's. Every row reaching the fold has
+  // been normalized (`normalizeContentBlocks`), so its blocks already span its
+  // own `thinkingSegments`; concatenating two such rows keeps the merged row in
+  // lockstep, and the block-first reader resolves each thinking index from the
+  // right side.
+  const contentBlocks = survivor.contentBlocks
+    ? [...survivor.contentBlocks, ...(donor.contentBlocks ?? [])]
+    : donor.contentBlocks;
 
   // Donor's id becomes a merged alias on the survivor so subsequent
   // reconcile / SSE lookups by donor id still resolve to the survivor.
@@ -534,6 +235,7 @@ function foldAdjacentAssistant(
   if (surfaces) merged.surfaces = surfaces;
   if (attachments) merged.attachments = attachments;
   if (thinkingSegments) merged.thinkingSegments = thinkingSegments;
+  if (contentBlocks) merged.contentBlocks = contentBlocks;
   if (mergedMessageIds) merged.mergedMessageIds = mergedMessageIds;
   // metadata / slackMessage / timestamp come from the survivor (older
   // anchor) via the spread — matches the backend's
@@ -551,7 +253,7 @@ function foldAdjacentAssistant(
  * The backend's read-side merge only sees rows within one paginated
  * page. When a long turn spans N pages, the backend produces N display
  * messages — each anchored on its page's oldest assistant row — and the
- * client's dedupe-by-id pass can't reconcile them because the anchors
+ * client's id-keyed reconciler can't merge them because the anchors
  * have distinct ids. Walking adjacency once on the client closes that
  * gap: identical to what the backend would have produced if it had all
  * the rows in one query.
@@ -585,45 +287,4 @@ export function mergeAdjacentAssistantMessages(
     }
   }
   return result;
-}
-
-function dedupeMessagesByKey(
-  messages: DisplayMessage[],
-  getKey: (message: DisplayMessage) => string | undefined,
-): DisplayMessage[] {
-  let result: DisplayMessage[] | null = null;
-  const indexByKey = new Map<string, number>();
-
-  for (let i = 0; i < messages.length; i++) {
-    const message = messages[i]!;
-    const key = getKey(message);
-    if (!key) {
-      if (result) result.push(message);
-      continue;
-    }
-
-    const existingIdx = indexByKey.get(key);
-    if (existingIdx == null) {
-      indexByKey.set(key, result ? result.length : i);
-      if (result) result.push(message);
-      continue;
-    }
-
-    if (!result) {
-      result = messages.slice(0, i);
-    }
-    result[existingIdx] = mergeDuplicateMessages(
-      result[existingIdx]!,
-      message,
-    );
-  }
-
-  return result ?? messages;
-}
-
-/** Collapse duplicate display messages keyed by `id`. */
-export function dedupeDisplayMessages(
-  messages: DisplayMessage[],
-): DisplayMessage[] {
-  return dedupeMessagesByKey(messages, (message) => message.id);
 }

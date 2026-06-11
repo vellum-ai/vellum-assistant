@@ -11,6 +11,7 @@ struct SettingsSchedulesTab: View {
     @State private var expandedScheduleId: String?
     @State private var isSaving = false
     @State private var editName: String = ""
+    @State private var editDescription: String = ""
     @State private var editExpression: String = ""
     @State private var editMessage: String = ""
     @State private var editMode: String = ""
@@ -178,7 +179,21 @@ struct SettingsSchedulesTab: View {
                             }
                         }
                     }
+                    if !schedule.description.isEmpty {
+                        Text(schedule.description)
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentSecondary)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                    }
                     HStack(spacing: VSpacing.md) {
+                        if !schedule.cadenceDescription.isEmpty {
+                            Text(schedule.cadenceDescription)
+                                .font(VFont.labelDefault)
+                                .foregroundStyle(VColor.contentTertiary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
                         if let nextRun = formatNextRun(schedule.nextRunAt, timezone: schedule.timezone) {
                             Text("Next: \(nextRun)")
                                 .font(VFont.labelDefault)
@@ -269,6 +284,7 @@ struct SettingsSchedulesTab: View {
     private func scheduleEditSection(_ schedule: ScheduleItem) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             VTextField(placeholder: "Name", text: $editName)
+            VTextField(placeholder: "Description", text: $editDescription)
             VTextField(placeholder: "Expression", text: $editExpression)
             VTextField(placeholder: "Message", text: $editMessage)
             HStack(spacing: VSpacing.sm) {
@@ -499,7 +515,9 @@ struct SettingsSchedulesTab: View {
             cronExpression: old.cronExpression, timezone: old.timezone,
             message: old.message, nextRunAt: old.nextRunAt,
             lastRunAt: old.lastRunAt, lastStatus: old.lastStatus,
-            description: old.description, mode: old.mode,
+            description: old.description,
+            cadenceDescription: old.cadenceDescription,
+            mode: old.mode,
             status: old.status, routingIntent: old.routingIntent,
             isOneShot: old.isOneShot
         )
@@ -540,6 +558,7 @@ struct SettingsSchedulesTab: View {
     private func beginEditing(_ schedule: ScheduleItem) {
         expandedScheduleId = schedule.id
         editName = schedule.name
+        editDescription = schedule.description
         editExpression = schedule.expression ?? schedule.cronExpression ?? ""
         editMessage = schedule.message
         editMode = schedule.mode
@@ -549,6 +568,12 @@ struct SettingsSchedulesTab: View {
     private func saveEdits(_ schedule: ScheduleItem) {
         var updates: [String: Any] = [:]
         if editName != schedule.name { updates["name"] = editName }
+        let trimmedDescription = editDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedDescription.isEmpty {
+            loadError = "Description is required."
+            return
+        }
+        if trimmedDescription != schedule.description { updates["description"] = trimmedDescription }
         let originalExpression = schedule.expression ?? schedule.cronExpression ?? ""
         if editExpression != originalExpression { updates["expression"] = editExpression }
         if editMessage != schedule.message { updates["message"] = editMessage }

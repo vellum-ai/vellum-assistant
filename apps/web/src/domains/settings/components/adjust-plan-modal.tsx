@@ -1,11 +1,4 @@
-import {
-    AlertTriangle,
-    ArrowLeft,
-    Crown,
-    Info,
-    Loader2,
-    Palmtree,
-} from "lucide-react";
+import { AlertTriangle, ArrowLeft, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -29,146 +22,25 @@ import {
     organizationsBillingSubscriptionUpgradeCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
-    CreditTier,
     CreditTierEnum,
-    MachineTier,
     MachineTierEnum,
     ProPlan,
-    StorageTier,
     StorageTierEnum,
-    SubscriptionStatusEnum,
 } from "@/generated/api/types.gen";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { Button } from "@vellumai/design-library/components/button";
-import { Card } from "@vellumai/design-library/components/card";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
-import { Tag } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
-import { CreditBundlePicker } from "./credit-bundle-picker";
+import {
+    TIER_CHANGE_ELIGIBLE_STATUSES,
+    extractMutationError,
+    resolveCreditTierSelection,
+    resolveTierSelection,
+} from "./adjust-plan-utils";
 import { DowngradeReconfirmModal } from "./downgrade-reconfirm-modal";
-import { PlanFeatureList } from "./plan-feature-list";
-import { TierPicker, isTierDisabled } from "./tier-picker";
-import { formatDelta, formatDollars, formatMonthly } from "./tier-pricing";
-
-
-/**
- * Subscription statuses for which Pro tier changes are permitted. Mirrors the
- * backend `ENTITLEMENT_BEARING_STATUSES` (subscription_service.py) that
- * `is_pro_active` (app/billing/entitlements.py) checks — the
- * `change_machine_tier` / `change_storage_tier` endpoints return 403 for any
- * other status. Pro orgs in non-entitlement statuses (`unpaid`, `incomplete`,
- * `paused`, etc.) must not be shown a tier-change CTA that cannot succeed.
- */
-const TIER_CHANGE_ELIGIBLE_STATUSES: ReadonlySet<SubscriptionStatusEnum> =
-  new Set<SubscriptionStatusEnum>(["active", "trialing", "past_due"]);
-
-/**
- * Extract a user-facing message from a subscription mutation error.
- *
- * DRF field errors arrive as `{ field_name: [message, ...] }`; we probe the
- * known fields and fall back to `detail` then a caller-provided generic.
- */
-const DRF_FIELD_KEYS = [
-  "target_plan_id",
-  "confirm",
-  "machine_tier",
-  "storage_tier",
-  "credit_tier",
-  "non_field_errors",
-] as const;
-
-function extractMutationError(error: unknown, fallback: string): string {
-  if (error && typeof error === "object") {
-    for (const key of DRF_FIELD_KEYS) {
-      if (key in error) {
-        const msgs = (error as Record<string, unknown>)[key];
-        if (Array.isArray(msgs) && typeof msgs[0] === "string") {
-          return msgs[0];
-        }
-      }
-    }
-    if ("detail" in error && typeof error.detail === "string") {
-      return error.detail;
-    }
-  }
-  return fallback;
-}
-
-/**
- * Resolve which tier should be selected given the user's previous choice and
- * the current tier list. Keeps `prev` only if it is still present AND enabled;
- * otherwise falls back to the first enabled tier (or null when none qualify).
- *
- * Revalidating against the live list guards the case where a plans refetch
- * removes or disables the previously-selected tier while the modal is open —
- * the CTA's non-null gate alone would otherwise let the user submit a stale or
- * now-disabled tier that the server rejects.
- */
-export function resolveTierSelection<T extends string>(
-  tiers: (MachineTier | StorageTier)[],
-  prev: T | null,
-): T | null {
-  const enabled = tiers.filter((t) => !isTierDisabled(t));
-  if (prev !== null && enabled.some((t) => t.tier === prev)) {
-    return prev;
-  }
-  return (enabled[0]?.tier ?? null) as T | null;
-}
-
-/**
- * Resolve which credit tier should be selected given the previous selection,
- * the resolved current bundle, and the live catalog. Mirrors
- * `resolveTierSelection` but for credit bundles, which have no disabled state
- * and where both `null` ("No bundle") and a catalog tier are valid selections.
- *
- * `prev` carries the sentinel meaning:
- *   - `undefined` is un-seeded (the effect has not yet seeded a value), so we
- *     seed to `current`. The seed is preserved verbatim — including a non-null
- *     current tier that the live catalog does not (yet) advertise (e.g. a
- *     deprecated tier the user still holds). Coercing such a tier to `null`
- *     would make `creditChanged` read true purely from opening the modal and
- *     silently submit `credit_tier: null`, removing a paid bundle the user
- *     never touched. Preserving it keeps `creditChanged` false until the user
- *     actively changes the selection.
- *   - a non-undefined `prev` (including an explicit `null` for "No bundle") is
- *     the user's standing choice and must be preserved — we keep it, only
- *     coercing a concrete tier to "No bundle" when it is BOTH absent from the
- *     catalog AND not the held current bundle. A held-but-delisted tier (equal
- *     to `current`) survives a mid-modal refetch; only a genuinely stale choice
- *     (a delisted tier the user actively picked) falls back to "No bundle" so
- *     the CTA never submits a tier the catalog no longer offers.
- */
-export function resolveCreditTierSelection(
-  tiers: CreditTier[],
-  prev: CreditTierEnum | null | undefined,
-  current: CreditTierEnum | null,
-): CreditTierEnum | null {
-  // Seeding (un-seeded `prev`): preserve the current bundle as-is so a tier
-  // absent from the catalog is not coerced into a spurious "remove bundle".
-  if (prev === undefined) {
-    return current;
-  }
-  // Standing user choice: revalidate a concrete tier against the catalog so a
-  // refetch that drops it falls back to "No bundle" — but keep a tier the user
-  // still holds (equal to `current`) even when the catalog omits it, so a
-  // refetch doesn't coerce a held-but-delisted bundle to a spurious removal.
-  if (prev !== null && (prev === current || tiers.some((t) => t.tier === prev))) {
-    return prev;
-  }
-  return null;
-}
-
-/**
- * Cheapest tier price in cents, or 0 when the list is empty. Guards the
- * "From $" summary against `Math.min(...[])` → `Infinity` (which would render
- * "From $Infinity"). Production plans always carry populated tier arrays, so
- * this only matters defensively.
- */
-function minTierPriceCents(tiers: (MachineTier | StorageTier)[]): number {
-  return tiers.length ? Math.min(...tiers.map((t) => t.price_cents)) : 0;
-}
+import { PlanCardContent } from "./plan-card-content";
 
 export interface AdjustPlanModalProps {
   open: boolean;
@@ -203,10 +75,7 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
   const [selectedStorageTier, setSelectedStorageTier] =
     useState<StorageTierEnum | null>(null);
   // `undefined` is the un-seeded sentinel (before the seeding effect runs);
-  // `null` is the user's explicit "No bundle" choice. Machine/storage don't need
-  // this distinction because `null` is never a valid selection for them, but for
-  // credits both values are meaningful — see `creditChanged` and the seeding
-  // effect for why conflating them caused spurious bundle removals.
+  // `null` is the user's explicit "No bundle" choice.
   const [selectedCreditTier, setSelectedCreditTier] =
     useState<CreditTierEnum | null | undefined>(undefined);
 
@@ -223,11 +92,6 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
       void queryClient.invalidateQueries({
         queryKey: organizationsBillingPlansRetrieveQueryKey(),
       });
-      // The onboarding endpoint carries the per-org tier ceilings
-      // (`max_machine_tier`, `selected_storage_gib`) that the Storage &
-      // Resources ResizeCard renders as its limits. A tier change updates those
-      // ceilings server-side, so its cache must be invalidated too — otherwise
-      // the card keeps showing the pre-upgrade limits until a hard reload.
       void queryClient.invalidateQueries({
         queryKey: organizationsBillingSubscriptionOnboardingRetrieveQueryKey(),
       });
@@ -238,9 +102,6 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
   const currentPlanId = subscriptionQuery.data?.plan_id;
   const onPro = currentPlanId === "pro";
 
-  // Reads the org's current Pro selection (max machine tier + storage tier/GiB)
-  // — the same source ResizeCard uses. Pro-only endpoint, so skip until plan
-  // resolves to avoid firing it for Base users.
   const onboardingQuery = useQuery({
     ...organizationsBillingSubscriptionOnboardingRetrieveOptions(),
     enabled: onPro,
@@ -258,16 +119,10 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
   const isCanceled = subscriptionQuery.data?.status === "canceled";
   const cancelDate = getEffectiveCancelDate(subscriptionQuery.data);
 
-  // Only entitlement-bearing Pro statuses (active/trialing/past_due) can change
-  // tiers — the backend tier-change endpoints 403 otherwise. Statuses like
-  // `unpaid`/`incomplete`/`paused` fall through to the non-tier-change rendering.
-  const tierChangeEligibleStatus = TIER_CHANGE_ELIGIBLE_STATUSES.has(
-    subscriptionQuery.data?.status as SubscriptionStatusEnum,
-  );
+  const subStatus = subscriptionQuery.data?.status;
+  const tierChangeEligibleStatus =
+    subStatus != null && TIER_CHANGE_ELIGIBLE_STATUSES.has(subStatus);
 
-  // An active (non-cancelling) Pro subscriber adjusts their existing tiers
-  // rather than upgrading from Base. Tier changes are gated off entirely while
-  // a cancellation is pending — that path offers only reactivation.
   const proTierChangeMode =
     onPro && tierChangeEligibleStatus && !cancelAtPeriodEnd && !isCanceled;
 
@@ -275,49 +130,24 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
     (p): p is ProPlan => p.id === "pro",
   );
 
-  // Credit bundles are server-flag-gated via the catalog: render the picker and
-  // run the credit logic only when the Pro plan ships a non-empty `credit_tiers`
-  // list. When absent, the modal behaves exactly as before.
   const creditTiers = proPlan?.credit_tiers ?? [];
   const creditTiersEnabled = creditTiers.length > 0;
 
-  // Unlike machine/storage (read from the onboarding endpoint), the current
-  // credit bundle lives on the subscription response. Coerce to the enum so the
-  // picker seed and price lookup share one source of truth.
   const currentCreditTier =
     (subscriptionQuery.data?.selected_credit_tier as CreditTierEnum | null) ??
     null;
   const priceForCredit = (tier: CreditTierEnum | null): number =>
     creditTiers.find((t) => t.tier === tier)?.price_cents ?? 0;
   const currentCreditPriceCents = priceForCredit(currentCreditTier);
-  // A held bundle that is no longer in the live catalog has no resolvable price
-  // (`priceForCredit` returns 0), so any total that folds it in understates what
-  // the subscriber actually pays. In the no-picker header — where the price is
-  // presented as authoritative — we surface "unavailable" rather than a
-  // confidently-wrong lower number. (In the change picker this is the documented
-  // accepted limitation.)
   const currentCreditPriceUnknown =
     currentCreditTier != null &&
     !creditTiers.some((t) => t.tier === currentCreditTier);
 
-  // The picker and the mutation bodies require `CreditTierEnum | null` — never
-  // the un-seeded `undefined` sentinel. While un-seeded, fall back to the
-  // current bundle (which is `null` for a Base user upgrading), matching what
-  // the seeding effect will resolve to so display and the pre-seed value agree.
   const displayCreditTier: CreditTierEnum | null =
     selectedCreditTier === undefined ? currentCreditTier : selectedCreditTier;
-
-  // Folds into the Pro card-header live total (`proLiveTotalCents`).
-  // `priceForCredit` returns 0 for "No bundle" and for catalogs without
-  // credit_tiers (empty `creditTiers`), so the total stays byte-identical to
-  // before when the feature is off.
   const selectedCreditPriceCents = priceForCredit(displayCreditTier);
 
-  // For an active Pro subscriber, disable any storage tier strictly below the
-  // current selection — downgrading storage is not allowed. TierPicker honors
-  // the `disabled` flag via `isTierDisabled`; machine tiers stay fully enabled
-  // (changes up and down are permitted). For a Base user upgrading, the live
-  // tiers are used unchanged.
+  // Disable storage tiers below current (downgrades not allowed).
   const machineTiersForPicker = proPlan?.machine_tiers ?? [];
   const storageTiersForPicker =
     proTierChangeMode && currentStorageGib != null
@@ -327,26 +157,15 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
       : (proPlan?.storage_tiers ?? []);
 
   // Seed selections when the modal opens and the relevant data lands.
-  //   - Active Pro: seed to the current tiers (from onboarding state) so the
-  //     pickers reflect what the user has today; wait for onboarding to land.
-  //   - Base upgrade: default to the first *enabled* tier.
-  // `resolveTierSelection` revalidates the prior/seed choice against the live
-  // list, so a refetch that disables or removes the selected tier re-seeds
-  // rather than leaving a stale value the CTA's non-null gate would submit.
-  // Reset to null on close; stays null when none qualify.
   useEffect(() => {
     if (!open) {
       setSelectedMachineTier(null);
       setSelectedStorageTier(null);
-      // Reset to the un-seeded sentinel (not null, which is a valid "No bundle"
-      // choice) so the next open re-seeds from the current bundle.
       setSelectedCreditTier(undefined);
       return;
     }
     if (!proPlan) return;
     if (proTierChangeMode) {
-      // Hold off seeding until current tiers are known so we don't briefly
-      // seed to the cheapest and then snap to the current selection.
       if (currentMachineTier == null || currentStorageTier == null) return;
       setSelectedMachineTier((prev) =>
         resolveTierSelection<MachineTierEnum>(
@@ -360,12 +179,6 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
           prev ?? currentStorageTier,
         ),
       );
-      // Seed the credit bundle from the subscription's current selection only
-      // while un-seeded (`prev === undefined`); once the user has chosen,
-      // `resolveCreditTierSelection` preserves their choice — including an
-      // explicit `null` ("No bundle") — and only revalidates a concrete tier
-      // against the live catalog. This stops a mid-modal refetch from snapping a
-      // pending removal back to the existing bundle.
       setSelectedCreditTier((prev) =>
         resolveCreditTierSelection(creditTiers, prev, currentCreditTier),
       );
@@ -377,15 +190,9 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
     setSelectedStorageTier((prev) =>
       resolveTierSelection<StorageTierEnum>(proPlan.storage_tiers, prev),
     );
-    // Base upgrade has no current bundle, so it seeds to null ("No bundle",
-    // $0); `resolveCreditTierSelection` then preserves any prior choice and
-    // revalidates a concrete tier against the live catalog.
     setSelectedCreditTier((prev) =>
       resolveCreditTierSelection(creditTiers, prev, null),
     );
-    // machineTiersForPicker/storageTiersForPicker/creditTiers are derived from
-    // proPlan + onboarding values already in the dep list; omitting them keeps
-    // the effect from re-running on each render's fresh array identity.
   }, [
     open,
     proPlan,
@@ -400,6 +207,10 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
   const lostFeatures = (proPlan?.included_features ?? []).filter(
     (f) => !baseFeatureSet.has(f),
   );
+
+  // ---------------------------------------------------------------------------
+  // Handlers
+  // ---------------------------------------------------------------------------
 
   const handleUpgrade = () => {
     if (upgradeMutation.isPending) return;
@@ -416,8 +227,6 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
           confirm: true,
           machine_tier: selectedMachineTier,
           storage_tier: selectedStorageTier,
-          // null = "No bundle". The backend ignores this when the credit-bundles
-          // flag is off, so always sending it is safe.
           credit_tier: displayCreditTier,
         },
       },
@@ -456,8 +265,6 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
     portalMutation.mutate({});
   };
 
-  // After a tier change lands, the subscription, onboarding state, and plans
-  // queries are all stale (price, current tiers, derived disabled flags).
   const invalidateBillingQueries = () => {
     void queryClient.invalidateQueries({
       queryKey: organizationsBillingSubscriptionRetrieveQueryKey(),
@@ -475,19 +282,10 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
     changeStorageTierMutation.isPending ||
     changeCreditTierMutation.isPending;
 
-  // What changed vs. the current selection. Storage downgrades are impossible
-  // (those tiers are disabled), so a storage diff is always an upgrade. The
-  // credit bundle is its own dimension; `null` ("No bundle") is a valid value,
-  // so we compare directly rather than gating on non-null.
   const machineChanged =
     selectedMachineTier != null && selectedMachineTier !== currentMachineTier;
   const storageChanged =
     selectedStorageTier != null && selectedStorageTier !== currentStorageTier;
-  // Gate on `!== undefined` (un-seeded) the way machine/storage gate on
-  // `!= null` — until the effect seeds, there is no user-intended change, so a
-  // pre-seed `undefined` vs. existing `currentCreditTier` must not enable the
-  // CTA or submit `credit_tier: null`. Once seeded, `null` ("No bundle") is a
-  // valid value, so we compare directly rather than gating on non-null.
   const creditChanged =
     creditTiersEnabled &&
     selectedCreditTier !== undefined &&
@@ -497,8 +295,6 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
     machineTiersForPicker.find((t) => t.tier === tier)?.price_cents ?? null;
   const priceForStorage = (tier: StorageTierEnum | null): number | null =>
     storageTiersForPicker.find((t) => t.tier === tier)?.price_cents ?? null;
-  // A machine downgrade (cheaper than current) routes through the reconfirm
-  // modal first; an upgrade fires immediately.
   const nextMachinePrice = priceForMachine(selectedMachineTier);
   const nextStoragePrice = priceForStorage(selectedStorageTier);
   const currentMachinePrice = priceForMachine(currentMachineTier);
@@ -509,102 +305,117 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
     currentMachinePrice != null &&
     nextMachinePrice < currentMachinePrice;
 
-  const submitMachineTierChange = () => {
-    if (tierChangePending || !selectedMachineTier) return;
-    changeMachineTierMutation.mutate(
-      { body: { machine_tier: selectedMachineTier } },
-      {
-        onSuccess: () => {
-          invalidateBillingQueries();
-          if (!isMachineDowngrade && onTierUpgraded) {
-            onClose();
-            onTierUpgraded();
-          } else {
-            toast.success("Machine tier updated.", { id: "pro-tier-change" });
-          }
-        },
-        onError: (error) => {
-          toast.error(
-            extractMutationError(
-              error,
-              "Failed to change machine tier. Please try again.",
-            ),
-            { id: "pro-tier-change-error" },
-          );
-        },
-      },
-    );
-  };
-
-  const submitStorageTierChange = () => {
-    if (tierChangePending || !selectedStorageTier) return;
-    changeStorageTierMutation.mutate(
-      { body: { storage_tier: selectedStorageTier } },
-      {
-        onSuccess: () => {
-          invalidateBillingQueries();
-          if (onTierUpgraded) {
-            onClose();
-            onTierUpgraded();
-          } else {
-            toast.success("Storage tier updated.", { id: "pro-tier-change" });
-          }
-        },
-        onError: (error) => {
-          toast.error(
-            extractMutationError(
-              error,
-              "Failed to change storage tier. Please try again.",
-            ),
-            { id: "pro-tier-change-error" },
-          );
-        },
-      },
-    );
-  };
-
-  const submitCreditTierChange = () => {
-    if (tierChangePending) return;
-    changeCreditTierMutation.mutate(
-      // null removes the bundle ("No bundle"). Bundle changes apply at the next
-      // cycle — no proration/immediate-charge subtleties — so no reconfirm.
-      // `creditChanged` already gates out the un-seeded state, so this only runs
-      // with a seeded value, but coalesce defensively to never send `undefined`.
-      { body: { credit_tier: displayCreditTier } },
-      {
-        onSuccess: () => {
-          // Refresh billing so the plan card and this modal reflect the new
-          // bundle. A credit change never alters machine/storage resources, so
-          // it must not invoke `onTierUpgraded` (the assistant resize flow) —
-          // that would show an unrelated resize prompt and fire needless
-          // resource queries. `submitTierChanges` still opens the resize flow
-          // when a machine or storage dimension also changed.
-          invalidateBillingQueries();
-          toast.success("Credit bundle updated.", { id: "pro-tier-change" });
-        },
-        onError: (error) => {
-          toast.error(
-            extractMutationError(
-              error,
-              "Failed to change credit bundle. Please try again.",
-            ),
-            { id: "pro-tier-change-error" },
-          );
-        },
-      },
-    );
-  };
-
-  // Fire only the dimension(s) that actually changed.
+  // Coordinated multi-dimension tier change: fires all changed dimensions,
+  // waits for all to settle, then handles completion as a single batch.
+  // Fixes the race condition where the first mutation to succeed would close
+  // the modal before others complete — potentially hiding later errors.
   const submitTierChanges = () => {
-    if (machineChanged) submitMachineTierChange();
-    if (storageChanged) submitStorageTierChange();
-    if (creditChanged) submitCreditTierChange();
+    if (tierChangePending) return;
+
+    type DimensionResult = { dimension: string; ok: boolean; error?: unknown };
+    const pending: Promise<DimensionResult>[] = [];
+
+    if (machineChanged && selectedMachineTier) {
+      pending.push(
+        new Promise<DimensionResult>((resolve) => {
+          changeMachineTierMutation.mutate(
+            { body: { machine_tier: selectedMachineTier } },
+            {
+              onSuccess: () => resolve({ dimension: "machine", ok: true }),
+              onError: (error) =>
+                resolve({ dimension: "machine", ok: false, error }),
+            },
+          );
+        }),
+      );
+    }
+
+    if (storageChanged && selectedStorageTier) {
+      pending.push(
+        new Promise<DimensionResult>((resolve) => {
+          changeStorageTierMutation.mutate(
+            { body: { storage_tier: selectedStorageTier } },
+            {
+              onSuccess: () => resolve({ dimension: "storage", ok: true }),
+              onError: (error) =>
+                resolve({ dimension: "storage", ok: false, error }),
+            },
+          );
+        }),
+      );
+    }
+
+    if (creditChanged) {
+      pending.push(
+        new Promise<DimensionResult>((resolve) => {
+          changeCreditTierMutation.mutate(
+            { body: { credit_tier: displayCreditTier } },
+            {
+              onSuccess: () => resolve({ dimension: "credit", ok: true }),
+              onError: (error) =>
+                resolve({ dimension: "credit", ok: false, error }),
+            },
+          );
+        }),
+      );
+    }
+
+    void Promise.all(pending).then((results) => {
+      invalidateBillingQueries();
+
+      // A storage change is always an upgrade (downgrades are disabled in the
+      // picker). A machine change needs the explicit downgrade check.
+      const storageSucceeded = results.some(
+        (r) => r.ok && r.dimension === "storage",
+      );
+      const machineUpgradeSucceeded = results.some(
+        (r) => r.ok && r.dimension === "machine",
+      ) && !isMachineDowngrade;
+      const needsResize = (storageSucceeded || machineUpgradeSucceeded) && !!onTierUpgraded;
+
+      const failures = results.filter((r) => !r.ok);
+
+      if (failures.length > 0) {
+        const msg = failures
+          .map(
+            (f) =>
+              extractMutationError(
+                f.error,
+                `Failed to update ${f.dimension} tier.`,
+              ),
+          )
+          .join(" ");
+        toast.error(msg, { id: "pro-tier-change-error" });
+
+        // A resource tier change persisted server-side even though another
+        // dimension failed — still open the resize flow so the assistant
+        // picks up the new entitlement.
+        if (needsResize) {
+          onClose();
+          onTierUpgraded!();
+        }
+        return;
+      }
+
+      // All succeeded — trigger the resize flow if a non-downgrade resource
+      // tier changed. Machine downgrades don't need an immediate resize
+      // prompt; storage changes are always upgrades (downgrades disabled).
+      if (needsResize) {
+        onClose();
+        onTierUpgraded!();
+      } else {
+        toast.success(
+          creditChanged && !machineChanged && !storageChanged
+            ? "Credit bundle updated."
+            : "Plan updated.",
+          { id: "pro-tier-change" },
+        );
+      }
+    });
   };
 
   // When the machine tier is being lowered, defer the whole apply behind the
-  // reconfirm modal so the user confirms the smaller compute profile before
-  // anything is committed.
+  // reconfirm modal so the user confirms the smaller compute profile.
   const handleApplyTierChange = () => {
     if (tierChangePending) return;
     if (isMachineDowngrade) {
@@ -618,6 +429,42 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
     setTierDowngradeOpen(false);
     submitTierChanges();
   };
+
+  // ---------------------------------------------------------------------------
+  // Derived display state for PlanCardContent
+  // ---------------------------------------------------------------------------
+
+  const proLiveTotalCents = (plan: ProPlan): number | null =>
+    nextMachinePrice != null && nextStoragePrice != null
+      ? plan.base_price_cents +
+        nextMachinePrice +
+        nextStoragePrice +
+        selectedCreditPriceCents
+      : null;
+
+  const proCurrentTotalCents = (plan: ProPlan): number | null =>
+    currentMachinePrice != null && currentStoragePrice != null
+      ? plan.base_price_cents +
+        currentMachinePrice +
+        currentStoragePrice +
+        currentCreditPriceCents
+      : null;
+
+  const tierChangeError =
+    changeMachineTierMutation.isError ||
+    changeStorageTierMutation.isError ||
+    changeCreditTierMutation.isError
+      ? extractMutationError(
+          changeMachineTierMutation.error ??
+            changeStorageTierMutation.error ??
+            changeCreditTierMutation.error,
+          "Failed to update plan. Please try again.",
+        )
+      : null;
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
   const isLoading = plansQuery.isLoading || subscriptionQuery.isLoading;
   const isError =
@@ -682,399 +529,116 @@ export function AdjustPlanModal({ open, onClose, onTierUpgraded }: AdjustPlanMod
             </>
           ) : (
             <>
-          <Modal.Header>
-            <Modal.Title className="sr-only">Upgrade Plan</Modal.Title>
-          </Modal.Header>
-          <Modal.Body>
-            {isLoading ? (
-              <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <Typography as="span" variant="body-medium-lighter">
-                  Loading plans...
-                </Typography>
-              </div>
-            ) : isError ? (
-              <Notice tone="error">
-                Failed to load plans. Please try again later.
-              </Notice>
-            ) : (
-              <div className="space-y-6">
-                <div className="space-y-2 pb-2 pt-4 text-center">
-                  <Typography as="p" variant="title-medium">
-                    Your Assistant, Your Way
-                  </Typography>
-                  <Typography
-                    as="p"
-                    variant="body-medium-lighter"
-                    className="text-[var(--content-secondary)]"
-                  >
-                    Choose the plan that works best for you and your assistant.
-                  </Typography>
-                </div>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  {plansQuery.data!.plans.map((plan) => {
-                    const isCurrent = plan.id === currentPlanId;
-                    const isProCard = plan.id === "pro";
-                    const isBaseCard = plan.id === "base";
-                    const showCancellationOnPro =
-                      isProCard && onPro && cancelAtPeriodEnd && !isCanceled;
-                    // Active Pro subscriber adjusting tiers on their current Pro
-                    // card (suppressed entirely while cancellation is pending —
-                    // that path shows only reactivation).
-                    const showProTierChange =
-                      isProCard && isCurrent && proTierChangeMode;
-                    // A tier picker is actually rendered on the Pro card only in
-                    // the Base→Pro upgrade flow or the active-Pro change flow.
-                    // When neither is shown (e.g. a current Pro card with a
-                    // pending cancellation), the live, selection-driven total
-                    // must not be displayed — the seeded cheapest tiers don't
-                    // reflect what keeping the plan retains.
-                    const proPickerShown =
-                      (!isCurrent && isProCard) || showProTierChange;
-                    // Live running total for the Pro card header: base + the
-                    // selected machine/storage/credit prices. Updates as the
-                    // user changes any dimension. The delta is shown when this
-                    // new total differs from the current subscription (i.e. when
-                    // a current total exists).
-                    const proLiveTotalCents =
-                      isProCard &&
-                      nextMachinePrice != null &&
-                      nextStoragePrice != null
-                        ? plan.base_price_cents +
-                          nextMachinePrice +
-                          nextStoragePrice +
-                          selectedCreditPriceCents
-                        : null;
-                    const proCurrentTotalCents =
-                      isProCard &&
-                      currentMachinePrice != null &&
-                      currentStoragePrice != null
-                        ? plan.base_price_cents +
-                          currentMachinePrice +
-                          currentStoragePrice +
-                          currentCreditPriceCents
-                        : null;
-                    const proTotalDelta =
-                      proLiveTotalCents != null && proCurrentTotalCents != null
-                        ? proLiveTotalCents - proCurrentTotalCents
-                        : null;
-                    return (
-                      <Card
-                        key={plan.id}
-                        padding="lg"
-                        className="flex flex-col bg-[var(--surface-base)]"
+              <Modal.Header>
+                <Modal.Title className="sr-only">Upgrade Plan</Modal.Title>
+              </Modal.Header>
+              <Modal.Body>
+                {isLoading ? (
+                  <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Typography as="span" variant="body-medium-lighter">
+                      Loading plans...
+                    </Typography>
+                  </div>
+                ) : isError ? (
+                  <Notice tone="error">
+                    Failed to load plans. Please try again later.
+                  </Notice>
+                ) : (
+                  <div className="space-y-6">
+                    <div className="space-y-2 pb-2 pt-4 text-center">
+                      <Typography as="p" variant="title-medium">
+                        Your Assistant, Your Way
+                      </Typography>
+                      <Typography
+                        as="p"
+                        variant="body-medium-lighter"
+                        className="text-[var(--content-secondary)]"
                       >
-                        <div className="flex flex-col gap-4">
-                          <span
-                            aria-hidden
-                            className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)]"
-                          >
-                            {isProCard ? (
-                              <Crown className="h-5 w-5 text-[var(--content-default)]" />
-                            ) : (
-                              <Palmtree className="h-5 w-5 text-[var(--content-default)]" />
-                            )}
-                          </span>
-                          <div className="flex min-h-6 items-center gap-2">
-                            <Typography as="h3" variant="title-small">
-                              {plan.name}
-                            </Typography>
-                            {isCurrent && <Tag tone="positive">Current</Tag>}
-                          </div>
-                          <Typography
-                            as="p"
-                            variant="body-small-default"
-                            className="-mt-2 text-[var(--content-tertiary)]"
-                          >
-                            {isBaseCard
-                              ? "All you need for a capable assistant"
-                              : "More features, more compute, more storage"}
-                          </Typography>
-                          {showCancellationOnPro && cancelDate && (
-                            <Typography
-                              as="p"
-                              variant="body-small-default"
-                              className="text-[var(--system-mid-strong)]"
-                              data-testid="modal-cancels-on"
-                            >
-                              Your plan ends on {formatGraceDate(cancelDate)}
-                            </Typography>
-                          )}
-                          <hr className="border-t border-[var(--border-base)]" />
-                          <div className="flex flex-col gap-1">
-                            {isBaseCard ? (
-                              <>
-                                <Typography as="p" variant="title-medium">
-                                  Free
-                                </Typography>
-                                <Typography
-                                  as="p"
-                                  variant="body-small-default"
-                                  className="text-[var(--content-tertiary)]"
-                                >
-                                  Forever
-                                </Typography>
-                              </>
-                            ) : isCurrent &&
-                              !(proPickerShown && proLiveTotalCents != null) &&
-                              (proCurrentTotalCents == null ||
-                                currentCreditPriceUnknown) ? (
-                              // Current Pro card whose current total isn't
-                              // reliably known — onboarding hasn't resolved, or
-                              // the held bundle is no longer priceable. Showing
-                              // the cheapest `From $X` (or an understated
-                              // `Currently $X`) would misstate what this
-                              // subscriber pays. While onboarding is actively
-                              // loading, show a neutral spinner; otherwise (a
-                              // settled error or an unpriceable held bundle) show
-                              // a distinct "unavailable" fallback — an infinite
-                              // spinner would misleadingly imply the price is
-                              // still on its way.
-                              onboardingQuery.isLoading ? (
-                                <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                  <Typography
-                                    as="span"
-                                    variant="body-medium-lighter"
-                                  >
-                                    Loading your plan...
-                                  </Typography>
-                                </div>
-                              ) : (
-                                <Typography
-                                  as="p"
-                                  variant="body-medium-lighter"
-                                  className="text-[var(--content-tertiary)]"
-                                  data-testid="modal-pro-price-unavailable"
-                                >
-                                  Current plan pricing unavailable
-                                </Typography>
-                              )
-                            ) : (
-                              <>
-                                <div className="flex items-center gap-1">
-                                  <Typography
-                                    as="p"
-                                    variant="title-medium"
-                                    data-testid="modal-pro-price"
-                                  >
-                                    {proPickerShown &&
-                                    proLiveTotalCents != null ? (
-                                      <>
-                                        {formatMonthly(proLiveTotalCents)}
-                                        {proTotalDelta != null &&
-                                          proTotalDelta !== 0 && (
-                                            <span className="ml-1 text-[var(--content-tertiary)]">
-                                              ({formatDelta(proTotalDelta)})
-                                            </span>
-                                          )}
-                                      </>
-                                    ) : proCurrentTotalCents != null ? (
-                                      `Currently ${formatMonthly(
-                                        proCurrentTotalCents,
-                                      )}`
-                                    ) : (
-                                      // Reachable only for the prospective
-                                      // upgrade card (!isCurrent); the current
-                                      // Pro card shows the loading placeholder
-                                      // above instead of this cheapest price.
-                                      `From ${formatMonthly(
-                                        plan.base_price_cents +
-                                          minTierPriceCents(plan.machine_tiers) +
-                                          minTierPriceCents(plan.storage_tiers),
-                                      )}`
-                                    )}
-                                  </Typography>
-                                  {proPickerShown &&
-                                    proTotalDelta != null &&
-                                    proTotalDelta !== 0 && (
-                                      <span
-                                        title={`Your Pro Plan subscription will change from ${formatMonthly(proCurrentTotalCents!)} to ${formatMonthly(proLiveTotalCents!)}.`}
-                                      >
-                                        <Info className="h-3 w-3 text-[var(--content-tertiary)]" />
-                                      </span>
-                                    )}
-                                </div>
-                                <Typography
-                                  as="p"
-                                  variant="body-small-default"
-                                  className="text-[var(--content-tertiary)]"
-                                  data-testid="modal-pro-base-fee"
-                                >
-                                  {formatDollars(plan.base_price_cents)} base fee
-                                </Typography>
-                              </>
-                            )}
-                          </div>
-                          <PlanFeatureList
-                            features={plan.included_features}
-                            variant="checklist"
+                        Choose the plan that works best for you and your assistant.
+                      </Typography>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      {plansQuery.data!.plans.map((plan) => {
+                        const planIsCurrent = plan.id === currentPlanId;
+                        const liveTotalCents =
+                          plan.id === "pro" && proPlan
+                            ? proLiveTotalCents(proPlan)
+                            : null;
+                        const currentTotalCents =
+                          plan.id === "pro" && proPlan
+                            ? proCurrentTotalCents(proPlan)
+                            : null;
+                        const totalDelta =
+                          liveTotalCents != null && currentTotalCents != null
+                            ? liveTotalCents - currentTotalCents
+                            : null;
+                        return (
+                          <PlanCardContent
+                            key={plan.id}
+                            plan={plan}
+                            isCurrent={planIsCurrent}
+                            onPro={onPro}
+                            cancelAtPeriodEnd={cancelAtPeriodEnd}
+                            isCanceled={isCanceled}
+                            cancelDate={cancelDate}
+                            formatGraceDate={formatGraceDate}
+                            proTierChangeMode={proTierChangeMode}
+                            creditTiersEnabled={creditTiersEnabled}
+                            creditTiers={creditTiers}
+                            displayCreditTier={displayCreditTier}
+                            onCreditTierChange={setSelectedCreditTier}
+                            selectedMachineTier={selectedMachineTier}
+                            selectedStorageTier={selectedStorageTier}
+                            onMachineTierChange={setSelectedMachineTier}
+                            onStorageTierChange={setSelectedStorageTier}
+                            machineTiersForPicker={machineTiersForPicker}
+                            storageTiersForPicker={storageTiersForPicker}
+                            currentMachinePrice={currentMachinePrice}
+                            currentStoragePrice={currentStoragePrice}
+                            currentCreditPriceUnknown={currentCreditPriceUnknown}
+                            proCurrentTotalCents={currentTotalCents}
+                            proLiveTotalCents={liveTotalCents}
+                            proTotalDelta={totalDelta}
+                            onboardingLoading={onboardingQuery.isLoading}
+                            tierChangePending={tierChangePending}
+                            machineChanged={machineChanged}
+                            storageChanged={storageChanged}
+                            creditChanged={creditChanged}
+                            tierChangeError={tierChangeError}
+                            upgradePending={upgradeMutation.isPending}
+                            portalPending={portalMutation.isPending}
+                            onUpgrade={handleUpgrade}
+                            onApplyTierChange={handleApplyTierChange}
+                            onDowngradeClick={() => setView("downgrade-confirm")}
+                            onKeepPlan={() => portalMutation.mutate({})}
                           />
-                          {isProCard && !creditTiersEnabled && (
-                            <Typography
-                              as="p"
-                              variant="body-small-default"
-                              className="text-[var(--content-tertiary)]"
-                              data-testid="modal-credits-not-included"
-                            >
-                              *Credits not included
-                            </Typography>
-                          )}
-                        </div>
-                        <div className="mt-4 flex flex-1 flex-col justify-end gap-4">
-                          {!isCurrent && isProCard && (
-                            <>
-                              <hr className="border-t border-[var(--border-base)]" />
-                              {creditTiersEnabled && (
-                                <CreditBundlePicker
-                                  creditTiers={creditTiers}
-                                  selectedCreditTier={displayCreditTier}
-                                  onCreditTierChange={setSelectedCreditTier}
-                                  disabled={upgradeMutation.isPending}
-                                />
-                              )}
-                              <TierPicker
-                                machineTiers={plan.machine_tiers}
-                                storageTiers={plan.storage_tiers}
-                                selectedMachineTier={selectedMachineTier}
-                                selectedStorageTier={selectedStorageTier}
-                                onMachineTierChange={setSelectedMachineTier}
-                                onStorageTierChange={setSelectedStorageTier}
-                              />
-                              <Button
-                                variant="primary"
-                                className="w-full"
-                                onClick={handleUpgrade}
-                                disabled={
-                                  upgradeMutation.isPending ||
-                                  !selectedMachineTier ||
-                                  !selectedStorageTier
-                                }
-                                data-testid="modal-upgrade-to-pro-button"
-                              >
-                                Upgrade to Pro
-                              </Button>
-                            </>
-                          )}
-                          {showProTierChange &&
-                            (onboardingQuery.isLoading ? (
-                              <div className="flex items-center gap-2 text-[var(--content-tertiary)]">
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                <Typography
-                                  as="span"
-                                  variant="body-medium-lighter"
-                                >
-                                  Loading your plan...
-                                </Typography>
-                              </div>
-                            ) : (
-                              <>
-                                <hr className="border-t border-[var(--border-base)]" />
-                                {creditTiersEnabled && (
-                                  <CreditBundlePicker
-                                    creditTiers={creditTiers}
-                                    selectedCreditTier={displayCreditTier}
-                                    onCreditTierChange={setSelectedCreditTier}
-                                    disabled={tierChangePending}
-                                  />
-                                )}
-                                <TierPicker
-                                  machineTiers={machineTiersForPicker}
-                                  storageTiers={storageTiersForPicker}
-                                  selectedMachineTier={selectedMachineTier}
-                                  selectedStorageTier={selectedStorageTier}
-                                  onMachineTierChange={setSelectedMachineTier}
-                                  onStorageTierChange={setSelectedStorageTier}
-                                  currentMachinePriceCents={currentMachinePrice}
-                                  currentStoragePriceCents={currentStoragePrice}
-                                />
-                                {(changeMachineTierMutation.isError ||
-                                  changeStorageTierMutation.isError ||
-                                  changeCreditTierMutation.isError) && (
-                                  <Notice tone="error">
-                                    {extractMutationError(
-                                      changeMachineTierMutation.error ??
-                                        changeStorageTierMutation.error ??
-                                        changeCreditTierMutation.error,
-                                      "Failed to update plan. Please try again.",
-                                    )}
-                                  </Notice>
-                                )}
-                                <Button
-                                  variant="primary"
-                                  className="w-full"
-                                  onClick={handleApplyTierChange}
-                                  disabled={
-                                    tierChangePending ||
-                                    (!machineChanged &&
-                                      !storageChanged &&
-                                      !creditChanged)
-                                  }
-                                  data-testid="modal-change-tier-button"
-                                >
-                                  Update Plan
-                                </Button>
-                              </>
-                            ))}
-                          {!isCurrent &&
-                            isBaseCard &&
-                            onPro &&
-                            !cancelAtPeriodEnd && (
-                              <>
-                                <hr className="border-t border-[var(--border-base)]" />
-                                <Button
-                                  variant="outlined"
-                                  className="w-full"
-                                  onClick={() => setView("downgrade-confirm")}
-                                  disabled={portalMutation.isPending}
-                                  data-testid="modal-downgrade-to-base-button"
-                                >
-                                  Downgrade to Base
-                                </Button>
-                              </>
-                            )}
-                          {showCancellationOnPro && (
-                            <>
-                              <hr className="border-t border-[var(--border-base)]" />
-                              <Button
-                                variant="outlined"
-                                className="w-full"
-                                onClick={() => portalMutation.mutate({})}
-                                disabled={portalMutation.isPending}
-                                data-testid="modal-keep-plan-button"
-                              >
-                                Keep your Plan
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      </Card>
-                    );
-                  })}
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </Modal.Body>
+              <Modal.Footer className="relative items-center">
+                <Typography
+                  as="p"
+                  variant="body-small-default"
+                  className="pointer-events-none absolute inset-x-0 text-center text-[var(--content-tertiary)]"
+                >
+                  <span className="pointer-events-auto">
+                    You can change or cancel your plan at any time from billing settings.
+                  </span>
+                </Typography>
+                <div className="ml-auto">
+                  <Button
+                    variant="outlined"
+                    onClick={onClose}
+                    data-testid="modal-cancel-button"
+                  >
+                    Cancel
+                  </Button>
                 </div>
-              </div>
-            )}
-          </Modal.Body>
-          <Modal.Footer className="relative items-center">
-            <Typography
-              as="p"
-              variant="body-small-default"
-              className="pointer-events-none absolute inset-x-0 text-center text-[var(--content-tertiary)]"
-            >
-              <span className="pointer-events-auto">
-                You can change or cancel your plan at any time from billing settings.
-              </span>
-            </Typography>
-            <div className="ml-auto">
-              <Button
-                variant="outlined"
-                onClick={onClose}
-                data-testid="modal-cancel-button"
-              >
-                Cancel
-              </Button>
-            </div>
-          </Modal.Footer>
+              </Modal.Footer>
             </>
           )}
         </Modal.Content>

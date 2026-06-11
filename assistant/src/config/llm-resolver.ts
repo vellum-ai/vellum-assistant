@@ -78,6 +78,15 @@ export function resolveCallSiteConfig(
 ): z.infer<typeof LLMConfigBase> {
   const layers: Mergeable[] = [llm.default as Mergeable];
 
+  // Effective logit-bias preset, tracked outside the deep-merge so it ties to
+  // the single highest-precedence *profile* that wins resolution rather than
+  // inheriting from a lower one. Profile layers are appended low→high, and each
+  // one fully determines the preset (a profile that omits `logitBias` clears
+  // any value a lower-precedence profile set), so the last profile appended
+  // wins — matching the merge's own precedence and including the implicit
+  // call-site default selected by `effectiveDefault`.
+  const biasRef: LogitBiasRef = { preset: undefined };
+
   const activeFragment = resolveProfileFragment(llm.activeProfile, llm, opts);
   const overrideFragment = resolveProfileFragment(
     opts.overrideProfile,
@@ -89,17 +98,31 @@ export function resolveCallSiteConfig(
     effectiveDefault(callSite, llm, opts.overrideProfile != null);
 
   if (callSite === "mainAgent") {
-    appendCallSiteLayers(layers, callSite, llm, site, opts);
-    appendProfileLayer(layers, activeFragment);
-    appendProfileLayer(layers, overrideFragment);
+    appendCallSiteLayers(layers, callSite, llm, site, opts, biasRef);
+    appendProfileLayer(layers, activeFragment, biasRef);
+    appendProfileLayer(layers, overrideFragment, biasRef);
   } else {
-    appendProfileLayer(layers, activeFragment);
-    appendProfileLayer(layers, overrideFragment);
-    appendCallSiteLayers(layers, callSite, llm, site, opts);
+    appendProfileLayer(layers, activeFragment, biasRef);
+    appendProfileLayer(layers, overrideFragment, biasRef);
+    appendCallSiteLayers(layers, callSite, llm, site, opts, biasRef);
   }
 
-  return finalize(deepMerge(...layers.map(withImpliedProviderForKnownModel)));
+  const resolved = finalize(
+    deepMerge(...layers.map(withImpliedProviderForKnownModel)),
+  );
+  // `logitBias` is profile-scoped: the winning profile is its only source.
+  // Overwrite — or clear — whatever the deep-merge may have copied from a
+  // non-profile layer (`llm.default` or a call-site fragment), so a preset set
+  // outside a profile can't apply to a profile that didn't opt in.
+  if (biasRef.preset !== undefined) {
+    resolved.logitBias = biasRef.preset;
+  } else {
+    delete (resolved as { logitBias?: unknown }).logitBias;
+  }
+  return resolved;
 }
+
+type LogitBiasRef = { preset: ProfileEntry["logitBias"] };
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -261,8 +284,10 @@ function withImpliedProviderForKnownModel(source: Mergeable): Mergeable {
 function appendProfileLayer(
   layers: Mergeable[],
   profile: ProfileEntry | undefined,
+  biasRef: LogitBiasRef,
 ): void {
   if (profile != null) {
+    biasRef.preset = profile.logitBias;
     layers.push(profileConfigFragment(profile));
   }
 }
@@ -273,6 +298,7 @@ function appendCallSiteLayers(
   llm: z.infer<typeof LLMSchema>,
   site: z.infer<typeof LLMSchema>["callSites"][LLMCallSite] | undefined,
   opts: ResolveCallSiteOpts,
+  biasRef: LogitBiasRef,
 ): void {
   if (site != null) {
     if (site.profile != null) {
@@ -286,6 +312,7 @@ function appendCallSiteLayers(
           `LLM call site "${callSite}" references undefined profile "${site.profile}"`,
         );
       }
+      biasRef.preset = profileFragment.logitBias;
       layers.push(profileConfigFragment(profileFragment));
     }
     // Strip the `profile` discriminator before merging — it isn't a
@@ -304,6 +331,11 @@ function profileConfigFragment(profile: ProfileEntry): Mergeable {
     // profile before this point), but strip it defensively so it can never
     // leak into the merged `LLMConfigBase`.
     mix: _mix,
+    // `logitBias` is profile-identity metadata, not inheritable config: a
+    // preset must apply only to the profile that opted in, never bleed from a
+    // lower-precedence (e.g. active) profile into one that merely inherited it.
+    // `RetryProvider` resolves it from the applied profile, not the merge.
+    logitBias: _logitBias,
     ...config
   } = profile;
   return config as Mergeable;

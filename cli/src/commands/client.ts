@@ -56,6 +56,7 @@ import {
   readPlatformToken,
 } from "../lib/platform-client";
 import { tuiLog } from "../lib/tui-log";
+import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
 
 const SUPPORTED_INTERFACES = ["cli", "web"] as const;
 type SupportedInterface = (typeof SUPPORTED_INTERFACES)[number];
@@ -85,6 +86,7 @@ interface ParsedArgs {
   flagEnvVars: Record<string, string>;
   /** Parsed --flag overrides: kebab-case key -> typed value (for web injection). */
   parsedFlagOverrides: Record<string, boolean | string>;
+  disablePlatform: boolean;
 }
 
 function readAssistantName(entry: AssistantEntry | null): string | undefined {
@@ -99,6 +101,8 @@ export function parseArgs(): ParsedArgs {
   const { envVars: cliFlagVars, remaining: argsWithoutFlags } =
     parseFeatureFlagArgs(process.argv.slice(3));
   const flagEnvVars = { ...readAmbientFlagEnvVars(), ...cliFlagVars };
+  const disablePlatformAmbient = process.env.VELLUM_DISABLE_PLATFORM?.trim().toLowerCase();
+  let disablePlatform = disablePlatformAmbient === "true" || disablePlatformAmbient === "1";
   const args = argsWithoutFlags;
 
   // Build parsedFlagOverrides from the extracted env vars:
@@ -133,6 +137,8 @@ export function parseArgs(): ParsedArgs {
     if (arg === "--help" || arg === "-h") {
       printUsage();
       process.exit(0);
+    } else if (arg === "--disable-platform") {
+      disablePlatform = true;
     } else if (
       (arg === "--url" ||
         arg === "-u" ||
@@ -252,6 +258,7 @@ export function parseArgs(): ParsedArgs {
     interfaceId,
     flagEnvVars,
     parsedFlagOverrides,
+    disablePlatform,
   };
 }
 
@@ -272,6 +279,7 @@ ${ANSI.bold}OPTIONS:${ANSI.reset}
     -a, --assistant-id <id>    Assistant ID
     -i, --interface <id>       Interface identifier: cli (default) or web
     --flag <key=value>         Feature flag override (repeatable, kebab-case key)
+    --disable-platform         Suppress all outbound platform API calls
     -h, --help                 Show this help message
 
 ${ANSI.bold}DEFAULTS:${ANSI.reset}
@@ -451,6 +459,7 @@ async function handleLocalEndpoints(
         result = replacePlatformAssistants(
           lockfilePaths,
           body.platformAssistants as Array<Record<string, unknown>>,
+          body.organizationId as string | undefined,
         );
       } else {
         result = upsertLockfileAssistant(
@@ -611,7 +620,7 @@ async function handleLocalEndpoints(
 
     try {
       const hasBody = req.method !== "GET" && req.method !== "HEAD";
-      const proxyRes = await fetch(targetUrl, {
+      const proxyRes = await loopbackSafeFetch(targetUrl, {
         method: req.method,
         headers,
         body: hasBody ? req.body : undefined,
@@ -652,6 +661,7 @@ function getBaseDir(): string {
 async function runWebInterface(
   flagEnvVars: Record<string, string>,
   parsedFlagOverrides: Record<string, boolean | string>,
+  disablePlatform: boolean,
 ): Promise<void> {
   // Propagate flag env vars so child processes (e.g. hatch from the web UI) inherit them.
   Object.assign(process.env, flagEnvVars);
@@ -660,7 +670,7 @@ async function runWebInterface(
   // (HMR, __local endpoints, gateway proxy).
   const webSourceDir = findWebSourceDir();
   if (webSourceDir) {
-    return runViteDevServer(webSourceDir, flagEnvVars);
+    return runViteDevServer(webSourceDir, flagEnvVars, disablePlatform);
   }
 
   const distDir = findWebDistDir();
@@ -679,7 +689,7 @@ async function runWebInterface(
   const webUrl = getWebUrl();
   const safeJson = (v: unknown) =>
     JSON.stringify(v).replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
-  const configJson = safeJson({ webUrl, platformUrl });
+  const configJson = safeJson({ webUrl, platformUrl, disablePlatform });
   const hasOverrides = Object.keys(parsedFlagOverrides).length > 0;
   const flagOverridesSnippet = hasOverrides
     ? `;window.__VELLUM_FLAG_OVERRIDES__=${safeJson(parsedFlagOverrides)}`
@@ -751,7 +761,7 @@ async function runWebInterface(
         try {
           const hasBody = req.method !== "GET" && req.method !== "HEAD";
           const body = hasBody ? await req.arrayBuffer() : undefined;
-          const proxyRes = await fetch(target.toString(), {
+          const proxyRes = await loopbackSafeFetch(target.toString(), {
             method: req.method,
             headers,
             body,
@@ -814,6 +824,7 @@ async function runWebInterface(
 async function runViteDevServer(
   webSourceDir: string,
   flagEnvVars: Record<string, string>,
+  disablePlatform: boolean,
 ): Promise<void> {
   const platformUrl = getPlatformUrl();
 
@@ -830,6 +841,7 @@ async function runViteDevServer(
       ...process.env,
       ...flagEnvVars,
       ...viteFlagVars,
+      ...(disablePlatform ? { VITE_VELLUM_DISABLE_PLATFORM: "true" } : {}),
       VITE_PLATFORM_MODE: "false",
       API_PROXY_TARGET: platformUrl,
       VELLUM_WEB_URL: getWebUrl(),
@@ -909,10 +921,15 @@ export async function client(): Promise<void> {
     interfaceId,
     flagEnvVars,
     parsedFlagOverrides,
+    disablePlatform,
   } = parseArgs();
 
+  if (disablePlatform) {
+    process.env.VELLUM_DISABLE_PLATFORM = "true";
+  }
+
   if (interfaceId === WEB_INTERFACE_ID) {
-    await runWebInterface(flagEnvVars, parsedFlagOverrides);
+    await runWebInterface(flagEnvVars, parsedFlagOverrides, disablePlatform);
     return;
   }
 

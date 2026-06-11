@@ -66,11 +66,59 @@ export interface IngestAskInput {
    */
   questionMessage: string;
   /**
-   * Quiet timeout in milliseconds for the post-message event drain.
-   * Both conversations use the same quiet window. Defaults to 30s.
-   * `maxMs` is derived as `quietMs * 6` per `AgentEventCollector`.
+   * Quiet timeout in milliseconds for the *question* turn's event drain —
+   * how long the stream may go silent (no new events) before the turn is
+   * treated as finished. Defaults to 30s. This is *not* the overall time
+   * limit: a turn that keeps streaming (e.g. long extended-thinking +
+   * on-demand retrieval) runs until the `questionMaxMs` wall-clock cap
+   * below, however many events it emits. The ingest turn uses
+   * `ingestQuietMs` / `ingestMaxMs` instead, because its silence semantics
+   * differ.
    */
   quietMs?: number;
+  /**
+   * Hard wall-clock cap (ms) for the *question* turn. The turn ends when
+   * the stream goes quiet for `quietMs`, the stream closes, or this much
+   * time elapses — whichever comes first. The cap is purely time-based; it
+   * does not depend on how many events stream. If the agent never composes
+   * a final answer within this budget, the run is graded as a completed
+   * miss (score 0), not an errored run — "the model took too long to
+   * answer" is a real, gradable outcome rather than a harness failure.
+   * Defaults to 6 minutes.
+   */
+  questionMaxMs?: number;
+  /**
+   * Quiet timeout in milliseconds for the *ingest* turn's event drain.
+   * Defaults to 2 minutes — deliberately far more generous than the
+   * question turn's window.
+   *
+   * The ingest turn is a heavy, multi-step agentic turn: the agent reads
+   * the staged trajectories, runs tools over large outputs, and commits
+   * to memory. Between steps the model can sit silent for tens of seconds
+   * (e.g. extended thinking over a large context, or a tool that just
+   * started) without the turn being done. Because the sentinel is the
+   * authoritative completion signal, this quiet window is only a safety
+   * net to avoid waiting the full `ingestMaxMs` when the agent has truly
+   * died; a tight window would instead abandon a turn that is still
+   * actively working.
+   */
+  ingestQuietMs?: number;
+  /**
+   * Literal completion sentinel the ingest prompt instructs the agent to
+   * emit once it has finished reading *and* committed what matters to
+   * memory. The ingest turn ends only when this line appears in the
+   * assistant's output; if it never arrives, the run fails loudly rather
+   * than grading a truncated ingest. Defaults to `"Ready."`. Matching is
+   * line-oriented and tolerant of surrounding quotes/punctuation and case.
+   */
+  ingestSentinel?: string;
+  /**
+   * Hard cap (ms) for the ingest turn's sentinel wait. A genuine
+   * 100-trajectory ingest with inline memory commits can run for several
+   * minutes, so this is generous; it exists to fail loudly if the turn
+   * never completes. Defaults to 10 minutes.
+   */
+  ingestMaxMs?: number;
 }
 
 export interface IngestAskResult {
@@ -80,17 +128,85 @@ export interface IngestAskResult {
   ingestConversationKey: string;
   /** Conversation key used during the question turn. Must differ from `ingestConversationKey`. */
   questionConversationKey: string;
-  /** Assistant response text from conversation B. */
+  /** Assistant response text from conversation B. Empty when the question turn produced no answer within its time budget. */
   hypothesis: string;
+  /**
+   * Whether the question turn produced any assistant answer text before its
+   * time budget elapsed. `false` means the turn ran to `questionMaxMs` (or
+   * went quiet) without emitting an answer — `hypothesis` is then `""`, and
+   * the caller should grade it as a completed miss (score 0) rather than an
+   * error.
+   */
+  questionAnswered: boolean;
   /** Raw events captured during conversation A's drain. */
   ingestEvents: AgentEvent[];
   /** Raw events captured during conversation B's drain. */
   questionEvents: AgentEvent[];
+  /**
+   * Whether the ingest turn ended on the completion sentinel (vs. being
+   * cut short). Always `true` on a successful return — a missing sentinel
+   * throws before this result is produced — but surfaced for callers that
+   * want to record it on the run.
+   */
+  ingestSentinelSeen: boolean;
 }
 
 const DEFAULT_QUIET_MS = 30_000;
+/**
+ * Default hard wall-clock cap for the question turn: 6 minutes. Generous
+ * enough for a retrieval-heavy turn (on-demand `file_read`/`grep` over the
+ * staged trajectories plus extended thinking) to reach an answer; a turn
+ * that blows past it is graded as a completed miss, not an error.
+ */
+export const DEFAULT_QUESTION_MAX_MS = 360_000;
+const DEFAULT_INGEST_QUIET_MS = 120_000;
+const DEFAULT_INGEST_SENTINEL = "Ready.";
+const DEFAULT_INGEST_MAX_MS = 600_000;
 
-class IngestAskError extends Error {}
+/**
+ * Error raised when a two-conversation run cannot proceed. Carries the
+ * ingest-turn and question-turn events captured so far (when any) so the
+ * caller can still persist them as a debugging artifact even though the
+ * run failed before producing a result — e.g. to inspect *why* an ingest
+ * never reached its completion sentinel, or what conversation B did when
+ * it returned no gradable answer.
+ */
+export class IngestAskError extends Error {
+  constructor(
+    message: string,
+    readonly ingestEvents: readonly AgentEvent[] = [],
+    readonly questionEvents: readonly AgentEvent[] = [],
+  ) {
+    super(message);
+    this.name = "IngestAskError";
+  }
+}
+
+/**
+ * Normalize a single line for sentinel comparison: trim, strip wrapping
+ * quotes and trailing sentence punctuation, lowercase. So `"Ready."`,
+ * `Ready`, and `ready!` all reduce to `ready`.
+ */
+function normalizeSentinelLine(line: string): string {
+  return line
+    .trim()
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .replace(/[.!?]+$/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Build a predicate that reports whether the assistant has emitted the
+ * completion sentinel as a standalone line. Line-oriented (not a loose
+ * substring) so an in-passing mention like "I'm getting ready" does not
+ * trip it, while tolerating the quotes/punctuation models tend to add.
+ */
+function makeSentinelPredicate(sentinel: string): (text: string) => boolean {
+  const target = normalizeSentinelLine(sentinel);
+  return (text) =>
+    text.split(/\r?\n/).some((line) => normalizeSentinelLine(line) === target);
+}
 
 function assertCapability(
   agent: BaseAgent,
@@ -106,7 +222,7 @@ function assertCapability(
   }
 }
 
-function joinAssistantText(events: AgentEvent[]): string {
+function joinAssistantText(events: readonly AgentEvent[]): string {
   let out = "";
   for (const event of events) {
     const text = assistantContent(event);
@@ -115,10 +231,30 @@ function joinAssistantText(events: AgentEvent[]): string {
   return out;
 }
 
+/**
+ * Extract the `requestId` from a pending tool-confirmation event, or
+ * `undefined` if the event isn't a `confirmation_request`. A hatched
+ * assistant runs headless with no interactive approver, so any tool the
+ * agent reaches for above the auto-approve risk threshold stalls on such
+ * an event until something answers it.
+ */
+function confirmationRequestId(event: AgentEvent): string | undefined {
+  if (event.message.type !== "confirmation_request") return undefined;
+  const requestId = event.message.requestId;
+  return typeof requestId === "string" && requestId.length > 0
+    ? requestId
+    : undefined;
+}
+
 export async function runIngestAsk(
   input: IngestAskInput,
 ): Promise<IngestAskResult> {
   const quietMs = input.quietMs ?? DEFAULT_QUIET_MS;
+  const questionMaxMs = input.questionMaxMs ?? DEFAULT_QUESTION_MAX_MS;
+  const ingestQuietMs = input.ingestQuietMs ?? DEFAULT_INGEST_QUIET_MS;
+  const ingestSentinel = input.ingestSentinel ?? DEFAULT_INGEST_SENTINEL;
+  const ingestMaxMs = input.ingestMaxMs ?? DEFAULT_INGEST_MAX_MS;
+  const isIngestDone = makeSentinelPredicate(ingestSentinel);
 
   const hatchInput: AgentHatchInput = {
     profile: input.profile,
@@ -152,10 +288,57 @@ export async function runIngestAsk(
       agent.events()[Symbol.asyncIterator](),
     );
     await agent.send({ content: input.ingestMessage });
-    const ingestEvents = await ingestCollector.collectUntilQuiet({ quietMs });
+
+    // Auto-approve tool confirmations in both turns. The agent legitimately
+    // reaches for tools above the auto-approve risk threshold — to process
+    // the staged trajectories during ingest, and to read/extract from them
+    // on demand while answering. In a headless hatch nothing answers the
+    // resulting `confirmation_request`, so the turn would hang until its cap
+    // (the ingest sentinel never arrives; the question turn goes quiet with
+    // no answer). Approving on receipt unblocks the turn. A failed approval
+    // is logged but not fatal — the run still fails loudly if the turn never
+    // completes, and the captured events are persisted for inspection.
+    const autoConfirm = async (event: AgentEvent): Promise<void> => {
+      const requestId = confirmationRequestId(event);
+      if (requestId === undefined || typeof agent.confirm !== "function") {
+        return;
+      }
+      try {
+        await agent.confirm({ requestId, decision: "allow" });
+      } catch (err) {
+        console.warn(
+          `[run-ingest-ask] failed to auto-confirm ${requestId}: ` +
+            (err instanceof Error ? err.message : String(err)),
+        );
+      }
+    };
+
+    // Wait for the agent to declare completion via the sentinel rather
+    // than treating an event-quiet gap as "done". A truncated or stalled
+    // ingest would otherwise be graded as a real run; recall in conversation
+    // B depends on the agent having actually finished reading *and*
+    // committing to memory here.
+    const { events: ingestEvents, sentinelSeen: ingestSentinelSeen } =
+      await ingestCollector.collectUntilSentinel({
+        isDone: (events) => isIngestDone(joinAssistantText(events)),
+        maxMs: ingestMaxMs,
+        quietMs: ingestQuietMs,
+        onEvent: autoConfirm,
+      });
     if (ingestEvents.length === 0) {
       throw new IngestAskError(
         `Ingest turn produced no events for conversation ${ingestConversationKey}.`,
+      );
+    }
+    if (!ingestSentinelSeen) {
+      throw new IngestAskError(
+        `Ingest turn for conversation ${ingestConversationKey} never emitted the ` +
+          `completion sentinel ("${ingestSentinel}") within ${ingestMaxMs}ms ` +
+          `(captured ${ingestEvents.length} event(s)). The ingest likely stalled or was ` +
+          `truncated — e.g. an unresolved tool confirmation, or the agent did not finish ` +
+          `committing to memory. Refusing to grade a truncated ingest; conversation B would ` +
+          `have nothing reliable to recall.`,
+        ingestEvents,
       );
     }
 
@@ -181,20 +364,24 @@ export async function runIngestAsk(
     await agent.send({ content: input.questionMessage });
     const questionEvents = await questionCollector.collectUntilQuiet({
       quietMs,
+      maxMs: questionMaxMs,
+      onEvent: autoConfirm,
     });
     if (questionEvents.length === 0) {
       throw new IngestAskError(
         `Question turn produced no events for conversation ${questionConversationKey}.`,
+        ingestEvents,
       );
     }
 
+    // An empty answer is NOT a harness failure. The question turn ran its
+    // full course — it went quiet or hit the `questionMaxMs` wall-clock cap
+    // — without the agent composing a final answer (e.g. it spent the whole
+    // budget on extended thinking and on-demand retrieval). That's a real,
+    // gradable outcome ("too slow to answer"), so we return normally with an
+    // empty hypothesis and let the caller score it as a completed miss
+    // rather than throwing and excluding the run.
     const hypothesis = joinAssistantText(questionEvents);
-    if (hypothesis.trim() === "") {
-      throw new IngestAskError(
-        `Question turn captured ${questionEvents.length} event(s) but no assistant text; ` +
-          `cannot produce a hypothesis to judge.`,
-      );
-    }
 
     return {
       runId: input.runId,
@@ -202,8 +389,10 @@ export async function runIngestAsk(
       ingestConversationKey,
       questionConversationKey,
       hypothesis,
+      questionAnswered: hypothesis.trim() !== "",
       ingestEvents,
       questionEvents,
+      ingestSentinelSeen,
     };
   } finally {
     // Best-effort shutdown — never swallow the original throw.

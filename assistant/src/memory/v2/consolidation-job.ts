@@ -15,8 +15,9 @@
  * substitute in.
  *
  * Lifecycle:
- *   1. Bail if `config.memory.v2.enabled` is false (the worker may have
- *      claimed a stale row from before v2 was disabled).
+ *   1. Bail if `config.memory.enabled` or `config.memory.v2.enabled` is false
+ *      (the worker may have claimed a stale row from before memory was
+ *      disabled).
  *   2. Acquire a single-process lock at `memory/.v2-state/consolidation.lock`
  *      so two overlapping schedule windows can't fight over the same files.
  *      The lock contains the holder's PID + timestamp so a crashed run leaves
@@ -41,9 +42,11 @@
  *      a conservative full-reembed effectively free. On failure no follow-ups
  *      are enqueued — the agent's writes may be partial and re-embedding
  *      partial state would be misleading.
- *   7. Release the lock. If a prior holder's PID is no longer running, the
- *      stale lock is taken over automatically (single-writer per workspace,
- *      so a holder whose process died is unambiguously stale).
+ *   7. Release the lock. A stale lock is taken over automatically on the next
+ *      run (single-writer per workspace): when the holder's PID is no longer
+ *      running, or — because the daemon runs as PID 1 in containers and a
+ *      restarted daemon collides with the dead holder's PID — when the lock is
+ *      older than a TTL well above the run's hard timeout.
  *
  * The handler never propagates exceptions from the run path — `runBackgroundJob`
  * absorbs them and returns a structured result. A thrown error before the
@@ -63,19 +66,6 @@ import { dirname, join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../../config/types.js";
-import { loadCore } from "../../plugins/defaults/memory-v3-shadow/core.js";
-import {
-  computeV3Health,
-  renderV3Health,
-} from "../../plugins/defaults/memory-v3-shadow/health.js";
-import {
-  loadLeafTree,
-  resolveDataDir,
-} from "../../plugins/defaults/memory-v3-shadow/tree.js";
-import type {
-  LeafPath,
-  Slug,
-} from "../../plugins/defaults/memory-v3-shadow/types.js";
 import { runBackgroundJob } from "../../runtime/background-job-runner.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
@@ -86,7 +76,6 @@ import {
   type MemoryJob,
   type MemoryJobType,
 } from "../jobs-store.js";
-import { getPageIndex } from "../v2/page-index.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "./constants.js";
 import { resolveConsolidationPrompt } from "./prompts/consolidation.js";
 
@@ -96,8 +85,7 @@ const log = getLogger("memory-v2-consolidate");
 const JOB_NAME = "memory.consolidate";
 
 /**
- * v3 plugin flags. Either being on (a) prepends a v3 health block to the
- * consolidation prompt and (b) enqueues `memory_v3_maintain` as a
+ * v3 plugin flags. Either being on enqueues `memory_v3_maintain` as a
  * post-consolidation follow-up. These gate the v3 plugin itself.
  */
 const MEMORY_V3_SHADOW = "memory-v3-shadow" as const;
@@ -110,6 +98,25 @@ const MEMORY_V3_LIVE = "memory-v3-live" as const;
  * provider can't pin the worker indefinitely.
  */
 const CONSOLIDATION_TIMEOUT_MS = 15 * 60 * 1000;
+
+/**
+ * Age past which a lock held by an apparently-live PID is taken over anyway.
+ *
+ * The PID-liveness probe alone is not sufficient in containers: the daemon
+ * runs as PID 1, so after a container restart `isProcessAlive(1)` reports the
+ * NEW daemon as alive even though it is not the process that wrote the lock.
+ * PID-1 collision means a lock left behind by a crashed/restarted run can
+ * never be declared stale by liveness alone, and consolidation wedges
+ * permanently (every scheduled run skips with `locked`).
+ *
+ * A lock older than this TTL is treated as abandoned regardless of PID
+ * liveness. The bound is a large multiple of the run's hard timeout — the
+ * lock timestamp is written at acquire time and a run can hold the lock for
+ * at most `CONSOLIDATION_TIMEOUT_MS`, so a TTL well above that can never fire
+ * against a legitimately in-flight run while still recovering a wedged lock
+ * within a couple of scheduled passes.
+ */
+const STALE_LOCK_TTL_MS = 4 * CONSOLIDATION_TIMEOUT_MS;
 
 /**
  * Follow-up jobs to fan out after a successful consolidation.
@@ -144,6 +151,11 @@ export async function memoryV2ConsolidateJob(
   _job: MemoryJob,
   config: AssistantConfig,
 ): Promise<ConsolidationOutcome> {
+  if (config.memory.enabled === false) {
+    log.debug("memory.enabled is false; consolidation skipped");
+    return { kind: "disabled" };
+  }
+
   if (!config.memory.v2.enabled) {
     log.debug("memory.v2.enabled is false; consolidation skipped");
     return { kind: "disabled" };
@@ -190,16 +202,24 @@ export async function memoryV2ConsolidateJob(
     // the `memory.v2.consolidation_prompt_path` config override but bounds
     // it to a regular file under 1 MiB before substitution so a stray path
     // (or a `/dev/zero`-style pseudo-file) cannot exfiltrate megabytes of
-    // bytes through the wake hint.
-    //
-    // That resolved prompt is the base; `maybePrependV3Health` prepends a
-    // freshly computed v3 health block when a v3 flag is on and the tree has
-    // actionable drift, leaving it untouched otherwise.
-    const basePrompt = resolveConsolidationPrompt(
+    // bytes through the wake hint. The core-pages curation section rides the
+    // same v3 gate as the maintenance follow-up: the file feeds the v3 core
+    // lane, so on a v2-only install the instruction would curate a file
+    // nothing reads.
+    // The article SHAPE is keyed on the live flag alone: under shadow, live
+    // prompts are still assembled by v2's injection model, so consolidation
+    // must keep producing `summary:`-bearing fragment pages until the flip.
+    const memoryV3Live = isAssistantFeatureFlagEnabled(MEMORY_V3_LIVE, config);
+    const memoryV3Active =
+      isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config) || memoryV3Live;
+    const prompt = resolveConsolidationPrompt(
       config.memory.v2.consolidation_prompt_path,
       cutoff,
+      {
+        includeCorePagesSection: memoryV3Active,
+        articleShape: memoryV3Live ? "v3" : "v2",
+      },
     );
-    const prompt = await maybePrependV3Health(basePrompt, config);
 
     const runResult = await runBackgroundJob({
       jobName: JOB_NAME,
@@ -232,10 +252,7 @@ export async function memoryV2ConsolidateJob(
     // is active, so it never fans out on v2-only installs.
     const followUpJobIds: string[] = [];
     const jobTypes: MemoryJobType[] = [...FOLLOW_UP_JOB_TYPES];
-    if (
-      isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config) ||
-      isAssistantFeatureFlagEnabled(MEMORY_V3_LIVE, config)
-    ) {
+    if (memoryV3Active) {
       jobTypes.push(V3_FOLLOW_UP_JOB_TYPE);
     }
     for (const jobType of jobTypes) {
@@ -271,56 +288,6 @@ export async function memoryV2ConsolidateJob(
 }
 
 /**
- * When a v3 flag is enabled and the v3 tree has actionable structural drift,
- * prepend a rendered health block to `basePrompt` so the consolidation run can
- * fold tree maintenance into its pass. Returns `basePrompt` UNCHANGED when:
- *   - neither `memory-v3-shadow` nor `memory-v3-live` is enabled,
- *   - the health report is all-green (`renderV3Health` returns ""), or
- *   - computing the report throws for any reason.
- *
- * The block is computed here (not baked into the prompt template) so an
- * operator's custom consolidation prompt stays untouched and the block reflects
- * the tree state at run time. Health computation is wrapped so a load/compute
- * failure can never break consolidation — the run proceeds on the base prompt.
- */
-async function maybePrependV3Health(
-  basePrompt: string,
-  config: AssistantConfig,
-): Promise<string> {
-  const v3Enabled =
-    isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config) ||
-    isAssistantFeatureFlagEnabled(MEMORY_V3_LIVE, config);
-  if (!v3Enabled) return basePrompt;
-
-  try {
-    const pageIndex = await getPageIndex(getWorkspaceDir());
-    const pageLeaves = new Map<Slug, LeafPath[]>();
-    const allSlugs: Slug[] = [];
-    for (const entry of pageIndex.entries) {
-      pageLeaves.set(entry.slug, entry.leaves);
-      allSlugs.push(entry.slug);
-    }
-
-    const dataDir = resolveDataDir();
-    const [tree, core] = await Promise.all([
-      loadLeafTree(dataDir, pageLeaves),
-      loadCore(dataDir),
-    ]);
-
-    const report = computeV3Health({ tree, allSlugs, core });
-    const healthBlock = renderV3Health(report);
-    if (healthBlock.length === 0) return basePrompt;
-    return `${healthBlock}\n\n${basePrompt}`;
-  } catch (err) {
-    log.warn(
-      { err: err instanceof Error ? err.message : String(err) },
-      "consolidation: v3 health computation failed; using base prompt",
-    );
-    return basePrompt;
-  }
-}
-
-/**
  * Read `memory/buffer.md`. Missing file → empty string so the skip-on-empty
  * branch doesn't have to distinguish "no file" from "blank file".
  */
@@ -352,11 +319,13 @@ export function countBufferLines(bufferPath: string): number {
  * `null` on success, or the current holder string (file contents, typically
  * `pid timestamp`) when the file already exists and the holder is still alive.
  *
- * Stale-lock takeover: if the file exists but its holder PID is not running,
- * unlink the stale file and retry the create exactly once. This recovers
- * automatically from a crashed daemon that died with the lock held —
- * otherwise every subsequent scheduled consolidation would skip with `locked`
- * indefinitely until an operator manually removed the file.
+ * Stale-lock takeover: if the file exists but its holder is stale (PID not
+ * running, payload corrupt, or — for the container PID-1 collision — older
+ * than the TTL; see {@link holderStaleReason}), unlink the stale file and
+ * retry the create exactly once. This recovers automatically from a crashed
+ * or restarted daemon that died with the lock held — otherwise every
+ * subsequent scheduled consolidation would skip with `locked` indefinitely
+ * until an operator manually removed the file.
  *
  * The simple takeover-then-retry is safe here (unlike `snapshot-lock.ts`'s
  * full rename-aside dance) because only the assistant's jobs worker calls
@@ -373,11 +342,12 @@ function tryAcquireLock(lockPath: string): string | null {
 
   const firstHolder = tryCreate(lockPath);
   if (firstHolder === null) return null;
-  if (!isHolderStale(firstHolder)) return firstHolder;
+  const staleReason = holderStaleReason(firstHolder);
+  if (staleReason === null) return firstHolder;
 
   log.info(
-    { lockPath, holder: firstHolder },
-    "consolidation: taking over stale lock (holder not running)",
+    { lockPath, holder: firstHolder, reason: staleReason },
+    "consolidation: taking over stale lock",
   );
   try {
     unlinkSync(lockPath);
@@ -429,18 +399,62 @@ function tryCreate(lockPath: string): string | null {
 }
 
 /**
- * A holder string is stale when its PID parses to a non-running process.
- * The payload format is `<pid> <timestamp>` (see `tryCreate`'s write), but
- * an unparseable / empty / `"unknown"` payload is also treated as stale:
- * the only writer is `tryCreate` itself, so corruption indicates a partial
- * write from a crashed prior holder rather than a live writer mid-flush.
+ * Why a lock holder is considered stale, for diagnosable takeover logs:
+ *   - `unparseable`: empty / corrupt payload (partial write from a crash).
+ *   - `pid_dead`: the holder's PID is no longer running.
+ *   - `expired`: the lock is older than {@link STALE_LOCK_TTL_MS} even though
+ *     its PID still appears alive — the PID-1 collision case in containers.
  */
-function isHolderStale(holder: string): boolean {
-  const match = /^\d+/.exec(holder);
-  if (!match) return true;
-  const pid = Number.parseInt(match[0], 10);
-  if (!Number.isFinite(pid) || pid <= 0) return true;
-  return !isProcessAlive(pid);
+type StaleReason = "unparseable" | "pid_dead" | "expired";
+
+/**
+ * Parse a `<pid> <timestamp>` holder payload (see `tryCreate`'s write).
+ * Returns `null` when the PID cannot be parsed; a missing/garbled timestamp
+ * yields `timestamp: null` so a partial payload still gives us the PID.
+ */
+function parseHolder(
+  holder: string,
+): { pid: number; timestamp: number | null } | null {
+  const match = /^(\d+)(?:\s+(\d+))?/.exec(holder);
+  if (!match) return null;
+  const pid = Number.parseInt(match[1], 10);
+  if (!Number.isFinite(pid) || pid <= 0) return null;
+  const timestamp =
+    match[2] !== undefined ? Number.parseInt(match[2], 10) : null;
+  return {
+    pid,
+    timestamp:
+      timestamp !== null && Number.isFinite(timestamp) ? timestamp : null,
+  };
+}
+
+/**
+ * Classify a holder string, returning the reason it is stale or `null` when
+ * the lock is held by a live process and must be respected.
+ *
+ * Takeover triggers, in order:
+ *   1. Unparseable / empty / `"unknown"` payload → `unparseable`. The only
+ *      writer is `tryCreate`, so corruption is a partial write from a crashed
+ *      prior holder, not a live writer mid-flush.
+ *   2. PID not running → `pid_dead`. The fast path for a crashed daemon (or a
+ *      different process now occupying that PID on a normal host).
+ *   3. Lock older than {@link STALE_LOCK_TTL_MS} → `expired`. Required because
+ *      the daemon runs as PID 1 in containers: after a restart the new daemon
+ *      is also PID 1, so the liveness probe alone reports the holder as alive
+ *      forever and could never reclaim an abandoned lock. The TTL is far above
+ *      the run's hard timeout, so it never fires against an in-flight run.
+ */
+function holderStaleReason(holder: string): StaleReason | null {
+  const parsed = parseHolder(holder);
+  if (parsed === null) return "unparseable";
+  if (!isProcessAlive(parsed.pid)) return "pid_dead";
+  if (
+    parsed.timestamp !== null &&
+    Date.now() - parsed.timestamp > STALE_LOCK_TTL_MS
+  ) {
+    return "expired";
+  }
+  return null;
 }
 
 /**

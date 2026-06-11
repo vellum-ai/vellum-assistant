@@ -13,7 +13,7 @@ export function WelcomeScreen() {
   const handleContinueWithoutAccount = () => {
     if (loading) cancel();
     if (hasAssistants()) {
-      void navigate(routes.onboarding.selectAssistant);
+      void navigate(routes.selectAssistant);
     } else {
       void navigate(routes.onboarding.hosting);
     }

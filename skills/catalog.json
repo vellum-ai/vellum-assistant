@@ -215,6 +215,30 @@
       "updatedAt": "2026-06-05T17:22:35.000Z"
     },
     {
+      "id": "geo-audit",
+      "name": "geo-audit",
+      "description": "Runs a one-command technical GEO audit on any domain. Checks AI crawler access, llms.txt presence, server-side rendering, sitemap, and schema markup. Streams results live and ends with a 0–100 score plus the top 3 prioritized fixes. Built to be both genuinely useful and great to demo on camera.",
+      "metadata": {
+        "emoji": "🔎",
+        "vellum": {
+          "display-name": "GEO Audit",
+          "category": "development",
+          "activation-hints": [
+            "Run a GEO audit on <url>",
+            "Do a GEO audit check on my domain: <url>",
+            "GEO audit <url> / Audit <url> for GEO",
+            "Check how AI-ready / crawlable my site is",
+            "Why isn't my site getting picked up by ChatGPT / Perplexity / Gemini?"
+          ],
+          "avoid-when": [
+            "User wants to write an article, comparison page, or topical hub — route to geo-article-writer",
+            "User wants GEO measurement, strategy, or cadence advice rather than a technical site scan — route to geo-operator"
+          ]
+        }
+      },
+      "updatedAt": "2026-06-10T17:57:08.000Z"
+    },
+    {
       "id": "geo-writing",
       "name": "geo-writing",
       "description": "Generates GEO/AEO-optimized articles designed to get AI engines (ChatGPT, Perplexity, Claude, Gemini) to cite your brand. Handles research, writing, and file output. Suggests listicle or head-to-head as starting formats if the user is unsure.",
@@ -267,7 +291,7 @@
     {
       "id": "guardian-verify-setup",
       "name": "guardian-verify-setup",
-      "description": "Set up channel verification for phone, Telegram, or Slack channels via outbound verification flow",
+      "description": "Set up channel verification for phone, Telegram, Slack, or email channels via outbound verification flow",
       "metadata": {
         "emoji": "🔐",
         "vellum": {
@@ -284,7 +308,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-06-09T15:42:03.000Z"
     },
     {
       "id": "headless-claude-code",
@@ -325,7 +349,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-05T22:44:27.000Z"
+      "updatedAt": "2026-06-05T23:44:29.000Z"
     },
     {
       "id": "inbox-management",
@@ -442,7 +466,7 @@
     {
       "id": "mcp-setup",
       "name": "mcp-setup",
-      "description": "Add, authenticate, list, and remove MCP (Model Context Protocol) servers",
+      "description": "Add, authenticate, list, and remove MCP (Model Context Protocol) servers — connect any external tool or service that publishes an MCP endpoint to the assistant",
       "metadata": {
         "emoji": "🔌",
         "vellum": {
@@ -450,8 +474,8 @@
           "display-name": "MCP Setup"
         }
       },
-      "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Auth flow differs by environment.",
+      "updatedAt": "2026-06-09T15:08:32.000Z"
     },
     {
       "id": "meet-join",

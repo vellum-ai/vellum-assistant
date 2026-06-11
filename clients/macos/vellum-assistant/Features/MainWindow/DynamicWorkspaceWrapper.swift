@@ -18,16 +18,11 @@ struct DynamicWorkspaceWrapper: View {
     let isChatDockOpen: Bool
     let onToggleChatDock: () -> Void
     let onMicrophoneToggle: () -> Void
-    var featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
 
     @State private var showVersionHistory = false
     @State private var publishUrlCopied = false
     @State private var showShareDrawer = false
     @State private var shareButtonFrame: CGRect = .zero
-    @State private var isDeployToVercelEnabled = false
-
-    private static let deployToVercelFlagKey = "deploy-to-vercel"
-
     /// Corner radius for the WKWebView clipping container — no rounding needed since the
     /// outer page container handles corner rounding.
     private var webViewCornerRadius: CGFloat { 0 }
@@ -81,11 +76,7 @@ struct DynamicWorkspaceWrapper: View {
                                     .frame(height: 32)
                             } else {
                                 VButton(label: "Share", iconOnly: VIcon.share.rawValue, style: .outlined, iconSize: 32, tooltip: "Share") {
-                                    if isDeployToVercelEnabled {
-                                        showShareDrawer.toggle()
-                                    } else if let appId = data.appId {
-                                        onBundleAndShare(appId)
-                                    }
+                                    showShareDrawer.toggle()
                                 }
                                 .onGeometryChange(for: CGRect.self) { proxy in
                                     proxy.frame(in: .named("appPageContainer"))
@@ -111,7 +102,7 @@ struct DynamicWorkspaceWrapper: View {
                             ProgressView()
                                 .controlSize(.small)
                                 .frame(height: 32)
-                        } else if sharing.publishedUrl == nil && isDeployToVercelEnabled {
+                        } else if sharing.publishedUrl == nil {
                             VButton(label: "Publish", iconOnly: VIcon.arrowUpRight.rawValue, style: .outlined, iconSize: 32, tooltip: "Publish to Vercel") {
                                 onPublishPage(data.html, data.preview?.title, data.appId)
                             }
@@ -234,8 +225,7 @@ struct DynamicWorkspaceWrapper: View {
                     onPublish: {
                         showShareDrawer = false
                         onPublishPage(data.html, data.preview?.title, data.appId)
-                    },
-                    isDeployToVercelEnabled: isDeployToVercelEnabled
+                    }
                 )
                 .offset(
                     x: shareButtonFrame.maxX - 180,
@@ -243,23 +233,6 @@ struct DynamicWorkspaceWrapper: View {
                 )
                 .zIndex(10)
                 .transition(.opacity)
-            }
-        }
-        .task {
-            do {
-                let flags = try await featureFlagClient.getFeatureFlags()
-                if let flag = flags.first(where: { $0.key == Self.deployToVercelFlagKey }) {
-                    isDeployToVercelEnabled = flag.enabled
-                }
-            } catch {
-                // Flag stays disabled on error
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in
-            if let key = notification.userInfo?["key"] as? String,
-               let enabled = notification.userInfo?["enabled"] as? Bool,
-               key == Self.deployToVercelFlagKey {
-                isDeployToVercelEnabled = enabled
             }
         }
     }
@@ -323,21 +296,18 @@ private struct PublishedButton: View {
 
 // MARK: - Share Drawer
 
-/// Popover menu with "Share" and optionally "Publish to Vercel" options.
+/// Popover menu with "Share" and "Publish to Vercel" options.
 /// Styled to match ConversationSwitcherDrawer / DrawerMenuView.
 private struct ShareDrawer: View {
     let onShare: () -> Void
     let onPublish: () -> Void
-    let isDeployToVercelEnabled: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VNavItem(icon: VIcon.share.rawValue, label: "Share") { onShare() }
-            if isDeployToVercelEnabled {
-                VColor.borderBase.frame(height: 1)
-                    .padding(.horizontal, VSpacing.xs)
-                VNavItem(icon: VIcon.arrowUpRight.rawValue, label: "Publish to Vercel") { onPublish() }
-            }
+            VColor.borderBase.frame(height: 1)
+                .padding(.horizontal, VSpacing.xs)
+            VNavItem(icon: VIcon.arrowUpRight.rawValue, label: "Publish to Vercel") { onPublish() }
         }
         .padding(.vertical, VSpacing.xs)
         .frame(width: 180)

@@ -114,7 +114,7 @@ async function handleBrowserTabs({ body = {} }: RouteHandlerArgs) {
         }
       } else if (targetClientId) {
         // Only scope-clear the targeted client's pin. With the per-(conversationId,
-        // clientId) pin store (#31361), passing no clientId to clearPinnedTab
+        // clientId) pin store, passing no clientId to clearPinnedTab
         // would wipe pins for *every* connected client on this conversation
         // and break their routing — so we skip the clear entirely when the
         // caller didn't explicitly target a client. The stale pin (if any)

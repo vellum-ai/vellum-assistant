@@ -5,7 +5,7 @@ import type {
 } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { TurnActions, TurnState } from "@/domains/chat/turn-store";
 import type { EndTurnArgs } from "@/domains/chat/turn-coordinator";
 import type { ChatError } from "@/domains/chat/types";
@@ -74,7 +74,6 @@ export interface StreamHandlerContext {
   setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
 
   // --- Conversations ---
-  scheduleConversationListRefetch: () => void;
   /** TanStack Query client used by conversation/group cache helpers. */
   queryClient: QueryClient;
 

@@ -79,6 +79,7 @@ describe("PluginDetailPage", () => {
       source: { kind: "github", repo: "example-org/caveman", ref: "v1.8.2" },
       readme: "# Caveman\n\nMakes the agent speak in grunts.",
       ref: "v1.8.2",
+      artifact: null,
     });
 
     // README markdown is rendered.
@@ -101,13 +102,14 @@ describe("PluginDetailPage", () => {
       homepage: null,
       license: null,
       version: "0.1.0",
-      source: { kind: "first-party" },
+      source: null,
       readme: null,
       ref: "main",
+      artifact: null,
     });
 
     expect(html).toContain("Remove");
-    // First-party plugins aren't badged external.
+    // A plugin with no marketplace origin isn't badged external.
     expect(html).not.toContain("external");
     // No README falls back to an explanatory line.
     expect(html).toContain("ship a README");

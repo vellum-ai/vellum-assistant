@@ -1,6 +1,14 @@
 import { BrowserWindow } from "electron";
 import { z } from "zod";
 
+import {
+  ASSISTANT_STATUSES,
+  type AssistantStatus,
+  CONNECTIVITY_STATES,
+  type ConnectivityState,
+  assistantStatusSchema,
+} from "@vellumai/ipc-contract";
+
 import { handle, on } from "./ipc";
 
 /**
@@ -17,15 +25,7 @@ import { handle, on } from "./ipc";
  * IPC channel. Main owns only the presentation (icon composition, pulse
  * timer, menu header), so this module never reaches into connection code.
  */
-export const ASSISTANT_STATUSES = [
-  "idle",
-  "thinking",
-  "error",
-  "disconnected",
-  "authFailed",
-] as const;
-
-export type AssistantStatus = (typeof ASSISTANT_STATUSES)[number];
+export { ASSISTANT_STATUSES, type AssistantStatus };
 
 /**
  * Tooltip / menu-header text per status, matching the Swift app's
@@ -133,7 +133,7 @@ export const setStatus = (status: AssistantStatus): void => {
   for (const listener of listeners) listener(status);
 };
 
-const connectionPayloadSchema = z.tuple([z.enum(ASSISTANT_STATUSES)]);
+const connectionPayloadSchema = z.tuple([assistantStatusSchema]);
 
 /**
  * Register the `vellum:status:connection` renderer→main channel. Fire-and-
@@ -158,13 +158,7 @@ export const installStatusIpc = (): void => {
 // Assistant status drives the tray icon (renderer is source of truth);
 // connectivity drives in-app banners (main is source of truth).
 
-export const CONNECTIVITY_STATES = [
-  "online",
-  "device-offline",
-  "backend-unreachable",
-] as const;
-
-export type ConnectivityState = (typeof CONNECTIVITY_STATES)[number];
+export { CONNECTIVITY_STATES, type ConnectivityState };
 
 type ConnectivityListener = (state: ConnectivityState) => void;
 

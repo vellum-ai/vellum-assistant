@@ -1,17 +1,22 @@
 import { app } from "electron";
 import { spawn } from "node:child_process";
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
+  renameSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
+import log from "./logger";
+
 // Auto-stamped by create-release-branch workflow.
-export const PINNED_CLI_VERSION = "0.8.8";
+export const PINNED_CLI_VERSION = "0.8.11";
 
 /** Directory where the pinned CLI version is installed. */
 export function getCliInstallDir(): string {
@@ -31,6 +36,55 @@ export function getBundledBunPath(): string {
 /** Whether the pinned CLI version is already installed on disk. */
 export function isCliInstalled(): boolean {
   return existsSync(getCliBinPath());
+}
+
+/** Path to the shell-sourceable locator file consumed by the PATH wrapper. */
+export function getCliLocatorPath(): string {
+  return path.join(app.getPath("userData"), "cli", "locator.sh");
+}
+
+/** Single-quote a value for safe interpolation into a shell script. */
+export function shQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+/** Atomically write `content` via tmp-file + rename, optionally chmod'd. */
+export function writeFileAtomicSync(
+  filePath: string,
+  content: string,
+  mode?: number,
+): void {
+  const tmpPath = `${filePath}.tmp`;
+  writeFileSync(tmpPath, content);
+  if (mode !== undefined) chmodSync(tmpPath, mode);
+  renameSync(tmpPath, filePath);
+}
+
+/**
+ * Atomically write the locator file the `~/.local/bin/vellum` wrapper
+ * sources to find the bundled bun and the current CLI bin. Refreshed on
+ * every launch so app moves and version bumps self-heal. Non-fatal —
+ * failures are logged but never block app startup.
+ *
+ * No-ops when the pinned CLI bin isn't installed yet (e.g. first launch
+ * after a version bump) so the wrapper is never pointed at a missing binary.
+ */
+export function writeCliLocator(): void {
+  if (!isCliInstalled()) return;
+
+  try {
+    const locatorPath = getCliLocatorPath();
+    mkdirSync(path.dirname(locatorPath), { recursive: true });
+
+    const content =
+      "# Written by Vellum.app on every launch. Do not edit.\n" +
+      `VELLUM_BUN=${shQuote(getBundledBunPath())}\n` +
+      `VELLUM_CLI_BIN=${shQuote(getCliBinPath())}\n`;
+
+    writeFileAtomicSync(locatorPath, content);
+  } catch (err) {
+    log.error("[cli-installer] failed to write CLI locator:", err);
+  }
 }
 
 function findNvmNodeBinDir(home: string): string[] {
@@ -153,12 +207,16 @@ export function _resetInstallLock(): void {
  * lifecycle scripts are always suppressed via `--ignore-scripts`.
  */
 export async function ensureCliInstalled(): Promise<void> {
-  if (isCliInstalled()) return;
+  if (isCliInstalled()) {
+    writeCliLocator();
+    return;
+  }
 
   if (cliInstallPromise) return cliInstallPromise;
 
   cliInstallPromise = (async () => {
     await bunInstallCli();
+    writeCliLocator();
     cleanupOldVersions();
   })();
 

@@ -28,7 +28,6 @@ const log = getLogger("provider-registry");
 
 const providers = new Map<string, Provider>();
 const routingSources = new Map<string, "user-key" | "managed-proxy">();
-const OPENAI_COMPATIBLE_ENDPOINTS_FLAG = "openai-compatible-endpoints";
 const NATIVE_WEB_SEARCH_PROVIDER_IDS = new Set(["anthropic", "openai"]);
 
 /** Per-connection provider cache, keyed by connection name and model. */
@@ -258,13 +257,6 @@ export async function resolveProviderFromConnection(
   config: ProvidersConfig,
   opts: { model?: string } = {},
 ): Promise<Provider | null> {
-  if (
-    connection.provider === "openai-compatible" &&
-    !isProviderFeatureFlagEnabled(OPENAI_COMPATIBLE_ENDPOINTS_FLAG, config)
-  ) {
-    return null;
-  }
-
   const model = opts.model ?? resolveModel(config, connection.provider);
   const cacheKey = getConnectionProviderCacheKey(connection, model);
   const cached = connectionProviders.get(cacheKey);

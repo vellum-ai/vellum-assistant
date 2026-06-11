@@ -29,6 +29,7 @@ function applyEvents(
 
 const defaultCtx: UIContext = {
   hasStreamingAssistantMessage: false,
+  hasStreamingAssistantThinking: false,
   hasPendingSecret: false,
   hasPendingConfirmation: false,
   hasPendingQuestion: false,
@@ -1345,6 +1346,43 @@ describe("shouldShowThinkingIndicator", () => {
       shouldShowThinkingIndicator(afterTool.phase, afterTool.activeToolCallCount, {
         ...defaultCtx,
         hasStreamingAssistantMessage: true,
+      }),
+    ).toBe(true);
+  });
+
+  test("hidden once the live message has reasoning content (inline link owns it)", () => {
+    // Same thinking phase as above, but the live assistant message has emitted
+    // reasoning — an inline SingleActivity is now showing the loading state,
+    // so the standalone dots row defers to avoid two competing indicators.
+    const afterTool = applyEvents(INITIAL_TURN_STATE, [
+      { type: "USER_SEND_REQUESTED", turnId: "t-1" },
+      { type: "ASSISTANT_TEXT_DELTA" },
+      { type: "TOOL_USE_START" },
+      { type: "TOOL_RESULT" },
+      { type: "ACTIVITY_STATE_THINKING" },
+    ]);
+    expect(afterTool.phase).toBe("thinking");
+    expect(
+      shouldShowThinkingIndicator(afterTool.phase, afterTool.activeToolCallCount, {
+        ...defaultCtx,
+        hasStreamingAssistantMessage: true,
+        hasStreamingAssistantThinking: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("still visible pre-reasoning: bubble exists but no thinking content yet", () => {
+    // A streaming assistant bubble with no reasoning content → the inline link
+    // isn't showing, so the standalone dots must remain to signal progress.
+    const thinking = applyEvents(INITIAL_TURN_STATE, [
+      { type: "USER_SEND_REQUESTED", turnId: "t-1" },
+      { type: "ACTIVITY_STATE_THINKING" },
+    ]);
+    expect(
+      shouldShowThinkingIndicator(thinking.phase, thinking.activeToolCallCount, {
+        ...defaultCtx,
+        hasStreamingAssistantMessage: true,
+        hasStreamingAssistantThinking: false,
       }),
     ).toBe(true);
   });

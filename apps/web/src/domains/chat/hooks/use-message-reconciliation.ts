@@ -9,13 +9,14 @@ import {
   summarizeDisplayMessages,
   summarizeRuntimeMessages,
 } from "@/domains/chat/utils/diagnostics";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import { reconcileSnapshot } from "@/domains/chat/utils/reconcile-snapshot";
 import { getLocalSeq, recordLocalSeq } from "@/lib/streaming/local-seq";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
-import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
+import { mapMessageToolCalls } from "@/domains/chat/utils/map-message-tool-calls";
+import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
-import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
+import { liveAssistantRowId } from "@/domains/chat/utils/stream-updaters/shared";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { fetchConversationMessages } from "@/domains/chat/api/messages";
 import type { ConversationMessage } from "@vellumai/assistant-api";
@@ -88,12 +89,12 @@ function serverHasAssistantProgress(
   let serverSearchStartIndex = 0;
   if (lastLocalUserIndex >= 0) {
     const lastLocalUser = localMessages[lastLocalUserIndex]!;
-    const lastLocalUserText = segmentsToPlainText(lastLocalUser.textSegments);
+    const lastLocalUserText = messagePlainText(lastLocalUser);
     const serverUserIndex = serverMessages.findLastIndex((message) => {
       if (message.role !== "user") return false;
       if (lastLocalUser.id && message.id === lastLocalUser.id) return true;
       return (
-        segmentsToPlainText(mapRuntimeToDisplayMessage(message).textSegments) ===
+        messagePlainText(mapRuntimeToDisplayMessage(message)) ===
         lastLocalUserText
       );
     });
@@ -104,14 +105,14 @@ function serverHasAssistantProgress(
   for (const serverMessage of serverMessages.slice(serverSearchStartIndex)) {
     if (serverMessage.role !== "assistant") continue;
 
-    const serverMessageText = segmentsToPlainText(
-      mapRuntimeToDisplayMessage(serverMessage).textSegments,
+    const serverMessageText = messagePlainText(
+      mapRuntimeToDisplayMessage(serverMessage),
     );
     const localById = localAssistantById.get(serverMessage.id);
     if (localById) {
       claimedLocal.add(localById);
       if (localById.id === liveRowId) return true;
-      if (segmentsToPlainText(localById.textSegments) !== serverMessageText)
+      if (messagePlainText(localById) !== serverMessageText)
         return true;
       continue;
     }
@@ -119,7 +120,7 @@ function serverHasAssistantProgress(
     const localByContent = localAssistants.find(
       (message) =>
         !claimedLocal.has(message) &&
-        segmentsToPlainText(message.textSegments) === serverMessageText,
+        messagePlainText(message) === serverMessageText,
     );
     if (localByContent) {
       claimedLocal.add(localByContent);
@@ -318,23 +319,12 @@ export function useMessageReconciliation({
             m.toolCalls?.some((tc) => isToolCallRunning(tc)),
           );
           if (!hasStaleToolCalls) return prev;
-          return prev.map((m) => {
-            const needsClearToolCalls = m.toolCalls?.some(
-              (tc) => isToolCallRunning(tc),
-            );
-            if (!needsClearToolCalls) return m;
-            return {
-              ...m,
-              toolCalls: m.toolCalls!.map((tc) =>
-                isToolCallRunning(tc)
-                  ? {
-                      ...tc,
-                      completedAt: Date.now(),
-                    }
-                  : tc,
-              ),
-            };
-          });
+          const completedAt = Date.now();
+          return prev.map((m) =>
+            mapMessageToolCalls(m, (tc) =>
+              isToolCallRunning(tc) ? { ...tc, completedAt } : tc,
+            ),
+          );
         });
       }
 

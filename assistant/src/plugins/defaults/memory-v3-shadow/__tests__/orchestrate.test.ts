@@ -1,36 +1,39 @@
 /**
- * Tests for `assistant/src/memory/v3/orchestrate.ts`.
+ * Tests for `orchestrate.ts` (cache-ordered candidate pool).
  *
- * The orchestrator composes four lanes: L1 routing + BM25 needle (parallel) →
- * open set (routed ∪ core ∪ needle-owning leaves) → bounded per-leaf L2
- * selection → carry-forward working set (record + evict) → final injection.
+ * The orchestrator composes the stable-prefix lanes (curated core + frecency
+ * hot, both computed at lane init and passed in) with three deterministic
+ * finder lanes — the section-grain BM25 needle, the dense lane, and link-graph
+ * edge expansion — into ONE cache-ordered pool, then runs a SINGLE forced-tool
+ * select over it. The result is this turn's selections only; cross-turn
+ * persistence is the injector's job, not the orchestrator's.
  *
- * The provider is stubbed (no network). A single stub answers BOTH the L1
- * `open_leaves` call and the per-leaf L2 `select_pages` calls by inspecting the
- * forced tool name and, for L2, the `<leaf>...</leaf>` tag in the prompt. The
- * needle is a hand-built fake so we control its hits directly.
+ * The select provider is stubbed (no network); a single stub answers the one
+ * `select_pages` call per turn by reading the numbered `<candidates>` block.
+ * The dense lane is stubbed at the module boundary. The needle and edge graph
+ * are real, built from tiny inline fixtures so the pool assembly is exercised
+ * end-to-end.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { PageIndexEntry } from "../../../../memory/v2/page-index.js";
 import type {
   Message,
   Provider,
   ProviderResponse,
 } from "../../../../providers/types.js";
-import type { NeedleIndex } from "../needle.js";
-import type {
-  LeafNode,
-  LeafPath,
-  LeafTree,
-  MemoryRoutingTurn,
-  Slug,
-} from "../types.js";
-import evalTurns from "./fixtures/eval-turns.json" with { type: "json" };
+import { renderCard } from "../card.js";
+import type { EdgeGraph } from "../edge.js";
+import { buildEdgeGraph } from "../edge.js";
+import type { OrchestrateDeps } from "../orchestrate.js";
+import { buildSectionNeedle } from "../section-needle.js";
+import { buildSectionIndex } from "../sections.js";
+import type { MemoryRoutingTurn, SectionIndex, Slug } from "../types.js";
 
 // ---------------------------------------------------------------------------
-// Provider mock installed BEFORE the orchestrator import so router.ts and
-// selector.ts observe it at load time.
+// Module stubs installed BEFORE the orchestrator import so pool-select and the
+// dense lane observe them at load time.
 // ---------------------------------------------------------------------------
 
 let providerStub: Provider | null = null;
@@ -48,60 +51,98 @@ mock.module("../../../../util/logger.js", () => ({
     }),
 }));
 
-const { orchestrate, DEFAULT_NEEDLE_K } = await import("../orchestrate.js");
-const { WorkingSet } = await import("../working-set.js");
+// The dense lane is stubbed: each test sets `denseHits` to control which
+// articles (+ matched ordinals) the dense lane returns. The stub DELEGATES to
+// the real `denseLane` unless this file's tests are running (`denseMockActive`),
+// so the process-global `mock.module` cannot leak fake behavior into
+// dense.test.ts (which exercises the real lane). Spread the real module so
+// every other export (`OVERSAMPLE`) stays present.
+const realDense = { ...(await import("../dense.js")) };
+let denseMockActive = false;
+let denseHits: Array<{ article: Slug; section: number }> = [];
+mock.module("../dense.js", () => ({
+  ...realDense,
+  denseLane: async (...args: Parameters<typeof realDense.denseLane>) =>
+    denseMockActive ? denseHits : realDense.denseLane(...args),
+}));
+
+const { orchestrate, DEFAULT_NEEDLE_K, DEFAULT_DENSE_K } =
+  await import("../orchestrate.js");
 
 // ---------------------------------------------------------------------------
-// Fixture types + helpers.
+// Fixtures: a tiny corpus of pages with bodies + `links:` frontmatter.
 // ---------------------------------------------------------------------------
 
-interface LeafSelection {
-  ids: number[];
-  pinned_ids: number[];
-}
-interface EvalTurn {
-  name: string;
-  currentMessage: string;
-  routeIds: number[];
-  leafSelections: Record<LeafPath, LeafSelection>;
-  expectedOpenedLeaves: LeafPath[];
-  expectedFinalInjection: Slug[];
-}
-const TURNS = (evalTurns as { turns: EvalTurn[] }).turns;
+const PAGES: Record<Slug, string> = {
+  "topic-a": "lead for topic a\n## Details\napple banana about topic a",
+  "topic-b": "lead for topic b\n## More\ncherry date about topic b",
+  "topic-c": "lead for topic c\n## Notes\nelderberry fig about topic c",
+  "topic-d": "lead for topic d\n## Notes\ngrape about topic d",
+};
 
-function makeLeaf(path: LeafPath, members: Slug[]): LeafNode {
-  return {
-    path,
-    frontmatter: { path, in_core: false },
-    description: `description for ${path}`,
-    members,
-    domain: path.split("/")[0],
-  };
+/** Raw page = frontmatter (with `links:`) + body. */
+const RAW: Record<Slug, string> = {
+  "topic-a": `---\nlinks:\n  - "topic-d — the curated edge from a to d"\n---\n${PAGES["topic-a"]}`,
+  "topic-b": `---\nedges: []\n---\n${PAGES["topic-b"]}`,
+  "topic-c": `---\nedges: []\n---\n${PAGES["topic-c"]}`,
+  "topic-d": `---\nedges: []\n---\n${PAGES["topic-d"]}`,
+};
+
+const SLUGS = Object.keys(PAGES);
+
+function makeEntries(): PageIndexEntry[] {
+  return SLUGS.map((slug, i) => ({
+    id: i + 1,
+    slug,
+    summary: `summary of ${slug}`,
+    edges: [],
+    leaves: [],
+    modifiedAt: 0,
+  }));
 }
+
+interface Lanes {
+  sectionIndex: SectionIndex;
+  needle: ReturnType<typeof buildSectionNeedle>;
+  edgeGraph: EdgeGraph;
+}
+
+async function buildLanes(): Promise<Lanes> {
+  const sectionIndex = await buildSectionIndex(SLUGS, async (s) => PAGES[s]!);
+  const needle = buildSectionNeedle(sectionIndex);
+  const edgeGraph = await buildEdgeGraph(makeEntries(), async (s) => RAW[s]!);
+  return { sectionIndex, needle, edgeGraph };
+}
+
+const config = {} as never;
 
 /**
- * Synthetic tree. Sorted leaf order is [domain-a/topic-x, domain-a/topic-y],
- * so L1 id 1 → topic-x, id 2 → topic-y.
+ * Orchestrate deps with empty stable-prefix lanes unless overridden. Mirrors
+ * lane init: every core/hot slug gets a pre-rendered card (from the RAW
+ * fixture when one exists) unless the test overrides `prefixCards` itself.
  */
-function makeTree(): LeafTree {
-  const leaves: LeafNode[] = [
-    makeLeaf("domain-a/topic-x", ["page-a", "page-b"]),
-    makeLeaf("domain-a/topic-y", ["page-c"]),
-  ];
-  const byPage = new Map<Slug, LeafPath[]>();
-  for (const leaf of leaves) {
-    for (const slug of leaf.members) {
-      byPage.set(slug, [...(byPage.get(slug) ?? []), leaf.path]);
-    }
-  }
-  return { leaves: new Map(leaves.map((n) => [n.path, n])), byPage };
-}
-
-const summaryOf = async (slug: Slug): Promise<string> => `summary of ${slug}`;
-
-/** Needle that returns a fixed slug list, ignoring the query. */
-function fakeNeedle(hits: Slug[]): NeedleIndex {
-  return { query: (_text, k) => hits.slice(0, k) };
+function depsOf(
+  lanes: Lanes,
+  overrides: Partial<OrchestrateDeps> = {},
+): OrchestrateDeps {
+  const coreSlugs = overrides.coreSlugs ?? [];
+  const hotSlugs = overrides.hotSlugs ?? [];
+  const prefixCards = new Map<Slug, string>(
+    [...coreSlugs, ...hotSlugs].map((slug) => [
+      slug,
+      renderCard(slug, RAW[slug] ?? ""),
+    ]),
+  );
+  return {
+    sectionIndex: lanes.sectionIndex,
+    needle: lanes.needle,
+    denseConfig: config,
+    edgeGraph: lanes.edgeGraph,
+    coreSlugs,
+    hotSlugs,
+    prefixCards,
+    ...overrides,
+  };
 }
 
 function makeTurn(
@@ -116,324 +157,525 @@ function makeTurn(
   };
 }
 
-function toolUseResponse(
-  name: string,
-  input: Record<string, unknown>,
-): ProviderResponse {
+function toolUseResponse(input: Record<string, unknown>): ProviderResponse {
   return {
     model: "stub-model",
     stopReason: "tool_use",
     usage: { inputTokens: 0, outputTokens: 0 },
-    content: [{ type: "tool_use", id: "tu-1", name, input }],
+    content: [{ type: "tool_use", id: "tu-1", name: "select_pages", input }],
   };
 }
 
-/** Last `<leaf>X</leaf>` tag found in an L2 request, or undefined. */
-function leafFromMessages(messages: Message[]): LeafPath | undefined {
+/**
+ * Parse the two-segment selector input back into the globally-numbered pool:
+ * stable-prefix cards (`<candidate_cards>`, identified by their
+ * `[i] # memory/concepts/<slug>.md` header line) and finder lines
+ * (`<candidates>`, `[i] slug — descriptor`). Also captures the raw stable
+ * prefix block for byte-identity assertions.
+ */
+function parsePool(messages: Message[]): {
+  slugs: Slug[];
+  lines: string[];
+  prefixBlock: string | null;
+} {
+  const entries: Array<{ id: number; slug: string; line: string }> = [];
+  let prefixBlock: string | null = null;
   for (const msg of messages) {
     for (const block of msg.content) {
-      if (block.type === "text") {
-        const m = /<leaf>([^<]+)<\/leaf>/.exec(block.text);
-        if (m) return m[1];
+      if (block.type !== "text") continue;
+      const cards = /<candidate_cards>\n([\s\S]*?)\n<\/candidate_cards>/.exec(
+        block.text,
+      );
+      if (cards) {
+        prefixBlock = cards[0];
+        for (const m of cards[1].matchAll(
+          /^\[(\d+)\] # memory\/concepts\/(.+)\.md$/gm,
+        )) {
+          entries.push({ id: Number(m[1]), slug: m[2]!, line: m[0] });
+        }
+      }
+      const finder = /<candidates>\n([\s\S]*?)\n<\/candidates>/.exec(
+        block.text,
+      );
+      if (finder) {
+        for (const line of finder[1].split("\n")) {
+          const m = /^\[(\d+)\] (\S+)(?: — |$)/.exec(line);
+          if (m) entries.push({ id: Number(m[1]), slug: m[2]!, line });
+        }
       }
     }
   }
-  return undefined;
+  entries.sort((a, b) => a.id - b.id);
+  return {
+    slugs: entries.map((e) => e.slug),
+    lines: entries.map((e) => e.line),
+    prefixBlock,
+  };
 }
 
 /**
- * Build a provider that answers L1 `open_leaves` with `routeIds` and each L2
- * `select_pages` call with the per-leaf selection from the fixture turn.
+ * Provider that selects the pool candidates whose slug is in `keep` (mapping
+ * each back to its 1-based id), pinning those in `pin`. Captures the rendered
+ * candidate list (slugs and raw lines) for pool assertions.
  */
-function providerForTurn(turn: EvalTurn): Provider {
+let lastPool: Slug[] = [];
+let lastPoolLines: string[] = [];
+let lastPrefixBlock: string | null = null;
+let selectCalls = 0;
+function selectProvider(keep: Slug[], pin: Slug[] = []): Provider {
   return {
     name: "stub",
-    sendMessage: async (messages, options) => {
-      const toolName = options?.tools?.[0]?.name;
-      if (toolName === "open_leaves") {
-        return toolUseResponse("open_leaves", { ids: turn.routeIds });
-      }
-      // L2 select_pages — pick the selection for the leaf under selection.
-      const leaf = leafFromMessages(messages);
-      const sel = (leaf ? turn.leafSelections[leaf] : undefined) ?? {
-        ids: [],
-        pinned_ids: [],
-      };
-      return toolUseResponse("select_pages", {
-        ids: sel.ids,
-        pinned_ids: sel.pinned_ids,
+    sendMessage: async (messages) => {
+      selectCalls++;
+      const parsed = parsePool(messages);
+      lastPool = parsed.slugs;
+      lastPoolLines = parsed.lines;
+      lastPrefixBlock = parsed.prefixBlock;
+      const ids: number[] = [];
+      const pinned_ids: number[] = [];
+      parsed.slugs.forEach((slug, i) => {
+        if (keep.includes(slug)) ids.push(i + 1);
+        if (pin.includes(slug)) pinned_ids.push(i + 1);
       });
+      return toolUseResponse({ ids, pinned_ids });
     },
   };
 }
 
 beforeEach(() => {
+  denseMockActive = true;
   providerStub = null;
+  denseHits = [];
+  lastPool = [];
+  lastPoolLines = [];
+  lastPrefixBlock = null;
+  selectCalls = 0;
+});
+
+afterAll(() => {
+  denseMockActive = false;
 });
 
 // ---------------------------------------------------------------------------
-// Integration: drive the whole fixture sequence through ONE shared WorkingSet.
+// Pool composition: the candidate pool is the cache-ordered union of the
+// lanes. Synthetic capability pages are not always-added — they enter through
+// a lane (see the dedicated test below).
 // ---------------------------------------------------------------------------
 
-describe("orchestrate — fixture sequence (carry-forward)", () => {
-  test("each turn's finalInjection matches the fixture", async () => {
-    const tree = makeTree();
-    const workingSet = new WorkingSet();
-    const needle = fakeNeedle([]);
+describe("orchestrate — candidate pool composition", () => {
+  test("pool unions needle ∪ dense ∪ edge; one select runs", async () => {
+    const lanes = await buildLanes();
+    // "apple" hits topic-a (needle). Dense returns topic-b. topic-a links to
+    // topic-d (edge).
+    denseHits = [{ article: "topic-b", section: 0 }];
+    providerStub = selectProvider([]); // selection is irrelevant to pool union
 
-    for (const turn of TURNS) {
-      providerStub = providerForTurn(turn);
-      const result = await orchestrate(
-        makeTurn(TURNS.indexOf(turn) + 1, turn.currentMessage),
-        { tree, core: new Set(), needle, workingSet, pageSummary: summaryOf },
-      );
-      expect(result.openedLeaves).toEqual(turn.expectedOpenedLeaves);
-      expect(result.finalInjection).toEqual(turn.expectedFinalInjection);
-    }
+    await orchestrate(makeTurn(1, "apple"), depsOf(lanes));
+
+    expect(selectCalls).toBe(1);
+    expect(new Set(lastPool)).toEqual(
+      new Set(["topic-a", "topic-b", "topic-d"]),
+    );
   });
 
-  test("a slug pinned in turn 1 carries into turn 2 without re-selection", async () => {
-    const tree = makeTree();
-    const workingSet = new WorkingSet();
-    const needle = fakeNeedle([]);
+  test("a synthetic capability page enters the pool via the needle lane", async () => {
+    // A capability slug indexed with body content (the section index treats it
+    // like any other page) is ranked by the real needle when the query matches
+    // its text — this is how synthetic pages reach the pool now that they are no
+    // longer always-added.
+    const CAP: Slug = "skills/example";
+    const sectionIndex = await buildSectionIndex([...SLUGS, CAP], async (s) =>
+      s === CAP
+        ? "# Skill: example\nuse the kumquat skill to do the thing"
+        : PAGES[s]!,
+    );
+    const needle = buildSectionNeedle(sectionIndex);
+    const edgeGraph = await buildEdgeGraph(makeEntries(), async (s) => RAW[s]!);
 
-    // Turn 1 selects+pins page-a.
-    providerStub = providerForTurn(TURNS[0]);
-    await orchestrate(makeTurn(1, TURNS[0].currentMessage), {
-      tree,
-      core: new Set(),
-      needle,
-      workingSet,
-      pageSummary: summaryOf,
-    });
+    providerStub = selectProvider([]); // selection irrelevant to pool union
+    await orchestrate(
+      makeTurn(1, "kumquat"),
+      depsOf({ sectionIndex, needle, edgeGraph }),
+    );
 
-    // Turn 2 opens a DIFFERENT leaf and never re-selects page-a.
-    providerStub = providerForTurn(TURNS[1]);
-    const t2 = await orchestrate(makeTurn(2, TURNS[1].currentMessage), {
-      tree,
-      core: new Set(),
-      needle,
-      workingSet,
-      pageSummary: summaryOf,
-    });
-
-    expect(t2.currentSelections.map((s) => s.slug)).not.toContain("page-a");
-    expect(t2.finalInjection).toContain("page-a");
+    // The needle ranked the capability page on the "kumquat" term, so it is in
+    // the candidate pool.
+    expect(lastPool).toContain(CAP);
   });
 
-  test("carry-forward survives a turn whose selections fill the cap", async () => {
-    const tree = makeTree();
-    // Cap of 1: under a naive record-then-cap order this turn's own selection
-    // would evict the carried page before injection. Snapshotting the carry
-    // BEFORE recording this turn keeps the earlier page in the injection.
-    const workingSet = new WorkingSet(1);
-    const needle = fakeNeedle([]);
-    const stub = (selectIds: number[]): Provider => ({
-      name: "stub",
-      sendMessage: async (_messages, options) =>
-        options?.tools?.[0]?.name === "open_leaves"
-          ? toolUseResponse("open_leaves", { ids: [1] })
-          : toolUseResponse("select_pages", { ids: selectIds, pinned_ids: [] }),
-    });
+  test("edge curated link description becomes the edge candidate's descriptor", async () => {
+    const lanes = await buildLanes();
+    providerStub = selectProvider([]);
 
-    providerStub = stub([1]); // turn 1 → page-a
-    await orchestrate(makeTurn(1, "page a"), {
-      tree,
-      core: new Set(),
-      needle,
-      workingSet,
-      pageSummary: summaryOf,
-    });
+    await orchestrate(makeTurn(1, "apple"), depsOf(lanes));
 
-    providerStub = stub([2]); // turn 2 → page-b, never re-selects page-a
-    const t2 = await orchestrate(makeTurn(2, "page b"), {
-      tree,
-      core: new Set(),
-      needle,
-      workingSet,
-      pageSummary: summaryOf,
-    });
-
-    expect(t2.currentSelections.map((s) => s.slug)).toEqual(["page-b"]);
-    expect(t2.finalInjection).toContain("page-a"); // carried despite the cap
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Lane composition: needle and core fold into the open set.
-// ---------------------------------------------------------------------------
-
-describe("orchestrate — open set composition", () => {
-  test("needle hits add their owning leaves to the open set", async () => {
-    const tree = makeTree();
-    // L1 routes only topic-x; the needle hit page-c lives in topic-y, so the
-    // open set must include topic-y too.
-    providerStub = {
-      name: "stub",
-      sendMessage: async (messages, options) => {
-        if (options?.tools?.[0]?.name === "open_leaves") {
-          return toolUseResponse("open_leaves", { ids: [1] });
-        }
-        const leaf = leafFromMessages(messages);
-        const ids = leaf === "domain-a/topic-y" ? [1] : [];
-        return toolUseResponse("select_pages", { ids, pinned_ids: [] });
-      },
-    };
-    const result = await orchestrate(makeTurn(1, "anything"), {
-      tree,
-      core: new Set(),
-      needle: fakeNeedle(["page-c"]),
-      workingSet: new WorkingSet(),
-      pageSummary: summaryOf,
-    });
-    expect(result.openedLeaves).toContain("domain-a/topic-y");
-    expect(result.finalInjection).toContain("page-c");
+    const line = lastPoolLines.find((l) => / topic-d — /.test(l));
+    expect(line).toContain("the curated edge from a to d");
   });
 
-  test("core leaves are always opened even when routing abstains", async () => {
-    const tree = makeTree();
-    // L1 abstains (empty ids); only the core leaf should open.
-    providerStub = {
-      name: "stub",
-      sendMessage: async (messages, options) => {
-        if (options?.tools?.[0]?.name === "open_leaves") {
-          return toolUseResponse("open_leaves", { ids: [] });
-        }
-        const leaf = leafFromMessages(messages);
-        const ids = leaf === "domain-a/topic-y" ? [1] : [];
-        return toolUseResponse("select_pages", { ids, pinned_ids: [] });
-      },
-    };
-    const result = await orchestrate(makeTurn(1, "nothing topical"), {
-      tree,
-      core: new Set(["domain-a/topic-y"]),
-      needle: fakeNeedle([]),
-      workingSet: new WorkingSet(),
-      pageSummary: summaryOf,
-    });
-    expect(result.openedLeaves).toEqual(["domain-a/topic-y"]);
-    // page-c (topic-y member) is core, so the working set must NOT retain it.
-    expect(result.workingSetUnion.has("page-c")).toBe(false);
-    // It still injects this turn via the current selection.
-    expect(result.finalInjection).toContain("page-c");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Edge cases.
-// ---------------------------------------------------------------------------
-
-describe("orchestrate — edge cases", () => {
-  test("empty needle results do not break orchestration", async () => {
-    const tree = makeTree();
-    providerStub = providerForTurn(TURNS[0]);
-    const result = await orchestrate(makeTurn(1, "tell me about page a"), {
-      tree,
-      core: new Set(),
-      needle: fakeNeedle([]),
-      workingSet: new WorkingSet(),
-      pageSummary: summaryOf,
-    });
-    expect(result.openedLeaves).toEqual(["domain-a/topic-x"]);
-    expect(result.finalInjection).toEqual(["page-a", "page-b"]);
-  });
-
-  test("omitted L1 ids opens only the deterministic lanes, not the whole tree", async () => {
-    const tree = makeTree();
-    // L1 omits ids → routeL1 opens NO routed leaves; only the needle/core lanes
-    // drive the open set, so the whole tree is never fanned out (topic-y, which
-    // nothing routes or needles to, stays closed).
-    providerStub = {
-      name: "stub",
-      sendMessage: async (_messages, options) => {
-        if (options?.tools?.[0]?.name === "open_leaves") {
-          return toolUseResponse("open_leaves", {}); // omitted ids → []
-        }
-        return toolUseResponse("select_pages", {}); // omitted → all members
-      },
-    };
-    const result = await orchestrate(makeTurn(1, "x"), {
-      tree,
-      core: new Set(),
-      needle: fakeNeedle(["page-a"]), // needle opens domain-a/topic-x only
-      workingSet: new WorkingSet(),
-      pageSummary: summaryOf,
-    });
-    expect(result.openedLeaves).toEqual(["domain-a/topic-x"]);
-    expect(result.finalInjection).toEqual(["page-a", "page-b"]);
-  });
-
-  test("pinned current-turn selections land in the working set", async () => {
-    const tree = makeTree();
-    providerStub = providerForTurn(TURNS[0]); // pins page-a
-    const ws = new WorkingSet();
-    await orchestrate(makeTurn(1, "tell me about page a"), {
-      tree,
-      core: new Set(),
-      needle: fakeNeedle([]),
-      workingSet: ws,
-      pageSummary: summaryOf,
-    });
-    expect(ws.union().has("page-a")).toBe(true);
-    expect(ws.union().has("page-b")).toBe(true);
-  });
-
-  test("a page in multiple opened leaves is deduped with pinned ORed", async () => {
-    // Build a tree where page-shared belongs to BOTH leaves; pin it in one.
-    const leaves: LeafNode[] = [
-      makeLeaf("domain-a/topic-x", ["page-shared"]),
-      makeLeaf("domain-a/topic-y", ["page-shared"]),
-    ];
-    const byPage = new Map<Slug, LeafPath[]>([
-      ["page-shared", ["domain-a/topic-x", "domain-a/topic-y"]],
-    ]);
-    const tree: LeafTree = {
-      leaves: new Map(leaves.map((n) => [n.path, n])),
-      byPage,
-    };
-    providerStub = {
-      name: "stub",
-      sendMessage: async (messages, options) => {
-        if (options?.tools?.[0]?.name === "open_leaves") {
-          return toolUseResponse("open_leaves", { ids: [1, 2] });
-        }
-        const leaf = leafFromMessages(messages);
-        // Pin only in topic-x; select (unpinned) in topic-y.
-        const pinned_ids = leaf === "domain-a/topic-x" ? [1] : [];
-        return toolUseResponse("select_pages", { ids: [1], pinned_ids });
-      },
-    };
-    const result = await orchestrate(makeTurn(1, "x"), {
-      tree,
-      core: new Set(),
-      needle: fakeNeedle([]),
-      workingSet: new WorkingSet(),
-      pageSummary: summaryOf,
-    });
-    // One deduped selection, pinned because it was pinned in topic-x.
-    expect(result.currentSelections).toEqual([
-      { slug: "page-shared", pinned: true },
-    ]);
-    expect(result.finalInjection).toEqual(["page-shared"]);
-  });
-
-  test("needleK defaults to DEFAULT_NEEDLE_K", async () => {
-    const tree = makeTree();
-    let seenK = -1;
-    const needle: NeedleIndex = {
-      query: (_text, k) => {
-        seenK = k;
+  test("needleK and denseK default to their constants", async () => {
+    const lanes = await buildLanes();
+    let needleK = -1;
+    const needle = {
+      query: (_t: string, k: number) => {
+        needleK = k;
         return [];
       },
+      bestSection: () => -1,
     };
-    providerStub = providerForTurn(TURNS[0]);
-    await orchestrate(makeTurn(1, "x"), {
-      tree,
-      core: new Set(),
-      needle,
-      workingSet: new WorkingSet(),
-      pageSummary: summaryOf,
+    providerStub = selectProvider([]);
+    await orchestrate(makeTurn(1, "x"), depsOf(lanes, { needle }));
+    expect(needleK).toBe(DEFAULT_NEEDLE_K);
+    expect(DEFAULT_DENSE_K).toBe(100);
+  });
+
+  test("matchedSections is populated from matched lane sections", async () => {
+    const lanes = await buildLanes();
+    denseHits = [];
+    providerStub = selectProvider(["topic-a"]);
+    const result = await orchestrate(makeTurn(1, "apple"), depsOf(lanes));
+    // topic-a matched "apple" in its `## Details` section.
+    expect(result.matchedSections.get("topic-a")?.article).toBe("topic-a");
+    expect(result.matchedSections.get("topic-a")?.text).toContain("apple");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cache order: the pool's stable prefix is core (file order) then hot (score
+// order); finder candidates follow, deduped against the prefix. The prefix is
+// byte-identical across turns while the lanes are unchanged — that is the
+// whole point of the ordering (selector-input KV cache).
+// ---------------------------------------------------------------------------
+
+describe("orchestrate — cache-ordered pool (core + hot + finders)", () => {
+  test("pool order is core, then hot, then finder candidates", async () => {
+    const lanes = await buildLanes();
+    // Core and hot pages do not match "apple"; the needle surfaces topic-a.
+    // topic-a links to topic-d, but topic-d is HOT (stable prefix), so the
+    // edge lane does not re-surface it.
+    denseHits = [{ article: "topic-b", section: 0 }];
+    providerStub = selectProvider([]);
+
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { coreSlugs: ["topic-c"], hotSlugs: ["topic-d"] }),
+    );
+
+    expect(lastPool).toEqual(["topic-c", "topic-d", "topic-a", "topic-b"]);
+    expect(result.lanes.core).toEqual(["topic-c"]);
+    expect(result.lanes.hot).toEqual(["topic-d"]);
+    // The edge lane skipped topic-d (already in the stable prefix).
+    expect(result.lanes.finder.map((c) => c.slug)).toEqual([
+      "topic-a",
+      "topic-b",
+    ]);
+  });
+
+  test("the rendered stable prefix is byte-identical across turns with different queries", async () => {
+    const lanes = await buildLanes();
+    const deps = depsOf(lanes, {
+      coreSlugs: ["topic-c"],
+      hotSlugs: ["topic-b"],
     });
-    expect(seenK).toBe(DEFAULT_NEEDLE_K);
+
+    providerStub = selectProvider([]);
+    await orchestrate(makeTurn(1, "apple"), deps);
+    const prefix1 = lastPrefixBlock;
+
+    await orchestrate(makeTurn(2, "grape"), deps);
+    const prefix2 = lastPrefixBlock;
+
+    // Stable-prefix cards are pre-rendered and query-independent, so the
+    // whole rendered cards block matches byte-for-byte across turns.
+    expect(prefix1).not.toBeNull();
+    expect(prefix2).toBe(prefix1!);
+    expect(prefix1).toContain("topic-c");
+    expect(prefix1).toContain("topic-b");
+  });
+
+  test("stable-prefix candidates render their pre-rendered cards verbatim", async () => {
+    const lanes = await buildLanes();
+    providerStub = selectProvider([]);
+
+    await orchestrate(
+      makeTurn(1, "zzzz"),
+      depsOf(lanes, {
+        coreSlugs: ["topic-c"],
+        hotSlugs: ["topic-d"],
+        prefixCards: new Map([
+          [
+            "topic-c",
+            "# memory/concepts/topic-c.md\nlead for topic c\n\n[sections: §Notes]",
+          ],
+          ["topic-d", "# memory/concepts/topic-d.md\nlead for topic d"],
+        ]),
+      }),
+    );
+
+    expect(lastPrefixBlock).toContain(
+      "[1] # memory/concepts/topic-c.md\nlead for topic c\n\n[sections: §Notes]",
+    );
+    expect(lastPrefixBlock).toContain(
+      "[2] # memory/concepts/topic-d.md\nlead for topic d",
+    );
+  });
+
+  test("a stable-prefix slug with no pre-rendered card throws (never silently degrades)", async () => {
+    const lanes = await buildLanes();
+    providerStub = selectProvider([]);
+
+    await expect(
+      orchestrate(
+        makeTurn(1, "zzzz"),
+        depsOf(lanes, {
+          coreSlugs: ["topic-c"],
+          hotSlugs: ["topic-d"],
+          // topic-d is missing — a lane-init bug; a degraded card would break
+          // the byte-stable-prefix contract, so orchestrate must throw.
+          prefixCards: new Map([["topic-c", renderCard("topic-c", "")]]),
+        }),
+      ),
+    ).rejects.toThrow('no pre-rendered card for stable-prefix slug "topic-d"');
+  });
+
+  test("a finder hit on a core page repeats as a finder line and dedupes on selection", async () => {
+    const lanes = await buildLanes();
+    // topic-a is CORE and the needle also hits it on "apple". The stub keeps
+    // BOTH occurrences (card id + finder-line id).
+    providerStub = selectProvider(["topic-a"]);
+
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { coreSlugs: ["topic-a"] }),
+    );
+
+    // The pool lists topic-a twice — once as the stable-prefix card, once as
+    // a finder line carrying its CURRENT matched section (the tail is not
+    // deduped against the prefix, by design: filtering would not change the
+    // prefix here, but the snippet line is the page's current relevance).
+    expect(lastPool.filter((s) => s === "topic-a")).toHaveLength(2);
+    expect(lastPool[0]).toBe("topic-a");
+    // The finder line shows the matched-section snippet.
+    expect(lastPoolLines.find((l) => /^\[2\] topic-a — /.test(l))).toContain(
+      "apple",
+    );
+    // Selecting both ids still yields ONE selection (slug dedup), the finder
+    // lane records the hit, and the matched section survives downstream.
+    expect(result.selections).toEqual([{ slug: "topic-a", pinned: false }]);
+    expect(result.lanes.finder.map((c) => c.slug)).toContain("topic-a");
+    expect(result.matchedSections.get("topic-a")?.text).toContain("apple");
+  });
+
+  test("a hot slug duplicated into core is defensively dropped from hot", async () => {
+    const lanes = await buildLanes();
+    providerStub = selectProvider([]);
+
+    const result = await orchestrate(
+      makeTurn(1, "zzzz"),
+      depsOf(lanes, {
+        coreSlugs: ["topic-c"],
+        hotSlugs: ["topic-c", "topic-d"],
+      }),
+    );
+
+    expect(result.lanes.core).toEqual(["topic-c"]);
+    expect(result.lanes.hot).toEqual(["topic-d"]);
+    expect(lastPool).toEqual(["topic-c", "topic-d"]);
+  });
+
+  test("selections are current-turn only — no carried set is unioned in", async () => {
+    const lanes = await buildLanes();
+    const deps = depsOf(lanes, { coreSlugs: ["topic-c"] });
+
+    // Turn 1 selects topic-a.
+    providerStub = selectProvider(["topic-a"]);
+    const t1 = await orchestrate(makeTurn(1, "apple"), deps);
+    expect(t1.selections.map((s) => s.slug)).toEqual(["topic-a"]);
+
+    // Turn 2 selects only topic-b; topic-a does NOT reappear (cross-turn
+    // persistence is the injector's job now, not orchestration's).
+    denseHits = [{ article: "topic-b", section: 0 }];
+    providerStub = selectProvider(["topic-b"]);
+    const t2 = await orchestrate(makeTurn(2, "cherry"), deps);
+    expect(t2.selections.map((s) => s.slug)).toEqual(["topic-b"]);
+  });
+
+  test("pinned flags survive selection dedup", async () => {
+    const lanes = await buildLanes();
+    providerStub = selectProvider(["topic-a"], ["topic-a"]);
+    const result = await orchestrate(makeTurn(1, "apple"), depsOf(lanes));
+    expect(result.selections).toEqual([{ slug: "topic-a", pinned: true }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Edge-only injection: a page surfaced ONLY by the edge lane (the query did not
+// lexically hit it) records NO matched section, so injection falls back to the
+// FULL page (the curated `links` description — not the often-empty lead the
+// query never hit — is what made the candidate relevant). The best-section text
+// is kept only as the select-pool descriptor fallback.
+// ---------------------------------------------------------------------------
+
+describe("orchestrate — edge-only injection", () => {
+  test("an edge-only page records NO matchedSections entry (→ full-page inject)", async () => {
+    const lanes = await buildLanes();
+    // "apple" hits topic-a (needle); topic-a links to topic-d (edge-only — the
+    // query never hits topic-d). Select topic-d so it is in the result.
+    denseHits = [];
+    providerStub = selectProvider(["topic-d"]);
+    const result = await orchestrate(makeTurn(1, "apple"), depsOf(lanes));
+
+    // topic-d was selected, but with NO matched section — so
+    // `renderV3SectionContent(slug, undefined)` falls back to the full page.
+    expect(result.selections.map((s) => s.slug)).toContain("topic-d");
+    expect(result.matchedSections.has("topic-d")).toBe(false);
+  });
+
+  test("an edge-only page with no curated description falls back to bestSection text as the descriptor", async () => {
+    // A bare `links:` entry (no ` — `) carries NO description, so the edge
+    // candidate's descriptor falls back to the page's best section against the
+    // query. The query never hits dst-page, so bestSection returns its lead;
+    // that lead text becomes the descriptor (and the page is still injected in
+    // full, with no matchedSections entry).
+    const pages: Record<Slug, string> = {
+      "src-page": "lead for src\n## Body\nalpha bravo about src",
+      "dst-page": "lead content for dst page\n## Extra\nnothing relevant here",
+    };
+    const raw: Record<Slug, string> = {
+      // bare slug — no ` — ` separator → undefined curated description.
+      "src-page": `---\nlinks:\n  - "dst-page"\n---\n${pages["src-page"]}`,
+      "dst-page": `---\nedges: []\n---\n${pages["dst-page"]}`,
+    };
+    const slugs = Object.keys(pages);
+    const entries: PageIndexEntry[] = slugs.map((slug, i) => ({
+      id: i + 1,
+      slug,
+      summary: `summary of ${slug}`,
+      edges: [],
+      leaves: [],
+      modifiedAt: 0,
+    }));
+    const sectionIndex = await buildSectionIndex(slugs, async (s) => pages[s]!);
+    const needle = buildSectionNeedle(sectionIndex);
+    const edgeGraph = await buildEdgeGraph(entries, async (s) => raw[s]!);
+
+    providerStub = selectProvider([]);
+
+    // "alpha" hits src-page (needle); src-page links to dst-page (edge-only, no
+    // curated description).
+    const result = await orchestrate(
+      makeTurn(1, "alpha"),
+      depsOf({ sectionIndex, needle, edgeGraph }),
+    );
+
+    // Descriptor fell back to dst-page's lead text; still no matched section.
+    const line = lastPoolLines.find((l) => / dst-page — /.test(l));
+    expect(line).toContain("lead content for dst page");
+    expect(result.matchedSections.has("dst-page")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Dense liveness: a dense hit whose article is no longer in the live section
+// index (its page was deleted; its Qdrant points linger) is dropped from the
+// pool, so a deleted page can never be surfaced via the dense lane.
+// ---------------------------------------------------------------------------
+
+describe("orchestrate — dense liveness filter", () => {
+  test("a dense hit absent from sectionIndex.byArticle is dropped from the pool", async () => {
+    const lanes = await buildLanes();
+    // Dense returns a live page (topic-b) AND a deleted page (gone-page) whose
+    // points still linger in Qdrant but which is absent from the section index.
+    denseHits = [
+      { article: "topic-b", section: 0 },
+      { article: "gone-page", section: 0 },
+    ];
+    providerStub = selectProvider([]); // selection irrelevant to pool membership
+    const result = await orchestrate(makeTurn(1, "apple"), depsOf(lanes));
+
+    // The live dense hit is pooled; the deleted page is dropped entirely.
+    expect(lastPool).toContain("topic-b");
+    expect(lastPool).not.toContain("gone-page");
+    expect(result.lanes.finder.map((c) => c.slug)).not.toContain("gone-page");
+  });
+
+  test("a dense hit with an unresolvable ordinal falls back to the lead-section snippet", async () => {
+    const lanes = await buildLanes();
+    // Ordinal 99 resolves to no section, so the candidate carries no match
+    // text — its finder line falls back to the page's lead-section text.
+    denseHits = [{ article: "topic-b", section: 99 }];
+    providerStub = selectProvider([]);
+    await orchestrate(makeTurn(1, "zzzz"), depsOf(lanes));
+
+    const line = lastPoolLines.find((l) => / topic-b — /.test(l));
+    expect(line).toContain("lead for topic b");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lane provenance: each finder candidate records the lane that FIRST surfaced
+// it (needle → dense → edge precedence), exposed via `result.lanes.finder` so
+// the selection telemetry can attribute true sources.
+// ---------------------------------------------------------------------------
+
+describe("orchestrate — finder lane provenance", () => {
+  test("each finder candidate is tagged with its surfacing lane", async () => {
+    const lanes = await buildLanes();
+    // "apple" hits topic-a (needle). Dense returns topic-b. topic-a links to
+    // topic-d (edge). So each lane contributes exactly one distinct slug.
+    denseHits = [{ article: "topic-b", section: 0 }];
+    providerStub = selectProvider([]); // selection irrelevant to pool provenance
+    const result = await orchestrate(makeTurn(1, "apple"), depsOf(lanes));
+
+    const laneOf = new Map(result.lanes.finder.map((c) => [c.slug, c.lane]));
+    expect(laneOf.get("topic-a")).toBe("needle");
+    expect(laneOf.get("topic-b")).toBe("dense");
+    expect(laneOf.get("topic-d")).toBe("edge");
+  });
+
+  test("a slug surfaced by needle AND dense keeps the needle lane (first wins)", async () => {
+    const lanes = await buildLanes();
+    // topic-a is surfaced by the needle on "apple"; dense ALSO returns topic-a.
+    // Needle runs first, so the recorded lane stays needle.
+    denseHits = [{ article: "topic-a", section: 0 }];
+    providerStub = selectProvider([]);
+    const result = await orchestrate(makeTurn(1, "apple"), depsOf(lanes));
+
+    const entries = result.lanes.finder.filter((c) => c.slug === "topic-a");
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.lane).toBe("needle");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Degradation: an empty pool and the recall-safe omitted-ids path.
+// ---------------------------------------------------------------------------
+
+describe("orchestrate — degradation", () => {
+  test("an empty pool yields no selections", async () => {
+    const lanes = await buildLanes();
+    providerStub = selectProvider([]);
+    const result = await orchestrate(
+      makeTurn(1, "zzzzz no-match"),
+      depsOf(lanes, { needle: { query: () => [], bestSection: () => -1 } }),
+    );
+    expect(result.selections).toEqual([]);
+    expect(result.lanes.finder).toEqual([]);
+  });
+
+  test("omitted ids keeps ALL pooled candidates (recall-safe)", async () => {
+    const lanes = await buildLanes();
+    denseHits = [{ article: "topic-b", section: 0 }];
+    providerStub = {
+      name: "stub",
+      sendMessage: async () => toolUseResponse({}), // omitted ids → keep all
+    };
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { coreSlugs: ["topic-c"] }),
+    );
+    expect(new Set(result.selections.map((s) => s.slug))).toEqual(
+      new Set(["topic-c", "topic-a", "topic-b", "topic-d"]),
+    );
   });
 });

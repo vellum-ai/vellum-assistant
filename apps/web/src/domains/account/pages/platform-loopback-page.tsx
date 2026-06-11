@@ -5,6 +5,7 @@ import { listAssistants } from "@/assistant/api";
 import { syncPlatformAssistantsToLockfile } from "@/lib/local-mode";
 import { setMenuPlatformSession } from "@/runtime/menu";
 import { useAuthStore } from "@/stores/auth-store";
+import { useOrganizationStore } from "@/stores/organization-store";
 import { routes } from "@/utils/routes";
 
 const LOOPBACK_STATE_KEY = "vellum:loopback:state";
@@ -64,7 +65,10 @@ export function PlatformLoopbackPage() {
       try {
         const result = await listAssistants();
         if (result.ok && result.data.length > 0) {
-          await syncPlatformAssistantsToLockfile(result.data);
+          await syncPlatformAssistantsToLockfile(
+            result.data,
+            useOrganizationStore.getState().currentOrganizationId ?? undefined,
+          );
           void navigate(routes.assistant, { replace: true });
           return;
         }
@@ -83,7 +87,7 @@ export function PlatformLoopbackPage() {
           <button
             type="button"
             className="mt-4 rounded-lg border border-[var(--border-disabled)] px-4 py-2 text-sm hover:bg-[var(--surface-lift)]"
-            onClick={() => void navigate(routes.onboarding.welcome)}
+            onClick={() => void navigate(routes.welcome)}
           >
             Back to Welcome
           </button>

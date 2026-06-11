@@ -16,7 +16,6 @@
 export * from "./message-types/acp.js";
 export * from "./message-types/apps.js";
 export * from "./message-types/bookmarks.js";
-export * from "./message-types/browser.js";
 export * from "./message-types/computer-use.js";
 export * from "./message-types/contacts.js";
 export * from "./message-types/conversations.js";
@@ -57,10 +56,6 @@ import type {
   _AppsServerMessages,
 } from "./message-types/apps.js";
 import type { _BookmarksServerMessages } from "./message-types/bookmarks.js";
-import type {
-  _BrowserClientMessages,
-  _BrowserServerMessages,
-} from "./message-types/browser.js";
 import type {
   _ComputerUseClientMessages,
   _ComputerUseServerMessages,
@@ -167,7 +162,6 @@ export type ClientMessage =
   | _ComputerUseClientMessages
   | _ContactsClientMessages
   | _WorkItemsClientMessages
-  | _BrowserClientMessages
   | _HostBrowserClientMessages
   | _SubagentsClientMessages
   | _DocumentsClientMessages
@@ -191,7 +185,6 @@ export type ServerMessage =
   | _ComputerUseServerMessages
   | _ContactsServerMessages
   | _WorkItemsServerMessages
-  | _BrowserServerMessages
   | _SubagentsServerMessages
   | _DocumentsServerMessages
   | _DocumentCommentsServerMessages

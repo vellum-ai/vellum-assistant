@@ -79,8 +79,11 @@ const {
   handleDeepLink,
   installDeepLinks,
   parseVellumUrl,
+  resolveAcceptedSchemes,
+  resolveRegisteredSchemes,
 } = await import("./deep-links");
 const { resolveAllowedOrigin } = await import("./app-origin");
+const { resolveEnvironmentName } = await import("@vellumai/local-mode");
 
 // The IPC wrappers reject any sender whose frame origin isn't the
 // build's renderer origin. These tests drive the registered handlers
@@ -243,24 +246,12 @@ describe("parseVellumUrl", () => {
     });
   });
 
-  test("auth callback works with environment-specific scheme (e.g. vellum-assistant-dev)", () => {
-    // The dev scheme is registered when VELLUM_ENVIRONMENT=dev (or persisted default is dev).
-    // On this dev machine the scheme is in ACCEPTED_SCHEMES; on production it isn't,
-    // but the server would use the production scheme there. Verify the parser accepts it.
-    const devUrl = "vellum-assistant-dev://auth/callback?code=abc&state=xyz";
-    const result = parseVellumUrl(devUrl);
-    // If the dev scheme is registered (dev environment), we get authCallback;
-    // if not (production CI), it falls through to unknown — both are correct.
-    if (result.kind === "authCallback") {
-      expect(result).toEqual({
-        kind: "authCallback",
-        state: "xyz",
-        code: "abc",
-        error: undefined,
-      });
-    } else {
-      expect(result.kind).toBe("unknown");
-    }
+  test("env-specific scheme for a foreign environment is rejected as unknown", () => {
+    // A scheme that doesn't match any known environment is always
+    // rejected, regardless of which env this test suite runs under.
+    const url =
+      "vellum-assistant-nonexistent://auth/callback?code=abc&state=xyz";
+    expect(parseVellumUrl(url)).toEqual({ kind: "unknown", url });
   });
 });
 
@@ -288,7 +279,7 @@ describe("extractDeepLinkFromArgv", () => {
 });
 
 describe("installDeepLinks", () => {
-  test("registers schemes with Launch Services and is idempotent across repeated calls", () => {
+  test("registers only the env-appropriate schemes and is idempotent across repeated calls", () => {
     installDeepLinks();
     const firstCallCount = setAsDefaultProtocolClientMock.mock.calls.length;
 
@@ -296,8 +287,8 @@ describe("installDeepLinks", () => {
     installDeepLinks();
 
     const schemes = setAsDefaultProtocolClientMock.mock.calls.map((c) => c[0]);
-    expect(schemes).toContain("vellum");
-    expect(schemes).toContain("vellum-assistant");
+    const expected = resolveRegisteredSchemes(resolveEnvironmentName(process.env));
+    expect(schemes).toEqual(expected);
     // Idempotent — repeated calls don't register again.
     expect(setAsDefaultProtocolClientMock).toHaveBeenCalledTimes(firstCallCount);
   });
@@ -559,6 +550,68 @@ describe("handleDeepLink — window activation", () => {
     expect(drain(allowedEvent)).toEqual([
       { kind: "send", message: "delivered" },
     ]);
+  });
+});
+
+describe("resolveRegisteredSchemes", () => {
+  test("production registers vellum and vellum-assistant", () => {
+    expect(resolveRegisteredSchemes("production")).toEqual([
+      "vellum",
+      "vellum-assistant",
+    ]);
+  });
+
+  test("dev registers only vellum-assistant-dev", () => {
+    expect(resolveRegisteredSchemes("dev")).toEqual(["vellum-assistant-dev"]);
+  });
+
+  test("staging registers only vellum-assistant-staging", () => {
+    expect(resolveRegisteredSchemes("staging")).toEqual([
+      "vellum-assistant-staging",
+    ]);
+  });
+
+  test("local registers only vellum-assistant-local", () => {
+    expect(resolveRegisteredSchemes("local")).toEqual([
+      "vellum-assistant-local",
+    ]);
+  });
+
+  test("unknown env derives scheme from env name", () => {
+    expect(resolveRegisteredSchemes("test")).toEqual(["vellum-assistant-test"]);
+  });
+});
+
+describe("resolveAcceptedSchemes", () => {
+  test("production accepts vellum: and vellum-assistant:", () => {
+    const accepted = resolveAcceptedSchemes("production");
+    expect(accepted).toContain("vellum:");
+    expect(accepted).toContain("vellum-assistant:");
+    expect(accepted).toHaveLength(2);
+  });
+
+  test("dev accepts vellum:, vellum-assistant:, and vellum-assistant-dev:", () => {
+    const accepted = resolveAcceptedSchemes("dev");
+    expect(accepted).toContain("vellum:");
+    expect(accepted).toContain("vellum-assistant:");
+    expect(accepted).toContain("vellum-assistant-dev:");
+    expect(accepted).toHaveLength(3);
+  });
+
+  test("staging accepts vellum:, vellum-assistant:, and vellum-assistant-staging:", () => {
+    const accepted = resolveAcceptedSchemes("staging");
+    expect(accepted).toContain("vellum:");
+    expect(accepted).toContain("vellum-assistant:");
+    expect(accepted).toContain("vellum-assistant-staging:");
+    expect(accepted).toHaveLength(3);
+  });
+
+  test("local accepts vellum:, vellum-assistant:, and vellum-assistant-local:", () => {
+    const accepted = resolveAcceptedSchemes("local");
+    expect(accepted).toContain("vellum:");
+    expect(accepted).toContain("vellum-assistant:");
+    expect(accepted).toContain("vellum-assistant-local:");
+    expect(accepted).toHaveLength(3);
   });
 });
 

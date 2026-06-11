@@ -17,7 +17,7 @@
  * outside the card pipeline.
  */
 
-import type { KeyboardEvent } from "react";
+import { useState, type KeyboardEvent } from "react";
 
 import { Bolt } from "lucide-react";
 
@@ -27,23 +27,50 @@ import { RiskBadge } from "@/domains/chat/components/risk-badge";
 import type { IconName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 
-export interface ToolStepPillProps {
-  iconName: IconName;
+/** Shared across both pill variants. */
+interface ToolStepPillBaseProps {
+  /** Truncating pill label. */
   label: string;
+  tone?: "default" | "error";
+  /** Accessible label for the pill. Defaults per-variant. */
+  ariaLabel?: string;
+}
+
+/**
+ * Default pill: a lucide glyph (from `ICON_MAP`) + label, optionally a button
+ * (when `onClick` is set) with an optional trailing `RiskBadge`.
+ */
+export interface ToolStepPillToolProps extends ToolStepPillBaseProps {
+  variant?: "tool";
+  iconName: IconName;
   riskLevel?: string;
   onClick?: () => void;
   /** Click handler for the risk badge. Opens the trust-rule editor. */
   onRiskBadgeClick?: () => void;
-  tone?: "default" | "error";
   /**
    * Selected state — rendered when this pill's tool-detail drawer is open.
    * Mirrors the design-library outlined+active button (primary border, lifted
    * surface, primary-active text) so the open pill reads as the active source.
    */
   active?: boolean;
-  /** Accessible label for the button. Defaults to `View details: ${label}`. */
-  ariaLabel?: string;
 }
+
+/**
+ * Web variant: the SAME pill chrome, but the leading glyph is the site favicon
+ * (with a domain/label monogram fallback) and the whole pill is an anchor that
+ * opens `url` in a new tab. Used for web-search result sources.
+ */
+export interface ToolStepPillWebProps extends ToolStepPillBaseProps {
+  variant: "web";
+  /** Destination opened in a new tab — the pill renders as an `<a>`. */
+  url: string;
+  /** Site favicon URL; falls back to a monogram from `domain`/`label` on miss. */
+  faviconUrl?: string;
+  /** Site domain — supplies the monogram fallback letter. */
+  domain?: string;
+}
+
+export type ToolStepPillProps = ToolStepPillToolProps | ToolStepPillWebProps;
 
 /**
  * Shared layout classes applied to both the button and span variants.
@@ -53,22 +80,105 @@ export interface ToolStepPillProps {
  * enough that descenders ("g", "p", "y") get clipped without extra leading.
  */
 const BASE_CLASSES =
-  "inline-flex min-w-0 max-w-full items-center gap-1 self-start rounded-full px-2 py-1 text-left leading-normal";
+  "inline-flex min-w-0 items-center gap-1 self-start rounded-full px-2 py-1 text-left leading-normal";
 
 /** Cursor / transition / focus-ring affordances when the pill is a button. */
 const INTERACTIVE_BASE =
   "transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-focus)]";
 
-export function ToolStepPill({
-  iconName,
+/** Resting / hover fill for a non-active pill in the given tone. */
+function idleColorClasses(tone: "default" | "error"): string {
+  return tone === "error"
+    ? "bg-[var(--system-negative-weak)] text-[var(--system-negative-strong)]"
+    : "bg-[var(--surface-overlay)] text-[var(--content-default)]";
+}
+
+/**
+ * 14px favicon glyph occupying the same slot as the tool variant's lucide icon.
+ * Falls back to a monogram (first letter of `domain`, else `label`) when the
+ * favicon is absent or fails to load.
+ */
+function PillFavicon({
+  faviconUrl,
+  domain,
   label,
-  riskLevel,
-  onClick,
-  onRiskBadgeClick,
+}: {
+  faviconUrl?: string;
+  domain?: string;
+  label: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  const hasFavicon = Boolean(faviconUrl) && !failed;
+  const source = domain && domain.length > 0 ? domain : label;
+  const letter = source.charAt(0).toUpperCase();
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-sm)]"
+    >
+      {hasFavicon ? (
+        <img
+          src={faviconUrl}
+          alt=""
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          className="h-full w-full object-contain"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        // typography: off-scale — 10px monogram inside the 14px favicon slot
+        <span className="text-[10px] font-medium leading-none text-[var(--content-tertiary)]">
+          {letter}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** Anchor pill rendering for {@link ToolStepPillWebProps}. */
+function WebStepPill({
+  label,
+  url,
+  faviconUrl,
+  domain,
   tone = "default",
-  active = false,
   ariaLabel,
-}: ToolStepPillProps) {
+}: ToolStepPillWebProps) {
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      data-testid="tool-step-pill"
+      data-variant="web"
+      aria-label={ariaLabel ?? `Open ${label}`}
+      className={`${BASE_CLASSES} ${INTERACTIVE_BASE} max-w-[240px] no-underline hover:bg-[var(--surface-active)] ${idleColorClasses(tone)}`}
+    >
+      <PillFavicon faviconUrl={faviconUrl} domain={domain} label={label} />
+      <Typography
+        variant="body-small-default"
+        className="min-w-0 truncate text-inherit leading-normal"
+      >
+        {label}
+      </Typography>
+    </a>
+  );
+}
+
+export function ToolStepPill(props: ToolStepPillProps) {
+  if (props.variant === "web") {
+    return <WebStepPill {...props} />;
+  }
+  const {
+    iconName,
+    label,
+    riskLevel,
+    onClick,
+    onRiskBadgeClick,
+    tone = "default",
+    active = false,
+    ariaLabel,
+  } = props;
   // Active = a filled `--surface-active` background with the resting border /
   // text kept neutral (the colored border read poorly against the card). Active
   // overrides tone's background wholesale so we never emit conflicting
@@ -132,7 +242,7 @@ export function ToolStepPill({
           aria-label={ariaLabel ?? `View details: ${label}`}
           onClick={onClick}
           onKeyDown={handleKeyDown}
-          className={`${BASE_CLASSES} ${INTERACTIVE_BASE} ${hoverClass} ${colorClasses}`}
+          className={`${BASE_CLASSES} ${INTERACTIVE_BASE} max-w-full ${hoverClass} ${colorClasses}`}
         >
           {labelContent}
           <RiskBadge level={riskLevel} onClick={onRiskBadgeClick} />
@@ -148,7 +258,7 @@ export function ToolStepPill({
         aria-pressed={active}
         aria-label={ariaLabel ?? `View details: ${label}`}
         onClick={onClick}
-        className={`${BASE_CLASSES} ${INTERACTIVE_BASE} ${hoverClass} ${colorClasses}`}
+        className={`${BASE_CLASSES} ${INTERACTIVE_BASE} max-w-full ${hoverClass} ${colorClasses}`}
       >
         {labelContent}
         <RiskBadge level={riskLevel} />
@@ -159,7 +269,7 @@ export function ToolStepPill({
   return (
     <span
       data-testid="tool-step-pill"
-      className={`${BASE_CLASSES} ${colorClasses}`}
+      className={`${BASE_CLASSES} max-w-full ${colorClasses}`}
     >
       {labelContent}
       <RiskBadge level={riskLevel} />

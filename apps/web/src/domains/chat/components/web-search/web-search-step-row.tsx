@@ -1,7 +1,7 @@
 /**
  * Shared web-search step-row primitives consumed by both
- * `WebSearchProgressCard` (the dedicated purely-web card) and
- * `ActivityRunCard` (the unified card that handles mixed groups).
+ * `SingleActivity variant="web"` (the lone web-search inline link) and
+ * `MultiActivityGroup` (the unified card that handles mixed groups).
  *
  * Lifted here to dedupe the previously copy/pasted `OverflowChip` definitions
  * and the `web_search` / `web_search_error` step renderers across the two
@@ -16,8 +16,8 @@ import { useState } from "react";
 import { Popover, Typography } from "@vellumai/design-library";
 
 import type { WebSearchResultItem } from "@/assistant/web-activity-types";
-import { FaviconChip } from "@/domains/chat/components/web-search/favicon-chip";
-import type { ToolCallCardStep } from "@/domains/chat/hooks/tool-call-card-utils";
+import { ToolStepPill } from "@/domains/chat/components/tool-progress-card/tool-step-pill";
+import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
 
 /**
  * First uppercase letter of the result's domain (falling back to its title),
@@ -173,12 +173,17 @@ export function WebSearchStepRow({
   const overflowResults = step.overflowResults ?? [];
   return (
     <div className="flex flex-wrap items-center gap-1">
-      {step.results.map((r) => (
-        <FaviconChip
+      {(step.results ?? []).map((r) => (
+        // Each result is a `ToolStepPill` web variant — the same pill chrome as
+        // tool steps, with the site favicon as the glyph, that opens the source
+        // in a new tab.
+        <ToolStepPill
           key={r.rank}
+          variant="web"
+          url={r.url}
           faviconUrl={r.faviconUrl}
-          title={r.title}
           domain={r.domain}
+          label={r.title}
         />
       ))}
       {overflowResults.length > 0 ? (

@@ -257,11 +257,21 @@ export { migrateLlmUsageEventsAddAssistantVersion } from "./267-llm-usage-events
 export { migrateAddMemoryV3Selections } from "./268-add-memory-v3-selections.js";
 export { migrateScheduleScriptTimeout } from "./269-schedule-script-timeout.js";
 export { migrateMessagesRoleCreatedAtIndex } from "./270-messages-role-created-at-index.js";
+export {
+  downScheduleDescription,
+  migrateScheduleDescription,
+} from "./270-schedule-description.js";
 export { migrateScheduleSourceConversation } from "./270-schedule-source-conversation.js";
 export { createAuthFallbackEventsTable } from "./271-create-auth-fallback-events.js";
 export { migrateAcpSessionHistoryCwd } from "./272-acp-session-history-cwd.js";
 export { migrateOnboardingEventsFunnelColumns } from "./273-onboarding-events-funnel-columns.js";
 export { createActivationSessionsTable } from "./274-create-activation-sessions.js";
+export { migrateToolInvocationsSkillId } from "./275-tool-invocations-add-skill-id.js";
+export { migrateToolInvocationsCreatedAtIdIndex } from "./276-tool-invocations-created-at-id-index.js";
+export { migrateAddMemoryV3EverInjected } from "./277-add-memory-v3-ever-injected.js";
+export { migrateToolInvocationsTelemetryColumns } from "./278-tool-invocations-telemetry-columns.js";
+export { createSkillLoadedEventsTable } from "./279-create-skill-loaded-events.js";
+export { migrateConversationsSurfacedAt } from "./280-conversations-surfaced-at.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

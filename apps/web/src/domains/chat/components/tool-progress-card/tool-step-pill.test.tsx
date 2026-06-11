@@ -102,4 +102,60 @@ describe("ToolStepPill", () => {
     );
     expect(getStatic("tool-step-pill").tagName).not.toBe("BUTTON");
   });
+
+  describe("web variant", () => {
+    test("renders an external-link anchor to the url", () => {
+      const html = renderToStaticMarkup(
+        <ToolStepPill
+          variant="web"
+          label="Toronto - Wikipedia"
+          url="https://en.wikipedia.org/wiki/Toronto"
+          domain="en.wikipedia.org"
+        />,
+      );
+      expect(html).toContain('data-testid="tool-step-pill"');
+      expect(html).toContain('data-variant="web"');
+      expect(html).toContain('href="https://en.wikipedia.org/wiki/Toronto"');
+      expect(html).toContain('target="_blank"');
+      expect(html).toContain("noopener");
+      expect(html).toContain("Toronto - Wikipedia");
+    });
+
+    test("renders the favicon img when faviconUrl is set", () => {
+      const html = renderToStaticMarkup(
+        <ToolStepPill
+          variant="web"
+          label="Toronto"
+          url="https://en.wikipedia.org/wiki/Toronto"
+          faviconUrl="https://en.wikipedia.org/favicon.ico"
+        />,
+      );
+      expect(html).toContain('src="https://en.wikipedia.org/favicon.ico"');
+    });
+
+    test("falls back to a domain monogram when no favicon", () => {
+      const html = renderToStaticMarkup(
+        <ToolStepPill
+          variant="web"
+          label="Toronto - Wikipedia"
+          url="https://en.wikipedia.org/wiki/Toronto"
+          domain="en.wikipedia.org"
+        />,
+      );
+      // Monogram is the uppercased first letter of the domain.
+      expect(html).toContain(">E</span>");
+      expect(html).not.toContain("<img");
+    });
+
+    test("renders as an <a>, not a button", () => {
+      const { getByTestId } = render(
+        <ToolStepPill
+          variant="web"
+          label="Toronto"
+          url="https://en.wikipedia.org/wiki/Toronto"
+        />,
+      );
+      expect(getByTestId("tool-step-pill").tagName).toBe("A");
+    });
+  });
 });

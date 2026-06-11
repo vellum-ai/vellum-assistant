@@ -2,10 +2,12 @@
  * Host proxy message router and daemon connection lifecycle.
  *
  * Listens for lockfile changes and maintains an SSE + poster pair for each
- * local assistant that has a gatewayPort. When an assistant appears, the
- * router obtains a guardian token and connects; when it disappears, it
- * disconnects. Incoming SSE messages are dispatched to pluggable executors;
- * unimplemented executors post error results so daemon requests don't hang.
+ * assistant. Local assistants (with a gatewayPort) connect to the loopback
+ * gateway; cloud/managed assistants connect to the platform via
+ * assistant-scoped URLs with session-token auth.
+ *
+ * Incoming SSE messages are dispatched to pluggable executors; unimplemented
+ * executors post error results so daemon requests don't hang.
  */
 
 import {
@@ -22,6 +24,7 @@ import { hostFileExecutor } from "./executors/host-file-executor";
 import { hostTransferExecutor } from "./executors/host-transfer-executor";
 import { onLockfileChange, getWatchedLockfile } from "./lockfile-watcher";
 import { HostBrowserExecutor } from "./executors/host-browser-executor";
+import { getSessionToken } from "./session-token-store";
 import log from "./logger";
 
 // ---------------------------------------------------------------------------
@@ -40,7 +43,8 @@ export interface HostProxyExecutor {
 interface AssistantConnection {
   sse: HostProxySseClient;
   poster: HostProxyPoster;
-  gatewayPort: number;
+  /** Opaque string for detecting config changes that warrant a reconnect. */
+  fingerprint: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -160,16 +164,39 @@ function dispatchMessage(message: HostProxySseMessage, poster: HostProxyPoster):
 // Lifecycle — connect / disconnect per assistant
 // ---------------------------------------------------------------------------
 
-async function connectAssistant(
+/**
+ * Exchange a guardian access token for a gateway JWT via POST /auth/token.
+ */
+async function exchangeForGatewayToken(
+  gatewayPort: number,
+  guardianToken: string,
+): Promise<{ token: string; expiresAt: number } | null> {
+  try {
+    const url = `http://127.0.0.1:${gatewayPort}/auth/token`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${guardianToken}`,
+        Origin: `http://127.0.0.1:${gatewayPort}`,
+      },
+    });
+    if (!res.ok) {
+      log.warn("[host-proxy-router] gateway token exchange failed", { status: res.status });
+      return null;
+    }
+    const body = (await res.json()) as { token: string; expiresAt: number };
+    return body;
+  } catch (err) {
+    log.warn("[host-proxy-router] gateway token exchange error", { err });
+    return null;
+  }
+}
+
+async function acquireGatewayToken(
   assistantId: string,
   gatewayPort: number,
-): Promise<void> {
-  if (connections.has(assistantId)) return;
-
-  if (!resolveCliInvocation) {
-    log.error("[host-proxy-router] CLI invocation resolver not set");
-    return;
-  }
+): Promise<string | null> {
+  if (!resolveCliInvocation) return null;
 
   const configDir = resolveConfigDir(process.env);
 
@@ -178,7 +205,7 @@ async function connectAssistant(
     invocation = await resolveCliInvocation();
   } catch (err) {
     log.error("[host-proxy-router] failed to resolve CLI invocation", { assistantId, err });
-    return;
+    return null;
   }
 
   const tokenResult = await getGuardianAccessToken(
@@ -193,33 +220,102 @@ async function connectAssistant(
       assistantId,
       error: tokenResult.error,
     });
+    return null;
+  }
+
+  const exchanged = await exchangeForGatewayToken(gatewayPort, tokenResult.accessToken);
+  if (!exchanged) return null;
+
+  return exchanged.token;
+}
+
+// A connection's fingerprint encodes everything that, if changed, requires a
+// reconnect. Single-sourced here so the value set on connect and the value
+// recomputed in `handleLockfileChange` can never drift (a mismatch would loop
+// connect/disconnect forever).
+const localFingerprint = (gatewayPort: number): string => `local:${gatewayPort}`;
+const cloudFingerprint = (runtimeUrl: string, organizationId?: string): string =>
+  `cloud:${runtimeUrl}:${organizationId ?? ""}`;
+
+// -- Local assistant connection ---------------------------------------------
+
+async function connectLocalAssistant(
+  assistantId: string,
+  gatewayPort: number,
+): Promise<void> {
+  if (connections.has(assistantId)) return;
+
+  const gatewayToken = await acquireGatewayToken(assistantId, gatewayPort);
+  if (!gatewayToken) {
+    log.warn("[host-proxy-router] could not acquire gateway token, skipping connection", { assistantId });
     return;
   }
 
-  const authToken = tokenResult.accessToken;
+  let currentToken = gatewayToken;
+  const authHeaders = () => ({ Authorization: `Bearer ${currentToken}` });
 
-  const refreshToken = async (): Promise<string | null> => {
-    if (!resolveCliInvocation) return null;
-    try {
-      const inv = await resolveCliInvocation();
-      const result = await getGuardianAccessToken(assistantId, configDir, inv, true);
-      if (result.ok) {
-        poster.updateAuthToken(result.accessToken);
-        return result.accessToken;
-      }
-    } catch { /* keep existing token */ }
-    return null;
+  const onRefreshToken = async (): Promise<string | null> => {
+    const fresh = await acquireGatewayToken(assistantId, gatewayPort);
+    if (fresh) currentToken = fresh;
+    return fresh;
   };
 
-  const sse = new HostProxySseClient({ gatewayPort, authToken, onRefreshToken: refreshToken });
-  const poster = new HostProxyPoster({ gatewayPort, authToken });
+  const eventsUrl = `http://127.0.0.1:${gatewayPort}/v1/events`;
+  const endpointBase = `http://127.0.0.1:${gatewayPort}/v1`;
+
+  const sse = new HostProxySseClient({ eventsUrl, authHeaders, onRefreshToken });
+  const poster = new HostProxyPoster({ endpointBase, authHeaders });
 
   sse.setMessageCallback((msg) => dispatchMessage(msg, poster));
   sse.connect();
 
-  connections.set(assistantId, { sse, poster, gatewayPort });
-  log.info("[host-proxy-router] connected to assistant", { assistantId, gatewayPort });
+  connections.set(assistantId, { sse, poster, fingerprint: localFingerprint(gatewayPort) });
+  log.info("[host-proxy-router] connected to local assistant", { assistantId, gatewayPort });
 }
+
+// -- Cloud assistant connection ---------------------------------------------
+
+function connectCloudAssistant(
+  assistantId: string,
+  runtimeUrl: string,
+  organizationId?: string,
+): void {
+  if (connections.has(assistantId)) return;
+
+  const sessionToken = getSessionToken();
+  if (!sessionToken) {
+    log.warn("[host-proxy-router] no session token, skipping cloud connection", { assistantId });
+    return;
+  }
+
+  const baseUrl = runtimeUrl.replace(/\/$/, "");
+
+  const authHeaders = (): Record<string, string> => {
+    const token = getSessionToken();
+    if (!token) return {};
+    const headers: Record<string, string> = { "X-Session-Token": token };
+    if (organizationId) headers["Vellum-Organization-Id"] = organizationId;
+    return headers;
+  };
+
+  const eventsUrl = `${baseUrl}/v1/assistants/${encodeURIComponent(assistantId)}/events`;
+  const endpointBase = `${baseUrl}/v1/assistants/${encodeURIComponent(assistantId)}`;
+
+  const sse = new HostProxySseClient({ eventsUrl, authHeaders });
+  const poster = new HostProxyPoster({ endpointBase, authHeaders });
+
+  sse.setMessageCallback((msg) => dispatchMessage(msg, poster));
+  sse.connect();
+
+  connections.set(assistantId, {
+    sse,
+    poster,
+    fingerprint: cloudFingerprint(runtimeUrl, organizationId),
+  });
+  log.info("[host-proxy-router] connected to cloud assistant", { assistantId, runtimeUrl, organizationId });
+}
+
+// -- Disconnect -------------------------------------------------------------
 
 function disconnectAssistant(assistantId: string): void {
   const conn = connections.get(assistantId);
@@ -238,20 +334,33 @@ function handleLockfileChange(lockfile: Lockfile): void {
 
   for (const assistant of lockfile.assistants) {
     const port = assistant.resources?.gatewayPort;
-    if (!port) continue;
+    const isCloud = !port && assistant.cloud === "vellum" && assistant.runtimeUrl;
+    if (!port && !isCloud) continue;
+
     activeIds.add(assistant.assistantId);
+    const fp = port
+      ? localFingerprint(port)
+      : cloudFingerprint(assistant.runtimeUrl!, assistant.organizationId);
 
     const existing = connections.get(assistant.assistantId);
-    if (!existing) {
-      void connectAssistant(assistant.assistantId, port);
-    } else if (existing.gatewayPort !== port) {
-      log.info("[host-proxy-router] gateway port changed, reconnecting", {
+    if (existing && existing.fingerprint !== fp) {
+      log.info("[host-proxy-router] connection config changed, reconnecting", {
         assistantId: assistant.assistantId,
-        oldPort: existing.gatewayPort,
-        newPort: port,
+        oldFingerprint: existing.fingerprint,
+        newFingerprint: fp,
       });
       disconnectAssistant(assistant.assistantId);
-      void connectAssistant(assistant.assistantId, port);
+    }
+    if (!connections.has(assistant.assistantId)) {
+      if (port) {
+        void connectLocalAssistant(assistant.assistantId, port);
+      } else {
+        connectCloudAssistant(
+          assistant.assistantId,
+          assistant.runtimeUrl!,
+          assistant.organizationId,
+        );
+      }
     }
   }
 
@@ -317,7 +426,8 @@ export const __testing = {
     return executors;
   },
   dispatchMessage,
-  connectAssistant,
+  connectLocalAssistant,
+  connectCloudAssistant,
   disconnectAssistant,
   handleLockfileChange,
   reset() {

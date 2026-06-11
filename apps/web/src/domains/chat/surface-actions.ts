@@ -13,7 +13,7 @@ import { useStreamStore } from "@/domains/chat/stream-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { completeSubmittedSurface } from "@/domains/chat/utils/send-message-utils";
 import { submitSurfaceAction } from "@/domains/chat/api/surfaces";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 
 /**
  * Submit a user action on a rendered surface (e.g. form submit, button click).

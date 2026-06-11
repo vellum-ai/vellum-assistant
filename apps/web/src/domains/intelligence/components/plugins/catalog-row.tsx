@@ -16,8 +16,6 @@ interface CatalogRowProps {
  * navigable.
  */
 export function CatalogRow({ match }: CatalogRowProps) {
-  const isExternal = match.source.kind === "github";
-
   return (
     <Card.Root asChild>
       <Link
@@ -35,17 +33,6 @@ export function CatalogRow({ match }: CatalogRowProps) {
             >
               {match.name}
             </span>
-            {isExternal && (
-              <span
-                className="shrink-0 rounded px-1.5 py-0.5 text-body-small-default"
-                style={{
-                  backgroundColor: "var(--surface-secondary)",
-                  color: "var(--content-tertiary)",
-                }}
-              >
-                external
-              </span>
-            )}
           </div>
           {match.description && (
             <p

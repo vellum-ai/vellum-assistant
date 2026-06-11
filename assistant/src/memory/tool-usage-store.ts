@@ -15,6 +15,14 @@ export interface ToolInvocationRecord {
   riskLevel: string;
   matchedTrustRuleId?: string;
   durationMs: number;
+  /** Serialized input size in bytes, computed before any redaction. */
+  argBytes?: number | null;
+  /** Full serialized result size in bytes, computed before truncation/redaction. */
+  resultBytes?: number | null;
+  provider?: string | null;
+  model?: string | null;
+  inferenceProfile?: string | null;
+  inferenceProfileSource?: string | null;
 }
 
 export function recordToolInvocation(record: ToolInvocationRecord): void {
@@ -31,6 +39,12 @@ export function recordToolInvocation(record: ToolInvocationRecord): void {
       matchedTrustRuleId: record.matchedTrustRuleId,
       durationMs: record.durationMs,
       createdAt: Date.now(),
+      argBytes: record.argBytes,
+      resultBytes: record.resultBytes,
+      provider: record.provider,
+      model: record.model,
+      inferenceProfile: record.inferenceProfile,
+      inferenceProfileSource: record.inferenceProfileSource,
     })
     .run();
 }
@@ -65,9 +79,7 @@ export async function rotateToolInvocations(
 
   // Math.floor guarantees a plain integer literal in the inlined SQL
   // below; no decimal, no exponent, no surprise characters.
-  const cutoffMs = Math.floor(
-    Date.now() - retentionDays * 24 * 60 * 60 * 1000,
-  );
+  const cutoffMs = Math.floor(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
   const db = getDb();
 
   // Count before delete so we can return + log the affected row count

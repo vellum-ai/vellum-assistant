@@ -8,7 +8,7 @@
 
 import { captureError } from "@/lib/sentry/capture-error";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
@@ -19,6 +19,7 @@ import { clearConfirmationByRequestId } from "@/domains/chat/utils/send-message-
 import { deriveCommandText } from "@/domains/chat/utils/chat";
 import { toRiskLevel } from "@/domains/chat/utils/risk";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
+import { mapMessageToolCalls } from "@/domains/chat/utils/map-message-tool-calls";
 import { submitConfirmation } from "@/domains/chat/api/interactions";
 import { fireSuggestion } from "@/domains/chat/rule-editor-actions";
 import type { ConfirmationDecision } from "@/types/event-types";
@@ -83,24 +84,19 @@ function cleanupAfterConfirmationDecision(
 
     let anyChanged = false;
     const updated = prev.map((msg) => {
-      if (!msg.toolCalls) return msg;
-      let msgChanged = false;
-      const updatedTcs = msg.toolCalls.map((tc) => {
+      const next = mapMessageToolCalls(msg, (tc) => {
         if (tc.id === stampTargetId) {
-          msgChanged = true;
           return { ...tc, ...riskMetadata };
         }
         if (tc.pendingConfirmation?.requestId === snapshot.requestId) {
-          msgChanged = true;
           return { ...tc, pendingConfirmation: undefined };
         }
         return tc;
       });
-      if (msgChanged) {
+      if (next !== msg) {
         anyChanged = true;
-        return { ...msg, toolCalls: updatedTcs };
       }
-      return msg;
+      return next;
     });
     return anyChanged ? updated : prev;
   });

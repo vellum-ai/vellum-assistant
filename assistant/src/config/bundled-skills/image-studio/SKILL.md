@@ -6,6 +6,7 @@ metadata:
   emoji: "🎨"
   vellum:
     display-name: "Image Studio"
+    category: "content"
     activation-hints:
       - "User asks to generate, draw, or create an image from a text prompt"
       - "User wants to edit an existing image — background removal, in-painting, style change, retouching"

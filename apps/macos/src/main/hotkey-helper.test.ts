@@ -500,6 +500,58 @@ describe("installHotkeyHelper", () => {
     expect(await firstDisable).toEqual({ ok: true, enabled: false });
   });
 
+  test("re-enables Fn push-to-talk when a new owner appears during disable", async () => {
+    installHotkeyHelper();
+    const first = makeWebContents();
+    const second = makeWebContents();
+
+    const firstEnable = invokeFnPushToTalkFrom(true, first);
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"enabled\":true}}\n",
+      ),
+    );
+    expect(await firstEnable).toEqual({ ok: true, enabled: true });
+
+    const firstDisable = invokeFnPushToTalkFrom(false, first);
+    expect(lastChild?.stdin.writes.at(-1)).toContain("\"enable\":false");
+
+    const secondEnable = invokeFnPushToTalkFrom(true, second);
+    expect(lastChild?.stdin.writes).toHaveLength(2);
+
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"enabled\":false}}\n",
+      ),
+    );
+    await wait(0);
+
+    expect(lastChild?.stdin.writes).toHaveLength(3);
+    expect(lastChild?.stdin.writes.at(-1)).toContain("\"enable\":true");
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        "{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"enabled\":true}}\n",
+      ),
+    );
+
+    expect(await firstDisable).toEqual({ ok: true, enabled: true });
+    expect(await secondEnable).toEqual({ ok: true, enabled: true });
+
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        "{\"jsonrpc\":\"2.0\",\"method\":\"hotkey.event\",\"params\":{\"kind\":\"fnPushToTalk\",\"state\":\"down\"}}\n",
+      ),
+    );
+    expect(second.send).toHaveBeenCalledWith("vellum:helper:hotkey:event", {
+      kind: "fnPushToTalk",
+      state: "down",
+    });
+  });
+
   test("closes helper stdin on app quit so native registrations are cleaned up", async () => {
     installHotkeyHelper();
     const pending = invokeFnPushToTalk(true);

@@ -60,6 +60,10 @@ const { handleRemember } = await import("../tool-handlers.js");
 const { applyNestedDefaults } = await import("../../../config/loader.js");
 
 const CONFIG = applyNestedDefaults({});
+const CONFIG_MEMORY_OFF = {
+  ...CONFIG,
+  memory: { ...CONFIG.memory, enabled: false },
+};
 const CONFIG_V2_OFF = {
   ...CONFIG,
   memory: { ...CONFIG.memory, v2: { ...CONFIG.memory.v2, enabled: false } },
@@ -81,6 +85,21 @@ function todaysArchiveBasename(now: Date = new Date()): string {
 }
 
 describe("handleRemember — memory.v2.enabled on", () => {
+  test("does not write when global memory is disabled", () => {
+    const result = handleRemember(
+      { content: "do not save this" },
+      "conv-memory-off",
+      "default",
+      CONFIG_MEMORY_OFF,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("Memory is disabled");
+    expect(existsSync(join(tmpWorkspace, "memory", "buffer.md"))).toBe(false);
+    expect(existsSync(join(tmpWorkspace, "pkb", "buffer.md"))).toBe(false);
+    expect(enqueueCalls).toEqual([]);
+  });
+
   test("writes to memory/buffer.md and memory/archive/<today>.md", () => {
     const result = handleRemember(
       { content: "Alice prefers VS Code over Vim" },

@@ -24,10 +24,12 @@ export const HOOKS = {
   PRE_MODEL_CALL: "pre-model-call",
   /** Fires once per tool result, after the tool returns and before the result is sent to the provider. */
   POST_TOOL_USE: "post-tool-use",
-  /** Fires when the model yields a response with no tool calls — the run's stop boundary. Decides whether to stop or continue with a follow-up turn. */
+  /** Fires once per run when the loop has committed to ending — the definitive terminal hook for teardown. Cannot continue the loop; reports how the turn ended via `exitReason`. */
   STOP: "stop",
-  /** Fires for each finalized assistant message, once per model call, before it is persisted/streamed-final. A hook may transform the message content. */
+  /** Fires at every model-call outcome (finalized reply or provider rejection), before the message is persisted/streamed-final. A hook may transform the content and owns the continue/retry decision. */
   POST_MODEL_CALL: "post-model-call",
+  /** Fires after the loop successfully compacts a conversation mid-turn. */
+  POST_COMPACT: "post-compact",
 } as const;
 
 /** Union of every hook name declared in {@link HOOKS}. */

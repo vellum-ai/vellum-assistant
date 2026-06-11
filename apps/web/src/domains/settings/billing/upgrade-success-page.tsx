@@ -144,8 +144,8 @@ export function UpgradeSuccessPage() {
     );
   }
 
-  // Terminal non-hosted (resolved to `retired`, `error`,
-  // `awaiting_version_selection`): polling never becomes enabled, so
+  // Terminal non-hosted (resolved to `retired`, `error`): polling
+  // never becomes enabled, so
   // PendingState would render "Finalizing your upgrade…" forever.
   // Short-circuit to a Notice with a manual escape hatch. Lifecycle-
   // loading + transitional states (`loading`, `initializing`,

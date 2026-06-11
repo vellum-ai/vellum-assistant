@@ -60,13 +60,32 @@ afterAll(() => {
   rmSync(tmpWorkspace, { recursive: true, force: true });
 });
 
-const { CONSOLIDATION_PROMPT, CUTOFF_PLACEHOLDER, resolveConsolidationPrompt } =
-  await import("../prompts/consolidation.js");
+const {
+  CONSOLIDATION_PROMPT,
+  CORE_PAGES_CONSOLIDATION_SECTION,
+  CORE_PAGES_PLACEHOLDER,
+  CUTOFF_PLACEHOLDER,
+  resolveConsolidationPrompt,
+} = await import("../prompts/consolidation.js");
 
 const CUTOFF = "2026-05-01T12:00:00.000Z";
 
-const bundledPrompt = (): string =>
-  (CONSOLIDATION_PROMPT as string).replaceAll(CUTOFF_PLACEHOLDER, CUTOFF);
+/** Options for tests not exercising the v3 core-pages gate. */
+const NO_CORE = { includeCorePagesSection: false, articleShape: "v2" as const };
+const WITH_CORE = {
+  includeCorePagesSection: true,
+  articleShape: "v2" as const,
+};
+
+const bundledPrompt = (includeCorePagesSection = false): string =>
+  (CONSOLIDATION_PROMPT as string)
+    .replaceAll(CUTOFF_PLACEHOLDER, CUTOFF)
+    .replaceAll(
+      CORE_PAGES_PLACEHOLDER,
+      includeCorePagesSection
+        ? (CORE_PAGES_CONSOLIDATION_SECTION as string)
+        : "",
+    );
 
 beforeEach(() => {
   warnCalls.length = 0;
@@ -88,11 +107,48 @@ afterEach(() => {
 
 describe("resolveConsolidationPrompt — no override", () => {
   test("returns the bundled prompt with {{CUTOFF}} substituted when overridePath is null", () => {
-    const result = resolveConsolidationPrompt(null, CUTOFF);
+    const result = resolveConsolidationPrompt(null, CUTOFF, NO_CORE);
     expect(result).toContain("You are running memory consolidation");
     expect(result).toContain(CUTOFF);
     expect(result).not.toContain(CUTOFF_PLACEHOLDER);
     expect(warnCalls).toHaveLength(0);
+  });
+});
+
+describe("resolveConsolidationPrompt — core-pages gate", () => {
+  test("omits the core-pages section (and any placeholder residue) when the v3 gate is off", () => {
+    // v2-only installs must not be told to curate a file nothing reads.
+    const result = resolveConsolidationPrompt(null, CUTOFF, NO_CORE);
+    expect(result).not.toContain("core-pages");
+    expect(result).not.toContain(CORE_PAGES_PLACEHOLDER);
+    // The section's slot collapses cleanly: §9 flows straight into the
+    // separator with no stray blank lines.
+    expect(result).toContain(
+      "never wholesale-clear.\n\n---\n\n# What NOT to do",
+    );
+  });
+
+  test("includes the core-pages section exactly once, in place, when the v3 gate is on", () => {
+    const result = resolveConsolidationPrompt(null, CUTOFF, WITH_CORE);
+    expect(result).toContain("## 10. Review `memory/core-pages.md`");
+    expect(result.split("## 10. Review").length - 1).toBe(1);
+    expect(result).not.toContain(CORE_PAGES_PLACEHOLDER);
+    // Positioned between §9 and the don'ts, as authored.
+    const sectionAt = result.indexOf("## 10. Review");
+    expect(sectionAt).toBeGreaterThan(result.indexOf("## 9. Trim"));
+    expect(sectionAt).toBeLessThan(result.indexOf("# What NOT to do"));
+  });
+
+  test("substitutes the placeholder in override files per the same gate", () => {
+    const path = join(tmpWorkspace, "custom-prompt.md");
+    writeFileSync(path, "Before\n{{CORE_PAGES_SECTION}}After {{CUTOFF}}\n");
+
+    const withCore = resolveConsolidationPrompt(path, CUTOFF, WITH_CORE);
+    expect(withCore).toContain("## 10. Review `memory/core-pages.md`");
+    expect(withCore).not.toContain(CORE_PAGES_PLACEHOLDER);
+
+    const withoutCore = resolveConsolidationPrompt(path, CUTOFF, NO_CORE);
+    expect(withoutCore).toBe(`Before\nAfter ${CUTOFF}\n`);
   });
 });
 
@@ -101,7 +157,7 @@ describe("resolveConsolidationPrompt — with override", () => {
     const path = join(tmpWorkspace, "custom-prompt.md");
     writeFileSync(path, "Custom prompt at {{CUTOFF}}\n");
 
-    const result = resolveConsolidationPrompt(path, CUTOFF);
+    const result = resolveConsolidationPrompt(path, CUTOFF, NO_CORE);
 
     expect(result).toBe(`Custom prompt at ${CUTOFF}\n`);
     expect(warnCalls).toHaveLength(0);
@@ -113,7 +169,11 @@ describe("resolveConsolidationPrompt — with override", () => {
       "Workspace-relative {{CUTOFF}}\n",
     );
 
-    const result = resolveConsolidationPrompt("custom-prompt.md", CUTOFF);
+    const result = resolveConsolidationPrompt(
+      "custom-prompt.md",
+      CUTOFF,
+      NO_CORE,
+    );
 
     expect(result).toBe(`Workspace-relative ${CUTOFF}\n`);
     expect(warnCalls).toHaveLength(0);
@@ -124,7 +184,11 @@ describe("resolveConsolidationPrompt — with override", () => {
     const path = join(homedir(), filename);
     writeFileSync(path, "Home dir {{CUTOFF}}\n");
     try {
-      const result = resolveConsolidationPrompt(`~/${filename}`, CUTOFF);
+      const result = resolveConsolidationPrompt(
+        `~/${filename}`,
+        CUTOFF,
+        NO_CORE,
+      );
       expect(result).toBe(`Home dir ${CUTOFF}\n`);
       expect(warnCalls).toHaveLength(0);
     } finally {
@@ -136,7 +200,11 @@ describe("resolveConsolidationPrompt — with override", () => {
     const body = "No placeholder here. Just a plain prompt.\n";
     writeFileSync(join(tmpWorkspace, "no-placeholder.md"), body);
 
-    const result = resolveConsolidationPrompt("no-placeholder.md", CUTOFF);
+    const result = resolveConsolidationPrompt(
+      "no-placeholder.md",
+      CUTOFF,
+      NO_CORE,
+    );
 
     expect(result).toBe(body);
     expect(warnCalls).toHaveLength(0);
@@ -148,7 +216,11 @@ describe("resolveConsolidationPrompt — with override", () => {
       "{{CUTOFF}} ... {{CUTOFF}} ... {{CUTOFF}}",
     );
 
-    const result = resolveConsolidationPrompt("custom-prompt.md", CUTOFF);
+    const result = resolveConsolidationPrompt(
+      "custom-prompt.md",
+      CUTOFF,
+      NO_CORE,
+    );
 
     expect(result).toBe(`${CUTOFF} ... ${CUTOFF} ... ${CUTOFF}`);
     expect(result).not.toContain(CUTOFF_PLACEHOLDER);
@@ -160,6 +232,7 @@ describe("resolveConsolidationPrompt — failure modes", () => {
     const result = resolveConsolidationPrompt(
       "/this/path/does/not/exist.md",
       CUTOFF,
+      NO_CORE,
     );
 
     expect(result).toBe(bundledPrompt());
@@ -173,7 +246,7 @@ describe("resolveConsolidationPrompt — failure modes", () => {
     const path = join(tmpWorkspace, "empty.md");
     writeFileSync(path, "");
 
-    const result = resolveConsolidationPrompt(path, CUTOFF);
+    const result = resolveConsolidationPrompt(path, CUTOFF, NO_CORE);
 
     expect(result).toBe(bundledPrompt());
     expect(warnCalls).toHaveLength(1);
@@ -185,7 +258,7 @@ describe("resolveConsolidationPrompt — failure modes", () => {
     const path = join(tmpWorkspace, "empty.md");
     writeFileSync(path, "   \n\n\t\n");
 
-    const result = resolveConsolidationPrompt(path, CUTOFF);
+    const result = resolveConsolidationPrompt(path, CUTOFF, NO_CORE);
 
     expect(result).toBe(bundledPrompt());
     expect(warnCalls).toHaveLength(1);
@@ -198,7 +271,7 @@ describe("resolveConsolidationPrompt — failure modes", () => {
     // 1 MiB + 1 byte — just over the cap so we don't waste test memory.
     writeFileSync(path, Buffer.alloc(1 * 1024 * 1024 + 1, 0x61));
 
-    const result = resolveConsolidationPrompt(path, CUTOFF);
+    const result = resolveConsolidationPrompt(path, CUTOFF, NO_CORE);
 
     expect(result).toBe(bundledPrompt());
     expect(warnCalls).toHaveLength(1);
@@ -213,7 +286,7 @@ describe("resolveConsolidationPrompt — failure modes", () => {
     const link = join(tmpWorkspace, "link.md");
     symlinkSync(target, link);
 
-    const result = resolveConsolidationPrompt(link, CUTOFF);
+    const result = resolveConsolidationPrompt(link, CUTOFF, NO_CORE);
 
     expect(result).toBe(bundledPrompt());
     expect(warnCalls).toHaveLength(1);
@@ -230,7 +303,7 @@ describe("resolveConsolidationPrompt — failure modes", () => {
       return;
     }
 
-    const result = resolveConsolidationPrompt(fifoPath, CUTOFF);
+    const result = resolveConsolidationPrompt(fifoPath, CUTOFF, NO_CORE);
 
     expect(result).toBe(bundledPrompt());
     expect(warnCalls).toHaveLength(1);

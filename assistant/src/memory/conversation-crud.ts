@@ -28,6 +28,11 @@ import { findDisplayTurnEndIndex } from "../conversations/message-consolidation.
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
+import {
+  forkEverInjected,
+  MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
+  seedEverInjectedFromSlugs,
+} from "../plugins/defaults/memory-v3-shadow/ever-injected-store.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { UserError } from "../util/errors.js";
 import { safeParseRecord } from "../util/json.js";
@@ -67,10 +72,15 @@ import {
   memorySummaries,
   messageAttachments,
   messages,
+  skillLoadedEvents,
   toolInvocations,
 } from "./schema.js";
 import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
-import { forkActivationState } from "./v2/activation-store.js";
+import {
+  forkActivationState,
+  seedForkActivationState,
+} from "./v2/activation-store.js";
+import { extractInjectedConceptSlugs } from "./v2/injected-block-slugs.js";
 
 const log = getLogger("conversation-store");
 
@@ -129,6 +139,9 @@ export const messageMetadataSchema = z
     /** Image source paths from desktop attachments, keyed by filename. */
     imageSourcePaths: z.record(z.string(), z.string()).optional(),
     memoryInjectedBlock: z.string().optional(),
+    /** Memory-v3 frozen net-new card block (unwrapped) — the v3 counterpart
+     *  of `memoryInjectedBlock`. A row carries at most one of the two. */
+    [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]: z.string().optional(),
     turnContextBlock: z.string().optional(),
     pkbSystemReminderBlock: z.string().optional(),
     workspaceBlock: z.string().optional(),
@@ -164,6 +177,30 @@ function cloneForkMessageMetadata(
   }
 
   return JSON.stringify({ forkSourceMessageId: sourceMessageId });
+}
+
+/**
+ * Read a persisted memory-injection block off a message's metadata JSON, or
+ * `null` when absent/malformed. `key` selects the injection layer: v2's
+ * `memoryInjectedBlock` or memory-v3's card block
+ * (`MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`). The block is what the request
+ * builder re-attaches as the message's `<memory>` content each turn.
+ */
+function readInjectedBlock(
+  metadata: string | null,
+  key: string,
+): string | null {
+  if (!metadata) return null;
+  try {
+    const parsed: unknown = JSON.parse(metadata);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const block = (parsed as Record<string, unknown>)[key];
+      if (typeof block === "string") return block;
+    }
+  } catch {
+    // Malformed metadata — treat as no block.
+  }
+  return null;
 }
 
 /**
@@ -227,6 +264,7 @@ export interface ConversationRow {
   scheduleJobId: string | null;
   lastMessageAt: number | null;
   archivedAt: number | null;
+  surfacedAt: number | null;
   inferenceProfile: string | null;
   inferenceProfileSessionId: string | null;
   inferenceProfileExpiresAt: number | null;
@@ -261,6 +299,7 @@ export const parseConversation = createRowMapper<
   scheduleJobId: "scheduleJobId",
   lastMessageAt: "lastMessageAt",
   archivedAt: "archivedAt",
+  surfacedAt: "surfacedAt",
   inferenceProfile: "inferenceProfile",
   inferenceProfileSessionId: "inferenceProfileSessionId",
   inferenceProfileExpiresAt: "inferenceProfileExpiresAt",
@@ -1033,7 +1072,52 @@ export function forkConversation(params: {
     const isFullHistoryFork = copyBoundaryIndex === sourceMessages.length - 1;
     if (isFullHistoryFork) {
       forkActivationState(db, sourceConversation.id, fc.id);
+      forkEverInjected(db, sourceConversation.id, fc.id);
       forkGraphMemoryState(sourceConversation.id, fc.id);
+    } else {
+      // Truncated fork: the wholesale copy above would over-claim, but
+      // seeding nothing makes the child re-select and re-attach every page
+      // whose `<memory>` attachment it already inherited (observed in
+      // production: 89 duplicate page injections on one fork). Derive
+      // `everInjected` from the inherited attachments themselves — scoped to
+      // the child's visible window, since attachments behind an inherited
+      // compaction boundary are not rendered and must stay re-injectable.
+      // The v2 and v3 layers persist under separate metadata keys with the
+      // same `# memory/concepts/<slug>.md` header convention, so each seeds
+      // its own dedup record from its own blocks.
+      const visibleStartIndex = preserveSourceCompactionState
+        ? visibleWindowStartIndex
+        : 0;
+      const inheritedSlugs = new Set<string>();
+      const inheritedV3Slugs = new Set<string>();
+      for (const message of messagesToCopy.slice(visibleStartIndex)) {
+        const block = readInjectedBlock(
+          message.metadata,
+          "memoryInjectedBlock",
+        );
+        if (block) {
+          for (const slug of extractInjectedConceptSlugs(block)) {
+            inheritedSlugs.add(slug);
+          }
+        }
+        const v3Block = readInjectedBlock(
+          message.metadata,
+          MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
+        );
+        if (v3Block) {
+          for (const slug of extractInjectedConceptSlugs(v3Block)) {
+            inheritedV3Slugs.add(slug);
+          }
+        }
+      }
+      seedForkActivationState(db, fc.id, [...inheritedSlugs]);
+      seedEverInjectedFromSlugs(
+        db,
+        sourceConversation.id,
+        fc.id,
+        [...inheritedV3Slugs],
+        Date.now(),
+      );
     }
     forkRetrospectiveState({
       database: db,
@@ -1104,6 +1188,9 @@ export function deleteConversation(id: string): DeletedMemoryIds {
       tx.delete(toolInvocations)
         .where(eq(toolInvocations.conversationId, id))
         .run();
+      tx.delete(skillLoadedEvents)
+        .where(eq(skillLoadedEvents.conversationId, id))
+        .run();
       // Cascade deletes memory_segments, message_attachments.
       tx.delete(messages).where(eq(messages.conversationId, id)).run();
 
@@ -1125,6 +1212,9 @@ export function deleteConversation(id: string): DeletedMemoryIds {
         .run();
       tx.delete(toolInvocations)
         .where(eq(toolInvocations.conversationId, id))
+        .run();
+      tx.delete(skillLoadedEvents)
+        .where(eq(skillLoadedEvents.conversationId, id))
         .run();
     }
 
@@ -1183,7 +1273,7 @@ export function wipeConversation(id: string): WipeConversationResult {
 
   // Step D — Delegate to deleteConversation which handles messages (cascade
   // segments, attachments), llmRequestLogs, toolInvocations,
-  // embeddings, and the conversation row.
+  // skillLoadedEvents, embeddings, and the conversation row.
   const deletedMemoryIds = deleteConversation(id);
 
   // Step E — Return the combined result.
@@ -1772,6 +1862,36 @@ export function unarchiveConversation(id: string): boolean {
 }
 
 /**
+ * Set or clear the `surfaced_at` promotion marker for a conversation.
+ *
+ * A non-null `surfaced_at` promotes a background/scheduled conversation
+ * into the default ("standard") conversation listing so clients show it in
+ * the Recents sidebar grouping. Promotion is always explicit — callers are
+ * product flows that decide a background run deserves foreground visibility
+ * (e.g. the user sent a follow-up message in it). Nothing sets this
+ * automatically.
+ *
+ * Returns `null` when the conversation does not exist; otherwise the new
+ * `surfacedAt` value (`number` when surfacing, `null` when clearing).
+ */
+export function setConversationSurfaced(
+  id: string,
+  surfaced: boolean,
+): { surfacedAt: number | null } | null {
+  const conv = getConversation(id);
+  if (!conv) return null;
+  const now = Date.now();
+  const surfacedAt = surfaced ? now : null;
+  rawRun(
+    "UPDATE conversations SET surfaced_at = ?, updated_at = ? WHERE id = ?",
+    surfacedAt,
+    now,
+    id,
+  );
+  return { surfacedAt };
+}
+
+/**
  * Set or clear the inference profile override for a conversation.
  * Pass `null` to clear the override and fall back to the workspace
  * `llm.activeProfile` resolution.
@@ -2024,6 +2144,7 @@ export async function clearAll(): Promise<{
   await runOrThrow("DELETE FROM message_attachments");
   await runOrThrow("DELETE FROM attachments");
   await runOrThrow("DELETE FROM tool_invocations");
+  await runOrThrow("DELETE FROM skill_loaded_events");
   let messagesFtsCorrupted = false;
   const ftsResult = await runAsyncSqlite("DELETE FROM messages_fts");
   if (!ftsResult.ok) {
@@ -2492,8 +2613,18 @@ export function batchSetDisplayOrders(
         ) {
           safeGroupId = "system:all";
         }
+        // Moving a conversation into the Scheduled/Background system groups
+        // is an explicit demotion out of Recents, so clear any `surfaced_at`
+        // promotion in the same write — otherwise the surfaced marker would
+        // keep the row in the standard listing and the move would appear to
+        // do nothing.
+        const clearsSurfaced =
+          safeGroupId === "system:background" ||
+          safeGroupId === "system:scheduled";
         rawRun(
-          "UPDATE conversations SET display_order = ?, is_pinned = ?, group_id = ? WHERE id = ?",
+          `UPDATE conversations SET display_order = ?, is_pinned = ?, group_id = ?${
+            clearsSurfaced ? ", surfaced_at = NULL" : ""
+          } WHERE id = ?`,
           update.displayOrder,
           safeGroupId === "system:pinned" ? 1 : 0,
           safeGroupId,

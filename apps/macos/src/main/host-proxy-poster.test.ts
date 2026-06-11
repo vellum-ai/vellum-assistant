@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -114,14 +114,18 @@ function createBinaryMockFetch(status: number, data: Buffer) {
   return { fetchFn: fetchFn as typeof globalThis.fetch, captured };
 }
 
-function makePoster(
-  fetchFn: typeof globalThis.fetch,
-  overrides?: { gatewayPort?: number; gatewayHost?: string; authToken?: string },
-) {
+function makeLocalPoster(fetchFn: typeof globalThis.fetch, port = 9000, token = "test-token") {
   return new HostProxyPoster({
-    gatewayPort: overrides?.gatewayPort ?? 9000,
-    gatewayHost: overrides?.gatewayHost,
-    authToken: overrides?.authToken ?? "test-token",
+    endpointBase: `http://127.0.0.1:${port}/v1`,
+    authHeaders: () => ({ Authorization: `Bearer ${token}` }),
+    fetch: fetchFn,
+  });
+}
+
+function makeCloudPoster(fetchFn: typeof globalThis.fetch, runtimeUrl = "https://platform.vellum.ai", assistantId = "asst-123", sessionToken = "session-tok") {
+  return new HostProxyPoster({
+    endpointBase: `${runtimeUrl}/v1/assistants/${assistantId}`,
+    authHeaders: () => ({ "X-Session-Token": sessionToken }),
     fetch: fetchFn,
   });
 }
@@ -144,7 +148,7 @@ describe("HostProxyPoster", () => {
   describe("postBashResult", () => {
     test("sends correct URL, method, headers, and body", async () => {
       const { fetchFn, captured } = createMockFetch();
-      const poster = makePoster(fetchFn);
+      const poster = makeLocalPoster(fetchFn);
 
       const result = await poster.postBashResult({
         requestId: "req-1",
@@ -174,7 +178,7 @@ describe("HostProxyPoster", () => {
   describe("postFileResult", () => {
     test("sends correct URL and body fields", async () => {
       const { fetchFn, captured } = createMockFetch();
-      const poster = makePoster(fetchFn);
+      const poster = makeLocalPoster(fetchFn);
 
       const result = await poster.postFileResult({
         requestId: "req-2",
@@ -197,7 +201,7 @@ describe("HostProxyPoster", () => {
   describe("postTransferResult", () => {
     test("sends correct URL and body fields", async () => {
       const { fetchFn, captured } = createMockFetch();
-      const poster = makePoster(fetchFn);
+      const poster = makeLocalPoster(fetchFn);
 
       const result = await poster.postTransferResult({
         requestId: "req-3",
@@ -218,7 +222,7 @@ describe("HostProxyPoster", () => {
   describe("postBrowserResult", () => {
     test("sends correct URL and body fields", async () => {
       const { fetchFn, captured } = createMockFetch();
-      const poster = makePoster(fetchFn);
+      const poster = makeLocalPoster(fetchFn);
 
       const result = await poster.postBrowserResult({
         requestId: "req-4",
@@ -239,7 +243,7 @@ describe("HostProxyPoster", () => {
   describe("postCuResult", () => {
     test("sends correct URL and body fields", async () => {
       const { fetchFn, captured } = createMockFetch();
-      const poster = makePoster(fetchFn);
+      const poster = makeLocalPoster(fetchFn);
 
       const result = await poster.postCuResult({
         requestId: "req-5",
@@ -265,7 +269,7 @@ describe("HostProxyPoster", () => {
   describe("postAppControlResult", () => {
     test("sends correct URL and body fields", async () => {
       const { fetchFn, captured } = createMockFetch();
-      const poster = makePoster(fetchFn);
+      const poster = makeLocalPoster(fetchFn);
 
       const result = await poster.postAppControlResult({
         requestId: "req-6",
@@ -297,7 +301,7 @@ describe("HostProxyPoster", () => {
     test("returns buffer on success", async () => {
       const payload = Buffer.from("file-bytes-here");
       const { fetchFn, captured } = createBinaryMockFetch(200, payload);
-      const poster = makePoster(fetchFn);
+      const poster = makeLocalPoster(fetchFn);
 
       const buf = await poster.pullTransferContent("xfer-1");
 
@@ -316,7 +320,7 @@ describe("HostProxyPoster", () => {
 
     test("returns null on non-2xx", async () => {
       const { fetchFn } = createBinaryMockFetch(404, Buffer.alloc(0));
-      const poster = makePoster(fetchFn);
+      const poster = makeLocalPoster(fetchFn);
 
       const buf = await poster.pullTransferContent("xfer-missing");
 
@@ -328,7 +332,7 @@ describe("HostProxyPoster", () => {
         200,
         Buffer.from("ok"),
       );
-      const poster = makePoster(fetchFn);
+      const poster = makeLocalPoster(fetchFn);
 
       await poster.pullTransferContent("id/with special&chars");
 
@@ -341,7 +345,7 @@ describe("HostProxyPoster", () => {
   describe("pushTransferContent", () => {
     test("sends binary data with correct headers", async () => {
       const { fetchFn, captured } = createMockFetch();
-      const poster = makePoster(fetchFn);
+      const poster = makeLocalPoster(fetchFn);
       const data = Buffer.from("binary-payload");
 
       const result = await poster.pushTransferContent(
@@ -363,7 +367,7 @@ describe("HostProxyPoster", () => {
 
     test("returns false on non-2xx", async () => {
       const { fetchFn } = createMockFetch(500);
-      const poster = makePoster(fetchFn);
+      const poster = makeLocalPoster(fetchFn);
 
       const result = await poster.pushTransferContent(
         "xfer-3",
@@ -378,7 +382,7 @@ describe("HostProxyPoster", () => {
   describe("error handling", () => {
     test("returns false on non-2xx status", async () => {
       const { fetchFn } = createMockFetch(500);
-      const poster = makePoster(fetchFn);
+      const poster = makeLocalPoster(fetchFn);
 
       const result = await poster.postBashResult({
         requestId: "req-err",
@@ -392,7 +396,7 @@ describe("HostProxyPoster", () => {
       const throwingFetch = (async () => {
         throw new Error("network failure");
       }) as unknown as typeof globalThis.fetch;
-      const poster = makePoster(throwingFetch);
+      const poster = makeLocalPoster(throwingFetch);
 
       const result = await poster.postBashResult({
         requestId: "req-throw",
@@ -406,7 +410,7 @@ describe("HostProxyPoster", () => {
       const throwingFetch = (async () => {
         throw new Error("network failure");
       }) as unknown as typeof globalThis.fetch;
-      const poster = makePoster(throwingFetch);
+      const poster = makeLocalPoster(throwingFetch);
 
       const buf = await poster.pullTransferContent("xfer-throw");
 
@@ -417,7 +421,7 @@ describe("HostProxyPoster", () => {
       const throwingFetch = (async () => {
         throw new Error("network failure");
       }) as unknown as typeof globalThis.fetch;
-      const poster = makePoster(throwingFetch);
+      const poster = makeLocalPoster(throwingFetch);
 
       const result = await poster.pushTransferContent(
         "xfer-throw",
@@ -429,28 +433,39 @@ describe("HostProxyPoster", () => {
     });
   });
 
-  describe("configuration", () => {
-    test("uses custom gatewayHost when provided", async () => {
-      const { fetchFn, captured } = createMockFetch();
-      const poster = makePoster(fetchFn, {
-        gatewayHost: "192.168.1.100",
-        gatewayPort: 8080,
-      });
+  // -- Cloud mode ---------------------------------------------------------
 
-      await poster.postBashResult({ requestId: "req-host", stdout: "" });
+  describe("cloud mode", () => {
+    test("uses assistant-scoped URLs for result POSTs", async () => {
+      const { fetchFn, captured } = createMockFetch();
+      const poster = makeCloudPoster(fetchFn);
+
+      await poster.postBashResult({ requestId: "r1", stdout: "" });
 
       expect(captured[0].url).toBe(
-        "http://192.168.1.100:8080/v1/host-bash-result",
+        "https://platform.vellum.ai/v1/assistants/asst-123/host-bash-result",
       );
     });
 
-    test("defaults gatewayHost to 127.0.0.1", async () => {
+    test("uses X-Session-Token header instead of Bearer token", async () => {
       const { fetchFn, captured } = createMockFetch();
-      const poster = makePoster(fetchFn);
+      const poster = makeCloudPoster(fetchFn);
 
-      await poster.postBashResult({ requestId: "req-default", stdout: "" });
+      await poster.postBashResult({ requestId: "r1", stdout: "" });
 
-      expect(captured[0].url).toStartWith("http://127.0.0.1:9000/");
+      expect(captured[0].headers["X-Session-Token"]).toBe("session-tok");
+      expect(captured[0].headers["Authorization"]).toBeUndefined();
+    });
+
+    test("uses assistant-scoped URLs for transfer content", async () => {
+      const { fetchFn, captured } = createBinaryMockFetch(200, Buffer.from("ok"));
+      const poster = makeCloudPoster(fetchFn);
+
+      await poster.pullTransferContent("xfer-1");
+
+      expect(captured[0].url).toBe(
+        "https://platform.vellum.ai/v1/assistants/asst-123/transfers/xfer-1/content",
+      );
     });
   });
 });

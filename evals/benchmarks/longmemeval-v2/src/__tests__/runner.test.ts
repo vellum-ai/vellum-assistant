@@ -250,7 +250,7 @@ describe("runLongMemEvalV2Unit", () => {
     const runId = `lme-v2-runner-events-${Date.now()}`;
     runIdsToCleanup.push(runId);
     const harness = makeFakeAgent([
-      [textEvent("Indexing haystack…")],
+      [textEvent("Indexing haystack…"), textEvent("\nReady.")],
       [textEvent("The laptop was blue.")],
     ]);
     nextAgent = harness.agent;
@@ -325,6 +325,45 @@ describe("runLongMemEvalV2Unit", () => {
     });
 
     expect(result.metrics[0]!.score).toBe(0);
+  });
+
+  test("marks status=completed and scores 0 when the question turn produces no answer in time", async () => {
+    // GIVEN an ingest turn that completes on the sentinel
+    // AND a question turn that emits only non-text events (retrieval /
+    // thinking) and never composes an answer before its time budget elapses
+    const runId = `lme-v2-runner-noanswer-${Date.now()}`;
+    runIdsToCleanup.push(runId);
+    const harness = makeFakeAgent([
+      [textEvent("Ready.")],
+      [{ message: { type: "tool_use_start", toolName: "lookup" } }],
+    ]);
+    nextAgent = harness.agent;
+
+    // WHEN the unit runs
+    const result = await runLongMemEvalV2Unit({
+      profile: profileFor("p1"),
+      item: makeItem(),
+      trajectoryReader: trajectoryReader(),
+      runId,
+      questionMaxMs: 200,
+      quietMs: 50,
+    });
+
+    // THEN the run is a completed miss, not an errored/failed run: it scores
+    // 0 and counts in the denominator, with a time-based reason and no judge
+    // function attribution (the judge never ran).
+    expect(result.metrics[0]!.score).toBe(0);
+    expect(result.metrics[0]!.reason).toMatch(/within the question turn's/);
+    expect(result.metrics[0]!.reason).toMatch(/time budget/);
+    expect(
+      (result.metrics[0]!.metadata as Record<string, unknown>)["function"],
+    ).toBe("no-answer");
+
+    const meta = JSON.parse(
+      await readFile(runArtifacts(runId).metadataPath, "utf8"),
+    );
+    expect(meta.status).toBe("completed");
+    expect(meta.error).toBeUndefined();
   });
 
   test("marks status=failed when the ingest turn produces no events", async () => {
@@ -573,7 +612,7 @@ describe("runLongMemEvalV2Unit", () => {
     expect(usage.totalOutputTokens).toBe(50);
   });
 
-  test("manifest write reflects haystack order and ability", async () => {
+  test("manifest write reflects haystack order and withholds the question for blind ingest", async () => {
     const runId = `lme-v2-runner-manifest-${Date.now()}`;
     runIdsToCleanup.push(runId);
 
@@ -594,7 +633,10 @@ describe("runLongMemEvalV2Unit", () => {
     expect(manifestWrite).toBeDefined();
     const manifest = JSON.parse(manifestWrite!.content);
     expect(manifest.trajectoryIds).toEqual(["t2", "t1"]);
-    expect(manifest.ability).toBe("static-state-recall");
     expect(manifest.count).toBe(2);
+    // The ingested manifest must not leak the upcoming question or its
+    // ability type, otherwise the ingest turn is no longer blind.
+    expect(manifest.question).toBeUndefined();
+    expect(manifest.ability).toBeUndefined();
   });
 });

@@ -2,9 +2,8 @@
 // React / DOM imports so `buildTranscriptItems` and `partitionLatestTurn`
 // can be unit-tested under `bun test` without a Node test runner.
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 import type { RuntimeSubagentNotification } from "@/domains/chat/api/messages";
-import type { Surface } from "@/domains/chat/types/types";
 
 export type TranscriptItemKind =
   | "message"

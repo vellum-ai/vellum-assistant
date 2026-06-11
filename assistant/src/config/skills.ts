@@ -1,4 +1,5 @@
 import {
+  type Dirent,
   existsSync,
   lstatSync,
   readdirSync,
@@ -17,18 +18,16 @@ import {
 
 import { z } from "zod";
 
-import {
-  getPluginContributedSkillDefinition,
-  getPluginContributedSkillSummaries,
-} from "../plugins/plugin-skill-contributions.js";
 import { parseFrontmatterFields } from "../skills/frontmatter.js";
 import type { InlineCommandExpansion } from "../skills/inline-command-expansions.js";
 import { parseInlineCommandExpansions } from "../skills/inline-command-expansions.js";
 import { parseToolManifestFile } from "../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../skills/version-hash.js";
+import type { OwnerInfo } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import {
   getWorkspaceDirDisplay,
+  getWorkspacePluginsDir,
   getWorkspaceSkillsDir,
 } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
@@ -47,6 +46,7 @@ const VellumMetadataSchema = z
     "feature-flag": z.string().optional(),
     "activation-hints": z.array(z.string()).optional(),
     "avoid-when": z.array(z.string()).optional(),
+    category: z.string().optional(),
   })
   .passthrough();
 
@@ -66,9 +66,9 @@ const SkillMetadataSchema = z
  * - `workspace`: user-authored skill living in a conversation's working dir.
  * - `extra`: third-party directory roots passed via `loadSkillCatalog`'s
  *   `extraDirs` argument (primarily for tests).
- * - `plugin`: contributed at runtime by a loaded plugin via
- *   `PluginSkillRegistration`. Body is held in-memory by
- *   `plugins/plugin-skill-contributions.ts`, not on disk.
+ * - `plugin`: shipped on disk inside an installed plugin at
+ *   `<workspaceDir>/plugins/<name>/skills/<id>/SKILL.md`, attributed back to
+ *   the owning plugin via its `owner` descriptor.
  */
 export type SkillSource =
   | "bundled"
@@ -90,6 +90,13 @@ export interface SkillSummary {
   icon?: string;
   emoji?: string;
   source: SkillSource;
+  /**
+   * Ownership descriptor identifying the extension that ships this skill,
+   * reusing the same {@link OwnerInfo} model the tool registry uses. Set only
+   * for `source: "plugin"` skills — `{ kind: "plugin", id: <plugin dir name> }`
+   * — attributing them to the installed plugin under `<workspaceDir>/plugins/`.
+   */
+  owner?: OwnerInfo;
   /** Parsed tool manifest metadata, if the skill has a valid TOOLS.json. */
   toolManifest?: SkillToolManifestMeta;
   /** IDs of child skills that this skill includes (metadata-only, not auto-activated). */
@@ -100,6 +107,8 @@ export interface SkillSummary {
   activationHints?: string[];
   /** Conditions under which this skill should NOT be loaded. */
   avoidWhen?: string[];
+  /** Category slug declared in frontmatter, used as a fallback when the skill is not in the Vellum catalog. */
+  category?: string;
   /** Parsed inline command expansion descriptors (`!\`command\``) found in the skill body. */
   inlineCommandExpansions?: InlineCommandExpansion[];
 }
@@ -217,6 +226,7 @@ interface ParsedFrontmatter {
   featureFlag?: string;
   activationHints?: string[];
   avoidWhen?: string[];
+  category?: string;
   inlineCommandExpansions?: InlineCommandExpansion[];
 }
 
@@ -327,6 +337,11 @@ function parseFrontmatter(
   const activationHints = normalizeStringArray(vellum?.["activation-hints"]);
   const avoidWhen = normalizeStringArray(vellum?.["avoid-when"]);
 
+  const category =
+    typeof vellum?.category === "string" && vellum.category.trim().length > 0
+      ? vellum.category.trim()
+      : undefined;
+
   const strippedBody = stripCommentLines(body);
 
   // Parse inline command expansions from the body (after frontmatter/comment stripping)
@@ -350,6 +365,7 @@ function parseFrontmatter(
     featureFlag,
     activationHints,
     avoidWhen,
+    category,
     inlineCommandExpansions,
   };
 }
@@ -506,6 +522,7 @@ function readSkillFromDirectory(
       featureFlag: parsed.featureFlag,
       activationHints: parsed.activationHints,
       avoidWhen: parsed.avoidWhen,
+      category: parsed.category,
       inlineCommandExpansions: parsed.inlineCommandExpansions,
     };
   } catch (err) {
@@ -558,6 +575,7 @@ function readBundledSkillFromDirectory(
       featureFlag: parsed.featureFlag,
       activationHints: parsed.activationHints,
       avoidWhen: parsed.avoidWhen,
+      category: parsed.category,
       inlineCommandExpansions: parsed.inlineCommandExpansions,
     };
   } catch (err) {
@@ -618,6 +636,7 @@ function loadBundledSkills(): SkillSummary[] {
       featureFlag: skill.featureFlag,
       activationHints: skill.activationHints,
       avoidWhen: skill.avoidWhen,
+      category: skill.category,
       inlineCommandExpansions: skill.inlineCommandExpansions,
     });
   }
@@ -646,6 +665,82 @@ function discoverSkillDirectories(skillsDir: string): string[] {
   return dirs.sort((a, b) => a.localeCompare(b));
 }
 
+/**
+ * Whether `pluginDir` is a recognized installed plugin: it must carry a
+ * parseable `package.json` whose `name` equals the directory name. This
+ * mirrors the external plugin loader's recognition gate, which skips any
+ * directory whose `manifest.name` does not match its directory name.
+ */
+function isRecognizedPluginDir(pluginDir: string, dirName: string): boolean {
+  const manifestPath = join(pluginDir, "package.json");
+  if (!existsSync(manifestPath)) return false;
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    return (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "name" in parsed &&
+      (parsed as { name: unknown }).name === dirName
+    );
+  } catch (err) {
+    log.warn(
+      { err, manifestPath },
+      "Skipping plugin dir with unparseable package.json for resident skills",
+    );
+    return false;
+  }
+}
+
+/**
+ * Discover skills shipped on disk inside installed plugins. Each installed
+ * plugin — a directory under `<workspaceDir>/plugins/` recognized by
+ * {@link isRecognizedPluginDir} — may ship skills at `skills/<id>/SKILL.md`.
+ * Returned summaries are attributed to the owning plugin via their `owner`
+ * descriptor (`{ kind: "plugin", id: <plugin dir name> }`).
+ */
+function discoverPluginResidentSkills(): SkillSummary[] {
+  const pluginsDir = getWorkspacePluginsDir();
+  if (!existsSync(pluginsDir)) return [];
+
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(pluginsDir, { withFileTypes: true });
+  } catch (err) {
+    log.warn(
+      { err, pluginsDir },
+      "Failed to read plugins directory for resident skills",
+    );
+    return [];
+  }
+
+  const summaries: SkillSummary[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+    const pluginDir = join(pluginsDir, entry.name);
+    // Mirror the plugin loader's recognition gate: a directory is a real
+    // installed plugin only if it carries a parseable `package.json` whose
+    // `name` matches the directory. This rejects staging dirs, stray files,
+    // and malformed/mismatched clones (e.g. an un-adapted `caveman-installer`)
+    // that the loader itself would skip, so the catalog never surfaces skills
+    // from a directory the runtime would refuse to load.
+    if (!isRecognizedPluginDir(pluginDir, entry.name)) continue;
+
+    const skillsDir = join(pluginDir, "skills");
+    if (!existsSync(skillsDir)) continue;
+
+    for (const directory of discoverSkillDirectories(skillsDir)) {
+      const skill = readSkillFromDirectory(directory, skillsDir, "plugin");
+      if (!skill) continue;
+      summaries.push({
+        ...skillSummaryFromDefinition(skill, "plugin"),
+        owner: { kind: "plugin", id: entry.name },
+      });
+    }
+  }
+
+  return summaries;
+}
+
 // ─── Catalog loading ─────────────────────────────────────────────────────────
 
 function skillSummaryFromDefinition(
@@ -668,6 +763,7 @@ function skillSummaryFromDefinition(
     featureFlag: skill.featureFlag,
     activationHints: skill.activationHints,
     avoidWhen: skill.avoidWhen,
+    category: skill.category,
     inlineCommandExpansions: skill.inlineCommandExpansions,
   };
 }
@@ -721,6 +817,7 @@ export function loadSkillCatalog(
             featureFlag: parsed.featureFlag,
             activationHints: parsed.activationHints,
             avoidWhen: parsed.avoidWhen,
+            category: parsed.category,
             inlineCommandExpansions: parsed.inlineCommandExpansions,
           });
         } catch (err) {
@@ -754,12 +851,11 @@ export function loadSkillCatalog(
     catalog.push(skill);
   }
 
-  // Load plugin-contributed skills. They sit above bundled/extra but below
-  // managed and workspace so that user-authored filesystem skills can
-  // override a plugin-provided skill by declaring the same id under
-  // `~/.vellum/workspace/skills/`. Registration is owned by the plugin
-  // bootstrap — this call is a pure read against the in-memory registry.
-  const pluginSkills = getPluginContributedSkillSummaries();
+  // Discover skills shipped on disk inside installed plugins. They sit above
+  // bundled/extra but below managed and workspace so a user-authored
+  // filesystem skill can override a plugin-provided skill by declaring the
+  // same id under `$VELLUM_WORKSPACE_DIR/skills/`.
+  const pluginSkills = discoverPluginResidentSkills();
   for (const skill of pluginSkills) {
     if (seenIds.has(skill.id)) {
       const existingIndex = catalog.findIndex((s) => s.id === skill.id);
@@ -769,14 +865,14 @@ export function loadSkillCatalog(
           catalog[existingIndex].source === "extra")
       ) {
         log.info(
-          { id: skill.id, pluginSkill: true },
+          { id: skill.id, pluginName: skill.owner?.id },
           "Plugin skill overrides bundled/extra skill",
         );
         catalog[existingIndex] = skill;
         continue;
       }
       log.warn(
-        { id: skill.id },
+        { id: skill.id, pluginName: skill.owner?.id },
         "Skipping duplicate plugin skill id (already present in catalog)",
       );
       continue;
@@ -857,6 +953,7 @@ export function loadSkillCatalog(
           featureFlag: parsed.featureFlag,
           activationHints: parsed.activationHints,
           avoidWhen: parsed.avoidWhen,
+          category: parsed.category,
           inlineCommandExpansions: parsed.inlineCommandExpansions,
         };
 
@@ -992,41 +1089,13 @@ export function listReferenceFiles(directoryPath: string): string | null {
 }
 
 function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
-  // Plugin-contributed skills live in-memory, not on disk. The registry
-  // (see `plugins/plugin-skill-contributions.ts`) stores a pre-built
-  // SkillDefinition we can return directly — no file read, no frontmatter
-  // parse. We still run placeholder / feature-gate substitution on the
-  // body so plugin skills behave the same as filesystem skills from the
-  // model's perspective.
-  if (skill.source === "plugin") {
-    const pluginDef = getPluginContributedSkillDefinition(skill.id);
-    if (!pluginDef) {
-      // The skill was in the catalog when the selector ran but has since
-      // been unregistered (plugin hot-reload, shutdown race). Fail loudly
-      // rather than returning a mystery undefined.
-      return {
-        error: `Plugin-contributed skill "${skill.id}" is no longer registered`,
-      };
-    }
-    // Shallow-clone so mutating the returned `body` below does not touch
-    // the registry's stored copy — the registry must stay the source of
-    // truth across repeated `skill_load` calls.
-    const loaded: SkillDefinition = { ...pluginDef };
-    loaded.body = loaded.body.replaceAll("{baseDir}", loaded.directoryPath);
-    loaded.body = loaded.body.replaceAll(
-      "{workspaceDir}",
-      getWorkspaceDirDisplay(),
-    );
-    loaded.body = applyFeatureGatedSections(loaded.body);
-    return { skill: loaded };
-  }
-
   let loaded: SkillDefinition | null;
   if (skill.bundled) {
     loaded = readBundledSkillFromDirectory(skill.directoryPath);
-  } else if (skill.source === "workspace") {
-    // Workspace skills live outside ~/.vellum/workspace/skills, so use their parent
-    // directory as the root to avoid the isOutsideSkillsRoot rejection.
+  } else if (skill.source === "workspace" || skill.source === "plugin") {
+    // Workspace and plugin-resident skills live outside
+    // $VELLUM_WORKSPACE_DIR/skills, so use the skill's parent directory as the
+    // root to avoid the isOutsideSkillsRoot rejection.
     loaded = readSkillFromDirectory(
       skill.directoryPath,
       dirname(skill.directoryPath),
@@ -1042,6 +1111,7 @@ function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   if (!loaded) {
     return { error: `Failed to load SKILL.md for "${skill.id}"` };
   }
+  loaded.owner = skill.owner;
   // Replace {baseDir} placeholders with the actual skill directory path
   loaded.body = loaded.body.replaceAll("{baseDir}", loaded.directoryPath);
   // Replace {workspaceDir} placeholders with the runtime workspace display path

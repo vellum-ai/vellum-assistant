@@ -10,13 +10,12 @@
  * creation/reuse lifecycle — provider wiring, rate limiting, system
  * prompt assembly, and DB hydration. DaemonServer calls
  * {@link initConversationLifecycle} once at construction time to
- * supply the few remaining lifecycle references (evictor, CES client,
- * shared rate-limit timestamps, broadcast).
+ * supply the few remaining lifecycle references (evictor, shared
+ * rate-limit timestamps, broadcast).
  */
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
-import type { CesClient } from "../credential-execution/client.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
 import { resolveDefaultProvider } from "../providers/connection-resolution.js";
@@ -68,7 +67,6 @@ const conversationCreating = new Map<string, Promise<Conversation>>();
 
 /** Lifecycle refs injected once by DaemonServer at construction. */
 let _evictor: ConversationEvictor | null = null;
-let _cesClientPromise: Promise<CesClient | undefined> | undefined;
 let _sharedRequestTimestamps: number[] = [];
 
 /**
@@ -77,21 +75,10 @@ let _sharedRequestTimestamps: number[] = [];
  */
 export function initConversationLifecycle(refs: {
   evictor: ConversationEvictor;
-  cesClientPromise?: Promise<CesClient | undefined>;
   sharedRequestTimestamps: number[];
 }): void {
   _evictor = refs.evictor;
-  _cesClientPromise = refs.cesClientPromise;
   _sharedRequestTimestamps = refs.sharedRequestTimestamps;
-}
-
-/**
- * Update the CES client promise after async initialization completes.
- */
-export function setCesClientPromise(
-  p: Promise<CesClient | undefined> | undefined,
-): void {
-  _cesClientPromise = p;
 }
 
 function applyTransportMetadata(
@@ -177,9 +164,6 @@ export async function getOrCreateConversation(
         storedOptions?.systemPromptOverride ?? buildSystemPrompt();
       const maxTokens = storedOptions?.maxResponseTokens;
 
-      const sharedCesClient = _cesClientPromise
-        ? await _cesClientPromise
-        : undefined;
       const newConversation = new Conversation(
         conversationId,
         provider,
@@ -188,7 +172,6 @@ export async function getOrCreateConversation(
         workingDir,
         {
           maxTokens,
-          sharedCesClient,
           speedOverride: storedOptions?.speed,
           modelOverride: storedOptions?.modelOverride,
         },

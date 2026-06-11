@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useIsIOSWeb, useIsMacOSWeb } from "@/runtime/platform-detection";
 import {
@@ -15,7 +15,14 @@ import {
   useMacOsNudgeState,
   MAC_APP_BANNER_MIN_TURNS,
 } from "@/hooks/use-macos-app-nudge";
-import { useGitHubNudgeState, type GitHubNudgeState } from "@/hooks/use-github-nudge";
+import {
+  useGitHubNudgeState,
+  ensureGitHubFirstSeenAt,
+  readGitHubUserMessagesSeen,
+  incrementGitHubUserMessagesSeen,
+  GITHUB_MIN_USER_MESSAGES,
+  type GitHubNudgeState,
+} from "@/hooks/use-github-nudge";
 import { useDiscordNudgeState, ensureFirstSeenAt, type DiscordNudgeState } from "@/hooks/use-discord-nudge";
 
 // ---------------------------------------------------------------------------
@@ -75,11 +82,13 @@ export interface AppNudgesState {
  * @param liveAssistantMessageId - Id of the currently-live assistant row, or
  *   `null` when nothing is streaming. Derived from message position and the
  *   conversation's processing state.
+ * @param activeConversationId - Current conversation ID for user-message tracking.
  */
 export function useAppNudges(
   messages: readonly DisplayMessage[],
   conversationCount: number,
   liveAssistantMessageId: string | null,
+  activeConversationId: string | null,
 ): AppNudgesState {
   // -------------------------------------------------------------------------
   // Platform detection
@@ -157,6 +166,52 @@ export function useAppNudges(
   // -------------------------------------------------------------------------
   // GitHub star nudge — only after platform nudge is resolved
   // -------------------------------------------------------------------------
+  useEffect(() => {
+    ensureGitHubFirstSeenAt();
+  }, []);
+
+  // Track user messages sent (cumulative, conversation-aware).
+  // Uses clientMessageId (stable correlation nonce) as the primary key so
+  // the same send isn't double-counted when the optimistic client-UUID id
+  // is swapped to the server-assigned messageId on user_message_echo.
+  const trackedConversationIdRef = useRef<string | null>(null);
+  const seenUserMsgKeysRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (readGitHubUserMessagesSeen() >= GITHUB_MIN_USER_MESSAGES) {
+      return;
+    }
+
+    // On conversation switch or first observation: snapshot existing messages
+    if (activeConversationId !== trackedConversationIdRef.current) {
+      trackedConversationIdRef.current = activeConversationId;
+      seenUserMsgKeysRef.current = new Set<string>();
+      for (const m of messages) {
+        if (m.role === "user") {
+          seenUserMsgKeysRef.current.add(m.clientMessageId ?? m.id);
+        }
+      }
+      return;
+    }
+
+    // Count newly-sent user messages
+    let newCount = 0;
+    for (const m of messages) {
+      if (m.role !== "user") {
+        continue;
+      }
+      const key = m.clientMessageId ?? m.id;
+      if (!seenUserMsgKeysRef.current.has(key)) {
+        seenUserMsgKeysRef.current.add(key);
+        newCount++;
+      }
+    }
+
+    if (newCount > 0) {
+      incrementGitHubUserMessagesSeen(newCount);
+    }
+  }, [messages, activeConversationId]);
+
   const githubNudge = useGitHubNudgeState();
   const platformNudgeResolved =
     !isOnNudgePlatform || !nudge.bannerShouldShow;

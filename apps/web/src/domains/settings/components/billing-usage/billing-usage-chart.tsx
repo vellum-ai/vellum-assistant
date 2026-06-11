@@ -29,8 +29,8 @@ export type ChartMetric = "spend" | "events";
 //   - `MOBILE_AXIS_TICK` drops 12 → 11 px to match the rest of the
 //     analytics charts on mobile.
 //
-// Height is intentionally NOT capped on mobile — the previous 240 cap
-// (PR #6252) made trends unreadable. Mobile users scroll fine.
+// Height is intentionally NOT capped on mobile — the previous 240px cap
+// made trends unreadable. Mobile users scroll fine.
 const MOBILE_Y_AXIS_WIDTH = 40;
 const MOBILE_AXIS_TICK = { fontSize: 11, fill: "#8d99a5" } as const;
 

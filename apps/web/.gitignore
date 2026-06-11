@@ -3,3 +3,6 @@ src/generated/
 
 # Derived daemon spec — regenerated from assistant/openapi.yaml by transform-daemon-spec.ts
 openapi-schemas/daemon.json
+
+# Local tool logs
+*.log

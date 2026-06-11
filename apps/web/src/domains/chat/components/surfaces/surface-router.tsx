@@ -1,6 +1,7 @@
 import { CheckCircle, XCircle } from "lucide-react";
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { INHERENTLY_INTERACTIVE_SURFACE_TYPES } from "@/domains/chat/types/types";
 import type { Surface } from "@/domains/chat/types/types";
 
 import { BrowserViewSurface } from "@/domains/chat/components/surfaces/browser-view-surface";
@@ -26,7 +27,7 @@ export interface SurfaceRouterProps {
     surfaceId: string,
     actionId: string,
     data?: Record<string, unknown>,
-  ) => void;
+  ) => void | Promise<void>;
   assistantId?: string | null;
   assistantDisplayName?: string | null;
   onOpenApp?: (appId: string) => void;
@@ -46,15 +47,7 @@ export function SurfaceRouter({
   onOpenDocument,
   toolCalls,
 }: SurfaceRouterProps) {
-  const CHIP_COLLAPSE_TYPES = [
-    "choice",
-    "oauth_connect",
-    "form",
-    "confirmation",
-    "file_upload",
-    "task_preferences",
-  ];
-  if (surface.completed && CHIP_COLLAPSE_TYPES.includes(surface.surfaceType)) {
+  if (surface.completed && INHERENTLY_INTERACTIVE_SURFACE_TYPES.includes(surface.surfaceType)) {
     const isCancelled = surface.completionSummary === "Cancelled";
     if (isCancelled) {
       return (

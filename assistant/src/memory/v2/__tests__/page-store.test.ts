@@ -186,6 +186,61 @@ describe("writePage + readPage round-trip", () => {
     expect(read!.body).toBe(page.body);
   });
 
+  test("round-trips authored links: frontmatter (memory-v3 edge lane)", async () => {
+    const page = makePage({
+      frontmatter: {
+        edges: [],
+        ref_files: [],
+        ref_urls: [],
+        links: ["bob-handoff — the partner this hands off to"],
+      },
+    });
+    await writePage(workspaceDir, page);
+
+    // A page using the optional `links:` frontmatter must NOT be rejected by the
+    // strict schema (it would otherwise be dropped from memory-v3 entirely), and
+    // the curated links must survive the render → read round-trip so the edge
+    // graph can parse them back from the rendered frontmatter.
+    const read = await readPage(workspaceDir, page.slug);
+    expect(read).not.toBeNull();
+    expect(read!.frontmatter.links).toEqual([
+      "bob-handoff — the partner this hands off to",
+    ]);
+  });
+
+  test("accepts and round-trips the v3 wiki-article frontmatter fields", async () => {
+    // The full shape CONSOLIDATION_PROMPT_V3 teaches and migrated corpora
+    // arrive in. readPage() throws on schema failure and one invalid page in
+    // a turn's top-K no-ops the whole v2 injection block, so rejecting these
+    // fields would break every article of a migrated corpus at once.
+    const page = makePage({
+      slug: "wiki-shaped",
+      frontmatter: {
+        edges: [],
+        ref_files: [],
+        ref_urls: [],
+        title: "Wiki Shaped — A Display Title",
+        slug: "wiki-shaped",
+        tags: ["topic-area", "index"],
+        main: "parent-hub",
+        kind: "index",
+        status: "cc-draft",
+        links: ["child-slug — why this link exists"],
+      },
+    });
+    await writePage(workspaceDir, page);
+
+    const read = await readPage(workspaceDir, "wiki-shaped");
+    expect(read).not.toBeNull();
+    expect(read!.frontmatter.title).toBe("Wiki Shaped — A Display Title");
+    expect(read!.frontmatter.tags).toEqual(["topic-area", "index"]);
+    expect(read!.frontmatter.main).toBe("parent-hub");
+    expect(read!.frontmatter.kind).toBe("index");
+    // The draft marker must survive a programmatic write → read round-trip:
+    // stripping it would silently un-draft a page mid-voice-pass.
+    expect(read!.frontmatter.status).toBe("cc-draft");
+  });
+
   test("renders frontmatter at the top with --- delimiters", async () => {
     const page = makePage();
     await writePage(workspaceDir, page);

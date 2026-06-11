@@ -25,6 +25,13 @@ export const ToolUseStartEventSchema = z.object({
   toolUseId: z.string().optional(),
   messageId: z.string().optional(),
   conversationId: z.string().optional(),
+  /**
+   * Unix ms when the daemon began executing the tool. Lets clients anchor a
+   * live elapsed-time counter to the server clock instead of the moment the
+   * event was received over SSE. Absent on streams from older daemons that
+   * pre-date this field; clients fall back to their own receipt time.
+   */
+  startedAt: z.number().optional(),
 });
 
 export type ToolUseStartEvent = z.infer<typeof ToolUseStartEventSchema>;

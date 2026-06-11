@@ -164,7 +164,8 @@ function parseDeletedCount(stdout: string | undefined): number {
  * conversation_keys, channel_inbound_events, message_runs, call_sessions,
  * external_conversation_bindings, assistant_inbox_conversation_state) are handled
  * automatically. Tables without cascade (messages, tool_invocations,
- * llm_request_logs) are deleted explicitly before removing the conversation row.
+ * llm_request_logs, skill_loaded_events) are deleted explicitly before
+ * removing the conversation row.
  */
 export function pruneOldConversationsJob(
   job: MemoryJob,
@@ -206,6 +207,7 @@ export function pruneOldConversationsJob(
       rawRun(`DELETE FROM llm_request_logs WHERE conversation_id = ?`, id);
       rawRun(`DELETE FROM tool_invocations WHERE conversation_id = ?`, id);
       rawRun(`DELETE FROM messages WHERE conversation_id = ?`, id);
+      rawRun(`DELETE FROM skill_loaded_events WHERE conversation_id = ?`, id);
       // Conversation row deletion cascades to remaining dependent tables
       rawRun(`DELETE FROM conversations WHERE id = ?`, id);
       pruned++;

@@ -78,15 +78,13 @@ function buildConnectionProviderDisplayNames(): Record<
 }
 
 // ---------------------------------------------------------------------------
-// Feature-flag filter
+// Feature-flag filter (retained for call-site compatibility)
 // ---------------------------------------------------------------------------
 
 export function filterFlaggedConnections(
   connections: ProviderConnection[],
-  openAICompatibleEndpointsEnabled: boolean,
 ): ProviderConnection[] {
-  if (openAICompatibleEndpointsEnabled) return connections;
-  return connections.filter((c) => c.provider !== "openai-compatible");
+  return connections;
 }
 
 // ---------------------------------------------------------------------------

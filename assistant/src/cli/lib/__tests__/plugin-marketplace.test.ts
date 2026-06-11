@@ -16,7 +16,7 @@ import {
 } from "../plugin-marketplace.js";
 
 const MANIFEST_URL_PREFIX =
-  "https://api.github.com/repos/vellum-ai/vellum-assistant/contents/experimental/plugins/marketplace.json";
+  "https://api.github.com/repos/vellum-ai/vellum-assistant/contents/plugins/marketplace.json";
 
 // External marketplace refs must be full commit SHAs (immutable). Fixtures use
 // realistic 40-char hex object names rather than tags/branches.
@@ -264,7 +264,7 @@ describe("resolveMarketplaceSource", () => {
   test("returns null for a name not in the whitelist", () => {
     // GIVEN whitelisted entries
     // WHEN resolving an unknown name
-    // THEN no source is returned (caller falls back to first-party)
+    // THEN no source is returned (the name is not installable)
     expect(resolveMarketplaceSource("unknown", entries)).toBeNull();
   });
 });

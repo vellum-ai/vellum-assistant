@@ -276,6 +276,53 @@ export type ConversationSlackMessage = z.infer<
 // Content block (unified ordered content)
 // ---------------------------------------------------------------------------
 
+/** A run of assistant prose. */
+export const ConversationTextBlockSchema = z.object({
+  type: z.literal("text"),
+  text: z.string(),
+});
+export type ConversationTextBlock = z.infer<typeof ConversationTextBlockSchema>;
+
+/** A contiguous model reasoning run with its timing. */
+export const ConversationThinkingBlockSchema = z.object({
+  type: z.literal("thinking"),
+  thinking: z.string(),
+  /** Unix ms when the model began emitting this reasoning block. */
+  startedAt: z.number().optional(),
+  /** Unix ms when this reasoning block completed. */
+  completedAt: z.number().optional(),
+});
+export type ConversationThinkingBlock = z.infer<
+  typeof ConversationThinkingBlockSchema
+>;
+
+/** A tool invocation carrying its paired result (`toolCall.result`). */
+export const ConversationToolUseBlockSchema = z.object({
+  type: z.literal("tool_use"),
+  toolCall: ConversationMessageToolCallSchema,
+});
+export type ConversationToolUseBlock = z.infer<
+  typeof ConversationToolUseBlockSchema
+>;
+
+/** A vellum surface projection (no provider analog). */
+export const ConversationSurfaceBlockSchema = z.object({
+  type: z.literal("surface"),
+  surface: ConversationMessageSurfaceSchema,
+});
+export type ConversationSurfaceBlock = z.infer<
+  typeof ConversationSurfaceBlockSchema
+>;
+
+/** A vellum attachment projection (no provider analog). */
+export const ConversationAttachmentBlockSchema = z.object({
+  type: z.literal("attachment"),
+  attachment: ConversationMessageAttachmentSchema,
+});
+export type ConversationAttachmentBlock = z.infer<
+  typeof ConversationAttachmentBlockSchema
+>;
+
 /**
  * A single ordered content block. `contentBlocks` is the unified, display-ready
  * projection of a message's model-native content — one ordered tagged array so
@@ -300,20 +347,11 @@ export type ConversationSlackMessage = z.infer<
  * it from the positional arrays, so it stays correct once those are retired.
  */
 export const ConversationContentBlockSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("text"), text: z.string() }),
-  z.object({ type: z.literal("thinking"), thinking: z.string() }),
-  z.object({
-    type: z.literal("tool_use"),
-    toolCall: ConversationMessageToolCallSchema,
-  }),
-  z.object({
-    type: z.literal("surface"),
-    surface: ConversationMessageSurfaceSchema,
-  }),
-  z.object({
-    type: z.literal("attachment"),
-    attachment: ConversationMessageAttachmentSchema,
-  }),
+  ConversationTextBlockSchema,
+  ConversationThinkingBlockSchema,
+  ConversationToolUseBlockSchema,
+  ConversationSurfaceBlockSchema,
+  ConversationAttachmentBlockSchema,
 ]);
 export type ConversationContentBlock = z.infer<
   typeof ConversationContentBlockSchema
@@ -350,23 +388,93 @@ export const ConversationMessageSchema = z.object({
    */
   role: z.enum(["user", "assistant"]),
   /**
-   * Flat plain-text body (joined text segments). Redundant with
-   * `textSegments`/`contentOrder` for clients that render from the positional
-   * arrays (web, CLI), but the legacy Swift macOS client reads `content`
-   * directly and drops any history row missing it (its
-   * `HistoryReconstructionService` skips rows with empty text). The serializer
-   * always emits it — do not remove without updating that client.
+   * @deprecated Superseded by `contentBlocks`. Flat plain-text body (joined
+   * text segments). Redundant with `textSegments`/`contentOrder` for clients
+   * that render from the positional arrays (web, CLI), but the legacy Swift
+   * macOS client reads `content` directly and drops any history row missing it
+   * (its `HistoryReconstructionService` skips rows with empty text). The
+   * serializer always emits it — do not remove without updating that client.
    */
-  content: z.string().optional(),
+  content: z
+    .string()
+    .meta({
+      deprecated: true,
+      description:
+        "Deprecated: superseded by contentBlocks. Flat plain-text body (joined text segments).",
+    })
+    .optional(),
   /** Display timestamp as an ISO-8601 string. */
   timestamp: z.string(),
+  /**
+   * Flat list of attachment metadata for the row. Not yet supersedable by
+   * `contentBlocks`: `renderHistoryContent` emits an `attachment` content
+   * block only for file-block refs with an inline placement, so orphan rows
+   * (unmatched ids, count mismatch, no DB rows — see `alignAttachments`) ship
+   * here alone. Kept non-deprecated until `contentBlocks` reaches attachment
+   * parity, so clients that migrate off the positional arrays don't drop those
+   * chips.
+   */
   attachments: z.array(ConversationMessageAttachmentSchema),
-  toolCalls: z.array(ConversationMessageToolCallSchema).optional(),
-  surfaces: z.array(ConversationMessageSurfaceSchema).optional(),
-  textSegments: z.array(z.string()).optional(),
-  thinkingSegments: z.array(z.string()).optional(),
-  /** Positional `"<type>:<index>"` content ordering (e.g. `"text:0"`, `"thinking:1"`). */
-  contentOrder: z.array(z.string()).optional(),
+  /**
+   * @deprecated Superseded by `contentBlocks` (the `tool_use` variant). Flat
+   * list of tool calls for the row.
+   */
+  toolCalls: z
+    .array(ConversationMessageToolCallSchema)
+    .meta({
+      deprecated: true,
+      description:
+        "Deprecated: superseded by contentBlocks (the tool_use variant). Flat list of tool calls.",
+    })
+    .optional(),
+  /**
+   * @deprecated Superseded by `contentBlocks` (the `surface` variant). Flat
+   * list of surfaces for the row.
+   */
+  surfaces: z
+    .array(ConversationMessageSurfaceSchema)
+    .meta({
+      deprecated: true,
+      description:
+        "Deprecated: superseded by contentBlocks (the surface variant). Flat list of surfaces.",
+    })
+    .optional(),
+  /**
+   * @deprecated Superseded by `contentBlocks`. Text split by tool-call
+   * boundaries; positional sibling of `contentOrder`.
+   */
+  textSegments: z
+    .array(z.string())
+    .meta({
+      deprecated: true,
+      description:
+        "Deprecated: superseded by contentBlocks. Text segments split by tool-call boundaries.",
+    })
+    .optional(),
+  /**
+   * @deprecated Superseded by `contentBlocks`. Reasoning text extracted from
+   * thinking blocks; positional sibling of `contentOrder`.
+   */
+  thinkingSegments: z
+    .array(z.string())
+    .meta({
+      deprecated: true,
+      description:
+        "Deprecated: superseded by contentBlocks. Reasoning text extracted from thinking blocks.",
+    })
+    .optional(),
+  /**
+   * @deprecated Superseded by `contentBlocks`. Positional
+   * `"<type>:<index>"` content ordering (e.g. `"text:0"`, `"thinking:1"`).
+   */
+  contentOrder: z
+    .array(z.string())
+    .meta({
+      deprecated: true,
+      description:
+        'Deprecated: superseded by contentBlocks. Positional "<type>:<index>" content ordering (e.g. "text:0", "thinking:1").',
+    })
+    .optional(),
   /**
    * Unified ordered content blocks — the display-ready projection of the
    * row's model-native content. Ships alongside the positional

@@ -17,6 +17,10 @@ import type {
 import { getConfig } from "../config/loader.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
+import {
+  recordCompactionEndBestEffort,
+  recordCompactionStartBestEffort,
+} from "../memory/compaction-log-writer-clickhouse.js";
 import { projectAssistantMessage } from "../memory/conversation-attention-store.js";
 import {
   deleteMessageById,
@@ -51,7 +55,6 @@ import type {
   ImageContent,
   Message,
 } from "../providers/types.js";
-import { isContextOverflowError } from "../providers/types.js";
 import {
   getCurrentSeq,
   recordPersistedSeq,
@@ -81,10 +84,8 @@ import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
   buildConversationErrorMessage,
   classifyConversationError,
-  isContextTooLarge,
   maxTokensReachedClassification,
 } from "./conversation-error.js";
-import { isProviderOrderingError } from "./conversation-slash.js";
 import { resolveTurnTimezoneContext } from "./date-context.js";
 import type {
   CardSurfaceData,
@@ -159,23 +160,6 @@ export interface EventHandlerState {
   exchangeLlmCallCount: number;
   readonly exchangeRawResponses: unknown[];
   model: string;
-  orderingErrorDetected: boolean;
-  deferredOrderingError: string | null;
-  contextTooLargeDetected: boolean;
-  /**
-   * Set when the provider rejects with an image-dimension error. The agent
-   * loop strips or downscales oversized image blocks from ctx.messages and
-   * retries once before surfacing an error to the user.
-   */
-  imageTooLargeDetected: boolean;
-  /**
-   * The provider error object when context_too_large is detected, preserved
-   * so `parseActualTokensFromError` can prefer the typed
-   * `ContextOverflowError` fields over the string-regex fallback. The
-   * message is always reachable via `.message` on this object — no separate
-   * field is needed.
-   */
-  contextTooLargeError: unknown;
   providerErrorUserMessage: string | null;
   lastAssistantMessageId: string | undefined;
   /**
@@ -283,6 +267,15 @@ export interface EventHandlerState {
    */
   currentMessageContent: ContentBlock[];
   /**
+   * Per-thinking-block timing for the in-flight LLM call, in stream order:
+   * entry `i` is the `i`-th thinking block mirrored into `currentMessageContent`.
+   * `startedAt` is stamped when a thinking block opens; `completedAt` is the
+   * last reasoning delta fused into it. Used to stamp `_startedAt`/`_completedAt`
+   * onto the authoritative thinking blocks at `message_complete`, mirroring how
+   * tool calls persist timing. Reset alongside `currentMessageContent`.
+   */
+  currentThinkingTimestamps: { startedAt: number; completedAt: number }[];
+  /**
    * `seq` of the most recent streamed content delta mirrored into
    * `currentMessageContent`. Recorded as the conversation's persisted `seq`
    * after each flush commits (the debounced partial flushes and the
@@ -309,14 +302,14 @@ export interface EventHandlerDeps {
   /**
    * Commit a successful inline compaction to durable state. Invoked from the
    * `compaction_completed` dispatch case (when `result.compacted`) with the
-   * loop's compaction result and the stripped pre-compaction `basis`. Supplied
+   * loop's compaction result and the stripped pre-compaction `messages`. Supplied
    * by the orchestrator because the body writes Conversation DB-record fields,
    * projects Slack provenance, and emits transport the loop is intentionally
    * blind to.
    */
   readonly applyCompaction: (
     result: ContextWindowResult,
-    basis: Message[],
+    messages: Message[],
   ) => Promise<void>;
 }
 
@@ -337,11 +330,6 @@ export function createEventHandlerState(): EventHandlerState {
     exchangeLlmCallCount: 0,
     exchangeRawResponses: [],
     model: "",
-    orderingErrorDetected: false,
-    deferredOrderingError: null,
-    contextTooLargeDetected: false,
-    imageTooLargeDetected: false,
-    contextTooLargeError: null,
     providerErrorUserMessage: null,
     lastAssistantMessageId: undefined,
     assistantRowAwaitingFinalization: false,
@@ -371,6 +359,7 @@ export function createEventHandlerState(): EventHandlerState {
     pendingPartialFlushTimer: undefined,
     pendingPartialFlushPromise: undefined,
     currentMessageContent: [],
+    currentThinkingTimestamps: [],
     lastPersistedContentSeq: undefined,
   };
 }
@@ -420,6 +409,37 @@ export function buildPersistedAssistantContent(
   });
 }
 
+/**
+ * Stamp `_startedAt`/`_completedAt` onto the content's thinking blocks from the
+ * per-block timing captured while streaming, matched by position: the `i`-th
+ * thinking block in `content` takes `timings[i]`. The `_`-prefixed fields are
+ * vellum-internal metadata (never sent to providers), mirroring how tool calls
+ * persist timing; `renderHistoryContent` reads them back onto the wire schema's
+ * `startedAt`/`completedAt`.
+ *
+ * Timing is only captured when reasoning is streamed (`streamThinking`), so a
+ * turn with thinking disabled — or any block without a matching entry — is left
+ * unstamped and the UI hides its duration, exactly as a tool call with no
+ * timing does.
+ */
+export function stampThinkingTiming(
+  content: ContentBlock[],
+  timings: ReadonlyArray<{ startedAt: number; completedAt: number }>,
+): ContentBlock[] {
+  if (timings.length === 0) return content;
+  let thinkingIdx = 0;
+  return content.map((block) => {
+    if (block.type !== "thinking") return block;
+    const timing = timings[thinkingIdx++];
+    if (!timing) return block;
+    return {
+      ...block,
+      _startedAt: timing.startedAt,
+      _completedAt: timing.completedAt,
+    } as ContentBlock;
+  });
+}
+
 /** Append a streamed text chunk to `state.currentMessageContent`, fusing into tail text block. */
 function appendTextToCurrentMessage(
   state: EventHandlerState,
@@ -446,15 +466,19 @@ function appendThinkingToCurrentMessage(
   thinking: string,
 ): void {
   if (thinking.length === 0) return;
+  const now = Date.now();
   const tail = state.currentMessageContent.at(-1);
   if (tail && tail.type === "thinking") {
     tail.thinking = tail.thinking + thinking;
+    const timing = state.currentThinkingTimestamps.at(-1);
+    if (timing) timing.completedAt = now;
   } else {
     state.currentMessageContent.push({
       type: "thinking",
       thinking,
       signature: "",
     });
+    state.currentThinkingTimestamps.push({ startedAt: now, completedAt: now });
   }
 }
 
@@ -465,6 +489,7 @@ function resetPartialPersistAccumulator(state: EventHandlerState): void {
     state.pendingPartialFlushTimer = undefined;
   }
   state.currentMessageContent = [];
+  state.currentThinkingTimestamps = [];
   state.lastPersistedContentSeq = undefined;
   state.pendingPartialFlushPromise = undefined;
 }
@@ -852,9 +877,14 @@ export function handleToolUse(
   if (event.name === "app_create" || event.name === "app_refresh") {
     state.appBuildToolUsedThisRun = true;
   }
-  state.toolCallTimestamps.set(event.id, { startedAt: Date.now() });
+  const startedAt = Date.now();
+  state.toolCallTimestamps.set(event.id, { startedAt });
   state.currentToolUseId = event.id;
   state.currentTurnToolUseIds.push(event.id);
+  // Stamp the start time onto the already-durable tool_use block so a snapshot
+  // fetched mid-tool (refresh / reconnect) carries it and clients can render a
+  // running timer without having seen the live `tool_use_start` event.
+  recordToolStartOnPersistedMessage(state, event.id, startedAt);
   const statusText = computeToolUseStatusText(event.name, event.input);
   deps.ctx.emitActivityState("tool_running", "tool_use_start", {
     requestId: deps.reqId,
@@ -867,6 +897,7 @@ export function handleToolUse(
     conversationId: deps.ctx.conversationId,
     toolUseId: event.id,
     messageId: state.lastAssistantMessageId,
+    startedAt,
   });
   // `message_complete` always precedes tool events (see handleMessageComplete),
   // so this tool_use block is already durable in the assistant row. The
@@ -1248,8 +1279,9 @@ export async function handleToolResult(
   });
 
   // Record tool completion timestamp
+  const completedAt = Date.now();
   const ts = state.toolCallTimestamps.get(event.toolUseId);
-  if (ts) ts.completedAt = Date.now();
+  if (ts) ts.completedAt = completedAt;
   state.currentToolUseId = undefined;
 
   // Capture risk metadata when present. autoApproved is true when the tool
@@ -1368,6 +1400,7 @@ export async function handleToolResult(
     approvalReason: event.approvalReason,
     riskThreshold: event.riskThreshold,
     activityMetadata: event.activityMetadata,
+    completedAt,
   });
 
   // Capture the seq synchronously (before the persist await) so it reflects the
@@ -1382,6 +1415,44 @@ export async function handleToolResult(
       { err, conversationId: deps.ctx.conversationId },
       "Failed to persist tool result on arrival (non-fatal; retried at message_complete)",
     );
+  }
+}
+
+/**
+ * Stamp `_startedAt` onto the in-flight tool_use block in the persisted
+ * assistant message the moment the tool begins. The block is already durable
+ * (message_complete precedes tool events), so without this a `/messages`
+ * snapshot fetched mid-tool would carry no start time and clients could not
+ * render a running elapsed-time counter until the whole turn finished. The
+ * full timing + risk annotation still happens in
+ * `annotatePersistedAssistantMessage` once every tool in the turn completes.
+ */
+function recordToolStartOnPersistedMessage(
+  state: EventHandlerState,
+  toolUseId: string,
+  startedAt: number,
+): void {
+  const messageId = state.lastAssistantMessageId;
+  if (!messageId) return;
+
+  const row = getMessageById(messageId);
+  if (!row) return;
+
+  let content: ContentBlock[];
+  try {
+    content = JSON.parse(row.content) as ContentBlock[];
+  } catch {
+    return;
+  }
+
+  for (const block of content) {
+    if (block.type !== "tool_use") continue;
+    const rec = block as unknown as Record<string, unknown>;
+    if (rec.id !== toolUseId) continue;
+    if (rec._startedAt === startedAt) return;
+    rec._startedAt = startedAt;
+    updateMessageContent(messageId, JSON.stringify(content));
+    return;
   }
 }
 
@@ -1508,61 +1579,32 @@ function handleError(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "error" }>,
 ): void {
-  if (isProviderOrderingError(event.error.message)) {
-    state.orderingErrorDetected = true;
-    state.deferredOrderingError = event.error.message;
-  } else if (isContextOverflowError(event.error)) {
-    // Typed path — the provider client already classified this as overflow.
-    state.contextTooLargeDetected = true;
-    state.contextTooLargeError = event.error;
-  } else if (isContextTooLarge(event.error.message)) {
-    state.contextTooLargeDetected = true;
-    state.contextTooLargeError = event.error;
-  } else {
-    const classified = classifyConversationError(event.error, {
-      phase: "agent_loop",
-    });
-    if (classified.code === "CONTEXT_TOO_LARGE") {
-      state.contextTooLargeDetected = true;
-      state.contextTooLargeError = event.error;
-    } else if (classified.code === "IMAGE_TOO_LARGE") {
-      // Trigger silent recovery: the agent loop will strip/downscale images
-      // in ctx.messages and retry once before surfacing an error.
-      state.imageTooLargeDetected = true;
-    } else if (
-      classified.code === "PROVIDER_ORDERING" ||
-      classified.code === "PROVIDER_WEB_SEARCH"
-    ) {
-      // Ordering errors detected via classifyConversationError (e.g. from ProviderError
-      // with statusCode 400 and ordering message) — trigger the retry path.
-      state.orderingErrorDetected = true;
-      state.deferredOrderingError = event.error.message;
-    } else {
-      if (classified.errorCategory === "provider_api_error") {
-        log.error(
-          {
-            conversationId: deps.ctx.conversationId,
-            errorCode: classified.code,
-            errorCategory: classified.errorCategory,
-            statusCode:
-              event.error instanceof ProviderError
-                ? event.error.statusCode
-                : undefined,
-            provider:
-              event.error instanceof ProviderError
-                ? event.error.provider
-                : undefined,
-            errorMessage: event.error.message,
-          },
-          "Provider rejected request with unclassified 4xx error",
-        );
-      }
-      deps.onEvent(
-        buildConversationErrorMessage(deps.ctx.conversationId, classified),
-      );
-      state.providerErrorUserMessage = classified.userMessage;
-    }
+  const classified = classifyConversationError(event.error, {
+    phase: "agent_loop",
+  });
+  if (classified.errorCategory === "provider_api_error") {
+    log.error(
+      {
+        conversationId: deps.ctx.conversationId,
+        errorCode: classified.code,
+        errorCategory: classified.errorCategory,
+        statusCode:
+          event.error instanceof ProviderError
+            ? event.error.statusCode
+            : undefined,
+        provider:
+          event.error instanceof ProviderError
+            ? event.error.provider
+            : undefined,
+        errorMessage: event.error.message,
+      },
+      "Provider rejected request with unclassified 4xx error",
+    );
   }
+  deps.onEvent(
+    buildConversationErrorMessage(deps.ctx.conversationId, classified),
+  );
+  state.providerErrorUserMessage = classified.userMessage;
 }
 
 export function handleMaxTokensReached(
@@ -1730,10 +1772,13 @@ export async function handleMessageComplete(
   // redacted) via the shared helper. The partial-persist flush uses
   // the same helper with `surfaces=[]` so a mid-turn snapshot lands in
   // the same shape as the finalize.
-  const contentForPersistence = buildPersistedAssistantContent(
-    event.message.content as ContentBlock[],
-    deps.ctx.currentTurnSurfaces,
-    state.toolActivityMetadata,
+  const contentForPersistence = stampThinkingTiming(
+    buildPersistedAssistantContent(
+      event.message.content as ContentBlock[],
+      deps.ctx.currentTurnSurfaces,
+      state.toolActivityMetadata,
+    ),
+    state.currentThinkingTimestamps,
   );
 
   // The row was reserved at `llm_call_started` (with channel metadata
@@ -1766,6 +1811,7 @@ export async function handleMessageComplete(
   // Reset the partial-persist mirror so subsequent calls in this turn
   // start with an empty running view.
   state.currentMessageContent = [];
+  state.currentThinkingTimestamps = [];
   state.lastPersistedContentSeq = undefined;
 
   // ── Indexing + attention projection ──
@@ -2269,6 +2315,7 @@ export async function dispatchAgentEvent(
         break;
       }
       case "context_compacting":
+        recordCompactionStartBestEffort(deps.ctx.conversationId, event);
         deps.ctx.emitActivityState("thinking", "context_compacting", {
           requestId: deps.reqId,
           statusText: "Compacting context",
@@ -2283,7 +2330,7 @@ export async function dispatchAgentEvent(
         deps.onEvent(event);
         break;
       case "compaction_completed":
-        // Always commit the loop-stripped `basis` as the durable message base
+        // Always commit the loop-stripped `messages` as the durable message base
         // so re-injection re-applies onto the stripped history even when the
         // pipeline ran but did not compact. When it did compact, commit the
         // durable result (DB-record fields, Slack provenance, SSE) — which
@@ -2292,9 +2339,10 @@ export async function dispatchAgentEvent(
         // so the committed history is in place in time. A failed durable
         // commit re-throws below to abort the turn rather than re-injecting
         // against half-applied state.
-        deps.ctx.messages = event.basis;
+        recordCompactionEndBestEffort(deps.ctx.conversationId, event);
+        deps.ctx.messages = event.messages;
         if (event.result.compacted) {
-          await deps.applyCompaction(event.result, event.basis);
+          await deps.applyCompaction(event.result, event.messages);
         }
         break;
       case "history_stripped":
@@ -2354,7 +2402,8 @@ export async function dispatchAgentEvent(
     );
     // Re-throw errors from critical handlers that must not be silently swallowed:
     // - message_complete: persists assistant message to DB, sets state flags
-    // - error: sets recovery flags (contextTooLargeDetected, orderingErrorDetected)
+    // - error: triggers image recovery or surfaces the user-facing error
+    //   message
     // - usage: records token accounting
     // - compaction_completed: durable compaction commit; aborting the turn is
     //   safer than re-injecting against a half-applied compaction

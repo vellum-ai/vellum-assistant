@@ -15,6 +15,8 @@ import {
   markConversationSeenLocal,
   prependConversation,
   removeConversation,
+  shouldSurfaceConversationOnUserSend,
+  surfaceConversationInCaches,
   resolveDraftKey,
   appendGroup,
   patchGroup,
@@ -275,6 +277,166 @@ describe("removeConversation", () => {
     removeConversation(qc, ASSISTANT_ID, "nonexistent");
 
     expect(getForeground(qc)).toBe(original);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// surfaceConversationInCaches
+// ---------------------------------------------------------------------------
+
+describe("shouldSurfaceConversationOnUserSend", () => {
+  test("allows unsurfaced scheduled and background conversations", () => {
+    expect(
+      shouldSurfaceConversationOnUserSend(
+        makeConversation({
+          conversationId: "scheduled-1",
+          conversationType: "scheduled",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      shouldSurfaceConversationOnUserSend(
+        makeConversation({
+          conversationId: "background-1",
+          conversationType: "background",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      shouldSurfaceConversationOnUserSend(
+        makeConversation({
+          conversationId: "legacy-scheduled-1",
+          groupId: "system:scheduled",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  test("skips conversations already displayed outside run buckets", () => {
+    expect(
+      shouldSurfaceConversationOnUserSend(
+        makeConversation({ conversationId: "standard-1" }),
+      ),
+    ).toBe(false);
+    expect(
+      shouldSurfaceConversationOnUserSend(
+        makeConversation({
+          conversationId: "surfaced-1",
+          conversationType: "scheduled",
+          surfacedAt: 9000,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      shouldSurfaceConversationOnUserSend(
+        makeConversation({
+          conversationId: "pinned-1",
+          conversationType: "background",
+          isPinned: true,
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      shouldSurfaceConversationOnUserSend(
+        makeConversation({
+          conversationId: "custom-1",
+          conversationType: "scheduled",
+          groupId: "group-custom",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      shouldSurfaceConversationOnUserSend(
+        makeConversation({
+          conversationId: "archived-1",
+          conversationType: "background",
+          archivedAt: 7000,
+        }),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("surfaceConversationInCaches", () => {
+  test("prepends a scheduled conversation to foreground Recents and patches its existing cache row", () => {
+    seedForeground(qc, [makeConversation({ conversationId: "existing" })]);
+    seedScheduled(qc, [
+      makeConversation({
+        conversationId: "run-1",
+        conversationType: "scheduled",
+        groupId: "system:scheduled",
+        lastMessageAt: 3000,
+      }),
+    ]);
+
+    surfaceConversationInCaches(
+      qc,
+      ASSISTANT_ID,
+      getScheduled(qc)[0]!,
+      9000,
+      8000,
+    );
+
+    expect(getForeground(qc).map((c) => c.conversationId)).toEqual([
+      "run-1",
+      "existing",
+    ]);
+    expect(getForeground(qc)[0]).toMatchObject({
+      conversationId: "run-1",
+      groupId: "system:all",
+      surfacedAt: 9000,
+      lastMessageAt: 8000,
+    });
+    expect(getScheduled(qc)[0]).toMatchObject({
+      conversationId: "run-1",
+      groupId: "system:all",
+      surfacedAt: 9000,
+    });
+  });
+
+  test("prepends the fetched conversation when no lazy run cache has loaded", () => {
+    seedForeground(qc, [makeConversation({ conversationId: "existing" })]);
+    const runConversation = makeConversation({
+      conversationId: "run-1",
+      conversationType: "background",
+      groupId: "system:background",
+    });
+
+    surfaceConversationInCaches(
+      qc,
+      ASSISTANT_ID,
+      runConversation,
+      9000,
+      8500,
+    );
+
+    expect(getForeground(qc)[0]).toMatchObject({
+      conversationId: "run-1",
+      groupId: "system:all",
+      surfacedAt: 9000,
+      lastMessageAt: 8500,
+    });
+    expect(getBackground(qc)).toEqual([]);
+  });
+
+  test("keeps the newer existing lastMessageAt when the caller timestamp is older", () => {
+    seedBackground(qc, [
+      makeConversation({
+        conversationId: "run-1",
+        conversationType: "background",
+        lastMessageAt: 9500,
+      }),
+    ]);
+
+    surfaceConversationInCaches(
+      qc,
+      ASSISTANT_ID,
+      getBackground(qc)[0]!,
+      9000,
+      8500,
+    );
+
+    expect(getForeground(qc)[0]?.lastMessageAt).toBe(9500);
   });
 });
 

@@ -84,6 +84,17 @@ describe("ToolProgressCardShell — collapsed render per state", () => {
     expect(getByText("3 steps")).toBeTruthy();
   });
 
+  test("hideStatusIndicator omits the leading status indicator", () => {
+    const { queryByTestId, getByText } = renderShell({
+      state: "loading",
+      hideStatusIndicator: true,
+    });
+    // No loading dots (or any status icon) in the header...
+    expect(queryByTestId("tool-progress-card-status-indicator")).toBeNull();
+    // ...but the header title still renders.
+    expect(getByText("Doing the thing")).toBeTruthy();
+  });
+
   test("does not render the children body when collapsed", () => {
     const { queryByTestId } = renderShell();
     expect(queryByTestId("shell-body")).toBeNull();

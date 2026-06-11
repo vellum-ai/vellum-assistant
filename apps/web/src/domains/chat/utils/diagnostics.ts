@@ -6,7 +6,7 @@
  * in `@/lib/diagnostics`.
  */
 
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import type {
   ConversationContentBlock,
   ConversationMessage,

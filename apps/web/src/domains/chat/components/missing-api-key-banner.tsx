@@ -36,7 +36,7 @@ export function MissingApiKeyBanner({
           API key required
         </p>
         <p className="text-body-medium-default text-[var(--content-tertiary)]">
-          Add an API key in Settings to start chatting.
+          Add an API key in Settings → Models & Services to start chatting.
         </p>
       </div>
 

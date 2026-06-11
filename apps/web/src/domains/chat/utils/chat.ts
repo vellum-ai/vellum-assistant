@@ -3,6 +3,7 @@ import type { IdentityGetResponse } from "@/generated/daemon/types.gen";
 import type { Conversation } from "@/types/conversation-types";
 import type { AssistantEvent } from "@/types/event-types";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
+import { mapMessageToolCalls } from "@/domains/chat/utils/map-message-tool-calls";
 import type {
   AllowlistOption,
   DirectoryScopeOption,
@@ -16,7 +17,7 @@ import type { ToolCallRuleContext } from "@/domains/chat/rule-editor-actions";
 export const ERROR_MESSAGES: Record<string, string> = {
   rate_limit_exceeded: "Too many requests. Please wait a moment and try again.",
   invalid_api_key:
-    "The API key for this provider is invalid or expired. Please check your settings.",
+    "The API key for this provider is invalid or expired. Check your API key in Settings → Models & Services.",
 };
 
 const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
@@ -221,10 +222,10 @@ function applyConfirmationToToolCall(
 } {
   const msg = messages[messageIndex]!;
   const tc = msg.toolCalls![toolCallIndex]!;
-  const updatedToolCalls = [...msg.toolCalls!];
-  updatedToolCalls[toolCallIndex] = { ...tc, pendingConfirmation: pending };
   const updatedMessages = [...messages];
-  updatedMessages[messageIndex] = { ...msg, toolCalls: updatedToolCalls };
+  updatedMessages[messageIndex] = mapMessageToolCalls(msg, (cur) =>
+    cur.id === tc.id ? { ...cur, pendingConfirmation: pending } : cur,
+  );
   return { updatedMessages, attachedToolCallId: tc.id };
 }
 
