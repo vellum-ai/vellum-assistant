@@ -9,6 +9,14 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import type { Schedule } from "@/domains/settings/types/schedules";
 
+function cadenceTextForRow(schedule: Schedule): string | null {
+  const cadence = schedule.cadenceDescription.trim();
+  if (!cadence) return null;
+  if (schedule.isOneShot) return null;
+  if (cadence === schedule.description.trim()) return null;
+  return cadence;
+}
+
 export function ScheduleRow({
   schedule,
   usage,
@@ -23,6 +31,7 @@ export function ScheduleRow({
   onOpenUsage: () => void;
 }) {
   const displayRunAt = schedule.lastRunAt ?? schedule.nextRunAt;
+  const cadenceText = cadenceTextForRow(schedule);
 
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-[var(--surface-hover)] [&+&]:border-t [&+&]:border-[var(--border-base)]">
@@ -36,8 +45,15 @@ export function ScheduleRow({
             {schedule.name}
           </span>
         </div>
-        <div className="mt-0.5 flex items-center gap-3 text-body-small-default text-[var(--content-tertiary)]">
-          <span className="truncate">{schedule.description}</span>
+        <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-body-small-default text-[var(--content-tertiary)]">
+          <span className="min-w-[12rem] max-w-full flex-1 truncate">
+            {schedule.description}
+          </span>
+          {cadenceText ? (
+            <span className="shrink-0 text-[var(--content-secondary)]">
+              {cadenceText}
+            </span>
+          ) : null}
           {displayRunAt ? (
             <span className="shrink-0">{formatTimestamp(displayRunAt)}</span>
           ) : null}
