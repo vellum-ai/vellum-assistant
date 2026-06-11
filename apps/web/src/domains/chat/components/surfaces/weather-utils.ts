@@ -60,6 +60,7 @@ export interface WeatherForecastData {
   humidity?: number;
   windSpeed?: number;
   windDirection?: string;
+  windUnit?: string;
   unit?: string;
   hourly?: WeatherHourlyItem[];
   forecast?: WeatherForecastItem[];
@@ -170,9 +171,10 @@ export function parseWeatherData(raw: Record<string, unknown>): WeatherForecastD
   const windSpeed = num(current?.windSpeed) ?? num(current?.wind_speed) ?? num(raw.windSpeed) ?? num(raw.wind_speed) ?? parsedWind.speed;
   const windDirection = str(current?.windDirection) ?? str(current?.wind_direction) ?? str(raw.windDirection) ?? str(raw.wind_direction) ?? parsedWind.direction;
 
-  // Unit
+  // Units
   const units = rec(raw.units);
   const unit = str(units?.temperature) ?? str(current?.unit) ?? str(raw.unit) ?? "F";
+  const windUnit = str(units?.speed) ?? str(raw.windUnit) ?? str(raw.wind_unit);
 
   // Hourly
   const hourly: WeatherHourlyItem[] = filterRecords(raw.hourly)
@@ -208,6 +210,7 @@ export function parseWeatherData(raw: Record<string, unknown>): WeatherForecastD
     humidity,
     windSpeed,
     windDirection,
+    windUnit,
     unit,
     hourly: hourly.length > 0 ? hourly : undefined,
     forecast: forecast.length > 0 ? forecast : undefined,

@@ -11,9 +11,11 @@ export function str(val: unknown): string | undefined {
   return typeof val === "string" ? val : undefined;
 }
 
-/** Narrow `unknown` → `number | undefined`. Rejects NaN and ±Infinity. */
+/** Narrow `unknown` → `number | undefined`. Rejects NaN, ±Infinity, booleans, and empty strings. */
 export function num(val: unknown): number | undefined {
   if (val === undefined || val === null) return undefined;
+  if (typeof val === "boolean") return undefined;
+  if (typeof val === "string" && val.trim() === "") return undefined;
   const n = Number(val);
   return Number.isFinite(n) ? n : undefined;
 }

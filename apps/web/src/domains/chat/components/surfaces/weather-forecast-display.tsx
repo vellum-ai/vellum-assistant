@@ -80,10 +80,10 @@ function HeroSection({
   const todayHighStr = today ? getDayHigh(today, sourceIsFahrenheit, useFahrenheit) : null;
   const todayLowStr = today ? getDayLow(today, sourceIsFahrenheit, useFahrenheit) : null;
 
-  // Wind: display raw value as-is (daemon doesn't specify wind units independently)
+  // Wind: display raw value with unit from payload (defaults to mph)
   let windStr: string | null = null;
   if (data.windSpeed !== undefined) {
-    windStr = `${Math.round(data.windSpeed)} mph`;
+    windStr = `${Math.round(data.windSpeed)} ${data.windUnit ?? "mph"}`;
     if (data.windDirection) windStr = `${data.windDirection} ${windStr}`;
   }
 

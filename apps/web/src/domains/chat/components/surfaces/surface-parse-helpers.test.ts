@@ -30,6 +30,17 @@ describe("num", () => {
     expect(num("3.5")).toBe(3.5);
   });
 
+  test("rejects empty strings and whitespace-only strings", () => {
+    expect(num("")).toBeUndefined();
+    expect(num("  ")).toBeUndefined();
+    expect(num("\t")).toBeUndefined();
+  });
+
+  test("rejects booleans", () => {
+    expect(num(true)).toBeUndefined();
+    expect(num(false)).toBeUndefined();
+  });
+
   test("returns undefined for non-finite or non-numeric", () => {
     expect(num(NaN)).toBeUndefined();
     expect(num(Infinity)).toBeUndefined();

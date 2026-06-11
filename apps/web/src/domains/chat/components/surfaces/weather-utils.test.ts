@@ -122,6 +122,20 @@ describe("parseWeatherData", () => {
     expect(result!.unit).toBe("C");
   });
 
+  test("reads wind unit from units.speed", () => {
+    const result = parseWeatherData({
+      location: "NYC",
+      windSpeed: 18,
+      units: { temperature: "C", speed: "km/h" },
+    });
+    expect(result!.windUnit).toBe("km/h");
+  });
+
+  test("defaults windUnit to undefined when not specified", () => {
+    const result = parseWeatherData({ location: "NYC", windSpeed: 10 });
+    expect(result!.windUnit).toBeUndefined();
+  });
+
   test("normalizes hourly temp to single field (prefers tempC)", () => {
     const result = parseWeatherData({
       location: "NYC",
