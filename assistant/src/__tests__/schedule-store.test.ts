@@ -167,6 +167,7 @@ describe("createSchedule (cron)", () => {
   test("persisted cron schedule is retrievable with new fields", () => {
     const job = createSchedule({
       name: "Hourly",
+      description: "Check the hourly status report",
       cronExpression: "0 * * * *",
       message: "hourly check",
       syntax: "cron",
@@ -177,6 +178,32 @@ describe("createSchedule (cron)", () => {
     expect(retrieved!.syntax).toBe("cron");
     expect(retrieved!.expression).toBe("0 * * * *");
     expect(retrieved!.cronExpression).toBe("0 * * * *");
+    expect(retrieved!.description).toBe("Check the hourly status report");
+  });
+
+  test("normalizes schedule descriptions on create and update", () => {
+    const job = createSchedule({
+      name: "Description normalization",
+      description: "  Daily executive summary  ",
+      cronExpression: "0 8 * * *",
+      message: "summarize the day",
+      syntax: "cron",
+    });
+
+    expect(job.description).toBe("Daily executive summary");
+
+    const raw = getRawDb()
+      .query("SELECT description FROM cron_jobs WHERE id = ?")
+      .get(job.id) as { description: string };
+    expect(raw.description).toBe("Daily executive summary");
+
+    const updated = updateSchedule(job.id, {
+      description: "  Updated summary prompt  ",
+    });
+    expect(updated).not.toBeNull();
+    expect(updated!.description).toBe("Updated summary prompt");
+    expect(getSchedule(job.id)!.description).toBe("Updated summary prompt");
+    expect(listSchedules()[0].description).toBe("Updated summary prompt");
   });
 
   test("defaults source conversation metadata to null", () => {
