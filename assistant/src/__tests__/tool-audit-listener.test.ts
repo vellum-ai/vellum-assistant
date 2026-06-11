@@ -10,6 +10,10 @@ mock.module("../config/loader.js", () => ({
 
 import { createToolAuditListener } from "../events/tool-audit-listener.js";
 import type { ToolInvocationRecord } from "../memory/tool-usage-store.js";
+import {
+  OPENAI_PROJECT_KEY_REDACTION_MARKER,
+  SYNTHETIC_OPENAI_PROJECT_KEY,
+} from "./secret-fixtures.js";
 
 describe("tool audit listener", () => {
   beforeEach(() => {
@@ -105,12 +109,9 @@ describe("tool audit listener", () => {
     const records: ToolInvocationRecord[] = [];
     const listener = createToolAuditListener((record) => records.push(record));
 
-    // OpenAI Project Key pattern requires 40+ base64url chars after
-    // "sk-proj-"; value chosen to dodge the scanner's placeholder filtering
-    // (no test/fake/example markers, not same-char or x-runs).
-    const openaiKey =
-      "sk-proj-Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4zAb7cDe0fGh3iJk6l";
-    const input = { command: `export OPENAI_API_KEY="${openaiKey}"` };
+    const input = {
+      command: `export OPENAI_API_KEY="${SYNTHETIC_OPENAI_PROJECT_KEY}"`,
+    };
 
     listener({
       type: "executed",
@@ -150,8 +151,13 @@ describe("tool audit listener", () => {
 
     expect(records).toHaveLength(3);
     for (const record of records) {
-      expect(record.input).toContain('<redacted type="OpenAI Project Key" />');
-      expect(record.input).not.toContain(openaiKey);
+      expect(record.input).not.toContain(SYNTHETIC_OPENAI_PROJECT_KEY);
+      // The stored input must remain parseable JSON: string leaves are
+      // redacted before stringification, so the marker lands inside a JSON
+      // string value (its quotes escaped) instead of corrupting the
+      // serialized form.
+      const parsed = JSON.parse(record.input) as { command: string };
+      expect(parsed.command).toContain(OPENAI_PROJECT_KEY_REDACTION_MARKER);
     }
   });
 
