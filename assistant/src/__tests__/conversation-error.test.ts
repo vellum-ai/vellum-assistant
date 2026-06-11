@@ -461,7 +461,7 @@ describe("classifyConversationError", () => {
       const result = classifyConversationError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_NOT_CONFIGURED");
       expect(result.userMessage).toBe(
-        "No API key configured for inference. Add one in Settings to start chatting.",
+        "No API key configured for inference. Add one in Settings → Models & Services to start chatting.",
       );
       expect(result.retryable).toBe(true);
       expect(result.errorCategory).toBe("provider_not_configured");
@@ -636,11 +636,7 @@ describe("classifyConversationError", () => {
     });
 
     it("classifies ProviderError 403 with 'invalid api key' message as PROVIDER_INVALID_KEY", () => {
-      const err = new ProviderError(
-        "OpenAI: Invalid API key",
-        "openai",
-        403,
-      );
+      const err = new ProviderError("OpenAI: Invalid API key", "openai", 403);
       const result = classifyConversationError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_INVALID_KEY");
       expect(result.errorCategory).toBe("provider_invalid_key");

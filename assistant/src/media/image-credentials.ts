@@ -66,8 +66,8 @@ export async function resolveImageGenCredentials(opts: {
 function providerKeyHint(provider: ImageGenProvider): string {
   switch (provider) {
     case "gemini":
-      return "No Gemini API key configured. Please set your Gemini API key in Settings > Models & Services.";
+      return "No Gemini API key configured. Please set your Gemini API key in Settings → Models & Services.";
     case "openai":
-      return "No OpenAI API key configured. Please set your OpenAI API key in Settings > Models & Services.";
+      return "No OpenAI API key configured. Please set your OpenAI API key in Settings → Models & Services.";
   }
 }

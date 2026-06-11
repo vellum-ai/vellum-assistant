@@ -548,7 +548,7 @@ export async function executeAppGenerateIcon(
   return {
     content: JSON.stringify({
       error:
-        "Icon generation failed. Make sure a Gemini API key is configured in Settings.",
+        "Icon generation failed. Make sure a Gemini API key is configured in Settings → Models & Services.",
     }),
     isError: true,
   };
