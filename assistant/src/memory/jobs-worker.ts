@@ -748,6 +748,9 @@ export function maybeEnqueueGraphMaintenanceJobs(
   config: AssistantConfig,
   nowMs = Date.now(),
 ): void {
+  const memoryEnabled = config.memory.enabled !== false;
+  if (!memoryEnabled) return;
+
   const v2Active = config.memory.v2.enabled;
 
   // The single buffer-drainer entry for the v2-active branch. Referenced again

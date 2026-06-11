@@ -71,11 +71,15 @@ const { maybeEnqueueGraphMaintenanceJobs } = await import("../jobs-worker.js");
 const CONSOLIDATE_CHECKPOINT_KEY = "memory_v2_consolidate_last_run";
 
 function buildConfig(overrides: {
+  memoryEnabled?: boolean;
   v2Enabled?: boolean;
   intervalHours?: number;
   maxBufferLines?: number | null;
 }) {
   const partial = applyNestedDefaults({});
+  if (overrides.memoryEnabled !== undefined) {
+    partial.memory.enabled = overrides.memoryEnabled;
+  }
   if (overrides.v2Enabled !== undefined) {
     partial.memory.v2.enabled = overrides.v2Enabled;
   }
@@ -154,6 +158,20 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
     expect(countPendingJobs("graph_consolidate")).toBe(0);
     expect(countPendingJobs("graph_pattern_scan")).toBe(0);
     expect(countPendingJobs("graph_narrative_refine")).toBe(0);
+  });
+
+  test("does not enqueue consolidate when global memory is disabled", () => {
+    const config = buildConfig({
+      memoryEnabled: false,
+      v2Enabled: true,
+      intervalHours: 1,
+    });
+    writeBuffer(15);
+
+    maybeEnqueueGraphMaintenanceJobs(config, Date.now());
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+    expect(countPendingJobs("graph_consolidate")).toBe(0);
   });
 
   test("does not enqueue consolidate before the interval has elapsed", () => {
@@ -246,7 +264,6 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
     expect(countPendingJobs("graph_narrative_refine")).toBe(1);
     expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
   });
-
 });
 
 describe("maybeEnqueueGraphMaintenanceJobs — buffer-size trigger", () => {
@@ -386,6 +403,20 @@ describe("maybeEnqueueGraphMaintenanceJobs — buffer-size trigger", () => {
     expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
   });
 
+  test("size trigger inert when global memory is disabled", () => {
+    const config = buildConfig({
+      memoryEnabled: false,
+      v2Enabled: true,
+      intervalHours: 1,
+      maxBufferLines: 1,
+    });
+
+    writeBuffer(100);
+
+    maybeEnqueueGraphMaintenanceJobs(config, Date.now());
+
+    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
+  });
 });
 
 describe("maybeEnqueueGraphMaintenanceJobs — min buffer lines noop", () => {
