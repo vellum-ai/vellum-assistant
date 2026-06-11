@@ -396,6 +396,20 @@ function redactStringValue(val: unknown): string {
   return val ? "(set)" : "(empty)";
 }
 
+/** Narrow an unknown value to a mutable record, or undefined if not an object. */
+function asRecord(v: unknown): Record<string, unknown> | undefined {
+  return v && typeof v === "object"
+    ? (v as Record<string, unknown>)
+    : undefined;
+}
+
+/** Replace every value in a map with its (set)/(empty) presence flag. */
+function redactValueMap(obj: Record<string, unknown>): Record<string, string> {
+  return Object.fromEntries(
+    Object.keys(obj).map((k) => [k, redactStringValue(obj[k])]),
+  );
+}
+
 function readSanitizedConfig(): Record<string, unknown> | undefined {
   const configPath = getWorkspaceConfigPath();
   if (!existsSync(configPath)) return undefined;
@@ -406,92 +420,39 @@ function readSanitizedConfig(): Record<string, unknown> | undefined {
 
     delete config.apiKeys;
 
-    if (config.ingress && typeof config.ingress === "object") {
-      const ingress = config.ingress as Record<string, unknown>;
-      if (ingress.webhook && typeof ingress.webhook === "object") {
-        const webhook = ingress.webhook as Record<string, unknown>;
-        webhook.secret = redactStringValue(webhook.secret);
-        ingress.webhook = webhook;
-      }
-      config.ingress = ingress;
+    const webhook = asRecord(asRecord(config.ingress)?.webhook);
+    if (webhook) webhook.secret = redactStringValue(webhook.secret);
+
+    const skillEntries = asRecord(asRecord(config.skills)?.entries);
+    for (const entry of Object.values(skillEntries ?? {})) {
+      const e = asRecord(entry);
+      if (!e) continue;
+      if ("apiKey" in e) e.apiKey = redactStringValue(e.apiKey);
+      const env = asRecord(e.env);
+      if (env) e.env = redactValueMap(env);
     }
 
-    if (config.skills && typeof config.skills === "object") {
-      const skills = config.skills as Record<string, unknown>;
-      if (skills.entries && typeof skills.entries === "object") {
-        const entries = skills.entries as Record<string, unknown>;
-        for (const name of Object.keys(entries)) {
-          const entry = entries[name];
-          if (entry && typeof entry === "object") {
-            const e = entry as Record<string, unknown>;
-            if ("apiKey" in e) e.apiKey = redactStringValue(e.apiKey);
-            if (e.env && typeof e.env === "object") {
-              const env = e.env as Record<string, unknown>;
-              e.env = Object.fromEntries(
-                Object.keys(env).map((k) => [k, redactStringValue(env[k])]),
-              );
-            }
-          }
-        }
-      }
+    const twilio = asRecord(config.twilio);
+    if (twilio) twilio.accountSid = redactStringValue(twilio.accountSid);
+
+    const acpAgents = asRecord(asRecord(config.acp)?.agents);
+    for (const agent of Object.values(acpAgents ?? {})) {
+      const a = asRecord(agent);
+      if (!a) continue;
+      // Agent env is an arbitrary user-supplied map (often API keys);
+      // redact every value and keep only the key names.
+      const env = asRecord(a.env);
+      if (env) a.env = redactValueMap(env);
     }
 
-    if (config.twilio && typeof config.twilio === "object") {
-      const twilio = config.twilio as Record<string, unknown>;
-      twilio.accountSid = redactStringValue(twilio.accountSid);
-      config.twilio = twilio;
-    }
-
-    if (config.acp && typeof config.acp === "object") {
-      const acp = config.acp as Record<string, unknown>;
-      if (acp.agents && typeof acp.agents === "object") {
-        const agents = acp.agents as Record<string, unknown>;
-        for (const name of Object.keys(agents)) {
-          const agent = agents[name];
-          if (agent && typeof agent === "object") {
-            const a = agent as Record<string, unknown>;
-            if (a.env && typeof a.env === "object") {
-              // Agent env is an arbitrary user-supplied map (often API keys);
-              // redact every value and keep only the key names.
-              const env = a.env as Record<string, unknown>;
-              a.env = Object.fromEntries(
-                Object.keys(env).map((k) => [k, redactStringValue(env[k])]),
-              );
-            }
-          }
-        }
-      }
-    }
-
-    if (config.mcp && typeof config.mcp === "object") {
-      const mcp = config.mcp as Record<string, unknown>;
-      if (mcp.servers && typeof mcp.servers === "object") {
-        const servers = mcp.servers as Record<string, unknown>;
-        for (const name of Object.keys(servers)) {
-          const server = servers[name];
-          if (server && typeof server === "object") {
-            const s = server as Record<string, unknown>;
-            if (s.transport && typeof s.transport === "object") {
-              const transport = s.transport as Record<string, unknown>;
-              if (transport.headers && typeof transport.headers === "object") {
-                const headers = transport.headers as Record<string, unknown>;
-                transport.headers = Object.fromEntries(
-                  Object.keys(headers).map((k) => [
-                    k,
-                    redactStringValue(headers[k]),
-                  ]),
-                );
-              }
-              if (transport.env && typeof transport.env === "object") {
-                const env = transport.env as Record<string, unknown>;
-                transport.env = Object.fromEntries(
-                  Object.keys(env).map((k) => [k, redactStringValue(env[k])]),
-                );
-              }
-            }
-          }
-        }
-      }
+    const mcpServers = asRecord(asRecord(config.mcp)?.servers);
+    for (const server of Object.values(mcpServers ?? {})) {
+      const transport = asRecord(asRecord(server)?.transport);
+      if (!transport) continue;
+      const headers = asRecord(transport.headers);
+      if (headers) transport.headers = redactValueMap(headers);
+      const env = asRecord(transport.env);
+      if (env) transport.env = redactValueMap(env);
     }
 
     return config;
