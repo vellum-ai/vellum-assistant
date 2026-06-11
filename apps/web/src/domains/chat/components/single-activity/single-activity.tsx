@@ -55,6 +55,7 @@ import {
   WebSearchStepRow,
 } from "@/domains/chat/components/web-search/web-search-step-row";
 import { WebsiteCarousel } from "@/domains/chat/components/web-search/website-carousel";
+import { SiteFavicon } from "@/domains/chat/components/web-search/site-favicon";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { WebSearchResultItem } from "@/assistant/web-activity-types";
@@ -121,11 +122,15 @@ export function SingleActivity(props: SingleActivityProps) {
   );
 
   if (props.variant === "web") {
-    const { info, state, step, expanded, onExpandChange } = props;
+    const { info, carouselItems, state, step, expanded, onExpandChange } =
+      props;
     const isError = state === "error";
+    // The settled header shows the LAST result's title (`info`); pull the
+    // matching result so we can render its favicon immediately left of it.
+    const latest = carouselItems.at(-1);
     const ExpandChevron = expanded ? ChevronUp : ChevronDown;
     return (
-      <div className="flex flex-col">
+      <div className="flex flex-col items-start">
         <button
           type="button"
           data-testid="inline-web-link"
@@ -166,6 +171,19 @@ export function SingleActivity(props: SingleActivityProps) {
           {state === "loading" && carouselNode ? (
             <span className="inline-flex w-[220px] min-w-0 items-center">
               {carouselNode}
+            </span>
+          ) : latest &&
+            (latest.faviconUrl || latest.domain || latest.title) ? (
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              <SiteFavicon
+                faviconUrl={latest.faviconUrl}
+                domain={latest.domain}
+                title={info}
+                className="shrink-0"
+              />
+              <span className="min-w-0 max-w-[280px] truncate text-[var(--content-default)]">
+                {info}
+              </span>
             </span>
           ) : (
             <span className="min-w-0 max-w-[280px] truncate text-[var(--content-default)]">
