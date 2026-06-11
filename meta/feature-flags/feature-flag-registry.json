@@ -364,6 +364,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "web-remote-ingress",
+      "scope": "assistant",
+      "key": "web-remote-ingress",
+      "label": "Web Remote Ingress",
+      "description": "Serve the web client over a public tunnel and enable browser pairing for self-hosted assistants.",
+      "defaultEnabled": false
+    },
+    {
       "id": "settings-sleep-policy",
       "scope": "assistant",
       "key": "settings-sleep-policy",
