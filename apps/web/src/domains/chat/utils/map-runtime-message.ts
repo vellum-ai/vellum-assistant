@@ -27,14 +27,16 @@ function narrowSurfaceDisplay(
 }
 
 /**
- * Adapt wire surfaces onto the display `Surface` shape. The client-only
- * fields (`messageId`, `orphaned`) are populated later by the live SSE
- * surface handlers, not from history.
+ * Adapt a single wire `ConversationMessageSurface` onto the display `Surface`
+ * shape, narrowing the open `display` string to the placement union. The
+ * transcript render path projects a surface straight off its `contentBlocks`
+ * surface block through this helper; `mapServerSurfaces` maps the positional
+ * `surfaces` array through it.
  */
-export function mapServerSurfaces(
-  surfaces: readonly ConversationMessageSurface[],
-): Surface[] {
-  return surfaces.map((s) => ({
+export function wireSurfaceToDisplay(
+  s: ConversationMessageSurface,
+): Surface {
+  return {
     surfaceId: s.surfaceId,
     surfaceType: s.surfaceType,
     title: s.title,
@@ -44,7 +46,14 @@ export function mapServerSurfaces(
     completed: s.completed,
     completionSummary: s.completionSummary,
     toolCallId: s.toolCallId,
-  }));
+  };
+}
+
+/** Adapt wire surfaces onto the display `Surface` shape. */
+export function mapServerSurfaces(
+  surfaces: readonly ConversationMessageSurface[],
+): Surface[] {
+  return surfaces.map(wireSurfaceToDisplay);
 }
 
 /**
