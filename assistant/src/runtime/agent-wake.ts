@@ -66,7 +66,7 @@ import {
 import {
   recordCompactionEndBestEffort,
   recordCompactionStartBestEffort,
-} from "../memory/compaction-log-writer-clickhouse.js";
+} from "../memory/compaction-log-store-clickhouse.js";
 import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
 import {
   buildProviderErrorResponsePayload,
