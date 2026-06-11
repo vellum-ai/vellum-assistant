@@ -372,4 +372,160 @@ describe("getPluginDetails", () => {
       ),
     ).rejects.toThrow();
   });
+
+  test("surfaces a well-formed vellum.artifact from the repo package.json", async () => {
+    // GIVEN an external plugin whose repo package.json declares a complete
+    // vellum.artifact (https url + 64-hex sha256)
+    const sha = "a".repeat(64);
+    const fetch = makeFetch({
+      marketplace: {
+        name: "vellum",
+        plugins: [
+          {
+            name: "dynamic-notch",
+            source: {
+              source: "github",
+              repo: "example-org/dynamic-notch",
+              ref: "1111111111111111111111111111111111111111",
+            },
+          },
+        ],
+      },
+      listings: {
+        "example-org/dynamic-notch": [
+          fileEntry("package.json", "raw://notch/pkg"),
+        ],
+      },
+      raw: {
+        "raw://notch/pkg": JSON.stringify({
+          version: "1.0.0",
+          vellum: {
+            artifact: {
+              url: "https://example.com/releases/v1.0.0/App.dmg",
+              sha256: sha,
+            },
+          },
+        }),
+      },
+    });
+
+    // WHEN we resolve the detail view
+    const details = await getPluginDetails(
+      { name: "dynamic-notch" },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN the artifact descriptor is surfaced
+    expect(details.artifact).toEqual({
+      url: "https://example.com/releases/v1.0.0/App.dmg",
+      sha256: sha,
+    });
+  });
+
+  test("an installed copy's artifact wins over the repo's", async () => {
+    // GIVEN an installed copy whose package.json declares its own artifact
+    const localSha = "b".repeat(64);
+    const remoteSha = "c".repeat(64);
+    const target = join(workspace, "dynamic-notch");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(
+      join(target, "package.json"),
+      JSON.stringify({
+        vellum: {
+          artifact: {
+            url: "https://example.com/local/App.dmg",
+            sha256: localSha,
+          },
+        },
+      }),
+    );
+
+    // AND a marketplace entry + repo package.json declaring a different artifact
+    const fetch = makeFetch({
+      marketplace: {
+        name: "vellum",
+        plugins: [
+          {
+            name: "dynamic-notch",
+            source: {
+              source: "github",
+              repo: "example-org/dynamic-notch",
+              ref: "1111111111111111111111111111111111111111",
+            },
+          },
+        ],
+      },
+      listings: {
+        "example-org/dynamic-notch": [
+          fileEntry("package.json", "raw://notch/pkg"),
+        ],
+      },
+      raw: {
+        "raw://notch/pkg": JSON.stringify({
+          vellum: {
+            artifact: {
+              url: "https://example.com/remote/App.dmg",
+              sha256: remoteSha,
+            },
+          },
+        }),
+      },
+    });
+
+    // WHEN we resolve the detail view
+    const details = await getPluginDetails(
+      { name: "dynamic-notch" },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN the installed copy's artifact wins
+    expect(details.artifact).toEqual({
+      url: "https://example.com/local/App.dmg",
+      sha256: localSha,
+    });
+  });
+
+  test("treats a placeholder sha256 as no artifact yet", async () => {
+    // GIVEN a repo package.json with a url but an empty (placeholder) sha256 —
+    // the bootstrap state before a release workflow fills the digest in
+    const fetch = makeFetch({
+      marketplace: {
+        name: "vellum",
+        plugins: [
+          {
+            name: "dynamic-notch",
+            source: {
+              source: "github",
+              repo: "example-org/dynamic-notch",
+              ref: "1111111111111111111111111111111111111111",
+            },
+          },
+        ],
+      },
+      listings: {
+        "example-org/dynamic-notch": [
+          fileEntry("package.json", "raw://notch/pkg"),
+        ],
+      },
+      raw: {
+        "raw://notch/pkg": JSON.stringify({
+          vellum: {
+            artifact: {
+              url: "https://example.com/releases/v1.0.0/App.dmg",
+              sha256: "",
+            },
+          },
+        }),
+      },
+    });
+
+    // WHEN we resolve the detail view
+    const details = await getPluginDetails(
+      { name: "dynamic-notch" },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN no artifact is surfaced (a client must not offer an unverifiable download)
+    expect(details.artifact).toBeNull();
+  });
 });

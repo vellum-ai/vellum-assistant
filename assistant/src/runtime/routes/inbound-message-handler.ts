@@ -49,10 +49,6 @@ import {
   updateMessageMetadata,
 } from "../../memory/conversation-crud.js";
 import {
-  clearPendingVerificationReply,
-  getPendingVerificationReply,
-} from "../../memory/delivery-channels.js";
-import {
   clearPayload,
   findMessageBySourceId,
   linkMessage,
@@ -628,38 +624,6 @@ export async function handleChannelInbound({
   );
 
   const replyCallbackUrl = body.replyCallbackUrl;
-
-  // ── Retry pending verification reply on duplicate ──
-  // If a previous verification delivery failed and stored a pending reply,
-  // gateway retries (duplicates) re-attempt delivery here. On success the
-  // pending marker is cleared so further duplicates short-circuit normally.
-  if (result.duplicate && replyCallbackUrl) {
-    const pendingReply = getPendingVerificationReply(result.eventId);
-    if (pendingReply) {
-      try {
-        await deliverChannelReply(replyCallbackUrl, {
-          chatId: pendingReply.chatId,
-          text: pendingReply.text,
-          assistantId: pendingReply.assistantId,
-        });
-        clearPendingVerificationReply(result.eventId);
-        log.info(
-          { eventId: result.eventId },
-          "Retried pending verification reply: delivered",
-        );
-      } catch (retryErr) {
-        log.error(
-          { err: retryErr, eventId: result.eventId },
-          "Retry of pending verification reply failed; will retry on next duplicate",
-        );
-      }
-      return {
-        accepted: true,
-        duplicate: true,
-        eventId: result.eventId,
-      };
-    }
-  }
 
   // external_conversation_bindings is assistant-agnostic. Restrict writes to
   // self so assistant-scoped legacy routes do not overwrite each other's

@@ -6,12 +6,11 @@
  */
 
 import { createHash } from "node:crypto";
-import { createWriteStream, existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import archiver from "archiver";
 import JSZip from "jszip";
 
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
@@ -35,6 +34,14 @@ export interface BundleResult {
   manifest: AppManifest;
   /** Base64-encoded PNG of the app icon, if one was generated. */
   iconImageBase64?: string;
+}
+
+function generateZipBuffer(zip: JSZip): Promise<Buffer> {
+  return zip.generateAsync({
+    type: "nodebuffer",
+    compression: "DEFLATE",
+    compressionOptions: { level: 9 },
+  });
 }
 
 function isDefaultMainScaffold(source: string): boolean {
@@ -177,54 +184,31 @@ export async function packageApp(
   const bundleFilename = `${safeName}-${uniqueSuffix}.vellum`;
   const bundlePath = join(tmpdir(), bundleFilename);
 
-  await new Promise<void>((resolve, reject) => {
-    const output = createWriteStream(bundlePath);
-    const archive = archiver("zip", { zlib: { level: 9 } });
+  const zip = new JSZip();
 
-    output.on("close", () => resolve());
-    output.on("error", (err: Error) => reject(err));
-    archive.on("error", (err: Error) => reject(err));
-    archive.on("warning", (err: Error) => {
-      // Only reject on fatal warnings
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-        reject(err);
-      }
-    });
+  // Add manifest.json at root level
+  zip.file("manifest.json", serializeManifest(manifest));
 
-    archive.pipe(output);
+  // Add compiled dist/ files
+  for (const file of compiledFiles) {
+    zip.file(file.name, file.data);
+  }
 
-    // Add manifest.json at root level
-    archive.append(serializeManifest(manifest), { name: "manifest.json" });
+  // Include app icon if one was generated
+  const iconPath = join(appDir, "icon.png");
+  if (existsSync(iconPath)) {
+    zip.file("icon.png", readFileSync(iconPath));
+  }
 
-    // Add compiled dist/ files
-    for (const file of compiledFiles) {
-      archive.append(file.data, { name: file.name });
-    }
-
-    // Include app icon if one was generated
-    const iconPath = join(getAppDirPath(appId), "icon.png");
-    if (existsSync(iconPath)) {
-      archive.append(readFileSync(iconPath), { name: "icon.png" });
-    }
-
-    archive.finalize();
-  });
+  await writeFile(bundlePath, await generateZipBuffer(zip));
 
   // Sign the bundle if a signing callback is provided
   if (requestSignature) {
     try {
       const signatureJson = await signBundle(bundlePath, requestSignature);
 
-      // Re-open the zip and add signature.json
-      const zipBuffer = await readFile(bundlePath);
-      const zip = await JSZip.loadAsync(zipBuffer);
       zip.file("signature.json", JSON.stringify(signatureJson, null, 2));
-      const signedBuffer = await zip.generateAsync({
-        type: "nodebuffer",
-        compression: "DEFLATE",
-        compressionOptions: { level: 9 },
-      });
-      await writeFile(bundlePath, signedBuffer);
+      await writeFile(bundlePath, await generateZipBuffer(zip));
 
       bundlerLog.info({ appId }, "Bundle signed successfully");
     } catch (err) {
@@ -250,9 +234,8 @@ export async function packageApp(
 
   // Read icon for inclusion in the response
   let iconImageBase64: string | undefined;
-  const iconFilePath = join(getAppDirPath(appId), "icon.png");
-  if (existsSync(iconFilePath)) {
-    iconImageBase64 = readFileSync(iconFilePath).toString("base64");
+  if (existsSync(iconPath)) {
+    iconImageBase64 = readFileSync(iconPath).toString("base64");
   }
 
   return { bundlePath, manifest, iconImageBase64 };

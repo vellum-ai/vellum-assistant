@@ -56,11 +56,23 @@ export function resolveSelectedAssistantId(
 }
 
 /**
- * The single write path for switching the selected assistant. Records the
- * selection (reactive slice + persisted key) and mirrors it into the lockfile
- * `activeAssistant` (a no-op in the browser, where there is no lockfile host).
+ * The single public write path for switching the selected assistant. Records
+ * the selection (reactive slice + persisted key) and mirrors it into the
+ * lockfile `activeAssistant` (a no-op in the browser, where there is no
+ * lockfile host). The store action it wraps is internal plumbing — every
+ * other caller goes through here.
+ *
+ * `null` clears the selection but skips the lockfile mirror: the host API has
+ * no clear operation, and `activeAssistant` is machine-level tray/CLI state,
+ * not session state.
+ *
+ * Selecting a LOCAL assistant must go through `connectLocalAssistant`, which
+ * primes a gateway token for the new gateway — the bare write would leave the
+ * lifecycle pointing at it with a token minted for a different gateway.
  */
-export async function setSelectedAssistant(id: string): Promise<void> {
+export async function setSelectedAssistant(id: string | null): Promise<void> {
   useResolvedAssistantsStore.getState().setSelectedAssistant(id);
-  await setActiveLockfileAssistant(id);
+  if (id !== null) {
+    await setActiveLockfileAssistant(id);
+  }
 }

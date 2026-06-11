@@ -61,7 +61,7 @@ Every event name in `BusEventMap` has a typed payload. Producers:
 | Event | Payload | Produced when |
 |---|---|---|
 | `sse.event` | `AssistantEventEnvelope` | Every event the bus-owned SSE connection sees. The envelope carries transport metadata (`seq`, `conversationId`, `emittedAt`); subscribers narrow on `envelope.message.type` and filter on `envelope.conversationId` themselves. |
-| `sse.opened` | `{ assistantId; cause: "fresh" \| "error" \| "watchdog" \| "resume" }` | After each successful (re)open. `cause` lets consumers distinguish a fresh connection from a watchdog-driven recovery. |
+| `sse.opened` | `{ assistantId; cause: "fresh" \| "error" \| "watchdog" \| "resume" \| "debug" \| "anchor" }` | After each successful (re)open. `cause` lets consumers distinguish a fresh connection from a reconnect. `"debug"` is a manual `_vellumDebug.events.reconnectClient()` trigger; `"anchor"` is a cold-start anchored-replay reopen. |
 | `sse.closed` | `{ reason }` | Transport error on the SSE connection. Not published for intentional teardowns (hidden tab, reachability bounce). |
 | `app.resume` | `{ signal: "visibility" \| "app_state" \| "online" }` | Page visible, app foregrounded, or network came back online. |
 | `app.hidden` | `{ signal: "visibility" \| "app_state" }` | Page hidden or app backgrounded. |

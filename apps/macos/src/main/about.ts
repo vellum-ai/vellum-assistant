@@ -1,6 +1,8 @@
 import { BrowserWindow, app, shell } from "electron";
 import { z } from "zod";
 
+import type { AppVersionInfo } from "@vellumai/ipc-contract";
+
 import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
 import { handle } from "./ipc";
 import { createWindow } from "./windows";
@@ -48,13 +50,7 @@ const COMMIT_SHA: string =
 
 const COPYRIGHT = (): string => `© ${new Date().getFullYear()} ${APP_NAME}`;
 
-export interface AppVersionInfo {
-  appName: string;
-  version: string;
-  commitSha: string;
-  copyright: string;
-  website: string;
-}
+export type { AppVersionInfo };
 
 export const getVersionInfo = (): AppVersionInfo => ({
   appName: APP_NAME,

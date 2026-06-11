@@ -165,10 +165,11 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
     setActiveAssistantId: (assistantId) =>
       set({ activeAssistantId: assistantId }),
 
-    // The single write path for the selected id: the reactive slice and the
-    // persisted key move together. All callers (selection.ts, connect/hatch
-    // flows, the lifecycle 404 net) go through here so same-tab consumers
-    // re-render and the key never drifts from the slice.
+    // Internal plumbing for the selected id: the reactive slice and the
+    // persisted key move together. Callers go through the public wrapper in
+    // selection.ts (which adds the lockfile mirror); only that wrapper and
+    // the lifecycle 404 net call this directly. The lifecycle service
+    // subscribes to the slice, so every write republishes in gateway mode.
     setSelectedAssistant: (id) => {
       if (id == null) {
         clearSelectedAssistantId();

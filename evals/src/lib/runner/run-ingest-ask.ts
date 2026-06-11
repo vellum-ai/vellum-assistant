@@ -66,12 +66,27 @@ export interface IngestAskInput {
    */
   questionMessage: string;
   /**
-   * Quiet timeout in milliseconds for the *question* turn's event drain.
-   * Defaults to 30s. The question turn derives `maxMs` as `quietMs * 6`
-   * per `AgentEventCollector`. The ingest turn uses `ingestQuietMs` /
-   * `ingestMaxMs` (below) instead, because its silence semantics differ.
+   * Quiet timeout in milliseconds for the *question* turn's event drain —
+   * how long the stream may go silent (no new events) before the turn is
+   * treated as finished. Defaults to 30s. This is *not* the overall time
+   * limit: a turn that keeps streaming (e.g. long extended-thinking +
+   * on-demand retrieval) runs until the `questionMaxMs` wall-clock cap
+   * below, however many events it emits. The ingest turn uses
+   * `ingestQuietMs` / `ingestMaxMs` instead, because its silence semantics
+   * differ.
    */
   quietMs?: number;
+  /**
+   * Hard wall-clock cap (ms) for the *question* turn. The turn ends when
+   * the stream goes quiet for `quietMs`, the stream closes, or this much
+   * time elapses — whichever comes first. The cap is purely time-based; it
+   * does not depend on how many events stream. If the agent never composes
+   * a final answer within this budget, the run is graded as a completed
+   * miss (score 0), not an errored run — "the model took too long to
+   * answer" is a real, gradable outcome rather than a harness failure.
+   * Defaults to 6 minutes.
+   */
+  questionMaxMs?: number;
   /**
    * Quiet timeout in milliseconds for the *ingest* turn's event drain.
    * Defaults to 2 minutes — deliberately far more generous than the
@@ -113,8 +128,16 @@ export interface IngestAskResult {
   ingestConversationKey: string;
   /** Conversation key used during the question turn. Must differ from `ingestConversationKey`. */
   questionConversationKey: string;
-  /** Assistant response text from conversation B. */
+  /** Assistant response text from conversation B. Empty when the question turn produced no answer within its time budget. */
   hypothesis: string;
+  /**
+   * Whether the question turn produced any assistant answer text before its
+   * time budget elapsed. `false` means the turn ran to `questionMaxMs` (or
+   * went quiet) without emitting an answer — `hypothesis` is then `""`, and
+   * the caller should grade it as a completed miss (score 0) rather than an
+   * error.
+   */
+  questionAnswered: boolean;
   /** Raw events captured during conversation A's drain. */
   ingestEvents: AgentEvent[];
   /** Raw events captured during conversation B's drain. */
@@ -129,6 +152,13 @@ export interface IngestAskResult {
 }
 
 const DEFAULT_QUIET_MS = 30_000;
+/**
+ * Default hard wall-clock cap for the question turn: 6 minutes. Generous
+ * enough for a retrieval-heavy turn (on-demand `file_read`/`grep` over the
+ * staged trajectories plus extended thinking) to reach an answer; a turn
+ * that blows past it is graded as a completed miss, not an error.
+ */
+export const DEFAULT_QUESTION_MAX_MS = 360_000;
 const DEFAULT_INGEST_QUIET_MS = 120_000;
 const DEFAULT_INGEST_SENTINEL = "Ready.";
 const DEFAULT_INGEST_MAX_MS = 600_000;
@@ -220,6 +250,7 @@ export async function runIngestAsk(
   input: IngestAskInput,
 ): Promise<IngestAskResult> {
   const quietMs = input.quietMs ?? DEFAULT_QUIET_MS;
+  const questionMaxMs = input.questionMaxMs ?? DEFAULT_QUESTION_MAX_MS;
   const ingestQuietMs = input.ingestQuietMs ?? DEFAULT_INGEST_QUIET_MS;
   const ingestSentinel = input.ingestSentinel ?? DEFAULT_INGEST_SENTINEL;
   const ingestMaxMs = input.ingestMaxMs ?? DEFAULT_INGEST_MAX_MS;
@@ -333,6 +364,7 @@ export async function runIngestAsk(
     await agent.send({ content: input.questionMessage });
     const questionEvents = await questionCollector.collectUntilQuiet({
       quietMs,
+      maxMs: questionMaxMs,
       onEvent: autoConfirm,
     });
     if (questionEvents.length === 0) {
@@ -342,15 +374,14 @@ export async function runIngestAsk(
       );
     }
 
+    // An empty answer is NOT a harness failure. The question turn ran its
+    // full course — it went quiet or hit the `questionMaxMs` wall-clock cap
+    // — without the agent composing a final answer (e.g. it spent the whole
+    // budget on extended thinking and on-demand retrieval). That's a real,
+    // gradable outcome ("too slow to answer"), so we return normally with an
+    // empty hypothesis and let the caller score it as a completed miss
+    // rather than throwing and excluding the run.
     const hypothesis = joinAssistantText(questionEvents);
-    if (hypothesis.trim() === "") {
-      throw new IngestAskError(
-        `Question turn captured ${questionEvents.length} event(s) but no assistant text; ` +
-          `cannot produce a hypothesis to judge.`,
-        ingestEvents,
-        questionEvents,
-      );
-    }
 
     return {
       runId: input.runId,
@@ -358,6 +389,7 @@ export async function runIngestAsk(
       ingestConversationKey,
       questionConversationKey,
       hypothesis,
+      questionAnswered: hypothesis.trim() !== "",
       ingestEvents,
       questionEvents,
       ingestSentinelSeen,

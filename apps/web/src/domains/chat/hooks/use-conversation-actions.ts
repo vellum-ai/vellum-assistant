@@ -1,5 +1,4 @@
 
-import { captureError } from "@/lib/sentry/capture-error";
 import { type MutableRefObject, useCallback } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -11,15 +10,17 @@ import {
   snapshotConversationCaches,
   type ConversationCacheSnapshot,
 } from "@/utils/conversation-cache";
-import { batchExecute } from "@/utils/batch-execute";
+import { executeBulkWithFallback } from "@/utils/bulk-with-fallback";
 import {
+  conversationsArchiveBulkPost,
   conversationsByIdArchivePost,
   conversationsByIdUnarchivePost,
   conversationsReorderPost,
+  conversationsSeenBulkPost,
   conversationsSeenPost,
   conversationsUnreadPost,
 } from "@/generated/daemon/sdk.gen";
-
+import { captureError } from "@/lib/sentry/capture-error";
 import { haptic } from "@/utils/haptics";
 
 import type { Conversation } from "@/types/conversation-types";
@@ -342,31 +343,26 @@ export function useConversationActions({
         });
       }
 
-      const { abortedAt, succeeded } = await batchExecute(
-        unread,
-        async (c) => {
-          try {
-            await conversationsSeenPost({
-              path: { assistant_id: assistantId },
-              body: { conversationId: c.conversationId },
-              throwOnError: true,
-            });
-          } catch (err) {
-            patchConversation(queryClient, assistantId, c.conversationId, {
-              hasUnseenLatestAssistantMessage: true,
-            });
-            throw err;
-          }
-        },
-      );
-      if (abortedAt !== null) {
-        captureError(
-          new Error(
-            `markAllReadInGroup: aborted at batch ${abortedAt}, ${succeeded}/${unread.length} succeeded`,
-          ),
-          { context: "markAllReadInGroup", bestEffort: true },
-        );
-      }
+      await executeBulkWithFallback({
+        items: unread,
+        bulkCall: () =>
+          conversationsSeenBulkPost({
+            path: { assistant_id: assistantId },
+            body: { conversationIds: unread.map((c) => c.conversationId) },
+          }),
+        fallbackFn: (c) =>
+          conversationsSeenPost({
+            path: { assistant_id: assistantId },
+            body: { conversationId: c.conversationId },
+            throwOnError: true,
+          }),
+        rollbackItem: (c) =>
+          patchConversation(queryClient, assistantId, c.conversationId, {
+            hasUnseenLatestAssistantMessage: true,
+          }),
+        context: "markAllReadInGroup",
+      });
+
       void invalidateConversationQueries(queryClient, assistantId);
     },
     [assistantId, queryClient],
@@ -405,33 +401,27 @@ export function useConversationActions({
         }
       }
 
-      const { abortedAt, succeeded } = await batchExecute(
-        groupConversations,
-        async (c) => {
-          try {
-            await conversationsByIdArchivePost({
-              path: {
-                assistant_id: assistantId,
-                id: c.conversationId,
-              },
-              throwOnError: true,
-            });
-          } catch (err) {
-            patchConversation(queryClient, assistantId, c.conversationId, {
-              archivedAt: c.archivedAt,
-            });
-            throw err;
-          }
-        },
-      );
-      if (abortedAt !== null) {
-        captureError(
-          new Error(
-            `archiveAllInGroup: aborted at batch ${abortedAt}, ${succeeded}/${groupConversations.length} succeeded`,
-          ),
-          { context: "archiveAllInGroup", bestEffort: true },
-        );
-      }
+      await executeBulkWithFallback({
+        items: groupConversations,
+        bulkCall: () =>
+          conversationsArchiveBulkPost({
+            path: { assistant_id: assistantId },
+            body: {
+              conversationIds: groupConversations.map((c) => c.conversationId),
+            },
+          }),
+        fallbackFn: (c) =>
+          conversationsByIdArchivePost({
+            path: { assistant_id: assistantId, id: c.conversationId },
+            throwOnError: true,
+          }),
+        rollbackItem: (c) =>
+          patchConversation(queryClient, assistantId, c.conversationId, {
+            archivedAt: c.archivedAt,
+          }),
+        context: "archiveAllInGroup",
+      });
+
       void invalidateConversationQueries(queryClient, assistantId);
     },
     [

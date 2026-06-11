@@ -2,6 +2,8 @@ import { Copy } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { FileMarkdown } from "@/components/file-markdown";
+import { ToolDefinitionsCard } from "@/domains/chat/inspector/components/tool-definitions-card";
+import { parseToolDefinitions } from "@/domains/chat/inspector/tool-definitions";
 import type {
     LLMContextSection,
     LLMRequestLogEntry,
@@ -18,7 +20,9 @@ type ViewMode = "markdown" | "raw";
  * Prompt tab rendering each normalized request section as a card.
  * Text sections render as Markdown by default; a Markdown/Raw segmented
  * control flips the entire tab to plain `<pre>` text. Structured
- * payloads always render as `<pre>` regardless of mode.
+ * payloads always render as `<pre>` regardless of mode, except tool
+ * definitions, which render as an expandable per-tool breakdown —
+ * the raw provider JSON lives on the Raw tab.
  */
 export function PromptTab({ entry }: PromptTabProps): ReactNode {
   const sections = entry.requestSections ?? [];
@@ -64,14 +68,22 @@ export function PromptTab({ entry }: PromptTabProps): ReactNode {
       {sections.length === 0 ? (
         <EmptyState />
       ) : (
-        sections.map((section, i) => (
-          <SectionCard
-            key={i}
-            section={section}
-            index={i}
-            viewMode={viewMode}
-          />
-        ))
+        sections.map((section, i) => {
+          if (section.kind === "tool_definitions") {
+            const tools = parseToolDefinitions(section.data);
+            if (tools) {
+              return <ToolDefinitionsCard key={i} tools={tools} />;
+            }
+          }
+          return (
+            <SectionCard
+              key={i}
+              section={section}
+              index={i}
+              viewMode={viewMode}
+            />
+          );
+        })
       )}
     </div>
   );

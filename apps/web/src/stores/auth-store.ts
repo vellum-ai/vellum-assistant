@@ -14,6 +14,7 @@
 import { create } from "zustand";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
+import { setSelectedAssistant } from "@/assistant/selection";
 import { createSelectors } from "@/utils/create-selectors";
 import {
   isAuthenticated,
@@ -470,8 +471,13 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
 
   /**
    * Connect to a specific local assistant from an interactive surface (the
-   * login picker / auto-connect). Selects the assistant, primes its gateway
-   * connection, and marks the session logged in.
+   * login picker / auto-connect). Primes its gateway connection, selects the
+   * assistant, and marks the session logged in.
+   *
+   * Priming runs BEFORE the selection write: the lifecycle's selection
+   * subscription republishes the connection synchronously on the write, so
+   * the token must already be minted for the new gateway — and a failed
+   * connect leaves the previous selection in place.
    *
    * Unlike {@link AuthActions.initSession}, which is the best-effort boot
    * probe and swallows failures, this rethrows so the caller can surface the
@@ -483,14 +489,17 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
    * stays on the plain primitive so app launch never spawns daemon processes.
    */
   connectLocalAssistant: async (assistantId: string) => {
-    useResolvedAssistantsStore.getState().setSelectedAssistant(assistantId);
-    await primeLocalGatewayConnectionWithRepair();
+    const target = getLocalAssistants().find(
+      (a) => a.assistantId === assistantId,
+    );
+    await primeLocalGatewayConnectionWithRepair(target);
+    await setSelectedAssistant(assistantId);
     set(authenticatedLocalUser());
     probePlatformSessionIfReachable(set);
   },
 
   connectPlatformAssistant: async (assistantId: string) => {
-    useResolvedAssistantsStore.getState().setSelectedAssistant(assistantId);
+    await setSelectedAssistant(assistantId);
     const result = await getSession();
     if (!result.ok || !result.data.user) {
       throw new Error("Platform authentication required");
@@ -553,15 +562,18 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
 
   logout: async () => {
     if (isGatewayAuthMode()) {
-      useResolvedAssistantsStore.getState().setSelectedAssistant(null);
+      // Clear lifecycle state BEFORE `sessionStatus` leaves `authenticated`
+      // so the assistant sync hooks don't observe a stale assistant id in
+      // their first re-render, and BEFORE the selection clear so the
+      // lifecycle's selection subscription (guarded on `loading`) doesn't
+      // resurrect an active state mid-logout. The `respondToInputs`
+      // not-authenticated branch is the safety net for token-expiry-style
+      // flips.
+      lifecycleService.resetForLogout();
+      await setSelectedAssistant(null);
       clearGatewayToken();
       clearOrganization();
       clearUserScopedStorage();
-      // Clear lifecycle state BEFORE `sessionStatus` leaves `authenticated`
-      // so the assistant sync hooks don't observe a stale assistant id in
-      // their first re-render. The `respondToInputs` not-authenticated
-      // branch is the safety net for token-expiry-style flips.
-      lifecycleService.resetForLogout();
       set(sessionEnded());
       broadcastAuthChange();
       return;
@@ -580,6 +592,10 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       clearOrganization();
       clearUserScopedStorage();
       lifecycleService.resetForLogout();
+      // Clear the selection slice too — `clearUserScopedStorage` already
+      // removed the persisted key, and a surviving slice would resolve the
+      // previous user's assistant after re-login.
+      await setSelectedAssistant(null);
       set(sessionEnded());
       broadcastAuthChange();
     }

@@ -85,8 +85,7 @@ export function useConversationSync(
 
     switch (event.type) {
       case "sync_changed":
-        // Self-echo suppression — mirrors the same guard in
-        // web-sync-router.ts. The daemon's hub already skips the
+        // Self-echo suppression. The daemon's hub already skips the
         // originating SSE subscriber when it can match the origin
         // client id; this catches any sync_changed that still surfaces
         // (e.g. a reconnect re-delivering a queued event).

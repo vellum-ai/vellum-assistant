@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type {
-  ActiveConversationMessagesRefreshResult,
-  WebSyncReconnectResult,
-} from "@/lib/sync/web-sync-router";
+import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 
 // Mock stream store — tracks epoch so tests can simulate races.
 let mockStreamEpoch = 0;
@@ -44,8 +41,8 @@ const { createReconcileOnReopen } = await import(
 );
 
 const makeReconcileResult = (
-  override: Partial<ActiveConversationMessagesRefreshResult> = {},
-): ActiveConversationMessagesRefreshResult => ({
+  override: Partial<ReconcileActiveConversationResult> = {},
+): ReconcileActiveConversationResult => ({
   changed: false,
   messagesAdded: 0,
   assistantProgress: false,
@@ -55,23 +52,19 @@ const makeReconcileResult = (
 const makeDeps = (override: Partial<{
   assistantId: string;
   conversationId: string;
-  reconcileActive: () => Promise<ActiveConversationMessagesRefreshResult>;
+  reconcileActive: () => Promise<ReconcileActiveConversationResult>;
   startReconciliationLoop: (epoch: number) => void;
-  dispatchReconnect: () => Promise<WebSyncReconnectResult | undefined>;
 }> = {}) => {
   const reconcileActive = override.reconcileActive ?? mock(async () => makeReconcileResult());
   const startReconciliationLoop = override.startReconciliationLoop ?? mock(() => {});
-  const dispatchReconnect = override.dispatchReconnect ?? mock(async () => undefined);
   return {
     reconcileActive,
     startReconciliationLoop,
-    dispatchReconnect,
     deps: {
       assistantId: override.assistantId ?? "asst-1",
       conversationId: override.conversationId ?? "conv-1",
       reconcileActive,
       startReconciliationLoop,
-      dispatchReconnect,
     },
   };
 };
@@ -155,21 +148,19 @@ describe("reconcile-on-reopen — resume cause", () => {
 });
 
 describe("reconcile-on-reopen — transport recovery (watchdog / error)", () => {
-  test("watchdog with sync router available: uses sync router result, no fallback reconcile", async () => {
-    const dispatchReconnect = mock(async () => ({
-      dispatch: { handledTags: [], unknownTags: [], invokedHandlers: 0, errors: [] },
-      activeConversationMessages: makeReconcileResult({ messagesAdded: 3 }),
-    }));
-    const { deps, reconcileActive, startReconciliationLoop } = makeDeps({
-      dispatchReconnect,
+  test("watchdog: reconciles and starts the loop", async () => {
+    const reconcileActive = mock(
+      async () => makeReconcileResult({ messagesAdded: 3 }),
+    );
+    const { deps, startReconciliationLoop } = makeDeps({
+      reconcileActive,
     });
     const handler = createReconcileOnReopen(deps);
 
     handler.handleSseOpened({ assistantId: "asst-1", cause: "watchdog" });
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(dispatchReconnect).toHaveBeenCalledTimes(1);
-    expect(reconcileActive).not.toHaveBeenCalled();
+    expect(reconcileActive).toHaveBeenCalledTimes(1);
     expect(startReconciliationLoop).toHaveBeenCalledWith(1);
     // AND the reconnect is recorded on the durable lifecycle ring.
     expect(recordLifecycleDiagnosticMock).toHaveBeenCalledWith(
@@ -178,7 +169,7 @@ describe("reconcile-on-reopen — transport recovery (watchdog / error)", () => 
     );
   });
 
-  test("error with no sync router: falls back to standalone reconcile", async () => {
+  test("error: reconciles and starts the loop", async () => {
     const { deps, reconcileActive, startReconciliationLoop } = makeDeps();
     const handler = createReconcileOnReopen(deps);
 
@@ -190,11 +181,11 @@ describe("reconcile-on-reopen — transport recovery (watchdog / error)", () => 
   });
 
   test("stale epoch: if a later open bumps the epoch mid-reconcile, this completion self-cancels", async () => {
-    let resolveReconcile: (r: ActiveConversationMessagesRefreshResult) => void =
+    let resolveReconcile: (r: ReconcileActiveConversationResult) => void =
       () => {};
     const reconcileActive = mock(
       () =>
-        new Promise<ActiveConversationMessagesRefreshResult>((resolve) => {
+        new Promise<ReconcileActiveConversationResult>((resolve) => {
           resolveReconcile = resolve;
         }),
     );
@@ -245,12 +236,7 @@ describe("reconcile-on-reopen — transport recovery (watchdog / error)", () => 
     expect(captureMessageMock).not.toHaveBeenCalled();
   });
 
-  test("standalone reconcile rejection: logs to Sentry, still starts the polling loop, does not propagate", async () => {
-    // No sync router, so the code falls back to `reconcileActive()`.
-    // That fallback rejects; the handler must log + start the polling
-    // loop (primary catch-up mechanism) without surfacing an unhandled
-    // promise rejection. The watchdog rescue metric is NOT recorded
-    // because we have no reconcile result to measure.
+  test("reconcile rejection: logs to Sentry, still starts the polling loop, does not propagate", async () => {
     const reconcileActive = mock(async () => {
       throw new Error("daemon unreachable");
     });
@@ -264,32 +250,5 @@ describe("reconcile-on-reopen — transport recovery (watchdog / error)", () => 
     expect(startReconciliationLoop).toHaveBeenCalledWith(1);
     expect(captureExceptionMock).toHaveBeenCalledTimes(1);
     expect(captureMessageMock).not.toHaveBeenCalled();
-  });
-
-  test("sync-router dispatchReconnect rejection: logs to Sentry, does not fall back to reconcileActive, still starts the polling loop", async () => {
-    const dispatchReconnect = mock(async () => {
-      throw new Error("sync router transport failed");
-    });
-    const reconcileActive = mock(async () => makeReconcileResult());
-    const { deps, startReconciliationLoop } = makeDeps({
-      reconcileActive,
-      dispatchReconnect,
-    });
-    const handler = createReconcileOnReopen(deps);
-
-    handler.handleSseOpened({ assistantId: "asst-1", cause: "error" });
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(dispatchReconnect).toHaveBeenCalledTimes(1);
-    // The standalone fallback is in the SAME try block as the sync-
-    // router call; both await targets sit on the same try, so a sync-
-    // router rejection short-circuits before `reconcileActive` is
-    // reached. Important: the failure mode is "transport recovery
-    // failed", not "let's try the other path."
-    expect(reconcileActive).not.toHaveBeenCalled();
-    // The polling loop still starts — it's the primary catch-up
-    // mechanism and must not be blocked by a transient fetch failure.
-    expect(startReconciliationLoop).toHaveBeenCalledWith(1);
-    expect(captureExceptionMock).toHaveBeenCalledTimes(1);
   });
 });
