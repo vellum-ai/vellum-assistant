@@ -1,19 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery } from '@tanstack/react-query';
 
-import { client } from "@/generated/api/client.gen";
-import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
-import type { AssistantState } from "@/assistant/types";
-import { useIsOrgReady } from "@/hooks/use-is-org-ready";
-import {
-  useActiveAssistantIsPlatformHosted,
-  usePlatformGate,
-} from "@/hooks/use-platform-gate";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import {
-  ApiError,
-  assertHasResponse,
-  extractErrorMessage,
-} from "@/utils/api-errors";
+import { client } from '@/generated/api/client.gen';
+import { useAssistantLifecycleStore } from '@/assistant/lifecycle-store';
+import type { AssistantState } from '@/assistant/types';
+import { useIsOrgReady } from '@/hooks/use-is-org-ready';
+import { useActiveAssistantIsPlatformHosted, usePlatformGate } from '@/hooks/use-platform-gate';
+import { ApiError, assertHasResponse, extractErrorMessage } from '@/utils/api-errors';
 
 export type AssistantOperationalState =
   | "initializing"
