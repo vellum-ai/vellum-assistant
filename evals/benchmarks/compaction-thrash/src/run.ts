@@ -36,7 +36,11 @@ function timestampSuffix(): string {
   return `${ms}-${rand}`;
 }
 
-function runId(profileId: string, scenarioId: string, timestamp: string): string {
+function runId(
+  profileId: string,
+  scenarioId: string,
+  timestamp: string,
+): string {
   return `eval-${profileId}-${scenarioId}-${timestamp}`;
 }
 
@@ -54,9 +58,7 @@ function resolveTickCount(envVar: string, fallback: number): number {
   if (raw === undefined || raw === "") return fallback;
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed) || parsed < 1) {
-    throw new Error(
-      `${envVar}="${raw}" is not a valid positive integer.`,
-    );
+    throw new Error(`${envVar}="${raw}" is not a valid positive integer.`);
   }
   return parsed;
 }

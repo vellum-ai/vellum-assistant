@@ -262,8 +262,7 @@ function computeMetrics(observations: TickObservation[]): MetricResult[] {
   const cacheEfficiency =
     totalCacheTokens > 0 ? totalCacheRead / totalCacheTokens : 0;
   const cacheWriteRatio = totalInput > 0 ? totalCacheWrite / totalInput : 1;
-  const avgTokensPerTick =
-    (totalInput + totalOutput) / observePhase.length;
+  const avgTokensPerTick = (totalInput + totalOutput) / observePhase.length;
 
   return [
     {
@@ -461,10 +460,7 @@ export async function runCompactionThrashScenario(
       });
 
       // Write usage after every tick so partial runs are inspectable.
-      await writeUsage(
-        input.runId,
-        summarizeAssistantUsage(allEvents),
-      );
+      await writeUsage(input.runId, summarizeAssistantUsage(allEvents));
     }
 
     // Merge in egress-jail recorded usage for accurate cost accounting.
