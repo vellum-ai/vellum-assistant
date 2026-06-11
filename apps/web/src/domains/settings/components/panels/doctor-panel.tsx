@@ -1,5 +1,5 @@
 import { ArrowUp, Loader2, Play, Square } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
@@ -25,20 +25,21 @@ import {
 } from "@/domains/settings/components/panels/doctor-history";
 import { useDoctorPanelStore } from "@/domains/settings/components/panels/doctor-panel-store";
 import {
+  APPROVAL_RESPONSES,
+  DOCTOR_GREETING,
   cleanupServerSession,
-  resetToIdle,
-  useEndSession,
-  useSendMessage,
-  useStartSession,
 } from "@/domains/settings/components/panels/doctor-session-actions";
 import { useDoctorSSE } from "@/domains/settings/components/panels/use-doctor-sse";
 import {
   assistantsDoctorHistoryListOptions,
   assistantsDoctorHistoryRetrieveOptions,
+  useAssistantsDoctorSessionsCreateMutation,
+  useAssistantsDoctorSessionsMessagesCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { extractErrorMessage } from "@/utils/api-errors";
 import { isPointerCoarse } from "@/utils/pointer";
 
 // ---------------------------------------------------------------------------
@@ -49,19 +50,17 @@ export function DoctorPanel() {
   const assistantId =
     useResolvedAssistantsStore.use.activeAssistantId() ?? "";
 
-  // Store state (replaces 10 useState calls)
-  const entries = useDoctorPanelStore.use.entries();
+  // Store state — client-owned values only
+  const storeEntries = useDoctorPanelStore.use.entries();
   const inputValue = useDoctorPanelStore.use.inputValue();
   const pendingApproval = useDoctorPanelStore.use.pendingApproval();
   const pendingBackup = useDoctorPanelStore.use.pendingBackup();
   const thinking = useDoctorPanelStore.use.thinking();
   const sessionId = useDoctorPanelStore.use.sessionId();
-  const sessionStatus = useDoctorPanelStore.use.sessionStatus();
-  const selectedHistorySessionId = useDoctorPanelStore.use.selectedHistorySessionId();
-  const appliedHistorySessionId = useDoctorPanelStore.use.appliedHistorySessionId();
-  const historyAutoLoadAttempted = useDoctorPanelStore.use.historyAutoLoadAttempted();
+  const storeSessionStatus = useDoctorPanelStore.use.sessionStatus();
+  const historyDismissed = useDoctorPanelStore.use.historyDismissed();
 
-  // Local UI state (not shared with hooks)
+  // Local UI state
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   const platformGate = usePlatformGate();
@@ -70,9 +69,175 @@ export function DoctorPanel() {
   const prevEntryCountRef = useRef(0);
   const prevLastContentLenRef = useRef(0);
 
+  // ---------------------------------------------------------------------------
+  // SSE hook (owns only the AbortController lifecycle)
+  // ---------------------------------------------------------------------------
+
+  const { connectSSE, abort } = useDoctorSSE();
+
+  // ---------------------------------------------------------------------------
+  // History queries — server-owned data read from query cache, not store
+  // ---------------------------------------------------------------------------
+
+  const historyListEnabled =
+    !!assistantId && sessionId === null && !historyDismissed && storeEntries.length === 0;
+
+  const historyListQuery = useQuery({
+    ...assistantsDoctorHistoryListOptions({
+      path: { assistant_id: assistantId || "placeholder" },
+      query: { limit: 1 },
+    }),
+    enabled: historyListEnabled,
+  });
+
+  const latestHistorySession = historyListQuery.data
+    ? selectLatestHistorySession(historyListQuery.data.results ?? [])
+    : null;
+  const latestHistorySessionId = latestHistorySession?.id ?? null;
+
+  const historyDetailQuery = useQuery({
+    ...assistantsDoctorHistoryRetrieveOptions({
+      path: {
+        assistant_id: assistantId || "placeholder",
+        doctor_session_id: latestHistorySessionId ?? "",
+      },
+    }),
+    enabled:
+      !!assistantId && !!latestHistorySessionId && sessionId === null && storeEntries.length === 0,
+  });
+
+  // Derive history entries from query cache (no store copy for completed sessions)
+  const historyDetail = historyDetailQuery.data;
+  const historyStatus = historyDetail
+    ? mapPersistedStatusToPanelStatus(historyDetail.status)
+    : null;
+  const historyEntries = useMemo(
+    () =>
+      historyDetail
+        ? mapPersistedMessagesToEntries(historyDetail.messages ?? [])
+        : [],
+    [historyDetail],
+  );
+
+  // Resume active session from history — one-time mode transition into active mode.
+  // This is NOT "copying server state to client state" — it's seeding the store
+  // with the initial entries before SSE takes over appending new ones.
+  useEffect(() => {
+    if (sessionId !== null) return;
+    if (storeEntries.length > 0) return;
+    if (!historyDetail || !latestHistorySessionId) return;
+    if (historyStatus !== "active") return;
+
+    const store = useDoctorPanelStore.getState();
+    const resumedEntries = mapPersistedMessagesToEntries(historyDetail.messages ?? []);
+    store.setEntries(resumedEntries);
+    store.setPendingApproval(hasPendingApproval(resumedEntries));
+    store.setPendingBackup(hasPendingBackup(resumedEntries));
+    store.setSessionId(latestHistorySessionId);
+    store.setSessionStatus("active");
+    connectSSE(assistantId, latestHistorySessionId);
+  }, [sessionId, storeEntries.length, historyDetail, historyStatus, latestHistorySessionId, assistantId, connectSSE]);
+
+  // Capture query errors for observability
+  useEffect(() => {
+    if (historyListQuery.error) {
+      captureError(historyListQuery.error, { context: "doctor_history_list" });
+    }
+  }, [historyListQuery.error]);
+
+  useEffect(() => {
+    if (historyDetailQuery.error) {
+      captureError(historyDetailQuery.error, { context: "doctor_history_detail" });
+    }
+  }, [historyDetailQuery.error]);
+
+  // ---------------------------------------------------------------------------
+  // Generated mutation hooks — used directly, no wrappers
+  // ---------------------------------------------------------------------------
+
+  const startMutation = useAssistantsDoctorSessionsCreateMutation({
+    onSuccess(data) {
+      const store = useDoctorPanelStore.getState();
+      store.setSessionId(data.session_id);
+      store.setSessionStatus("active");
+      store.setEntries([
+        { kind: "assistant", content: DOCTOR_GREETING, id: "greeting", timestamp: Date.now() },
+      ]);
+      connectSSE(assistantId, data.session_id);
+    },
+    onError(error) {
+      captureError(error, { context: "start_doctor_session" });
+      useDoctorPanelStore.getState().appendEntry({
+        kind: "error",
+        content: extractErrorMessage(error, undefined, "Failed to start doctor session"),
+      });
+    },
+  });
+
+  const sendMutation = useAssistantsDoctorSessionsMessagesCreateMutation({
+    onMutate(variables) {
+      const content = variables.body.content;
+      const store = useDoctorPanelStore.getState();
+      store.appendEntry({ kind: "user", content });
+      store.setInputValue("");
+      if (APPROVAL_RESPONSES.has(content.toLowerCase())) {
+        store.setPendingApproval(false);
+      }
+    },
+    onSuccess() {
+      useDoctorPanelStore.getState().setThinking(true);
+    },
+    onError(error) {
+      captureError(error, { context: "send_doctor_message" });
+      useDoctorPanelStore.getState().appendEntry({
+        kind: "error",
+        content: extractErrorMessage(error, undefined, "Failed to send message"),
+      });
+    },
+  });
+
+  const starting = startMutation.isPending;
+  const sending = sendMutation.isPending;
+
+  // ---------------------------------------------------------------------------
+  // Handlers
+  // ---------------------------------------------------------------------------
+
+  const handleSend = (content: string) => {
+    const text = content.trim();
+    if (!text || !sessionId) return;
+    sendMutation.mutate({
+      path: { assistant_id: assistantId, session_id: sessionId },
+      body: { content: text },
+    });
+  };
+
+  const handleEndSession = () => {
+    abort();
+    const store = useDoctorPanelStore.getState();
+    if (store.sessionId && assistantId) {
+      cleanupServerSession(assistantId, store.sessionId);
+    }
+    store.teardown();
+  };
+
+  const handleNewSession = () => {
+    abort();
+    const store = useDoctorPanelStore.getState();
+    if (store.sessionId && assistantId) {
+      cleanupServerSession(assistantId, store.sessionId);
+    }
+    store.resetForNewSession();
+  };
+
+  // ---------------------------------------------------------------------------
+  // Lifecycle effects
+  // ---------------------------------------------------------------------------
+
   // Scroll when entries grow (new message) OR when the last entry's content
-  // grows (streaming message_delta). Avoids scrolling on tool_result in-place
-  // updates to mid-array entries which don't change the tail content length.
+  // grows (streaming message_delta).
+  const entries = sessionId || storeEntries.length > 0 ? storeEntries : historyEntries;
+
   useEffect(() => {
     const lastContentLen = entries.at(-1)?.content.length ?? 0;
     const shouldScroll =
@@ -88,129 +253,12 @@ export function DoctorPanel() {
     prevLastContentLenRef.current = lastContentLen;
   }, [entries]);
 
-  // ---------------------------------------------------------------------------
-  // SSE hook (owns only the AbortController lifecycle)
-  // ---------------------------------------------------------------------------
-
-  const { connectSSE, abort } = useDoctorSSE();
-
-  // ---------------------------------------------------------------------------
-  // Mutation hooks (loading state via .isPending, no manual booleans)
-  // ---------------------------------------------------------------------------
-
-  const startMutation = useStartSession(assistantId, connectSSE);
-  const endMutation = useEndSession(assistantId, abort);
-  const sendMutation = useSendMessage(assistantId);
-
-  const sending = sendMutation.isPending;
-  const starting = startMutation.isPending;
-  const ending = endMutation.isPending;
-
-  const handleSend = (content: string) => {
-    const text = content.trim();
-    if (!text || !sessionId) return;
-    sendMutation.mutate(text);
-  };
-
-  // ---------------------------------------------------------------------------
-  // Persisted history queries
-  // ---------------------------------------------------------------------------
-
-  const historyListEnabled =
-    !!assistantId && sessionId === null && !historyAutoLoadAttempted;
-  const historyListQuery = useQuery({
-    ...assistantsDoctorHistoryListOptions({
-      path: { assistant_id: assistantId || "placeholder" },
-      query: { limit: 1 },
-    }),
-    enabled: historyListEnabled,
-  });
-
-  useEffect(() => {
-    if (!historyListEnabled) return;
-    if (historyListQuery.isError) {
-      captureError(historyListQuery.error, { context: "doctor_history_list" });
-      const store = useDoctorPanelStore.getState();
-      store.setSelectedHistorySessionId(null);
-      store.setHistoryAutoLoadAttempted(true);
-      return;
-    }
-    const data = historyListQuery.data;
-    if (!data) return;
-    const latest = selectLatestHistorySession(data.results ?? []);
-    const store = useDoctorPanelStore.getState();
-    store.setSelectedHistorySessionId(latest ? latest.id : null);
-    store.setHistoryAutoLoadAttempted(true);
-  }, [
-    historyListEnabled,
-    historyListQuery.data,
-    historyListQuery.isError,
-    historyListQuery.error,
-  ]);
-
-  const historyDetailQuery = useQuery({
-    ...assistantsDoctorHistoryRetrieveOptions({
-      path: {
-        assistant_id: assistantId || "placeholder",
-        doctor_session_id: selectedHistorySessionId ?? "",
-      },
-    }),
-    enabled:
-      !!assistantId && !!selectedHistorySessionId && sessionId === null,
-  });
-
-  useEffect(() => {
-    if (sessionId !== null) return;
-    if (!selectedHistorySessionId) return;
-    if (appliedHistorySessionId === selectedHistorySessionId) return;
-
-    if (historyDetailQuery.isError) {
-      captureError(historyDetailQuery.error, {
-        context: "doctor_history_detail",
-      });
-      useDoctorPanelStore.getState().setAppliedHistorySessionId(selectedHistorySessionId);
-      return;
-    }
-
-    const detail = historyDetailQuery.data;
-    if (!detail) return;
-
-    const store = useDoctorPanelStore.getState();
-    const resumedEntries = mapPersistedMessagesToEntries(
-      detail.messages ?? [],
-    );
-    store.setEntries(resumedEntries);
-    const panelStatus = mapPersistedStatusToPanelStatus(detail.status);
-    store.setSessionStatus(panelStatus);
-
-    if (panelStatus === "active" && assistantId) {
-      store.setPendingApproval(hasPendingApproval(resumedEntries));
-      store.setPendingBackup(hasPendingBackup(resumedEntries));
-      store.setSessionId(selectedHistorySessionId);
-      connectSSE(assistantId, selectedHistorySessionId);
-    }
-
-    store.setAppliedHistorySessionId(selectedHistorySessionId);
-  }, [
-    sessionId,
-    selectedHistorySessionId,
-    appliedHistorySessionId,
-    assistantId,
-    connectSSE,
-    historyDetailQuery.data,
-    historyDetailQuery.isError,
-    historyDetailQuery.error,
-  ]);
-
   // Recover from stale state on same-assistant remount.
   // The module-level store survives unmount, but useDoctorSSE's AbortController
   // does not — it's a React ref that dies with the hook instance. If the store
   // still shows an active session, the SSE stream is gone with no way to resume
-  // it from the old controller. Full-reset the store (preserving lastAssistantId)
-  // so the history auto-load cycle fires, which will either reconnect to the
-  // still-active server session or display the completed results.
-  // Only handles same-assistant case — different-assistant remounts are handled
-  // by the assistant-change effect which reads sessionId before clearing it.
+  // it from the old controller. Full-reset so the history queries can re-discover
+  // and reconnect to the still-active server session.
   useEffect(() => {
     const store = useDoctorPanelStore.getState();
     if (
@@ -223,8 +271,7 @@ export function DoctorPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: assistantId is stable at mount time
   }, []);
 
-  // Reset all doctor state when active assistant changes (including remount
-  // with a different assistant — the store is module-level and survives unmount).
+  // Reset all doctor state when active assistant changes.
   useEffect(() => {
     const store = useDoctorPanelStore.getState();
     if (store.lastAssistantId === assistantId) return;
@@ -251,13 +298,16 @@ export function DoctorPanel() {
   // Derived state
   // ---------------------------------------------------------------------------
 
-  const isSessionActive = sessionStatus === "active";
-  const isSessionEnded =
-    sessionStatus === "completed" || sessionStatus === "error";
-  const isLoadingHistory =
-    (assistantId && !historyAutoLoadAttempted) ||
-    (selectedHistorySessionId &&
-      appliedHistorySessionId !== selectedHistorySessionId);
+  const isSessionActive = sessionId !== null;
+  const isSessionEnded = !isSessionActive && storeEntries.length > 0 &&
+    (storeSessionStatus === "completed" || storeSessionStatus === "error");
+  const sessionStatus = (isSessionActive || isSessionEnded)
+    ? storeSessionStatus
+    : (historyStatus ?? "idle");
+  const isLoadingHistory = historyListEnabled && (
+    historyListQuery.isLoading ||
+    (!!latestHistorySessionId && historyDetailQuery.isLoading)
+  );
 
   // ---------------------------------------------------------------------------
   // Render
@@ -292,16 +342,11 @@ export function DoctorPanel() {
         {isSessionActive && (
           <button
             type="button"
-            onClick={() => endMutation.mutate()}
-            disabled={ending}
+            onClick={handleEndSession}
             className="flex cursor-pointer items-center gap-1.5 rounded border border-[var(--system-negative-strong)] px-3 py-1.5 text-body-small-default text-[var(--system-negative-strong)] transition-colors hover:bg-[var(--system-negative-weak)] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {ending ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <Square className="h-3 w-3" />
-            )}
-            {ending ? "Ending\u2026" : "End Session"}
+            <Square className="h-3 w-3" />
+            End Session
           </button>
         )}
       </div>
@@ -335,7 +380,9 @@ export function DoctorPanel() {
           </div>
           <button
             type="button"
-            onClick={() => startMutation.mutate()}
+            onClick={() =>
+              startMutation.mutate({ path: { assistant_id: assistantId } })
+            }
             disabled={starting}
             className="flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--primary-base)] px-5 py-2.5 text-body-medium-default text-[var(--content-inset)] transition-colors hover:bg-[var(--primary-hover)] disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -413,7 +460,7 @@ export function DoctorPanel() {
                         }}
                       />
                     ))}
-                    <span className="sr-only">Thinking\u2026</span>
+                    <span className="sr-only">Thinking&hellip;</span>
                   </div>
                 </div>
               )}
@@ -485,11 +532,11 @@ export function DoctorPanel() {
           )}
 
           {/* Session ended — option to restart */}
-          {isSessionEnded && (
+          {(isSessionEnded || (!isSessionActive && historyStatus && historyStatus !== "active")) && (
             <div className="flex shrink-0 items-center justify-center gap-3 py-2">
               <button
                 type="button"
-                onClick={() => resetToIdle(assistantId, abort)}
+                onClick={handleNewSession}
                 className="flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--primary-base)] px-4 py-2 text-body-medium-default text-[var(--content-inset)] transition-colors hover:bg-[var(--primary-hover)]"
               >
                 <Play className="h-4 w-4" />

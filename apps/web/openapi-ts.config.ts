@@ -4,7 +4,10 @@ export default defineConfig([
   {
     input: "./openapi-schemas/platform.yaml",
     output: "src/generated/api",
-    plugins: ["@hey-api/client-fetch", "@tanstack/react-query"],
+    plugins: [
+      "@hey-api/client-fetch",
+      { name: "@tanstack/react-query", useMutation: true },
+    ],
   },
   {
     input: "./openapi-schemas/auth.yaml",
@@ -14,6 +17,9 @@ export default defineConfig([
   {
     input: "./openapi-schemas/daemon.json",
     output: "src/generated/daemon",
-    plugins: ["@hey-api/client-fetch", "@tanstack/react-query"],
+    plugins: [
+      "@hey-api/client-fetch",
+      { name: "@tanstack/react-query", useMutation: true },
+    ],
   },
 ]);

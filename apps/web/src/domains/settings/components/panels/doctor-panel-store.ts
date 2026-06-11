@@ -35,9 +35,9 @@ export interface DoctorPanelState {
   sessionStatus: PanelStatus;
   pendingApproval: boolean;
   pendingBackup: boolean;
-  selectedHistorySessionId: string | null;
-  appliedHistorySessionId: string | null;
-  historyAutoLoadAttempted: boolean;
+  /** Set when the user clicks "New Session" — suppresses history queries
+   * so the idle state is shown instead of re-loading the old session. */
+  historyDismissed: boolean;
 
   /** ID of the entry currently being streamed into (message_delta). */
   streamingEntryId: string | null;
@@ -73,9 +73,7 @@ export interface DoctorPanelActions {
   setPendingBackup: (v: boolean) => void;
   setSessionId: (id: string | null) => void;
   setSessionStatus: (s: PanelStatus) => void;
-  setSelectedHistorySessionId: (id: string | null) => void;
-  setAppliedHistorySessionId: (id: string | null) => void;
-  setHistoryAutoLoadAttempted: (v: boolean) => void;
+  setHistoryDismissed: (v: boolean) => void;
 
   setStreamingEntryId: (id: string | null) => void;
   setEntries: (entries: ChatEntry[]) => void;
@@ -116,9 +114,7 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
   sessionStatus: "idle",
   pendingApproval: false,
   pendingBackup: false,
-  selectedHistorySessionId: null,
-  appliedHistorySessionId: null,
-  historyAutoLoadAttempted: false,
+  historyDismissed: false,
   streamingEntryId: null,
   entryCounter: 0,
   lastAssistantId: null,
@@ -144,7 +140,7 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
   teardown: () => {
     set({
       sessionId: null,
-      sessionStatus: "idle",
+      sessionStatus: "completed",
       pendingApproval: false,
       pendingBackup: false,
       thinking: false,
@@ -161,9 +157,7 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
       sessionStatus: "idle",
       pendingApproval: false,
       pendingBackup: false,
-      selectedHistorySessionId: null,
-      appliedHistorySessionId: null,
-      historyAutoLoadAttempted: false,
+      historyDismissed: false,
       streamingEntryId: null,
       entryCounter: 0,
     });
@@ -178,10 +172,7 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
       sessionStatus: "idle",
       pendingApproval: false,
       pendingBackup: false,
-      selectedHistorySessionId: null,
-      appliedHistorySessionId: null,
-      // historyAutoLoadAttempted intentionally NOT reset — prevents
-      // re-triggering history auto-load after "New Session".
+      historyDismissed: true,
       streamingEntryId: null,
       entryCounter: 0,
     });
@@ -193,9 +184,7 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
   setPendingBackup: (v) => set({ pendingBackup: v }),
   setSessionId: (id) => set({ sessionId: id }),
   setSessionStatus: (s) => set({ sessionStatus: s }),
-  setSelectedHistorySessionId: (id) => set({ selectedHistorySessionId: id }),
-  setAppliedHistorySessionId: (id) => set({ appliedHistorySessionId: id }),
-  setHistoryAutoLoadAttempted: (v) => set({ historyAutoLoadAttempted: v }),
+  setHistoryDismissed: (v) => set({ historyDismissed: v }),
   setStreamingEntryId: (id) => set({ streamingEntryId: id }),
   setEntries: (entries) => set({ entries }),
 }));
