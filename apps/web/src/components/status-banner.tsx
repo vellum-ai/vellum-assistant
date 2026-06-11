@@ -124,10 +124,10 @@ function useAssistantBannerConfig(): BannerConfig | null {
     useAssistantLifecycleStore.use.operationalStatusAssistantId();
   const assistantId = operationalStatusAssistantId ?? activeAssistantId;
   const activeAssistantIsPlatformHosted = useActiveAssistantIsPlatformHosted();
-  const targetIsLifecycleOperationAssistant =
-    Boolean(assistantId) && assistantId === operationalStatusAssistantId;
   const showDoctorAction =
-    activeAssistantIsPlatformHosted || targetIsLifecycleOperationAssistant;
+    activeAssistantIsPlatformHosted &&
+    Boolean(activeAssistantId) &&
+    assistantId === activeAssistantId;
   const statusQuery = useAssistantOperationalStatus(assistantId);
 
   if (electron && connectivityState === "device-offline") {

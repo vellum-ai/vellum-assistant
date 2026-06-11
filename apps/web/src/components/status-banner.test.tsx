@@ -187,8 +187,8 @@ describe("StatusBanner", () => {
     expect(html).not.toContain("Go to Doctor");
   });
 
-  test("renders Doctor action for lifecycle-owned platform operation errors", () => {
-    activeAssistantIsPlatformHostedMock = false;
+  test("does not render Doctor action for lifecycle operation errors that do not target the active assistant", () => {
+    activeAssistantIsPlatformHostedMock = true;
     activeAssistantIdMock = "assistant-active";
     operationalStatusAssistantIdMock = "assistant-operation";
     operationalStatusQueryMock = {
@@ -200,7 +200,7 @@ describe("StatusBanner", () => {
 
     expect(requestedOperationalStatusAssistantId).toBe("assistant-operation");
     expect(html).toContain("Assistant is crash looping");
-    expect(html).toContain("Go to Doctor");
+    expect(html).not.toContain("Go to Doctor");
   });
 
   test("renders quiet operational states with lower-severity tones", () => {
