@@ -18,6 +18,18 @@
       "license": "MIT"
     },
     {
+      "name": "simple-memory",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/simple-memory",
+        "ref": "ed09a4c01bf18e4ac8859faee94cb65c7cbd1ca3"
+      },
+      "description": "Reference memory plugin that exercises the full plugin API with low-cost variants of Vellum's memory defaults.",
+      "category": "memory",
+      "homepage": "https://github.com/vellum-ai/simple-memory",
+      "license": "MIT"
+    },
+    {
       "name": "dynamic-notch",
       "source": {
         "source": "github",
@@ -27,6 +39,18 @@
       "description": "Put your Vellum assistant inside your MacBook's notch: click to chat, hold Ctrl+Option to talk, and get a floating task bulb while it works, with live-streamed replies and per-sentence voice.",
       "category": "interface",
       "homepage": "https://github.com/AnitaKirkovska/dynamic-notch",
+      "license": "MIT"
+    },
+    {
+      "name": "level-up",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/level-up",
+        "ref": "60a392b7e7866589cac7ced5bd80fe1e2b2bc1b5"
+      },
+      "description": "Surfaces a first-class \"Level Up\" diff card whenever the assistant edits its own skills or plugins, so you can see how it improved itself after the fact.",
+      "category": "developer",
+      "homepage": "https://github.com/vellum-ai/level-up",
       "license": "MIT"
     }
   ]

@@ -3,7 +3,7 @@ import { Check, Copy, ExternalLink, FileCode, GitBranch } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
+import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 
 type MessageHoverActionsProps = {
   /** The message whose text is copied and whose role/timestamp drive the row. */
@@ -85,11 +85,11 @@ export function MessageHoverActions({
   onInspect,
 }: MessageHoverActionsProps) {
   const { role } = message;
-  // Flat plain-text body derived from the ordered text segments; this is the
+  // Flat plain-text body derived from the message's text blocks; this is the
   // copy payload and mirrors the daemon's `joinWithSpacing`.
   const content = useMemo(
-    () => segmentsToPlainText(message.textSegments),
-    [message.textSegments],
+    () => messagePlainText(message),
+    [message],
   );
   const timestamp = useMemo(
     () => latestMessageActivityTimestamp(message),

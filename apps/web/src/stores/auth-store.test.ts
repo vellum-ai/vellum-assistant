@@ -18,7 +18,8 @@ let mockIsGatewayAuth = false;
 let mockIsLocalMode = false;
 let mockPlatformAssistants: unknown[] = [];
 let mockPrimeError: Error | null = null;
-const setSelectedAssistantIdMock = mock((_id: string) => {});
+const setSelectedAssistantMock = mock((_id: string | null) => {});
+const setFromApiMock = mock((_assistants: unknown) => {});
 const primeLocalGatewayConnectionMock = mock(async () => {
   if (mockPrimeError) throw mockPrimeError;
 });
@@ -53,7 +54,9 @@ const retrieveBiometricTokenMock = mock(async () => mockBiometricToken);
 // unaffected; the reconciliation tests override it to a well-formed result.
 let mockListAssistantsResult: unknown = [];
 const listAssistantsMock = mock(async () => mockListAssistantsResult);
-const syncPlatformAssistantsToLockfileMock = mock(async (_list: unknown) => {});
+const syncPlatformAssistantsToLockfileMock = mock(
+  async (_list: unknown, _orgId?: string) => {},
+);
 
 mock.module("@/lib/auth/allauth-client", () => ({
   getSession: async () => {
@@ -89,8 +92,6 @@ mock.module("@/lib/local-mode", () => ({
   isPlatformAssistant: (a: { cloud?: string }) => a.cloud === "vellum",
   getPlatformAssistants: () => mockPlatformAssistants,
   getLocalAssistants: () => [],
-  clearSelectedAssistant: () => {},
-  setSelectedAssistantId: setSelectedAssistantIdMock,
   primeLocalGatewayConnection: primeLocalGatewayConnectionMock,
   primeLocalGatewayConnectionWithRepair:
     primeLocalGatewayConnectionWithRepairMock,
@@ -141,11 +142,21 @@ mock.module("@/lib/auth/session-cleanup", () => ({
   clearUserScopedStorage: clearUserScopedStorageMock,
 }));
 
+mock.module("@/stores/resolved-assistants-store", () => ({
+  useResolvedAssistantsStore: {
+    getState: () => ({
+      setSelectedAssistant: setSelectedAssistantMock,
+      setFromApi: setFromApiMock,
+    }),
+  },
+}));
+
 mock.module("@/stores/organization-store", () => ({
   clearOrganization: clearOrganizationMock,
   useOrganizationStore: {
     getState: () => ({
       fetchOrganizations: async () => {},
+      currentOrganizationId: "org-test",
     }),
   },
 }));
@@ -194,7 +205,8 @@ beforeEach(() => {
   mockIsBiometricEnabled = false;
   mockBiometricToken = null;
   mockPrimeError = null;
-  setSelectedAssistantIdMock.mockClear();
+  setSelectedAssistantMock.mockClear();
+  setFromApiMock.mockClear();
   primeLocalGatewayConnectionMock.mockClear();
   primeLocalGatewayConnectionWithRepairMock.mockClear();
   restoreConsentForUserMock.mockClear();
@@ -307,15 +319,16 @@ describe("auth store onboarding flag reconciliation", () => {
     mockListAssistantsResult = {
       ok: true,
       status: 200,
-      data: [{ id: "assistant-3", is_local: false, created: "2026-06-05T00:00:00Z" }],
+      data: [{ id: "assistant-3", name: "My Assistant", is_local: false, created: "2026-06-05T00:00:00Z" }],
     };
 
     await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
 
     expect(listAssistantsMock).toHaveBeenCalled();
-    expect(syncPlatformAssistantsToLockfileMock).toHaveBeenCalledWith([
-      { id: "assistant-3", is_local: false, created: "2026-06-05T00:00:00Z" },
-    ]);
+    expect(syncPlatformAssistantsToLockfileMock).toHaveBeenCalledWith(
+      [{ id: "assistant-3", name: "My Assistant", is_local: false, created: "2026-06-05T00:00:00Z" }],
+      "org-test",
+    );
   });
 
   test("refreshSession skips lockfile sync outside local mode", async () => {
@@ -497,7 +510,7 @@ describe("connectLocalAssistant", () => {
 
     await useAuthStore.getState().connectLocalAssistant("local-a");
 
-    expect(setSelectedAssistantIdMock).toHaveBeenCalledWith("local-a");
+    expect(setSelectedAssistantMock).toHaveBeenCalledWith("local-a");
     expect(primeLocalGatewayConnectionWithRepairMock).toHaveBeenCalledTimes(1);
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
     expect(useAuthStore.getState().user?.id).toBe("gateway-local");
@@ -514,7 +527,7 @@ describe("connectLocalAssistant", () => {
       useAuthStore.getState().connectLocalAssistant("local-a"),
     ).rejects.toThrow("Guardian token not found");
 
-    expect(setSelectedAssistantIdMock).toHaveBeenCalledWith("local-a");
+    expect(setSelectedAssistantMock).toHaveBeenCalledWith("local-a");
     expect(useAuthStore.getState().sessionStatus).not.toBe("authenticated");
   });
 });

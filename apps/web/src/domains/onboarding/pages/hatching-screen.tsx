@@ -19,15 +19,17 @@ import {
     writeSelectedVersion,
 } from "@/domains/onboarding/prefs";
 import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
-import { getLocalGatewayUrl, getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, saveLockfileAssistant, setSelectedAssistantId } from "@/lib/local-mode";
+import { getLocalGatewayUrl, getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, saveLockfileAssistant } from "@/lib/local-mode";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { avatarQueryKey } from "@/lib/sync/query-tags";
 import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { hatchLocalAssistant } from "@/runtime/local-mode-host";
+import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
-import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
+import { setSelectedAssistant } from "@/assistant/selection";
 import { useAuthStore } from "@/stores/auth-store";
+import { useOrganizationStore } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { CharacterTraits } from "@/types/avatar";
 import { extractErrorMessage } from "@/utils/api-errors";
@@ -96,6 +98,12 @@ export function HatchingScreen() {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const hostingParam = searchParams.get("hosting");
+  const failParam = searchParams.get("fail");
+  // On Electron the window is short (630px) with `titleBarStyle: "hidden"`, so
+  // the macOS traffic lights + global WindowDragRegion (28px) overlap the top
+  // of this `justify-center` layout. Gate the title-bar clearance + the content
+  // trim that keeps it inside the window on Electron so web/iOS are untouched.
+  const electron = isElectron();
   const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
   const sessionStatus = useAuthStore.use.sessionStatus();
   const [hatchTraits] = useState<CharacterTraits>(() =>
@@ -133,6 +141,15 @@ export function HatchingScreen() {
 
 
   useEffect(() => {
+    // Developer "Replay Hatch Failure" tool: when opened with `?fail`, skip the
+    // gate and the real hatch flow and render the error UI directly so the
+    // failure screen can be exercised on demand from the Electron developer menu.
+    if (failParam !== null) {
+      setError(
+        "Simulated hatch failure (developer menu → Replay Hatch Failure).",
+      );
+      return;
+    }
     const decision = decideHatchGate();
     if (decision.kind === "redirect") {
       void navigate(decision.to, { replace: true });
@@ -243,9 +260,12 @@ export function HatchingScreen() {
             if (isLocalMode()) {
               void saveLockfileAssistant({
                 assistantId: existing.data.id,
+                name: existing.data.name,
                 cloud: "vellum",
                 runtimeUrl: getPlatformRuntimeUrl(),
                 hatchedAt: new Date().toISOString(),
+                organizationId:
+                  useOrganizationStore.getState().currentOrganizationId ?? undefined,
               });
             }
             handleHatchReady();
@@ -284,7 +304,9 @@ export function HatchingScreen() {
           }
           await loadLockfile();
           if (result.assistantId) {
-            setSelectedAssistantId(result.assistantId);
+            useResolvedAssistantsStore
+              .getState()
+              .setSelectedAssistant(result.assistantId);
           }
 
           // Wait for the gateway + daemon to be fully ready before proceeding.
@@ -345,7 +367,7 @@ export function HatchingScreen() {
               is_local: true,
               created: new Date().toISOString(),
             } as Assistant);
-            void selectPlatformAssistant(result.assistantId);
+            void setSelectedAssistant(result.assistantId);
             void persistHatchAvatar(result.assistantId);
           }
 
@@ -436,16 +458,19 @@ export function HatchingScreen() {
           if (result.ok) {
             const assistantId = result.data.id;
             useResolvedAssistantsStore.getState().upsertFromApi(result.data);
-            void selectPlatformAssistant(assistantId);
+            void setSelectedAssistant(assistantId);
             if (createdFreshAssistant || preflightFoundNoAssistant) {
               void persistHatchAvatar(assistantId);
             }
             if (isLocalMode()) {
               void saveLockfileAssistant({
                 assistantId,
+                name: result.data.name,
                 cloud: "vellum",
                 runtimeUrl: getPlatformRuntimeUrl(),
                 hatchedAt: new Date().toISOString(),
+                organizationId:
+                  useOrganizationStore.getState().currentOrganizationId ?? undefined,
               });
             }
 
@@ -500,6 +525,7 @@ export function HatchingScreen() {
     };
   }, [
     attempt,
+    failParam,
     hatchTraits,
     sessionStatus,
     navigate,
@@ -536,7 +562,7 @@ export function HatchingScreen() {
       <OnboardingLayout>
         <div
           role="alert"
-          className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 pb-40 text-center text-[var(--content-default)]"
+          className={`mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 ${electron ? "pt-[3.25rem] pb-8" : "pb-40"} text-center text-[var(--content-default)]`}
         >
           <h1 className="text-3xl font-semibold tracking-tight">
             Something went wrong
@@ -567,7 +593,7 @@ export function HatchingScreen() {
             alt=""
             width={160}
             height={160}
-            className="my-16 onboarding-avatar-failed"
+            className={`${electron ? "my-8" : "my-16"} onboarding-avatar-failed`}
           />
           <div className="flex w-full max-w-sm flex-col gap-2">
             <Button
@@ -614,7 +640,7 @@ export function HatchingScreen() {
 
   return (
     <OnboardingLayout>
-      <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 pb-40 text-center text-[var(--content-default)]">
+      <div className={`mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 ${electron ? "pt-[3.25rem] pb-8" : "pb-40"} text-center text-[var(--content-default)]`}>
         <h1 className="text-3xl font-semibold tracking-tight">
           {phase === "ready" ? "Your assistant is ready!" : "Waking up…"}
         </h1>
@@ -629,7 +655,7 @@ export function HatchingScreen() {
           alt=""
           width={160}
           height={160}
-          className={`my-16 ${phase === "ready" ? "onboarding-avatar-awake" : "onboarding-avatar-pulse"}`}
+          className={`${electron ? "my-8" : "my-16"} ${phase === "ready" ? "onboarding-avatar-awake" : "onboarding-avatar-pulse"}`}
         />
         <ProgressBar
           value={displayProgress}

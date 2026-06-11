@@ -82,7 +82,6 @@ import {
   classifyConversationError,
   maxTokensReachedClassification,
 } from "./conversation-error.js";
-import { isProviderOrderingError } from "./conversation-slash.js";
 import { resolveTurnTimezoneContext } from "./date-context.js";
 import type {
   CardSurfaceData,
@@ -157,14 +156,6 @@ export interface EventHandlerState {
   exchangeLlmCallCount: number;
   readonly exchangeRawResponses: unknown[];
   model: string;
-  orderingErrorDetected: boolean;
-  deferredOrderingError: string | null;
-  /**
-   * Set when the provider rejects with an image-dimension error. The agent
-   * loop strips or downscales oversized image blocks from ctx.messages and
-   * retries once before surfacing an error to the user.
-   */
-  imageTooLargeDetected: boolean;
   providerErrorUserMessage: string | null;
   lastAssistantMessageId: string | undefined;
   /**
@@ -335,9 +326,6 @@ export function createEventHandlerState(): EventHandlerState {
     exchangeLlmCallCount: 0,
     exchangeRawResponses: [],
     model: "",
-    orderingErrorDetected: false,
-    deferredOrderingError: null,
-    imageTooLargeDetected: false,
     providerErrorUserMessage: null,
     lastAssistantMessageId: undefined,
     assistantRowAwaitingFinalization: false,
@@ -1587,51 +1575,32 @@ function handleError(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "error" }>,
 ): void {
-  if (isProviderOrderingError(event.error.message)) {
-    state.orderingErrorDetected = true;
-    state.deferredOrderingError = event.error.message;
-  } else {
-    const classified = classifyConversationError(event.error, {
-      phase: "agent_loop",
-    });
-    if (classified.code === "IMAGE_TOO_LARGE") {
-      // Trigger silent recovery: the agent loop will strip/downscale images
-      // in ctx.messages and retry once before surfacing an error.
-      state.imageTooLargeDetected = true;
-    } else if (
-      classified.code === "PROVIDER_ORDERING" ||
-      classified.code === "PROVIDER_WEB_SEARCH"
-    ) {
-      // Ordering errors detected via classifyConversationError (e.g. from ProviderError
-      // with statusCode 400 and ordering message) — trigger the retry path.
-      state.orderingErrorDetected = true;
-      state.deferredOrderingError = event.error.message;
-    } else {
-      if (classified.errorCategory === "provider_api_error") {
-        log.error(
-          {
-            conversationId: deps.ctx.conversationId,
-            errorCode: classified.code,
-            errorCategory: classified.errorCategory,
-            statusCode:
-              event.error instanceof ProviderError
-                ? event.error.statusCode
-                : undefined,
-            provider:
-              event.error instanceof ProviderError
-                ? event.error.provider
-                : undefined,
-            errorMessage: event.error.message,
-          },
-          "Provider rejected request with unclassified 4xx error",
-        );
-      }
-      deps.onEvent(
-        buildConversationErrorMessage(deps.ctx.conversationId, classified),
-      );
-      state.providerErrorUserMessage = classified.userMessage;
-    }
+  const classified = classifyConversationError(event.error, {
+    phase: "agent_loop",
+  });
+  if (classified.errorCategory === "provider_api_error") {
+    log.error(
+      {
+        conversationId: deps.ctx.conversationId,
+        errorCode: classified.code,
+        errorCategory: classified.errorCategory,
+        statusCode:
+          event.error instanceof ProviderError
+            ? event.error.statusCode
+            : undefined,
+        provider:
+          event.error instanceof ProviderError
+            ? event.error.provider
+            : undefined,
+        errorMessage: event.error.message,
+      },
+      "Provider rejected request with unclassified 4xx error",
+    );
   }
+  deps.onEvent(
+    buildConversationErrorMessage(deps.ctx.conversationId, classified),
+  );
+  state.providerErrorUserMessage = classified.userMessage;
 }
 
 export function handleMaxTokensReached(
@@ -2427,8 +2396,8 @@ export async function dispatchAgentEvent(
     );
     // Re-throw errors from critical handlers that must not be silently swallowed:
     // - message_complete: persists assistant message to DB, sets state flags
-    // - error: sets recovery flags (orderingErrorDetected) and surfaces the
-    //   user-facing error message
+    // - error: triggers image recovery or surfaces the user-facing error
+    //   message
     // - usage: records token accounting
     // - compaction_completed: durable compaction commit; aborting the turn is
     //   safer than re-injecting against a half-applied compaction

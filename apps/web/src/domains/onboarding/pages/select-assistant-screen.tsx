@@ -2,7 +2,7 @@ import { Check, Cloud, Laptop } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
+import { setSelectedAssistant } from "@/assistant/selection";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { formatRelativeDate } from "@/utils/format-date";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
@@ -28,6 +28,7 @@ export function SelectAssistantScreen() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const fromLogin = searchParams.get("fromLogin") === "1";
+  const fromSettings = searchParams.get("fromSettings") === "1";
   const hasPlatformSession = useHasPlatformSession();
   const assistants = useResolvedAssistantsStore.use.assistants();
   const {
@@ -64,7 +65,7 @@ export function SelectAssistantScreen() {
       if (assistant.isLocal) {
         await useAuthStore.getState().connectLocalAssistant(assistant.id);
       } else {
-        await selectPlatformAssistant(assistant.id);
+        await setSelectedAssistant(assistant.id);
         await useAuthStore.getState().connectPlatformAssistant(assistant.id);
       }
       void navigate(routes.assistant, { replace: true });
@@ -75,10 +76,11 @@ export function SelectAssistantScreen() {
   };
 
   // Auto-skip when there's exactly one assistant and it's accessible.
-  // Don't skip when the user just logged in — let them see the now-enabled option.
+  // Don't skip when the user just logged in or navigated here deliberately
+  // from settings — let them see the chooser.
   // Reactive to assistants so it fires when the store populates after mount.
   useEffect(() => {
-    if (fromLogin) return;
+    if (fromLogin || fromSettings) return;
     if (connecting || autoSkipping) return;
     if (assistants.length === 0) return;
     if (assistants.length === 1 && accessibleAssistants.length === 1) {

@@ -1,6 +1,8 @@
 import { Slot, Slottable } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import {
+  cloneElement,
+  isValidElement,
   type ButtonHTMLAttributes,
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
@@ -19,8 +21,10 @@ import { Tooltip } from "./tooltip";
  *
  * - Pass `variant` for chrome style and `size` for dimensions.
  * - Pass `leftIcon` / `rightIcon` for text+icon layouts.
- * - Pass `iconOnly` to render a square icon-only button (children are ignored
- *   and the icon is centered at the correct size for the chosen `size`).
+ * - Pass `iconOnly` to render a square icon-only button (the icon is centered
+ *   at the correct size for the chosen `size`). Without `asChild` the children
+ *   are ignored; with `asChild` the caller's element (e.g. a `Link`) becomes
+ *   the root and the icon is re-parented into it.
  * - Use `asChild` to render as a child element (e.g. a `Link`) while keeping
  *   button styling and accessibility semantics. Uses Radix's `Slot`.
  * - Pass `expandOnMobile={false}` to opt an icon-only button out of the larger
@@ -279,9 +283,15 @@ export function Button({
     alignItems: "center",
     justifyContent: "center",
   };
+  // Size the icon with an explicit dimension (`[&_svg]:size-3.5`) rather than
+  // `size-full`. `size-full` makes the SVG fill whatever element it lands in,
+  // which breaks when the `asChild`/Slot path (especially nested under a
+  // tooltip Slot) collapses the icon span and the button box onto one element:
+  // the SVG would then fill the 24px button box instead of the 14px icon box.
+  // A fixed size keeps the icon at the intended dimension regardless of nesting.
   const iconOnlyClass = cn(
-    "inline-flex items-center justify-center shrink-0 size-3.5 [&_svg]:size-full",
-    expandOnMobile && "max-md:size-4",
+    "inline-flex items-center justify-center shrink-0 size-3.5 [&_svg]:size-3.5",
+    expandOnMobile && "max-md:size-4 max-md:[&_svg]:size-4",
   );
 
   const Comp = asChild ? Slot : "button";
@@ -316,9 +326,23 @@ export function Button({
       style={composedStyle}
     >
       {isIconOnly ? (
-        <span aria-hidden="true" className={iconOnlyClass}>
-          {iconOnly}
-        </span>
+        asChild && isValidElement(children) ? (
+          // `asChild` + `iconOnly`: Slot merges the button props onto the
+          // caller's element (e.g. an `<a>`), so inject the icon as that
+          // element's child to keep the icon-only chrome while the link owns
+          // navigation semantics (href, modified-click open-in-new-tab).
+          cloneElement(
+            children,
+            undefined,
+            <span aria-hidden="true" className={iconOnlyClass}>
+              {iconOnly}
+            </span>,
+          )
+        ) : (
+          <span aria-hidden="true" className={iconOnlyClass}>
+            {iconOnly}
+          </span>
+        )
       ) : leftIcon == null && rightIcon == null ? (
         children
       ) : (

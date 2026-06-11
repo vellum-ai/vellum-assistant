@@ -380,6 +380,7 @@ mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
     },
   }),
   deepRepairHistory: (msgs: Message[]) => ({ messages: msgs, stats: {} }),
+  isRepairableOrderingError: () => false,
 }));
 
 const recordUsageMock = mock((..._args: unknown[]) => {});
@@ -477,11 +478,6 @@ mock.module("../daemon/conversation-error.js", () => ({
     retryable: true,
     errorCategory: "budget_yield_unrecovered",
   }),
-}));
-
-mock.module("../daemon/conversation-slash.js", () => ({
-  isProviderOrderingError: (msg: string) =>
-    /ordering|before.*after|messages.*order/i.test(msg),
 }));
 
 mock.module("../util/truncate.js", () => ({

@@ -14,7 +14,7 @@ export {
   resolveDevCliInvocation,
 } from "./util";
 export type { CliInvocation } from "./util";
-export { resolveLocalConfigFromEnv, resolveLockfilePaths, resolveConfigDir } from "./config";
+export { resolveLocalConfigFromEnv, resolveLockfilePaths, resolveConfigDir, guardianTokenPath } from "./config";
 export type { LocalEndpointConfig } from "./config";
 export { defaultEnvironmentFilePath, readDefaultEnvironment, resolveEnvironmentName } from "./environment";
 export {

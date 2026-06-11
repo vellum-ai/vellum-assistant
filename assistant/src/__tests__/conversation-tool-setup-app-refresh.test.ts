@@ -12,20 +12,55 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { ToolSetupContext } from "../daemon/conversation-tool-setup.js";
+import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { ToolExecutor } from "../tools/executor.js";
 import type { ToolExecutionResult } from "../tools/types.js";
-import {
-  broadcastMessageSpy,
-  installConversationToolSetupMocks,
-  makeToolSetupContext,
-  refreshSurfacesForAppSpy,
-  updatePublishedAppDeploymentSpy,
-} from "./conversation-tool-setup-test-helpers.js";
 
-installConversationToolSetupMocks();
+// ---------------------------------------------------------------------------
+// Spies for side-effect verification
+// ---------------------------------------------------------------------------
+
+const refreshSpy = mock(() => {});
+const updatePublishedSpy = mock(() => Promise.resolve());
+const broadcastSpy = mock(() => {});
+
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: broadcastSpy,
+}));
+
+// Mock session-surfaces so refreshSurfacesForApp is captured
+mock.module("../daemon/conversation-surfaces.js", () => ({
+  refreshSurfacesForApp: refreshSpy,
+  surfaceProxyResolver: mock(() =>
+    Promise.resolve({ content: "", isError: false }),
+  ),
+}));
+
+// Mock published-app-updater to prevent real deployment calls
+mock.module("../services/published-app-updater.js", () => ({
+  updatePublishedAppDeployment: updatePublishedSpy,
+}));
+
+// Mock browser-screencast registration (no-op)
+mock.module("../tools/browser/browser-screencast.js", () => ({
+  registerConversationSender: mock(() => {}),
+}));
+
+// Stub app-store functions used by other modules (e.g. app-source-watcher,
+// conversation-surfaces) so tool-side-effects' hooks can run without touching
+// the real app store during tests.
+mock.module("../memory/app-store.js", () => ({
+  getApp: mock(() => null),
+  getAppDirPath: mock(() => "/tmp/test-apps/dummy"),
+  isMultifileApp: mock(() => false),
+  getAppsDir: mock(() => "/tmp/test-apps"),
+  resolveAppIdByDirName: mock(() => null),
+  resolveAppIdFromPath: mock(() => null),
+}));
 
 // ---------------------------------------------------------------------------
 // Import createToolExecutor after mocks are in place
@@ -38,9 +73,7 @@ import { createToolExecutor } from "../daemon/conversation-tool-setup.js";
 // ---------------------------------------------------------------------------
 
 function broadcastPayloads(): unknown[] {
-  return (broadcastMessageSpy.mock.calls as unknown[][]).map(
-    ([payload]) => payload,
-  );
+  return (broadcastSpy.mock.calls as unknown[][]).map(([payload]) => payload);
 }
 
 function expectAppChangeBroadcast(appId: string): void {
@@ -50,6 +83,34 @@ function expectAppChangeBroadcast(appId: string): void {
       { type: "sync_changed", tags: [SYNC_TAGS.appsList] },
     ]) as never,
   );
+}
+
+/** Build a minimal ToolSetupContext stub. */
+function makeCtx(overrides: Partial<ToolSetupContext> = {}): ToolSetupContext {
+  return {
+    conversationId: "conv-test",
+    currentRequestId: "req-1",
+    workingDir: "/tmp/test",
+    abortController: null,
+    traceEmitter: { emit: () => {} },
+    sendToClient: mock(() => {}),
+    pendingSurfaceActions: new Map(),
+    lastSurfaceAction: new Map(),
+    surfaceState: new Map<
+      string,
+      { surfaceType: SurfaceType; data: SurfaceData; title?: string }
+    >(),
+    surfaceUndoStacks: new Map(),
+    accumulatedSurfaceState: new Map(),
+    surfaceActionRequestIds: new Set<string>(),
+    currentTurnSurfaces: [],
+    isProcessing: () => false,
+    enqueueMessage: () => ({ queued: false, requestId: "r" }),
+    getQueueDepth: () => 0,
+    processMessage: async () => "",
+    withSurface: async <T>(_id: string, fn: () => T | Promise<T>) => fn(),
+    ...overrides,
+  };
 }
 
 /** Fake ToolExecutor whose execute() returns a controlled result. */
@@ -76,16 +137,16 @@ const noopLifecycleHandler = mock(() => {});
 
 describe("session-tool-setup app refresh side effects", () => {
   beforeEach(() => {
-    refreshSurfacesForAppSpy.mockClear();
-    broadcastMessageSpy.mockClear();
-    updatePublishedAppDeploymentSpy.mockClear();
+    refreshSpy.mockClear();
+    broadcastSpy.mockClear();
+    updatePublishedSpy.mockClear();
   });
 
   // ── app_refresh ─────────────────────────────────────────────────────
 
   describe("app_refresh", () => {
     test("triggers refreshSurfacesForApp when result is not an error", async () => {
-      const ctx = makeToolSetupContext();
+      const ctx = makeCtx();
       const executor = makeFakeExecutor({
         content: '{"id":"app-1"}',
         isError: false,
@@ -101,17 +162,13 @@ describe("session-tool-setup app refresh side effects", () => {
 
       await toolFn("app_refresh", { app_id: "app-1" });
 
-      expect(refreshSurfacesForAppSpy).toHaveBeenCalledTimes(1);
-      expect((refreshSurfacesForAppSpy.mock.calls as unknown[][])[0][0]).toBe(
-        ctx,
-      );
-      expect((refreshSurfacesForAppSpy.mock.calls as unknown[][])[0][1]).toBe(
-        "app-1",
-      );
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+      expect((refreshSpy.mock.calls as unknown[][])[0][0]).toBe(ctx);
+      expect((refreshSpy.mock.calls as unknown[][])[0][1]).toBe("app-1");
     });
 
     test("broadcasts app_files_changed with correct appId", async () => {
-      const ctx = makeToolSetupContext();
+      const ctx = makeCtx();
       const executor = makeFakeExecutor({ content: "{}", isError: false });
 
       const toolFn = createToolExecutor(
@@ -124,12 +181,12 @@ describe("session-tool-setup app refresh side effects", () => {
 
       await toolFn("app_refresh", { app_id: "app-42" });
 
-      expect(broadcastMessageSpy).toHaveBeenCalledTimes(2);
+      expect(broadcastSpy).toHaveBeenCalledTimes(2);
       expectAppChangeBroadcast("app-42");
     });
 
     test("calls updatePublishedAppDeployment", async () => {
-      const ctx = makeToolSetupContext();
+      const ctx = makeCtx();
       const executor = makeFakeExecutor({ content: "{}", isError: false });
 
       const toolFn = createToolExecutor(
@@ -144,14 +201,14 @@ describe("session-tool-setup app refresh side effects", () => {
 
       // updatePublishedAppDeployment is called with void (fire-and-forget),
       // so just verify it was invoked.
-      expect(updatePublishedAppDeploymentSpy).toHaveBeenCalledTimes(1);
-      expect(
-        (updatePublishedAppDeploymentSpy.mock.calls as unknown[][])[0][0],
-      ).toBe("app-publish");
+      expect(updatePublishedSpy).toHaveBeenCalledTimes(1);
+      expect((updatePublishedSpy.mock.calls as unknown[][])[0][0]).toBe(
+        "app-publish",
+      );
     });
 
     test("skips side effects when result is an error", async () => {
-      const ctx = makeToolSetupContext();
+      const ctx = makeCtx();
       const executor = makeFakeExecutor({
         content: "Error: not found",
         isError: true,
@@ -167,13 +224,13 @@ describe("session-tool-setup app refresh side effects", () => {
 
       await toolFn("app_refresh", { app_id: "app-err" });
 
-      expect(refreshSurfacesForAppSpy).not.toHaveBeenCalled();
-      expect(broadcastMessageSpy).not.toHaveBeenCalled();
-      expect(updatePublishedAppDeploymentSpy).not.toHaveBeenCalled();
+      expect(refreshSpy).not.toHaveBeenCalled();
+      expect(broadcastSpy).not.toHaveBeenCalled();
+      expect(updatePublishedSpy).not.toHaveBeenCalled();
     });
 
     test("skips side effects when app_id is missing", async () => {
-      const ctx = makeToolSetupContext();
+      const ctx = makeCtx();
       const executor = makeFakeExecutor({ content: "{}", isError: false });
 
       const toolFn = createToolExecutor(
@@ -186,8 +243,8 @@ describe("session-tool-setup app refresh side effects", () => {
 
       await toolFn("app_refresh", {});
 
-      expect(refreshSurfacesForAppSpy).not.toHaveBeenCalled();
-      expect(broadcastMessageSpy).not.toHaveBeenCalled();
+      expect(refreshSpy).not.toHaveBeenCalled();
+      expect(broadcastSpy).not.toHaveBeenCalled();
     });
   });
 
@@ -195,7 +252,7 @@ describe("session-tool-setup app refresh side effects", () => {
 
   describe("app_update", () => {
     test("triggers refreshSurfacesForApp and broadcast on success", async () => {
-      const ctx = makeToolSetupContext();
+      const ctx = makeCtx();
       const executor = makeFakeExecutor({
         content: '{"updated":true,"appId":"app-7"}',
         isError: false,
@@ -211,19 +268,17 @@ describe("session-tool-setup app refresh side effects", () => {
 
       await toolFn("app_update", { app_id: "app-7" });
 
-      expect(refreshSurfacesForAppSpy).toHaveBeenCalledTimes(1);
-      expect((refreshSurfacesForAppSpy.mock.calls as unknown[][])[0][1]).toBe(
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+      expect((refreshSpy.mock.calls as unknown[][])[0][1]).toBe("app-7");
+      expectAppChangeBroadcast("app-7");
+      expect(updatePublishedSpy).toHaveBeenCalledTimes(1);
+      expect((updatePublishedSpy.mock.calls as unknown[][])[0][0]).toBe(
         "app-7",
       );
-      expectAppChangeBroadcast("app-7");
-      expect(updatePublishedAppDeploymentSpy).toHaveBeenCalledTimes(1);
-      expect(
-        (updatePublishedAppDeploymentSpy.mock.calls as unknown[][])[0][0],
-      ).toBe("app-7");
     });
 
     test("skips side effects when result is an error", async () => {
-      const ctx = makeToolSetupContext();
+      const ctx = makeCtx();
       const executor = makeFakeExecutor({
         content: "Error: not found",
         isError: true,
@@ -239,13 +294,13 @@ describe("session-tool-setup app refresh side effects", () => {
 
       await toolFn("app_update", { app_id: "app-err" });
 
-      expect(refreshSurfacesForAppSpy).not.toHaveBeenCalled();
-      expect(broadcastMessageSpy).not.toHaveBeenCalled();
-      expect(updatePublishedAppDeploymentSpy).not.toHaveBeenCalled();
+      expect(refreshSpy).not.toHaveBeenCalled();
+      expect(broadcastSpy).not.toHaveBeenCalled();
+      expect(updatePublishedSpy).not.toHaveBeenCalled();
     });
 
     test("skips side effects when app_id is missing", async () => {
-      const ctx = makeToolSetupContext();
+      const ctx = makeCtx();
       const executor = makeFakeExecutor({ content: "{}", isError: false });
 
       const toolFn = createToolExecutor(
@@ -258,8 +313,8 @@ describe("session-tool-setup app refresh side effects", () => {
 
       await toolFn("app_update", {});
 
-      expect(refreshSurfacesForAppSpy).not.toHaveBeenCalled();
-      expect(broadcastMessageSpy).not.toHaveBeenCalled();
+      expect(refreshSpy).not.toHaveBeenCalled();
+      expect(broadcastSpy).not.toHaveBeenCalled();
     });
   });
 
@@ -267,7 +322,7 @@ describe("session-tool-setup app refresh side effects", () => {
 
   describe("app_create side effects", () => {
     test("broadcasts app_files_changed immediately after app_create", async () => {
-      const ctx = makeToolSetupContext();
+      const ctx = makeCtx();
       const executor = makeFakeExecutor({
         content: JSON.stringify({ id: "new-app-1", name: "My App" }),
         isError: false,
@@ -283,8 +338,8 @@ describe("session-tool-setup app refresh side effects", () => {
 
       await toolFn("app_create", { name: "My App", html: "<h1>hi</h1>" });
 
-      expect(broadcastMessageSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
-      expect((broadcastMessageSpy.mock.calls as unknown[][])[0][0]).toEqual({
+      expect(broadcastSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
+      expect((broadcastSpy.mock.calls as unknown[][])[0][0]).toEqual({
         type: "app_files_changed",
         appId: "new-app-1",
       });
@@ -292,9 +347,7 @@ describe("session-tool-setup app refresh side effects", () => {
     });
 
     test("canonicalizes create_app skill_execute alias before hooks run", async () => {
-      const ctx = makeToolSetupContext({
-        allowedToolNames: new Set(["app_create"]),
-      });
+      const ctx = makeCtx({ allowedToolNames: new Set(["app_create"]) });
       const executor = makeFakeExecutor({
         content: JSON.stringify({ id: "alias-app-1", name: "Alias App" }),
         isError: false,
@@ -317,8 +370,8 @@ describe("session-tool-setup app refresh side effects", () => {
       const calls = executor.execute.mock.calls as unknown[][];
       expect(calls[0][0]).toBe("app_create");
       expect(calls[0][1]).toEqual({ name: "Alias App" });
-      expect(broadcastMessageSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
-      expect((broadcastMessageSpy.mock.calls as unknown[][])[0][0]).toEqual({
+      expect(broadcastSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
+      expect((broadcastSpy.mock.calls as unknown[][])[0][0]).toEqual({
         type: "app_files_changed",
         appId: "alias-app-1",
       });
@@ -326,9 +379,7 @@ describe("session-tool-setup app refresh side effects", () => {
     });
 
     test("canonicalizes legacy computer_use_press_key skill_execute alias before dispatch", async () => {
-      const ctx = makeToolSetupContext({
-        allowedToolNames: new Set(["computer_use_key"]),
-      });
+      const ctx = makeCtx({ allowedToolNames: new Set(["computer_use_key"]) });
       const executor = makeFakeExecutor({ content: "ok", isError: false });
 
       const toolFn = createToolExecutor(
@@ -358,7 +409,7 @@ describe("session-tool-setup app refresh side effects", () => {
     });
 
     test("preserves exact active create_app skill tool when app_create is also active", async () => {
-      const ctx = makeToolSetupContext({
+      const ctx = makeCtx({
         allowedToolNames: new Set(["create_app", "app_create"]),
       });
       const executor = makeFakeExecutor({
@@ -382,11 +433,11 @@ describe("session-tool-setup app refresh side effects", () => {
 
       const calls = executor.execute.mock.calls as unknown[][];
       expect(calls[0][0]).toBe("create_app");
-      expect(broadcastMessageSpy).not.toHaveBeenCalled();
+      expect(broadcastSpy).not.toHaveBeenCalled();
     });
 
     test("skips side effects when app_create result is an error", async () => {
-      const ctx = makeToolSetupContext();
+      const ctx = makeCtx();
       const executor = makeFakeExecutor({ content: "Error", isError: true });
 
       const toolFn = createToolExecutor(
@@ -399,7 +450,7 @@ describe("session-tool-setup app refresh side effects", () => {
 
       await toolFn("app_create", { name: "Bad", html: "" });
 
-      expect(broadcastMessageSpy).not.toHaveBeenCalled();
+      expect(broadcastSpy).not.toHaveBeenCalled();
     });
 
     test("fires notify side effects regardless of compile outcome reported in payload", async () => {
@@ -408,7 +459,7 @@ describe("session-tool-setup app refresh side effects", () => {
       // compile or returns compile_errors, the hook still refreshes
       // surfaces and broadcasts — compile retries are the LLM's
       // responsibility via a follow-up tool call, not the hook's.
-      const ctx = makeToolSetupContext();
+      const ctx = makeCtx();
       const executor = makeFakeExecutor({
         content: JSON.stringify({
           id: "new-app-err",
@@ -429,14 +480,14 @@ describe("session-tool-setup app refresh side effects", () => {
 
       await toolFn("app_create", { name: "Busted", html: "" });
 
-      expect(refreshSurfacesForAppSpy).toHaveBeenCalledTimes(1);
-      expect(broadcastMessageSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
-      expect((broadcastMessageSpy.mock.calls as unknown[][])[0][0]).toEqual({
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+      expect(broadcastSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
+      expect((broadcastSpy.mock.calls as unknown[][])[0][0]).toEqual({
         type: "app_files_changed",
         appId: "new-app-err",
       });
       expectAppChangeBroadcast("new-app-err");
-      expect(updatePublishedAppDeploymentSpy).toHaveBeenCalledTimes(1);
+      expect(updatePublishedSpy).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -444,7 +495,7 @@ describe("session-tool-setup app refresh side effects", () => {
 
   describe("app_delete side effects", () => {
     test("broadcasts app_files_changed after app_delete", async () => {
-      const ctx = makeToolSetupContext();
+      const ctx = makeCtx();
       const executor = makeFakeExecutor({ content: "{}", isError: false });
 
       const toolFn = createToolExecutor(
@@ -457,12 +508,12 @@ describe("session-tool-setup app refresh side effects", () => {
 
       await toolFn("app_delete", { app_id: "del-app-1" });
 
-      expect(broadcastMessageSpy).toHaveBeenCalledTimes(2);
+      expect(broadcastSpy).toHaveBeenCalledTimes(2);
       expectAppChangeBroadcast("del-app-1");
     });
 
     test("skips side effects when app_delete result is an error", async () => {
-      const ctx = makeToolSetupContext();
+      const ctx = makeCtx();
       const executor = makeFakeExecutor({ content: "Error", isError: true });
 
       const toolFn = createToolExecutor(
@@ -475,7 +526,7 @@ describe("session-tool-setup app refresh side effects", () => {
 
       await toolFn("app_delete", { app_id: "del-err" });
 
-      expect(broadcastMessageSpy).not.toHaveBeenCalled();
+      expect(broadcastSpy).not.toHaveBeenCalled();
     });
   });
 
@@ -487,7 +538,7 @@ describe("session-tool-setup app refresh side effects", () => {
       // string comparison, not tool metadata or origin. This means skill-
       // projected tools with the same name trigger the same afterExecute
       // hooks as core tools.
-      const ctx = makeToolSetupContext();
+      const ctx = makeCtx();
       const executor = makeFakeExecutor({ content: "{}", isError: false });
 
       const toolFn = createToolExecutor(
@@ -500,19 +551,19 @@ describe("session-tool-setup app refresh side effects", () => {
 
       // Simulate calling app_refresh by name (as the agent loop does)
       for (const toolName of ["app_refresh"]) {
-        refreshSurfacesForAppSpy.mockClear();
-        broadcastMessageSpy.mockClear();
-        broadcastMessageSpy.mockClear();
-        updatePublishedAppDeploymentSpy.mockClear();
+        refreshSpy.mockClear();
+        broadcastSpy.mockClear();
+        broadcastSpy.mockClear();
+        updatePublishedSpy.mockClear();
 
         await toolFn(toolName, {
           app_id: "skill-app",
         });
 
-        expect(refreshSurfacesForAppSpy).toHaveBeenCalledTimes(1);
-        expect(broadcastMessageSpy).toHaveBeenCalledTimes(2);
+        expect(refreshSpy).toHaveBeenCalledTimes(1);
+        expect(broadcastSpy).toHaveBeenCalledTimes(2);
         expectAppChangeBroadcast("skill-app");
-        expect(updatePublishedAppDeploymentSpy).toHaveBeenCalledTimes(1);
+        expect(updatePublishedSpy).toHaveBeenCalledTimes(1);
       }
     });
   });
@@ -521,7 +572,7 @@ describe("session-tool-setup app refresh side effects", () => {
 
   describe("non-app tools", () => {
     test("other tool names do not trigger app refresh side effects", async () => {
-      const ctx = makeToolSetupContext();
+      const ctx = makeCtx();
       const executor = makeFakeExecutor({ content: "{}", isError: false });
 
       const toolFn = createToolExecutor(
@@ -540,16 +591,16 @@ describe("session-tool-setup app refresh side effects", () => {
         "app_file_edit",
         "app_file_write",
       ]) {
-        refreshSurfacesForAppSpy.mockClear();
-        broadcastMessageSpy.mockClear();
-        broadcastMessageSpy.mockClear();
-        updatePublishedAppDeploymentSpy.mockClear();
+        refreshSpy.mockClear();
+        broadcastSpy.mockClear();
+        broadcastSpy.mockClear();
+        updatePublishedSpy.mockClear();
 
         await toolFn(toolName, { app_id: "app-1" });
 
-        expect(refreshSurfacesForAppSpy).not.toHaveBeenCalled();
-        expect(broadcastMessageSpy).not.toHaveBeenCalled();
-        expect(updatePublishedAppDeploymentSpy).not.toHaveBeenCalled();
+        expect(refreshSpy).not.toHaveBeenCalled();
+        expect(broadcastSpy).not.toHaveBeenCalled();
+        expect(updatePublishedSpy).not.toHaveBeenCalled();
       }
     });
   });

@@ -8,13 +8,20 @@ import {
     useRef,
     useSyncExternalStore,
 } from "react";
+import * as Sentry from "@sentry/react";
 
+import {
+  startDictationStream,
+  type DictationStreamHandle,
+} from "@/domains/chat/voice/dictation-stream";
+import { startNativeDictationPartials } from "@/runtime/native-dictation-partials";
 import {
     postSttTranscribe,
     type SttFailureReason,
 } from "@/domains/chat/voice/stt-api";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useIsNativePlatform } from "@/runtime/native-auth";
+import { useVellumCommands } from "@/runtime/vellum-commands";
 import { voiceInputAudioConstraints } from "@/utils/voice-input-device";
 import { Button, cn } from "@vellumai/design-library";
 
@@ -174,6 +181,43 @@ export function errorCodeForReason(reason: SttFailureReason): string {
 }
 
 // ---------------------------------------------------------------------------
+// Session breadcrumbs
+// ---------------------------------------------------------------------------
+
+type DictationSessionOutcome =
+  | "completed"
+  | "empty"
+  | "error"
+  | "cancelled"
+  | "aborted";
+
+/**
+ * One breadcrumb per dictation session, emitted when the session reaches a
+ * terminal state. Carries only metrics (duration, locale, final transcript
+ * length) — never the transcript itself, which is user speech content and
+ * must not reach Sentry.
+ *
+ * @see https://docs.sentry.io/platforms/javascript/enriching-events/breadcrumbs/
+ */
+function addDictationSessionBreadcrumb(
+  outcome: DictationSessionOutcome,
+  durationMs: number,
+  finalLength: number,
+): void {
+  Sentry.addBreadcrumb({
+    category: "dictation",
+    level: "info",
+    message: `dictation session ${outcome}`,
+    data: {
+      outcome,
+      durationMs,
+      locale: typeof navigator !== "undefined" ? navigator.language : "unknown",
+      finalLength,
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
@@ -237,6 +281,12 @@ export const VoiceInputButton = forwardRef<
   // Guard so recorder.onstop (which always fires after onerror) doesn't
   // overwrite the error state with a vsReset/vsFinalize transition.
   const erroredRef = useRef(false);
+  // Set by cancelRecording (Esc) — recorder.onstop still fires for teardown
+  // but must discard the captured audio instead of transcribing it.
+  const discardedRef = useRef(false);
+  // Wall-clock start of the live recording, for the session breadcrumb's
+  // duration (recording time only, not the STT round trip).
+  const sessionStartedAtRef = useRef(0);
   // Monotonic session counter — incremented on each startRecording call.
   // The async STT completion captures the current value and skips state
   // mutations if a newer session has started since.
@@ -248,11 +298,37 @@ export const VoiceInputButton = forwardRef<
   const speechRecRef = useRef<SpeechRecognitionInstance | null>(null);
   const speechAccumulatorRef = useRef("");
 
+  // Daemon streaming STT session — the primary source of live interim
+  // transcripts. Web Speech is non-functional inside the Electron shell
+  // (Chromium ships the API without the speech service behind it), so
+  // without this, dictation there shows no words as they're spoken.
+  // Interim display only; the batch transcribe-on-stop flow below stays
+  // the authority for the final text.
+  const dictationStreamRef = useRef<DictationStreamHandle | null>(null);
+
+  // Native helper speech-recognition partials — the fallback live-text
+  // source when the daemon stream can't start at all (no self-hosted
+  // gateway ingress; platform-managed assistants ride the platform proxy,
+  // which has no WebSocket path). Same role the native recognizer played
+  // in the legacy Swift client.
+  const nativePartialsStopRef = useRef<(() => void) | null>(null);
+  const nativePartialsTextRef = useRef("");
+
   const onStreamReadyRef = useRef(onStreamReady);
   onStreamReadyRef.current = onStreamReady;
 
   const onInterimTranscriptRef = useRef(onInterimTranscript);
   onInterimTranscriptRef.current = onInterimTranscript;
+
+  // Interim transcripts fan out to the per-instance callback (composer
+  // preview) AND the global recording store, so window-level consumers —
+  // the Electron dictation overlay sync — see partials no matter which
+  // button instance (chat composer or the global push-to-talk fallback)
+  // owns the session.
+  const publishInterim = useCallback((text: string) => {
+    useVoiceRecordingStore.getState().setInterimTranscript(text);
+    onInterimTranscriptRef.current?.(text);
+  }, []);
 
   const releaseStream = useCallback(() => {
     if (streamRef.current) {
@@ -276,9 +352,22 @@ export const VoiceInputButton = forwardRef<
     }
   }, []);
 
+  const stopDictationStream = useCallback(() => {
+    dictationStreamRef.current?.stop();
+    dictationStreamRef.current = null;
+  }, []);
+
+  const stopNativePartials = useCallback(() => {
+    nativePartialsStopRef.current?.();
+    nativePartialsStopRef.current = null;
+    nativePartialsTextRef.current = "";
+  }, []);
+
   const stopRecording = useCallback(() => {
     cancelledStartRef.current = true;
     stopSpeechRecognition();
+    stopDictationStream();
+    stopNativePartials();
     const recorder = mediaRecorderRef.current;
     if (!recorder) return;
     if (recorder.state !== "inactive") {
@@ -289,7 +378,70 @@ export const VoiceInputButton = forwardRef<
       }
     }
     vsStopRecording();
-  }, [vsStopRecording, stopSpeechRecognition]);
+  }, [
+    vsStopRecording,
+    stopSpeechRecognition,
+    stopDictationStream,
+    stopNativePartials,
+  ]);
+
+  /**
+   * Discard the in-flight recording session: stop capture without
+   * transcribing or inserting anything. `recorder.onstop` still fires and
+   * performs the usual teardown; `discardedRef` makes it skip the STT path.
+   */
+  const cancelRecording = useCallback(() => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder) return;
+    discardedRef.current = true;
+    stopSpeechRecognition();
+    stopDictationStream();
+    stopNativePartials();
+    if (recorder.state !== "inactive") {
+      try {
+        recorder.stop();
+      } catch {
+        // Already stopped.
+      }
+    }
+    vsReset();
+  }, [
+    stopSpeechRecognition,
+    stopDictationStream,
+    stopNativePartials,
+    vsReset,
+  ]);
+
+  // Esc during recording discards the partial result. Capture phase so it
+  // wins over composer/modal Escape handlers while a recording is live. Two
+  // instances can be mounted per window (chat composer + the global
+  // push-to-talk fallback) and both see the shared store phase; the
+  // recorder-ownership guard keeps the non-recording instance inert.
+  useEffect(() => {
+    if (!recording) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (!mediaRecorderRef.current) return;
+      event.preventDefault();
+      event.stopPropagation();
+      cancelRecording();
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [recording, cancelRecording]);
+
+  // The DOM listener above only sees Escape while a Vellum window has
+  // focus. During system-wide push-to-talk dictation into another app the
+  // Electron escape monitor owns Escape and relays it as a command; the
+  // same recorder-ownership guard applies.
+  useVellumCommands({
+    cancelDictation: () => {
+      if (!mediaRecorderRef.current) return;
+      cancelRecording();
+    },
+  });
 
   useEffect(() => {
     if (disabled && recording) {
@@ -301,6 +453,8 @@ export const VoiceInputButton = forwardRef<
     return () => {
       transcribeAbortRef.current?.abort();
       stopSpeechRecognition();
+      stopDictationStream();
+      stopNativePartials();
       const recorder = mediaRecorderRef.current;
       if (recorder && recorder.state !== "inactive") {
         try {
@@ -312,11 +466,17 @@ export const VoiceInputButton = forwardRef<
       releaseStream();
       useVoiceRecordingStore.getState().reset();
     };
-  }, [releaseStream, stopSpeechRecognition]);
+  }, [
+    releaseStream,
+    stopSpeechRecognition,
+    stopDictationStream,
+    stopNativePartials,
+  ]);
 
   const startRecording = useCallback(async () => {
     if (mediaRecorderRef.current) return;
     cancelledStartRef.current = false;
+    discardedRef.current = false;
     const sessionId = ++sessionIdRef.current;
 
     if (onBeforeStart) {
@@ -365,7 +525,16 @@ export const VoiceInputButton = forwardRef<
             }
           }
           speechAccumulatorRef.current = accumulated + interim;
-          onInterimTranscriptRef.current?.(interim);
+          // Streaming STT and native helper partials both take priority
+          // over Web Speech partials to avoid competing UI updates (the
+          // legacy client's rule). The accumulator above still builds — it
+          // stays the batch fallback.
+          if (
+            !dictationStreamRef.current?.isLive() &&
+            !nativePartialsTextRef.current
+          ) {
+            publishInterim(interim);
+          }
         };
 
         speechRec.onerror = () => {
@@ -430,15 +599,31 @@ export const VoiceInputButton = forwardRef<
     };
 
     recorder.onstop = () => {
+      const durationMs = Date.now() - sessionStartedAtRef.current;
       mediaRecorderRef.current = null;
       if (useVoiceRecordingStore.getState().phase === "recording") {
         vsStopRecording();
       }
       releaseStream();
       stopSpeechRecognition();
-      onInterimTranscriptRef.current?.("");
+      stopDictationStream();
+      stopNativePartials();
+      publishInterim("");
+
+      if (discardedRef.current) {
+        discardedRef.current = false;
+        chunksRef.current = [];
+        speechAccumulatorRef.current = "";
+        // Re-assert idle: a stop() racing in between cancelRecording and
+        // this handler (e.g. the push-to-talk key-up after Esc) can have
+        // moved the store to "processing".
+        vsReset();
+        addDictationSessionBreadcrumb("cancelled", durationMs, 0);
+        return;
+      }
 
       if (erroredRef.current) {
+        addDictationSessionBreadcrumb("error", durationMs, 0);
         return;
       }
 
@@ -447,6 +632,7 @@ export const VoiceInputButton = forwardRef<
       const fallbackText = speechAccumulatorRef.current;
       speechAccumulatorRef.current = "";
       if (chunks.length === 0 && !fallbackText) {
+        addDictationSessionBreadcrumb("empty", durationMs, 0);
         vsReset();
         return;
       }
@@ -488,19 +674,23 @@ export const VoiceInputButton = forwardRef<
 
         try {
           if (text) {
+            addDictationSessionBreadcrumb("completed", durationMs, text.length);
             await onTranscript(text);
           } else if (daemonFailure) {
             // The user-cancelled `aborted` reason should not trigger a
             // visible error — it's the expected outcome of stop().
             if (daemonFailure === "aborted") {
+              addDictationSessionBreadcrumb("aborted", durationMs, 0);
               vsReset();
               return;
             }
+            addDictationSessionBreadcrumb("error", durationMs, 0);
             const code = errorCodeForReason(daemonFailure);
             onError?.(code);
             vsFail(code);
             return;
           } else {
+            addDictationSessionBreadcrumb("empty", durationMs, 0);
             vsReset();
             return;
           }
@@ -518,6 +708,8 @@ export const VoiceInputButton = forwardRef<
       mediaRecorderRef.current = null;
       releaseStream();
       stopSpeechRecognition();
+      stopDictationStream();
+      stopNativePartials();
       onError?.("audio-capture");
       vsFail("audio-capture");
     };
@@ -533,6 +725,7 @@ export const VoiceInputButton = forwardRef<
       // When a future change wires up the WS /v1/stt/stream consumer, the
       // timeslice should come back paired with that consumer.
       recorder.start();
+      sessionStartedAtRef.current = Date.now();
       vsStartRecording();
       onError?.(null);
     } catch (err) {
@@ -545,14 +738,45 @@ export const VoiceInputButton = forwardRef<
       return;
     }
 
+    // Recording is live — open the daemon streaming session for interim
+    // transcripts. Null / later failure means no live partials from that
+    // source; the recorder above is untouched either way.
+    stopDictationStream();
+    dictationStreamRef.current = startDictationStream({
+      onPartial: publishInterim,
+    });
+
+    // No stream possible (no self-hosted gateway ingress) — fall back to
+    // the mac helper's local speech recognizer for live text.
+    stopNativePartials();
+    if (!dictationStreamRef.current) {
+      void startNativeDictationPartials((text) => {
+        nativePartialsTextRef.current = text;
+        if (!dictationStreamRef.current?.isLive()) {
+          publishInterim(text);
+        }
+      }).then((stop) => {
+        if (!stop) return;
+        // The session may have ended while the helper call was in flight.
+        if (!mediaRecorderRef.current) {
+          stop();
+          return;
+        }
+        nativePartialsStopRef.current = stop;
+      });
+    }
   }, [
     assistantId,
     onBeforeStart,
     onError,
     onTranscript,
+    publishInterim,
     releaseStream,
     stopSpeechRecognition,
+    stopDictationStream,
+    stopNativePartials,
     vsStartRecording,
+    vsStopRecording,
     vsFail,
     vsFinalize,
     vsReset,

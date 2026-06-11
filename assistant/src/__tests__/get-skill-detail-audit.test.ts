@@ -11,8 +11,15 @@ const mockResolveSkillStates = mock(
       displayName: string;
       description: string;
       emoji?: string;
-      source: "bundled" | "managed" | "workspace" | "extra" | "catalog";
+      source:
+        | "bundled"
+        | "managed"
+        | "workspace"
+        | "extra"
+        | "catalog"
+        | "plugin";
       directoryPath: string;
+      owner?: { kind: "skill" | "mcp" | "plugin" | "workspace"; id: string };
     };
     state: "enabled" | "disabled";
   }> => [],
@@ -313,5 +320,40 @@ describe("getSkill — skillssh audit enrichment", () => {
 
     // fetchSkillAudits was still called (just failed)
     expect(mockFetchSkillAudits).toHaveBeenCalledTimes(1);
+  });
+
+  test("attributes a plugin-resident skill to its owning plugin on the detail response", async () => {
+    // GIVEN a skill shipped inside an installed plugin, resolved with a
+    // `plugin` source and a plugin owner descriptor
+    mockResolveSkillStates.mockReturnValue([
+      {
+        summary: {
+          id: "caveman",
+          displayName: "Caveman",
+          description: "Ultra-compressed communication mode",
+          source: "plugin" as const,
+          directoryPath: "/tmp/test-skills/plugins/caveman/skills/caveman",
+          owner: { kind: "plugin", id: "caveman" },
+        },
+        state: "enabled" as const,
+      },
+    ]);
+
+    // WHEN we fetch its detail
+    const result = await getSkill("caveman");
+
+    // THEN it resolves to the vellum origin (plugin skills are mapped to
+    // bundled/vellum for older clients) while preserving plugin attribution
+    // on the owner descriptor
+    expect("skill" in result).toBe(true);
+    if (!("skill" in result)) throw new Error("Expected skill response");
+
+    const detail = result.skill;
+    expect(detail.origin).toBe("vellum");
+    expect(detail.id).toBe("caveman");
+    // AND the owner identifies the plugin so detail consumers can attribute it
+    if (detail.origin === "vellum") {
+      expect(detail.owner).toEqual({ kind: "plugin", id: "caveman" });
+    }
   });
 });

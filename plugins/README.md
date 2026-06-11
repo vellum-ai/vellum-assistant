@@ -4,8 +4,9 @@ Plugins extend the assistant's default capabilities using hooks, tools,
 skills, and more.
 
 If you're authoring a plugin against the current convention, this file is
-your map. Read [`simple-memory/`](./simple-memory/) alongside, it's the
-canonical reference implementation and exercises every wired surface.
+your map. Read [`vellum-ai/simple-memory`](https://github.com/vellum-ai/simple-memory)
+alongside, it's the canonical reference implementation and exercises every
+wired surface.
 
 ## Table of contents
 
@@ -54,8 +55,9 @@ my-plugin/
 │   ├── user-prompt-submit.ts  # Per-turn message-list transform
 │   ├── pre-model-call.ts      # Per-call request edit / output-defer
 │   ├── post-tool-use.ts       # Per-tool-result transform
-│   ├── stop.ts                # Per-run stop-boundary decision
-│   ├── post-model-call.ts     # Per-call reply transform
+│   ├── post-model-call.ts     # Per-call reply transform + continue decision
+│   ├── stop.ts                # Per-run terminal teardown
+│   ├── post-compact.ts        # Re-inject context after mid-turn compaction
 │   └── <future-hook>.ts       # Forward-compat slot
 ├── tools/
 │   ├── my_tool.ts             # Default export = tool definition
@@ -275,58 +277,25 @@ plugin contributes a hook here that tail-drops oversized output to fit
 the context window; because defaults register first, it runs ahead of
 user hooks.
 
-### `stop`
-
-Fires once per `run()` at the model's stop boundary — when the model
-returns a response with **no tool calls** and the loop is about to hand
-the turn back to the user. Refusals (a turn with no usable content) also
-land here. Tool-calling turns never reach the hook.
-
-```ts
-// hooks/stop.ts
-import type { StopContext } from "@vellumai/plugin-api";
-
-// In-place mutation style (return void):
-export default async function stop(ctx: StopContext): Promise<void> {
-  // ctx.conversationId  — ID of the conversation the run belongs to
-  // ctx.messages        — full conversation history; append a follow-up turn
-  //                       here when continuing. To reason about just the
-  //                       current response cycle, scope to the messages after
-  //                       the last genuine user prompt
-  // ctx.responseContent — content blocks of the stopping turn (no tool_use)
-  // ctx.stopReason      — provider stop reason (e.g. "refusal", "end_turn")
-  // ctx.decision        — seeded "stop"; set "continue" to re-query the model
-  // ctx.logger          — turn-scoped; tag log fields with { plugin: <name> }
-}
-```
-
-The hook decides the outcome by setting `ctx.decision`. The default is
-`"stop"` (let the turn end). Setting it to `"continue"` forces another
-loop iteration — when continuing, the hook must also append its follow-up
-turn (e.g. a nudge `user` message) to `ctx.messages`, which the loop
-threads into the next iteration. To abort with an error, throw; there is
-no error decision value.
-
-The loop owns the re-query budget: a hook may ask to continue every time,
-but the loop stops once its retry cap is spent, so a continuing hook
-cannot loop forever.
-
-Multiple plugins' hooks chain in registration order — each sees the
-previous hook's `decision` and `messages` mutations. The default
-`empty-response` plugin contributes a hook here that re-queries the model
-with a nudge when a turn comes back empty after tool use, or with a
-refusal nudge on a first-call refusal; because defaults register first,
-it runs ahead of user hooks.
-
 ### `post-model-call`
 
-Fires for **each finalized assistant message** — once per model call, at the
-message-complete boundary, before the message is persisted and (if deferred)
-streamed-final. Unlike `stop`'s read-only `responseContent`, `ctx.content` is
-**mutable**: the loop adopts the hook's result as the persisted and streamed
-message. Fires on tool-bearing turns too (a reply can carry both text and
-`tool_use`), so transform only the blocks you own and leave others — notably
-`tool_use` — intact. Runs for every finalized message; **self-gate** on
+Fires at **every model-call outcome** — the seam where the loop reacts to what
+the provider returned, and the hook that owns the **continue/retry decision**.
+Two outcomes reach it:
+
+- **Finalized reply.** The provider returned a message. `ctx.error` is absent,
+  `ctx.content` holds the reply's blocks (**mutable** — the loop adopts the
+  hook's result as the persisted and streamed message), and `ctx.stopReason`
+  carries the provider stop reason. Fires once per model call, including
+  tool-bearing turns (a reply can carry both text and `tool_use`), so transform
+  only the blocks you own and leave others — notably `tool_use` — intact.
+- **Provider rejection.** The call threw before any reply existed. `ctx.error`
+  holds the rejection, `ctx.content` is empty, and `ctx.stopReason` is `null`. A
+  hook that recognizes the rejection can repair `ctx.messages` and request a
+  retry; hooks that only act on a real reply must guard on `ctx.error` and
+  return early.
+
+Runs for every model call regardless of call site, so **self-gate** on
 `ctx.callSite` / `ctx.conversationId`.
 
 ```ts
@@ -339,17 +308,124 @@ export default async function postModelCall(
 ): Promise<void> {
   // ctx.conversationId — ID of the conversation the message belongs to
   // ctx.callSite       — call site ("mainAgent" for the user-facing reply)
-  // ctx.content        — finalized message content; transform text blocks and
-  //                      leave tool_use (and other non-text blocks) intact
+  // ctx.content        — finalized message content (mutable); empty on a
+  //                      rejection. Transform text blocks, leave tool_use intact
+  // ctx.messages       — full conversation history; when continuing, leave this
+  //                      as the history the next iteration should send
+  // ctx.error          — the provider rejection, on a rejection outcome; absent
+  //                      on a finalized reply
   // ctx.stopReason     — provider stop reason, when reported
+  // ctx.decision       — seeded "stop"; set "continue" to re-query the model
   // ctx.logger         — turn-scoped; tag log fields with { plugin: <name> }
 }
 ```
 
-A `pre-model-call` hook can set `deferAssistantOutput` to suppress the live
-stream; the loop then emits this hook's finalized text once. Multiple plugins'
-hooks chain in registration order — each sees the previous hook's mutations.
-Throwing is contained by the loop: the original content is kept.
+**Continuing the loop branches from the model-call outcome.** The hook owns the
+retry decision by setting `ctx.decision`. The default is `"stop"` (accept the
+outcome: keep the finalized reply, or surface the rejection). Setting it to
+`"continue"` re-queries the model — leave `ctx.messages` as the history the next
+iteration should send: a finalized-reply hook appends a follow-up turn (e.g. a
+nudge `user` message), a rejection-recovery hook replaces the array with a
+repaired one. The decision is honored only at **actionable outcomes** — a
+no-tool reply or a provider rejection — and is ignored on tool-bearing turns
+(the loop already runs the tools). The loop does **not** gate the decision on
+call site, so a hook that should only retry the user-facing turn must self-gate
+on `ctx.callSite` (above) to avoid re-querying background, subagent, or
+compaction calls.
+
+The loop owns the retry budget: a hook may request `continue` every iteration,
+but the loop stops once its retry cap is spent, so a continuing hook cannot loop
+forever. A `pre-model-call` hook can set `deferAssistantOutput` to suppress the
+live stream; the loop then emits this hook's finalized text once.
+
+Multiple plugins' hooks chain in registration order — each sees the previous
+hook's `content`, `decision`, and `messages` mutations. Throwing is contained by
+the loop: the original content is kept and the outcome is treated as `"stop"`.
+The default recovery plugins live here, and because defaults register first they
+run ahead of user hooks: `empty-response` re-queries with a nudge when a no-tool
+reply comes back empty or as a refusal; `history-repair` repairs the history and
+retries on a message-ordering rejection; `image-recovery` downscales and retries
+on an image-too-large rejection.
+
+### `stop`
+
+The loop's **definitive terminal hook**. Fires exactly once per `run()`, after
+the loop has committed to ending and will not run another iteration this run.
+Unlike `post-model-call`, `stop` **cannot continue the loop** — by the time it
+runs the turn's outcome is settled. That guarantee makes it the home for
+**teardown**: a hook can release per-turn resources or clear per-turn state
+knowing nothing will re-enter the loop this run.
+
+It fires on **every terminal exit** — a no-tool reply, a max-tokens stop, a
+yield-to-user, an exhausted context-overflow recovery, a user abort, or an
+unhandled error — and on a `checkpoint_handoff` (which ends the run for teardown
+purposes even though the orchestrator resumes the conversation in a fresh run).
+`ctx.exitReason` reports which one, so a hook that should act only on a
+particular ending guards on it.
+
+```ts
+// hooks/stop.ts
+import type { StopContext } from "@vellumai/plugin-api";
+
+export default async function stop(ctx: StopContext): Promise<void> {
+  // ctx.conversationId — ID of the conversation the run belongs to
+  // ctx.messages       — full conversation history at the terminal stop
+  //                      (read-only; mutating it has no effect)
+  // ctx.exitReason     — which terminal state the turn reached (e.g.
+  //                      "no_tool_calls", "max_tokens_reached", "error",
+  //                      "checkpoint_handoff")
+  // ctx.error          — the rejection that ended the turn, when it ended on
+  //                      one; absent on a clean stop
+  // ctx.logger         — turn-scoped; tag log fields with { plugin: <name> }
+}
+```
+
+`stop` neither transforms the reply nor decides the outcome — the retry decision
+lives in `post-model-call`. Use it purely to observe how the turn ended and tear
+down. Multiple plugins' hooks chain in registration order over the same context;
+a throwing teardown hook is logged with attribution and does not suppress the
+terminal exit. The default `title-generate` plugin contributes a hook here that
+(re)titles the conversation once a user-facing turn truly ends.
+
+### `post-compact`
+
+Fires after the loop **compacts a conversation mid-turn** — once the running
+history has been summarized down to fit the context window, and before the turn
+resumes with the next provider call. Compaction strips the turn's runtime
+injections (scratchpad, retrieved memory, workspace context, transcript
+snapshots) along with the raw messages it summarizes; this hook's job is to
+**re-apply** whatever injected context must survive onto the freshly compacted
+history.
+
+```ts
+// hooks/post-compact.ts
+import type { PostCompactContext } from "@vellumai/plugin-api";
+
+export default async function postCompact(
+  ctx: PostCompactContext,
+): Promise<void> {
+  // ctx.history          — compacted message history to re-inject onto
+  //                        (mutable; the loop resumes the turn from the
+  //                        settled value)
+  // ctx.requestId        — stable ID of the request driving this turn; forward
+  //                        onto the injector so re-applied blocks are attributed
+  // ctx.conversationId   — conversation the turn being compacted is scoped to
+  // ctx.isNonInteractive — true when no human is present (scheduled, background,
+  //                        or headless run)
+  // ctx.modelProfileKey  — active inference-profile key to surface, or null when
+  //                        unchanged since last announced to the model
+  // ctx.injectionMode    — "full" (restore complete runtime context) or
+  //                        "minimal" (reduced volume the overflow-recovery
+  //                        downgrade selects); defaults to "full"
+}
+```
+
+Re-inject by mutating `ctx.history` in place (or returning a new context with a
+replacement `history`); the loop reads the settled `history` back off the context
+and resumes the turn from it. Multiple plugins' hooks chain in registration order
+— each sees the previous plugin's edits. The default memory-retrieval plugin
+contributes a hook here that re-injects its memory blocks and re-tracks the
+memory graph; user hooks can re-apply their own injected context the same way.
 
 ### Forward-compatible hooks
 
@@ -424,11 +500,8 @@ call time.
 ## Marketplace — whitelisting external plugins
 
 The catalog shown by `assistant plugins search` (and the web plugins tab) is
-computed live from two sources:
-
-1. **First-party plugins** — the directories in this folder.
-2. **Whitelisted external plugins** — entries in
-   [`marketplace.json`](./marketplace.json).
+computed live from the whitelisted external plugins listed in
+[`marketplace.json`](./marketplace.json).
 
 The manifest lets us surface plugins that live in other repos without copying
 their code here. Its shape is a subset of the
@@ -477,14 +550,14 @@ Resolution rules:
 
 - **Curation is the whitelist.** Only repos listed here appear in the catalog;
   there is no open registry.
-- **A marketplace entry owns its name.** If an entry and a directory in this
-  folder share a name, the entry wins and the same-named directory is treated
-  as that plugin's [postinstall adapter stub](#postinstall-adapters) (below),
-  not a standalone first-party plugin. A directory whose name *no* entry claims
-  is a first-party plugin, as before.
-- **The manifest is supplementary.** A missing or malformed `marketplace.json`
-  degrades to the first-party listing — it never blocks core plugin discovery
-  or installation.
+- **A marketplace entry owns its name.** A directory in this folder that shares
+  a name with an entry is that plugin's [postinstall adapter
+  stub](#postinstall-adapters) (below), overlaid onto the external clone — not
+  a standalone plugin. Directories here exist only as adapter stubs; the
+  catalog is the marketplace manifest alone.
+- **The manifest is the catalog.** `marketplace.json` is the sole source of
+  installable plugins. A missing or malformed manifest yields an empty catalog
+  rather than falling back to an in-repo listing.
 
 Whitelisting makes an external plugin **appear in the catalog and install by
 name**. It does not by itself guarantee the plugin's hooks/tools match this

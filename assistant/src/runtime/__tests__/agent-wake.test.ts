@@ -249,7 +249,6 @@ import {
 const runResult = (history: Message[]): AgentLoopRunResult => ({
   history,
   exitReason: null,
-  appendedNewMessages: true,
   // The wake path slices its own new-message boundary off the returned
   // history (it never destructures `newMessages`), so this is type-only.
   newMessages: [],

@@ -126,6 +126,21 @@ export const ThinkingActive: Story = {
   },
 };
 
+/**
+ * Web variant — the same pill chrome with the site favicon as the glyph,
+ * rendered as an anchor that opens the source in a new tab. Used for
+ * web-search result sources. (Storybook shows the monogram fallback since the
+ * sandbox can't reach external favicons.)
+ */
+export const Web: Story = {
+  args: {
+    variant: "web",
+    label: "Toronto - Wikipedia",
+    url: "https://en.wikipedia.org/wiki/Toronto",
+    domain: "en.wikipedia.org",
+  },
+};
+
 export const AllVariants: Story = {
   parameters: {
     controls: { disable: true },

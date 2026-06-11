@@ -42,6 +42,8 @@ export interface LockfileAssistant {
   runtimeUrl?: string;
   species?: string;
   hatchedAt?: string;
+  /** Owning org for platform assistants; absent for local ones. */
+  organizationId?: string;
   resources?: LocalAssistantResources;
 }
 
@@ -87,6 +89,7 @@ function parseAssistant(value: unknown): LockfileAssistant | null {
   if (typeof value.runtimeUrl === "string") assistant.runtimeUrl = value.runtimeUrl;
   if (typeof value.species === "string") assistant.species = value.species;
   if (typeof value.hatchedAt === "string") assistant.hatchedAt = value.hatchedAt;
+  if (typeof value.organizationId === "string") assistant.organizationId = value.organizationId;
   const resources = parseResources(value.resources);
   if (resources) assistant.resources = resources;
   return assistant;

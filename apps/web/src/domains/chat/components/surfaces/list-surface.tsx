@@ -1,11 +1,9 @@
 import { Check } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
 
 import { sfSymbolToLucideIcon } from "@/domains/chat/components/surfaces/sf-symbol-map";
-
-import type { Surface } from "@/domains/chat/types/types";
-
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
+import { useSelectionState } from "@/domains/chat/components/surfaces/use-selection-state";
+import type { Surface } from "@/domains/chat/types/types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -37,46 +35,10 @@ export function ListSurface({ surface, onAction }: ListSurfaceProps) {
   const data = surface.data as unknown as ListSurfaceData;
   const selectionMode = data.selectionMode ?? "none";
 
-  // Derive selection from server data; recomputed when items change.
-  const dataSelectedIds = useMemo(
-    () => data.items.filter((item) => item.selected).map((item) => item.id),
-    [data.items],
-  );
-
-  // Track which data reference the local overrides apply to. When data
-  // changes the overrides are discarded and we fall back to dataSelectedIds.
-  const [localState, setLocalState] = useState<{
-    source: ListItem[];
-    ids: string[];
-  } | null>(null);
-
-  const selectedIds =
-    localState && localState.source === data.items
-      ? localState.ids
-      : dataSelectedIds;
-
-  const handleToggle = useCallback(
-    (itemId: string) => {
-      if (selectionMode === "none") return;
-
-      const prev = selectedIds;
-      const next =
-        selectionMode === "single"
-          ? prev.includes(itemId) ? [] : [itemId]
-          : prev.includes(itemId)
-            ? prev.filter((id) => id !== itemId)
-            : [...prev, itemId];
-
-      setLocalState({ source: data.items, ids: next });
-    },
-    [selectionMode, selectedIds, data.items],
-  );
-
-  const handleAction = useCallback(
-    (surfaceId: string, actionId: string, data?: Record<string, unknown>) => {
-      onAction(surfaceId, actionId, { ...data, selectedIds });
-    },
-    [onAction, selectedIds],
+  const { selectedIds, handleToggle, handleAction } = useSelectionState(
+    data.items,
+    selectionMode,
+    onAction,
   );
 
   const isSelectable = selectionMode !== "none";
@@ -108,7 +70,7 @@ export function ListSurface({ surface, onAction }: ListSurfaceProps) {
                   <span
                     className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors ${
                       isSelected
-                        ? "border-forest-600 bg-forest-600 text-white"
+                        ? "border-[var(--primary-base)] bg-[var(--primary-base)] text-[var(--content-inset)]"
                         : "border-[var(--border-element)]"
                     } ${selectionMode === "single" ? "rounded-full" : "rounded"}`}
                   >

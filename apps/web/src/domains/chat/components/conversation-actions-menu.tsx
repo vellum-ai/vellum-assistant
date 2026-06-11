@@ -5,7 +5,6 @@ import {
     CircleCheck,
     Copy,
     ExternalLink,
-    FolderInput,
     GitBranch,
     MessageCircle,
     Microscope,
@@ -19,7 +18,6 @@ import {
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import type { MoveToGroupTarget } from "@/domains/chat/utils/group-conversations";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import {
@@ -32,7 +30,7 @@ import {
 /**
  * Hover-revealed "more" menu for a conversation row. Renders an ellipsis
  * button; clicking it opens a dropdown menu with Pin / Rename / Archive /
- * Mark as unread actions, plus an optional "Move to Group" submenu.
+ * Mark as unread actions.
  *
  * The same item set is also rendered by the row's right-click context menu
  * (`AssistantSideMenu`) via the shared `renderConversationMenuItems` helper
@@ -61,9 +59,6 @@ type MenuAlign = "start" | "center" | "end";
 export type ConversationMenuPrimitive = {
   Item: typeof Menu.Item | typeof ContextMenu.Item;
   Separator: typeof Menu.Separator | typeof ContextMenu.Separator;
-  Sub: typeof Menu.Sub | typeof ContextMenu.Sub;
-  SubTrigger: typeof Menu.SubTrigger | typeof ContextMenu.SubTrigger;
-  SubContent: typeof Menu.SubContent | typeof ContextMenu.SubContent;
 };
 
 export interface ConversationMenuItemsProps {
@@ -95,22 +90,6 @@ export interface ConversationMenuItemsProps {
    * whichever is appropriate for the current read state.
    */
   onMarkRead?: () => void;
-  /**
-   * Groups available as "Move to Group" targets, excluding the
-   * conversation's current group. When non-empty and `onMoveToGroup`
-   * is provided, a submenu appears listing these targets.
-   */
-  moveToGroups?: MoveToGroupTarget[];
-  /** Move the conversation to the specified group. */
-  onMoveToGroup?: (groupId: string) => void;
-  /**
-   * Remove the conversation from its current (non-system) group, falling
-   * back to Recents. When provided, appends a separator + "Remove from
-   * group" item at the end of the Move-to-Group submenu. Callers should
-   * only supply this for conversations that belong to a non-system group
-   * (i.e. `groupId && !groupId.startsWith("system:")`).
-   */
-  onRemoveFromGroup?: () => void;
   /**
    * Hide write-affording menu items (Mark-as-read/unread, Analyze) when
    * the conversation is read-only. Items are hidden entirely, not
@@ -151,10 +130,9 @@ export interface ConversationMenuItemsProps {
 
 /**
  * Render the conversation row's menu items into either a `Menu` or a
- * `ContextMenu`. Both namespaces expose the same `Item / Separator / Sub /
- * SubTrigger / SubContent` shape; passing one in via `Primitive` keeps the
- * dropdown trigger and the right-click context menu in lockstep without
- * duplicating the item list.
+ * `ContextMenu`. Both namespaces expose the same `Item / Separator` shape;
+ * passing one in via `Primitive` keeps the dropdown trigger and the
+ * right-click context menu in lockstep without duplicating the item list.
  */
 export function renderConversationMenuItems({
   Primitive,
@@ -167,9 +145,6 @@ export function renderConversationMenuItems({
   onMarkUnread,
   isMarkUnreadDisabled = false,
   onMarkRead,
-  moveToGroups,
-  onMoveToGroup,
-  onRemoveFromGroup,
   isReadonly = false,
   onAnalyze,
   onForkConversation,
@@ -182,9 +157,6 @@ export function renderConversationMenuItems({
 }: ConversationMenuItemsProps & {
   Primitive: ConversationMenuPrimitive;
 }): ReactNode {
-  const showMoveToGroup =
-    onMoveToGroup && moveToGroups && moveToGroups.length > 0;
-
   const pinItem = onPinToggle ? (
     <Primitive.Item
       leftIcon={isPinned ? <PinOff size={14} /> : <Pin size={14} />}
@@ -231,32 +203,6 @@ export function renderConversationMenuItems({
         Mark as unread
       </Primitive.Item>
     ) : null;
-
-  const moveToGroupItem = showMoveToGroup ? (
-    <Primitive.Sub>
-      <Primitive.SubTrigger leftIcon={<FolderInput size={14} />}>
-        Move to
-      </Primitive.SubTrigger>
-      <Primitive.SubContent>
-        {moveToGroups.map((group) => (
-          <Primitive.Item
-            key={group.id}
-            onSelect={() => onMoveToGroup(group.id)}
-          >
-            {group.name}
-          </Primitive.Item>
-        ))}
-        {onRemoveFromGroup ? (
-          <>
-            <Primitive.Separator />
-            <Primitive.Item onSelect={onRemoveFromGroup}>
-              Remove from group
-            </Primitive.Item>
-          </>
-        ) : null}
-      </Primitive.SubContent>
-    </Primitive.Sub>
-  ) : null;
 
   const analyzeItem =
     !isReadonly && onAnalyze ? (
@@ -330,7 +276,6 @@ export function renderConversationMenuItems({
 
       {markReadUnreadItem}
       {analyzeItem}
-      {moveToGroupItem}
       {openInNewWindowItem}
 
       {onShareFeedback ? (
@@ -420,8 +365,7 @@ function buildPanelItem({
 /**
  * Mobile-only renderer for the bottom-sheet surface. Returns the same
  * conceptual item set as `renderConversationMenuItems` but flattened into
- * `PanelItem` rows, with the "Move to" submenu rendered inline under a
- * label since `BottomSheet` is a single-level surface.
+ * `PanelItem` rows.
  */
 function renderConversationMenuItemsAsPanelItems({
   isPinned = false,
@@ -433,9 +377,6 @@ function renderConversationMenuItemsAsPanelItems({
   onMarkUnread,
   isMarkUnreadDisabled = false,
   onMarkRead,
-  moveToGroups,
-  onMoveToGroup,
-  onRemoveFromGroup,
   isReadonly = false,
   onAnalyze,
   onForkConversation,
@@ -451,9 +392,6 @@ function renderConversationMenuItemsAsPanelItems({
   onClose: () => void;
   isNativePlatform?: boolean;
 }): ReactNode {
-  const showMoveToGroup =
-    onMoveToGroup && moveToGroups && moveToGroups.length > 0;
-
   const pinItem = onPinToggle
     ? buildPanelItem({
         key: "pin",
@@ -546,34 +484,6 @@ function renderConversationMenuItemsAsPanelItems({
       })
     : null;
 
-  const moveToGroupBlock = showMoveToGroup ? (
-    <>
-      <MobileMenuDivider />
-      <div className="flex items-center gap-2 px-2 pt-1 pb-1 text-body-small-default uppercase tracking-wide text-[var(--content-tertiary)]">
-        <FolderInput size={14} aria-hidden />
-        Move to
-      </div>
-      {moveToGroups.map((group) =>
-        buildPanelItem({
-          key: `move-to-${group.id}`,
-          label: group.name,
-          className: "pl-7",
-          run: () => onMoveToGroup(group.id),
-          onClose,
-        }),
-      )}
-      {onRemoveFromGroup
-        ? buildPanelItem({
-            key: "remove-from-group",
-            label: "Remove from group",
-            className: "pl-7",
-            run: onRemoveFromGroup,
-            onClose,
-          })
-        : null}
-    </>
-  ) : null;
-
   if (variant === "header") {
     return (
       <>
@@ -625,7 +535,6 @@ function renderConversationMenuItemsAsPanelItems({
       {archiveItem}
       {markReadUnreadItem}
       {analyzeItem}
-      {moveToGroupBlock}
       {openInNewWindowItem}
 
       {onShareFeedback ? (

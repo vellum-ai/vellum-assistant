@@ -13,6 +13,7 @@ import {
 import type { Surface } from "@/domains/chat/types/types";
 
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
+import { filterRecords, rec, strOrNum } from "@/domains/chat/components/surfaces/surface-parse-helpers";
 
 type WorkResultStatus = "completed" | "partial" | "failed" | "in_progress";
 type WorkResultTone = "neutral" | "positive" | "warning" | "negative";
@@ -87,18 +88,9 @@ const STATUS_COPY: Record<
   in_progress: { label: "In progress", tone: "neutral" },
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
+/** Narrow unknown → non-empty string. Rejects whitespace-only. */
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
-}
-
-function asStringOrNumber(value: unknown): string | number | undefined {
-  return typeof value === "string" || typeof value === "number"
-    ? value
-    : undefined;
 }
 
 function asTone(value: unknown): WorkResultTone | undefined {
@@ -130,11 +122,9 @@ function asSectionType(value: unknown): WorkResultSectionType | undefined {
 }
 
 function parseMetadata(value: unknown): WorkResultMetadata[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
-    if (!isRecord(item)) return [];
+  return filterRecords(value).flatMap((item) => {
     const label = asString(item.label);
-    const metricValue = asStringOrNumber(item.value);
+    const metricValue = strOrNum(item.value);
     return label && metricValue !== undefined
       ? [{ label, value: metricValue }]
       : [];
@@ -142,9 +132,7 @@ function parseMetadata(value: unknown): WorkResultMetadata[] {
 }
 
 function parseItems(value: unknown): WorkResultItem[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item, index) => {
-    if (!isRecord(item)) return [];
+  return filterRecords(value).flatMap((item, index) => {
     const title = asString(item.title);
     if (!title) return [];
     return [
@@ -162,9 +150,7 @@ function parseItems(value: unknown): WorkResultItem[] {
 }
 
 function parseDiffs(value: unknown): WorkResultDiff[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
-    if (!isRecord(item)) return [];
+  return filterRecords(value).flatMap((item) => {
     const before = asString(item.before);
     const after = asString(item.after);
     if (!before && !after) return [];
@@ -179,11 +165,9 @@ function parseDiffs(value: unknown): WorkResultDiff[] {
 }
 
 function parseMetrics(value: unknown): WorkResultMetric[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
-    if (!isRecord(item)) return [];
+  return filterRecords(value).flatMap((item) => {
     const label = asString(item.label);
-    const metricValue = asStringOrNumber(item.value);
+    const metricValue = strOrNum(item.value);
     if (!label || metricValue === undefined) return [];
     return [
       {
@@ -197,9 +181,7 @@ function parseMetrics(value: unknown): WorkResultMetric[] {
 }
 
 function parseSections(value: unknown): WorkResultSection[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((section, index) => {
-    if (!isRecord(section)) return [];
+  return filterRecords(value).flatMap((section, index) => {
     const title = asString(section.title);
     if (!title) return [];
     return [
@@ -216,13 +198,14 @@ function parseSections(value: unknown): WorkResultSection[] {
 }
 
 function parseData(value: unknown): WorkResultSurfaceData {
-  if (!isRecord(value)) return {};
+  const obj = rec(value);
+  if (!obj) return {};
   return {
-    eyebrow: asString(value.eyebrow),
-    status: asStatus(value.status),
-    summary: asString(value.summary),
-    metrics: parseMetrics(value.metrics),
-    sections: parseSections(value.sections),
+    eyebrow: asString(obj.eyebrow),
+    status: asStatus(obj.status),
+    summary: asString(obj.summary),
+    metrics: parseMetrics(obj.metrics),
+    sections: parseSections(obj.sections),
   };
 }
 

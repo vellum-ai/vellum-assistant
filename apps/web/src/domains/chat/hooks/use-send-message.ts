@@ -42,6 +42,8 @@ import {
   prependConversation,
   removeConversation,
   resolveDraftKey,
+  shouldSurfaceConversationOnUserSend,
+  surfaceConversationInCaches,
 } from "@/utils/conversation-cache-mutations";
 import { findConversation, patchConversation } from "@/utils/conversation-cache";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -73,8 +75,13 @@ import {
   postChatMessage,
   pollForResponse,
 } from "@/domains/chat/api/messages";
+import { surfaceConversation } from "@/domains/chat/api/conversations";
 import type { ConversationMessage } from "@vellumai/assistant-api";
 import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
+import {
+  CONVERSATION_NOT_FOUND,
+  fetchConversationDetail,
+} from "@/utils/fetch-conversation-detail";
 
 // ---------------------------------------------------------------------------
 // Stream send result
@@ -163,6 +170,7 @@ export function useSendMessage({
   // Cleared after the POST resolves or rejects. The draft-id check on
   // clear guards against re-mounts overwriting a newer mint.
   const pendingDraftMintRef = useRef<string | null>(null);
+  const surfacingConversationIdsRef = useRef<Set<string>>(new Set());
 
   // -------------------------------------------------------------------------
   // Queue management (delegated to useMessageQueue)
@@ -201,6 +209,43 @@ export function useSendMessage({
       }
     },
     [],
+  );
+
+  const surfaceConversationAfterUserSend = useCallback(
+    async (conversationId: string) => {
+      if (!assistantId) return;
+      if (surfacingConversationIdsRef.current.has(conversationId)) return;
+
+      let conversation = findConversation(
+        queryClient,
+        assistantId,
+        conversationId,
+      );
+      if (!conversation) {
+        const detail = await fetchConversationDetail(
+          assistantId,
+          conversationId,
+        );
+        if (detail === CONVERSATION_NOT_FOUND) return;
+        conversation = detail;
+      }
+
+      if (!shouldSurfaceConversationOnUserSend(conversation)) return;
+
+      surfacingConversationIdsRef.current.add(conversationId);
+      try {
+        const surfacedAt = await surfaceConversation(assistantId, conversationId);
+        surfaceConversationInCaches(
+          queryClient,
+          assistantId,
+          conversation,
+          surfacedAt,
+        );
+      } finally {
+        surfacingConversationIdsRef.current.delete(conversationId);
+      }
+    },
+    [assistantId, queryClient],
   );
 
   // -------------------------------------------------------------------------
@@ -318,6 +363,12 @@ export function useSendMessage({
           resolvedConversationId: postResult.conversationId,
         };
       }
+
+      void surfaceConversationAfterUserSend(effectiveConversationId).catch(
+        (err) => {
+          captureError(err, { context: "surface_conversation_after_send" });
+        },
+      );
 
       const streamState = useStreamStore.getState();
       const existingStreamContext = streamState.streamContext;
@@ -462,7 +513,12 @@ export function useSendMessage({
         resolvedConversationId: postResult.conversationId,
       };
     },
-    [activeConversationId, assistantId, startReconciliationLoop],
+    [
+      activeConversationId,
+      assistantId,
+      startReconciliationLoop,
+      surfaceConversationAfterUserSend,
+    ],
   );
 
   // -------------------------------------------------------------------------
@@ -526,6 +582,8 @@ export function useSendMessage({
         role: "user",
         textSegments: [content],
         contentOrder: [{ type: "text", id: "0" }],
+        contentBlocks:
+          content.trim().length > 0 ? [{ type: "text", text: content }] : [],
         timestamp: Date.now(),
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(willQueue ? { queueStatus: "queued" as const, queuePosition: 0 } : {}),
@@ -556,6 +614,13 @@ export function useSendMessage({
             setError({ message: detail, code: postResult.error.code ?? undefined });
             return;
           }
+          void surfaceConversationAfterUserSend(postResult.conversationId).catch(
+            (err) => {
+              captureError(err, {
+                context: "surface_queued_conversation_after_send",
+              });
+            },
+          );
           if (!postResult.queued) {
             // The daemon processed the message directly (turn finished
             // between the client-side isSending check and the POST
@@ -727,6 +792,7 @@ export function useSendMessage({
       revertQueuedMessage,
       persistDismissedSurfaces,
       queryClient,
+      surfaceConversationAfterUserSend,
     ],
   );
 

@@ -1,6 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import type { CesClient } from "../credential-execution/client.js";
 import { RiskLevel } from "../permissions/types.js";
+import { setCesClient } from "../security/secure-keys.js";
 import { makeAuthenticatedRequestTool } from "../tools/credential-execution/make-authenticated-request.js";
 import { manageSecureCommandTool } from "../tools/credential-execution/manage-secure-command-tool.js";
 import { runAuthenticatedCommandTool } from "../tools/credential-execution/run-authenticated-command.js";
@@ -168,6 +170,11 @@ describe("CES tool execution without client", () => {
     trustClass: "guardian" as const,
   };
 
+  // The CES tools resolve the client via the module-level getCesClient()
+  // resolver, so ensure none is injected for the "absent client" cases.
+  beforeEach(() => setCesClient(undefined));
+  afterEach(() => setCesClient(undefined));
+
   test("make_authenticated_request fails gracefully when CES client is absent", async () => {
     const result = await makeAuthenticatedRequestTool.execute(
       {
@@ -218,18 +225,23 @@ describe("CES tool execution without client", () => {
 // ---------------------------------------------------------------------------
 
 describe("manage_secure_command_tool input validation", () => {
-  const contextWithMockCes = {
+  const minimalContext = {
     workingDir: "/tmp",
     conversationId: "test-conversation",
     trustClass: "guardian" as const,
-    cesClient: {
-      isReady: () => true,
-      handshake: async () => ({ accepted: true }),
-      call: async () => ({ success: true }),
-      updateAssistantApiKey: async () => ({ updated: true }),
-      close: () => {},
-    },
   };
+
+  // Input validation runs only after the client readiness check passes, so
+  // inject a ready mock client via the resolver for these cases.
+  const mockCesClient = {
+    isReady: () => true,
+    handshake: async () => ({ accepted: true }),
+    call: async () => ({ success: true }),
+    updateAssistantApiKey: async () => ({ updated: true }),
+    close: () => {},
+  } as unknown as CesClient;
+  beforeEach(() => setCesClient(mockCesClient));
+  afterEach(() => setCesClient(undefined));
 
   test("rejects register without required bundle metadata", async () => {
     const result = await manageSecureCommandTool.execute(
@@ -238,7 +250,7 @@ describe("manage_secure_command_tool input validation", () => {
         toolName: "test-tool",
         // Missing bundleId, version, sourceUrl, sha256, credentialHandle
       },
-      contextWithMockCes,
+      minimalContext,
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("bundleId");
@@ -270,7 +282,7 @@ describe("manage_secure_command_tool input validation", () => {
           egressMode: "no_network",
         },
       },
-      contextWithMockCes,
+      minimalContext,
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("HTTPS");

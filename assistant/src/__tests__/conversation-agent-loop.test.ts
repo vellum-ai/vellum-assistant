@@ -496,6 +496,7 @@ mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
     },
   }),
   deepRepairHistory: (msgs: Message[]) => ({ messages: msgs, stats: {} }),
+  isRepairableOrderingError: () => false,
 }));
 
 const recordUsageMock = mock(() => {});
@@ -571,11 +572,6 @@ mock.module("../daemon/conversation-error.js", () => ({
     ...classified,
   }),
   isContextTooLarge: (msg: string) => /context.?length.?exceeded/i.test(msg),
-}));
-
-mock.module("../daemon/conversation-slash.js", () => ({
-  isProviderOrderingError: (msg: string) =>
-    /ordering|before.*after|messages.*order/i.test(msg),
 }));
 
 mock.module("../util/truncate.js", () => ({
@@ -1542,40 +1538,6 @@ describe("session-agent-loop", () => {
       expect(mainAgentCall?.[1]).toBe(12);
       expect(mainAgentCall?.[2]).toBe(3);
       expect(mainAgentCall?.[3]).toBe("gpt-4.1-2026-03-01");
-    });
-  });
-
-  describe("provider ordering error retry", () => {
-    test("retries with deep repair when ordering error is detected", async () => {
-      const events: ServerMessage[] = [];
-
-      // The provider rejects the first call with an ordering error, then
-      // succeeds once the orchestrator's deep repair re-sends the turn.
-      const { provider, calls } = createMockProvider([
-        new Error("messages ordering error"),
-        textResponse("fixed"),
-      ]);
-
-      const ctx = makeCtx({ loopProvider: provider });
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
-
-      expect(calls.length).toBe(2);
-    });
-
-    test("emits deferred ordering error when retry also fails", async () => {
-      const events: ServerMessage[] = [];
-
-      // The provider rejects every call with an ordering error, so even the
-      // deep-repair retry fails and the orchestrator surfaces the error.
-      const ctx = makeCtx({
-        providerResponses: [new Error("messages ordering error")],
-      });
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
-
-      const conversationError = events.find(
-        (e) => e.type === "conversation_error",
-      );
-      expect(conversationError).toBeDefined();
     });
   });
 
@@ -3194,10 +3156,10 @@ describe("session-agent-loop", () => {
         estimatedTokens: 5000,
       });
 
-      // GIVEN a real loop that appends a tool turn (so the run reports
-      // `appendedNewMessages`) and then rejects with a context-too-large
-      // error on the following call — reactive overflow recovery strips that
-      // appended history when it compacts before a final call recovers.
+      // GIVEN a real loop that appends a tool turn and then rejects with a
+      // context-too-large error on the following call — reactive overflow
+      // recovery strips that appended history when it compacts before a final
+      // call recovers.
       const ctx = makeCtx({
         providerResponses: [
           toolUseResponse("t1", "file_read", {}),

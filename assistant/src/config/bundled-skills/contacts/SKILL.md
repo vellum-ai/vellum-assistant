@@ -6,6 +6,7 @@ metadata:
   emoji: "👥"
   vellum:
     display-name: "Contacts"
+    category: "productivity"
     activation-hints:
       - "Look up contact info before asking the user for email addresses or phone numbers"
       - "User wants to manage who can message the assistant, or create/revoke invite links"

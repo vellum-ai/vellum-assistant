@@ -99,6 +99,7 @@ export function toConversation(raw: RawConversationSummary): Conversation {
       attention?.lastSeenAssistantMessageAt,
     ),
     archivedAt: raw.archivedAt,
+    surfacedAt: asNumber(raw.surfacedAt),
     groupId: asString(raw.groupId),
     source: raw.source,
     isPinned: raw.isPinned,

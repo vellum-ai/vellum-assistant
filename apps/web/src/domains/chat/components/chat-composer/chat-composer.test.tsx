@@ -32,6 +32,11 @@ mock.module("@/hooks/use-is-mobile", () => ({
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
 
+let mockIsElectron = false;
+mock.module("@/runtime/is-electron", () => ({
+  isElectron: () => mockIsElectron,
+}));
+
 // Live-voice integration mocks. The composer mounts `LiveVoiceButton` (which
 // self-gates on `voice-mode`) and reads live-voice session state via the
 // `useLiveVoiceStore` per-field selectors for the transcript surface +
@@ -108,23 +113,28 @@ mock.module("@/domains/chat/components/voice-input-button", () => ({
 // (cross-domain `voice` store) to derive its `isVoiceActive` signal. Mock it
 // via `mock.module` (rather than importing the store) so the `chat` test stays
 // free of cross-domain coupling, matching the live-voice mocks above. Only the
-// `.use.phase()` selector is consumed by the composer.
+// `.use.phase()` and `.use.setAudioLevel()` selectors are consumed by the
+// composer.
 let mockVoicePhase = "idle";
+const setAudioLevelSpy = mock((_level: number) => undefined);
 mock.module("@/domains/chat/voice/voice-recording-store", () => ({
   useVoiceRecordingStore: {
     use: {
       phase: () => mockVoicePhase,
+      setAudioLevel: () => setAudioLevelSpy,
     },
   },
 }));
 
 function resetLiveVoiceMocks() {
+  mockIsElectron = false;
   mockVoiceMode = false;
   mockLiveVoiceState = "idle";
   mockLivePartial = "";
   mockLiveFinal = "";
   mockLiveAssistant = "";
   mockVoicePhase = "idle";
+  setAudioLevelSpy.mockClear();
   liveStartSpy.mockClear();
   liveStopSpy.mockClear();
 }
@@ -775,6 +785,24 @@ describe("ChatComposer — live-voice integration", () => {
 
     // THEN the live-voice start affordance is disabled so it can't open a
     // second mic/voice session alongside the dictation recorder
+    const liveVoice = getByLabelText("Start voice mode") as HTMLButtonElement;
+    expect(liveVoice.disabled).toBe(true);
+  });
+
+  test("electron dictation uses the system overlay instead of the inline composer preview", () => {
+    // GIVEN Electron is hosting the composer and dictation is processing.
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockIsElectron = true;
+    mockVoiceMode = true;
+    mockLiveVoiceState = "idle";
+    mockVoicePhase = "processing";
+
+    // WHEN the composer renders
+    const { getByLabelText, queryByLabelText } = renderVoiceComposer();
+
+    // THEN the shared top-center dictation overlay owns the visual treatment,
+    // so the composer-specific preview is absent while mutual exclusion stays.
+    expect(queryByLabelText("Transcribing")).toBeNull();
     const liveVoice = getByLabelText("Start voice mode") as HTMLButtonElement;
     expect(liveVoice.disabled).toBe(true);
   });

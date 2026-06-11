@@ -2,10 +2,9 @@ import { Check, Copy } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { sfSymbolToLucideIcon } from "@/domains/chat/components/surfaces/sf-symbol-map";
-
-import type { Surface } from "@/domains/chat/types/types";
-
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
+import { useSelectionState } from "@/domains/chat/components/surfaces/use-selection-state";
+import type { Surface } from "@/domains/chat/types/types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -108,46 +107,10 @@ export function TableSurface({ surface, onAction }: TableSurfaceProps) {
   );
   const selectionMode = data.selectionMode ?? "none";
 
-  // Derive selection from server data; recomputed when rows change.
-  const dataSelectedIds = useMemo(
-    () => data.rows.filter((row) => row.selected).map((row) => row.id),
-    [data.rows],
-  );
-
-  // Track which data reference the local overrides apply to. When data
-  // changes the overrides are discarded and we fall back to dataSelectedIds.
-  const [localState, setLocalState] = useState<{
-    source: TableRow[];
-    ids: string[];
-  } | null>(null);
-
-  const selectedIds =
-    localState && localState.source === data.rows
-      ? localState.ids
-      : dataSelectedIds;
-
-  const handleToggle = useCallback(
-    (rowId: string) => {
-      if (selectionMode === "none") return;
-
-      const prev = selectedIds;
-      const next =
-        selectionMode === "single"
-          ? prev.includes(rowId) ? [] : [rowId]
-          : prev.includes(rowId)
-            ? prev.filter((id) => id !== rowId)
-            : [...prev, rowId];
-
-      setLocalState({ source: data.rows, ids: next });
-    },
-    [selectionMode, selectedIds, data.rows],
-  );
-
-  const handleAction = useCallback(
-    (surfaceId: string, actionId: string, data?: Record<string, unknown>) => {
-      onAction(surfaceId, actionId, { ...data, selectedIds });
-    },
-    [onAction, selectedIds],
+  const { selectedIds, handleToggle, handleAction } = useSelectionState(
+    data.rows,
+    selectionMode,
+    onAction,
   );
 
   const [copied, setCopied] = useState(false);
@@ -227,7 +190,7 @@ export function TableSurface({ surface, onAction }: TableSurfaceProps) {
                         <span
                           className={`flex h-5 w-5 items-center justify-center rounded border transition-colors ${
                             isSelected
-                              ? "border-forest-600 bg-forest-600 text-white"
+                              ? "border-[var(--primary-base)] bg-[var(--primary-base)] text-[var(--content-inset)]"
                               : "border-[var(--border-element)]"
                           } ${selectionMode === "single" ? "rounded-full" : "rounded"}`}
                         >

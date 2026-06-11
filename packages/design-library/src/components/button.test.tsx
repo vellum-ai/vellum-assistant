@@ -90,6 +90,24 @@ describe("Button rendering", () => {
     expect(html).toContain('data-testid="only-icon"');
   });
 
+  test("asChild + iconOnly renders the slotted element with the icon inside it", () => {
+    const html = renderToStaticMarkup(
+      <Button
+        asChild
+        iconOnly={<svg data-testid="only-icon" aria-hidden />}
+        aria-label="New conversation"
+      >
+        <a href="/new" />
+      </Button>,
+    );
+    expect(html).toContain("<a");
+    expect(html).toContain('href="/new"');
+    expect(html).toContain('aria-label="New conversation"');
+    expect(html).not.toContain("<button");
+    expect(html).toContain('data-testid="only-icon"');
+    expect(html).toContain("p-0");
+  });
+
   test("iconOnly applies square dimensions for regular size (h-8 w-8)", () => {
     const html = renderToStaticMarkup(
       <Button iconOnly={<svg />} aria-label="a" />,
@@ -97,6 +115,18 @@ describe("Button rendering", () => {
     expect(html).toContain("h-8");
     expect(html).toContain("w-8");
     expect(html).toContain("p-0");
+  });
+
+  test("iconOnly sizes the svg with a fixed dimension, never size-full", () => {
+    // `size-full` would let the icon fill whatever element it lands in; if the
+    // `asChild`/Slot path collapses the icon span onto the button box the icon
+    // would balloon to the button size. A fixed `[&_svg]:size-*` prevents that.
+    const html = renderToStaticMarkup(
+      <Button size="compact" iconOnly={<svg />} aria-label="a" />,
+    );
+    // `renderToStaticMarkup` HTML-escapes `&` to `&amp;` in attribute values.
+    expect(html).toContain("[&amp;_svg]:size-3.5");
+    expect(html).not.toContain("[&amp;_svg]:size-full");
   });
 
   test("tintColor sets the --vbtn-fg custom property inline", () => {

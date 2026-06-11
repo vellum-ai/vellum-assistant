@@ -49,10 +49,22 @@ const slimSkillBase = {
   category: z.string(),
 };
 
+// Extension that ships a skill, mirroring the tool registry's OwnerInfo.
+// Plugin-resident skills carry `{ kind: "plugin", id: <plugin dir name> }` so
+// clients can attribute them instead of collapsing to their kind/origin.
+const skillOwnerSchema = z
+  .object({
+    kind: z.enum(["skill", "mcp", "plugin", "workspace"]),
+    id: z.string(),
+  })
+  .optional();
+
+const slimSkillBaseWithOwner = { ...slimSkillBase, owner: skillOwnerSchema };
+
 const slimSkillSchema = z.discriminatedUnion("origin", [
-  z.object({ ...slimSkillBase, origin: z.literal("vellum") }),
+  z.object({ ...slimSkillBaseWithOwner, origin: z.literal("vellum") }),
   z.object({
-    ...slimSkillBase,
+    ...slimSkillBaseWithOwner,
     origin: z.literal("clawhub"),
     slug: z.string(),
     author: z.string(),
@@ -63,18 +75,18 @@ const slimSkillSchema = z.discriminatedUnion("origin", [
     version: z.string(),
   }),
   z.object({
-    ...slimSkillBase,
+    ...slimSkillBaseWithOwner,
     origin: z.literal("skillssh"),
     slug: z.string(),
     sourceRepo: z.string(),
     installs: z.number(),
     audit: z.record(z.string(), partnerAuditSchema).optional(),
   }),
-  z.object({ ...slimSkillBase, origin: z.literal("custom") }),
+  z.object({ ...slimSkillBaseWithOwner, origin: z.literal("custom") }),
 ]);
 
 const skillDetailSchema = z.discriminatedUnion("origin", [
-  z.object({ ...slimSkillBase, origin: z.literal("vellum") }),
+  z.object({ ...slimSkillBaseWithOwner, origin: z.literal("vellum") }),
   z.object({
     ...slimSkillBase,
     origin: z.literal("clawhub"),
@@ -120,7 +132,7 @@ const skillDetailSchema = z.discriminatedUnion("origin", [
     installs: z.number(),
     audit: z.record(z.string(), partnerAuditSchema).optional(),
   }),
-  z.object({ ...slimSkillBase, origin: z.literal("custom") }),
+  z.object({ ...slimSkillBaseWithOwner, origin: z.literal("custom") }),
 ]);
 
 // ---------------------------------------------------------------------------

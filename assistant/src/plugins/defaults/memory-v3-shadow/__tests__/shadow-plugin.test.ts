@@ -78,6 +78,7 @@ let shadowMockActive = false;
 
 let liveEnabled = false;
 let shadowEnabled = false;
+let memoryEnabled = true;
 let messages: Array<{ role: string; content: string }> = [];
 
 // A synthetic skill capability slug the page index carries. Its rendered
@@ -177,6 +178,7 @@ mock.module("../../../../config/assistant-feature-flags.js", () => ({
 mock.module("../../../../config/loader.js", () => ({
   getConfig: () => ({
     memory: {
+      enabled: memoryEnabled,
       v3: {
         hotSet: { k: 40, halfLifeDays: 14 },
         spotlight: { n: 6, windowTurns: 2 },
@@ -384,6 +386,7 @@ beforeEach(() => {
   shadowMockActive = true;
   liveEnabled = false;
   shadowEnabled = false;
+  memoryEnabled = true;
   messages = [
     {
       role: "user",
@@ -424,6 +427,18 @@ async function produce(conversationId: string, turnIndex: number) {
 }
 
 describe("memory-v3 shadow plugin", () => {
+  test("global memory disabled → observation is skipped even when v3 flags are on", async () => {
+    shadowEnabled = true;
+    liveEnabled = true;
+    memoryEnabled = false;
+
+    await runShadowObservation("conv-1", 0);
+
+    expect(orchestrateSpy).not.toHaveBeenCalled();
+    expect(sectionBuilds).toBe(0);
+    expect(readRows()).toHaveLength(0);
+  });
+
   test("shadow flag OFF → orchestrate not called, no DB writes", async () => {
     shadowEnabled = false;
     await runShadowObservation("conv-1", 0);

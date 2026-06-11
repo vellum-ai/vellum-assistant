@@ -225,7 +225,19 @@ export function normalizeContentBlocks(
       case "tool":
       case "toolCall": {
         const toolCall = m.toolCalls?.[idx];
-        if (toolCall) blocks.push({ type: "tool_use", toolCall });
+        if (toolCall) {
+          // Mirror `mapRuntimeToolCalls`'s positional id synthesis so a
+          // reconstructed tool_use block carries the same stable id the
+          // positional `toolCalls` array does. Pre-0.8.8 wire tool calls omit
+          // `id`; without this the block-native render path can't key them.
+          blocks.push({
+            type: "tool_use",
+            toolCall: {
+              ...toolCall,
+              id: toolCall.id ?? `tool-history-${m.id}-${idx}`,
+            },
+          });
+        }
         break;
       }
       case "surface": {

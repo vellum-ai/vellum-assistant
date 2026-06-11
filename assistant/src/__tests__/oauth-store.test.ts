@@ -58,7 +58,6 @@ import {
   getAppByProviderAndClientId,
   getConnection,
   getConnectionByProvider,
-  getConnectionByProviderAndAccount,
   getProvider,
   isProviderConnected,
   listActiveConnectionsByProvider,
@@ -1686,90 +1685,6 @@ describe("connection operations", () => {
 
     test("returns undefined when no active connections exist", () => {
       expect(getConnectionByProvider("github")).toBeUndefined();
-    });
-  });
-
-  describe("getConnectionByProviderAndAccount", () => {
-    test("returns the connection matching the given account", async () => {
-      const app = await createTestApp("github", "client-1");
-
-      const conn1 = createConnection({
-        oauthAppId: app.id,
-        provider: "github",
-        accountInfo: "user1@example.com",
-        grantedScopes: ["repo"],
-        hasRefreshToken: false,
-        createdAt: 1000,
-      });
-
-      createConnection({
-        oauthAppId: app.id,
-        provider: "github",
-        accountInfo: "user2@example.com",
-        grantedScopes: ["repo"],
-        hasRefreshToken: false,
-        createdAt: 2000,
-      });
-
-      const result = getConnectionByProviderAndAccount(
-        "github",
-        "user1@example.com",
-      );
-      expect(result).toBeDefined();
-      expect(result!.id).toBe(conn1.id);
-    });
-
-    test("falls back to getConnectionByProvider when accountInfo is undefined", async () => {
-      const app = await createTestApp("github", "client-1");
-
-      const conn = createConnection({
-        oauthAppId: app.id,
-        provider: "github",
-        accountInfo: "user@example.com",
-        grantedScopes: ["repo"],
-        hasRefreshToken: false,
-      });
-
-      const result = getConnectionByProviderAndAccount("github", undefined);
-      expect(result).toBeDefined();
-      expect(result!.id).toBe(conn.id);
-    });
-
-    test("returns undefined when no connection matches the account", async () => {
-      const app = await createTestApp("github", "client-1");
-
-      createConnection({
-        oauthAppId: app.id,
-        provider: "github",
-        accountInfo: "user@example.com",
-        grantedScopes: ["repo"],
-        hasRefreshToken: false,
-      });
-
-      const result = getConnectionByProviderAndAccount(
-        "github",
-        "other@example.com",
-      );
-      expect(result).toBeUndefined();
-    });
-
-    test("skips revoked connections", async () => {
-      const app = await createTestApp("github", "client-1");
-
-      const conn = createConnection({
-        oauthAppId: app.id,
-        provider: "github",
-        accountInfo: "user@example.com",
-        grantedScopes: ["repo"],
-        hasRefreshToken: false,
-      });
-      updateConnection(conn.id, { status: "revoked" });
-
-      const result = getConnectionByProviderAndAccount(
-        "github",
-        "user@example.com",
-      );
-      expect(result).toBeUndefined();
     });
   });
 

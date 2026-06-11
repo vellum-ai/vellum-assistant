@@ -97,6 +97,19 @@ mock.module("../skills/version-hash.js", () => ({
   computeSkillVersionHash: () => "v1:deadbeef",
 }));
 
+// Mock the skill_loaded telemetry dependencies of conversation-skill-tools so
+// their heavy transitive imports (catalog-install → CLI program, sqlite) stay
+// out of this import-light test.
+mock.module("../skills/catalog-cache.js", () => ({
+  getCachedCatalogSync: () => [],
+}));
+mock.module("../skills/install-meta.js", () => ({
+  readInstallMeta: () => null,
+}));
+mock.module("../memory/skill-loaded-events-store.js", () => ({
+  recordSkillLoadedEvent: () => {},
+}));
+
 // Mock createSkillToolsFromManifest to return lightweight Tool-like objects
 mock.module("../tools/skills/skill-tool-factory.js", () => ({
   createSkillToolsFromManifest: (
@@ -154,22 +167,27 @@ mock.module("node:fs", () => ({
   Stats: class {},
 }));
 
-const benchmarkRegistry = new Map<string, unknown>();
+// Mirrors the current registry contract: ownership is recorded from the
+// `registerSkillTools(skillId, tools)` call and reported via `getToolOwner`.
+const benchmarkRegistry = new Map<string, { tool: unknown; skillId: string }>();
 mock.module("../tools/registry.js", () => ({
   registerSkillTools: (
+    skillId: string,
     tools: Array<{ name: string; [k: string]: unknown }>,
   ) => {
-    for (const t of tools) benchmarkRegistry.set(t.name, t);
+    for (const t of tools) benchmarkRegistry.set(t.name, { tool: t, skillId });
     return tools;
   },
   unregisterSkillTools: (skillId: string) => {
-    for (const [name, t] of benchmarkRegistry) {
-      const owner = (t as { owner?: { kind: string; id: string } }).owner;
-      if (owner?.kind === "skill" && owner.id === skillId)
-        benchmarkRegistry.delete(name);
+    for (const [name, entry] of benchmarkRegistry) {
+      if (entry.skillId === skillId) benchmarkRegistry.delete(name);
     }
   },
-  getTool: (name: string) => benchmarkRegistry.get(name),
+  getTool: (name: string) => benchmarkRegistry.get(name)?.tool,
+  getToolOwner: (name: string) => {
+    const entry = benchmarkRegistry.get(name);
+    return entry ? { kind: "skill" as const, id: entry.skillId } : undefined;
+  },
 }));
 
 // ---------------------------------------------------------------------------

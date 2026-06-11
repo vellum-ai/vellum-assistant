@@ -6,6 +6,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
 import {
+    useConversationCallNumbering,
     useConversationMessageList,
     useLlmContext,
 } from "@/domains/chat/inspector/inspector-api";
@@ -21,8 +22,8 @@ import { normalizeContentBlocks } from "@/domains/chat/api/messages";
 import { useAuthStore, useIsSessionInitializing } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import type {
-  ConversationContentBlock,
   ConversationMessage,
+  ConversationTextBlock,
   LlmContextResponse,
   LLMRequestLogEntry,
 } from "@vellumai/assistant-api";
@@ -48,8 +49,8 @@ import { SkillsTab } from "./components/tabs/skills-tab";
  *   switches into message mode for a specific message in the transcript.
  *
  * - **Message mode** — `?messageId=...`. Shows only the calls produced by
- *   the turn containing that message. Header carries a "View all
- *   conversation calls" link that drops back into conversation mode.
+ *   the turn containing that message. The same dropdown stays visible;
+ *   selecting "All messages" drops back into conversation mode.
  *
  * Web counterpart of macOS's `MessageInspectorView`
  * (`clients/macos/vellum-assistant/Features/Chat/MessageInspectorView.swift`).
@@ -107,6 +108,21 @@ function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
   } = useLlmContext(assistantId, conversationId, messageId);
 
   const logs = useMemo(() => data?.logs ?? [], [data?.logs]);
+  // Best-effort conversation-wide log list (message mode only) so a
+  // scoped turn keeps showing "Call 12" instead of renumbering from 1.
+  // Resolves to null on daemons without the conversation endpoint, in
+  // which case the rail falls back to subset-relative numbering.
+  const { data: conversationLogs } = useConversationCallNumbering(
+    assistantId,
+    conversationId,
+    Boolean(messageId),
+  );
+  const callNumbers = useMemo<ReadonlyMap<string, number> | undefined>(() => {
+    if (!messageId || !conversationLogs?.length) return undefined;
+    return new Map(conversationLogs.map((log, index) => [log.id, index + 1]));
+  }, [messageId, conversationLogs]);
+  const conversationCallCount =
+    messageId && conversationLogs ? conversationLogs.length : undefined;
   const [searchParams] = useSearchParams();
   const callIdParam = searchParams.get("callId");
 
@@ -165,6 +181,8 @@ function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
             buildCallHref={buildCallHref}
             assistantId={assistantId}
             conversationId={conversationId}
+            callNumbers={callNumbers}
+            conversationCallCount={conversationCallCount}
           />
         )}
       </div>
@@ -191,8 +209,17 @@ function Header({
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
+  const { data: scopeMessages } = useConversationMessageList(
+    assistantId,
+    conversationId,
+  );
+  const turnPosition = useMemo(
+    () =>
+      messageId ? findTurnPosition(scopeMessages ?? [], messageId) : null,
+    [scopeMessages, messageId],
+  );
+
   const canExport = Boolean(assistantId && context && context.logs.length > 0);
-  const isMessageScoped = Boolean(messageId);
 
   async function handleExport(): Promise<void> {
     if (!assistantId || !context || isExporting) return;
@@ -257,6 +284,7 @@ function Header({
           <ScopeSubtitle
             conversationId={conversationId}
             messageId={messageId}
+            turnPosition={turnPosition}
           />
         </div>
         <div className="order-2 ml-auto flex items-center gap-3 md:order-3 md:ml-0">
@@ -306,7 +334,6 @@ function Header({
         assistantId={assistantId}
         conversationId={conversationId}
         messageId={messageId}
-        isMessageScoped={isMessageScoped}
       />
     </div>
   );
@@ -315,11 +342,13 @@ function Header({
 interface ScopeSubtitleProps {
   conversationId: string;
   messageId: string | null;
+  turnPosition: TurnPosition | null;
 }
 
 function ScopeSubtitle({
   conversationId,
   messageId,
+  turnPosition,
 }: ScopeSubtitleProps): ReactNode {
   void conversationId;
   if (messageId) {
@@ -333,7 +362,10 @@ function ScopeSubtitle({
           style={{ color: "var(--content-default)" }}
         >
           <MessageSquare size={12} aria-hidden />
-          Scoped to one message · <code>{shortMessageId(messageId)}</code>
+          {turnPosition
+            ? `Scoped to turn ${turnPosition.index} of ${turnPosition.count} · `
+            : "Scoped to one message · "}
+          <code>{shortMessageId(messageId)}</code>
         </span>
       </p>
     );
@@ -352,24 +384,31 @@ interface ScopeControlsProps {
   assistantId: string | undefined;
   conversationId: string;
   messageId: string | null;
-  isMessageScoped: boolean;
 }
 
 function ScopeControls({
   assistantId,
   conversationId,
   messageId,
-  isMessageScoped,
 }: ScopeControlsProps): ReactNode {
   const navigate = useNavigate();
   const { data: messages } = useConversationMessageList(
     assistantId,
     conversationId,
   );
-  const options = useMemo(
-    () => buildMessageScopeOptions(messages ?? []),
-    [messages],
-  );
+  const options = useMemo(() => {
+    const built = buildMessageScopeOptions(messages ?? []);
+    // Deep links and older entry points may scope to a message that
+    // isn't a turn head (e.g. an assistant message). Keep the select
+    // honest by surfacing that scope as a selectable option.
+    if (messageId && !built.some((opt) => opt.value === messageId)) {
+      built.push({
+        value: messageId,
+        label: `Message ${shortMessageId(messageId)}`,
+      });
+    }
+    return built;
+  }, [messages, messageId]);
 
   const navigateToScope = (nextMessageId: string | null) => {
     const params = new URLSearchParams();
@@ -379,23 +418,12 @@ function ScopeControls({
     navigate(qs ? `${base}?${qs}` : base);
   };
 
-  if (isMessageScoped) {
-    return (
-      <div className="flex items-center justify-end">
-        <Button
-          variant="ghost"
-          size="compact"
-          onClick={() => navigateToScope(null)}
-          aria-label="View all conversation calls"
-        >
-          View all conversation calls
-        </Button>
-      </div>
-    );
-  }
-
+  // A native select's intrinsic minimum width is its widest option, so
+  // long message previews would otherwise push it past the viewport on
+  // phones. `w-full min-w-0 truncate` lets it shrink to the container
+  // and ellipsize the selected label instead.
   return (
-    <div className="flex items-center justify-end gap-2">
+    <div className="flex flex-wrap items-center justify-end gap-2">
       <label
         htmlFor="inspector-scope-select"
         className="text-label-default"
@@ -405,7 +433,7 @@ function ScopeControls({
       </label>
       <select
         id="inspector-scope-select"
-        className="rounded-md border px-2 py-1 text-label-default"
+        className="w-full min-w-0 truncate rounded-md border px-2 py-1 text-label-default sm:w-auto sm:max-w-md"
         style={{
           borderColor: "var(--border-base)",
           background: "var(--surface-base)",
@@ -416,7 +444,7 @@ function ScopeControls({
           const next = event.target.value;
           navigateToScope(next || null);
         }}
-        disabled={options.length === 0}
+        disabled={options.length === 0 && !messageId}
       >
         <option value="">All messages</option>
         {options.map((opt) => (
@@ -434,23 +462,22 @@ interface ScopeOption {
   label: string;
 }
 
+// A "turn" is headed by a user message: the user message plus every
+// assistant response it produced map to the same group of LLM calls,
+// so only user messages are offered as scope options.
 function buildMessageScopeOptions(messages: ConversationMessage[]): ScopeOption[] {
   const seen = new Set<string>();
   const options: ScopeOption[] = [];
   let index = 1;
   for (const m of messages) {
     const id = m.id;
-    if (!id || seen.has(id)) continue;
+    if (!id || seen.has(id) || m.role !== "user") continue;
     seen.add(id);
     const firstTextBlock = normalizeContentBlocks(m)?.find(
-      (b): b is Extract<ConversationContentBlock, { type: "text" }> =>
-        b.type === "text",
+      (b): b is ConversationTextBlock => b.type === "text",
     );
     const preview = previewContent(firstTextBlock?.text);
-    const roleLabel = m.role === "assistant" ? "Assistant" : "User";
-    const label = preview
-      ? `${index}. ${roleLabel} · ${preview}`
-      : `${index}. ${roleLabel}`;
+    const label = preview ? `${index}. ${preview}` : `${index}. (no text)`;
     options.push({ value: id, label });
     index += 1;
   }
@@ -468,6 +495,41 @@ function shortMessageId(messageId: string): string {
   return messageId.length > 12 ? `${messageId.slice(0, 8)}…` : messageId;
 }
 
+interface TurnPosition {
+  /** 1-based position of the turn among the conversation's user turns. */
+  index: number;
+  /** Total number of user turns in the conversation. */
+  count: number;
+}
+
+/**
+ * Locates the turn containing `messageId` within the transcript. The
+ * scoped id is normally a turn-head user message, but deep links may
+ * carry an assistant message id — those resolve to the user message
+ * that heads their turn. Returns `null` when the id isn't in the list.
+ */
+function findTurnPosition(
+  messages: ConversationMessage[],
+  messageId: string,
+): TurnPosition | null {
+  const seen = new Set<string>();
+  const userIds: string[] = [];
+  let headId: string | null = null;
+  for (const m of messages) {
+    const id = m.id;
+    if (id && m.role === "user" && !seen.has(id)) {
+      seen.add(id);
+      userIds.push(id);
+    }
+    if (id === messageId && !headId) {
+      headId = m.role === "user" ? id : (userIds[userIds.length - 1] ?? null);
+    }
+  }
+  if (!headId) return null;
+  const index = userIds.indexOf(headId);
+  return index === -1 ? null : { index: index + 1, count: userIds.length };
+}
+
 interface LoadedProps {
   logs: LLMRequestLogEntry[];
   context: LlmContextResponse | undefined;
@@ -476,6 +538,8 @@ interface LoadedProps {
   buildCallHref: (logId: string) => string;
   assistantId: string | undefined;
   conversationId: string;
+  callNumbers: ReadonlyMap<string, number> | undefined;
+  conversationCallCount: number | undefined;
 }
 
 function Loaded({
@@ -486,6 +550,8 @@ function Loaded({
   buildCallHref,
   assistantId,
   conversationId,
+  callNumbers,
+  conversationCallCount,
 }: LoadedProps): ReactNode {
   const [tab, setTab] = useState<InspectorTab>("overview");
 
@@ -502,6 +568,7 @@ function Loaded({
           logs={logs}
           selectedLogId={selectedLogId}
           buildCallHref={buildCallHref}
+          callNumbers={callNumbers}
         />
       </aside>
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -513,6 +580,8 @@ function Loaded({
             logs={logs}
             selectedLogId={selectedLogId}
             buildCallHref={buildCallHref}
+            callNumbers={callNumbers}
+            conversationCallCount={conversationCallCount}
           />
         </div>
         <TabBar selected={tab} onSelect={setTab} />

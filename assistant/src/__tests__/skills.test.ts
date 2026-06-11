@@ -11,6 +11,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { parse as parseYaml } from "yaml";
+
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 const noopLogger = {
@@ -634,6 +636,83 @@ describe("includes frontmatter parsing", () => {
     const catalog = loadUserSkillCatalog();
     const skill = catalog.find((s) => s.id === "no-includes");
     expect(skill!.includes).toBeUndefined();
+  });
+});
+
+describe("category frontmatter parsing", () => {
+  beforeEach(() => {
+    mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
+  });
+
+  afterEach(() => {
+    const skillsDir = join(TEST_DIR, "skills");
+    if (existsSync(skillsDir))
+      rmSync(skillsDir, { recursive: true, force: true });
+  });
+
+  function writeSkillWithCategory(skillId: string, category: string): void {
+    const skillDir = join(TEST_DIR, "skills", skillId);
+    mkdirSync(skillDir, { recursive: true });
+    const metadata = `{"vellum":{"category":${category}}}`;
+    writeFileSync(
+      join(skillDir, "SKILL.md"),
+      `---\nname: "${skillId}"\ndescription: "test"\nmetadata: ${metadata}\n---\n\nBody.\n`,
+    );
+  }
+
+  test("parses category from metadata.vellum", () => {
+    writeSkillWithCategory("categorized", '"productivity"');
+    const skill = loadUserSkillCatalog().find((s) => s.id === "categorized");
+    expect(skill!.category).toBe("productivity");
+  });
+
+  test("trims whitespace in category", () => {
+    writeSkillWithCategory("padded", '"  email  "');
+    const skill = loadUserSkillCatalog().find((s) => s.id === "padded");
+    expect(skill!.category).toBe("email");
+  });
+
+  test("returns undefined for empty category", () => {
+    writeSkillWithCategory("empty", '"  "');
+    const skill = loadUserSkillCatalog().find((s) => s.id === "empty");
+    expect(skill!.category).toBeUndefined();
+  });
+
+  test("returns undefined for non-string category", () => {
+    writeSkillWithCategory("numeric", "42");
+    const skill = loadUserSkillCatalog().find((s) => s.id === "numeric");
+    expect(skill!.category).toBeUndefined();
+  });
+
+  test("skill without category has undefined category", () => {
+    writeSkill("no-category", "No Category", "Test");
+    const skill = loadUserSkillCatalog().find((s) => s.id === "no-category");
+    expect(skill!.category).toBeUndefined();
+  });
+});
+
+describe("bundled skill categories", () => {
+  test("every bundled skill declares a valid category slug", () => {
+    const yamlPath = join(
+      import.meta.dir,
+      "..",
+      "..",
+      "..",
+      "skills",
+      "skill-categories-catalog.yaml",
+    );
+    const parsed = parseYaml(readFileSync(yamlPath, "utf-8")) as {
+      categories: { slug: string }[];
+    };
+    const validSlugs = new Set(parsed.categories.map((c) => c.slug));
+    expect(validSlugs.size).toBeGreaterThan(0);
+
+    const bundled = loadSkillCatalog().filter((s) => s.bundled);
+    expect(bundled.length).toBeGreaterThan(0);
+    const invalid = bundled
+      .filter((s) => !s.category || !validSlugs.has(s.category))
+      .map((s) => `${s.id}: ${s.category ?? "(missing)"}`);
+    expect(invalid).toEqual([]);
   });
 });
 

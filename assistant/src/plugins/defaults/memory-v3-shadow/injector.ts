@@ -232,6 +232,7 @@ export const memoryV3Injector: Injector = {
   order: 1000,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
     const config = getConfig();
+    if (config.memory.enabled === false) return null;
     const live = isAssistantFeatureFlagEnabled(MEMORY_V3_LIVE, config);
     const shadow = isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config);
     if (!live && !shadow) return null;
@@ -342,6 +343,7 @@ export const memoryV3SpotlightInjector: Injector = {
   order: 1001,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
     const config = getConfig();
+    if (config.memory.enabled === false) return null;
     // Live-only: shadow mode logs spotlight refs from the cards injector and
     // must keep the turn untouched (no ring state either, so a later
     // live-flag flip starts from a clean window).

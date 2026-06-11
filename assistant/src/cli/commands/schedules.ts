@@ -23,6 +23,7 @@ interface ScheduleRecord {
   maxRetries: number;
   retryBackoffMs: number;
   description: string | null;
+  cadenceDescription: string | null;
   mode: string;
   status: string;
   routingIntent: string;
@@ -64,9 +65,9 @@ export function registerSchedulesCommand(program: Command): void {
 Schedules are recurring or one-shot jobs run by the assistant.
 
 This CLI namespace is intentionally landing incrementally. Today it supports
-listing schedules, viewing recent run history, enabling/disabling schedules,
-manually executing a schedule one time, and cancelling pending one-shot schedules;
-create, delete, and run inspection will follow as separate slices.
+creating schedules, listing schedules, viewing recent run history,
+enabling/disabling schedules, manually executing a schedule one time, cancelling
+pending one-shot schedules, and deleting schedules.
 
 Examples:
   $ assistant schedules list
@@ -319,6 +320,10 @@ Examples:
           "Cron or RRULE expression that schedules the fire times",
         )
         .requiredOption(
+          "-d, --description <text>",
+          "Authored description explaining what the schedule is for",
+        )
+        .requiredOption(
           "-m, --message <text>",
           "Message body sent to the assistant on each fire",
         )
@@ -333,6 +338,7 @@ Examples:
           `
 Options:
   -e, --expression <expr>   Cron (e.g. '*/30 * * * *') or RRULE expression.
+  -d, --description <text>  Authored description explaining what the schedule is for.
   -m, --message <text>      Message body sent on each fire.
   -t, --timezone <tz>       IANA timezone applied to the expression.
   --no-enabled              Create the schedule disabled. Defaults to enabled.
@@ -349,13 +355,16 @@ Behavior:
 Examples:
   $ assistant schedules create "Heartbeat" \\
       --expression '*/30 * * * *' \\
+      --description 'Checks service heartbeat every 30 minutes' \\
       --message 'run heartbeat'
   $ assistant schedules create "Morning summary" \\
       --expression '0 9 * * MON-FRI' \\
+      --description 'Summarizes weekday activity' \\
       --timezone America/New_York \\
       --message 'write the morning summary'
   $ assistant schedules create "Drafted" \\
       --expression '0 0 * * *' \\
+      --description 'Placeholder daily schedule' \\
       --message 'placeholder' \\
       --no-enabled --json`,
         )
@@ -364,6 +373,7 @@ Examples:
             name: string,
             opts: {
               expression: string;
+              description: string;
               message: string;
               timezone?: string;
               enabled: boolean;
@@ -383,9 +393,22 @@ Examples:
               return;
             }
 
+            const description = opts.description.trim();
+            if (!description) {
+              const error = "description is required";
+              if (opts.json) {
+                writeOutput(cmd, { ok: false, error });
+              } else {
+                log.error(error);
+              }
+              process.exitCode = 1;
+              return;
+            }
+
             const body: Record<string, unknown> = {
               name: scheduleName,
               expression: opts.expression,
+              description,
               message: opts.message,
               enabled: opts.enabled,
             };
@@ -662,7 +685,7 @@ async function toggleScheduleEnabled(
 
 function describeSchedule(schedule: ScheduleRecord): string {
   if (schedule.isOneShot) return "one-shot";
-  const expression = schedule.description ?? schedule.expression ?? "—";
+  const expression = schedule.cadenceDescription ?? schedule.expression ?? "—";
   return schedule.timezone
     ? `${expression} (${schedule.timezone})`
     : expression;

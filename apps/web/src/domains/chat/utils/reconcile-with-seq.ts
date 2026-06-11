@@ -9,7 +9,7 @@ import {
   sortByTimestamp,
   timestampToMs,
 } from "@/domains/chat/utils/message-sorting";
-import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
+import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
 /**
@@ -309,14 +309,14 @@ function findOptimisticEcho(
   }
 
   if (optimistic.role === "assistant") {
-    const optimisticText = segmentsToPlainText(optimistic.textSegments).trim();
+    const optimisticText = messagePlainText(optimistic).trim();
     if (!optimisticText) {
       return undefined;
     }
     return reconciled.find(
       (r) =>
         r.role === "assistant" &&
-        segmentsToPlainText(r.textSegments).trim().startsWith(optimisticText),
+        messagePlainText(r).trim().startsWith(optimisticText),
     );
   }
 

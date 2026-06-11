@@ -133,6 +133,12 @@ export const conversationSummarySchema = z.object({
   groupId: z.string().nullable(),
   forkParent: forkParentSchema.optional(),
   archivedAt: z.number().optional(),
+  /**
+   * Epoch-ms timestamp set when a background/scheduled conversation was
+   * explicitly promoted ("surfaced") into the Recents sidebar grouping via
+   * `POST /v1/conversations/:id/surface`. Absent when not surfaced.
+   */
+  surfacedAt: z.number().optional(),
   inferenceProfile: z.string().optional(),
   /**
    * True when the agent loop is currently mid-turn for this conversation.

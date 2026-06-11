@@ -74,7 +74,6 @@ export interface StreamHandlerContext {
   setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
 
   // --- Conversations ---
-  scheduleConversationListRefetch: () => void;
   /** TanStack Query client used by conversation/group cache helpers. */
   queryClient: QueryClient;
 

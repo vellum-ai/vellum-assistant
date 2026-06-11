@@ -2103,14 +2103,15 @@ guard let ctx = CGContext(
 
 let s = CGFloat(size)
 
-// Draw macOS squircle rounded-rect background with the green fill.
-// Apple's macOS icon shape uses ~22.37% corner radius (continuous corners).
-let iconRect = CGRect(x: 0, y: 0, width: s, height: s)
-let cornerRadius = s * 0.2237
-let bgPath = CGPath(roundedRect: iconRect, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
-ctx.addPath(bgPath)
+// Fill the entire canvas with the background color (full-bleed, no rounding).
+// macOS Tahoe (26) inspects edge pixel alpha: values ≥ 253 get a clean system-
+// applied squircle clip with no frame; values ≤ 252 trigger "icon jail" (gray
+// border + scaled-down inset). A rounded rect leaves transparent corner pixels
+// (alpha 0) which triggers the jail. Filling the full square ensures all edge
+// pixels are opaque (alpha 255) so Tahoe clips cleanly.
+// Ref: https://developer.apple.com/forums/thread/797971
 ctx.setFillColor(fillColor)
-ctx.fillPath()
+ctx.fill(CGRect(x: 0, y: 0, width: s, height: s))
 
 // Draw the white V centered with scale and translation from icon.json.
 // Icon Composer coordinates: origin is center of the 1024x1024 canvas,

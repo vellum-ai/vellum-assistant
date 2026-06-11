@@ -23,9 +23,11 @@ import {
 import { queryUnreportedLifecycleEvents } from "../memory/lifecycle-events-store.js";
 import { queryUnreportedUsageEvents } from "../memory/llm-usage-store.js";
 import { queryUnreportedOnboardingEvents } from "../memory/onboarding-events-store.js";
-import { queryUnreportedToolExecutionEvents } from "../memory/tool-execution-events-store.js";
+import { queryUnreportedSkillLoadedEvents } from "../memory/skill-loaded-events-store.js";
+import { queryUnreportedToolExecutedEvents } from "../memory/tool-executed-events-store.js";
 import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
 import { VellumPlatformClient } from "../platform/client.js";
+import type { UsageAttributionProfileSource } from "../usage/types.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger } from "../util/logger.js";
 import { APP_VERSION } from "../version.js";
@@ -57,10 +59,39 @@ const CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK =
   "telemetry:auth_fallback:last_reported_at";
 const CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK_ID =
   "telemetry:auth_fallback:last_reported_id";
-const CHECKPOINT_KEY_TOOL_EXECUTION_WATERMARK =
-  "telemetry:tool_execution:last_reported_at";
-const CHECKPOINT_KEY_TOOL_EXECUTION_WATERMARK_ID =
-  "telemetry:tool_execution:last_reported_id";
+const CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK =
+  "telemetry:tool_executed:last_reported_at";
+const CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK_ID =
+  "telemetry:tool_executed:last_reported_id";
+const CHECKPOINT_KEY_SKILL_LOADED_WATERMARK =
+  "telemetry:skill_loaded:last_reported_at";
+const CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID =
+  "telemetry:skill_loaded:last_reported_id";
+// Written into the `*_id` watermark checkpoints by the opt-out flush branch.
+// Sorts lexicographically above every real row ID (all event stores generate
+// lowercase v4 UUIDs), so the compound cursor's same-millisecond arm
+// (`createdAt == watermark AND id > afterId`) can never match an opt-out row.
+const OPT_OUT_WATERMARK_ID_SENTINEL = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+// (timestamp, id) checkpoint-key pairs for every event type's compound
+// cursor — keep in sync when adding an event type.
+const WATERMARK_KEY_PAIRS: ReadonlyArray<readonly [string, string]> = [
+  [CHECKPOINT_KEY_WATERMARK, CHECKPOINT_KEY_WATERMARK_ID],
+  [CHECKPOINT_KEY_TURN_WATERMARK, CHECKPOINT_KEY_TURN_WATERMARK_ID],
+  [CHECKPOINT_KEY_LIFECYCLE_WATERMARK, CHECKPOINT_KEY_LIFECYCLE_WATERMARK_ID],
+  [CHECKPOINT_KEY_ONBOARDING_WATERMARK, CHECKPOINT_KEY_ONBOARDING_WATERMARK_ID],
+  [
+    CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK,
+    CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK_ID,
+  ],
+  [
+    CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK,
+    CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK_ID,
+  ],
+  [
+    CHECKPOINT_KEY_SKILL_LOADED_WATERMARK,
+    CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID,
+  ],
+];
 const REPORT_INTERVAL_MS = 5 * 60 * 1000;
 const INITIAL_FLUSH_DELAY_MS = 30_000; // Delay first flush to let CES handshake complete
 const BATCH_SIZE = 500;
@@ -91,6 +122,41 @@ export class UsageTelemetryReporter {
   private initialFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private activeFlush: Promise<void> | null = null;
+
+  constructor() {
+    // `tool_invocations` is an always-on audit table that predates this
+    // reporter shipping its rows: an absent watermark means no flush (opted
+    // in or out) has ever advanced it, so rows recorded before this build —
+    // including any opted-out period under older builds that gated the
+    // reporter on collectUsageData — would otherwise ship retroactively.
+    // Initialize an absent watermark to "now" at construction. Construction
+    // happens during daemon startup before any tool runs, so no legitimate
+    // row falls behind the watermark — initializing at first FLUSH instead
+    // would drop tools used during the 30s+ flush delay. The checkpoint is
+    // persisted immediately so a crash before the first flush can't leave it
+    // absent and re-initialize later. An EXISTING watermark is never touched:
+    // opted-out sessions keep it advancing via the opt-out flush branch, and
+    // overwriting it here would drop a legitimate unshipped backlog.
+    // `skill_loaded` needs no init: recording is gated on collectUsageData,
+    // so opt-out rows never exist and its standard 0 default is safe.
+    //
+    // Best-effort: DB init failures are tolerated at daemon startup (degraded
+    // mode), so this must never throw out of the constructor — matching
+    // flush(), which treats DB errors as non-fatal.
+    try {
+      if (getMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK) == null) {
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK,
+          String(Date.now()),
+        );
+      }
+    } catch (err) {
+      log.warn(
+        { err },
+        "tool_executed watermark init failed at construction — non-fatal; a later construction with a working DB re-runs the absent-checkpoint init",
+      );
+    }
+  }
 
   start(): void {
     // Delay the first flush to allow the credential infrastructure (CES
@@ -139,22 +205,35 @@ export class UsageTelemetryReporter {
     try {
       if (batchCount >= MAX_CONSECUTIVE_BATCHES) return;
 
-      // Respect runtime opt-out: if the user has disabled usage data collection,
-      // skip the flush and advance watermarks so events recorded during the
-      // opt-out window are never sent retroactively.
+      // Respect opt-out: if the user has disabled usage data collection, skip
+      // the flush and advance watermarks so events recorded during the
+      // opt-out window are never sent retroactively. The daemon runs the
+      // reporter even when opted out specifically so this branch keeps
+      // executing — every cycle plus the final flush in stop() — which is
+      // what lets a later opt-in (runtime or via restart) resume from a
+      // watermark that already covers the opt-out window. One caveat: a
+      // RUNTIME false→true flip can still ship up to one flush interval
+      // (≤5 min) of pre-toggle rows recorded since the last opted-out flush;
+      // the restart path is fully covered by the final flush in stop(). The
+      // caveat applies to the always-on tables without a write-time opt-out
+      // gate (llm_usage, turn events) and to tool_invocations rows recorded
+      // under builds predating the audit listener's write-time gate — new
+      // opted-out tool_invocations rows persist NULL telemetry columns and
+      // are unreportable by construction regardless of watermark timing.
       if (!getConfig().collectUsageData) {
-        // Advance only the timestamp watermarks. Leave the ID watermarks
-        // untouched so the compound-cursor branch stays active — setting them
-        // to "" would make the truthy check fail, falling back to a
-        // timestamp-only `gt(createdAt, watermark)` query that silently drops
-        // events created in the same millisecond as the opt-out watermark.
+        // Advance the timestamp watermarks and pin the ID watermarks to a
+        // sentinel that sorts above any real UUID. The sentinel (rather than
+        // "") keeps the compound-cursor branch active — a falsy ID would
+        // downgrade the query to a timestamp-only `gt(createdAt, watermark)`
+        // — while making its same-millisecond arm unsatisfiable, so a row
+        // written in the same millisecond as this flush's Date.now() can
+        // never ship after a later opt-in. The next opted-in flush that
+        // ships events overwrites the sentinel with a real row ID.
         const now = String(Date.now());
-        setMemoryCheckpoint(CHECKPOINT_KEY_WATERMARK, now);
-        setMemoryCheckpoint(CHECKPOINT_KEY_TURN_WATERMARK, now);
-        setMemoryCheckpoint(CHECKPOINT_KEY_LIFECYCLE_WATERMARK, now);
-        setMemoryCheckpoint(CHECKPOINT_KEY_ONBOARDING_WATERMARK, now);
-        setMemoryCheckpoint(CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK, now);
-        setMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTION_WATERMARK, now);
+        for (const [timestampKey, idKey] of WATERMARK_KEY_PAIRS) {
+          setMemoryCheckpoint(timestampKey, now);
+          setMemoryCheckpoint(idKey, OPT_OUT_WATERMARK_ID_SENTINEL);
+        }
         return;
       }
 
@@ -195,12 +274,25 @@ export class UsageTelemetryReporter {
         getMemoryCheckpoint(CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK_ID) ??
         undefined;
 
-      // Read tool-execution watermark (compound cursor: createdAt + id)
-      const toolExecutionWatermark = Number(
-        getMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTION_WATERMARK) ?? "0",
+      // Read tool-executed watermark (compound cursor: createdAt + id).
+      // An absent checkpoint was initialized to construction time (see the
+      // constructor), guarding opt-out windows; the 0 fallback here is a
+      // defensive default matching the other event types. Legacy rows are
+      // excluded at the query level (see queryUnreportedToolExecutedEvents).
+      const toolExecutedWatermark = Number(
+        getMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK) ?? "0",
       );
-      const toolExecutionWatermarkId =
-        getMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTION_WATERMARK_ID) ??
+      const toolExecutedWatermarkId =
+        getMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK_ID) ??
+        undefined;
+
+      // Read skill-loaded watermark (compound cursor: createdAt + id).
+      // Brand-new table, so the standard 0 default is safe.
+      const skillLoadedWatermark = Number(
+        getMemoryCheckpoint(CHECKPOINT_KEY_SKILL_LOADED_WATERMARK) ?? "0",
+      );
+      const skillLoadedWatermarkId =
+        getMemoryCheckpoint(CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID) ??
         undefined;
 
       // Query unreported events
@@ -229,9 +321,14 @@ export class UsageTelemetryReporter {
         authFallbackWatermarkId,
         BATCH_SIZE,
       );
-      const toolExecutionEvents = queryUnreportedToolExecutionEvents(
-        toolExecutionWatermark,
-        toolExecutionWatermarkId,
+      const toolExecutedEvents = queryUnreportedToolExecutedEvents(
+        toolExecutedWatermark,
+        toolExecutedWatermarkId,
+        BATCH_SIZE,
+      );
+      const skillLoadedEvents = queryUnreportedSkillLoadedEvents(
+        skillLoadedWatermark,
+        skillLoadedWatermarkId,
         BATCH_SIZE,
       );
 
@@ -241,7 +338,8 @@ export class UsageTelemetryReporter {
         lifecycleEvents.length === 0 &&
         onboardingEvents.length === 0 &&
         authFallbackEvents.length === 0 &&
-        toolExecutionEvents.length === 0
+        toolExecutedEvents.length === 0 &&
+        skillLoadedEvents.length === 0
       )
         return;
 
@@ -256,7 +354,8 @@ export class UsageTelemetryReporter {
           lifecycleCount: lifecycleEvents.length,
           onboardingCount: onboardingEvents.length,
           authFallbackCount: authFallbackEvents.length,
-          toolExecutionCount: toolExecutionEvents.length,
+          toolExecutedCount: toolExecutedEvents.length,
+          skillLoadedCount: skillLoadedEvents.length,
         },
         "Telemetry flush: resolved auth context",
       );
@@ -423,23 +522,47 @@ export class UsageTelemetryReporter {
             assistant_version: APP_VERSION,
           }),
         ),
-        ...toolExecutionEvents.map(
+        ...toolExecutedEvents.map(
           (e): TelemetryEvent => ({
-            type: "tool_execution",
+            type: "tool_executed",
             daemon_event_id: e.id,
             recorded_at: e.createdAt,
             tool_name: e.toolName,
-            skill_id: e.skillId,
-            decision: e.decision,
-            risk_level: e.riskLevel,
+            // The store filters out permission-denied rows, so the only
+            // non-success decision that reaches here is "error".
+            status: e.decision === "error" ? "errored" : "fulfilled",
             duration_ms: e.durationMs,
+            arg_bytes: e.argBytes,
+            result_bytes: e.resultBytes,
             conversation_id: e.conversationId,
+            provider: e.provider,
+            model: e.model,
+            inference_profile: e.inferenceProfile,
+            inference_profile_source:
+              e.inferenceProfileSource as UsageAttributionProfileSource | null,
             // `tool_invocations` has no record-time version column — stamp
             // the running binary's `APP_VERSION` so the wire value is
             // concrete rather than an explicit null that would override the
-            // envelope under the platform's per-event-wins contract. Adding
-            // the record-time column is a separate follow-up that mirrors
-            // what migration 267 did for `llm_usage_events`.
+            // envelope under the platform's per-event-wins contract.
+            assistant_version: APP_VERSION,
+          }),
+        ),
+        ...skillLoadedEvents.map(
+          (e): TelemetryEvent => ({
+            type: "skill_loaded",
+            daemon_event_id: e.id,
+            recorded_at: e.createdAt,
+            skill_name: e.skillName,
+            skill_updated_at: e.skillUpdatedAt,
+            conversation_id: e.conversationId,
+            provider: e.provider,
+            model: e.model,
+            inference_profile: e.inferenceProfile,
+            inference_profile_source:
+              e.inferenceProfileSource as UsageAttributionProfileSource | null,
+            // `skill_loaded_events` has no record-time version column — same
+            // upload-time APP_VERSION stamping as the other non-llm_usage
+            // event types.
             assistant_version: APP_VERSION,
           }),
         ),
@@ -542,17 +665,30 @@ export class UsageTelemetryReporter {
         );
       }
 
-      // Advance tool-execution watermark (compound cursor)
-      if (toolExecutionEvents.length > 0) {
-        const lastToolExecution =
-          toolExecutionEvents[toolExecutionEvents.length - 1];
+      // Advance tool-executed watermark (compound cursor)
+      if (toolExecutedEvents.length > 0) {
+        const lastToolExecuted =
+          toolExecutedEvents[toolExecutedEvents.length - 1];
         setMemoryCheckpoint(
-          CHECKPOINT_KEY_TOOL_EXECUTION_WATERMARK,
-          String(lastToolExecution.createdAt),
+          CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK,
+          String(lastToolExecuted.createdAt),
         );
         setMemoryCheckpoint(
-          CHECKPOINT_KEY_TOOL_EXECUTION_WATERMARK_ID,
-          lastToolExecution.id,
+          CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK_ID,
+          lastToolExecuted.id,
+        );
+      }
+
+      // Advance skill-loaded watermark (compound cursor)
+      if (skillLoadedEvents.length > 0) {
+        const lastSkillLoaded = skillLoadedEvents[skillLoadedEvents.length - 1];
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_SKILL_LOADED_WATERMARK,
+          String(lastSkillLoaded.createdAt),
+        );
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID,
+          lastSkillLoaded.id,
         );
       }
 
@@ -563,7 +699,8 @@ export class UsageTelemetryReporter {
         lifecycleEvents.length === BATCH_SIZE ||
         onboardingEvents.length === BATCH_SIZE ||
         authFallbackEvents.length === BATCH_SIZE ||
-        toolExecutionEvents.length === BATCH_SIZE
+        toolExecutedEvents.length === BATCH_SIZE ||
+        skillLoadedEvents.length === BATCH_SIZE
       ) {
         await this._doFlush(batchCount + 1);
       }

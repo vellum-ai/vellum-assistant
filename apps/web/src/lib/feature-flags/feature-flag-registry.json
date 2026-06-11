@@ -80,7 +80,7 @@
       "scope": "assistant",
       "key": "system-schedule-toggles",
       "label": "System Schedule Toggles",
-      "description": "Show Heartbeat and Consolidation pause toggles on the schedules settings page. The toggles only pause automatic runs; manual Run now remains available.",
+      "description": "Show the Heartbeat pause toggle on the schedules settings page. The toggle only pauses automatic runs; manual Run now remains available.",
       "defaultEnabled": false
     },
     {
@@ -329,6 +329,14 @@
       "key": "platform-notifications",
       "label": "Platform Notifications",
       "description": "Enable the Notifications tab in settings.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "centralized-assistant-status",
+      "scope": "client",
+      "key": "centralized-assistant-status",
+      "label": "Centralized Assistant Status",
+      "description": "Enable client polling of the centralized assistant operational status endpoint.",
       "defaultEnabled": false
     },
     {

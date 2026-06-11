@@ -15,6 +15,7 @@ import { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "@vellumai/assistant-api";
 import { sortedByTimestamp } from "@/domains/chat/utils/message-sorting";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
+import { mapMessageToolCalls } from "@/domains/chat/utils/map-message-tool-calls";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
 export function sanitizeDisplayMessages(
@@ -251,10 +252,7 @@ function hasDanglingToolCall(message: DisplayMessage): boolean {
 }
 
 function withRepairedToolCalls(message: DisplayMessage): DisplayMessage {
-  return {
-    ...message,
-    toolCalls: message.toolCalls!.map(repairIfDangling),
-  };
+  return mapMessageToolCalls(message, repairIfDangling);
 }
 
 function repairIfDangling(tc: ChatMessageToolCall): ChatMessageToolCall {
@@ -359,12 +357,9 @@ function withStaleToolCallsFailed(
   message: DisplayMessage,
   nowMs: number,
 ): DisplayMessage {
-  return {
-    ...message,
-    toolCalls: message.toolCalls!.map((tc) =>
-      isStale(tc, nowMs) ? markStale(tc) : tc,
-    ),
-  };
+  return mapMessageToolCalls(message, (tc) =>
+    isStale(tc, nowMs) ? markStale(tc) : tc,
+  );
 }
 
 function isStale(tc: ChatMessageToolCall, nowMs: number): boolean {

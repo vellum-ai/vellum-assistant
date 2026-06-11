@@ -17,8 +17,10 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
+  AgentLoopExitReason,
   PostCompactContext,
   PostModelCallContext,
+  PostModelCallDecision,
   PostToolUseContext,
   PreModelCallContext,
   StopContext,
@@ -100,12 +102,6 @@ export interface AgentLoopRunResult {
    */
   exitReason: ExitReason | null;
   /**
-   * Whether the loop produced at least one new assistant message this run —
-   * the forward-progress signal for the ordering-error retry gate (immune to
-   * in-loop compaction shrinking history below a pre-run length).
-   */
-  appendedNewMessages: boolean;
-  /**
    * Slice of `history` appended this run, measured from the loop's input or
    * from the compacted base when it compacts in place. The loop owns this
    * boundary, so it cannot desync the way an externally-held index can.
@@ -129,55 +125,13 @@ interface CompactionAttempt {
   autoCompressApplied: boolean;
 }
 
+export type { AgentLoopExitReason };
+
 /**
- * Why an agent turn reached a terminal state.
- *
- * Emitted as part of an {@link AgentEvent} of type `agent_loop_exit`, then
- * persisted onto the **final** `llm_request_logs` row of the turn. Rows from
- * intermediate turns keep a NULL `agent_loop_exit_reason`, which is how
- * downstream tooling (and the LLM Context Inspector) distinguishes "loop kept
- * going" from "loop is done".
- *
- * Values are stable wire/DB strings — they are written to SQLite and
- * surfaced over the inspector wire format, so renaming any of them is a
- * breaking change.
- *
- * Keep in sync with `emitExit` call sites in {@link AgentLoop.run} and the
- * outer conversation orchestrator paths that terminate after a checkpoint
- * yield. A checkpoint yield used for budget compaction is intentionally not
- * a terminal reason — it is a control transfer before re-entering the loop.
+ * Why a mid-loop compaction ran: `"budget"` for the proactive estimate gate,
+ * `"overflow"` for recovery from a provider context-overflow rejection.
  */
-export type AgentLoopExitReason =
-  /** `if (signal?.aborted) break;` at the top of the loop. */
-  | "aborted_pre_call"
-  /** Assistant message has no tool-use blocks (or no tool executor). */
-  | "no_tool_calls"
-  /** Signal aborted while building the user-side tool-results message. */
-  | "aborted_post_response"
-  /** Signal aborted mid-tool-execution; completed results were pushed. */
-  | "aborted_during_tools"
-  /** A tool result requested handing back to the user. */
-  | "yield_to_user"
-  /** The orchestrator yielded at checkpoint to process a queued message. */
-  | "checkpoint_handoff"
-  /** Context-window recovery exhausted and the turn ended with an error. */
-  | "context_too_large"
-  /**
-   * Auto-compress rerun (post-emergency-compaction, post-tier reducer)
-   * still yielded at the mid-loop budget checkpoint — the turn silently
-   * terminated with no further recovery layer to re-enter. Pure
-   * observability signal so the silent stall is attributable instead of
-   * leaving `agent_loop_exit_reason` NULL.
-   */
-  | "budget_yield_unrecovered"
-  /** Provider stopped because the configured output-token limit was reached. */
-  | "max_tokens_reached"
-  /** User cancellation landed after a non-terminal checkpoint yield. */
-  | "aborted_after_checkpoint"
-  /** Signal aborted while the catch handler was synthesizing an error turn. */
-  | "aborted_via_error"
-  /** Catch-block fallback: an unhandled error broke the loop. */
-  | "error";
+export type CompactionTrigger = "budget" | "overflow";
 
 export type AgentEvent =
   /**
@@ -319,8 +273,30 @@ export type AgentEvent =
        * the mid-loop budget gate tripped. The daemon's event dispatcher
        * translates it into a "compacting context" activity state so clients
        * surface that the turn paused to summarize context.
+       *
+       * Carries the start-side half of the compaction record: everything the
+       * loop knows before handing the history to the compaction pipeline.
+       * The pipeline between this event and `compaction_completed` is
+       * plugin-owned, so consumers must treat the start/end pair (correlated
+       * by `compactionId`) as the complete picture of an attempt. A start
+       * event with no matching end means the pipeline threw or the turn
+       * aborted mid-compaction.
        */
       type: "context_compacting";
+      /** Correlates this start event with its `compaction_completed` pair. */
+      compactionId: string;
+      /** The turn's request id, linking the attempt to the triggering turn. */
+      requestId: string;
+      /**
+       * Why the loop compacted: `"budget"` when the proactive mid-loop
+       * estimate gate tripped, `"overflow"` when recovering from a provider
+       * context-overflow rejection via the reduction ladder.
+       */
+      trigger: CompactionTrigger;
+      /** Epoch ms when the loop began the compaction ceremony. */
+      startedAt: number;
+      /** Message count of the running history before injection stripping. */
+      preMessageCount: number;
     }
   | {
       /**
@@ -343,6 +319,17 @@ export type AgentEvent =
        * compacted result.
        */
       type: "compaction_completed";
+      /** Correlates this end event with its `context_compacting` pair. */
+      compactionId: string;
+      /** The turn's request id, linking the attempt to the triggering turn. */
+      requestId: string;
+      /** Same trigger as the paired start event, duplicated so the end
+       * event is self-sufficient for consumers that only buffer ends. */
+      trigger: CompactionTrigger;
+      /** Epoch ms when the loop began the compaction ceremony. */
+      startedAt: number;
+      /** Epoch ms when the compaction pipeline returned. */
+      finishedAt: number;
       result: ContextWindowResult;
       basis: Message[];
     }
@@ -387,7 +374,18 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
   minTurnIntervalMs: 150,
 };
 
-const MAX_STOP_CONTINUE_RETRIES = 1;
+/**
+ * Per-run backstop on `post-model-call`-driven retries. A recovery hook that
+ * sets `decision: "continue"` re-issues the provider call; this bounds the
+ * total such re-issues across a run so a misbehaving hook can't spin forever.
+ *
+ * It is a backstop, not the primary guard: each recovery class owns a
+ * one-shot per-conversation bound that stops it repeating within a turn, so
+ * the legitimate ceiling is one continue per class (empty-response nudge,
+ * ordering repair, image downscale). This sits above that sum to leave
+ * headroom while still catching pathological alternation between classes.
+ */
+const MAX_POST_MODEL_CALL_CONTINUES = 5;
 
 const MAX_TOKENS_STOP_REASONS = new Set([
   "length",
@@ -471,7 +469,7 @@ export interface AgentLoopRunOptions {
   /** Sink the loop streams its {@link AgentEvent}s through as the turn runs. */
   onEvent: (event: AgentEvent) => void | Promise<void>;
   signal?: AbortSignal;
-  requestId?: string;
+  requestId: string;
   onCheckpoint?: (
     checkpoint: CheckpointInfo,
   ) => CheckpointDecision | Promise<CheckpointDecision>;
@@ -698,7 +696,7 @@ export class AgentLoop {
    * compaction outcome into a user-visible turn failure.
    */
   private async recordCompactionOutcome(
-    requestId: string | undefined,
+    requestId: string,
     summaryFailed: boolean,
     onEvent: (event: AgentEvent) => void | Promise<void>,
   ): Promise<void> {
@@ -728,7 +726,7 @@ export class AgentLoop {
    */
   private async compact(
     history: Message[],
-    requestId: string | undefined,
+    requestId: string,
     trust: TrustContext,
     signal: AbortSignal | undefined,
     onEvent: (event: AgentEvent) => void | Promise<void>,
@@ -737,7 +735,18 @@ export class AgentLoop {
     modelProfileKey: string | null,
     overflowSignal?: { actualTokens: number | null; isInteractive: boolean },
   ): Promise<CompactionAttempt> {
-    await onEvent({ type: "context_compacting" });
+    const compactionId = crypto.randomUUID();
+    const startedAt = Date.now();
+    const trigger: CompactionTrigger =
+      overflowSignal != null ? "overflow" : "budget";
+    await onEvent({
+      type: "context_compacting",
+      compactionId,
+      requestId,
+      trigger,
+      startedAt,
+      preMessageCount: history.length,
+    });
     // Strip runtime injections so the compactor summarizes the raw persistent
     // messages.
     const rawHistory = stripInjectionsForCompaction(history);
@@ -779,6 +788,11 @@ export class AgentLoop {
     // `result.compacted`.
     await onEvent({
       type: "compaction_completed",
+      compactionId,
+      requestId,
+      trigger,
+      startedAt,
+      finishedAt: Date.now(),
       result: compactResult,
       basis: rawHistory,
     });
@@ -798,7 +812,7 @@ export class AgentLoop {
         : rawHistory;
     const postCompactCtx: PostCompactContext = {
       history: base,
-      requestId: requestId ?? null,
+      requestId,
       conversationId: this.conversationId,
       isNonInteractive,
       modelProfileKey,
@@ -835,16 +849,15 @@ export class AgentLoop {
     } = options;
     let history = [...messages];
     // Index into `history` where this run's appended output begins. It starts
-    // after the input and resets to the compacted base whenever the loop
-    // compacts in place, so `history.slice(newMessagesStart)` is always exactly
-    // what the loop produced since the last (re-injected) base.
+    // after the input and resets to the new base whenever the loop rewrites the
+    // history in place (compaction re-injection, ordering deep-repair), so
+    // `history.slice(newMessagesStart)` is always exactly what the loop produced
+    // since the last base.
     let newMessagesStart = history.length;
-    let producedVisibleTextThisRun = false;
     let toolUseTurns = 0;
-    let stopContinueRetries = 0;
+    let postModelCallContinues = 0;
     let lastLlmCallTime = 0;
     let exitReason: ExitReason | null = null;
-    let appendedNewMessages = false;
     // Armed at the end of a tool-use iteration so the budget gate runs at the
     // top of the NEXT iteration — before that iteration's provider call —
     // instead of after the current one. Stop-hook re-query continues re-enter
@@ -871,7 +884,7 @@ export class AgentLoop {
     // `context_too_large`) instead of looping.
     let overflowLadderExhausted = false;
     let overflowAutoCompressApplied = false;
-    const rlog = requestId ? log.child({ requestId }) : log;
+    const rlog = log.child({ requestId });
 
     // Resolve the inference-profile override that applies right now. The
     // optional resolver lets a turn observe a confirmed mid-turn profile switch
@@ -885,21 +898,61 @@ export class AgentLoop {
     const substitutionMap = new Map<string, string>();
     let streamingPending = "";
 
-    // Idempotency guard for `emitExit`: the first reason stamped wins. A break
-    // site that stamps a specific reason before unwinding into the catch
-    // handler keeps that reason instead of the generic "error", and the guard
-    // also defends against accidental double-emits if a new break site is
-    // added without checking this.
-    let exitReasonEmitted = false;
-    const emitExit = async (reason: AgentLoopExitReason): Promise<void> => {
-      if (exitReasonEmitted) return;
-      exitReasonEmitted = true;
-      await onEvent({ type: "agent_loop_exit", reason });
+    // Single chokepoint for ending the turn. Runs the definitive terminal
+    // `stop` hook chain exactly once — by the time it fires the loop has
+    // committed to ending, so teardown hooks can clear per-turn state with the
+    // guarantee that nothing will re-enter the loop this turn. The first reason
+    // stamped wins: a break site that stamps a specific reason before unwinding
+    // into the catch handler keeps that reason instead of the generic "error",
+    // and the guard also defends against accidental double-invocation if a new
+    // terminal break site is added.
+    //
+    // `emitExit` controls whether the matching `agent_loop_exit` observability
+    // event fires. Real terminal exits emit it; a `checkpoint_handoff` runs the
+    // teardown chain (so per-turn state like recovery bounds is cleared before
+    // the queued message drains) but does not emit, because the orchestrator
+    // owns the handoff signal and the conversation resumes in a fresh run.
+    //
+    // A throwing `stop` hook must not suppress the terminal exit: the chain is
+    // isolated so a failing teardown hook (e.g. a third-party plugin) is logged
+    // but `agent_loop_exit` still fires with the real exit reason. Otherwise the
+    // throw would unwind into the outer catch, which re-enters here as a no-op
+    // (the guard is already set) and the turn's terminal observability event
+    // would be dropped.
+    let turnStopped = false;
+    const runTerminalStop = async (
+      reason: AgentLoopExitReason,
+      { emitExit, error }: { emitExit: boolean; error?: Error },
+    ): Promise<void> => {
+      if (turnStopped) return;
+      turnStopped = true;
+      const stopCtx: StopContext = {
+        conversationId: this.conversationId,
+        messages: [...history],
+        error,
+        exitReason: reason,
+        logger: rlog,
+      };
+      try {
+        await runHook(HOOKS.STOP, stopCtx);
+      } catch (stopHookError) {
+        rlog.error(
+          { err: stopHookError, exitReason: reason },
+          "stop hook threw during terminal teardown; continuing",
+        );
+      }
+      if (emitExit) {
+        await onEvent({ type: "agent_loop_exit", reason });
+      }
     };
+    const stopTurn = (
+      reason: AgentLoopExitReason,
+      error?: Error,
+    ): Promise<void> => runTerminalStop(reason, { emitExit: true, error });
 
     while (true) {
       if (signal?.aborted) {
-        await emitExit("aborted_pre_call");
+        await stopTurn("aborted_pre_call");
         break;
       }
 
@@ -909,6 +962,12 @@ export class AgentLoop {
       );
 
       let toolUseBlocks: Extract<ContentBlock, { type: "tool_use" }>[] = [];
+      // The provider rejection thrown by this iteration's call, if any. Set in
+      // the inner provider catch and read by the outer catch to confine
+      // error-stop recovery to genuine provider rejections — a throw from
+      // elsewhere in the turn body (tool execution, the success-path stop
+      // chain, post-model-call hooks) must not re-enter the stop chain.
+      let providerCallError: unknown;
 
       try {
         // ── Pre-call budget gate ─────────────────────────────────────
@@ -1153,6 +1212,13 @@ export class AgentLoop {
         // instead. Reset per model call.
         let deferAssistantOutput = false;
 
+        // Set once any visible assistant text reaches the client live this
+        // model call. A deferred turn holds the live stream and a turn the
+        // model leaves visibly empty streams nothing, so this stays false for
+        // both — letting the loop surface the finalized text exactly once when
+        // the client would otherwise see nothing.
+        let streamedVisibleText = false;
+
         // The `onEvent` wrapping below applies sensitive-output placeholder
         // substitution to streamed text while forwarding every other event
         // type through unchanged.
@@ -1174,9 +1240,11 @@ export class AgentLoop {
                 );
                 streamingPending = pending;
                 if (emit.length > 0) {
+                  streamedVisibleText = true;
                   onEvent({ type: "text_delta", text: emit });
                 }
               } else {
+                if (event.text.length > 0) streamedVisibleText = true;
                 onEvent({ type: "text_delta", text: event.text });
               }
             } else if (event.type === "thinking_delta") {
@@ -1306,6 +1374,7 @@ export class AgentLoop {
                   : this.provider.name,
             });
           }
+          providerCallError = llmCallError;
           throw llmCallError;
         }
 
@@ -1329,49 +1398,72 @@ export class AgentLoop {
         if (streamingPending.length > 0) {
           const flushed = applySubstitutions(streamingPending, substitutionMap);
           if (flushed.length > 0) {
+            streamedVisibleText = true;
             onEvent({ type: "text_delta", text: flushed });
           }
           streamingPending = "";
         }
 
-        // Run the `post-model-call` hook on a finalized message and, when
-        // output was deferred, emit the finalized text once (with sensitive-output
-        // substitution applied, matching the live stream). Fail-open: the hook
-        // receives a clone, so a throw — even mid in-place mutation — leaves the
-        // original message intact.
+        // Run the `post-model-call` hook on a finalized message. Fail-open: the
+        // hook receives a clone, so a throw — even mid in-place mutation —
+        // leaves the original message intact and the outcome resolves to
+        // `"stop"`.
+        //
+        // Returns the finalized message alongside the chain's retry `decision`
+        // and resulting `messages`. The caller honors `decision` only at an
+        // actionable outcome (a no-tool stop boundary); other call sites take
+        // the finalized message and ignore the decision. Final output is not
+        // emitted here — the caller emits it via `emitFinalAssistantText`
+        // once it has decided to keep the turn, so a re-queried reply isn't
+        // streamed-then-discarded.
         const finalizeAssistantMessage = async (
           message: Message,
-        ): Promise<Message> => {
-          let finalized = message;
+        ): Promise<{
+          finalized: Message;
+          decision: PostModelCallDecision;
+          messages: Message[];
+        }> => {
           try {
             const ctx: PostModelCallContext = {
               conversationId: this.conversationId,
               callSite: callSite ?? null,
               content: structuredClone(message.content),
+              messages: [...history],
               stopReason: response.stopReason,
+              decision: "stop",
               logger: rlog,
             };
             const result = await runHook(HOOKS.POST_MODEL_CALL, ctx);
-            finalized = { role: "assistant", content: result.content };
+            return {
+              finalized: { role: "assistant", content: result.content },
+              decision: result.decision,
+              messages: result.messages,
+            };
           } catch (assistantMessageError) {
             rlog.error(
               { err: assistantMessageError },
               "post-model-call hook failed — keeping the original content",
             );
-            finalized = message;
+            return { finalized: message, decision: "stop", messages: history };
           }
-          if (deferAssistantOutput) {
-            // The persisted message keeps sensitive-output placeholders; the
-            // stream shows real values — substitute before emitting.
-            const finalText = applySubstitutions(
-              assistantTextOf(finalized.content),
-              substitutionMap,
-            );
-            if (finalText.length > 0) {
-              onEvent({ type: "text_delta", text: finalText });
-            }
+        };
+
+        // Surface the finalized assistant text when the client saw nothing live
+        // this turn: a deferred turn held its live stream, and a turn the model
+        // left visibly empty that a `post-model-call` hook rewrote into visible
+        // text (e.g. a refusal turned into an apology) streamed nothing either.
+        // Sensitive-output substitution is applied to match what the live stream
+        // would have shown. A no-op when text already streamed live — that
+        // stream stands. Call only for a turn being kept.
+        const emitFinalAssistantText = (content: ContentBlock[]): void => {
+          if (streamedVisibleText) return;
+          const finalText = applySubstitutions(
+            assistantTextOf(content),
+            substitutionMap,
+          );
+          if (finalText.length > 0) {
+            onEvent({ type: "text_delta", text: finalText });
           }
-          return finalized;
         };
 
         // Build the assistant message with placeholder-only text.
@@ -1419,14 +1511,16 @@ export class AgentLoop {
             "LLM response reached output token limit",
           );
           // Run the hook on the truncated reply so output-filter plugins still
-          // see it, and so a deferred turn gets its synthetic final emit (the
-          // live stream was suppressed; without this the client would see nothing).
-          const safeAssistantMessage = await finalizeAssistantMessage({
-            role: "assistant",
-            content: safeContent,
-          });
+          // see it, and so a turn that streamed nothing live gets its final
+          // emit (without this the client would see nothing). The retry decision
+          // is ignored here: a max-tokens stop is terminal.
+          const { finalized: safeAssistantMessage } =
+            await finalizeAssistantMessage({
+              role: "assistant",
+              content: safeContent,
+            });
+          emitFinalAssistantText(safeAssistantMessage.content);
           history.push(safeAssistantMessage);
-          appendedNewMessages = true;
           await onEvent({
             type: "max_tokens_reached",
             stopReason: response.stopReason,
@@ -1435,105 +1529,76 @@ export class AgentLoop {
             type: "message_complete",
             message: safeAssistantMessage,
           });
-          await emitExit("max_tokens_reached");
+          await stopTurn("max_tokens_reached");
           break;
         }
 
-        // The model's "stop" moment: a response with no tool calls is about to
-        // yield to the user. The `stop` hook (below) decides whether to accept
-        // the turn or re-query with a follow-up; `priorAssistantHadVisibleText`
-        // gates the ops log for the post-tool empty case.
+        // A response with no tool calls is the run's stop boundary. The
+        // `post-model-call` hook (below) sees the finalized reply and decides
+        // whether to accept the turn or re-query with a follow-up.
         const responseHasVisibleText = hasVisibleText(response.content);
-        const priorAssistantHadVisibleText = producedVisibleTextThisRun;
-        if (responseHasVisibleText) {
-          producedVisibleTextThisRun = true;
-        }
 
-        // Content a `stop` hook rewrote the turn into, replacing an otherwise
-        // user-invisible turn (e.g. a refusal rewritten into an apology).
-        // Applied after `finalizeAssistantMessage` below.
-        let stopRewrittenContent: ContentBlock[] | undefined;
+        // Run the `post-model-call` hook: transform the finalized reply and
+        // surface its retry decision.
+        const {
+          finalized: finalizedAssistantMessage,
+          decision: postModelCallDecision,
+          messages: postModelCallMessages,
+        } = await finalizeAssistantMessage(assistantMessage);
+        assistantMessage = finalizedAssistantMessage;
 
-        if (toolUseBlocks.length === 0) {
-          // The model stopped requesting tools — the run's stop boundary. The
-          // `stop` hook decides whether to let the turn end, rewrite it for the
-          // user, or re-query with a follow-up turn. It receives the full
-          // history and, when it asks to continue, appends the follow-up turn
-          // itself.
-          const stopCtx: StopContext = {
-            conversationId: this.conversationId,
-            messages: [...history],
-            responseContent: response.content,
-            stopReason: response.stopReason,
-            decision: "stop",
-            logger: rlog,
-          };
-          const finalStopCtx = await runHook(HOOKS.STOP, stopCtx);
-          // A hook rewrites the turn by replacing `responseContent`; detect it
-          // by identity against the model's original output.
-          if (finalStopCtx.responseContent !== response.content) {
-            stopRewrittenContent = [...finalStopCtx.responseContent];
-          }
-
-          if (finalStopCtx.decision === "continue") {
-            // The loop owns the retry budget: a hook always asks to continue
-            // when a nudge is warranted, and the loop stops anyway once the
-            // budget is spent. This bounds the hook-driven re-query loop.
-            if (stopContinueRetries < MAX_STOP_CONTINUE_RETRIES) {
-              stopContinueRetries++;
-              rlog.warn(
-                { turn: toolUseTurns, retry: stopContinueRetries },
-                "Model returned empty response after tool results — retrying",
-              );
-              history = finalStopCtx.messages;
-              continue;
-            }
-
-            // Budget spent — accept the empty turn. Emit a dedicated log line
-            // for the post-tool empty case so ops dashboards that grep on it
-            // keep working.
-            if (
-              !responseHasVisibleText &&
-              toolUseTurns > 0 &&
-              !priorAssistantHadVisibleText
-            ) {
-              rlog.error(
-                { turn: toolUseTurns, retries: stopContinueRetries },
-                "Model returned empty response after tool results — retries exhausted",
-              );
-            }
+        // At the no-tool stop boundary the retry decision is actionable: a
+        // recovery hook may repair history and ask to re-query (a tool-bearing
+        // turn already continues, so its decision is ignored). A re-query
+        // adopts the hook's `messages` and discards this turn rather than
+        // persisting it; the per-run backstop keeps a misbehaving hook from
+        // spinning forever.
+        if (
+          toolUseBlocks.length === 0 &&
+          postModelCallDecision === "continue"
+        ) {
+          // A retry discards this reply and re-queries. That is only safe when
+          // the reply was not already streamed to the client live: a deferred
+          // turn suppressed its live stream, and a reply with no visible text
+          // streamed nothing. Honoring a retry on an already-streamed visible
+          // reply would leave the user looking at an answer the transcript
+          // then silently replaces, with no retraction — so accept the turn
+          // instead of discarding visible output.
+          const replyWasStreamedLive =
+            responseHasVisibleText && !deferAssistantOutput;
+          if (replyWasStreamedLive) {
+            rlog.warn(
+              { turn: toolUseTurns },
+              "post-model-call requested a retry on an already-streamed reply — keeping the turn to avoid discarding visible output",
+            );
+          } else if (postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES) {
+            postModelCallContinues++;
+            rlog.warn(
+              { turn: toolUseTurns, retry: postModelCallContinues },
+              "post-model-call requested a retry — re-querying the model",
+            );
+            history = postModelCallMessages;
+            continue;
+          } else {
+            rlog.warn(
+              { turn: toolUseTurns, retries: postModelCallContinues },
+              "post-model-call retry backstop reached — accepting the turn",
+            );
           }
         }
 
-        // Run the `post-model-call` hook + emit any deferred final text.
-        // On a no-tool turn this point is reached only after the `stop` hook
-        // resolves to "stop" (a `continue` already re-queried above), so a
-        // re-queried reply is never transformed-then-discarded.
-        assistantMessage = await finalizeAssistantMessage(assistantMessage);
-
-        // Apply a `stop` hook's rewrite of the turn (e.g. a provider `refusal`
-        // that zeroed the response, rewritten into a user-facing apology). The
-        // hook decides whether and what to rewrite; the loop owns the I/O —
-        // persisting the new content and streaming a synthetic `text_delta`,
-        // since nothing was emitted live for a turn the model left empty.
-        if (stopRewrittenContent) {
-          assistantMessage = {
-            role: "assistant",
-            content: stopRewrittenContent,
-          };
-          const rewrittenText = assistantTextOf(stopRewrittenContent);
-          if (rewrittenText) {
-            onEvent({ type: "text_delta", text: rewrittenText });
-          }
-        }
+        // The turn is being kept: surface the finalized text if the client saw
+        // nothing live (a deferred stream, or a hook-rewritten empty turn).
+        emitFinalAssistantText(assistantMessage.content);
 
         history.push(assistantMessage);
-        appendedNewMessages = true;
 
         await onEvent({ type: "message_complete", message: assistantMessage });
 
         if (toolUseBlocks.length === 0 || !this.toolExecutor) {
-          await emitExit("no_tool_calls");
+          // The model stopped requesting tools and `post-model-call` settled on
+          // ending the turn: the terminal `stop` chain fires via `stopTurn`.
+          await stopTurn("no_tool_calls");
           break;
         }
 
@@ -1567,7 +1632,7 @@ export class AgentLoop {
               cancelled: true,
             });
           }
-          await emitExit("aborted_post_response");
+          await stopTurn("aborted_post_response");
           break;
         }
 
@@ -1730,7 +1795,7 @@ export class AgentLoop {
         // If cancelled during execution, push completed results and stop
         if (signal?.aborted) {
           history.push({ role: "user", content: resultBlocks });
-          await emitExit("aborted_during_tools");
+          await stopTurn("aborted_during_tools");
           break;
         }
 
@@ -1738,7 +1803,7 @@ export class AgentLoop {
         // surface awaiting a button click), push results and stop the loop.
         if (toolResults.some(({ result }) => result.yieldToUser)) {
           history.push({ role: "user", content: resultBlocks });
-          await emitExit("yield_to_user");
+          await stopTurn("yield_to_user");
           break;
         }
 
@@ -1767,6 +1832,13 @@ export class AgentLoop {
             history,
           });
           if (decision !== "continue") {
+            // A handoff pauses this run so the orchestrator can drain a queued
+            // message, then re-enters with a fresh run. It still ends *this*
+            // turn, so fire the terminal `stop` chain to run teardown (clearing
+            // per-turn state such as recovery bounds before the queued message
+            // is processed) — but without emitting `agent_loop_exit`, since the
+            // orchestrator owns the handoff signal and the conversation resumes.
+            await runTerminalStop("checkpoint_handoff", { emitExit: false });
             exitReason = decision;
             break;
           }
@@ -1802,9 +1874,11 @@ export class AgentLoop {
               });
             }
           }
-          await emitExit("aborted_via_error");
+          await stopTurn("aborted_via_error");
           break;
         }
+
+        const err = error instanceof Error ? error : new Error(String(error));
 
         // Reactive context-overflow recovery. The provider rejected the call
         // because the prompt exceeded its window. Fold the provider's actual
@@ -1822,10 +1896,11 @@ export class AgentLoop {
           (resolveContextWindow?.().overflowRecovery.enabled ?? false)
         ) {
           if (overflowLadderExhausted) {
-            await emitExit(
+            await stopTurn(
               overflowAutoCompressApplied
                 ? "budget_yield_unrecovered"
                 : "context_too_large",
+              err,
             );
             break;
           }
@@ -1854,7 +1929,58 @@ export class AgentLoop {
           continue;
         }
 
-        const err = error instanceof Error ? error : new Error(String(error));
+        // A provider rejection is a model-call outcome: the loop has nothing
+        // more to produce this turn unless a recovery hook repairs the history
+        // and asks to retry. Run the `post-model-call` hook with the rejection
+        // attached — a recovery hook (e.g. history-repair on an ordering
+        // violation) can re-normalize the history and set `decision` to
+        // `"continue"` to re-issue the call; hooks that only act on a real
+        // reply ignore the rejection. The same per-run backstop bounds these
+        // error-driven retries as the success-path ones. The chain is run
+        // fail-open: a hook throw surfaces the original rejection.
+        //
+        // Confined to genuine provider rejections: a throw from elsewhere in
+        // the turn body (tool execution, the success-path stop/post-model-call
+        // hooks) is not a provider stop, so it falls straight through to the
+        // error path below.
+        if (error === providerCallError) {
+          const errorOutcomeCtx: PostModelCallContext = {
+            conversationId: this.conversationId,
+            callSite: callSite ?? null,
+            content: [],
+            messages: [...history],
+            stopReason: null,
+            error: err,
+            decision: "stop",
+            logger: rlog,
+          };
+          let errorOutcome: PostModelCallContext = errorOutcomeCtx;
+          try {
+            errorOutcome = await runHook(
+              HOOKS.POST_MODEL_CALL,
+              errorOutcomeCtx,
+            );
+          } catch (postModelCallError) {
+            rlog.error(
+              { err: postModelCallError },
+              "post-model-call hook failed on a provider rejection — surfacing the original error",
+            );
+          }
+          if (
+            errorOutcome.decision === "continue" &&
+            postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES
+          ) {
+            postModelCallContinues++;
+            history = errorOutcome.messages;
+            // A recovery hook rewrites the history anywhere (deep repair merges
+            // and drops messages), so the prior input boundary no longer maps
+            // onto the new array; the repaired history is the base the retry's
+            // output appends after.
+            newMessagesStart = history.length;
+            continue;
+          }
+        }
+
         rlog.error(
           { err, turn: toolUseTurns, messageCount: history.length },
           "Agent loop error during turn processing",
@@ -1866,7 +1992,7 @@ export class AgentLoop {
         // Catch-block fallback. A break site that stamped a more specific
         // reason before unwinding here keeps it; the guard makes this a no-op.
         // Otherwise this is the genuine unhandled-error exit.
-        await emitExit("error");
+        await stopTurn("error", err);
         break;
       }
     }
@@ -1883,7 +2009,6 @@ export class AgentLoop {
     return {
       history,
       exitReason,
-      appendedNewMessages,
       newMessages: history.slice(newMessagesStart),
     };
   }

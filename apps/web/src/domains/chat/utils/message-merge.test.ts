@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import { mergeAdjacentAssistantMessages } from "@/domains/chat/utils/message-merge";
-import { resolveThinkingContent } from "@/domains/chat/transcript/message-content";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
 import {
@@ -396,8 +395,7 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
       id: "page-old-anchor",
       timestamp: 1000,
       mergedMessageIds: Array.from({ length: 14 }, (_, i) => `row-A-${i}`),
-      textSegments: ["[A] "],
-      contentOrder: [{ type: "text", id: "0" }],
+      ...textBody("[A] "),
       toolCalls: [
         { id: "tool-A-1", name: "bash", input: {}, completedAt: 1 },
       ],
@@ -406,8 +404,7 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
       id: "page-middle-anchor",
       timestamp: 1010,
       mergedMessageIds: Array.from({ length: 24 }, (_, i) => `row-B-${i}`),
-      textSegments: ["[B] "],
-      contentOrder: [{ type: "text", id: "0" }],
+      ...textBody("[B] "),
       toolCalls: [
         { id: "tool-B-1", name: "edit", input: {}, completedAt: 1 },
       ],
@@ -416,8 +413,7 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
       id: "page-latest-anchor",
       timestamp: 1020,
       mergedMessageIds: Array.from({ length: 34 }, (_, i) => `row-C-${i}`),
-      textSegments: ["[C]"],
-      contentOrder: [{ type: "text", id: "0" }],
+      ...textBody("[C]"),
       toolCalls: [
         { id: "tool-C-1", name: "test", input: {}, completedAt: 1 },
       ],
@@ -464,18 +460,11 @@ describe("mergeAdjacentAssistantMessages · contentBlocks lockstep", () => {
     const [merged] = mergeAdjacentAssistantMessages([olderPage, newerPage]);
 
     // THEN the merged row carries both sides' blocks in survivor→donor order,
-    // so its contentBlocks span every thinking index rather than only the
+    // so its contentBlocks span the whole folded turn rather than only the
     // survivor's (the staleness the per-index fallback previously had to heal)
     expect(merged!.contentBlocks).toEqual([
       { type: "thinking", thinking: "survivor reasoning" },
       { type: "thinking", thinking: "donor reasoning" },
     ]);
-
-    // AND the block-first thinking reader resolves the whole folded run from
-    // those complete blocks
-    const ids = merged!.contentOrder!.map((entry) => entry.id);
-    expect(resolveThinkingContent(merged!, ids)).toBe(
-      "survivor reasoning\ndonor reasoning",
-    );
   });
 });

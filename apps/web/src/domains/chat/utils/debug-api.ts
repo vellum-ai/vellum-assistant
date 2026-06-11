@@ -43,7 +43,6 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 import { setImpersonatedAssistantVersion } from "@/lib/backwards-compat/impersonate-version-flag";
-import { setRenderFromContentBlocks } from "@/lib/backwards-compat/content-blocks-render-flag";
 import { classifyScrollPosition } from "@/domains/chat/transcript/transcript-scroll-utils";
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
@@ -92,7 +91,7 @@ export interface ChatDebugThinkingConditions {
   hasUncompletedVisibleSurface: boolean;
   hasStreamingAssistantMessage: boolean;
   /** True when the live assistant message already has reasoning content, so the
-   * inline `ThoughtProcessLink` owns the loading state and the dots row defers. */
+   * inline `SingleActivity` owns the loading state and the dots row defers. */
   hasStreamingAssistantThinking: boolean;
   activeConversationIsProcessing: boolean;
   hasPendingAssistantResponse: boolean;
@@ -789,20 +788,6 @@ export interface VellumDebugFlagsApi {
    *
    *  Returns the value in effect after the call. */
   impersonateVersion(value?: string | null): string | null;
-
-  /** Render the transcript exclusively from each message's unified
-   *  `contentBlocks` projection instead of the legacy positional arrays
-   *  walked via `contentOrder`. QA toggle for validating the new render
-   *  path as the single source of truth. Persists to localStorage and
-   *  reloads.
-   *
-   *  - `renderFromContentBlocks(true)`  — blocks-driven render + reload.
-   *  - `renderFromContentBlocks(false)` — legacy positional render + reload.
-   *  - `renderFromContentBlocks()`      — log + return current value
-   *    (no reload, no mutation).
-   *
-   *  Returns the value in effect after the call. */
-  renderFromContentBlocks(value?: boolean): boolean;
 }
 
 interface VellumDebugRoot extends Record<string, unknown> {
@@ -829,9 +814,8 @@ declare global {
  *   - `api` — the full `@vellumai/assistant-api` namespace, so a developer
  *     can pull canonical SSE schemas (`RelationshipStateUpdatedEventSchema`, …)
  *     out of the shipped bundle from the console.
- *   - `flags` — dev-toggleable feature flags (`impersonateVersion`,
- *     `renderFromContentBlocks`). Stable singleton; pure module exports
- *     backed by localStorage.
+ *   - `flags` — dev-toggleable feature flags (`impersonateVersion`).
+ *     Stable singleton; pure module exports backed by localStorage.
  *
  * Consolidating these into one installer guarantees they're set at the
  * same time and torn down together, so DevTools never sees one namespace
@@ -915,7 +899,6 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
     const api = createChatDebugApi(stableRefs);
     const flagsApi: VellumDebugFlagsApi = {
       impersonateVersion: setImpersonatedAssistantVersion,
-      renderFromContentBlocks: setRenderFromContentBlocks,
     };
     const uninstall = installVellumDebugApi(api, flagsApi);
     return uninstall;

@@ -154,7 +154,7 @@ export interface Surface extends ConversationMessageSurface {
  * the composer. They only block when they carry explicit action buttons,
  * which is handled by the `hasActions` check below.
  */
-const INHERENTLY_INTERACTIVE_SURFACE_TYPES = [
+export const INHERENTLY_INTERACTIVE_SURFACE_TYPES = [
   "choice",
   "oauth_connect",
   "form",

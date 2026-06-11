@@ -6,8 +6,10 @@ import type {
   CheckpointInfo,
 } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
-import { REFUSAL_FALLBACK_TEXT } from "../plugins/defaults/empty-response/hooks/stop.js";
+import type { StopContext } from "../plugin-api/types.js";
+import { REFUSAL_FALLBACK_TEXT } from "../plugins/defaults/empty-response/hooks/post-model-call.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
+import { registerPlugin } from "../plugins/registry.js";
 import type {
   ContentBlock,
   Message,
@@ -66,6 +68,7 @@ describe("AgentLoop", () => {
 
     const events: AgentEvent[] = [];
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -104,6 +107,7 @@ describe("AgentLoop", () => {
     });
     const events: AgentEvent[] = [];
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -241,6 +245,7 @@ describe("AgentLoop", () => {
       toolExecutor: toolExecutor,
     });
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -270,6 +275,7 @@ describe("AgentLoop", () => {
       tools: dummyTools,
     });
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -297,6 +303,7 @@ describe("AgentLoop", () => {
     });
     const events: AgentEvent[] = [];
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -352,6 +359,7 @@ describe("AgentLoop", () => {
 
     // WHEN the loop runs
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -360,6 +368,283 @@ describe("AgentLoop", () => {
     // THEN it surfaced the error on the first call without retrying
     expect(calls).toHaveLength(1);
     expect(events.filter((e) => e.type === "error")).toHaveLength(1);
+  });
+
+  // 5c. Reactive ordering-error recovery
+  //
+  // When the provider rejects a call because the history violates
+  // tool-use/tool-result pairing or role-alternation rules, the loop runs
+  // `deepRepairHistory` directly and re-issues the call. It is bounded to a
+  // single repair pass per provider call, so a second consecutive ordering
+  // rejection falls through to the error path instead of looping forever.
+  test("repairs the history and re-issues on a provider ordering rejection", async () => {
+    // GIVEN a provider that rejects the first call with an ordering error and
+    // succeeds on the retry
+    const { provider, calls } = createMockProvider([
+      new Error(
+        "tool_result blocks that are not immediately after a tool_use block",
+      ),
+      textResponse("recovered"),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+    const events: AgentEvent[] = [];
+
+    // WHEN the loop runs
+    const { history } = await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      requestId: "test-request",
+    });
+
+    // THEN it re-issued the call after repairing, surfaced no error, and
+    // appended the recovered assistant response
+    expect(calls).toHaveLength(2);
+    expect(events.filter((e) => e.type === "error")).toHaveLength(0);
+    expect(history[history.length - 1]).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "recovered" }],
+    });
+  });
+
+  test("surfaces an ordering error after a single repair fails to recover", async () => {
+    // GIVEN a provider that rejects every call with an ordering error
+    const { provider, calls } = createMockProvider([
+      new Error("tool_use_id provided without a matching tool_result"),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+    const events: AgentEvent[] = [];
+
+    // WHEN the loop runs
+    await loop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      requestId: "test-request",
+    });
+
+    // THEN it repaired once, re-issued once, then surfaced the error rather
+    // than retrying again
+    expect(calls).toHaveLength(2);
+    expect(events.filter((e) => e.type === "error")).toHaveLength(1);
+  });
+
+  test("reports only the retry's output as new messages when deep-repair shrinks the base", async () => {
+    // The wrapper reconstructs the persisted transcript from the loop's
+    // `newMessages` tail, so after `deepRepairHistory` removes a base message
+    // the new-message boundary must track the re-normalized history — otherwise
+    // the recovered assistant response is sliced off and lost.
+
+    // GIVEN an input whose leading assistant message deep-repair strips, a
+    // provider that rejects the first call on ordering grounds, then succeeds
+    const leadingAssistantMessage: Message = {
+      role: "assistant",
+      content: [{ type: "text", text: "stale leading turn" }],
+    };
+    const { provider } = createMockProvider([
+      new Error(
+        "tool_result blocks that are not immediately after a tool_use block",
+      ),
+      textResponse("recovered"),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+
+    // WHEN the loop runs
+    const { history, newMessages } = await loop.run({
+      messages: [leadingAssistantMessage, userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      requestId: "test-request",
+    });
+
+    // THEN deep-repair dropped the leading assistant from the base, and
+    // `newMessages` is exactly the retry's appended response
+    expect(history).toEqual([
+      userMessage,
+      { role: "assistant", content: [{ type: "text", text: "recovered" }] },
+    ]);
+    expect(newMessages).toEqual([
+      { role: "assistant", content: [{ type: "text", text: "recovered" }] },
+    ]);
+  });
+
+  test("repairs a fresh ordering rejection on a later run after a prior run left the bound spent", async () => {
+    // The ordering-repair bound is owned by the history-repair plugin's
+    // per-conversation state. A run scopes that bound, so the loop clears it on
+    // entry — otherwise a direct `run` caller that bypasses the daemon
+    // orchestrator (e.g. an agent wake) inherits a spent bound from a prior run
+    // on the same conversation and surfaces a repairable rejection instead of
+    // repairing it.
+
+    // GIVEN a first run that rejects on ordering grounds, repairs once, then
+    // rejects again — ending with the bound spent and the error surfaced
+    const { provider: firstProvider, calls: firstCalls } = createMockProvider([
+      new Error("tool_use_id provided without a matching tool_result"),
+      new Error("tool_use_id provided without a matching tool_result"),
+    ]);
+    const conversationId = "ordering-bound-across-runs";
+    const firstLoop = new AgentLoop({
+      provider: firstProvider,
+      systemPrompt: "system",
+      conversationId,
+    });
+    const firstEvents: AgentEvent[] = [];
+    await firstLoop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(firstEvents),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      requestId: "test-request",
+    });
+    expect(firstCalls).toHaveLength(2);
+    expect(firstEvents.filter((e) => e.type === "error")).toHaveLength(1);
+
+    // AND a second run on the same conversation whose first call rejects on
+    // ordering grounds, then succeeds on the retry
+    const { provider: secondProvider, calls: secondCalls } = createMockProvider(
+      [
+        new Error(
+          "tool_result blocks that are not immediately after a tool_use block",
+        ),
+        textResponse("recovered"),
+      ],
+    );
+    const secondLoop = new AgentLoop({
+      provider: secondProvider,
+      systemPrompt: "system",
+      conversationId,
+    });
+    const secondEvents: AgentEvent[] = [];
+
+    // WHEN the second run executes
+    const { history } = await secondLoop.run({
+      messages: [userMessage],
+      onEvent: collectEvents(secondEvents),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      requestId: "test-request",
+    });
+
+    // THEN it repaired and re-issued (the bound did not leak across runs),
+    // surfaced no error, and appended the recovered response
+    expect(secondCalls).toHaveLength(2);
+    expect(secondEvents.filter((e) => e.type === "error")).toHaveLength(0);
+    expect(history[history.length - 1]).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "recovered" }],
+    });
+  });
+
+  test("isolates a throwing stop hook on a successful stop and still emits the terminal exit", async () => {
+    // The `stop` chain is the loop's terminal teardown: a throwing teardown
+    // hook (e.g. a third-party plugin) is logged and contained, never escalated
+    // into a turn error. The turn's real outcome stands — a successful no-tool
+    // stop — and the terminal `agent_loop_exit` still fires so the run stays
+    // observable.
+
+    // GIVEN a registered stop hook that always throws, and a provider that
+    // returns a successful no-tool response (a successful stop)
+    registerPlugin({
+      manifest: { name: "throwing-stop", version: "0.0.1" },
+      hooks: {
+        stop: async () => {
+          throw new Error("stop hook boom");
+        },
+      },
+    });
+    const { provider, calls } = createMockProvider([textResponse("done")]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+    });
+    const events: AgentEvent[] = [];
+
+    // WHEN the loop runs
+    let rejected = false;
+    await loop
+      .run({
+        messages: [userMessage],
+        onEvent: collectEvents(events),
+        trust: { sourceChannel: "vellum", trustClass: "unknown" },
+        requestId: "test-request",
+      })
+      .catch(() => {
+        rejected = true;
+      });
+
+    // THEN the loop did not reject, did not re-issue the call, surfaced no
+    // error event, and still emitted the terminal exit with the real reason
+    expect(rejected).toBe(false);
+    expect(calls).toHaveLength(1);
+    expect(events.filter((e) => e.type === "error")).toHaveLength(0);
+    const exitEvents = events.filter((e) => e.type === "agent_loop_exit");
+    expect(exitEvents).toHaveLength(1);
+    expect(exitEvents[0]).toMatchObject({ reason: "no_tool_calls" });
+  });
+
+  test("fires the stop teardown chain on a checkpoint handoff without emitting agent_loop_exit", async () => {
+    // A handoff pauses this run so the orchestrator can drain a queued message,
+    // then re-enters with a fresh run. It still ends *this* turn, so the
+    // terminal `stop` chain must fire — that is what runs per-turn teardown
+    // (e.g. clearing the recovery bounds the post-model-call hooks set) before
+    // the queued message is processed. But `agent_loop_exit` must NOT be
+    // emitted, because the handoff is a control transfer, not a terminal exit.
+
+    // GIVEN a stop hook recording every exit reason it observes, and a provider
+    // whose first reply requests a tool so the loop reaches a checkpoint
+    const stopReasons: string[] = [];
+    registerPlugin({
+      manifest: { name: "recording-stop", version: "0.0.1" },
+      hooks: {
+        stop: async (ctx: StopContext) => {
+          stopReasons.push(ctx.exitReason);
+        },
+      },
+    });
+    const { provider } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
+      textResponse("never reached"),
+    ]);
+    const toolExecutor = async () => ({ content: "ok", isError: false });
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor,
+    });
+    const events: AgentEvent[] = [];
+
+    // AND a checkpoint callback that hands off at the first opportunity
+    const onCheckpoint = (_info: CheckpointInfo): CheckpointDecision =>
+      "handoff";
+
+    // WHEN the loop runs and yields control at the checkpoint
+    const { exitReason } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      onCheckpoint,
+    });
+
+    // THEN the terminal stop chain fired exactly once with the handoff reason
+    // (teardown ran), the run reported the handoff, and no agent_loop_exit was
+    // emitted
+    expect(stopReasons).toEqual(["checkpoint_handoff"]);
+    expect(exitReason).toBe("handoff");
+    expect(events.filter((e) => e.type === "agent_loop_exit")).toHaveLength(0);
   });
 
   // 6. Abort signal — verify the loop respects AbortSignal
@@ -374,6 +659,7 @@ describe("AgentLoop", () => {
       conversationId: "test-conversation",
     });
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -411,6 +697,7 @@ describe("AgentLoop", () => {
       toolExecutor: toolExecutor,
     });
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -464,6 +751,7 @@ describe("AgentLoop", () => {
     });
     const start = Date.now();
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -513,6 +801,7 @@ describe("AgentLoop", () => {
 
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -535,6 +824,7 @@ describe("AgentLoop", () => {
 
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -561,6 +851,7 @@ describe("AgentLoop", () => {
 
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -591,6 +882,7 @@ describe("AgentLoop", () => {
 
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -641,6 +933,7 @@ describe("AgentLoop", () => {
     });
 
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -683,6 +976,7 @@ describe("AgentLoop", () => {
     });
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -711,6 +1005,7 @@ describe("AgentLoop", () => {
     });
 
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -730,6 +1025,7 @@ describe("AgentLoop", () => {
     });
 
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -795,6 +1091,7 @@ describe("AgentLoop", () => {
     });
     const events: AgentEvent[] = [];
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -896,6 +1193,7 @@ describe("AgentLoop", () => {
     });
     const events: AgentEvent[] = [];
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -976,6 +1274,7 @@ describe("AgentLoop", () => {
     });
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -1021,6 +1320,7 @@ describe("AgentLoop", () => {
     };
 
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -1057,6 +1357,7 @@ describe("AgentLoop", () => {
     const onCheckpoint = (): CheckpointDecision => "continue";
 
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -1090,6 +1391,7 @@ describe("AgentLoop", () => {
     const onCheckpoint = (): CheckpointDecision => "handoff";
 
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -1121,6 +1423,7 @@ describe("AgentLoop", () => {
     });
 
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -1157,6 +1460,7 @@ describe("AgentLoop", () => {
     };
 
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -1188,6 +1492,7 @@ describe("AgentLoop", () => {
     };
 
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -1250,6 +1555,7 @@ describe("AgentLoop", () => {
     };
 
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -1291,6 +1597,7 @@ describe("AgentLoop", () => {
 
     const events: AgentEvent[] = [];
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -1363,6 +1670,7 @@ describe("AgentLoop", () => {
     };
 
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -1390,6 +1698,7 @@ describe("AgentLoop", () => {
     });
 
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -1432,6 +1741,7 @@ describe("AgentLoop", () => {
       resolveTools: resolveTools,
     });
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -1471,6 +1781,7 @@ describe("AgentLoop", () => {
       resolveTools: resolveTools,
     });
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -1535,6 +1846,7 @@ describe("AgentLoop", () => {
       resolveTools: resolveTools,
     });
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -1565,6 +1877,7 @@ describe("AgentLoop", () => {
       resolveTools: resolveTools,
     });
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -1602,6 +1915,7 @@ describe("AgentLoop", () => {
     });
     const events: AgentEvent[] = [];
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -1658,6 +1972,7 @@ describe("AgentLoop", () => {
     });
     const events: AgentEvent[] = [];
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -1722,6 +2037,7 @@ describe("AgentLoop", () => {
     });
     const events: AgentEvent[] = [];
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -1795,6 +2111,7 @@ describe("AgentLoop", () => {
     });
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -1834,6 +2151,7 @@ describe("AgentLoop", () => {
     });
     const events: AgentEvent[] = [];
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -1884,6 +2202,7 @@ describe("AgentLoop", () => {
       toolExecutor: toolExecutor,
     });
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -1949,6 +2268,7 @@ describe("AgentLoop", () => {
       toolExecutor: toolExecutor,
     });
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -2003,6 +2323,7 @@ describe("AgentLoop", () => {
     });
     const events: AgentEvent[] = [];
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -2085,6 +2406,7 @@ describe("AgentLoop", () => {
     });
     const events: AgentEvent[] = [];
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -2151,6 +2473,7 @@ describe("AgentLoop", () => {
     });
     const events: AgentEvent[] = [];
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -2201,6 +2524,7 @@ describe("AgentLoop", () => {
     });
     const events: AgentEvent[] = [];
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -2240,6 +2564,7 @@ describe("AgentLoop", () => {
     // WHEN the loop runs.
     const events: AgentEvent[] = [];
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -2307,6 +2632,7 @@ describe("AgentLoop", () => {
     // WHEN the loop runs.
     const events: AgentEvent[] = [];
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -2371,6 +2697,7 @@ describe("AgentLoop", () => {
     // WHEN the loop runs.
     const events: AgentEvent[] = [];
     const { history } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: collectEvents(events),
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -2405,6 +2732,7 @@ describe("AgentLoop", () => {
       conversationId: "test-conversation",
     });
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -2424,6 +2752,7 @@ describe("AgentLoop", () => {
       conversationId: "test-conversation",
     });
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },

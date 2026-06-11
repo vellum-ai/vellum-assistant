@@ -1229,7 +1229,7 @@ jobs:
   # SLACK_RELEASES_WEBHOOK_URL (releases). The job no-ops if the secret is unset.
 
   notify-dev-release:
-    needs: [compute-version, register-release, register-preview-release, build-electron]
+    needs: [compute-version, register-release, register-preview-release, build-electron, upload-electron-updates]
     # Run on success and failure alike, but not when the run was cancelled
     # (e.g. superseded by a newer hourly run via cancel-in-progress) — a
     # cancelled run is not a real failure and should not alert the channel.
@@ -1807,10 +1807,12 @@ jobs:
           - arch: arm64
             dmg_name: vellum-assistant-electron-dev.dmg
             artifact_name: dev-electron-dmg
+            update_artifact_name: dev-electron-update-arm64
             experimental: false
           - arch: x64
             dmg_name: vellum-assistant-electron-dev-x64.dmg
             artifact_name: dev-electron-dmg-x64
+            update_artifact_name: dev-electron-update-x64
             experimental: true
     defaults:
       run:
@@ -1993,12 +1995,92 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Upload Electron update artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ matrix.update_artifact_name }}
+          path: |
+            apps/macos/dist/*-mac.yml
+            apps/macos/dist/*.zip
+            apps/macos/dist/*.zip.blockmap
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Cleanup keychain and keys
         if: always()
         run: |
           KEYCHAIN_PATH="$HOME/Library/Keychains/$KEYCHAIN_NAME-db"
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
           rm -rf ~/.private_keys 2>/dev/null || true
+
+  # ── Upload Electron update artifacts to GCS ────────────────────────────
+  # Push per-arch update feeds (manifest + ZIP + blockmap) to the public
+  # GCS bucket so electron-updater can pull delta updates. Each arch gets
+  # its own path: mac-electron/dev/{arch}/.
+
+  upload-electron-updates:
+    needs: [compute-version, build-electron]
+    if: ${{ needs.build-electron.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: dev
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download arm64 update artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dev-electron-update-arm64
+          path: electron-artifacts/arm64
+
+      - name: Download x64 update artifacts
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dev-electron-update-x64
+          path: electron-artifacts/x64
+
+      - name: Validate update artifacts
+        run: |
+          DIR="electron-artifacts/arm64"
+          if [ ! -f "$(find "$DIR" -name '*-mac.yml' -type f 2>/dev/null | grep -m1 .)" ]; then
+            echo "::error::Missing update manifest (*-mac.yml) for arm64"
+            exit 1
+          fi
+          if [ -z "$(find "$DIR" -name '*.zip' -type f ! -name '*.blockmap' 2>/dev/null | grep -m1 .)" ]; then
+            echo "::error::Missing ZIP for arm64"
+            exit 1
+          fi
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Upload Electron update artifacts to GCS
+        run: |
+          ENVIRONMENT="dev"
+          BUCKET="vellum-ai-dev-releases"
+          MANIFEST_NAME="${ENVIRONMENT}-mac.yml"
+
+          for ARCH in arm64 x64; do
+            ARCH_DIR="electron-artifacts/${ARCH}"
+            [ -d "$ARCH_DIR" ] || continue
+            PREFIX="mac-electron/${ARCH}"
+
+            find "$ARCH_DIR" -name "*.zip" -type f ! -name "*.blockmap" | while read -r ZIP; do
+              gcloud storage cp "$ZIP" "gs://${BUCKET}/${PREFIX}/$(basename "$ZIP")"
+            done
+
+            find "$ARCH_DIR" -name "*.zip.blockmap" -type f | while read -r BM; do
+              gcloud storage cp "$BM" "gs://${BUCKET}/${PREFIX}/$(basename "$BM")"
+            done
+
+            YML=$(find "$ARCH_DIR" -name "*-mac.yml" -type f | grep -m1 .)
+            [ -n "$YML" ] && gcloud storage cp "$YML" "gs://${BUCKET}/${PREFIX}/${MANIFEST_NAME}"
+          done
 
   # ── Dev npm publishing ─────────────────────────────────────────────────
 
@@ -2066,6 +2148,88 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: npm-tarball-dev-${{ matrix.package }}
+          path: /tmp/npm-dist
+      - name: Publish package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          PKG_NAME=$(cat /tmp/npm-dist/name)
+          PKG_VERSION=$(cat /tmp/npm-dist/version)
+          if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+            echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping."
+            exit 0
+          fi
+          npm publish /tmp/npm-dist/package.tgz --tag dev --access public --no-provenance
+
+  # `@vellumai/plugin-api` is generated by scripts/build-plugin-api.ts (a single
+  # self-contained `index.d.ts` rollup, zod-only external), not a package dir
+  # `npm pack` consumes directly, so it gets its own build/publish pair instead
+  # of a slot in the npm matrix. Mirrors build/publish-plugin-api-* in release.yml.
+  build-plugin-api-dev:
+    needs: [compute-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+      - name: Install assistant dependencies
+        run: |
+          cd assistant
+          if ! bun install --frozen-lockfile; then
+            rm -f bun.lock && rm -rf node_modules && bun install
+          fi
+      # The rollup compiles the `packages/*` contract sources the authoring
+      # surface reaches, so each must have its own node_modules (the repo uses
+      # per-package file: deps with no Bun workspaces — see the root AGENTS.md).
+      - name: Install shared package dependencies
+        run: |
+          for dir in packages/*/; do
+            [ -f "${dir}/package.json" ] || continue
+            (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
+          done
+      - name: Build plugin-api package
+        run: cd assistant && bun run scripts/build-plugin-api.ts --version "${{ needs.compute-version.outputs.version }}"
+      - name: Pack tarball
+        run: |
+          cd assistant/.plugin-api-build/package
+          mkdir -p /tmp/npm-dist
+          npm pack --pack-destination /tmp/npm-dist
+          mv /tmp/npm-dist/*.tgz /tmp/npm-dist/package.tgz
+          node -p "require('./package.json').name" > /tmp/npm-dist/name
+          node -p "require('./package.json').version" > /tmp/npm-dist/version
+      - name: Upload tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-tarball-dev-plugin-api
+          path: /tmp/npm-dist/
+          retention-days: 1
+
+  publish-plugin-api-dev:
+    needs: [compute-version, build-plugin-api-dev]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+      - name: Download tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-tarball-dev-plugin-api
           path: /tmp/npm-dist
       - name: Publish package
         env:

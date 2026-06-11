@@ -371,6 +371,41 @@ describe("runIngestAsk — confirmation auto-approval", () => {
     expect(result.ingestSentinelSeen).toBe(true);
     expect(result.hypothesis).toBe("answer");
   });
+
+  test("auto-approves confirmation_request events raised during the question turn", async () => {
+    // GIVEN an ingest turn that completes on the sentinel
+    // AND a question turn that gates on a pending tool confirmation before
+    // the agent produces its answer (e.g. on-demand retrieval reaches for a
+    // tool above the auto-approve risk threshold)
+    const harness = makeFakeAgent({
+      responses: [
+        [textEvent("noted"), readyEvent()],
+        [
+          textEvent("looking it up"),
+          confirmationRequestEvent("req-q1"),
+          textEvent(" the answer is blue"),
+        ],
+      ],
+    });
+    nextAgent = harness.agent;
+
+    // WHEN the runner drives both turns
+    const result = await runIngestAsk({
+      profile: profileFor("p-confirm-question"),
+      runId: "r-confirm-question",
+      inputs: [],
+      ingestMessage: "ingest everything",
+      questionMessage: "recall it",
+      quietMs: 25,
+    });
+
+    // THEN the question turn's pending confirmation was approved so the agent
+    // could finish answering rather than stalling on the unresolved gate
+    expect(harness.confirms()).toEqual([
+      { requestId: "req-q1", decision: "allow" },
+    ]);
+    expect(result.hypothesis).toBe("looking it up the answer is blue");
+  });
 });
 
 describe("runIngestAsk — ingest quiet window", () => {
@@ -538,27 +573,36 @@ describe("runIngestAsk — event-stream failures", () => {
     expect(harness.shutdownCount()).toBe(1);
   });
 
-  test("throws when the question turn emits only non-text events", async () => {
+  test("throws when the question turn emits only non-text events, carrying both event streams for debugging", async () => {
+    // GIVEN an ingest turn that completes on the sentinel
+    // AND a question turn that produces events but no gradable text
+    // (e.g. conversation B did on-demand retrieval but never composed an
+    // answer before the drain ended)
     const harness = makeFakeAgent({
       responses: [
         [textEvent("ack"), readyEvent()],
-        // tool-use event with no text/chunk → hypothesis would be
-        // empty even though the turn produced an event.
         [{ message: { type: "tool_use_start", toolName: "lookup" } }],
       ],
     });
     nextAgent = harness.agent;
 
-    await expect(
-      runIngestAsk({
-        profile: profileFor("p-toolonly"),
-        runId: "r-7",
-        inputs: [],
-        ingestMessage: "ingest",
-        questionMessage: "ask",
-        quietMs: 25,
-      }),
-    ).rejects.toThrow(/no assistant text/);
+    // WHEN the run executes
+    const err = await runIngestAsk({
+      profile: profileFor("p-toolonly"),
+      runId: "r-7",
+      inputs: [],
+      ingestMessage: "ingest",
+      questionMessage: "ask",
+      quietMs: 25,
+    }).catch((e: unknown) => e);
+
+    // THEN it fails loudly because there is no hypothesis to judge
+    expect(err).toBeInstanceOf(IngestAskError);
+    expect((err as Error).message).toMatch(/no assistant text/);
+    // AND it carries both the ingest- and question-turn events so the
+    // caller can persist them and inspect what conversation B did
+    expect((err as IngestAskError).ingestEvents.length).toBe(2);
+    expect((err as IngestAskError).questionEvents.length).toBe(1);
     expect(harness.shutdownCount()).toBe(1);
   });
 });

@@ -150,15 +150,20 @@ export function useVoiceInput({
       if (dictationResult?.mode === "dictation" && dictationResult.text) {
         insertText = dictationResult.text;
       }
-
       const frontAppInsertion = await insertTextIntoFrontApp(insertText);
       if (frontAppInsertion.status === "inserted") {
         return;
       }
       if (frontAppInsertion.status === "automation-denied") {
         setVoiceError("dictation-automation-denied");
+        useVoiceRecordingStore
+          .getState()
+          .flagDictationInsertionError("dictation-automation-denied");
       } else if (frontAppInsertion.status === "blocked") {
         setVoiceError("dictation-paste-blocked");
+        useVoiceRecordingStore
+          .getState()
+          .flagDictationInsertionError("dictation-paste-blocked");
       }
 
       setInput((current: string) => {

@@ -4,13 +4,11 @@ import { ChevronDown } from "lucide-react";
 import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
-import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations";
-import type { Conversation, ConversationGroup } from "@/types/conversation-types";
+import type { Conversation } from "@/types/conversation-types";
 
 interface ChatConversationHeaderProps {
   assistantId: string | null;
   activeConversation: Conversation | null;
-  conversationGroups: ConversationGroup[];
   headerSupplements: ChatHeaderSupplements | null;
   showLlmInspector: boolean;
   onArchive: (c: Conversation) => void;
@@ -18,15 +16,12 @@ interface ChatConversationHeaderProps {
   onMarkUnread: (c: Conversation) => void;
   onMarkRead: (c: Conversation) => void;
   onPinToggle: (c: Conversation) => void;
-  onMoveToGroup: (c: Conversation, groupId: string) => void;
-  onRemoveFromGroup: (c: Conversation) => void;
   onRename: (c: Conversation) => void;
 }
 
 export function ChatConversationHeader({
   assistantId,
   activeConversation,
-  conversationGroups,
   headerSupplements,
   showLlmInspector,
   onArchive,
@@ -34,8 +29,6 @@ export function ChatConversationHeader({
   onMarkUnread,
   onMarkRead,
   onPinToggle,
-  onMoveToGroup,
-  onRemoveFromGroup,
   onRename,
 }: ChatConversationHeaderProps) {
   if (!activeConversation) {
@@ -48,7 +41,6 @@ export function ChatConversationHeader({
   }
 
   const isReadonly = isChannelConversation(activeConversation);
-  const moveToGroups = buildMoveToGroupTargets(activeConversation, conversationGroups);
   const isPinned = activeConversation.isPinned || activeConversation.groupId === "system:pinned";
   const isArchived = activeConversation.archivedAt != null;
 
@@ -86,13 +78,6 @@ export function ChatConversationHeader({
       onRefresh={
         headerSupplements?.onRefresh && activeConversation.conversationId != null
           ? headerSupplements.onRefresh
-          : undefined
-      }
-      moveToGroups={moveToGroups}
-      onMoveToGroup={(groupId) => onMoveToGroup(activeConversation, groupId)}
-      onRemoveFromGroup={
-        activeConversation.groupId && !activeConversation.groupId.startsWith("system:")
-          ? () => onRemoveFromGroup(activeConversation)
           : undefined
       }
       onMarkUnread={

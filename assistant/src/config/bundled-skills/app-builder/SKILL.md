@@ -5,6 +5,7 @@ metadata:
   emoji: "🛠️"
   vellum:
     display-name: "App Builder"
+    category: "development"
     activation-hints:
       - "User asks to build a dashboard, tracker, calculator, data visualization, chart, simple landing page, or slide deck for their own use"
       - "User asks to visualize something, make a chart, or build an artifact — build a real persistent app here, never a ui_show dynamic_page"

@@ -46,7 +46,6 @@ function createHarness(opts: HarnessOptions = {}) {
     invalidateAssistantSounds: 0,
     invalidateAssistantSchedules: 0,
     invalidateApps: 0,
-    scheduleConversationListRefetch: 0,
     refreshActiveConversationMessages: 0,
   };
   const router = createWebSyncRouter({
@@ -70,9 +69,6 @@ function createHarness(opts: HarnessOptions = {}) {
     },
     invalidateApps: () => {
       calls.invalidateApps += 1;
-    },
-    scheduleConversationListRefetch: () => {
-      calls.scheduleConversationListRefetch += 1;
     },
     refreshActiveConversationMessages: async () => {
       calls.refreshActiveConversationMessages += 1;
@@ -100,7 +96,6 @@ describe("createWebSyncRouter — self-echo drop", () => {
       errors: [],
     });
     expect(calls.invalidateAvatar).toBe(0);
-    expect(calls.scheduleConversationListRefetch).toBe(0);
   });
 
   test("dispatches normally when originClientId differs from our own", async () => {
@@ -154,7 +149,7 @@ describe("createWebSyncRouter — self-echo drop", () => {
     // routes that haven't been plumbed through omit originClientId. They
     // must continue to invalidate the local cache regardless of which
     // tab/client is listening.
-    const { router, calls } = createHarness();
+    const { router } = createHarness();
     const event: SyncChangedEvent = {
       type: "sync_changed",
       tags: [SYNC_TAGS.conversationsList],
@@ -162,8 +157,10 @@ describe("createWebSyncRouter — self-echo drop", () => {
 
     const result = await router.dispatchSyncChanged(event);
 
+    // conversationsList is now a no-op in the sync router (RootLayout's
+    // useConversationSync owns the actual refetch). The tag is still
+    // registered to keep it out of unknownTags.
     expect(result.handledTags).toEqual([SYNC_TAGS.conversationsList]);
-    expect(calls.scheduleConversationListRefetch).toBe(1);
   });
 
   test("dispatches app list sync tags", async () => {
@@ -192,7 +189,6 @@ describe("createWebSyncRouter — self-echo drop", () => {
 
     expect(result.handledTags).toEqual([tag]);
     expect(result.unknownTags).toEqual([]);
-    expect(calls.scheduleConversationListRefetch).toBe(0);
     expect(calls.refreshActiveConversationMessages).toBe(0);
   });
 
@@ -233,7 +229,6 @@ describe("createWebSyncRouter — self-echo drop", () => {
     await router.dispatchSyncChanged(event);
 
     expect(calls.invalidateAvatar).toBe(0);
-    expect(calls.scheduleConversationListRefetch).toBe(0);
     expect(calls.refreshActiveConversationMessages).toBe(0);
   });
 
@@ -247,6 +242,5 @@ describe("createWebSyncRouter — self-echo drop", () => {
 
     expect(result.dispatch.invokedHandlers).toBeGreaterThan(0);
     expect(calls.invalidateAvatar).toBe(1);
-    expect(calls.scheduleConversationListRefetch).toBe(1);
   });
 });

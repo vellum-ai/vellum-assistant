@@ -167,7 +167,6 @@ const mockFailStalledJobs = mock(() => 0);
 const mockClaimMemoryJobs = mock(() => []);
 mock.module("../memory/jobs-store.js", () => ({
   claimMemoryJobs: mockClaimMemoryJobs,
-  cancelPendingAutomaticConsolidationJobs: mock(() => 0),
   completeMemoryJob: mock(() => {}),
   deferMemoryJob: mock(() => "deferred"),
   EMBED_JOB_TYPES: [],
@@ -179,7 +178,6 @@ mock.module("../memory/jobs-store.js", () => ({
   failStalledJobs: mockFailStalledJobs,
   getMemoryJobCounts: mock(() => ({})),
   hasActiveJobOfType: mock(() => false),
-  isAutomaticConsolidationJob: mock(() => true),
   isMemoryEnabled: () => true,
   MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS: {
     automatic: "automatic",

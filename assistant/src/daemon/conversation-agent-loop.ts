@@ -67,7 +67,6 @@ import {
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
-import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
@@ -119,10 +118,6 @@ import type {
   SurfaceType,
   UsageStats,
 } from "./message-protocol.js";
-import {
-  oversizedImageReplacement,
-  persistUnsendableImageDowngrades,
-} from "./persist-unsendable-image.js";
 import type { TrustContext } from "./trust-context.js";
 
 const log = getLogger("conversation-agent-loop");
@@ -146,34 +141,6 @@ const TOOL_FRIENDLY_LABEL: Record<string, string> = {
 
 function formatDiskPressureBlockedMessage(): string {
   return "Storage is critically low, so background processes are paused and remote messages are ignored until the guardian frees enough space. Remote senders should try again later.";
-}
-
-// ── Image-recovery helpers ───────────────────────────────────────────
-
-/**
- * True when a message's content holds an image the provider may have rejected
- * for being oversized — either a top-level image block (user upload) or one
- * nested inside a tool_result's contentBlocks (e.g. a browser screenshot).
- */
-function messageHasImageBlock(content: ContentBlock[]): boolean {
-  return content.some(
-    (b) =>
-      b.type === "image" ||
-      (b.type === "tool_result" &&
-        (b.contentBlocks?.some((cb) => cb.type === "image") ?? false)),
-  );
-}
-
-/**
- * Replace an oversized image with its downscaled form or an unsendable note,
- * leaving still-sendable images untouched. Delegates to the shared
- * {@link oversizedImageReplacement} so the in-memory recovery and the durable
- * persist pass apply the identical provider-cap gate.
- */
-function recoverImageBlock(
-  block: Extract<ContentBlock, { type: "image" }>,
-): ContentBlock {
-  return oversizedImageReplacement(block) ?? block;
 }
 
 // ── Plugin pipeline helpers ──────────────────────────────────────────
@@ -270,10 +237,6 @@ export async function runAgentLoopImpl(
     requestId: reqId,
   });
   let yieldedForHandoff = false;
-  // Whether the most recent agent-loop run produced at least one new assistant
-  // message — the loop's own forward-progress signal, used by the ordering
-  // retry gate.
-  let lastRunAppendedNewMessages = false;
   // The messages the most recent agent-loop run appended on top of its base —
   // the loop's own new-output boundary, persisted as this turn's new messages.
   let lastRunNewMessages: Message[] = [];
@@ -847,7 +810,7 @@ export async function runAgentLoopImpl(
       HOOKS.USER_PROMPT_SUBMIT,
       userPromptCtx,
     );
-    let runMessages = finalUserPromptCtx.latestMessages;
+    const runMessages = finalUserPromptCtx.latestMessages;
 
     // Reset the manager's turn-scoped overflow-recovery ladder at the turn
     // boundary so a new turn starts the ladder fresh from the emergency rung.
@@ -929,23 +892,21 @@ export async function runAgentLoopImpl(
       msgs: Message[],
       compactInPlace = false,
     ): Promise<Message[]> => {
-      const { history, exitReason, appendedNewMessages, newMessages } =
-        await ctx.agentLoop.run({
-          messages: msgs,
-          onEvent: eventHandler,
-          signal: abortController.signal,
-          requestId: reqId,
-          onCheckpoint,
-          callSite: turnCallSite,
-          trust: loopTrust,
-          overrideProfile: turnOverrideProfile,
-          resolveOverrideProfile: resolveCurrentOverrideProfile,
-          resolveContextWindow,
-          compactInPlace,
-          isNonInteractive,
-          modelProfileKey,
-        });
-      lastRunAppendedNewMessages = appendedNewMessages;
+      const { history, exitReason, newMessages } = await ctx.agentLoop.run({
+        messages: msgs,
+        onEvent: eventHandler,
+        signal: abortController.signal,
+        requestId: reqId,
+        onCheckpoint,
+        callSite: turnCallSite,
+        trust: loopTrust,
+        overrideProfile: turnOverrideProfile,
+        resolveOverrideProfile: resolveCurrentOverrideProfile,
+        resolveContextWindow,
+        compactInPlace,
+        isNonInteractive,
+        modelProfileKey,
+      });
       lastRunNewMessages = newMessages;
       if (exitReason === "handoff") {
         yieldedForHandoff = true;
@@ -953,7 +914,7 @@ export async function runAgentLoopImpl(
       return history;
     };
 
-    let updatedHistory = await runAgentLoop(runMessages, true);
+    const updatedHistory = await runAgentLoop(runMessages, true);
 
     rlog.info(
       { resultMessageCount: updatedHistory.length },
@@ -962,114 +923,6 @@ export async function runAgentLoopImpl(
 
     if (yieldedForHandoff) {
       await emitTerminalExit?.("checkpoint_handoff");
-    }
-
-    // One-shot ordering error retry
-    if (state.orderingErrorDetected && !lastRunAppendedNewMessages) {
-      rlog.warn(
-        { phase: "retry" },
-        "Provider ordering error detected, attempting one-shot deep-repair retry",
-      );
-      // Design note: deep-repair intentionally stays a direct call rather
-      // than running through the `user-prompt-submit` hook chain. Deep-repair
-      // is a recovery-only path triggered by a provider ordering error — it
-      // must be deterministic and unaffected by user hooks that might have
-      // caused (or be unable to recover from) the original drift. Plugins can
-      // already observe / transform the pre-run repair via the
-      // `user-prompt-submit` hook (the default history-repair plugin runs
-      // `repairHistory` there); widening that surface to deep-repair is
-      // intentionally deferred until there's a concrete plugin-level use case.
-      const retryRepair = deepRepairHistory(updatedHistory);
-      runMessages = retryRepair.messages;
-      state.orderingErrorDetected = false;
-      state.deferredOrderingError = null;
-
-      updatedHistory = await runAgentLoop(runMessages);
-
-      if (state.orderingErrorDetected) {
-        rlog.error(
-          { phase: "retry" },
-          "Deep-repair retry also failed with ordering error. Consider starting a new conversation if this persists.",
-        );
-      }
-    }
-
-    // ── Image-dimension overflow recovery ──────────────────────────
-    // When the provider rejects because an image block exceeds its pixel
-    // or payload cap, recover every oversized image in ctx.messages and
-    // retry once. recoverImageBlock downscales an oversized image, or swaps
-    // it for a text note when resize is a no-op (e.g. sips unavailable
-    // off macOS), while leaving still-sendable images untouched. This covers
-    // both top-level image blocks (user uploads) and images nested inside a
-    // tool_result's contentBlocks (e.g. a browser screenshot), which is where
-    // the rejected block usually lives.
-    if (state.imageTooLargeDetected) {
-      state.imageTooLargeDetected = false;
-      rlog.warn(
-        { phase: "image-recovery" },
-        "Image too large — recovering oversized image blocks and retrying",
-      );
-      ctx.messages = ctx.messages.map((msg) => {
-        if (!Array.isArray(msg.content)) return msg;
-        if (!messageHasImageBlock(msg.content)) return msg;
-        return {
-          ...msg,
-          content: msg.content.flatMap((b): ContentBlock[] => {
-            if (b.type === "image") return [recoverImageBlock(b)];
-            // Images returned by a tool (e.g. browser_screenshot) live in
-            // the tool_result's contentBlocks, not as top-level blocks.
-            // Recover them in place so the tool_use/tool_result pairing
-            // stays intact rather than dropping the whole tool_result.
-            if (b.type === "tool_result" && b.contentBlocks?.length) {
-              return [
-                {
-                  ...b,
-                  contentBlocks: b.contentBlocks.map((cb) =>
-                    cb.type === "image" ? recoverImageBlock(cb) : cb,
-                  ),
-                },
-              ];
-            }
-            return [b];
-          }),
-        };
-      });
-      // The transform above only mutates ctx.messages for the current retry.
-      // Persist the downgrade for images that can never be sent so the rejected
-      // upload doesn't rehydrate from the DB and resurface on later turns. This
-      // is cleanup for future turns, so a persistence failure must never abort
-      // the retry that is about to run — log it and continue.
-      try {
-        const rewritten = persistUnsendableImageDowngrades(ctx.conversationId);
-        if (rewritten > 0) {
-          rlog.info(
-            { phase: "image-recovery", rewritten },
-            "Persisted unsendable-image downgrades so they cannot resurface",
-          );
-        }
-      } catch (err) {
-        rlog.warn(
-          { phase: "image-recovery", err },
-          "Failed to persist unsendable-image downgrade; continuing with in-memory recovery",
-        );
-      }
-      runMessages = ctx.messages;
-      updatedHistory = await runAgentLoop(runMessages);
-      if (state.imageTooLargeDetected) {
-        rlog.error(
-          { phase: "image-recovery" },
-          "Image-recovery retry also failed — surfacing error to user",
-        );
-        const classified = classifyConversationError(
-          new Error("Image dimensions too large"),
-          { phase: "agent_loop" },
-        );
-        deps.onEvent(
-          buildConversationErrorMessage(deps.ctx.conversationId, classified),
-        );
-        state.providerErrorUserMessage = classified.userMessage;
-        state.imageTooLargeDetected = false;
-      }
     }
 
     // ── Context-overflow terminal notice ───────────────────────────
@@ -1098,14 +951,6 @@ export async function runAgentLoopImpl(
           budgetYieldClassification,
         ),
       );
-    }
-
-    if (state.deferredOrderingError) {
-      const classified = classifyConversationError(
-        new Error(state.deferredOrderingError),
-        { phase: "agent_loop" },
-      );
-      onEvent(buildConversationErrorMessage(ctx.conversationId, classified));
     }
 
     // Flush remaining tool results. On a normal turn these drain at the next

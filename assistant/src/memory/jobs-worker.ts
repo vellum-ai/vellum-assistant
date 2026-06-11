@@ -68,7 +68,6 @@ import {
   failMemoryJob,
   failStalledJobs,
   hasActiveJobOfType,
-  isAutomaticConsolidationJob,
   MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS,
   type MemoryJob,
   type MemoryJobType,
@@ -242,7 +241,7 @@ export async function runMemoryJobsOnce(
   options: { enableScheduledCleanup?: boolean } = {},
 ): Promise<number> {
   const config = getConfig();
-  if (!config.memory.enabled) return 0;
+  if (config.memory.enabled === false) return 0;
   const enableScheduledCleanup = options.enableScheduledCleanup === true;
 
   const diskPressureGate = checkDiskPressureBackgroundGate("background-work");
@@ -625,16 +624,6 @@ async function processJob(
       await memoryV2SweepJob(job, config);
       return;
     case "memory_v2_consolidate":
-      if (
-        isAutomaticConsolidationJob(job) &&
-        !config.memory.v2.consolidation_enabled
-      ) {
-        log.info(
-          { jobId: job.id },
-          "Skipping automatic memory v2 consolidation because scheduled consolidation is disabled",
-        );
-        return;
-      }
       await memoryV2ConsolidateJob(job, config);
       return;
     case "memory_v2_migrate":
@@ -713,8 +702,8 @@ const GRAPH_PATTERN_SCAN_INTERVAL_MS = 24 * 60 * 60 * 1000; // 1 day
 const GRAPH_NARRATIVE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // 1 week
 // Backstop cadence for v3 self-maintenance. The primary trigger is the
 // post-consolidation follow-up (see `consolidation-job.ts`); this interval only
-// covers the case where that follow-up is missed (enqueue failure, or a v3-on
-// install with v2 consolidation disabled). A conservative cadence is fine since
+// covers the case where that follow-up is missed (enqueue failure). A
+// conservative cadence is fine since
 // the maintenance pass is idempotent and cheap when there's nothing to do.
 const GRAPH_V3_MAINTAIN_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
@@ -759,9 +748,10 @@ export function maybeEnqueueGraphMaintenanceJobs(
   config: AssistantConfig,
   nowMs = Date.now(),
 ): void {
+  const memoryEnabled = config.memory.enabled !== false;
+  if (!memoryEnabled) return;
+
   const v2Active = config.memory.v2.enabled;
-  const v2ConsolidationAutomaticEnabled =
-    v2Active && config.memory.v2.consolidation_enabled;
 
   // The single buffer-drainer entry for the v2-active branch. Referenced again
   // below by the size-based trigger.
@@ -776,9 +766,7 @@ export function maybeEnqueueGraphMaintenanceJobs(
     intervalMs: number;
     jobType: MemoryJobType;
   }> = v2Active
-    ? v2ConsolidationAutomaticEnabled
-      ? [consolidateEntry]
-      : []
+    ? [consolidateEntry]
     : [
         {
           key: GRAPH_MAINTENANCE_CHECKPOINTS.decay,
@@ -807,8 +795,8 @@ export function maybeEnqueueGraphMaintenanceJobs(
   // runs under either branch. Gated on the same flags that gate the v3 plugin
   // so it stays inert when v3 is off. The post-consolidation follow-up in
   // `consolidation-job.ts` remains the primary trigger; this interval only
-  // self-heals when that follow-up is missed (failed enqueue, or v3-on with v2
-  // consolidation disabled). The job handler itself no-ops when v3 is off, so
+  // self-heals when that follow-up is missed (failed enqueue). The job handler
+  // itself no-ops when v3 is off, so
   // this guard is belt-and-suspenders that also avoids a wasted enqueue.
   if (
     isAssistantFeatureFlagEnabled("memory-v3-shadow", config) ||
@@ -859,7 +847,7 @@ export function maybeEnqueueGraphMaintenanceJobs(
   // buffer stays over threshold, flooding the queue with redundant LLM work.
   const maxLines = config.memory.v2.consolidation_max_buffer_lines;
   if (
-    v2ConsolidationAutomaticEnabled &&
+    v2Active &&
     !enqueuedConsolidate &&
     maxLines !== null &&
     !hasActiveJobOfType(consolidateEntry.jobType)
