@@ -338,8 +338,56 @@ describe("SingleActivity — web variant", () => {
     expect(container.querySelector(".h-\\[28px\\]")).toBeNull();
   });
 
-  test("shows the static info text when carouselItems is empty", () => {
-    const { getByText, container } = render(
+  test("renders the latest page's favicon (or monogram) beside the settled title", () => {
+    const { getByTestId, getByText } = render(
+      <SingleActivity
+        variant="web"
+        info="Visit Toronto — Official Tourism"
+        carouselItems={RESULTS}
+        state="complete"
+        step={WEB_STEP}
+        expanded={false}
+        onExpandChange={() => {}}
+      />,
+    );
+    // The favicon for the LAST result (carouselItems.at(-1)) sits beside the
+    // title. RESULTS' last item has no faviconUrl, so the monogram of its
+    // domain ("destinationtoronto.com" → "D") renders inside the slot.
+    const slot = getByTestId("site-favicon");
+    expect(slot).toBeTruthy();
+    expect(slot.textContent).toBe("D");
+    expect(getByText("Visit Toronto — Official Tourism")).toBeTruthy();
+  });
+
+  test("renders the favicon <img> when the latest result has a faviconUrl", () => {
+    const withFavicon: WebSearchResultItem[] = [
+      makeResult({
+        rank: 1,
+        title: "Toronto Travel",
+        domain: "destinationtoronto.com",
+        faviconUrl: "https://destinationtoronto.com/favicon.ico",
+      }),
+    ];
+    const { container } = render(
+      <SingleActivity
+        variant="web"
+        info="Toronto Travel"
+        carouselItems={withFavicon}
+        state="complete"
+        step={WEB_STEP}
+        expanded={false}
+        onExpandChange={() => {}}
+      />,
+    );
+    const img = container.querySelector('[data-testid="site-favicon"] img');
+    expect(img).not.toBeNull();
+    expect(img!.getAttribute("src")).toBe(
+      "https://destinationtoronto.com/favicon.ico",
+    );
+  });
+
+  test("shows the static info text (no favicon) when carouselItems is empty", () => {
+    const { getByText, queryByTestId, container } = render(
       <SingleActivity
         variant="web"
         info="en.wikipedia.org"
@@ -351,6 +399,8 @@ describe("SingleActivity — web variant", () => {
       />,
     );
     expect(getByText("en.wikipedia.org")).toBeTruthy();
+    // No latest result → no favicon rendered next to the title.
+    expect(queryByTestId("site-favicon")).toBeNull();
     // No carousel ticker wrapper when there are no items.
     expect(container.querySelector(".h-\\[28px\\]")).toBeNull();
   });
