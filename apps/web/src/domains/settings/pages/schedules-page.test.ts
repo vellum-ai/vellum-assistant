@@ -57,6 +57,9 @@ const fetchConsolidationRunsMock = mock(
     },
   ],
 );
+const fetchHeartbeatRunsMock = mock(
+  async (_assistantId: string): Promise<ScheduleRun[]> => [],
+);
 const fetchScheduleRunsMock = mock(
   async (_assistantId: string, _scheduleId: string): Promise<ScheduleRun[]> => [],
 );
@@ -72,6 +75,7 @@ mock.module("@/domains/settings/api/schedules", () => ({
   ...schedulesApi,
   createSchedule: createScheduleMock,
   fetchConsolidationRuns: fetchConsolidationRunsMock,
+  fetchHeartbeatRuns: fetchHeartbeatRunsMock,
   fetchScheduleRuns: fetchScheduleRunsMock,
   fetchScheduleUsageSummary: fetchScheduleUsageSummaryMock,
 }));
@@ -109,6 +113,7 @@ afterEach(() => {
   navigateCalls.length = 0;
   createScheduleMock.mockClear();
   fetchConsolidationRunsMock.mockClear();
+  fetchHeartbeatRunsMock.mockClear();
   fetchScheduleRunsMock.mockClear();
   fetchScheduleUsageSummaryMock.mockClear();
   nowSpy?.mockRestore();
@@ -970,9 +975,7 @@ describe("SystemTaskRow", () => {
 });
 
 describe("system task toggles", () => {
-  test("heartbeat row always renders a toggle that reports the new state", () => {
-    const toggleCalls: boolean[] = [];
-
+  test("heartbeat list row shows a status dot; the toggle lives on the detail page", () => {
     render(
       createElement(SystemTasksSection, {
         heartbeatConfig: {
@@ -994,24 +997,54 @@ describe("system task toggles", () => {
         onRetry: () => {},
         onSelectHeartbeat: () => {},
         onSelectConsolidation: () => {},
-        onToggleHeartbeat: (enabled: boolean) => {
-          toggleCalls.push(enabled);
-        },
       }),
     );
 
     // System jobs are collapsed by default — expand the disclosure first.
     fireEvent.click(screen.getByRole("button", { name: /System/i }));
 
-    const toggle = screen.getByLabelText("Toggle Heartbeat");
-    fireEvent.click(toggle);
+    expect(screen.queryByLabelText("Toggle Heartbeat")).toBeNull();
+    expect(screen.getByLabelText("enabled")).toBeTruthy();
+  });
 
-    expect(toggleCalls).toEqual([false]);
+  test("heartbeat detail page toggle reports the new state and keeps Run now available", async () => {
+    const toggleCalls: boolean[] = [];
+
+    renderWithQueryClient(
+      createElement(SystemTaskDetailView, {
+        kind: "heartbeat",
+        assistantId: "assistant-1",
+        name: "Heartbeat",
+        subtitle: "Every 1 hr",
+        enabled: false,
+        nextRunAt: null,
+        lastRunAt: null,
+        isRunning: false,
+        onBack: () => {},
+        onRunNow: () => {},
+        onToggleEnabled: (enabled: boolean) => {
+          toggleCalls.push(enabled);
+        },
+      }),
+    );
+
+    await waitFor(() =>
+      expect(fetchHeartbeatRunsMock.mock.calls).toEqual([["assistant-1"]]),
+    );
+
+    expect(document.body.textContent).toContain("Disabled");
+    // Disabling only pauses automatic runs — manual runs stay available.
+    expect(
+      (screen.getByRole("button", { name: /Run now/i }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+
+    fireEvent.click(screen.getByLabelText("Toggle Heartbeat"));
+
+    expect(toggleCalls).toEqual([true]);
   });
 
   test("consolidation never renders an automatic-run toggle", () => {
-    const toggleCalls: boolean[] = [];
-
     render(
       createElement(SystemTasksSection, {
         heartbeatConfig: undefined,
@@ -1030,9 +1063,6 @@ describe("system task toggles", () => {
         onRetry: () => {},
         onSelectHeartbeat: () => {},
         onSelectConsolidation: () => {},
-        onToggleHeartbeat: (enabled: boolean) => {
-          toggleCalls.push(enabled);
-        },
       }),
     );
 
@@ -1040,7 +1070,6 @@ describe("system task toggles", () => {
     fireEvent.click(screen.getByRole("button", { name: /System/i }));
 
     expect(screen.queryByLabelText("Toggle Consolidation")).toBeNull();
-    expect(toggleCalls).toEqual([]);
     expect(screen.queryByRole("button", { name: /run now/i })).toBeNull();
     // Enabled consolidation reads like any other healthy system row: a status
     // dot, no management tag or helper copy (the detail page explains it).
@@ -1052,5 +1081,30 @@ describe("system task toggles", () => {
     // Heartbeat is hidden here, so its cached usage must not inflate the
     // aggregate cost on the collapsed trigger ($0.42, not $0.84).
     expect(document.body.textContent).toContain("$0.42 (7d)");
+  });
+
+  test("consolidation detail page never renders a toggle even if a handler is passed", async () => {
+    renderWithQueryClient(
+      createElement(SystemTaskDetailView, {
+        kind: "consolidation",
+        assistantId: "assistant-1",
+        name: "Consolidation",
+        subtitle: "Every 4 hr",
+        enabled: true,
+        nextRunAt: null,
+        lastRunAt: null,
+        isRunning: false,
+        onBack: () => {},
+        onRunNow: () => {},
+        onToggleEnabled: () => {},
+      }),
+    );
+
+    await waitFor(() =>
+      expect(fetchConsolidationRunsMock.mock.calls).toEqual([["assistant-1"]]),
+    );
+
+    expect(screen.queryByLabelText("Toggle Consolidation")).toBeNull();
+    expect(document.body.textContent).toContain("On · Managed by Memory");
   });
 });
