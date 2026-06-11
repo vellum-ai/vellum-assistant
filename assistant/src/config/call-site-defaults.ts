@@ -7,12 +7,29 @@ type CallSiteDefaultConfig = {
   temperature?: number | null;
   thinking?: { enabled?: boolean; streamThinking?: boolean };
   contextWindow?: { maxInputTokens?: number };
+  /**
+   * When true, this call site resolves with EXACTLY `mainAgent`'s precedence:
+   * the workspace `activeProfile` and per-call `overrideProfile` float ABOVE
+   * any static `llm.callSites[id]` override, producing a config byte-identical
+   * to what `mainAgent` would resolve for the same `opts`. Used by call sites
+   * that must follow the user's chat-model selection turn-for-turn — e.g.
+   * `compactionAgent`, whose resolved provider/model/system-prompt/tools must
+   * match the agent's last turn to keep the prefix cache warm.
+   *
+   * The resolver enforces a `{ profile }`-only entry (no tuning fields) for
+   * flagged sites so the byte-identical guarantee holds: any tuning here would
+   * diverge from mainAgent. See `resolveCallSiteConfig`.
+   */
+  resolvesLikeMainAgent?: boolean;
 };
 
 export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   mainAgent: { profile: "balanced" },
   subagentSpawn: { profile: "balanced" },
-  compactionAgent: { profile: "balanced" },
+  // Resolves exactly like `mainAgent` (active/override profiles float above any
+  // static override) so the compaction call inherits the agent's chat-model
+  // selection and keeps the prefix cache warm — see `resolvesLikeMainAgent`.
+  compactionAgent: { profile: "balanced", resolvesLikeMainAgent: true },
   analyzeConversation: { profile: "balanced" },
   patternScan: { profile: "balanced" },
   narrativeRefinement: { profile: "balanced" },

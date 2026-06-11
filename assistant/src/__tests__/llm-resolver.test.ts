@@ -835,6 +835,129 @@ describe("resolveCallSiteConfig", () => {
   });
 });
 
+describe("resolvesLikeMainAgent (compactionAgent)", () => {
+  // `compactionAgent` is flagged `resolvesLikeMainAgent` in CALL_SITE_DEFAULTS,
+  // so its resolved config must be BYTE-IDENTICAL to `mainAgent`'s for the same
+  // opts. This is the prefix-cache invariant: compaction inherits the agent's
+  // exact provider/model/params so the cached prefix stays warm. The distinct
+  // wire `callSite` ("compactionAgent") is for usage attribution only and must
+  // never change resolution.
+  const balancedProfile = {
+    provider: "openai" as const,
+    model: "gpt-5.4",
+    maxTokens: 16000,
+    contextWindow: { maxInputTokens: 400000 },
+  };
+  const pinnedProfile = {
+    provider: "gemini" as const,
+    model: "gemini-2.5-pro",
+    maxTokens: 65536,
+    contextWindow: { maxInputTokens: 1048576 },
+  };
+  const mainAgentOverride = {
+    provider: "anthropic" as const,
+    model: "claude-opus-4-7",
+    maxTokens: 32000,
+    contextWindow: { maxInputTokens: 200000 },
+  };
+
+  // Each permutation is exercised under default, activeProfile-set,
+  // overrideProfile-passed, and static-mainAgent-override variants — and the
+  // M4 base-layer is in play because `compactionAgent`'s CALL_SITE_DEFAULTS
+  // entry has a `profile` (and the flag), both of which the resolver strips.
+  const baseConfig = {
+    default: fullDefault,
+    profiles: {
+      balanced: balancedProfile,
+      pinned: pinnedProfile,
+    },
+  };
+
+  function assertByteIdentical(
+    llm: z.infer<typeof LLMSchema>,
+    opts?: Parameters<typeof resolveCallSiteConfig>[2],
+  ): void {
+    const main = resolveCallSiteConfig("mainAgent", llm, opts);
+    const compaction = resolveCallSiteConfig("compactionAgent", llm, opts);
+    // Deep equality — every resolved field (provider/model/params/nested
+    // contextWindow/thinking) must match exactly.
+    expect(compaction).toEqual(main);
+  }
+
+  test("default config: compactionAgent resolves identically to mainAgent", () => {
+    const llm = LLMSchema.parse(baseConfig);
+    assertByteIdentical(llm);
+  });
+
+  test("activeProfile set: float above any default is identical", () => {
+    const llm = LLMSchema.parse({ ...baseConfig, activeProfile: "balanced" });
+    assertByteIdentical(llm);
+  });
+
+  test("overrideProfile passed: float above active is identical", () => {
+    const llm = LLMSchema.parse({ ...baseConfig, activeProfile: "balanced" });
+    assertByteIdentical(llm, { overrideProfile: "pinned" });
+  });
+
+  test("static llm.callSites.mainAgent override present: identical (the override is inherited, not the compactionAgent entry)", () => {
+    const llm = LLMSchema.parse({
+      ...baseConfig,
+      callSites: { mainAgent: mainAgentOverride },
+    });
+    assertByteIdentical(llm);
+  });
+
+  test("static mainAgent override + activeProfile floats above it for both sites", () => {
+    const llm = LLMSchema.parse({
+      ...baseConfig,
+      callSites: { mainAgent: mainAgentOverride },
+      activeProfile: "balanced",
+    });
+    // The active profile wins over the static override for mainAgent — and the
+    // flagged site must follow it identically.
+    const resolved = resolveCallSiteConfig("compactionAgent", llm);
+    expect(resolved.provider).toBe("openai");
+    expect(resolved.model).toBe("gpt-5.4");
+    assertByteIdentical(llm);
+  });
+
+  test("static mainAgent override + overrideProfile beats it for both sites", () => {
+    const llm = LLMSchema.parse({
+      ...baseConfig,
+      callSites: { mainAgent: mainAgentOverride },
+      activeProfile: "balanced",
+    });
+    assertByteIdentical(llm, { overrideProfile: "pinned" });
+  });
+
+  test("byte-identical even with a mix profile and the same selectionSeed", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        a: { model: "model-a", effort: "low" },
+        b: { model: "model-b", effort: "high" },
+        ab: {
+          mix: [
+            { profile: "a", weight: 50 },
+            { profile: "b", weight: 50 },
+          ],
+        },
+      },
+      activeProfile: "ab",
+    });
+    // Same seed → same arm for both sites → identical resolution.
+    assertByteIdentical(llm, { selectionSeed: "conv-byte-identical" });
+  });
+
+  test("the resolvesLikeMainAgent flag never leaks into the resolved config", () => {
+    const llm = LLMSchema.parse(baseConfig);
+    const resolved = resolveCallSiteConfig("compactionAgent", llm);
+    expect(
+      (resolved as Record<string, unknown>).resolvesLikeMainAgent,
+    ).toBeUndefined();
+  });
+});
+
 describe("mix profiles", () => {
   // A mix that routes 80% to `a` (model-a) and 20% to `b` (model-b).
   const mixLlm = LLMSchema.parse({

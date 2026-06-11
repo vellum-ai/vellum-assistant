@@ -48,26 +48,20 @@ import { estimatePromptTokens } from "./token-estimator.js";
 const log = getLogger("compactor");
 
 /**
- * Stable call-site identifier used when invoking the provider for a
- * compaction pass. Using `mainAgent` (rather than a dedicated
- * `conversationCompaction` site) keeps the resolved provider/model/system
- * prompt/tools identical to the agent's last turn, so the prefix cache hit
- * rate is maximized — the compaction-instruction user message is the only
- * new token sequence.
- */
-const COMPACTION_CALL_SITE: LLMCallSite = "mainAgent";
-
-/**
- * Tag stamped on `llm_request_logs.call_site` for compaction-driven rows.
+ * Stable call-site identifier for a compaction pass — used BOTH for provider
+ * config resolution (the wire `config.callSite`) AND for `llm_request_logs`
+ * observability. A single ID, so usage attribution and inspector filtering
+ * agree on what the row is.
  *
- * Distinct from `COMPACTION_CALL_SITE` (above) on purpose: that constant
- * names the **provider config resolution** site (set to `mainAgent` so we
- * inherit the agent's profile and keep the prefix cache warm). This
- * constant names the **observability** site — what the row IS — so
- * inspectors can filter "show me only compaction calls". They're
- * semantically different even though both come from the same enum.
+ * `compactionAgent` is flagged `resolvesLikeMainAgent` in `CALL_SITE_DEFAULTS`,
+ * so it resolves to a config byte-identical to the agent's last turn
+ * (provider/model/system-prompt/tools) — the compaction-instruction user
+ * message is the only new token sequence, keeping the prefix cache warm. The
+ * previous hack passed `mainAgent` on the wire purely to get that resolution;
+ * the flag now delivers the same resolution under the correct ID, so monitoring
+ * surfaces no longer mis-attribute compaction to the main agent.
  */
-const COMPACTION_LOG_CALL_SITE: LLMCallSite = "compactionAgent";
+const COMPACTION_CALL_SITE: LLMCallSite = "compactionAgent";
 
 /**
  * Best-effort: persist a successful compaction LLM call into
@@ -90,7 +84,7 @@ function recordCompactionRequestLog(
       JSON.stringify(response.rawResponse),
       undefined,
       response.actualProvider ?? provider.name,
-      COMPACTION_LOG_CALL_SITE,
+      COMPACTION_CALL_SITE,
     );
   } catch (err) {
     log.warn(
