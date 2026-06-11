@@ -34,6 +34,7 @@ mock.module("../../../config/loader.js", () => ({
 // Source + conversation-crud module mocks
 // ---------------------------------------------------------------------
 
+import type { CompactionLogEvent } from "../../../memory/compaction-log-store-clickhouse.js";
 import type { LogRow } from "../../../memory/llm-request-log-store.js";
 
 interface FakeSourceState {
@@ -41,6 +42,9 @@ interface FakeSourceState {
   selectedCall: LogRow | null;
   turnBounds: { startTime: number; endTime: number } | null;
   compactionLogs: LogRow[];
+  /** null = compactionLogs destination not configured (legacy-only). */
+  compactionStoreEvents: CompactionLogEvent[] | null;
+  compactionStoreError: Error | null;
 }
 
 const state: FakeSourceState = {
@@ -48,6 +52,8 @@ const state: FakeSourceState = {
   selectedCall: null,
   turnBounds: null,
   compactionLogs: [],
+  compactionStoreEvents: null,
+  compactionStoreError: null,
 };
 
 // Records the inputs the handler passed to its collaborators so tests
@@ -63,7 +69,33 @@ const sourceCalls = {
     afterCreatedAt: number | null;
     beforeCreatedAt: number;
   }>,
+  getEventsBetweenArgs: [] as Array<{
+    conversationId: string;
+    afterStartedAt: number | null;
+    beforeStartedAt: number;
+  }>,
 };
+
+mock.module("../../../memory/compaction-log-store-clickhouse.js", () => ({
+  getCompactionLogStore: () =>
+    state.compactionStoreEvents === null && state.compactionStoreError === null
+      ? null
+      : {
+          getEventsBetween: async (
+            conversationId: string,
+            afterStartedAt: number | null,
+            beforeStartedAt: number,
+          ) => {
+            sourceCalls.getEventsBetweenArgs.push({
+              conversationId,
+              afterStartedAt,
+              beforeStartedAt,
+            });
+            if (state.compactionStoreError) throw state.compactionStoreError;
+            return state.compactionStoreEvents ?? [];
+          },
+        },
+}));
 
 mock.module("../../../memory/conversation-crud.js", () => ({
   getConversation: (id: string) =>
@@ -105,6 +137,7 @@ mock.module("../../../memory/llm-request-log-source.js", () => ({
 
 // Imported AFTER the mocks so the handler picks up the fakes.
 import {
+  projectCompactionLogEventToTrailEvent,
   projectLogRowToCompactionTrailEvent,
   ROUTES,
 } from "../conversation-compaction-routes.js";
@@ -132,14 +165,52 @@ function fakeLogRow(overrides: Partial<LogRow> = {}): LogRow {
   };
 }
 
+function fakeCompactionLogEvent(
+  overrides: Partial<CompactionLogEvent> = {},
+): CompactionLogEvent {
+  return {
+    compactionId: "comp-1",
+    requestId: "req-1",
+    trigger: "budget",
+    startedAt: 3000,
+    finishedAt: 3500,
+    durationMs: 500,
+    preMessageCount: 12,
+    basisMessageCount: 4,
+    compacted: true,
+    previousEstimatedInputTokens: 900,
+    estimatedInputTokens: 300,
+    maxInputTokens: 1000,
+    thresholdTokens: 850,
+    compactedMessages: 10,
+    compactedPersistedMessages: 8,
+    preservedTailMessages: 2,
+    summaryCalls: 1,
+    summaryInputTokens: 880,
+    summaryOutputTokens: 120,
+    summaryModel: "test-model",
+    summaryFailed: false,
+    reason: "auto",
+    exhausted: false,
+    injectionMode: null,
+    autoCompressApplied: false,
+    summaryText: "summary text",
+    completed: true,
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   state.conversation = null;
   state.selectedCall = null;
   state.turnBounds = null;
   state.compactionLogs = [];
+  state.compactionStoreEvents = null;
+  state.compactionStoreError = null;
   sourceCalls.getRequestLogByIdArgs.length = 0;
   sourceCalls.getTurnTimeBoundsArgs.length = 0;
   sourceCalls.getCompactionLogsBetweenArgs.length = 0;
+  sourceCalls.getEventsBetweenArgs.length = 0;
 });
 
 // ---------------------------------------------------------------------
@@ -354,8 +425,146 @@ describe("handleGetCompactionTrail — happy path", () => {
 });
 
 // ---------------------------------------------------------------------
+// Handler — compaction-log store path
+// ---------------------------------------------------------------------
+
+describe("handleGetCompactionTrail — compaction log store", () => {
+  test("serves the trail from the store and skips the legacy projection", async () => {
+    state.conversation = { id: "conv-1" };
+    state.selectedCall = fakeLogRow({
+      id: "call-1",
+      conversationId: "conv-1",
+      createdAt: 5000,
+    });
+    state.turnBounds = { startTime: 2000, endTime: 9000 };
+    state.compactionStoreEvents = [fakeCompactionLogEvent()];
+
+    const result = await handler({
+      pathParams: { id: "conv-1" },
+      queryParams: { callId: "call-1" },
+    });
+
+    // Same ±1ms-shifted turn window as the legacy path.
+    expect(sourceCalls.getEventsBetweenArgs).toEqual([
+      {
+        conversationId: "conv-1",
+        afterStartedAt: 1999,
+        beforeStartedAt: 9001,
+      },
+    ]);
+    expect(sourceCalls.getCompactionLogsBetweenArgs).toEqual([]);
+    expect(result.events).toEqual([
+      {
+        id: "comp-1",
+        createdAt: 3000,
+        model: "test-model",
+        provider: null,
+        inputTokens: 880,
+        outputTokens: 120,
+        durationMs: 500,
+        responsePreview: "summary text",
+        requestMessageCount: 12,
+        stopReason: "auto",
+        estimatedCostUsd: null,
+      },
+    ]);
+  });
+
+  test("falls back to the legacy projection when the store has no rows for the window", async () => {
+    state.conversation = { id: "conv-1" };
+    state.selectedCall = fakeLogRow({
+      id: "call-1",
+      conversationId: "conv-1",
+      createdAt: 5000,
+    });
+    state.turnBounds = { startTime: 2000, endTime: 9000 };
+    state.compactionStoreEvents = [];
+    state.compactionLogs = [
+      fakeLogRow({ id: "compaction-legacy", conversationId: "conv-1" }),
+    ];
+
+    const result = await handler({
+      pathParams: { id: "conv-1" },
+      queryParams: { callId: "call-1" },
+    });
+
+    expect(sourceCalls.getEventsBetweenArgs).toHaveLength(1);
+    expect(sourceCalls.getCompactionLogsBetweenArgs).toHaveLength(1);
+    expect(result.events).toHaveLength(1);
+    expect((result.events[0] as { id: string }).id).toBe("compaction-legacy");
+  });
+
+  test("falls back to the legacy projection when the store read throws", async () => {
+    state.conversation = { id: "conv-1" };
+    state.selectedCall = fakeLogRow({
+      id: "call-1",
+      conversationId: "conv-1",
+      createdAt: 5000,
+    });
+    state.turnBounds = { startTime: 2000, endTime: 9000 };
+    state.compactionStoreError = new Error("clickhouse unreachable");
+    state.compactionLogs = [
+      fakeLogRow({ id: "compaction-legacy", conversationId: "conv-1" }),
+    ];
+
+    const result = await handler({
+      pathParams: { id: "conv-1" },
+      queryParams: { callId: "call-1" },
+    });
+
+    expect(sourceCalls.getCompactionLogsBetweenArgs).toHaveLength(1);
+    expect(result.events).toHaveLength(1);
+    expect((result.events[0] as { id: string }).id).toBe("compaction-legacy");
+  });
+});
+
+// ---------------------------------------------------------------------
 // Projection unit tests
 // ---------------------------------------------------------------------
+
+describe("projectCompactionLogEventToTrailEvent", () => {
+  test("maps a completed event onto the wire shape", () => {
+    const event = projectCompactionLogEventToTrailEvent(
+      fakeCompactionLogEvent(),
+    );
+    expect(event).toEqual({
+      id: "comp-1",
+      createdAt: 3000,
+      model: "test-model",
+      provider: null,
+      inputTokens: 880,
+      outputTokens: 120,
+      durationMs: 500,
+      responsePreview: "summary text",
+      requestMessageCount: 12,
+      stopReason: "auto",
+      estimatedCostUsd: null,
+    });
+  });
+
+  test("maps an incomplete (start-only) event with nulls for end-phase fields", () => {
+    const event = projectCompactionLogEventToTrailEvent(
+      fakeCompactionLogEvent({
+        completed: false,
+        finishedAt: null,
+        durationMs: null,
+        summaryInputTokens: null,
+        summaryOutputTokens: null,
+        summaryModel: null,
+        reason: null,
+        summaryText: null,
+      }),
+    );
+    expect(event.durationMs).toBeNull();
+    expect(event.model).toBeNull();
+    expect(event.inputTokens).toBeNull();
+    expect(event.outputTokens).toBeNull();
+    expect(event.responsePreview).toBeNull();
+    expect(event.stopReason).toBeNull();
+    // The start row always carries the pre-compaction message count.
+    expect(event.requestMessageCount).toBe(12);
+  });
+});
 
 describe("projectLogRowToCompactionTrailEvent", () => {
   test("returns null for every summary-derived field when payloads are empty", () => {

@@ -20,7 +20,7 @@ import { getCalibrationProviderKey } from "../context/token-estimator.js";
 import {
   recordCompactionEndBestEffort,
   recordCompactionStartBestEffort,
-} from "../memory/compaction-log-writer-clickhouse.js";
+} from "../memory/compaction-log-store-clickhouse.js";
 import { projectAssistantMessage } from "../memory/conversation-attention-store.js";
 import {
   deleteMessageById,
