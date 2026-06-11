@@ -238,6 +238,41 @@ describe("AgentLoop exit-reason instrumentation", () => {
     expect(events[events.length - 1].type).toBe("agent_loop_exit");
   });
 
+  test("emits agent_loop_exit even when a stop hook throws", async () => {
+    // A third-party teardown hook that rejects must not suppress the terminal
+    // exit: the loop isolates the stop chain, logs the failure, and still emits
+    // `agent_loop_exit` exactly once with the real reason.
+    registerPlugin({
+      manifest: { name: "throwing-stop", version: "0.0.0" },
+      hooks: {
+        [HOOKS.STOP]: async (): Promise<void> => {
+          throw new Error("teardown boom");
+        },
+      },
+    });
+
+    const { provider } = createMockProvider([textResponse("Hi there!")]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system prompt",
+      conversationId: "test-conversation",
+    });
+
+    const events: AgentEvent[] = [];
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: (e) => {
+        events.push(e);
+      },
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    expect(countExitEvents(events)).toBe(1);
+    expect(lastExitEvent(events)?.reason).toBe("no_tool_calls");
+    expect(events[events.length - 1].type).toBe("agent_loop_exit");
+  });
+
   test("emits continuation surface event and exits on max_tokens", async () => {
     const { provider } = createMockProvider([
       maxTokensResponse("Partial answer"),

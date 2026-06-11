@@ -852,6 +852,13 @@ export class AgentLoop {
     // handler keeps that reason instead of the generic "error", and the guard
     // also defends against accidental double-invocation if a new terminal break
     // site is added.
+    //
+    // A throwing `stop` hook must not suppress the terminal exit: the chain is
+    // isolated so a failing teardown hook (e.g. a third-party plugin) is logged
+    // but `agent_loop_exit` still fires with the real exit reason. Otherwise the
+    // throw would unwind into the outer catch, which re-enters here as a no-op
+    // (the guard is already set) and the turn's terminal observability event
+    // would be dropped.
     let turnStopped = false;
     const stopTurn = async (
       reason: AgentLoopExitReason,
@@ -866,7 +873,14 @@ export class AgentLoop {
         exitReason: reason,
         logger: rlog,
       };
-      await runHook(HOOKS.STOP, stopCtx);
+      try {
+        await runHook(HOOKS.STOP, stopCtx);
+      } catch (stopHookError) {
+        rlog.error(
+          { err: stopHookError, exitReason: reason },
+          "stop hook threw during terminal teardown; emitting agent_loop_exit anyway",
+        );
+      }
       await onEvent({ type: "agent_loop_exit", reason });
     };
 
