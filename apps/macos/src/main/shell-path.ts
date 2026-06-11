@@ -23,6 +23,11 @@ interface CacheEntry {
 
 let cache: CacheEntry | null = null;
 
+/** Whether the user's login shell is fish (PATH help needs fish syntax). */
+export function isFishShell(): boolean {
+  return path.basename(process.env.SHELL ?? "") === "fish";
+}
+
 /** Reset the shell PATH cache. Exposed for testing only. */
 export function _resetShellPathCache(): void {
   cache = null;

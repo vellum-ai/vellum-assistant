@@ -43,6 +43,7 @@ const {
   resolveShellPath,
   findExecutablesInPath,
   splitPathEntries,
+  isFishShell,
   _resetShellPathCache,
 } = await import("./shell-path");
 
@@ -70,6 +71,22 @@ afterEach(() => {
   setSystemTime();
   if (originalShell === undefined) delete process.env.SHELL;
   else process.env.SHELL = originalShell;
+});
+
+// --- isFishShell ---
+
+describe("isFishShell", () => {
+  test("true for a fish $SHELL", () => {
+    process.env.SHELL = "/opt/homebrew/bin/fish";
+    expect(isFishShell()).toBe(true);
+  });
+
+  test("false for POSIX shells and when $SHELL is unset", () => {
+    process.env.SHELL = "/bin/zsh";
+    expect(isFishShell()).toBe(false);
+    delete process.env.SHELL;
+    expect(isFishShell()).toBe(false);
+  });
 });
 
 // --- resolveShellPath ---

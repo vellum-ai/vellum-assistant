@@ -8,6 +8,7 @@ import type { CliPathInstallState } from "./cli-path-installer";
 
 const WRAPPER_PATH = "/Users/test/.local/bin/vellum";
 const PATH_EXPORT_LINE = 'export PATH="$HOME/.local/bin:$PATH"';
+const FISH_ADD_PATH_LINE = 'fish_add_path "$HOME/.local/bin"';
 
 const showMessageBoxMock = mock(
   async (_opts: { message: string; detail?: string }) => ({
@@ -47,6 +48,12 @@ const uninstallWrapperMock = mock(
   (): "removed" | "not-ours" | "absent" => "removed",
 );
 
+const isFishShellMock = mock((): boolean => false);
+
+mock.module("./shell-path", () => ({
+  isFishShell: isFishShellMock,
+}));
+
 mock.module("./cli-path-installer", () => ({
   getCliPathInstallState: getCliPathInstallStateMock,
   installWrapper: installWrapperMock,
@@ -79,8 +86,10 @@ beforeEach(() => {
   getCliPathInstallStateMock.mockReset();
   installWrapperMock.mockReset();
   uninstallWrapperMock.mockReset();
+  isFishShellMock.mockReset();
 
   showMessageBoxMock.mockResolvedValue({ response: 0, checkboxChecked: false });
+  isFishShellMock.mockReturnValue(false);
   ensureCliInstalledMock.mockResolvedValue(undefined);
   setState({ kind: "installed", inPath: true, runtimeReady: true });
   installWrapperMock.mockReturnValue("installed");
@@ -173,6 +182,19 @@ describe("runInstallCliCommandFlow", () => {
     expect(lastDialog()?.detail).toContain(WRAPPER_PATH);
   });
 
+  test("installed but not in PATH copies fish_add_path for fish shells", async () => {
+    isFishShellMock.mockReturnValue(true);
+    setState({ kind: "installed", inPath: false, runtimeReady: true });
+
+    await runInstallCliCommandFlow();
+
+    expect(writeTextMock).toHaveBeenCalledTimes(1);
+    expect(writeTextMock).toHaveBeenCalledWith(FISH_ADD_PATH_LINE);
+    expect(lastDialog()?.detail).toContain("fish command");
+    expect(lastDialog()?.detail).toContain("copied to your clipboard");
+    expect(lastDialog()?.detail).not.toContain("shell profile");
+  });
+
   test("shadowed + inPath names the winning binary and the npm uninstall fix", async () => {
     setState({
       kind: "shadowed",
@@ -203,6 +225,23 @@ describe("runInstallCliCommandFlow", () => {
     expect(writeTextMock).toHaveBeenCalledWith(PATH_EXPORT_LINE);
     expect(lastDialog()?.detail).toContain("npm uninstall -g vellum");
     expect(lastDialog()?.detail).toContain("copied to your clipboard");
+  });
+
+  test("shadowed without PATH copies fish_add_path for fish shells", async () => {
+    isFishShellMock.mockReturnValue(true);
+    setState({
+      kind: "shadowed",
+      shadowedBy: "/opt/homebrew/bin/vellum",
+      inPath: false,
+      runtimeReady: true,
+    });
+
+    await runInstallCliCommandFlow();
+
+    expect(writeTextMock).toHaveBeenCalledTimes(1);
+    expect(writeTextMock).toHaveBeenCalledWith(FISH_ADD_PATH_LINE);
+    expect(lastDialog()?.detail).toContain("npm uninstall -g vellum");
+    expect(lastDialog()?.detail).toContain("fish command");
   });
 
   test("state check throwing surfaces via showErrorBox without rejecting", async () => {

@@ -12,8 +12,10 @@ import {
   installWrapper,
   uninstallWrapper,
 } from "./cli-path-installer";
+import { isFishShell } from "./shell-path";
 
 const PATH_EXPORT_LINE = 'export PATH="$HOME/.local/bin:$PATH"';
+const FISH_ADD_PATH_LINE = 'fish_add_path "$HOME/.local/bin"';
 
 // Shared by both flows: they mutate the same wrapper file, and re-entrant
 // runs stack dialogs and overwrite each other's answers.
@@ -42,8 +44,17 @@ async function confirmReplaceForeignFile(): Promise<boolean> {
   return response === 0;
 }
 
-// Copies the export line and returns the matching dialog instructions.
+// Copies the shell-appropriate PATH fix and returns matching instructions:
+// fish persists PATH via fish_add_path, not a POSIX export in a profile.
 function copyPathExportHelp(): string {
+  if (isFishShell()) {
+    clipboard.writeText(FISH_ADD_PATH_LINE);
+    return (
+      "~/.local/bin isn't in your shell's PATH. The fish command to add " +
+      "it has been copied to your clipboard — run it once in a fish " +
+      "terminal."
+    );
+  }
   clipboard.writeText(PATH_EXPORT_LINE);
   return (
     "~/.local/bin isn't in your shell's PATH. The line to add to your " +
