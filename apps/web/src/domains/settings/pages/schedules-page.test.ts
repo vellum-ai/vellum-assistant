@@ -57,11 +57,22 @@ const fetchConsolidationRunsMock = mock(
     },
   ],
 );
+const fetchScheduleRunsMock = mock(
+  async (_assistantId: string, _scheduleId: string): Promise<ScheduleRun[]> => [],
+);
+const createScheduleMock = mock(
+  async (
+    _assistantId: string,
+    _payload: schedulesApi.CreateSchedulePayload,
+  ): Promise<void> => {},
+);
 let nowSpy: ReturnType<typeof spyOn> | null = null;
 
 mock.module("@/domains/settings/api/schedules", () => ({
   ...schedulesApi,
+  createSchedule: createScheduleMock,
   fetchConsolidationRuns: fetchConsolidationRunsMock,
+  fetchScheduleRuns: fetchScheduleRunsMock,
   fetchScheduleUsageSummary: fetchScheduleUsageSummaryMock,
 }));
 
@@ -76,6 +87,12 @@ const {
 const { RecentRunsCard } = await import(
   "@/domains/settings/components/recent-runs-card"
 );
+const { CreateScheduleModal } = await import(
+  "@/domains/settings/components/create-schedule-modal"
+);
+const { ScheduleDetailView } = await import(
+  "@/domains/settings/components/schedule-detail-view"
+);
 const { ScheduleRow } = await import(
   "@/domains/settings/components/schedule-row"
 );
@@ -89,7 +106,9 @@ const { SystemTaskDetailView } = await import(
 afterEach(() => {
   cleanup();
   navigateCalls.length = 0;
+  createScheduleMock.mockClear();
   fetchConsolidationRunsMock.mockClear();
+  fetchScheduleRunsMock.mockClear();
   fetchScheduleUsageSummaryMock.mockClear();
   nowSpy?.mockRestore();
   nowSpy = null;
@@ -361,6 +380,7 @@ describe("ScheduleRow", () => {
       id: "schedule-123",
       name: "Daily summary",
       description: "Summarize the day",
+      cadenceDescription: "Every day at 9am",
       mode: "execute",
       enabled: true,
       lastRunAt: null,
@@ -490,11 +510,38 @@ describe("ScheduleRow", () => {
     expect(screen.getByText(formatTimestamp(nextRunAt))).toBeTruthy();
   });
 
-  test("one-time rows use the shared clickable row affordance", () => {
+  test("renders authored description and recurring cadence as separate row text", () => {
+    render(
+      createElement(ScheduleRow, {
+        schedule: rowSchedule({
+          description: "Summarize customer updates",
+          cadenceDescription: "Every weekday at 9am",
+        }),
+        usage: {
+          status: "ready",
+          summary: {
+            scheduleId: "schedule-123",
+            runCount: 0,
+            totalEstimatedCostUsd: 0,
+            eventCount: 0,
+          },
+        },
+        onClick: () => {},
+        onToggle: () => {},
+        onOpenUsage: () => {},
+      }),
+    );
+
+    expect(screen.getByText("Summarize customer updates")).toBeTruthy();
+    expect(screen.getByText("Every weekday at 9am")).toBeTruthy();
+  });
+
+  test("one-time rows show authored descriptions and omit the generated one-time label", () => {
     const { container } = render(
       createElement(ScheduleRow, {
         schedule: rowSchedule({
-          description: "One-time",
+          description: "Send the launch reminder",
+          cadenceDescription: "One-time",
           isOneShot: true,
         }),
         usage: {
@@ -511,6 +558,9 @@ describe("ScheduleRow", () => {
         onOpenUsage: () => {},
       }),
     );
+
+    expect(screen.getByText("Send the launch reminder")).toBeTruthy();
+    expect(screen.queryByText("One-time")).toBeNull();
 
     const row = container.firstElementChild;
     expect(row?.className).toContain("rounded-md");
@@ -547,6 +597,88 @@ describe("ScheduleRow", () => {
     );
 
     expect(screen.getAllByText("--")).toHaveLength(2);
+  });
+});
+
+describe("CreateScheduleModal", () => {
+  test("requires a description and sends the trimmed value in the create payload", async () => {
+    render(
+      createElement(CreateScheduleModal, {
+        isOpen: true,
+        assistantId: "assistant-1",
+        onClose: () => {},
+        onCreated: () => {},
+      }),
+    );
+
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: " Morning briefing " },
+    });
+    fireEvent.change(screen.getByLabelText("Cron expression"), {
+      target: { value: " 0 9 * * * " },
+    });
+    fireEvent.change(screen.getByLabelText("Message"), {
+      target: { value: " Report on overnight updates " },
+    });
+
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Create schedule" })
+        .disabled,
+    ).toBe(true);
+
+    fireEvent.change(screen.getByLabelText("Description"), {
+      target: { value: " Start the day with the most important changes " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create schedule" }));
+
+    await waitFor(() =>
+      expect(createScheduleMock.mock.calls).toEqual([
+        [
+          "assistant-1",
+          {
+            name: "Morning briefing",
+            description: "Start the day with the most important changes",
+            expression: "0 9 * * *",
+            message: "Report on overnight updates",
+          },
+        ],
+      ]),
+    );
+  });
+});
+
+describe("ScheduleDetailView", () => {
+  test("uses authored description as the subtitle and shows cadence in metadata", async () => {
+    renderWithQueryClient(
+      createElement(ScheduleDetailView, {
+        schedule: schedule({
+          id: "schedule-123",
+          name: "Launch reminder",
+          description: "Send the launch reminder",
+          cadenceDescription: "One-time",
+          mode: "execute",
+          enabled: true,
+          nextRunAt: 1_761_792_000_000,
+          lastRunAt: null,
+          lastStatus: null,
+        }),
+        assistantId: "assistant-1",
+        onBack: () => {},
+        onDeleted: () => {},
+        onUpdated: () => {},
+      }),
+    );
+
+    expect(screen.getByText("Launch reminder")).toBeTruthy();
+    expect(screen.getByText("Send the launch reminder")).toBeTruthy();
+    expect(screen.getByText("Cadence")).toBeTruthy();
+    expect(screen.getByText("One-time")).toBeTruthy();
+
+    await waitFor(() =>
+      expect(fetchScheduleRunsMock.mock.calls).toEqual([
+        ["assistant-1", "schedule-123"],
+      ]),
+    );
   });
 });
 

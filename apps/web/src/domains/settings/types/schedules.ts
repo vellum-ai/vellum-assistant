@@ -5,6 +5,8 @@ import type {
 } from "@/generated/daemon/types.gen";
 
 export type Schedule = SchedulesGetResponse["schedules"][number] & {
+  description: string;
+  cadenceDescription: string;
   createdFromConversationId?: string | null;
   createdFromConversationExists?: boolean;
   createdFromConversationArchivedAt?: number | null;

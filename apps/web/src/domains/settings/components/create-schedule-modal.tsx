@@ -75,6 +75,7 @@ function CreateScheduleModalInner({
   onCreated: () => void;
 }) {
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [expression, setExpression] = useState("");
   const [message, setMessage] = useState("");
   const [timezone, setTimezone] = useState("");
@@ -82,10 +83,12 @@ function CreateScheduleModalInner({
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const trimmedName = name.trim();
+  const trimmedDescription = description.trim();
   const trimmedExpression = expression.trim();
   const trimmedMessage = message.trim();
   const canSubmit =
     trimmedName.length > 0 &&
+    trimmedDescription.length > 0 &&
     trimmedExpression.length > 0 &&
     trimmedMessage.length > 0 &&
     !submitting;
@@ -98,6 +101,7 @@ function CreateScheduleModalInner({
     try {
       const payload: CreateSchedulePayload = {
         name: trimmedName,
+        description: trimmedDescription,
         expression: trimmedExpression,
         message: trimmedMessage,
       };
@@ -138,6 +142,16 @@ function CreateScheduleModalInner({
               required
               autoFocus
               fullWidth
+            />
+
+            <Textarea
+              label="Description"
+              placeholder="What is this schedule for?"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              required
+              fullWidth
+              rows={2}
             />
 
             <div className="flex flex-col gap-1.5">

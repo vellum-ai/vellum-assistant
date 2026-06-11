@@ -45,6 +45,7 @@ export { ApiError };
 
 export interface CreateSchedulePayload {
   name: string;
+  description: string;
   expression: string;
   message: string;
   timezone?: string | null;
