@@ -5,6 +5,7 @@ metadata:
   emoji: "\U0001F9E9"
   vellum:
     display-name: "Skill Management"
+    category: "system"
     activation-hints:
       - "User wants to scaffold a new managed skill in their workspace from a description"
       - "User wants to delete or list the custom skills they have defined"
