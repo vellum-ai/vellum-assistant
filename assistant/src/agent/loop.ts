@@ -127,6 +127,12 @@ interface CompactionAttempt {
 
 export type { AgentLoopExitReason };
 
+/**
+ * Why a mid-loop compaction ran: `"budget"` for the proactive estimate gate,
+ * `"overflow"` for recovery from a provider context-overflow rejection.
+ */
+export type CompactionTrigger = "budget" | "overflow";
+
 export type AgentEvent =
   /**
    * Emitted once per LLM call inside the loop, immediately before the
@@ -267,8 +273,30 @@ export type AgentEvent =
        * the mid-loop budget gate tripped. The daemon's event dispatcher
        * translates it into a "compacting context" activity state so clients
        * surface that the turn paused to summarize context.
+       *
+       * Carries the start-side half of the compaction record: everything the
+       * loop knows before handing the history to the compaction pipeline.
+       * The pipeline between this event and `compaction_completed` is
+       * plugin-owned, so consumers must treat the start/end pair (correlated
+       * by `compactionId`) as the complete picture of an attempt. A start
+       * event with no matching end means the pipeline threw or the turn
+       * aborted mid-compaction.
        */
       type: "context_compacting";
+      /** Correlates this start event with its `compaction_completed` pair. */
+      compactionId: string;
+      /** The turn's request id, linking the attempt to the triggering turn. */
+      requestId: string;
+      /**
+       * Why the loop compacted: `"budget"` when the proactive mid-loop
+       * estimate gate tripped, `"overflow"` when recovering from a provider
+       * context-overflow rejection via the reduction ladder.
+       */
+      trigger: CompactionTrigger;
+      /** Epoch ms when the loop began the compaction ceremony. */
+      startedAt: number;
+      /** Message count of the running history before injection stripping. */
+      preMessageCount: number;
     }
   | {
       /**
@@ -291,6 +319,17 @@ export type AgentEvent =
        * compacted result.
        */
       type: "compaction_completed";
+      /** Correlates this end event with its `context_compacting` pair. */
+      compactionId: string;
+      /** The turn's request id, linking the attempt to the triggering turn. */
+      requestId: string;
+      /** Same trigger as the paired start event, duplicated so the end
+       * event is self-sufficient for consumers that only buffer ends. */
+      trigger: CompactionTrigger;
+      /** Epoch ms when the loop began the compaction ceremony. */
+      startedAt: number;
+      /** Epoch ms when the compaction pipeline returned. */
+      finishedAt: number;
       result: ContextWindowResult;
       basis: Message[];
     }
@@ -696,7 +735,18 @@ export class AgentLoop {
     modelProfileKey: string | null,
     overflowSignal?: { actualTokens: number | null; isInteractive: boolean },
   ): Promise<CompactionAttempt> {
-    await onEvent({ type: "context_compacting" });
+    const compactionId = crypto.randomUUID();
+    const startedAt = Date.now();
+    const trigger: CompactionTrigger =
+      overflowSignal != null ? "overflow" : "budget";
+    await onEvent({
+      type: "context_compacting",
+      compactionId,
+      requestId,
+      trigger,
+      startedAt,
+      preMessageCount: history.length,
+    });
     // Strip runtime injections so the compactor summarizes the raw persistent
     // messages.
     const rawHistory = stripInjectionsForCompaction(history);
@@ -738,6 +788,11 @@ export class AgentLoop {
     // `result.compacted`.
     await onEvent({
       type: "compaction_completed",
+      compactionId,
+      requestId,
+      trigger,
+      startedAt,
+      finishedAt: Date.now(),
       result: compactResult,
       basis: rawHistory,
     });
