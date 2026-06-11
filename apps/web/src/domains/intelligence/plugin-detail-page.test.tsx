@@ -79,6 +79,7 @@ describe("PluginDetailPage", () => {
       source: { kind: "github", repo: "example-org/caveman", ref: "v1.8.2" },
       readme: "# Caveman\n\nMakes the agent speak in grunts.",
       ref: "v1.8.2",
+      artifact: null,
     });
 
     // README markdown is rendered.
@@ -104,6 +105,7 @@ describe("PluginDetailPage", () => {
       source: null,
       readme: null,
       ref: "main",
+      artifact: null,
     });
 
     expect(html).toContain("Remove");
