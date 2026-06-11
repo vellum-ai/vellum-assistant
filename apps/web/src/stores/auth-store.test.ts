@@ -545,14 +545,25 @@ describe("biometric session recovery", () => {
 });
 
 describe("connectLocalAssistant", () => {
-  test("selects the assistant, primes the connection, and logs in", async () => {
+  test("primes the connection BEFORE selecting the assistant, then logs in", async () => {
     mockIsLocalMode = true;
     mockPlatformAssistants = [];
+    // Prime must complete before the selection write becomes observable —
+    // the lifecycle's selection subscription republishes the connection
+    // synchronously on the write, with whatever token is cached.
+    const order: string[] = [];
+    primeLocalGatewayConnectionWithRepairMock.mockImplementationOnce(
+      async () => {
+        order.push("prime");
+      },
+    );
+    setSelectedAssistantMock.mockImplementationOnce(async (id) => {
+      order.push(`select:${String(id)}`);
+    });
 
     await useAuthStore.getState().connectLocalAssistant("local-a");
 
-    expect(setSelectedAssistantMock).toHaveBeenCalledWith("local-a");
-    expect(primeLocalGatewayConnectionWithRepairMock).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(["prime", "select:local-a"]);
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
     expect(useAuthStore.getState().user?.id).toBe("gateway-local");
     // No platform assistants — nothing to probe, so the status settles
@@ -560,7 +571,7 @@ describe("connectLocalAssistant", () => {
     expect(useAuthStore.getState().platformSession).toBe("absent");
   });
 
-  test("rethrows the prime failure without marking the session logged in", async () => {
+  test("rethrows the prime failure without selecting or marking the session logged in", async () => {
     mockIsLocalMode = true;
     mockPrimeError = new Error("Guardian token not found");
 
@@ -568,7 +579,8 @@ describe("connectLocalAssistant", () => {
       useAuthStore.getState().connectLocalAssistant("local-a"),
     ).rejects.toThrow("Guardian token not found");
 
-    expect(setSelectedAssistantMock).toHaveBeenCalledWith("local-a");
+    // A failed connect leaves the previous selection in place.
+    expect(setSelectedAssistantMock).not.toHaveBeenCalled();
     expect(useAuthStore.getState().sessionStatus).not.toBe("authenticated");
   });
 });

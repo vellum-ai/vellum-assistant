@@ -471,8 +471,13 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
 
   /**
    * Connect to a specific local assistant from an interactive surface (the
-   * login picker / auto-connect). Selects the assistant, primes its gateway
-   * connection, and marks the session logged in.
+   * login picker / auto-connect). Primes its gateway connection, selects the
+   * assistant, and marks the session logged in.
+   *
+   * Priming runs BEFORE the selection write: the lifecycle's selection
+   * subscription republishes the connection synchronously on the write, so
+   * the token must already be minted for the new gateway — and a failed
+   * connect leaves the previous selection in place.
    *
    * Unlike {@link AuthActions.initSession}, which is the best-effort boot
    * probe and swallows failures, this rethrows so the caller can surface the
@@ -484,8 +489,11 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
    * stays on the plain primitive so app launch never spawns daemon processes.
    */
   connectLocalAssistant: async (assistantId: string) => {
+    const target = getLocalAssistants().find(
+      (a) => a.assistantId === assistantId,
+    );
+    await primeLocalGatewayConnectionWithRepair(target);
     await setSelectedAssistant(assistantId);
-    await primeLocalGatewayConnectionWithRepair();
     set(authenticatedLocalUser());
     probePlatformSessionIfReachable(set);
   },

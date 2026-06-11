@@ -7,7 +7,6 @@ import {
   clearGatewayToken,
   ensureGatewayToken,
   getGatewayToken,
-  getLocalTokenUrl,
 } from "@/lib/auth/gateway-session";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { useLockfileStore } from "@/stores/lockfile-store";
@@ -323,12 +322,14 @@ export function gatewayProxyUrl(port: number): string {
 }
 
 /**
- * Return the local gateway proxy URL for the selected assistant, or
- * `undefined` when not in local mode / no local assistant is selected.
+ * Return the local gateway proxy URL for the given assistant (default: the
+ * selected one), or `undefined` when not in local mode / not a local
+ * assistant.
  */
-export function getLocalGatewayUrl(): string | undefined {
+export function getLocalGatewayUrl(
+  assistant: LockfileAssistant | undefined = getSelectedAssistant(),
+): string | undefined {
   if (!isLocalMode()) return undefined;
-  const assistant = getSelectedAssistant();
   if (!assistant || !isLocalAssistant(assistant)) return undefined;
   return gatewayProxyUrl(assistant.resources!.gatewayPort);
 }
@@ -338,20 +339,22 @@ export function getLocalGatewayUrl(): string | undefined {
 // ---------------------------------------------------------------------------
 
 /**
- * Acquire a gateway token and prime the self-hosted connection for the
- * selected local assistant. The guardian token and gateway exchange both ride
- * the host's local-mode transport, so this stays host-agnostic.
+ * Acquire a gateway token and prime the self-hosted connection for the given
+ * local assistant (default: the selected one). The guardian token and gateway
+ * exchange both ride the host's local-mode transport, so this stays
+ * host-agnostic. Passing `target` lets connect flows prime the NEW assistant's
+ * gateway before the selection write becomes observable, so the lifecycle's
+ * selection subscription never publishes a connection with a token minted for
+ * a different gateway.
  */
-export async function primeLocalGatewayConnection(): Promise<void> {
-  const tokenUrl = getLocalTokenUrl();
-  if (!tokenUrl) return;
-  const assistant = getSelectedAssistant();
-  const guardianToken = assistant
-    ? await fetchGuardianTokenHost(assistant.assistantId)
-    : undefined;
-  await ensureGatewayToken(tokenUrl, guardianToken);
-  const localGateway = getLocalGatewayUrl();
-  if (!localGateway) return;
+export async function primeLocalGatewayConnection(
+  target?: LockfileAssistant,
+): Promise<void> {
+  const assistant = target ?? getSelectedAssistant();
+  const localGateway = getLocalGatewayUrl(assistant);
+  if (!assistant || !localGateway) return;
+  const guardianToken = await fetchGuardianTokenHost(assistant.assistantId);
+  await ensureGatewayToken(`${localGateway}/auth/token`, guardianToken);
   setSelfHostedConnection({
     url: `${window.location.origin}${localGateway}`,
     token: getGatewayToken(),
@@ -382,16 +385,18 @@ function isRepairableConnectError(error: unknown): boolean {
  * a wake that itself fails, or a still-failing retry propagate the original
  * error so the existing connect-error UI surfaces it unchanged.
  */
-export async function primeLocalGatewayConnectionWithRepair(): Promise<void> {
+export async function primeLocalGatewayConnectionWithRepair(
+  target?: LockfileAssistant,
+): Promise<void> {
   try {
-    await primeLocalGatewayConnection();
+    await primeLocalGatewayConnection(target);
     return;
   } catch (error) {
     if (!isRepairableConnectError(error)) throw error;
-    const assistantId = getSelectedAssistant()?.assistantId;
+    const assistantId = (target ?? getSelectedAssistant())?.assistantId;
     if (!assistantId) throw error;
     const repair = await wakeLocalAssistantHost(assistantId);
     if (!repair.ok) throw error;
-    await primeLocalGatewayConnection();
+    await primeLocalGatewayConnection(target);
   }
 }
