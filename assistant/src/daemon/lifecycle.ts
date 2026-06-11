@@ -98,8 +98,8 @@ import {
   listWorkItems,
   updateWorkItem,
 } from "../work-items/work-item-store.js";
+import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-thinking-repair.js";
 import { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
-import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/migrations/097-enable-adaptive-thinking-managed-profiles.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
 import {
