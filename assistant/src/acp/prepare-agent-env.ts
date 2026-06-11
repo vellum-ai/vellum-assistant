@@ -190,18 +190,22 @@ export async function prepareAgentEnv(
       "Gemini API key for ACP agent authentication",
     );
   } else if (adapterCommand === "codex-acp") {
-    await injectOptionalCredential(
-      env,
-      "openai_api_key",
-      "OPENAI_API_KEY",
-      "OpenAI API key for Codex ACP agent authentication",
-    );
-    await injectOptionalCredential(
-      env,
-      "codex_api_key",
-      "CODEX_API_KEY",
-      "Codex API key for Codex ACP agent authentication",
-    );
+    // The two reads target independent vault fields and write disjoint env
+    // keys, so running them concurrently is safe.
+    await Promise.all([
+      injectOptionalCredential(
+        env,
+        "openai_api_key",
+        "OPENAI_API_KEY",
+        "OpenAI API key for Codex ACP agent authentication",
+      ),
+      injectOptionalCredential(
+        env,
+        "codex_api_key",
+        "CODEX_API_KEY",
+        "Codex API key for Codex ACP agent authentication",
+      ),
+    ]);
   }
 
   return { ...agentConfig, env };

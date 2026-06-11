@@ -163,21 +163,8 @@ export class AcpAgentProcess {
    * Authentication methods the agent advertised at initialize.
    * Returns an empty array before initialize() resolves.
    */
-  get authMethods(): AuthMethod[] {
+  private get authMethods(): AuthMethod[] {
     return this.initializeResponse?.authMethods ?? [];
-  }
-
-  /**
-   * Authenticates with the agent using one of its advertised auth methods.
-   */
-  async authenticate(methodId: string): Promise<void> {
-    if (!this.connection) {
-      throw new Error(`ACP agent "${this.agentId}" is not spawned`);
-    }
-
-    log.info({ agentId: this.agentId, methodId }, "Authenticating ACP agent");
-
-    await this.connection.authenticate({ methodId });
   }
 
   /**
@@ -235,7 +222,7 @@ export class AcpAgentProcess {
         "ACP agent returned auth_required; authenticating with env_var method",
       );
 
-      await this.authenticate(method.id);
+      await this.connection!.authenticate({ methodId: method.id });
       return await op();
     }
   }
