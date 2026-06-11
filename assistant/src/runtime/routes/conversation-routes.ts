@@ -2262,25 +2262,21 @@ async function generateLlmSuggestion(
   // early-termination hint; the parser below handles both tagged and
   // untagged responses so untagged "casual answer" replies still work.
   //
-  // Force `thinking: disabled` + `effort: none` so the call works on any
-  // user profile — including thinking-enabled profiles (Opus 4.x at
-  // `effort: high|xhigh`, etc.) where Anthropic 400s on `temperature` ≠ 1
-  // when thinking is enabled or in adaptive mode. A 60-token reply chip
-  // doesn't benefit from extended thinking anyway, and burning thinking
-  // tokens here would be wasteful.
+  // max_tokens (60), temperature, `effort: none`, and thinking-disabled live
+  // in the `replySuggestion` call-site defaults (see call-site-defaults.ts) so
+  // the call works on any user profile — including thinking-enabled profiles
+  // (Opus 4.x at `effort: high|xhigh`, etc.) where Anthropic 400s on
+  // `temperature` ≠ 1 when thinking is enabled or in adaptive mode.
   const response = await provider.sendMessage(
     [{ role: "user", content: [{ type: "text", text: userPrompt }] }],
     {
       tools: [],
       // no tools
       systemPrompt,
+      // `stop_sequences` is a genuine per-request hint, not call-site tuning.
       config: {
         callSite: "replySuggestion",
-        max_tokens: 60,
         stop_sequences: ["</reply>"],
-        temperature: 0.7,
-        thinking: { type: "disabled" },
-        effort: "none",
       },
     },
   );

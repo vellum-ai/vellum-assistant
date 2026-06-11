@@ -849,14 +849,13 @@ describe("runAgenticRecall", () => {
     });
   });
 
-  test("routes provider calls through the recall call site with temperature zero and thinking disabled", async () => {
-    // `thinking: disabled` is required because the call hardcodes
-    // `temperature: 0`. Anthropic 400s on `temperature` ≠ 1 whenever
-    // thinking is enabled or in adaptive mode, so user profiles that
-    // resolve thinking-enabled (Opus 4.x at `effort: high|xhigh`, etc.)
-    // would fail without an explicit opt-out. Recall is tool-call-heavy
-    // reasoning where determinism (temp=0) matters more than extended
-    // chain-of-thought.
+  test("routes provider calls through the recall call site", async () => {
+    // M4: `temperature: 0` + thinking-disabled now live in the `recall`
+    // CALL_SITE_DEFAULTS entry, so the call site passes only `callSite:
+    // "recall"`. The resolved tuning reaching the wire (temp 0 + disabled
+    // thinking, which Anthropic requires together) is covered by
+    // providers/__tests__/retry-callsite.test.ts. Here we just assert the
+    // recall call site is used and no stray per-call config is added.
     const providerCalls: unknown[][] = [];
     configuredProvider = makeProvider(
       [textResponse("not a tool call")],
@@ -882,19 +881,14 @@ describe("runAgenticRecall", () => {
     const options = providerCalls[0]?.[1] as {
       config?: Record<string, unknown>;
     };
-    expect(options.config).toEqual({
-      callSite: "recall",
-      temperature: 0,
-      thinking: { type: "disabled" },
-    });
+    expect(options.config).toEqual({ callSite: "recall" });
   });
 
-  test("final finish-only call also disables thinking", async () => {
-    // Regression guard for the second `temperature: 0` call site in
-    // `tryFinalFinishRecall`. Both recall provider calls (the agent loop
-    // round and the fallback finalize) must opt out of thinking; otherwise
-    // user profiles that resolve thinking-enabled trigger the Anthropic
-    // 400 on `temperature` ≠ 1.
+  test("final finish-only call also routes through the recall call site", async () => {
+    // Companion to the test above for the second recall provider call in
+    // `tryFinalFinishRecall` (the fallback finalize). M4 moved its tuning into
+    // the `recall` CALL_SITE_DEFAULTS entry too, so both calls now pass only
+    // `callSite: "recall"`.
     const providerCalls: unknown[][] = [];
     configuredProvider = makeProvider(
       [
@@ -934,10 +928,6 @@ describe("runAgenticRecall", () => {
     const finalizeOptions = providerCalls[1]?.[1] as {
       config?: Record<string, unknown>;
     };
-    expect(finalizeOptions.config).toEqual({
-      callSite: "recall",
-      temperature: 0,
-      thinking: { type: "disabled" },
-    });
+    expect(finalizeOptions.config).toEqual({ callSite: "recall" });
   });
 });

@@ -299,6 +299,9 @@ async function handleDictation(body: DictationBody): Promise<DictationResult> {
           systemPrompt,
           config: {
             callSite: "interactionClassifier",
+            // call-site-tuning:allow — reason: max_tokens scales with the
+            // transcription length (computeMaxTokens), so this is a genuine
+            // per-request value, not a static cap that belongs in defaults.
             max_tokens: maxTokens,
             tool_choice: {
               type: "tool" as const,
@@ -410,6 +413,9 @@ async function handleCommandMode(
       {
         tools: [],
         systemPrompt,
+        // call-site-tuning:allow — reason: max_tokens scales with the
+        // transcription length (computeMaxTokens), so this is a genuine
+        // per-request value, not a static cap that belongs in defaults.
         config: { callSite: "interactionClassifier", max_tokens: maxTokens },
       },
     );

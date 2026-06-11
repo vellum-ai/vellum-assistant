@@ -18,7 +18,6 @@ import { memorySegments, memorySummaries } from "../schema.js";
 const log = getLogger("memory-jobs-worker");
 
 const SUMMARY_LLM_TIMEOUT_MS = 20_000;
-const SUMMARY_MAX_TOKENS = 1000;
 
 const CONVERSATION_SUMMARY_SYSTEM_PROMPT = [
   "You compress conversation transcripts into compact summaries for semantic search and memory retrieval.",
@@ -184,7 +183,6 @@ async function summarizeWithLLM(
           systemPrompt,
           config: {
             callSite: "conversationSummarization" as const,
-            max_tokens: SUMMARY_MAX_TOKENS,
           },
           signal,
         },

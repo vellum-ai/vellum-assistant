@@ -189,7 +189,6 @@ async function handleSuggestTrustRule({
         systemPrompt: SYSTEM_PROMPT,
         config: {
           callSite: "trustRuleSuggestion",
-          max_tokens: 512,
           tool_choice: { type: "tool" as const, name: "suggest_trust_rule" },
         },
         signal,

@@ -336,8 +336,6 @@ Bad → Good (incomplete phrase → complete):
         systemPrompt,
         config: {
           callSite: "conversationStarters" as const,
-          max_tokens: 2048,
-          temperature: 0.7,
           tool_choice: {
             type: "tool" as const,
             name: "store_conversation_starters",

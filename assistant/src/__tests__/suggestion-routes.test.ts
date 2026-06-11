@@ -102,6 +102,7 @@ mock.module("../daemon/handlers/shared.js", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
+import { CALL_SITE_DEFAULTS } from "../config/call-site-defaults.js";
 import { handleGetSuggestion } from "../runtime/routes/conversation-routes.js";
 
 // ---------------------------------------------------------------------------
@@ -405,7 +406,7 @@ describe("GET /v1/suggestion", () => {
     expect(body.suggestion).toBe("sounds good");
   });
 
-  test("passes stop_sequences, max_tokens, and XML-framed user prompt", async () => {
+  test("passes stop_sequences and XML-framed user prompt", async () => {
     const provider = makeMockProvider("on my way");
     mockGetConfiguredProvider.mockImplementation(async () => provider);
     mockGetConversationByKey.mockImplementation(() => ({
@@ -445,14 +446,16 @@ describe("GET /v1/suggestion", () => {
     const options = callArgs[1] as {
       config?: {
         stop_sequences?: string[];
-        max_tokens?: number;
       };
     };
 
     expect(messages.length).toBe(1);
     expect(messages[0].role).toBe("user");
+    // `stop_sequences` is a genuine per-request hint and stays inline. The
+    // `max_tokens: 60` cap moved into the `replySuggestion` CALL_SITE_DEFAULTS
+    // entry (M4); its flow to the wire is covered in
+    // providers/__tests__/retry-callsite.test.ts.
     expect(options.config?.stop_sequences).toEqual(["</reply>"]);
-    expect(options.config?.max_tokens).toBe(60);
     expect(messages[0].content[0].text).toContain("<assistant_message>");
     expect(messages[0].content[0].text).toContain("<user_message>");
   });
@@ -563,50 +566,23 @@ describe("GET /v1/suggestion", () => {
     expect(options?.config?.callSite).toBe("replySuggestion");
   });
 
-  test("disables thinking and zeros effort to avoid Anthropic temp/thinking 400", async () => {
-    // Regression guard: this call hardcodes `temperature: 0.7` for response
-    // variety. Anthropic 400s on `temperature` ≠ 1 whenever thinking is
-    // enabled or in adaptive mode, so any user profile that resolves
-    // thinking-enabled (Opus 4.x at `effort: high|xhigh`, etc.) would fail
-    // unless we explicitly opt out of thinking on this call site.
+  test("replySuggestion defaults disable thinking + zero effort to avoid Anthropic temp/thinking 400", () => {
+    // Regression guard: the `replySuggestion` call site uses `temperature: 0.7`
+    // for response variety. Anthropic 400s on `temperature` ≠ 1 whenever
+    // thinking is enabled or in adaptive mode, so any user profile that
+    // resolves thinking-enabled (Opus 4.x at `effort: high|xhigh`, etc.) would
+    // fail unless the call site opts out of thinking.
     //
-    // Pinning `thinking: { type: "disabled" }` and `effort: "none"` ensures
-    // the call works on every profile shape. A 60-token reply chip doesn't
-    // benefit from extended thinking anyway.
-    const provider = makeMockProvider("Quick reply");
-    mockGetConfiguredProvider.mockImplementation(async () => provider);
-    mockGetConversationByKey.mockImplementation(() => ({
-      conversationId: "conv-test",
-    }));
-    mockGetMessages.mockImplementation(() => [
-      {
-        id: "msg-asst-thinking",
-        conversationId: "conv-test",
-        role: "assistant",
-        content: JSON.stringify([{ type: "text", text: "Hello!" }]),
-        createdAt: Date.now(),
-        metadata: null,
-      },
-    ]);
-
-    const args = makeArgs({ conversationKey: "test-key" });
-    const deps = makeDeps();
-    await handleGetSuggestion(args, deps);
-
-    expect(provider.sendMessage).toHaveBeenCalledTimes(1);
-    const callArgs = provider.sendMessage.mock.calls[0] as unknown[];
-    const options = callArgs[1] as
-      | {
-          config?: {
-            temperature?: number;
-            thinking?: { type?: string };
-            effort?: string;
-          };
-        }
-      | undefined;
-    expect(options?.config?.temperature).toBe(0.7);
-    expect(options?.config?.thinking).toEqual({ type: "disabled" });
-    expect(options?.config?.effort).toBe("none");
+    // M4 moved these knobs out of the inline `sendMessage` config and into the
+    // `replySuggestion` CALL_SITE_DEFAULTS entry, so this guard now asserts on
+    // the source of truth. Their flow to the wire (and the temp/thinking
+    // conflict backstop) is covered by retry-callsite.test.ts. A 60-token reply
+    // chip gains nothing from extended thinking anyway.
+    const replySuggestion = CALL_SITE_DEFAULTS.replySuggestion;
+    expect(replySuggestion.maxTokens).toBe(60);
+    expect(replySuggestion.temperature).toBe(0.7);
+    expect(replySuggestion.effort).toBe("none");
+    expect(replySuggestion.thinking?.enabled).toBe(false);
   });
 
   test("does not send an assistant-role prefill message", async () => {

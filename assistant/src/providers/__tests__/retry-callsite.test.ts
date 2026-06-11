@@ -538,6 +538,89 @@ describe("RetryProvider — callSite resolution", () => {
     expect(config.thinking).toEqual({ type: "adaptive" });
   });
 
+  // ── M4: call-site-defaults tuning reaches the wire ─────────────────────────
+  //
+  // After M4, per-site `max_tokens`/`temperature` live in CALL_SITE_DEFAULTS
+  // instead of being hardcoded inline at each `sendMessage` call. These two
+  // tests pin the contract that makes that safe: (1) the default value still
+  // reaches the wire when no user override exists (behavior preserved), and
+  // (2) a `llm.callSites.<id>` override now actually changes the wire value
+  // (the bug the migration fixes — an inline literal used to clobber it).
+
+  test("CALL_SITE_DEFAULTS max_tokens reaches the wire with no user override", async () => {
+    // No `callSites.preferenceExtraction` — the resolver must fall through to
+    // CALL_SITE_DEFAULTS, where M4 moved `maxTokens: 1024`.
+    setLlmConfig({
+      default: { provider: "anthropic", model: "claude-default" },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "preferenceExtraction" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.max_tokens).toBe(1024);
+  });
+
+  test("llm.callSites.<id>.maxTokens override now changes the wire value", async () => {
+    // The bug being fixed: before M4, `preferenceExtraction` hardcoded
+    // `max_tokens: 1024` inline, so this operator override silently no-op'd.
+    // Now the override must win.
+    setLlmConfig({
+      default: { provider: "anthropic", model: "claude-default" },
+      callSites: {
+        preferenceExtraction: { maxTokens: 9999 },
+      },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "preferenceExtraction" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.max_tokens).toBe(9999);
+  });
+
+  test("memoryRetrieval default yields temperature 0 + disabled thinking on the wire", async () => {
+    // retriever.ts used to pass `{ temperature: 0, thinking: { type: "disabled" } }`
+    // inline; M4 moved both into the `memoryRetrieval` CALL_SITE_DEFAULTS entry.
+    // With no inline override, the resolved default must still produce the same
+    // wire shape — and `temperature: 0` must survive because thinking is
+    // disabled (the conflict guard would otherwise drop it).
+    setLlmConfig({
+      default: { provider: "anthropic", model: "claude-default" },
+    });
+
+    let seen: SendMessageOptions | undefined;
+    const wrapped = new RetryProvider(
+      makeProvider("anthropic", (options) => {
+        seen = options;
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "memoryRetrieval" },
+    });
+
+    const config = seen?.config as Record<string, unknown>;
+    expect(config.temperature).toBe(0);
+    expect(config.thinking).toEqual({ type: "disabled" });
+  });
+
   test("explicit per-call config.model wins over resolved callSite model", async () => {
     setLlmConfig({
       default: { provider: "anthropic", model: "resolved-model" },
