@@ -136,6 +136,40 @@ export function isValidScheduleExpression(spec: ScheduleSpec): boolean {
 }
 
 /**
+ * Detect whether an RRULE expression fires exactly once — a single RRULE
+ * with COUNT=1 and no set constructs. Such schedules are semantically
+ * one-shots even though they carry a recurrence expression.
+ */
+export function isSingleFireRRule(expression: string): boolean {
+  try {
+    const normalized = normalizeRruleExpression(expression);
+    if (hasSetConstructs(normalized)) return false;
+    const rule = rrulestr(normalized);
+    return !(rule instanceof RRuleSet) && rule.options.count === 1;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Human-readable description of an RRULE expression for display surfaces.
+ * Single-fire rules read as "One-time"; rules the library cannot express
+ * fall back to "Custom recurrence" rather than leaking raw iCalendar text.
+ */
+export function describeRRuleExpression(expression: string): string {
+  if (isSingleFireRRule(expression)) return "One-time";
+  try {
+    const normalized = normalizeRruleExpression(expression);
+    if (hasSetConstructs(normalized)) return "Custom recurrence";
+    const text = rrulestr(normalized).toText();
+    if (!text) return "Custom recurrence";
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  } catch {
+    return "Custom recurrence";
+  }
+}
+
+/**
  * Compute the next run timestamp (epoch ms) for a schedule expression.
  * Throws if no future runs exist.
  */
