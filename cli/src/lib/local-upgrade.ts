@@ -177,8 +177,15 @@ export async function upgradeLocal(
     await sleepLocalAssistant(entry, { force: false });
   } catch (err) {
     // A call lease may have appeared between the check above and the sleep.
+    // The `starting` event already went out, so close the update UI on
+    // connected clients before exiting.
     const detail = err instanceof Error ? err.message : String(err);
     console.error(`Error: ${detail}`);
+    await broadcastUpgradeEvent(
+      entry.runtimeUrl,
+      entry.assistantId,
+      buildCompleteEvent(tag, false),
+    );
     emitCliError("UNKNOWN", detail);
     process.exit(1);
   }
