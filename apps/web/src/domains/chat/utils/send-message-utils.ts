@@ -8,6 +8,7 @@
 import { isSurfaceInteractive, type DisplayMessage } from "@/domains/chat/types/types";
 
 import { attachConfirmationToToolCall, ERROR_MESSAGES } from "@/domains/chat/utils/chat";
+import { mapMessageToolCalls } from "@/domains/chat/utils/map-message-tool-calls";
 import type { PendingConfirmationState, PendingSecretState } from "@/domains/chat/types";
 import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 
@@ -39,20 +40,15 @@ export function clearConfirmationByRequestId(
 ): DisplayMessage[] {
   let anyChanged = false;
   const updated = prev.map((msg) => {
-    if (!msg.toolCalls) return msg;
-    let msgChanged = false;
-    const updatedTcs = msg.toolCalls.map((tc) => {
-      if (tc.pendingConfirmation?.requestId === requestId) {
-        msgChanged = true;
-        return { ...tc, pendingConfirmation: undefined };
-      }
-      return tc;
-    });
-    if (msgChanged) {
+    const next = mapMessageToolCalls(msg, (tc) =>
+      tc.pendingConfirmation?.requestId === requestId
+        ? { ...tc, pendingConfirmation: undefined }
+        : tc,
+    );
+    if (next !== msg) {
       anyChanged = true;
-      return { ...msg, toolCalls: updatedTcs };
     }
-    return msg;
+    return next;
   });
   return anyChanged ? updated : prev;
 }
@@ -66,20 +62,15 @@ export function clearPendingConfirmationsFromMessages(
 ): DisplayMessage[] {
   let anyChanged = false;
   const updated = prev.map((msg) => {
-    if (!msg.toolCalls) return msg;
-    let msgChanged = false;
-    const updatedTcs = msg.toolCalls.map((tc) => {
-      if (tc.pendingConfirmation) {
-        msgChanged = true;
-        return { ...tc, pendingConfirmation: undefined };
-      }
-      return tc;
-    });
-    if (msgChanged) {
+    const next = mapMessageToolCalls(msg, (tc) =>
+      tc.pendingConfirmation
+        ? { ...tc, pendingConfirmation: undefined }
+        : tc,
+    );
+    if (next !== msg) {
       anyChanged = true;
-      return { ...msg, toolCalls: updatedTcs };
     }
-    return msg;
+    return next;
   });
   return anyChanged ? updated : prev;
 }

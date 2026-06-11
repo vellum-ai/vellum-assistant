@@ -8,8 +8,6 @@ import { PendingConfirmationRow } from "@/domains/chat/transcript/pending-confir
 import { PendingContactRequestRow } from "@/domains/chat/transcript/pending-contact-request-row";
 import { PendingSecretRow } from "@/domains/chat/transcript/pending-secret-row";
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
-import { TranscriptMessageContent } from "@/domains/chat/transcript/transcript-message-content";
-import { getRenderFromContentBlocks } from "@/lib/backwards-compat/content-blocks-render-flag";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
@@ -90,16 +88,8 @@ export const TranscriptRow = memo(function TranscriptRow({
 }: TranscriptRowProps) {
   switch (item.kind) {
     case "message": {
-      // Single render seam: read the flag once so the whole row commits to one
-      // source of truth — the blocks-driven walk (`TranscriptMessageContent`)
-      // or the positional walk (`TranscriptMessageBody`). The two are
-      // independent React trees with no per-read `block ?? positional`
-      // fallback, so flipping the flag is an apples-to-apples QA switch.
-      const MessageBody = getRenderFromContentBlocks()
-        ? TranscriptMessageContent
-        : TranscriptMessageBody;
       return (
-        <MessageBody
+        <TranscriptMessageBody
           message={item.message}
           assistantDisplayName={assistantDisplayName}
           onSurfaceAction={onSurfaceAction}

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Loader2, Play } from "lucide-react";
+import { ArrowLeft, Loader2, Play, Settings } from "lucide-react";
 
 import { DetailCard } from "@/components/detail-card";
 import {
@@ -9,6 +9,7 @@ import {
 import { RecentRunsCard } from "@/domains/settings/components/recent-runs-card";
 import { formatTimestamp } from "@/domains/settings/utils/schedule-formatters";
 import { Button } from "@vellumai/design-library/components/button";
+import { Notice } from "@vellumai/design-library/components/notice";
 import { Tag } from "@vellumai/design-library/components/tag";
 
 import type { SystemTaskKind } from "@/domains/settings/types/schedules";
@@ -24,6 +25,7 @@ interface SystemTaskDetailViewProps {
   isRunning: boolean;
   onBack: () => void;
   onRunNow: () => void;
+  onOpenMemorySettings?: () => void;
 }
 
 export function SystemTaskDetailView({
@@ -37,7 +39,11 @@ export function SystemTaskDetailView({
   isRunning,
   onBack,
   onRunNow,
+  onOpenMemorySettings,
 }: SystemTaskDetailViewProps) {
+  const isConsolidationPaused = kind === "consolidation" && !enabled;
+  const runNowDisabled = isRunning || isConsolidationPaused;
+
   const { data: runs, isLoading } = useQuery({
     queryKey: ["system-task-runs", assistantId, kind],
     queryFn: () =>
@@ -64,6 +70,16 @@ export function SystemTaskDetailView({
         accessory={
           <div className="flex items-center gap-2">
             <Tag tone="neutral">system</Tag>
+            {kind === "consolidation" && onOpenMemorySettings ? (
+              <Button
+                variant="outlined"
+                size="compact"
+                leftIcon={<Settings className="h-3.5 w-3.5" />}
+                onClick={onOpenMemorySettings}
+              >
+                Memory settings
+              </Button>
+            ) : null}
             <Button
               variant="outlined"
               size="compact"
@@ -75,9 +91,13 @@ export function SystemTaskDetailView({
                 )
               }
               onClick={onRunNow}
-              disabled={isRunning}
+              disabled={runNowDisabled}
             >
-              {isRunning ? "Running…" : "Run now"}
+              {isRunning
+                ? "Running…"
+                : isConsolidationPaused
+                  ? "Paused"
+                  : "Run now"}
             </Button>
           </div>
         }
@@ -96,6 +116,13 @@ export function SystemTaskDetailView({
             <span>{formatTimestamp(lastRunAt)}</span>
           </div>
         </div>
+        {kind === "consolidation" ? (
+          <Notice tone={enabled ? "info" : "warning"} className="mt-4">
+            {enabled
+              ? "Consolidation is managed by Memory. To turn off consolidation, disable Memory as a whole."
+              : "Memory is off, so consolidation is paused. Turn Memory back on to resume consolidation."}
+          </Notice>
+        ) : null}
       </DetailCard>
 
       <RecentRunsCard runs={runs} isLoading={isLoading} />

@@ -84,6 +84,16 @@ export function getDisablePlatform(): boolean {
 }
 
 /**
+ * VELLUM_DEVICE_ID — string, default: undefined
+ * Host-stable device id injected by the CLI into containerized deployments,
+ * where the container fs cannot persist device.json across recreation.
+ * Takes precedence over device.json resolution in util/device-id.ts.
+ */
+export function getDeviceIdOverride(): string | undefined {
+  return str("VELLUM_DEVICE_ID");
+}
+
+/**
  * VELLUM_WORKSPACE_DIR — string, default: undefined
  * Overrides the default workspace directory.
  * Used in containerized deployments where the workspace is a separate volume.
@@ -202,6 +212,7 @@ const KNOWN_VELLUM_VARS = new Set([
   "VELLUM_DEBUG",
   "VELLUM_DESKTOP_APP",
   "VELLUM_DEV",
+  "VELLUM_DEVICE_ID",
   "VELLUM_DISABLE_PLATFORM",
   "VELLUM_DOCS_BASE_URL",
   "VELLUM_ENVIRONMENT",

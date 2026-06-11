@@ -307,6 +307,11 @@ declare global {
         set(key: string, accelerator: string | null): Promise<void>;
         onChange(callback: (catalog: ResolvedHotkey[]) => void): () => void;
       };
+      // Optional: older Electron shells predate the launch-at-login channel.
+      launchAtLogin?: {
+        get(): Promise<boolean>;
+        set(enabled: boolean): Promise<void>;
+      };
       featureFlags?: {
         set(flags: Record<string, boolean>): void;
       };
@@ -359,6 +364,7 @@ declare global {
         ): Promise<LockfileWriteResult>;
         replacePlatformAssistants(
           platformAssistants: Array<Record<string, unknown>>,
+          organizationId?: string,
         ): Promise<LockfileWriteResult>;
         retire(assistantId: string): Promise<{ ok: boolean; error?: string }>;
         // Optional: older Electron shells predate the wake IPC channel. The

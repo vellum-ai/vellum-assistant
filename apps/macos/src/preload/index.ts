@@ -336,6 +336,10 @@ export interface VellumBridge {
      */
     onChange(callback: (catalog: ResolvedHotkey[]) => void): () => void;
   };
+  launchAtLogin: {
+    get(): Promise<boolean>;
+    set(enabled: boolean): Promise<void>;
+  };
   featureFlags: {
     /** Publish the renderer's feature-flag map to main (fire-and-forget). */
     set(flags: Record<string, boolean>): void;
@@ -452,12 +456,15 @@ export interface VellumBridge {
       activeAssistant?: string,
     ): Promise<LockfileWriteResult>;
     /**
-     * Replace every platform (`cloud === "vellum"`) assistant in the lockfile
-     * with the provided set, preserving local assistants. Resolves with the
-     * updated, stripped lockfile on success or `{ ok: false, error }`.
+     * Replace the platform (`cloud === "vellum"`) assistants in the lockfile
+     * with the provided set, preserving local assistants. When `organizationId`
+     * is given, only that org's platform entries are replaced; omitting it does
+     * the legacy full replace. Resolves with the updated, stripped lockfile on
+     * success or `{ ok: false, error }`.
      */
     replacePlatformAssistants(
       platformAssistants: Array<Record<string, unknown>>,
+      organizationId?: string,
     ): Promise<LockfileWriteResult>;
     /**
      * Retire a local assistant via the Vellum CLI's `retire`. Mirrors
@@ -718,6 +725,12 @@ const bridge: VellumBridge = {
       };
     },
   },
+  launchAtLogin: {
+    get: (): Promise<boolean> =>
+      ipcRenderer.invoke("vellum:launchAtLogin:get") as Promise<boolean>,
+    set: (enabled: boolean): Promise<void> =>
+      ipcRenderer.invoke("vellum:launchAtLogin:set", enabled) as Promise<void>,
+  },
   featureFlags: {
     set: (flags: Record<string, boolean>): void => {
       ipcRenderer.send("vellum:featureFlags:set", flags);
@@ -826,10 +839,12 @@ const bridge: VellumBridge = {
       ) as Promise<LockfileWriteResult>,
     replacePlatformAssistants: (
       platformAssistants: Array<Record<string, unknown>>,
+      organizationId?: string,
     ) =>
       ipcRenderer.invoke(
         "vellum:localMode:replacePlatformAssistants",
         platformAssistants,
+        organizationId,
       ) as Promise<LockfileWriteResult>,
     wake: (assistantId: string) =>
       ipcRenderer.invoke("vellum:localMode:wake", assistantId) as Promise<{

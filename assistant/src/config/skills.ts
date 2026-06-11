@@ -46,6 +46,7 @@ const VellumMetadataSchema = z
     "feature-flag": z.string().optional(),
     "activation-hints": z.array(z.string()).optional(),
     "avoid-when": z.array(z.string()).optional(),
+    category: z.string().optional(),
   })
   .passthrough();
 
@@ -106,6 +107,8 @@ export interface SkillSummary {
   activationHints?: string[];
   /** Conditions under which this skill should NOT be loaded. */
   avoidWhen?: string[];
+  /** Category slug declared in frontmatter, used as a fallback when the skill is not in the Vellum catalog. */
+  category?: string;
   /** Parsed inline command expansion descriptors (`!\`command\``) found in the skill body. */
   inlineCommandExpansions?: InlineCommandExpansion[];
 }
@@ -223,6 +226,7 @@ interface ParsedFrontmatter {
   featureFlag?: string;
   activationHints?: string[];
   avoidWhen?: string[];
+  category?: string;
   inlineCommandExpansions?: InlineCommandExpansion[];
 }
 
@@ -333,6 +337,11 @@ function parseFrontmatter(
   const activationHints = normalizeStringArray(vellum?.["activation-hints"]);
   const avoidWhen = normalizeStringArray(vellum?.["avoid-when"]);
 
+  const category =
+    typeof vellum?.category === "string" && vellum.category.trim().length > 0
+      ? vellum.category.trim()
+      : undefined;
+
   const strippedBody = stripCommentLines(body);
 
   // Parse inline command expansions from the body (after frontmatter/comment stripping)
@@ -356,6 +365,7 @@ function parseFrontmatter(
     featureFlag,
     activationHints,
     avoidWhen,
+    category,
     inlineCommandExpansions,
   };
 }
@@ -512,6 +522,7 @@ function readSkillFromDirectory(
       featureFlag: parsed.featureFlag,
       activationHints: parsed.activationHints,
       avoidWhen: parsed.avoidWhen,
+      category: parsed.category,
       inlineCommandExpansions: parsed.inlineCommandExpansions,
     };
   } catch (err) {
@@ -564,6 +575,7 @@ function readBundledSkillFromDirectory(
       featureFlag: parsed.featureFlag,
       activationHints: parsed.activationHints,
       avoidWhen: parsed.avoidWhen,
+      category: parsed.category,
       inlineCommandExpansions: parsed.inlineCommandExpansions,
     };
   } catch (err) {
@@ -624,6 +636,7 @@ function loadBundledSkills(): SkillSummary[] {
       featureFlag: skill.featureFlag,
       activationHints: skill.activationHints,
       avoidWhen: skill.avoidWhen,
+      category: skill.category,
       inlineCommandExpansions: skill.inlineCommandExpansions,
     });
   }
@@ -750,6 +763,7 @@ function skillSummaryFromDefinition(
     featureFlag: skill.featureFlag,
     activationHints: skill.activationHints,
     avoidWhen: skill.avoidWhen,
+    category: skill.category,
     inlineCommandExpansions: skill.inlineCommandExpansions,
   };
 }
@@ -803,6 +817,7 @@ export function loadSkillCatalog(
             featureFlag: parsed.featureFlag,
             activationHints: parsed.activationHints,
             avoidWhen: parsed.avoidWhen,
+            category: parsed.category,
             inlineCommandExpansions: parsed.inlineCommandExpansions,
           });
         } catch (err) {
@@ -938,6 +953,7 @@ export function loadSkillCatalog(
           featureFlag: parsed.featureFlag,
           activationHints: parsed.activationHints,
           avoidWhen: parsed.avoidWhen,
+          category: parsed.category,
           inlineCommandExpansions: parsed.inlineCommandExpansions,
         };
 

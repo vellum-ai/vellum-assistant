@@ -17,8 +17,9 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantQuery } from "@/assistant/queries";
+import { resolveSelectedAssistantId } from "@/assistant/selection";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
-import { isLocalMode } from "@/lib/local-mode";
+import { getLocalAssistants, isLocalMode } from "@/lib/local-mode";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { isAuthenticated, type SessionStatus } from "@/stores/session-status";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -52,19 +53,32 @@ export function useAssistantLifecycle({
     isOrgReady;
 
   // Which platform assistant the user has selected, gated by the
-  // multi-platform-assistant flag. When the flag is off (or no
-  // selection) this stays null, so the resolution falls back to the
-  // default first-listed assistant — identical to the
-  // pre-multi-assistant behavior.
+  // multi-platform-assistant flag. When the flag is off this stays null,
+  // so the resolution falls back to the default first-listed assistant —
+  // identical to the pre-multi-assistant behavior. Subscribe to the cache
+  // and resolved list so the hook re-renders when either changes, then
+  // resolve through the unified resolver (per-org cache → validate for org
+  // → lockfile activeAssistant → first valid).
   const multiAssistantEnabled =
     useClientFeatureFlagStore.use.multiPlatformAssistant();
-  const byOrg =
-    useResolvedAssistantsStore.use.selectedPlatformAssistantByOrg();
+  useResolvedAssistantsStore.use.selectedPlatformAssistantByOrg();
+  // Subscribe so the hook re-renders (and the lockfile-local check below
+  // re-evaluates) when the resolved list / lockfile change.
+  useResolvedAssistantsStore.use.assistants();
+  const resolvedSelectionId =
+    multiAssistantEnabled && !isGatewayAuthMode() && currentOrganizationId
+      ? resolveSelectedAssistantId(currentOrganizationId)
+      : null;
+  // Keep only lockfile-only LOCAL assistants off the platform retrieve path:
+  // they're gateway-based, never registered on the platform, so getAssistant(id)
+  // 404s. Managed AND platform self-hosted (API `is_local`) assistants ARE valid
+  // there — the lifecycle's projectSelfHosted handles the self-hosted response —
+  // and unknown ids (only ever the per-org platform cache) pass through for the
+  // 404 net.
   const selectedPlatformAssistantId =
-    multiAssistantEnabled &&
-    !isGatewayAuthMode() &&
-    currentOrganizationId
-      ? (byOrg[currentOrganizationId] ?? null)
+    resolvedSelectionId &&
+    !getLocalAssistants().some((a) => a.assistantId === resolvedSelectionId)
+      ? resolvedSelectionId
       : null;
 
   const { data: assistantResult } = useAssistantQuery({

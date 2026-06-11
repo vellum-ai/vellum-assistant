@@ -351,7 +351,8 @@ function toSlimSkillResponse(
   const origin = deriveOrigin(kind, summary.directoryPath, installMeta);
   const status: SlimSkillResponse["status"] = state;
 
-  const category = getCatalogCategoryMap().get(summary.id) ?? "system";
+  const category =
+    getCatalogCategoryMap().get(summary.id) ?? summary.category ?? "system";
   const base = {
     id: summary.id,
     name: summary.displayName,

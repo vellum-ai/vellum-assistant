@@ -14,9 +14,15 @@ export interface ToolInvocationRecord {
   decision: string;
   riskLevel: string;
   matchedTrustRuleId?: string;
-  /** Id of the skill whose `skill_execute` dispatch triggered this tool call. Absent for direct tool calls. */
-  skillId?: string;
   durationMs: number;
+  /** Serialized input size in bytes, computed before any redaction. */
+  argBytes?: number | null;
+  /** Full serialized result size in bytes, computed before truncation/redaction. */
+  resultBytes?: number | null;
+  provider?: string | null;
+  model?: string | null;
+  inferenceProfile?: string | null;
+  inferenceProfileSource?: string | null;
 }
 
 export function recordToolInvocation(record: ToolInvocationRecord): void {
@@ -31,9 +37,14 @@ export function recordToolInvocation(record: ToolInvocationRecord): void {
       decision: record.decision,
       riskLevel: record.riskLevel,
       matchedTrustRuleId: record.matchedTrustRuleId,
-      skillId: record.skillId,
       durationMs: record.durationMs,
       createdAt: Date.now(),
+      argBytes: record.argBytes,
+      resultBytes: record.resultBytes,
+      provider: record.provider,
+      model: record.model,
+      inferenceProfile: record.inferenceProfile,
+      inferenceProfileSource: record.inferenceProfileSource,
     })
     .run();
 }

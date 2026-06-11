@@ -16,6 +16,7 @@ import {
   platformPollJobStatus,
 } from "../lib/platform-client.js";
 import { performDockerRollback } from "../lib/upgrade-lifecycle.js";
+import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
 
 function printUsage(): void {
   console.log(
@@ -588,7 +589,7 @@ export async function restore(): Promise<void> {
 
     let response: Response;
     try {
-      response = await fetch(
+      response = await loopbackSafeFetch(
         `${entry.runtimeUrl}/v1/migrations/import-preflight`,
         {
           method: "POST",
@@ -694,7 +695,7 @@ export async function restore(): Promise<void> {
 
     let response: Response;
     try {
-      response = await fetch(`${entry.runtimeUrl}/v1/migrations/import`, {
+      response = await loopbackSafeFetch(`${entry.runtimeUrl}/v1/migrations/import`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,

@@ -1,9 +1,21 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+// Toggle for the collectUsageData opt-out gate the listener consults when
+// populating the telemetry columns.
+let collectUsageData = true;
+
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({ collectUsageData }),
+}));
 
 import { createToolAuditListener } from "../events/tool-audit-listener.js";
 import type { ToolInvocationRecord } from "../memory/tool-usage-store.js";
 
 describe("tool audit listener", () => {
+  beforeEach(() => {
+    collectUsageData = true;
+  });
+
   test("records executed events with truncated output", () => {
     const records: ToolInvocationRecord[] = [];
     const listener = createToolAuditListener((record) => records.push(record));
@@ -28,56 +40,6 @@ describe("tool audit listener", () => {
     expect(records[0].decision).toBe("allow");
     expect(records[0].riskLevel).toBe("low");
     expect(records[0].durationMs).toBe(12);
-    expect(records[0].skillId).toBeUndefined();
-  });
-
-  test("records the triggering skill id on terminal events", () => {
-    const records: ToolInvocationRecord[] = [];
-    const listener = createToolAuditListener((record) => records.push(record));
-
-    listener({
-      type: "executed",
-      toolName: "task_create",
-      input: { title: "t" },
-      workingDir: "/tmp",
-      conversationId: "conv-skill",
-      skillId: "tasks-skill",
-      riskLevel: "low",
-      decision: "allow",
-      durationMs: 4,
-      result: { content: "ok", isError: false },
-    });
-    listener({
-      type: "error",
-      toolName: "task_create",
-      input: { title: "t" },
-      workingDir: "/tmp",
-      conversationId: "conv-skill",
-      skillId: "tasks-skill",
-      riskLevel: "low",
-      decision: "error",
-      durationMs: 6,
-      errorMessage: "boom",
-      isExpected: false,
-      errorCategory: "tool_failure",
-    });
-    listener({
-      type: "permission_denied",
-      toolName: "task_create",
-      input: { title: "t" },
-      workingDir: "/tmp",
-      conversationId: "conv-skill",
-      skillId: "tasks-skill",
-      riskLevel: "high",
-      decision: "deny",
-      reason: "Permission denied by user",
-      durationMs: 8,
-    });
-
-    expect(records).toHaveLength(3);
-    for (const record of records) {
-      expect(record.skillId).toBe("tasks-skill");
-    }
   });
 
   test("records deny events with expected normalized results", () => {
@@ -202,6 +164,256 @@ describe("tool audit listener", () => {
     expect(records).toHaveLength(1);
     expect(records[0].result).toBe("error: boom");
     expect(records[0].decision).toBe("error");
-    expect(records[0].skillId).toBeUndefined();
+    expect(records[0].argBytes).toBe(
+      Buffer.byteLength(JSON.stringify({ path: "/tmp/secret" }), "utf8"),
+    );
+    expect(records[0].resultBytes).toBe(Buffer.byteLength("error: boom"));
+  });
+
+  test("records byte sizes from the full payloads, before truncation and redaction", () => {
+    const records: ToolInvocationRecord[] = [];
+    const listener = createToolAuditListener((record) => records.push(record));
+
+    listener({
+      type: "executed",
+      toolName: "file_read",
+      input: { path: "/tmp/a" },
+      workingDir: "/tmp",
+      conversationId: "conv-bytes",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 12,
+      // 1200 chars: the stored result is capped at 1000 but the size must
+      // reflect the full payload. "é" is 1 char / 2 utf8 bytes, proving
+      // byte (not char) accounting.
+      result: { content: "é".repeat(1200), isError: false },
+    });
+
+    expect(records).toHaveLength(1);
+    expect(records[0].result).toHaveLength(1000);
+    expect(records[0].argBytes).toBe(
+      Buffer.byteLength(JSON.stringify({ path: "/tmp/a" }), "utf8"),
+    );
+    expect(records[0].resultBytes).toBe(2400);
+  });
+
+  test("prefers the executor-stamped raw inputBytes over sizing the (sanitized) event input", () => {
+    const records: ToolInvocationRecord[] = [];
+    const listener = createToolAuditListener((record) => records.push(record));
+
+    // The executor sanitizes event.input before listeners run and stamps
+    // inputBytes from the RAW input — the listener must report that size,
+    // not the redacted payload's.
+    const rawInput = { path: "/tmp/a", token: "t-1" };
+    const rawSize = Buffer.byteLength(JSON.stringify(rawInput), "utf8");
+    const sanitizedInput = { path: "/tmp/a", token: "<redacted />" };
+
+    listener({
+      type: "executed",
+      toolName: "file_read",
+      input: sanitizedInput,
+      inputBytes: rawSize,
+      workingDir: "/tmp",
+      conversationId: "conv-raw-bytes",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 4,
+      result: { content: "ok", isError: false },
+    });
+    listener({
+      type: "error",
+      toolName: "file_read",
+      input: sanitizedInput,
+      inputBytes: rawSize,
+      workingDir: "/tmp",
+      conversationId: "conv-raw-bytes",
+      riskLevel: "low",
+      decision: "error",
+      durationMs: 4,
+      errorMessage: "boom",
+      isExpected: false,
+      errorCategory: "tool_failure",
+    });
+
+    expect(records).toHaveLength(2);
+    for (const record of records) {
+      expect(record.argBytes).toBe(rawSize);
+      expect(record.argBytes).not.toBe(
+        Buffer.byteLength(JSON.stringify(sanitizedInput), "utf8"),
+      );
+    }
+  });
+
+  test("prefers the executor-stamped raw resultBytes over sizing the (sanitized) event result", () => {
+    const records: ToolInvocationRecord[] = [];
+    const listener = createToolAuditListener((record) => records.push(record));
+
+    // For sensitive-output tools, the executor sanitizes result.content
+    // before listeners run and stamps resultBytes from the RAW content —
+    // the listener must report that size, not the placeholder-rewritten
+    // payload's.
+    const sanitizedContent = "code: VELLUM_ASSISTANT_INVITE_CODE_AB12CD34";
+    const rawSize = 4096;
+
+    listener({
+      type: "executed",
+      toolName: "create_invite",
+      input: { count: 1 },
+      workingDir: "/tmp",
+      conversationId: "conv-raw-result-bytes",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 4,
+      result: { content: sanitizedContent, isError: false },
+      resultBytes: rawSize,
+    });
+
+    expect(records).toHaveLength(1);
+    expect(records[0].resultBytes).toBe(rawSize);
+    expect(records[0].resultBytes).not.toBe(
+      Buffer.byteLength(sanitizedContent, "utf8"),
+    );
+  });
+
+  test("persists NULL telemetry columns when usage data collection is opted out", () => {
+    collectUsageData = false;
+    const records: ToolInvocationRecord[] = [];
+    const listener = createToolAuditListener((record) => records.push(record));
+
+    const attribution = {
+      callSite: "mainAgent" as const,
+      activeProfile: "balanced",
+      overrideProfile: null,
+      callSiteProfile: null,
+      appliedProfile: "balanced",
+      profileSource: "active" as const,
+      resolvedProvider: "anthropic",
+      resolvedModel: "model-a",
+      resolvedMixArm: null,
+    };
+    listener({
+      type: "executed",
+      toolName: "file_read",
+      input: { path: "/tmp/a" },
+      inputBytes: 42,
+      resultBytes: 99,
+      workingDir: "/tmp",
+      conversationId: "conv-opt-out",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 12,
+      result: { content: "ok", isError: false },
+      attribution,
+    });
+    listener({
+      type: "error",
+      toolName: "file_read",
+      input: { path: "/tmp/b" },
+      inputBytes: 42,
+      workingDir: "/tmp",
+      conversationId: "conv-opt-out",
+      riskLevel: "low",
+      decision: "error",
+      durationMs: 9,
+      errorMessage: "boom",
+      isExpected: false,
+      errorCategory: "tool_failure",
+      attribution,
+    });
+
+    // Telemetry columns are NULL — the tool_executed projection's
+    // arg_bytes IS NOT NULL filter makes these rows permanently
+    // unreportable, even from a zero watermark.
+    expect(records).toHaveLength(2);
+    for (const record of records) {
+      expect(record.argBytes).toBeNull();
+      expect(record.resultBytes).toBeNull();
+      expect(record.provider).toBeNull();
+      expect(record.model).toBeNull();
+      expect(record.inferenceProfile).toBeNull();
+      expect(record.inferenceProfileSource).toBeNull();
+    }
+    // The audit row itself is unaffected by the opt-out.
+    expect(records[0]).toMatchObject({
+      conversationId: "conv-opt-out",
+      toolName: "file_read",
+      input: JSON.stringify({ path: "/tmp/a" }),
+      result: "ok",
+      decision: "allow",
+      durationMs: 12,
+    });
+    expect(records[1]).toMatchObject({
+      result: "error: boom",
+      decision: "error",
+      durationMs: 9,
+    });
+  });
+
+  test("maps attribution onto executed records and leaves denied records null", () => {
+    const records: ToolInvocationRecord[] = [];
+    const listener = createToolAuditListener((record) => records.push(record));
+
+    listener({
+      type: "executed",
+      toolName: "file_read",
+      input: { path: "/tmp/a" },
+      workingDir: "/tmp",
+      conversationId: "conv-attr",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 12,
+      result: { content: "ok", isError: false },
+      attribution: {
+        callSite: "mainAgent",
+        activeProfile: "balanced",
+        overrideProfile: null,
+        callSiteProfile: null,
+        appliedProfile: "balanced",
+        profileSource: "active",
+        resolvedProvider: "anthropic",
+        resolvedModel: "model-a",
+        resolvedMixArm: null,
+      },
+    });
+    listener({
+      type: "executed",
+      toolName: "file_read",
+      input: { path: "/tmp/b" },
+      workingDir: "/tmp",
+      conversationId: "conv-attr",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 3,
+      result: { content: "ok", isError: false },
+      attribution: null,
+    });
+    listener({
+      type: "permission_denied",
+      toolName: "bash",
+      input: { command: "rm -rf /tmp" },
+      workingDir: "/tmp",
+      conversationId: "conv-attr",
+      riskLevel: "high",
+      decision: "deny",
+      reason: "Permission denied by user",
+      durationMs: 1,
+    });
+
+    expect(records).toHaveLength(3);
+    expect(records[0]).toMatchObject({
+      provider: "anthropic",
+      model: "model-a",
+      inferenceProfile: "balanced",
+      inferenceProfileSource: "active",
+    });
+    expect(records[1]).toMatchObject({
+      provider: null,
+      model: null,
+      inferenceProfile: null,
+      inferenceProfileSource: null,
+    });
+    expect(records[2].provider).toBeUndefined();
+    expect(records[2].argBytes).toBeUndefined();
+    expect(records[2].resultBytes).toBeUndefined();
   });
 });

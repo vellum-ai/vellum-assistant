@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
 import { DetailCard } from "@/components/detail-card";
+import { getAssistantHealthz } from "@/assistant/api";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { fetchSchedules, toggleSchedule } from "@/domains/settings/api/schedules";
 import { CreateScheduleModal } from "@/domains/settings/components/create-schedule-modal";
@@ -124,6 +125,15 @@ export function SchedulesPage() {
   // -------------------------------------------------------------------------
 
   const systemTasks = useSystemTasks(assistantId, tz);
+  const { data: canOpenMemorySettings = false } = useQuery({
+    queryKey: ["assistant-memory-opt-out-capability", assistantId],
+    queryFn: async () => {
+      const result = await getAssistantHealthz(assistantId);
+      return result.ok && result.data.capabilities?.memoryOptOut === true;
+    },
+    retry: false,
+    staleTime: 10_000,
+  });
 
   // -------------------------------------------------------------------------
   // Derived state
@@ -172,6 +182,8 @@ export function SchedulesPage() {
 
   const navigateToSchedule = (id: string) =>
     navigate(routes.settings.schedule(id));
+
+  const navigateToMemorySettings = () => navigate(routes.settings.advanced);
 
   const handleCreated = useCallback(() => {
     setCreateOpen(false);
@@ -234,6 +246,9 @@ export function SchedulesPage() {
         isRunning={systemTasks.isConsolidationRunning}
         onBack={navigateToSchedules}
         onRunNow={() => void systemTasks.handleRunNow("consolidation")}
+        onOpenMemorySettings={
+          canOpenMemorySettings ? navigateToMemorySettings : undefined
+        }
       />
     );
   }

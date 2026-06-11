@@ -9,6 +9,7 @@
   ],
   "project": ["src/**/*.ts!", "src/**/*.tsx!", "scripts/**/*.ts"],
   "ignoreDependencies": [
+    "@microsoft/api-extractor",
     "@vellumai/ces-client",
     "@vellumai/credential-storage",
     "@vellumai/egress-proxy",

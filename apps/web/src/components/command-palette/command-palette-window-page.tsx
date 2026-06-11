@@ -8,7 +8,8 @@ import { useAssistantLifecycle } from "@/assistant/use-lifecycle";
 import { useCommandPaletteSections } from "@/domains/chat/hooks/use-command-palette-sections";
 import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";
 import { useConversationListQuery } from "@/hooks/conversation-queries";
-import { getSelectedAssistant } from "@/lib/local-mode";
+import { resolveSelectedAssistantId } from "@/assistant/selection";
+import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import {
   dismissCommandPaletteWindow,
   selectCommandPaletteCommand,
@@ -19,6 +20,7 @@ import {
   useHasPlatformSession,
   useIsSessionInitializing,
 } from "@/stores/auth-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
@@ -88,30 +90,26 @@ export function CommandPaletteWindowPage() {
     useResolvedAssistantsStore.use.selectedPlatformAssistantByOrg();
   const currentOrganizationId =
     useOrganizationStore.use.currentOrganizationId();
+  const multiAssistantEnabled =
+    useClientFeatureFlagStore.use.multiPlatformAssistant();
+  // Mirror use-lifecycle's gating: only resolve the per-org cache when the
+  // multi-assistant flag is on; otherwise track the lifecycle's active id, so
+  // the palette never binds to a stale cached selection the lifecycle ignored.
+  // The resolver reads selectedPlatformAssistantByOrg via getState() (non-
+  // reactive), so that slice stays in the dep array as the recompute signal.
   const selectedAssistant = useMemo(
     () => {
-      const localSelected = getSelectedAssistant();
-      if (localSelected) {
-        return {
-          id: localSelected.assistantId,
-          name: localSelected.name,
-        };
-      }
-
-      const selectedPlatformAssistantId =
-        currentOrganizationId == null
-          ? null
-          : selectedPlatformAssistantByOrg[currentOrganizationId];
       const selectedId =
-        activeAssistantId ??
-        selectedPlatformAssistantId ??
-        (assistants.length === 1 ? assistants[0]?.id : null);
+        multiAssistantEnabled && !isGatewayAuthMode() && currentOrganizationId
+          ? resolveSelectedAssistantId(currentOrganizationId)
+          : activeAssistantId;
       if (!selectedId) return null;
-      return (
-        assistants.find((assistant) => assistant.id === selectedId) ?? null
-      );
+      const entry = assistants.find((a) => a.id === selectedId);
+      return entry ? { id: entry.id, name: entry.name } : null;
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
+      multiAssistantEnabled,
       activeAssistantId,
       assistants,
       currentOrganizationId,

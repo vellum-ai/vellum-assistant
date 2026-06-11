@@ -37,6 +37,7 @@ import {
   createOnboardingEventsTable,
   createScopedApprovalGrantsTable,
   createSequenceTables,
+  createSkillLoadedEventsTable,
   createTasksAndWorkItemsTables,
   createWatchersAndLogsTables,
   migrate230AcpSessionHistory,
@@ -205,6 +206,7 @@ import {
   migrateToolInvocationsCreatedAtIdIndex,
   migrateToolInvocationsMatchedRuleId,
   migrateToolInvocationsSkillId,
+  migrateToolInvocationsTelemetryColumns,
   migrateTraceEventsCreatedAtIndex,
   migrateUsageDashboardIndexes,
   migrateUsageLlmCallCount,
@@ -490,6 +492,8 @@ export function initializeDb(): void {
     migrateToolInvocationsSkillId,
     migrateToolInvocationsCreatedAtIdIndex,
     migrateAddMemoryV3EverInjected,
+    migrateToolInvocationsTelemetryColumns,
+    createSkillLoadedEventsTable,
   ];
 
   // Run each migration step, catching and logging individual failures so one

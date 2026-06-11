@@ -141,11 +141,43 @@ describe("lifecycleService — server state projection", () => {
     expect(
       useResolvedAssistantsStore.getState().activeAssistantId,
     ).toBe("asst-1");
+    expect(
+      useAssistantLifecycleStore.getState().operationalStatusAssistantId,
+    ).toBe("asst-1");
     expect(useAssistantLifecycleStore.getState().assistantState).toMatchObject({
       kind: "active",
       isLocal: false,
       maintenanceMode: { enabled: false },
     });
+  });
+
+  test("cleanup result publishes an operational-status polling id without activating the assistant", async () => {
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: true,
+      status: 200,
+      data: {
+        id: "asst-cleanup",
+        status: "to_be_deleted",
+        is_local: false,
+        maintenance_mode: { enabled: false },
+      },
+    }));
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+
+    await lifecycleService.checkAssistant();
+
+    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
+      "cleaning_up",
+    );
+    expect(
+      useResolvedAssistantsStore.getState().activeAssistantId,
+    ).toBeNull();
+    expect(
+      useAssistantLifecycleStore.getState().operationalStatusAssistantId,
+    ).toBe("asst-cleanup");
   });
 
   test("self_hosted result primes the self-hosted connection and writes the id", async () => {
@@ -179,7 +211,6 @@ describe("lifecycleService — server state projection", () => {
     );
   });
 });
-
 describe("lifecycleService — bootstrap branches", () => {
   test("respondToInputs with an unauthenticated session clears both stores (safety-net for token-expiry-style auth flips that don't call logout())", async () => {
     // Drive the service into an `active` state through the
@@ -214,6 +245,9 @@ describe("lifecycleService — bootstrap branches", () => {
     expect(
       useResolvedAssistantsStore.getState().activeAssistantId,
     ).toBeNull();
+    expect(
+      useAssistantLifecycleStore.getState().operationalStatusAssistantId,
+    ).toBeNull();
     expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
       kind: "loading",
     });
@@ -245,6 +279,9 @@ describe("lifecycleService — bootstrap branches", () => {
 
     expect(
       useResolvedAssistantsStore.getState().activeAssistantId,
+    ).toBeNull();
+    expect(
+      useAssistantLifecycleStore.getState().operationalStatusAssistantId,
     ).toBeNull();
     expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
       kind: "loading",
@@ -493,6 +530,9 @@ describe("lifecycleService — watchdog timeout", () => {
     expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
       "initializing",
     );
+    expect(
+      useAssistantLifecycleStore.getState().operationalStatusAssistantId,
+    ).toBe("asst-stuck");
 
     await waitFor(
       () =>
@@ -657,5 +697,3 @@ describe("lifecycleService — reachability probe", () => {
     );
   });
 });
-
-

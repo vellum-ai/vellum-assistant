@@ -1,89 +1,29 @@
 /**
- * Default `stop` hook: recovers from a provider image-too-large rejection.
+ * Default `stop` hook: clears the per-conversation image-recovery bound when a
+ * turn terminates.
  *
- * A provider rejects the call when an attached image violates a hard limit —
- * its longest side exceeds the per-side pixel cap, or its base64 payload
- * exceeds the size cap. That rejection is an error stop — the loop runs the
- * `stop` chain with the rejection attached. This hook recognizes the
- * image-too-large class, downscales the oversized image blocks in the working
- * history via {@link recoverOversizedImages}, and asks the loop to retry the
- * call. It also persists the same downgrade durably via {@link
- * persistUnsendableImageDowngrades} so the rejected image cannot rehydrate from
- * the stored row and re-reject on every later turn.
+ * The `post-model-call` hook (see `./post-model-call.ts`) owns the recovery
+ * decision and clears the bound on every outcome it resolves. One terminal it
+ * does not resolve is a retry the loop's per-run backstop overrides: when the
+ * hook marks the bound and requests `"continue"` but the backstop refuses it,
+ * the loop surfaces the rejection through the terminal `stop` chain without
+ * re-running `post-model-call`, which would otherwise strand the mark and make
+ * the next turn treat its first image-too-large rejection as the exhausted
+ * second attempt. Clearing here on the terminal stop closes that gap so the
+ * next turn recovers afresh.
  *
- * Bounded to one pass per turn via the per-conversation recovery state: a
- * second consecutive image-too-large rejection means the downscale could not
- * bring the image under the cap, so the hook leaves the error to surface rather
- * than looping. The hook owns that state — it marks the conversation when it
- * retries and clears the mark on any terminal stop (a successful response, a
- * non-image rejection, or the exhausted second image rejection), so the next
- * turn recovers afresh without the loop or wrapper resetting anything.
- *
- * A successful stop (the model returned a response) is otherwise left untouched
- * for the empty-response plugin.
+ * A `"continue"` decision means a hook is re-querying the model this turn, so
+ * the bound must survive to keep the one-pass-per-turn guarantee; only a
+ * terminal `"stop"` clears it.
  */
 
 import type { PluginHookFn, StopContext } from "@vellumai/plugin-api";
 
-import { isImageDimensionsTooLargeError } from "../detect.js";
-import {
-  clearImageRecoveryAttempted,
-  isImageRecoveryAttempted,
-  markImageRecoveryAttempted,
-} from "../image-recovery-state-store.js";
-import {
-  persistUnsendableImageDowngrades,
-  recoverOversizedImages,
-} from "../recover.js";
+import { clearImageRecoveryAttempted } from "../image-recovery-state-store.js";
 
 const stop: PluginHookFn<StopContext> = async (ctx) => {
-  if (ctx.error && isImageDimensionsTooLargeError(ctx.error.message)) {
-    if (!isImageRecoveryAttempted(ctx.conversationId)) {
-      markImageRecoveryAttempted(ctx.conversationId);
-      ctx.messages = recoverOversizedImages(ctx.messages);
-      // Make the downgrade durable so the rejected image can't rehydrate from
-      // the stored row and re-reject on later turns. This is cleanup for future
-      // turns, so a persistence failure must never abort the retry that is
-      // about to run — log it and continue with the in-memory recovery.
-      try {
-        const rewritten = persistUnsendableImageDowngrades(ctx.conversationId);
-        if (rewritten > 0) {
-          ctx.logger.info(
-            { plugin: "image-recovery", rewritten },
-            "Persisted unsendable-image downgrades so they cannot resurface",
-          );
-        }
-      } catch (err) {
-        ctx.logger.warn(
-          { plugin: "image-recovery", err },
-          "Failed to persist unsendable-image downgrade; continuing with in-memory recovery",
-        );
-      }
-      ctx.decision = "continue";
-      ctx.logger.warn(
-        { plugin: "image-recovery", messageCount: ctx.messages.length },
-        "Provider image-too-large error — recovering oversized image blocks and retrying",
-      );
-      return;
-    }
-    // The recovery already ran this turn and the call still rejected on
-    // image-size grounds, so it could not bring the image under the cap. Clear
-    // the bound and let the error surface rather than looping.
-    clearImageRecoveryAttempted(ctx.conversationId);
-    return;
-  }
-
-  // A terminal stop — a successful response or an unrecovered rejection — ends
-  // the turn, so clear the bound the next turn starts from. A `"continue"`
-  // decision means an earlier hook (e.g. history-repair on an ordering
-  // rejection) is already retrying this turn; the bound must survive that retry
-  // so a later image-too-large rejection in the same turn is recognized as this
-  // hook's exhausted second attempt rather than a fresh first one. The error
-  // stop retry has no loop-side cap, so dropping the bound mid-turn could let
-  // alternating recoverable rejections reissue the provider call indefinitely.
-  if (ctx.decision === "stop") {
-    clearImageRecoveryAttempted(ctx.conversationId);
-  }
+  if (ctx.decision !== "stop") return;
+  clearImageRecoveryAttempted(ctx.conversationId);
 };
 
 export default stop;

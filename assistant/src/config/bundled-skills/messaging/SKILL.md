@@ -6,6 +6,7 @@ metadata:
   emoji: "\U0001F4AC"
   vellum:
     display-name: "Messaging"
+    category: "messaging"
     activation-hints:
       - "Email, messaging, inbox management, read/send/search on any platform"
       - "Handles credential flows -- do not improvise setup instructions"

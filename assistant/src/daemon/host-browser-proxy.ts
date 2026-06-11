@@ -91,6 +91,22 @@ function extensionRequiredResult(
  * candidate clients are filtered down to those owned by the same actor.
  * Returns `undefined` when no eligible client is connected.
  */
+/**
+ * Whether any of `clients` is dispatchable for the caller. Without an
+ * actor, any client counts (legacy single-user behavior); with one,
+ * only same-actor clients count — the strict match used by
+ * `resolveTargetClient`.
+ */
+function hasClientForActor(
+  clients: ReadonlyArray<{ actorPrincipalId?: string }>,
+  sourceActorPrincipalId?: string,
+): boolean {
+  if (sourceActorPrincipalId == null) return clients.length > 0;
+  return clients.some(
+    (c) => c.actorPrincipalId === sourceActorPrincipalId,
+  );
+}
+
 function resolveTargetClient(
   cdpMethod: string,
   sourceActorPrincipalId: string | undefined,
@@ -149,10 +165,16 @@ export class HostBrowserProxy {
    * Returns `true` when either the Chrome Extension or the macOS SSE
    * bridge is available — i.e. any transport can forward host-browser
    * requests.
+   *
+   * When `sourceActorPrincipalId` is supplied, only clients owned by
+   * that actor count — mirroring `resolveTargetClient`'s strict actor
+   * matching so availability checks never report a client the proxy
+   * would refuse to dispatch to.
    */
-  isAvailable(): boolean {
-    return (
-      assistantEventHub.getMostRecentClientByCapability("host_browser") != null
+  isAvailable(sourceActorPrincipalId?: string): boolean {
+    return hasClientForActor(
+      assistantEventHub.listClientsByCapability("host_browser"),
+      sourceActorPrincipalId,
     );
   }
 
@@ -161,9 +183,17 @@ export class HostBrowserProxy {
    * Returns `false` when only the macOS SSE bridge is available.
    * Unlike {@link isAvailable}, this does not consider the macOS bridge
    * a valid extension transport.
+   *
+   * When `sourceActorPrincipalId` is supplied, only extension clients
+   * owned by that actor count. On a multi-actor cloud daemon, another
+   * actor's connected extension must not make this actor's
+   * conversations select extension-labelled transports.
    */
-  hasExtensionClient(): boolean {
-    return assistantEventHub.listClientsByInterface("chrome-extension").length > 0;
+  hasExtensionClient(sourceActorPrincipalId?: string): boolean {
+    return hasClientForActor(
+      assistantEventHub.listClientsByInterface("chrome-extension"),
+      sourceActorPrincipalId,
+    );
   }
 
   /**

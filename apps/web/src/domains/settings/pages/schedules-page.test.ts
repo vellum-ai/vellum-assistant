@@ -70,6 +70,7 @@ const {
   canOpenScheduleRunConversation,
   canOpenScheduleSourceConversation,
   formatScheduleCost,
+  formatTimestamp,
   shouldShowSystemTaskToggles,
 } = await import("@/domains/settings/utils/schedule-formatters");
 const { RecentRunsCard } = await import(
@@ -268,6 +269,46 @@ describe("SystemTaskDetailView", () => {
       routes.conversation("conv-consolidation-1"),
     ]);
   });
+
+  test("routes consolidation control through Memory settings", async () => {
+    let memorySettingsClicks = 0;
+
+    renderWithQueryClient(
+      createElement(SystemTaskDetailView, {
+        kind: "consolidation",
+        assistantId: "assistant-1",
+        name: "Memory consolidation",
+        subtitle: "Summarizes old context",
+        enabled: false,
+        nextRunAt: null,
+        lastRunAt: null,
+        isRunning: false,
+        onBack: () => {},
+        onRunNow: () => {},
+        onOpenMemorySettings: () => {
+          memorySettingsClicks += 1;
+        },
+      }),
+    );
+
+    await waitFor(() =>
+      expect(fetchConsolidationRunsMock.mock.calls).toEqual([["assistant-1"]]),
+    );
+
+    expect(document.body.textContent).toContain(
+      "Memory is off, so consolidation is paused.",
+    );
+    expect(
+      (screen.getByRole("button", { name: "Paused" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Memory settings/i }),
+    );
+
+    expect(memorySettingsClicks).toBe(1);
+  });
 });
 
 describe("RecentRunsCard", () => {
@@ -431,6 +472,95 @@ describe("ScheduleRow", () => {
 
     expect(usageClicks).toBe(0);
     expect(detailClicks).toBe(0);
+    expect(screen.queryByText("execute")).toBeNull();
+  });
+
+  test("renders the last run timestamp without a status dot", () => {
+    const lastRunAt = 1_761_792_000_000;
+
+    render(
+      createElement(ScheduleRow, {
+        schedule: rowSchedule({
+          lastRunAt,
+          lastStatus: "ok",
+        }),
+        usage: {
+          status: "ready",
+          summary: {
+            scheduleId: "schedule-123",
+            runCount: 1,
+            totalEstimatedCostUsd: 0.03,
+            eventCount: 1,
+          },
+        },
+        onClick: () => {},
+        onToggle: () => {},
+        onOpenUsage: () => {},
+      }),
+    );
+
+    expect(screen.getByText(formatTimestamp(lastRunAt))).toBeTruthy();
+    expect(screen.queryByLabelText("ok")).toBeNull();
+  });
+
+  test("renders the next run timestamp before a schedule has run", () => {
+    const nextRunAt = 1_761_795_600_000;
+
+    render(
+      createElement(ScheduleRow, {
+        schedule: rowSchedule({
+          nextRunAt,
+          lastRunAt: null,
+        }),
+        usage: {
+          status: "ready",
+          summary: {
+            scheduleId: "schedule-123",
+            runCount: 0,
+            totalEstimatedCostUsd: 0,
+            eventCount: 0,
+          },
+        },
+        onClick: () => {},
+        onToggle: () => {},
+        onOpenUsage: () => {},
+      }),
+    );
+
+    expect(screen.getByText(formatTimestamp(nextRunAt))).toBeTruthy();
+  });
+
+  test("one-time rows use the shared clickable row affordance", () => {
+    const { container } = render(
+      createElement(ScheduleRow, {
+        schedule: rowSchedule({
+          description: "One-time",
+          isOneShot: true,
+        }),
+        usage: {
+          status: "ready",
+          summary: {
+            scheduleId: "schedule-123",
+            runCount: 0,
+            totalEstimatedCostUsd: 0,
+            eventCount: 0,
+          },
+        },
+        onClick: () => {},
+        onToggle: () => {},
+        onOpenUsage: () => {},
+      }),
+    );
+
+    const row = container.firstElementChild;
+    expect(row?.className).toContain("rounded-md");
+    expect(row?.className).toContain("hover:bg-[var(--surface-hover)]");
+
+    const detailButton = screen.getByText("Daily summary").closest("button");
+    expect(detailButton?.className).toContain("cursor-pointer");
+    expect(detailButton?.className).toContain(
+      "focus-visible:ring-[var(--ring)]",
+    );
   });
 
   test("renders loading placeholders and unavailable error stats", () => {
@@ -502,10 +632,11 @@ describe("SystemTaskRow", () => {
     );
 
     expect(screen.queryByRole("button", { name: /Run now/i })).toBeNull();
+    expect(screen.queryByText("system")).toBeNull();
     expect(screen.getByLabelText("enabled")).toBeTruthy();
-    expect(screen.getByText("Cost")).toBeTruthy();
+    expect(screen.getByText("Cost (7d)")).toBeTruthy();
     expect(screen.getByText("$0.42")).toBeTruthy();
-    expect(screen.getByText("Runs")).toBeTruthy();
+    expect(screen.getByText("Runs (7d)")).toBeTruthy();
     expect(screen.getByText("2 runs")).toBeTruthy();
   });
 });
@@ -567,5 +698,9 @@ describe("system task toggles", () => {
     expect(screen.queryByLabelText("Toggle Consolidation")).toBeNull();
     expect(toggleCalls).toEqual([]);
     expect(screen.queryByRole("button", { name: /run now/i })).toBeNull();
+    expect(screen.getByText("Managed by Memory")).toBeTruthy();
+    expect(document.body.textContent).toContain(
+      "Consolidation is part of Memory.",
+    );
   });
 });

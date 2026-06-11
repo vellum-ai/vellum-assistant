@@ -31,6 +31,7 @@ import {
 import {
   awaitCesClientWithTimeout,
   DEFAULT_CES_STARTUP_TIMEOUT_MS,
+  injectCesClientWhenReady,
 } from "../credential-execution/startup-timeout.js";
 import { FilingService } from "../filing/filing-service.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
@@ -75,6 +76,7 @@ import { publishConversationListChanged } from "../runtime/sync/resource-sync-ev
 import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import {
+  getCesClient,
   onCesClientChanged,
   setCesClient,
   setCesReconnect,
@@ -633,21 +635,38 @@ export async function runDaemon(): Promise<void> {
     }
 
     // Privacy gating: Sentry crash/error reporting is gated by sendDiagnostics,
-    // while the usage telemetry reporter is gated by collectUsageData. Both are
-    // disabled in dev mode. Early-startup crashes before this point are still captured.
+    // while the usage telemetry reporter re-checks collectUsageData on every
+    // flush. Both are disabled in dev mode. Early-startup crashes before this
+    // point are still captured.
     const isDevMode = process.env.VELLUM_DEV === "1";
     const sendDiagnostics = !isDevMode && config.sendDiagnostics;
-    const collectUsageData = !isDevMode && config.collectUsageData;
     if (!sendDiagnostics) {
       await closeSentry();
     }
 
+    // Construct and start the reporter even when usage collection is disabled:
+    // flush() re-checks collectUsageData each cycle and, when opted out, sends
+    // nothing but advances all watermarks (including the final flush in
+    // stop()). New opted-out tool_invocations rows are already unreportable by
+    // construction — the audit listener persists NULL telemetry columns for
+    // them, which the tool_executed projection filters out — so the opted-out
+    // flushes are defense in depth there (covering rows recorded under builds
+    // that predate that write-time gate) and remain the primary guard for the
+    // always-on tables without a write-time gate (llm_usage, turn events).
+    // Deliberately NOT gated on dbReady: getDb()
+    // can still work when initializeDb() failed mid-migration, in which case
+    // the audit listener keeps writing rows that the opt-out branch must keep
+    // covered. The reporter is degraded-mode safe — its constructor and
+    // flush() treat DB errors as non-fatal.
     let telemetryReporter: UsageTelemetryReporter | null = null;
-    if (collectUsageData) {
+    if (!isDevMode) {
       telemetryReporter = new UsageTelemetryReporter();
       setUsageTelemetryReporter(telemetryReporter);
       telemetryReporter.start();
-      log.info("Usage telemetry reporter started");
+      log.info(
+        { collectUsageData: config.collectUsageData },
+        "Usage telemetry reporter started",
+      );
     }
 
     // CES lifecycle — kick off early so CES handshake runs concurrently with
@@ -673,6 +692,16 @@ export async function runDaemon(): Promise<void> {
       });
       if (client) {
         setCesClient(client);
+      } else {
+        // The handshake lost the startup race, so provider init proceeds on
+        // the direct credential store. Still inject the CES client into the
+        // resolver once the handshake completes, so CES tools and the
+        // approval bridge route through CES rather than reporting it
+        // unavailable for the rest of the process.
+        injectCesClientWhenReady(cesResult.clientPromise, {
+          getCesClient,
+          setCesClient,
+        });
       }
     }
 

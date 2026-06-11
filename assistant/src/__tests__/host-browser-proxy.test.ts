@@ -44,6 +44,8 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
       mockClients.find((c) => c.capabilities.includes(cap)),
     listClientsByCapability: (cap: string) =>
       mockClients.filter((c) => c.capabilities.includes(cap)),
+    listClientsByInterface: (interfaceId: string) =>
+      mockClients.filter((c) => c.interfaceId === interfaceId),
     getActorPrincipalIdForClient: (clientId: string) =>
       mockClients.find((c) => c.clientId === clientId)?.actorPrincipalId,
   },
@@ -275,6 +277,53 @@ describe("HostBrowserProxy", () => {
     test("returns false when no connection exists", () => {
       mockClients = [];
       expect(proxy.isAvailable()).toBe(false);
+    });
+  });
+
+  describe("actor-scoped availability", () => {
+    const EXT_A: MockClient = {
+      clientId: "ext-a",
+      interfaceId: "chrome-extension",
+      actorPrincipalId: "actor-a",
+      capabilities: ["host_browser"],
+    };
+    const BRIDGE_B: MockClient = {
+      clientId: "bridge-b",
+      interfaceId: "macos",
+      actorPrincipalId: "actor-b",
+      capabilities: ["host_browser"],
+    };
+
+    test("isAvailable(actor) only counts that actor's clients", () => {
+      mockClients = [EXT_A, BRIDGE_B];
+      expect(proxy.isAvailable("actor-a")).toBe(true);
+      expect(proxy.isAvailable("actor-b")).toBe(true);
+      expect(proxy.isAvailable("actor-c")).toBe(false);
+      // Legacy no-actor form still counts any client.
+      expect(proxy.isAvailable()).toBe(true);
+    });
+
+    test("hasExtensionClient(actor) ignores other actors' extensions", () => {
+      mockClients = [EXT_A, BRIDGE_B];
+      expect(proxy.hasExtensionClient("actor-a")).toBe(true);
+      // actor-b has only the bridge — actor-a's extension must not count.
+      expect(proxy.hasExtensionClient("actor-b")).toBe(false);
+      expect(proxy.hasExtensionClient()).toBe(true);
+    });
+
+    test("hasExtensionClient(actor) is false for a client without an actor binding", () => {
+      // Strict matching mirrors resolveTargetClient: a legacy extension
+      // connection without an actor is not dispatchable for an
+      // actor-authenticated caller, so it must not count as available.
+      mockClients = [
+        {
+          clientId: "legacy-ext",
+          interfaceId: "chrome-extension",
+          capabilities: ["host_browser"],
+        },
+      ];
+      expect(proxy.hasExtensionClient("actor-a")).toBe(false);
+      expect(proxy.hasExtensionClient()).toBe(true);
     });
   });
 

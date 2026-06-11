@@ -53,6 +53,11 @@ mock.module("electron", () => ({
     handle: () => undefined,
     on: () => undefined,
   },
+  dialog: {
+    showErrorBox: () => undefined,
+    showMessageBox: () =>
+      Promise.resolve({ response: 0, checkboxChecked: false }),
+  },
   Menu: {
     buildFromTemplate: () => ({ popup: () => undefined }),
     setApplicationMenu: () => undefined,

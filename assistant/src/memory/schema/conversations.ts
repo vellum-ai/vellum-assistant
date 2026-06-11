@@ -91,14 +91,19 @@ export const toolInvocations = sqliteTable(
     decision: text("decision").notNull(),
     riskLevel: text("risk_level").notNull(),
     matchedTrustRuleId: text("matched_trust_rule_id"),
-    /** Id of the skill whose `skill_execute` dispatch triggered this tool call. Null for direct tool calls. */
-    skillId: text("skill_id"),
     durationMs: integer("duration_ms").notNull(),
     createdAt: integer("created_at").notNull(),
+    /** Serialized input size in bytes, computed before any redaction. Null pre-migration-278. */
+    argBytes: integer("arg_bytes"),
+    /** Full serialized result size in bytes, computed before truncation/redaction. Null pre-migration-278 and for denied rows. */
+    resultBytes: integer("result_bytes"),
+    provider: text("provider"),
+    model: text("model"),
+    inferenceProfile: text("inference_profile"),
+    inferenceProfileSource: text("inference_profile_source"),
   },
   (table) => [
     index("idx_tool_invocations_conversation_id").on(table.conversationId),
-    index("idx_tool_invocations_created_at_id").on(table.createdAt, table.id),
   ],
 );
 
