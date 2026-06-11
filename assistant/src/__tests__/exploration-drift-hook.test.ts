@@ -6,7 +6,8 @@
  *   (leaving the tool result's `content` untouched) once a turn accumulates an
  *   unbroken threshold-length run of exploration tool calls, and stays silent
  *   below it.
- * - The loop trigger: on loop-prone models (Kimi K2.6), re-issuing a
+ * - The loop trigger: on loop-prone models (Kimi K2.6, MiniMax M3),
+ *   re-issuing a
  *   byte-identical exploration call fires a loop nudge well before the
  *   long-dig threshold; other models are unaffected; the signature comparison
  *   is key-order independent; the nudge re-fires on further duplicates and
@@ -63,6 +64,8 @@ const GENERIC_MODEL = "claude-test-model";
 const KIMI_FIREWORKS_MODEL = "accounts/fireworks/models/kimi-k2p6";
 /** Kimi K2.6 as reported by OpenRouter. */
 const KIMI_OPENROUTER_MODEL = "moonshotai/kimi-k2.6";
+/** MiniMax M3 as reported by OpenRouter. */
+const MINIMAX_OPENROUTER_MODEL = "minimax/minimax-m3";
 
 let conversationCounter = 0;
 /** Unique conversation id per test so the per-conversation state can't leak. */
@@ -426,6 +429,24 @@ describe("exploration-drift post-tool-use hook — loop trigger", () => {
       currentResponse(currentToolUseId),
       messages,
       KIMI_OPENROUTER_MODEL,
+    );
+
+    await postToolUse(ctx);
+
+    expect(ctx.additionalContext).toBe(
+      explorationLoopNudgeText("bash", EXPLORATION_LOOP_REPEAT_THRESHOLD),
+    );
+  });
+
+  test("matches the MiniMax M3 model id", async () => {
+    const { messages, currentToolUseId } = repeatedCallHistory({
+      priorIdenticalCalls: EXPLORATION_LOOP_REPEAT_THRESHOLD - 1,
+    });
+    const ctx = makeCtx(
+      freshConversationId(),
+      currentResponse(currentToolUseId),
+      messages,
+      MINIMAX_OPENROUTER_MODEL,
     );
 
     await postToolUse(ctx);

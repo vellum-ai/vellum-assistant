@@ -20,7 +20,8 @@
  * 1. **Long dig** (all models): an unbroken run of
  *    {@link EXPLORATION_NUDGE_THRESHOLD} exploration calls with no user-facing
  *    text. Repeat nudges are spaced one full threshold apart.
- * 2. **Loop** (loop-prone models only, currently Kimi K2.6): the current call
+ * 2. **Loop** (loop-prone models only, currently Kimi K2.6 and MiniMax M3):
+ *    the current call
  *    is byte-identical (same tool, same input) to at least
  *    {@link EXPLORATION_LOOP_REPEAT_THRESHOLD}-1 prior calls within the
  *    trailing run. Re-issuing an identical read-only call inside an unbroken
@@ -28,8 +29,8 @@
  *    sign the model is stuck, so this fires as soon as the repetition
  *    appears (potentially at call 3 of a run) rather than waiting for the
  *    long-dig threshold, and re-fires on every further duplicate while the
- *    model keeps looping. Gated by model because the looping behaviour was
- *    observed on Kimi K2.6; the one legitimate identical-call pattern
+ *    model keeps looping. Gated by model so the aggressive trigger covers
+ *    only models prone to this looping; the one legitimate identical-call pattern
  *    (polling an external process's output) is rare inside an unbroken
  *    read-only run and the nudge is advisory anyway.
  *
@@ -93,12 +94,13 @@ export const EXPLORATION_NUDGE_THRESHOLD = 25;
 export const EXPLORATION_LOOP_REPEAT_THRESHOLD = 3;
 
 /**
- * Models that get the early loop trigger. Matches Kimi K2.6 across providers
- * (Fireworks reports `accounts/fireworks/models/kimi-k2p6`, OpenRouter
- * reports `moonshotai/kimi-k2.6`). Extend the pattern as other models exhibit
- * the same re-exploration looping.
+ * Models that get the early loop trigger: Kimi K2.6 and MiniMax M3, matched
+ * across provider naming conventions (Fireworks spells the dot as `p`, e.g.
+ * `accounts/fireworks/models/kimi-k2p6`; OpenRouter reports
+ * `moonshotai/kimi-k2.6` and `minimax/minimax-m3`). Extend the pattern as
+ * other models exhibit the same re-exploration looping.
  */
-const LOOP_PRONE_MODEL_PATTERN = /kimi-k2[p.]6/i;
+const LOOP_PRONE_MODEL_PATTERN = /kimi-k2[p.]6|minimax-m3/i;
 
 /** Read-only exploration tools whose unbroken runs indicate inline drift. */
 const EXPLORATION_TOOL_NAMES: ReadonlySet<string> = new Set([

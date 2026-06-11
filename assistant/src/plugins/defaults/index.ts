@@ -202,7 +202,7 @@ export const defaultToolErrorPlugin: Plugin = {
  * `exploration-drift` — a `post-tool-use` hook that detects exploration
  * drift — a long unbroken run of exploration tool calls (bash, file_read,
  * file_list) with no user-facing text, or (on loop-prone models such as Kimi
- * K2.6) the model re-issuing a byte-identical exploration call — and nudges
+ * K2.6 and MiniMax M3) the model re-issuing a byte-identical exploration call — and nudges
  * the model via `additionalContext` to summarize progress for the user and
  * delegate the remaining investigation to an `investigator` subagent rather
  * than continuing inline.
