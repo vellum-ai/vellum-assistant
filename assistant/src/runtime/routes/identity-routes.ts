@@ -35,7 +35,7 @@ import {
   readWorkspaceIdentityIntro,
   setCachedIntro,
 } from "./identity-intro-cache.js";
-import type { RouteDefinition } from "./types.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 interface MemoryInfo {
   currentMb: number;
@@ -439,7 +439,11 @@ function identityIntroResponse(
   };
 }
 
-function getIdentityIntro(): IdentityIntroResponse {
+function getIdentityIntro({
+  queryParams = {},
+}: RouteHandlerArgs = {}): IdentityIntroResponse {
+  const localTimeContext = buildLocalTimeContext(queryParams);
+
   // 1. User-defined greetings from SOUL.md `## Greetings`
   const workspaceGreetings = readWorkspaceGreetings();
   if (workspaceGreetings) {
@@ -458,7 +462,7 @@ function getIdentityIntro(): IdentityIntroResponse {
   if (identityIntro) {
     // Still trigger background generation so the next request gets
     // LLM-generated greetings instead of the static tagline.
-    const refreshing = triggerEmptyStateGreetingGeneration();
+    const refreshing = triggerEmptyStateGreetingGeneration(localTimeContext);
     return identityIntroResponse(
       [identityIntro, ...FALLBACK_GREETINGS],
       "workspace",
@@ -467,13 +471,50 @@ function getIdentityIntro(): IdentityIntroResponse {
   }
 
   // 4. Trigger fresh generation without blocking the empty-state UI.
-  const refreshing = triggerEmptyStateGreetingGeneration();
+  const refreshing = triggerEmptyStateGreetingGeneration(localTimeContext);
 
   // 5. Generic fallback only when generation is unavailable.
   return identityIntroResponse(FALLBACK_GREETINGS, "fallback", refreshing);
 }
 
-function triggerEmptyStateGreetingGeneration(): boolean {
+function buildLocalTimeContext(
+  queryParams: Record<string, string>,
+): string | null {
+  const rawHour = queryParams.localHour;
+  const rawMinute = queryParams.localMinute;
+  if (rawHour === undefined || rawMinute === undefined) {
+    return null;
+  }
+
+  const hour = Number(rawHour);
+  const minute = Number(rawMinute);
+  if (
+    !Number.isInteger(hour) ||
+    !Number.isInteger(minute) ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return null;
+  }
+
+  const period =
+    hour >= 5 && hour < 12
+      ? "morning"
+      : hour >= 12 && hour < 17
+        ? "afternoon"
+        : hour >= 17 && hour < 21
+          ? "evening"
+          : "late night";
+  const paddedHour = String(hour).padStart(2, "0");
+  const paddedMinute = String(minute).padStart(2, "0");
+  return `${period} (${paddedHour}:${paddedMinute})`;
+}
+
+function triggerEmptyStateGreetingGeneration(
+  localTimeContext: string | null,
+): boolean {
   if (greetingGenerationInFlight) {
     return true;
   }
@@ -488,7 +529,7 @@ function triggerEmptyStateGreetingGeneration(): boolean {
 
   greetingGenerationInFlight = new Promise<void>((resolve) => {
     queueMicrotask(() => {
-      void generateEmptyStateGreetings()
+      void generateEmptyStateGreetings(localTimeContext)
         .then((greetings) => {
           lastGreetingGenerationFailureAt = greetings === null ? Date.now() : 0;
         })
@@ -502,7 +543,9 @@ function triggerEmptyStateGreetingGeneration(): boolean {
   return true;
 }
 
-async function generateEmptyStateGreetings(): Promise<string[] | null> {
+async function generateEmptyStateGreetings(
+  localTimeContext: string | null,
+): Promise<string[] | null> {
   try {
     const provider = await getConfiguredProvider(EMPTY_STATE_GREETING_CALLSITE);
     if (!provider) {
@@ -517,14 +560,17 @@ async function generateEmptyStateGreetings(): Promise<string[] | null> {
       excludeBootstrap: true,
       excludeCustomPrefix: true,
     });
-    const timeOfDay = formatEmptyStateGreetingTimeOfDay(new Date());
+    const localTimeInstruction = localTimeContext
+      ? ` Current user-local time: ${localTimeContext}.`
+      : "";
     const result = await runBtwSidechain({
       content:
         `Generate ${GENERATED_GREETING_LIMIT} short first-person greeting options for the empty new-chat screen. ` +
         "Use the assistant identity, voice, and relationship guidance from IDENTITY.md and SOUL.md. " +
         "Each greeting should feel personal and inviting, not like a generic assistant introduction. " +
         "Return only a JSON array of strings. No markdown, keys, or explanation. " +
-        `Current time of day: ${timeOfDay}.`,
+        "Keep any time-sensitive phrasing appropriate for the user's local time." +
+        localTimeInstruction,
       provider,
       systemPrompt,
       messages: [],
@@ -548,23 +594,6 @@ async function generateEmptyStateGreetings(): Promise<string[] | null> {
     );
     return null;
   }
-}
-
-function formatEmptyStateGreetingTimeOfDay(date: Date): string {
-  const hour = date.getHours();
-  const period =
-    hour >= 5 && hour < 12
-      ? "morning"
-      : hour >= 12 && hour < 17
-        ? "afternoon"
-        : hour >= 17 && hour < 21
-          ? "evening"
-          : "late night";
-  const time = new Intl.DateTimeFormat(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
-  return `${period} (${time})`;
 }
 
 function parseGeneratedGreetings(text: string): string[] {
@@ -759,6 +788,20 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Returns greetings sourced from SOUL.md, the generated cache, or generic fallbacks while background generation refreshes the cache.",
     tags: ["identity"],
+    queryParams: [
+      {
+        name: "localHour",
+        schema: { type: "integer", minimum: 0, maximum: 23 },
+        description:
+          "Optional client-local hour of day used only when refreshing generated greetings.",
+      },
+      {
+        name: "localMinute",
+        schema: { type: "integer", minimum: 0, maximum: 59 },
+        description:
+          "Optional client-local minute used only when refreshing generated greetings.",
+      },
+    ],
     responseBody: z.object({
       greetings: z.array(z.string()),
       text: z.string(),

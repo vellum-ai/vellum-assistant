@@ -598,7 +598,9 @@ describe("identity routes — intro greetings", () => {
     );
     expect(route).toBeDefined();
 
-    const body = route!.handler({}) as {
+    const body = route!.handler({
+      queryParams: { localHour: "8", localMinute: "15" },
+    }) as {
       greetings: string[];
       text: string;
       source: string;
@@ -627,8 +629,10 @@ describe("identity routes — intro greetings", () => {
     expect(sidechainCalls[0]?.callSite).toBe("emptyStateGreeting");
     expect(sidechainCalls[0]?.tools).toEqual([]);
     expect(sidechainCalls[0]?.content).toContain("Generate 5 short");
-    expect(sidechainCalls[0]?.content).toContain("Current time of day:");
-    expect(sidechainCalls[0]?.content).toMatch(/Current time of day: .+\.$/);
+    expect(sidechainCalls[0]?.content).not.toContain("Current time of day:");
+    expect(sidechainCalls[0]?.content).toMatch(
+      /Current user-local time: morning \(08:15\)\.$/,
+    );
     expect(sidechainCalls[0]?.content).toContain("JSON array");
     expect(sidechainCalls[0]?.systemPrompt).toContain(
       "Identity sentinel: chartreuse compass.",

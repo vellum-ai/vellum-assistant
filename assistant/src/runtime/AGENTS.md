@@ -20,6 +20,8 @@ SSE handlers built on `ReadableStream` shed slow subscribers when `controller.de
 
 GET handlers must be safe and side-effect-free — they must not enqueue background jobs, mutate database state, or trigger writes. If a feature needs server-initiated work in response to a client request, use an explicit POST endpoint or a push-based flow (SSE event → client refetch). See [RFC 9110 §9.2.1 — Safe Methods](https://httpwg.org/specs/rfc9110.html#safe.methods).
 
+Accepted exception: `GET /v1/identity/intro` may enqueue a bounded background refresh of the generated greeting cache when no fresh greeting cache exists. The handler must still return immediately with existing workspace/fallback copy, and the background prompt may only depend on static identity/soul context plus caller-supplied local hour/minute.
+
 ### Approvals (confirmations, secrets, trust rules)
 
 Approvals are **orthogonal to message sending**. The assistant asks for approval whenever it needs one — this is a separate concern from how a message enters the system.
