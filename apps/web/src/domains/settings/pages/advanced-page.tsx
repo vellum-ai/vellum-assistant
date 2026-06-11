@@ -32,21 +32,6 @@ export function AdvancedPage() {
 
   return (
     <div className="space-y-4">
-      {showMemoryOptOut ? (
-        <DetailCard
-          title="Memory"
-          subtitle="Opt out of long-term memory."
-          accessory={
-            <Toggle
-              checked={memoryEnabled}
-              onChange={(enabled) => void handleMemoryToggle(enabled)}
-              aria-label="Enable memory"
-              disabled={configMutation.isPending}
-            />
-          }
-          compactAccessory
-        />
-      ) : null}
       {infraGate === "full" && platformAssistant && (
         <DetailCard
           title="Update Window"
@@ -65,6 +50,21 @@ export function AdvancedPage() {
           </Notice>
         </DetailCard>
       )}
+      {showMemoryOptOut ? (
+        <DetailCard
+          title="Memory"
+          subtitle="Let your assistant remember information from past conversations. Turning this off also pauses memory consolidation."
+          accessory={
+            <Toggle
+              checked={memoryEnabled}
+              onChange={(enabled) => void handleMemoryToggle(enabled)}
+              aria-label="Enable memory"
+              disabled={configMutation.isPending}
+            />
+          }
+          compactAccessory
+        />
+      ) : null}
     </div>
   );
 }
