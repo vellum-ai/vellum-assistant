@@ -333,3 +333,18 @@ export function summarizeRunsForUsage(
     eventCount: 0,
   };
 }
+
+export function totalUsageCost(
+  summaries: ScheduleUsageSummary[] | undefined,
+): number {
+  return (summaries ?? []).reduce((total, summary) => {
+    const cost = summary.totalEstimatedCostUsd;
+    return Number.isFinite(cost) ? total + cost : total;
+  }, 0);
+}
+
+export function systemTaskUsageCost(usage: ScheduleRowUsage): number {
+  return usage.status === "ready"
+    ? usage.summary.totalEstimatedCostUsd || 0
+    : 0;
+}
