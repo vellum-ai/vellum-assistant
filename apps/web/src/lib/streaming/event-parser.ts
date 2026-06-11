@@ -17,6 +17,7 @@ import {
   type AssistantEventEnvelope,
 } from "@vellumai/assistant-api";
 import { unknownEvent } from "@/lib/streaming/parse-helpers";
+import { unwrapMessageEnvelope } from "@/lib/streaming/sse-payload";
 
 /**
  * Parse a raw SSE payload into a typed `AssistantEventEnvelope`.
@@ -35,13 +36,10 @@ export function parseAssistantEvent(
   }
 
   // Determine the inner payload: envelope-wrapped or flat shape.
-  const msg = data.message;
+  const unwrapped = unwrapMessageEnvelope(data);
   const inner =
-    msg &&
-    typeof msg === "object" &&
-    !Array.isArray(msg) &&
-    typeof (msg as Record<string, unknown>).type === "string"
-      ? (msg as Record<string, unknown>)
+    unwrapped !== data && typeof (unwrapped as Record<string, unknown>).type === "string"
+      ? unwrapped
       : data;
 
   const innerResult = AssistantEventSchema.safeParse(inner);

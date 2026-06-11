@@ -1,8 +1,8 @@
+import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import {
-  getLocalSetting,
-  removeLocalSetting,
-  setLocalSetting,
-} from "@/utils/local-settings";
+  clearSelectedAssistantId,
+  readSelectedAssistantId,
+} from "@/assistant/selected-assistant-storage";
 import {
   clearGatewayToken,
   ensureGatewayToken,
@@ -56,7 +56,6 @@ const setCachedLockfile = (data: Lockfile): void =>
 const EMPTY_LOCKFILE: Lockfile = { assistants: [], activeAssistant: null };
 
 const LOCKFILE_STORAGE_KEY = "vellum:local:lockfile";
-const SELECTED_ASSISTANT_STORAGE_KEY = "vellum:local:selectedAssistantId";
 
 export function getPlatformRuntimeUrl(): string {
   const injected = (
@@ -73,6 +72,10 @@ export function getPlatformRuntimeUrl(): string {
 const commitLockfile = (data: Lockfile): void => {
   setCachedLockfile(data);
   setLocalSetting(LOCKFILE_STORAGE_KEY, JSON.stringify(data));
+  // Only reconcile against a lockfile from a successful host read/write — never
+  // the transient empty fallback in `loadLockfile`/`getLockfile`, which would
+  // wrongly drop a valid selection on a boot/read failure.
+  reconcileSelectedAssistant();
 };
 
 // ---------------------------------------------------------------------------
@@ -191,6 +194,10 @@ export async function syncPlatformAssistantsToLockfile(
   assistants: Array<{ id: string; name?: string; is_local: boolean; created: string }>,
   organizationId?: string,
 ): Promise<void> {
+  // Without a resolved org we can't scope the replace; a full wipe here would
+  // drop other orgs' platform entries. Skip — a later sync re-runs with the org.
+  if (organizationId == null) return;
+
   const platformAssistants = assistants
     .filter((a) => !a.is_local)
     .map((a) => ({
@@ -202,7 +209,10 @@ export async function syncPlatformAssistantsToLockfile(
       ...(organizationId != null && { organizationId }),
     }));
 
-  const result = await replacePlatformAssistantsHost(platformAssistants);
+  const result = await replacePlatformAssistantsHost(
+    platformAssistants,
+    organizationId,
+  );
   if (result.ok) {
     commitLockfile(result.lockfile);
   }
@@ -222,7 +232,9 @@ export async function retireLocalAssistant(
 ): Promise<LocalRetireResult> {
   const result = await retireLocalAssistantHost(assistantId);
   if (result.ok) {
-    clearSelectedAssistant();
+    // Clear the raw key directly (no store import here — that would cycle); the
+    // reactive slice reconciles via the `loadLockfile` below → `setFromLockfile`.
+    clearSelectedAssistantId();
     clearGatewayToken();
     setSelfHostedConnection(null);
     await loadLockfile();
@@ -276,7 +288,7 @@ export function getActiveAssistant(): LockfileAssistant | undefined {
 }
 
 export function getSelectedAssistant(): LockfileAssistant | undefined {
-  const selectedId = getLocalSetting(SELECTED_ASSISTANT_STORAGE_KEY, "");
+  const selectedId = readSelectedAssistantId();
   if (selectedId) {
     const found = getLockfile().assistants.find(
       (a) => a.assistantId === selectedId,
@@ -286,12 +298,20 @@ export function getSelectedAssistant(): LockfileAssistant | undefined {
   return getActiveAssistant();
 }
 
-export function setSelectedAssistantId(id: string): void {
-  setLocalSetting(SELECTED_ASSISTANT_STORAGE_KEY, id);
-}
-
-export function clearSelectedAssistant(): void {
-  removeLocalSetting(SELECTED_ASSISTANT_STORAGE_KEY);
+/**
+ * Reconcile the selection key against the lockfile registry: if the selected id
+ * no longer names a lockfile entry, clear it so `getSelectedAssistant` falls
+ * back to `getActiveAssistant`. The store's own reconcile (on `setFromLockfile`)
+ * covers the reactive slice; this keeps the raw key honest on the synchronous
+ * `commitLockfile` path, including the pre-React-mount gateway-auth boot.
+ */
+export function reconcileSelectedAssistant(): void {
+  const selectedId = readSelectedAssistantId();
+  if (!selectedId) return;
+  const present = getLockfile().assistants.some(
+    (a) => a.assistantId === selectedId,
+  );
+  if (!present) clearSelectedAssistantId();
 }
 
 // ---------------------------------------------------------------------------
@@ -303,12 +323,14 @@ export function gatewayProxyUrl(port: number): string {
 }
 
 /**
- * Return the local gateway proxy URL for the selected assistant, or
- * `undefined` when not in local mode / no local assistant is selected.
+ * Return the local gateway proxy URL for the given assistant (default: the
+ * selected one), or `undefined` when not in local mode / not a local
+ * assistant.
  */
-export function getLocalGatewayUrl(): string | undefined {
+export function getLocalGatewayUrl(
+  assistant: LockfileAssistant | undefined = getSelectedAssistant(),
+): string | undefined {
   if (!isLocalMode()) return undefined;
-  const assistant = getSelectedAssistant();
   if (!assistant || !isLocalAssistant(assistant)) return undefined;
   return gatewayProxyUrl(assistant.resources!.gatewayPort);
 }
@@ -318,19 +340,25 @@ export function getLocalGatewayUrl(): string | undefined {
 // ---------------------------------------------------------------------------
 
 /**
- * Acquire a gateway token and prime the self-hosted connection for the
- * selected local assistant. The guardian token and gateway exchange both ride
- * the host's local-mode transport, so this stays host-agnostic.
+ * Acquire a gateway token and prime the self-hosted connection for the given
+ * local assistant (default: the selected one). The guardian token and gateway
+ * exchange both ride the host's local-mode transport, so this stays
+ * host-agnostic. Passing `target` lets connect flows prime the NEW assistant's
+ * gateway before the selection write becomes observable, so the lifecycle's
+ * selection subscription never publishes a connection with a token minted for
+ * a different gateway.
  */
-export async function primeLocalGatewayConnection(): Promise<void> {
-  const tokenUrl = getLocalTokenUrl();
+export async function primeLocalGatewayConnection(
+  target?: LockfileAssistant,
+): Promise<void> {
+  const assistant = target ?? getSelectedAssistant();
+  const tokenUrl = getLocalTokenUrl(assistant);
   if (!tokenUrl) return;
-  const assistant = getSelectedAssistant();
   const guardianToken = assistant
     ? await fetchGuardianTokenHost(assistant.assistantId)
     : undefined;
   await ensureGatewayToken(tokenUrl, guardianToken);
-  const localGateway = getLocalGatewayUrl();
+  const localGateway = getLocalGatewayUrl(assistant);
   if (!localGateway) return;
   setSelfHostedConnection({
     url: `${window.location.origin}${localGateway}`,
@@ -362,16 +390,18 @@ function isRepairableConnectError(error: unknown): boolean {
  * a wake that itself fails, or a still-failing retry propagate the original
  * error so the existing connect-error UI surfaces it unchanged.
  */
-export async function primeLocalGatewayConnectionWithRepair(): Promise<void> {
+export async function primeLocalGatewayConnectionWithRepair(
+  target?: LockfileAssistant,
+): Promise<void> {
   try {
-    await primeLocalGatewayConnection();
+    await primeLocalGatewayConnection(target);
     return;
   } catch (error) {
     if (!isRepairableConnectError(error)) throw error;
-    const assistantId = getSelectedAssistant()?.assistantId;
+    const assistantId = (target ?? getSelectedAssistant())?.assistantId;
     if (!assistantId) throw error;
     const repair = await wakeLocalAssistantHost(assistantId);
     if (!repair.ok) throw error;
-    await primeLocalGatewayConnection();
+    await primeLocalGatewayConnection(target);
   }
 }

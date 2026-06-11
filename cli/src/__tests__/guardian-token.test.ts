@@ -11,6 +11,8 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { guardianTokenPath, resolveConfigDir } from "@vellumai/local-mode";
+
 import {
   getOrCreatePersistedDeviceId,
   guardianTokenDueForRenewal,
@@ -20,6 +22,8 @@ import {
   seedGuardianTokenFromSiblingEnv,
   type GuardianTokenData,
 } from "../lib/guardian-token.js";
+import { getConfigDir } from "../lib/environments/paths.js";
+import { getCurrentEnvironment } from "../lib/environments/resolve.js";
 
 function makeTokenData(suffix: string): GuardianTokenData {
   const now = new Date().toISOString();
@@ -471,5 +475,80 @@ describe("guardianTokenDueForRenewal", () => {
         token({ refreshAfter: "not-a-date", accessTokenExpiresAt: "nope" }),
       ),
     ).toBe(false);
+  });
+});
+
+// Drift guard between the guardian-token WRITE path (CLI: getGuardianTokenPath
+// → getConfigDir(getCurrentEnvironment())) and the READ path used by every
+// host-seam reader (getGuardianAccessToken → resolveConfigDir(env) from
+// @vellumai/local-mode). A divergence here writes a freshly leased token where
+// the connect can't read it, bricking local-assistant connect. saveGuardianToken
+// already resolves through the shared resolver; this asserts the two resolvers
+// stay in lockstep so a future change to either can't silently relocate tokens.
+describe("guardian-token path resolver parity (CLI ↔ shared)", () => {
+  let tempHome: string;
+  let savedXdg: string | undefined;
+  let savedEnv: string | undefined;
+
+  beforeEach(() => {
+    savedXdg = process.env.XDG_CONFIG_HOME;
+    savedEnv = process.env.VELLUM_ENVIRONMENT;
+    tempHome = mkdtempSync(join(tmpdir(), "cli-guardian-parity-test-"));
+    process.env.XDG_CONFIG_HOME = tempHome;
+    delete process.env.VELLUM_ENVIRONMENT;
+  });
+
+  afterEach(() => {
+    if (savedXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = savedXdg;
+    if (savedEnv === undefined) delete process.env.VELLUM_ENVIRONMENT;
+    else process.env.VELLUM_ENVIRONMENT = savedEnv;
+    rmSync(tempHome, { recursive: true, force: true });
+  });
+
+  // The CLI's own resolver and the shared @vellumai/local-mode resolver must
+  // agree on the config dir for every environment source.
+  const expectResolversAgree = () => {
+    expect(getConfigDir(getCurrentEnvironment())).toBe(
+      resolveConfigDir(process.env),
+    );
+  };
+
+  test("unset → production: resolvers agree and saveGuardianToken lands there", () => {
+    expectResolversAgree();
+    saveGuardianToken("alpha", makeTokenData("prod"));
+    expect(
+      existsSync(guardianTokenPath(resolveConfigDir(process.env), "alpha")),
+    ).toBe(true);
+  });
+
+  test("VELLUM_ENVIRONMENT=dev: resolvers agree and token lands there", () => {
+    process.env.VELLUM_ENVIRONMENT = "dev";
+    expectResolversAgree();
+    saveGuardianToken("alpha", makeTokenData("dev"));
+    expect(
+      existsSync(guardianTokenPath(resolveConfigDir(process.env), "alpha")),
+    ).toBe(true);
+  });
+
+  test("VELLUM_ENVIRONMENT=local: resolvers agree and token lands there", () => {
+    process.env.VELLUM_ENVIRONMENT = "local";
+    expectResolversAgree();
+    saveGuardianToken("alpha", makeTokenData("local"));
+    expect(
+      existsSync(guardianTokenPath(resolveConfigDir(process.env), "alpha")),
+    ).toBe(true);
+  });
+
+  test("persisted default env file (no VELLUM_ENVIRONMENT): resolvers agree", () => {
+    // Mirror `vellum env set dev`: the default-env file lives at the fixed,
+    // env-agnostic path $XDG_CONFIG_HOME/vellum/environment.
+    mkdirSync(join(tempHome, "vellum"), { recursive: true });
+    writeFileSync(join(tempHome, "vellum", "environment"), "dev\n");
+    expectResolversAgree();
+    saveGuardianToken("alpha", makeTokenData("default-dev"));
+    expect(
+      existsSync(guardianTokenPath(resolveConfigDir(process.env), "alpha")),
+    ).toBe(true);
   });
 });

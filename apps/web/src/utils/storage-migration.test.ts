@@ -4,10 +4,12 @@ import { migrateKey, migratePrefix, migrateValue, removeKey, runStorageMigration
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
 });
 
 afterEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
 });
 
 describe("removeKey", () => {
@@ -227,7 +229,10 @@ describe("runStorageMigrations", () => {
     expect(localStorage.getItem("vellum:gw:expiresAt")).toBe("1700000000");
     expect(localStorage.getItem("vellum:gw:tokenSource")).toBe("/auth/token");
     expect(localStorage.getItem("vellum:local:lockfile")).toBe("{}");
-    expect(localStorage.getItem("vellum:local:selectedAssistantId")).toBe("asst-1");
+    // local:selectedAssistantId is canonicalized then collapsed into the single
+    // vellum:selectedAssistantId, so the intermediate key no longer survives.
+    expect(localStorage.getItem("vellum:selectedAssistantId")).toBe("asst-1");
+    expect(localStorage.getItem("vellum:local:selectedAssistantId")).toBeNull();
     expect(localStorage.getItem("gw:token")).toBeNull();
     expect(localStorage.getItem("local:lockfile")).toBeNull();
   });
@@ -243,15 +248,47 @@ describe("runStorageMigrations", () => {
     expect(localStorage.getItem("disk-pressure-warning-dismissed-asst-1")).toBeNull();
   });
 
-  test("migrates vellum_current_assistant_id__ prefix", () => {
-    localStorage.setItem("vellum_current_assistant_id__org-1", "asst-a");
+  test("collapses the legacy per-org assistant map into one key", () => {
+    // Canonicalized first (vellum_current_assistant_id__ → vellum:currentAssistantId:),
+    // then collapsed into the single vellum:selectedAssistantId. With no current
+    // org at migration time, the lexicographically-smallest org suffix wins.
     localStorage.setItem("vellum_current_assistant_id__org-2", "asst-b");
+    localStorage.setItem("vellum_current_assistant_id__org-1", "asst-a");
 
     runStorageMigrations();
 
-    expect(localStorage.getItem("vellum:currentAssistantId:org-1")).toBe("asst-a");
-    expect(localStorage.getItem("vellum:currentAssistantId:org-2")).toBe("asst-b");
+    expect(localStorage.getItem("vellum:selectedAssistantId")).toBe("asst-a");
+    expect(localStorage.getItem("vellum:currentAssistantId:org-1")).toBeNull();
+    expect(localStorage.getItem("vellum:currentAssistantId:org-2")).toBeNull();
     expect(localStorage.getItem("vellum_current_assistant_id__org-1")).toBeNull();
+  });
+
+  test("collapse prefers the persisted active org's per-org selection", () => {
+    // Active org is org-2 even though org-1 sorts first; the active org's pick
+    // must win so a multi-org user keeps their current selection on upgrade.
+    sessionStorage.setItem("vellum_active_organization_id", "org-2");
+    localStorage.setItem("vellum:currentAssistantId:org-1", "asst-1");
+    localStorage.setItem("vellum:currentAssistantId:org-2", "asst-2");
+
+    runStorageMigrations();
+
+    expect(localStorage.getItem("vellum:selectedAssistantId")).toBe("asst-2");
+    expect(localStorage.getItem("vellum:currentAssistantId:org-1")).toBeNull();
+    expect(localStorage.getItem("vellum:currentAssistantId:org-2")).toBeNull();
+  });
+
+  test("collapse prefers the tab-local key and is idempotent", () => {
+    localStorage.setItem("vellum:local:selectedAssistantId", "tab-local");
+    localStorage.setItem("vellum:currentAssistantId:org-1", "per-org");
+
+    runStorageMigrations();
+    expect(localStorage.getItem("vellum:selectedAssistantId")).toBe("tab-local");
+    expect(localStorage.getItem("vellum:local:selectedAssistantId")).toBeNull();
+    expect(localStorage.getItem("vellum:currentAssistantId:org-1")).toBeNull();
+
+    // Re-running leaves the collapsed value untouched and removes nothing new.
+    runStorageMigrations();
+    expect(localStorage.getItem("vellum:selectedAssistantId")).toBe("tab-local");
   });
 
   test("migrates vellumDebug key", () => {

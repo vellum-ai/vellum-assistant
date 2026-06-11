@@ -7,7 +7,9 @@
  */
 
 import { client as platformClient } from "@/generated/api/client.gen";
+import { normalizeSSEPayload, unwrapMessageEnvelope } from "@/lib/streaming/sse-payload";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
+import { toError } from "@/utils/to-error";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -67,47 +69,22 @@ export function subscribeTerminalEvents(
           ...getClientRegistrationHeaders(),
         },
         signal: abortController.signal,
-        sseMaxRetryAttempts: 3,
+        // All retry behavior is owned by useTerminalSession's
+        // reconnect state machine — SDK-level retries would be
+        // invisible to the consumer's status tracking.
+        sseMaxRetryAttempts: 0,
         onSseError: (error) => {
-          streamError =
-            error instanceof Error
-              ? error
-              : new Error("Terminal stream disconnected");
+          streamError = toError(error, "Terminal stream disconnected");
         },
       });
 
       for await (const payload of stream) {
         if (cancelled) return;
 
-        const raw =
-          typeof payload === "string"
-            ? (() => {
-                try {
-                  const parsed = JSON.parse(payload);
-                  return parsed &&
-                    typeof parsed === "object" &&
-                    !Array.isArray(parsed)
-                    ? (parsed as Record<string, unknown>)
-                    : null;
-                } catch {
-                  return null;
-                }
-              })()
-            : payload && typeof payload === "object" && !Array.isArray(payload)
-              ? (payload as Record<string, unknown>)
-              : null;
-
+        const raw = normalizeSSEPayload(payload);
         if (!raw) continue;
 
-        // Support envelope format: { message: { seq, data } }
-        let eventData = raw;
-        if (
-          raw.message &&
-          typeof raw.message === "object" &&
-          !Array.isArray(raw.message)
-        ) {
-          eventData = raw.message as Record<string, unknown>;
-        }
+        const eventData = unwrapMessageEnvelope(raw);
 
         const seq = typeof eventData.seq === "number" ? eventData.seq : -1;
         const data = typeof eventData.data === "string" ? eventData.data : "";
@@ -131,19 +108,13 @@ export function subscribeTerminalEvents(
       onError(new Error("Terminal stream ended unexpectedly"));
     } catch (err) {
       if (cancelled) return;
-      onError(
-        err instanceof Error
-          ? err
-          : new Error("Terminal stream connection failed"),
-      );
+      onError(toError(err, "Terminal stream connection failed"));
     }
   };
 
   connect().catch((err) => {
     if (!cancelled) {
-      onError(
-        err instanceof Error ? err : new Error("Terminal stream setup failed"),
-      );
+      onError(toError(err, "Terminal stream setup failed"));
     }
   });
 

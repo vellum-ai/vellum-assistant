@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
-import path from "node:path";
 
+import { guardianTokenPath } from "./config";
 import type { CliInvocation } from "./util";
 
 const GUARDIAN_TOKEN_REFRESH_TIMEOUT_MS = 15_000;
@@ -40,7 +40,7 @@ export function getGuardianAccessToken(
     return Promise.resolve({ ok: false, status: 403, error: "Forbidden" });
   }
 
-  const tokenPath = path.join(configDir, "assistants", assistantId, "guardian-token.json");
+  const tokenPath = guardianTokenPath(configDir, assistantId);
 
   let raw: string;
   try {

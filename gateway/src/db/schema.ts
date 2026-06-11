@@ -29,6 +29,12 @@ export const slackActiveThreads = sqliteTable("slack_active_threads", {
   channelId: text("channel_id"),
   trackedAt: integer("tracked_at").notNull(),
   expiresAt: integer("expires_at").notNull(),
+  // Set when the thread was explicitly detached (the Slack mute command or
+  // the daemon's detach IPC route). NULL = actively tracked. A detached row
+  // is kept as a marker — rather than deleted — so the Socket Mode echo of
+  // the bot's own mute confirmation cannot silently re-arm the thread it
+  // just muted. An explicit human re-engagement (trackThread) clears it.
+  detachedAt: integer("detached_at"),
 });
 
 export const slackSeenEvents = sqliteTable("slack_seen_events", {

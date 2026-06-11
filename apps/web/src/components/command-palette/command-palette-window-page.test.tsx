@@ -16,7 +16,8 @@ const resolvedRef = {
     },
   ],
   activeAssistantId: "assistant-1" as string | null,
-  selectedPlatformAssistantByOrg: {} as Record<string, string>,
+  selectedAssistantId: null as string | null,
+  assistantsHydrated: true,
 };
 const orgRef = {
   currentOrganizationId: "org-1" as string | null,
@@ -57,6 +58,21 @@ const localSelectedRef = {
 };
 mock.module("@/lib/local-mode", () => ({
   getSelectedAssistant: () => localSelectedRef.value,
+  getActiveAssistant: () =>
+    resolvedRef.activeAssistantId
+      ? { assistantId: resolvedRef.activeAssistantId }
+      : undefined,
+  setActiveLockfileAssistant: async () => undefined,
+}));
+
+mock.module("@/lib/auth/gateway-session", () => ({
+  isGatewayAuthMode: () => false,
+}));
+
+mock.module("@/stores/client-feature-flag-store", () => ({
+  useClientFeatureFlagStore: {
+    use: { multiPlatformAssistant: () => true },
+  },
 }));
 
 mock.module("@/stores/auth-store", () => {
@@ -76,6 +92,9 @@ mock.module("@/stores/organization-store", () => {
   useOrganizationStore.use = {
     currentOrganizationId: () => orgRef.currentOrganizationId,
   };
+  useOrganizationStore.getState = () => ({
+    currentOrganizationId: orgRef.currentOrganizationId,
+  });
   return { useOrganizationStore };
 });
 
@@ -84,10 +103,26 @@ mock.module("@/stores/resolved-assistants-store", () => {
   useResolvedAssistantsStore.use = {
     assistants: () => resolvedRef.assistants,
     activeAssistantId: () => resolvedRef.activeAssistantId,
-    selectedPlatformAssistantByOrg: () =>
-      resolvedRef.selectedPlatformAssistantByOrg,
+    selectedAssistantId: () => resolvedRef.selectedAssistantId,
   };
-  return { useResolvedAssistantsStore };
+  useResolvedAssistantsStore.getState = () => ({
+    assistants: resolvedRef.assistants,
+    selectedAssistantId: resolvedRef.selectedAssistantId,
+    assistantsHydrated: resolvedRef.assistantsHydrated,
+  });
+  return {
+    useResolvedAssistantsStore,
+    assistantsValidForOrg: (
+      assistants: { organizationId?: string | null; isLocal?: boolean }[],
+      activeOrgId: string | null,
+    ) =>
+      assistants.filter(
+        (a) =>
+          a.isLocal ||
+          a.organizationId == null ||
+          a.organizationId === activeOrgId,
+      ),
+  };
 });
 
 const useCommandPaletteSectionsMock = mock((_params: unknown) => ({
@@ -129,7 +164,8 @@ beforeEach(() => {
     },
   ];
   resolvedRef.activeAssistantId = "assistant-1";
-  resolvedRef.selectedPlatformAssistantByOrg = {};
+  resolvedRef.selectedAssistantId = null;
+  resolvedRef.assistantsHydrated = true;
   orgRef.currentOrganizationId = "org-1";
   localSelectedRef.value = null;
 
@@ -174,7 +210,7 @@ describe("CommandPaletteWindowPage", () => {
       },
     ];
     resolvedRef.activeAssistantId = null;
-    resolvedRef.selectedPlatformAssistantByOrg = { "org-1": "assistant-2" };
+    resolvedRef.selectedAssistantId = "assistant-2";
 
     render(<CommandPaletteWindowPage />);
 

@@ -60,7 +60,15 @@ export interface ProfileEntry {
 
 export type ProfileWithName = { name: string } & ProfileEntry;
 
+export interface MemoryConfig {
+  enabled?: boolean;
+  v2?: {
+    enabled?: boolean;
+  };
+}
+
 export interface DaemonConfig {
+  memory?: MemoryConfig;
   services?: {
     "web-search"?: { mode?: string; provider?: string };
     "image-generation"?: { mode?: string };
@@ -86,6 +94,7 @@ export interface DaemonConfig {
  * instead of silently sending malformed patches.
  */
 export type DaemonConfigPatch = {
+  memory?: Partial<MemoryConfig> | null;
   services?: {
     "web-search"?: { mode?: string; provider?: string } | null;
     "image-generation"?: { mode?: string } | null;
@@ -295,5 +304,3 @@ export const LS_TTS_API_KEY_PREFIX = "vellum:voice:ttsApiKey:";
 export const LS_TTS_VOICE_ID_PREFIX = "vellum:voice:ttsVoiceId:";
 export const LS_STT_PROVIDER = "vellum:voice:sttProvider";
 export const LS_STT_API_KEY_PREFIX = "vellum:voice:sttApiKey:";
-
-

@@ -131,7 +131,8 @@ function createSlackStore(): { rawDb: Database; store: SlackStore } {
       thread_ts TEXT PRIMARY KEY,
       channel_id TEXT,
       tracked_at INTEGER NOT NULL,
-      expires_at INTEGER NOT NULL
+      expires_at INTEGER NOT NULL,
+      detached_at INTEGER
     );
     CREATE TABLE slack_seen_events (
       event_id TEXT PRIMARY KEY,
@@ -623,6 +624,568 @@ describe("SlackSocketModeClient thread tracking", () => {
       await flushAsyncEventEmission();
 
       expect(emitted).toHaveLength(0);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("tracks the thread when the bot posts the first reply, so later replies are admitted (JARVIS-1086)", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    // Thread parent posted by another bot — never tracked, never ingested.
+    const threadTs = "1700000000.000500";
+
+    try {
+      await resolveSlackUser("U-reply", "xoxb-test");
+
+      // The assistant proactively replies in the thread (e.g. a skill-driven
+      // chat.postMessage). The bot's own message echoes back over Socket
+      // Mode as a plain `message` event authored by the bot user.
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-bot-own-reply",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-bot-own-reply",
+            event: {
+              type: "message",
+              user: "UBOT",
+              text: "proactive triage context for <@U-human>",
+              ts: "1700000000.000600",
+              channel: "C-thread",
+              channel_type: "channel",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      // The bot's own message is never forwarded, but it must arm the
+      // thread so catch-up and the active-thread filter cover it.
+      expect(emitted).toHaveLength(0);
+      expect(store.hasThread(threadTs)).toBe(true);
+
+      // A human follow-up in that thread (no @-mention) is now admitted.
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-human-followup",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-human-followup",
+            event: {
+              type: "message",
+              user: "U-reply",
+              text: "following up in the assistant-initiated thread",
+              ts: "1700000000.000700",
+              channel: "C-thread",
+              channel_type: "channel",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.source.updateId).toBe("Ev-human-followup");
+      expect(emitted[0].threadTs).toBe(threadTs);
+      expect(emitted[0].event.source.threadId).toBe(threadTs);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("tracks the bot's first thread reply in actor-routed workspaces, so later replies are admitted (JARVIS-1086)", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    // Workspace routes by actor, not by channel: no conversation_id entry
+    // exists for any channel, and unmappedPolicy stays "reject". The key
+    // must look like a real Slack user ID (uppercase, U-prefixed) — that's
+    // how the tracking check tells Slack actor routes apart from other
+    // channels' actor keys in the shared routingEntries list.
+    client.config.gatewayConfig.routingEntries = [
+      { type: "actor_id", key: "UHUMAN01", assistantId: "ast-actor" },
+    ];
+    const threadTs = "1700000001.000100";
+
+    try {
+      await resolveSlackUser("UHUMAN01", "xoxb-test");
+
+      // The bot's own thread reply echoes back. Its author is the BOT user,
+      // which never matches a human actor_id route — the echo must still arm
+      // the thread because routed humans can reply here.
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-bot-actor-routed-reply",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-bot-actor-routed-reply",
+            event: {
+              type: "message",
+              user: "UBOT",
+              text: "proactive update for <@U-human>",
+              ts: "1700000001.000200",
+              channel: "C-actor-routed",
+              channel_type: "channel",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      // Tracking-only: the echo itself is never forwarded.
+      expect(emitted).toHaveLength(0);
+      expect(store.hasThread(threadTs)).toBe(true);
+
+      // A routed human's follow-up (no @-mention) is now admitted and
+      // resolves through their actor_id route at normalize time.
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-actor-routed-followup",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-actor-routed-followup",
+            event: {
+              type: "message",
+              user: "UHUMAN01",
+              text: "following up in the assistant-initiated thread",
+              ts: "1700000001.000300",
+              channel: "C-actor-routed",
+              channel_type: "channel",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.source.updateId).toBe("Ev-actor-routed-followup");
+      expect(emitted[0].threadTs).toBe(threadTs);
+      expect(emitted[0].routing).toEqual({
+        assistantId: "ast-actor",
+        routeSource: "actor_id",
+      });
+
+      // An unrouted human's reply in the armed thread is still dropped at
+      // normalize time — arming the thread must not loosen forwarding.
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-unrouted-actor-followup",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-unrouted-actor-followup",
+            event: {
+              type: "message",
+              user: "USTRANGER9",
+              text: "reply from a user with no actor route",
+              ts: "1700000001.000400",
+              channel: "C-actor-routed",
+              channel_type: "channel",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("does not track bot replies when the only actor routes belong to other channels (non-Slack keys)", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    // routingEntries is shared across channels; a Telegram-style numeric
+    // actor key must not make Slack channels eligible for thread tracking.
+    client.config.gatewayConfig.routingEntries = [
+      { type: "actor_id", key: "123456789", assistantId: "ast-telegram" },
+    ];
+    const threadTs = "1700000001.000500";
+
+    try {
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-bot-nonslack-actor-reply",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-bot-nonslack-actor-reply",
+            event: {
+              type: "message",
+              user: "UBOT",
+              text: "bot reply with only non-Slack actor routes configured",
+              ts: "1700000001.000600",
+              channel: "C-unrouted",
+              channel_type: "channel",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(0);
+      expect(store.hasThread(threadTs)).toBe(false);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("does not track bot replies in unrouted channels", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    const threadTs = "1700000000.000800";
+
+    try {
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-bot-unrouted-reply",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-bot-unrouted-reply",
+            event: {
+              type: "message",
+              user: "UBOT",
+              text: "bot reply in a channel with no routing entry",
+              ts: "1700000000.000900",
+              channel: "C-unrouted",
+              channel_type: "channel",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(0);
+      expect(store.hasThread(threadTs)).toBe(false);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("does not re-arm a just-muted thread when the mute confirmation echo arrives", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    const threadTs = "1700000002.000100";
+    const confirmationTs = "1700000002.000300";
+    const postBodies: Array<Record<string, unknown>> = [];
+
+    fetchMock = mock(async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/chat.postMessage")) {
+        postBodies.push(JSON.parse(String(init?.body)));
+        return new Response(JSON.stringify({ ok: true, ts: confirmationTs }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return makeSlackUserResponse();
+    });
+
+    try {
+      // The routed thread is actively tracked (e.g. armed by the bot's
+      // own first reply or a prior app mention).
+      store.trackThread(threadTs, "C-thread", 60_000);
+
+      // A human mutes the thread: the gateway detaches it and posts a
+      // confirmation reply into the same thread.
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-mute-then-echo",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-mute-then-echo",
+            event: {
+              type: "app_mention",
+              user: "U-mentioned",
+              text: "<@UBOT> mute",
+              ts: "1700000002.000200",
+              channel: "C-thread",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(0);
+      expect(store.hasThread(threadTs)).toBe(false);
+      expect(postBodies).toEqual([
+        {
+          channel: "C-thread",
+          thread_ts: threadTs,
+          text: SLACK_THREAD_MUTE_SUCCESS,
+        },
+      ]);
+
+      // The confirmation echoes back over Socket Mode as a bot-authored
+      // thread reply. It must NOT re-arm the just-muted thread.
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-mute-confirmation-echo",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-mute-confirmation-echo",
+            event: {
+              type: "message",
+              user: "UBOT",
+              text: SLACK_THREAD_MUTE_SUCCESS,
+              ts: confirmationTs,
+              channel: "C-thread",
+              channel_type: "channel",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(store.hasThread(threadTs)).toBe(false);
+
+      // A later unmentioned human reply stays muted — not forwarded.
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-reply-after-mute-echo",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-reply-after-mute-echo",
+            event: {
+              type: "message",
+              user: "U-reply",
+              text: "following up without mentioning the bot",
+              ts: "1700000002.000400",
+              channel: "C-thread",
+              channel_type: "channel",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(0);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("a fresh human @-mention re-arms a muted thread after the confirmation echo", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    const threadTs = "1700000003.000100";
+    const confirmationTs = "1700000003.000300";
+
+    fetchMock = mock(async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/chat.postMessage")) {
+        void init;
+        return new Response(JSON.stringify({ ok: true, ts: confirmationTs }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return makeSlackUserResponse();
+    });
+
+    try {
+      await resolveSlackUser("U-mentioned", "xoxb-test");
+      await resolveSlackUser("U-reply", "xoxb-test");
+
+      store.trackThread(threadTs, "C-thread", 60_000);
+
+      // Mute the thread, then deliver the bot's confirmation echo.
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-rearm-mute",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-rearm-mute",
+            event: {
+              type: "app_mention",
+              user: "U-mentioned",
+              text: "<@UBOT> mute",
+              ts: "1700000003.000200",
+              channel: "C-thread",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-rearm-mute-echo",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-rearm-mute-echo",
+            event: {
+              type: "message",
+              user: "UBOT",
+              text: SLACK_THREAD_MUTE_SUCCESS,
+              ts: confirmationTs,
+              channel: "C-thread",
+              channel_type: "channel",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+      expect(emitted).toHaveLength(0);
+      expect(store.hasThread(threadTs)).toBe(false);
+
+      // A human explicitly @-mentions the bot in the muted thread — mute
+      // must not be permanent dead state. The mention is forwarded and
+      // re-arms the thread per the existing app_mention behavior.
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-rearm-mention",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-rearm-mention",
+            event: {
+              type: "app_mention",
+              user: "U-mentioned",
+              text: "<@UBOT> picking this back up",
+              ts: "1700000003.000400",
+              channel: "C-thread",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.source.updateId).toBe("Ev-rearm-mention");
+      expect(store.hasThread(threadTs)).toBe(true);
+
+      // Unmentioned follow-up replies are admitted again.
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-rearm-followup",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-rearm-followup",
+            event: {
+              type: "message",
+              user: "U-reply",
+              text: "great, continuing the thread",
+              ts: "1700000003.000500",
+              channel: "C-thread",
+              channel_type: "channel",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(2);
+      expect(emitted[1].event.source.updateId).toBe("Ev-rearm-followup");
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("a mute confirmation echo does not arm a never-tracked thread", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    const threadTs = "1700000004.000100";
+    const confirmationTs = "1700000004.000300";
+
+    fetchMock = mock(async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/chat.postMessage")) {
+        return new Response(JSON.stringify({ ok: true, ts: confirmationTs }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return makeSlackUserResponse();
+    });
+
+    try {
+      // Mute command in a thread that was never tracked ("already muted"
+      // acknowledgement path).
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-untracked-mute",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-untracked-mute",
+            event: {
+              type: "app_mention",
+              user: "U-mentioned",
+              text: "<@UBOT> mute",
+              ts: "1700000004.000200",
+              channel: "C-thread",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+      expect(store.hasThread(threadTs)).toBe(false);
+
+      // The "already muted" confirmation echo must not arm the thread.
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-untracked-mute-echo",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-untracked-mute-echo",
+            event: {
+              type: "message",
+              user: "UBOT",
+              text: SLACK_THREAD_ALREADY_MUTED,
+              ts: confirmationTs,
+              channel: "C-thread",
+              channel_type: "channel",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(0);
+      expect(store.hasThread(threadTs)).toBe(false);
     } finally {
       rawDb.close();
     }

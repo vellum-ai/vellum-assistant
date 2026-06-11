@@ -77,7 +77,6 @@ export type {
 } from "@/domains/chat/types";
 
 import type { AssistantEvent } from "@/types/event-types";
-import type { SyncChangedEvent } from "@/lib/sync/types";
 
 // ---------------------------------------------------------------------------
 // Params & return types
@@ -95,12 +94,6 @@ export interface UseStreamEventHandlerParams {
 
   // --- UI surfaces ---
   setAssetsRefreshKey: Dispatch<SetStateAction<number>>;
-
-  // --- Conversations ---
-  scheduleConversationListRefetch: () => void;
-
-  // --- Sync router ---
-  dispatchSyncChanged: (event: SyncChangedEvent) => void;
 }
 
 interface UseStreamEventHandlerReturn {
@@ -133,8 +126,6 @@ export function useStreamEventHandler(
     cancelReconciliation,
     startReconciliationLoop,
     setAssetsRefreshKey,
-    scheduleConversationListRefetch,
-    dispatchSyncChanged,
   } = params;
 
   // --- Refs owned by this hook (only used inside handleStreamEvent) ---
@@ -239,7 +230,6 @@ export function useStreamEventHandler(
         addDismissedSurfaceId: store.addDismissedSurfaceId,
         setContextWindowUsageForConversation: store.setContextWindowUsageForConversation,
         setContextWindowUsage: store.setContextWindowUsage,
-        scheduleConversationListRefetch,
         queryClient,
         setCompactionCircuitOpenUntil: store.setCompactionCircuitOpenUntil,
         shiftPendingQueuedMessageId: store.shiftPendingQueuedMessageId,
@@ -327,6 +317,11 @@ export function useStreamEventHandler(
         case "usage_update":
           handleUsageUpdate(event, ctx);
           break;
+        // Per-call usage deltas. The top-level chat surface reads running
+        // totals from `usage_update`; per-call deltas are only consumed by
+        // subagent surfaces via the `subagent_event` envelope.
+        case "usage_progress":
+          break;
         case "conversation_list_invalidated":
           // Legacy macOS-only broadcast. Web receives the paired
           // `sync_changed` (`conversationsList` umbrella for shape
@@ -373,15 +368,12 @@ export function useStreamEventHandler(
         case "subagent_event":
           handleSubagentEvent(event, ctx);
           break;
-        case "sync_changed":
-          dispatchSyncChanged(event);
-          break;
-
         // Cross-domain events handled by bus subscribers mounted in
         // RootLayout (useAssistantResourceSync, useConversationSync,
         // useNotificationIntentSync, useDocumentEditorSync) or
         // ChatPage-scoped hooks (useDiskPressureMonitor). The chat
         // handler is intentionally a no-op for these.
+        case "sync_changed":
         case "home_feed_updated":
         case "relationship_state_updated":
         case "identity_changed":
@@ -414,10 +406,6 @@ export function useStreamEventHandler(
       isNative,
       cancelReconciliation,
       startReconciliationLoop,
-      scheduleConversationListRefetch,
-      // Stable deps listed for correctness — React guarantees identity
-      // stability for refs, and store getState is module-level stable.
-      dispatchSyncChanged,
       queryClient,
       setAssetsRefreshKey,
     ],

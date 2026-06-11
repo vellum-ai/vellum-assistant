@@ -26,7 +26,6 @@ import {
 import {
   messageText as text,
   textBody as seg,
-  textBodyWithBlocks as segWithBlocks,
 } from "@/domains/chat/utils/message-test-helpers";
 
 function makeAssistantMsg(
@@ -132,6 +131,7 @@ describe("appendTextDelta", () => {
       id: "row-X",
       textSegments: [],
       contentOrder: [],
+      contentBlocks: [],
     });
     const result = appendTextDelta(
       [userMsg, reservedFromReconcile],
@@ -983,7 +983,7 @@ describe("applyUserMessageEcho", () => {
     expect(result[1]).toEqual({
       id: "msg-server-1",
       role: "user",
-      ...segWithBlocks("from another device"),
+      ...seg("from another device"),
       timestamp: result[1]!.timestamp,
     });
   });

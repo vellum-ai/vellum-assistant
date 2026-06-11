@@ -78,7 +78,7 @@ describe("computeToolCallCardData — step kinds", () => {
       kind: "tool",
       durationLabel: "2s",
       startedAt: 1000,
-      title: "Working (bash)",
+      title: "Working",
       info: "echo hello",
       activity: "",
       riskLevel: undefined,
@@ -87,10 +87,10 @@ describe("computeToolCallCardData — step kinds", () => {
       status: "completed",
     });
     expect(data.state).toBe("complete");
-    // The collapsed header suppresses the redundant "Working (bash)" label,
-    // promoting the command into the (otherwise subtext) info slot. The
-    // underlying step keeps its "Working (bash)" title for phase grouping.
-    expect(data.currentStepTitle).toBe("");
+    // The collapsed header shows the tool's "Working" title verbatim,
+    // paired with the command in the info slot, so a collapsed card
+    // carousels the live step ("Working | echo hello").
+    expect(data.currentStepTitle).toBe("Working");
     expect(data.currentStepInfo).toBe("echo hello");
   });
 
@@ -351,8 +351,8 @@ describe("computeToolCallCardData — subagent_spawn filtering", () => {
     expect(data.steps).toHaveLength(1);
     expect(data.steps[0]!.kind).toBe("tool");
     // Header derivation also ignores the filtered spawn so the carousel
-    // reflects only the bash call — whose title is suppressed in the header.
-    expect(data.currentStepTitle).toBe("");
+    // reflects only the bash call — whose "Working" title now shows verbatim.
+    expect(data.currentStepTitle).toBe("Working");
   });
 });
 
@@ -619,8 +619,9 @@ describe("computeToolCallCardDataFromItems — header reflects the latest step",
     ];
     const data = computeToolCallCardDataFromItems(items, {});
     expect(data.currentStepKind).toBe("tool");
-    // Bash title suppressed in the collapsed header; command promoted to info.
-    expect(data.currentStepTitle).toBe("");
+    // The collapsed header carousels the live step: the "Working" title
+    // paired with the command in the info slot.
+    expect(data.currentStepTitle).toBe("Working");
     expect(data.currentStepInfo).toBe("echo hi");
   });
 });
@@ -728,8 +729,8 @@ describe("computeToolCallCardData — mixed web + non-web groups", () => {
     expect(data.steps[0]!.kind).toBe("web_search");
     expect(data.steps[1]!.kind).toBe("tool");
     // currentStepTitle reflects the latest call (the bash tool), whose
-    // redundant label is suppressed in the collapsed header.
-    expect(data.currentStepTitle).toBe("");
+    // "Working" title now shows verbatim in the collapsed header.
+    expect(data.currentStepTitle).toBe("Working");
     expect(data.currentStepInfo).toBe("ls");
   });
 });

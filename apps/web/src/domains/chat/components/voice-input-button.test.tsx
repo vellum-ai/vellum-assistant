@@ -71,6 +71,7 @@ mock.module("@/runtime/native-auth", () => ({
   useIsNativePlatform: () => false,
 }));
 mock.module("@/utils/voice-input-device", () => ({
+  getVoiceInputMediaStream: async () => fakeStream,
   voiceInputAudioConstraints: () => true,
 }));
 

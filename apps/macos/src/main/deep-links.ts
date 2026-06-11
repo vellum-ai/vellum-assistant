@@ -1,6 +1,7 @@
 import { BrowserWindow, app, type WebContents } from "electron";
 import { z } from "zod";
 
+import type { DeepLink } from "@vellumai/ipc-contract";
 import { resolveEnvironmentName } from "@vellumai/local-mode";
 
 import { handle, on } from "./ipc";
@@ -49,11 +50,16 @@ import { handleAuthCallback } from "./native-auth";
  *   - https://www.electronjs.org/docs/latest/api/app#appsetasdefaultprotocolclientprotocol-path-args
  */
 
-export type DeepLink =
-  | { kind: "send"; message: string }
-  | { kind: "openThread"; threadId: string }
-  | { kind: "authCallback"; state: string; code?: string; error?: string }
-  | { kind: "unknown"; url: string };
+/**
+ * Superset of the shared `DeepLink` — adds `authCallback`, which is
+ * intercepted in main before reaching the bridge and therefore absent
+ * from the contract's renderer-visible union.
+ */
+export type MainDeepLink =
+  | DeepLink
+  | { kind: "authCallback"; state: string; code?: string; error?: string };
+
+export type { DeepLink };
 
 const PRODUCTION_SCHEME = "vellum-assistant";
 
@@ -101,7 +107,7 @@ const ACCEPTED_SCHEMES = resolveAcceptedSchemes(currentEnv);
  *   - Malformed URL (unparseable, percent-encoding throws) →
  *     `kind: "unknown"`.
  */
-export const parseVellumUrl = (input: string): DeepLink => {
+export const parseVellumUrl = (input: string): MainDeepLink => {
   let url: URL;
   try {
     url = new URL(input);
@@ -194,16 +200,20 @@ const broadcast = (link: DeepLink): void => {
  * on an already-visible main window.
  */
 export const handleDeepLink = (input: string): void => {
-  const link = parseVellumUrl(input);
+  const parsed = parseVellumUrl(input);
 
   // Auth callbacks are a main-process concern — the renderer doesn't
   // need to see them. Route directly to the native-auth module and
   // bring the window forward so the user sees the result.
-  if (link.kind === "authCallback") {
-    void handleAuthCallback(link.state, link.code, link.error);
+  if (parsed.kind === "authCallback") {
+    void handleAuthCallback(parsed.state, parsed.code, parsed.error);
     if (app.isReady()) void ensureMainWindowVisible();
     return;
   }
+
+  // After filtering out authCallback, the remaining variants satisfy
+  // the renderer-visible DeepLink union.
+  const link: DeepLink = parsed;
 
   if (subscribers.size === 0) pending.push(link);
   broadcast(link);

@@ -1,18 +1,21 @@
 import { ChevronRight } from "lucide-react";
 
-import {
-  ScheduleUsageStats,
-  StatusDot,
-} from "@/domains/settings/components/schedule-shared-ui";
+import { ScheduleUsageStats } from "@/domains/settings/components/schedule-shared-ui";
 import {
   formatTimestamp,
-  MODE_TONE,
   type ScheduleRowUsage,
 } from "@/domains/settings/utils/schedule-formatters";
-import { Tag } from "@vellumai/design-library/components/tag";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import type { Schedule } from "@/domains/settings/types/schedules";
+
+function cadenceTextForRow(schedule: Schedule): string | null {
+  const cadence = schedule.cadenceDescription.trim();
+  if (!cadence) return null;
+  if (schedule.isOneShot) return null;
+  if (cadence === schedule.description.trim()) return null;
+  return cadence;
+}
 
 export function ScheduleRow({
   schedule,
@@ -27,29 +30,33 @@ export function ScheduleRow({
   onToggle: (enabled: boolean) => void;
   onOpenUsage: () => void;
 }) {
+  const displayRunAt = schedule.lastRunAt ?? schedule.nextRunAt;
+  const cadenceText = cadenceTextForRow(schedule);
+
   return (
-    <div className="flex flex-wrap items-center gap-3 py-3 first:pt-0 last:pb-0 [&+&]:border-t [&+&]:border-[var(--border-base)]">
+    <div className="flex flex-wrap items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-[var(--surface-hover)] [&+&]:border-t [&+&]:border-[var(--border-base)]">
       <button
         type="button"
         onClick={onClick}
-        className="min-w-0 flex-1 text-left"
+        className="min-w-0 flex-1 cursor-pointer text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
       >
         <div className="flex items-center gap-2">
           <span className="truncate text-body-medium-default text-[var(--content-default)]">
             {schedule.name}
           </span>
-          <Tag tone={MODE_TONE[schedule.mode] ?? "neutral"}>
-            {schedule.mode}
-          </Tag>
         </div>
-        <div className="mt-0.5 flex items-center gap-3 text-body-small-default text-[var(--content-tertiary)]">
-          <span className="truncate">{schedule.description}</span>
-          {schedule.lastRunAt && (
-            <span className="flex shrink-0 items-center gap-1">
-              <StatusDot status={schedule.lastStatus} />
-              {formatTimestamp(schedule.lastRunAt)}
+        <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-body-small-default text-[var(--content-tertiary)]">
+          <span className="min-w-[12rem] max-w-full flex-1 truncate">
+            {schedule.description}
+          </span>
+          {cadenceText ? (
+            <span className="shrink-0 text-[var(--content-secondary)]">
+              {cadenceText}
             </span>
-          )}
+          ) : null}
+          {displayRunAt ? (
+            <span className="shrink-0">{formatTimestamp(displayRunAt)}</span>
+          ) : null}
         </div>
       </button>
       <div className="flex shrink-0 items-center gap-3">

@@ -1,5 +1,7 @@
 import { BrowserWindow, app, powerMonitor } from "electron";
 
+import type { PowerEvent, PowerEventKind } from "@vellumai/ipc-contract";
+
 /**
  * System power-state events: sleep/wake, screen lock/unlock, idle-recover.
  *
@@ -25,16 +27,7 @@ import { BrowserWindow, app, powerMonitor } from "electron";
  * Reference: https://www.electronjs.org/docs/latest/api/power-monitor
  */
 
-export type PowerEventKind =
-  | "suspend"
-  | "resume"
-  | "lock"
-  | "unlock"
-  | "active";
-
-export interface PowerEvent {
-  kind: PowerEventKind;
-}
+export type { PowerEvent, PowerEventKind };
 
 const DEBOUNCE_MS = 1_000;
 

@@ -10,6 +10,7 @@
 // can filter them out safely.
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import { filterMessageSurfaces } from "@/domains/chat/utils/map-message-surfaces";
 import { isStringArray } from "@/domains/chat/utils/storage-validators";
 import { createRecordStorageAccessor } from "@/utils/typed-storage";
 
@@ -43,9 +44,10 @@ export function saveDismissedSurfaceIds(
   storage.set(assistantId, conversationId, idArray);
 }
 
-// Strip any surfaces (and matching contentOrder entries) whose IDs the user
-// has already dismissed locally. Used when rehydrating message history so
-// resolved surfaces don't reappear as active and block the composer.
+// Strip any surfaces (and their matching contentOrder entries and content
+// blocks) whose IDs the user has already dismissed locally. Used when
+// rehydrating message history so resolved surfaces don't reappear as active and
+// block the composer.
 //
 // Returns the input array by reference when there is nothing to filter
 // (empty dismissed set, or no surfaces match), so callers can use identity
@@ -57,19 +59,14 @@ export function filterDismissedSurfaces(
   if (dismissed.size === 0) return messages;
   let changed = false;
   const next = messages.map((msg) => {
-    if (!msg.surfaces || msg.surfaces.length === 0) return msg;
-    const filteredSurfaces = msg.surfaces.filter(
+    const filtered = filterMessageSurfaces(
+      msg,
       (s) => !dismissed.has(s.surfaceId),
     );
-    if (filteredSurfaces.length === msg.surfaces.length) return msg;
-    changed = true;
-    return {
-      ...msg,
-      surfaces: filteredSurfaces,
-      contentOrder: msg.contentOrder?.filter(
-        (e) => !(e.type === "surface" && dismissed.has(e.id)),
-      ),
-    };
+    if (filtered !== msg) {
+      changed = true;
+    }
+    return filtered;
   });
   return changed ? next : messages;
 }

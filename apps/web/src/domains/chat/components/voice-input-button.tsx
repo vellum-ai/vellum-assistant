@@ -22,7 +22,7 @@ import {
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useVellumCommands } from "@/runtime/vellum-commands";
-import { voiceInputAudioConstraints } from "@/utils/voice-input-device";
+import { getVoiceInputMediaStream } from "@/utils/voice-input-device";
 import { Button, cn } from "@vellumai/design-library";
 
 // ---------------------------------------------------------------------------
@@ -602,9 +602,7 @@ export const VoiceInputButton = forwardRef<
 
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: voiceInputAudioConstraints(),
-      });
+      stream = await getVoiceInputMediaStream();
     } catch (err) {
       stopSpeechRecognition();
       const code =

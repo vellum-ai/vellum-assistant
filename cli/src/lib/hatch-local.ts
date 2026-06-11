@@ -44,6 +44,7 @@ import {
 } from "./provider-secrets.js";
 import { logHatchNextSteps } from "./hatch-next-steps.js";
 import { checkProviderApiKey } from "./api-key-check.js";
+import { loopbackSafeFetch } from "./loopback-fetch.js";
 
 /**
  * Attempts to place a symlink at the given path pointing to cliBinary.
@@ -358,7 +359,7 @@ export async function hatchLocal(
     while (true) {
       await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
       try {
-        const res = await fetch(healthUrl, {
+        const res = await loopbackSafeFetch(healthUrl, {
           signal: AbortSignal.timeout(3000),
         });
         if (res.ok) {

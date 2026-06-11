@@ -4,9 +4,10 @@
  *  1. **What assistants exist** — `assistants: ResolvedAssistant[]`
  *  2. **Which is active** — `activeAssistantId` (output of the lifecycle
  *     state machine, written exclusively by `lifecycle-service.ts`)
- *  3. **Which platform assistant the user selected** —
- *     `selectedPlatformAssistantByOrg` (per-org input to the lifecycle,
- *     persisted to localStorage)
+ *  3. **Which assistant the user selected** — `selectedAssistantId` (input to
+ *     the lifecycle, persisted to a single localStorage key). The active org is
+ *     a read-time *filter* (see `resolveSelectedAssistantId`), never a storage
+ *     key — there is one selection, validated for whichever org is active.
  *
  * Population:
  *  - Local mode: assistant list auto-syncs with the lockfile store via
@@ -24,7 +25,17 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
-import { isLocalMode, isLocalAssistant, isPlatformAssistant } from "@/lib/local-mode";
+import {
+  isLocalMode,
+  isLocalAssistant,
+  isPlatformAssistant,
+} from "@/lib/local-mode";
+import {
+  SELECTED_ASSISTANT_STORAGE_KEY,
+  clearSelectedAssistantId,
+  readSelectedAssistantId,
+  writeSelectedAssistantId,
+} from "@/assistant/selected-assistant-storage";
 import { useLockfileStore } from "@/stores/lockfile-store";
 import type { Lockfile } from "@/runtime/local-mode-host";
 import type { Assistant } from "@/generated/api/types.gen";
@@ -35,58 +46,24 @@ export interface ResolvedAssistant {
   hatchedAt?: string;
   isLocal: boolean;
   isPlatformHosted: boolean;
+  /** Owning org for platform entries; only the lockfile carries it, so
+   *  API-sourced entries leave this undefined. */
+  organizationId?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Per-org platform selection persistence (localStorage)
-// ---------------------------------------------------------------------------
-
-export const PLATFORM_ASSISTANT_STORAGE_PREFIX =
-  "vellum:currentAssistantId:";
-
-function storageKeyForOrg(orgId: string): string {
-  return `${PLATFORM_ASSISTANT_STORAGE_PREFIX}${orgId}`;
-}
-
-function readByOrgFromLocalStorage(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const byOrg: Record<string, string> = {};
-  try {
-    for (let i = 0; i < window.localStorage.length; i++) {
-      const key = window.localStorage.key(i);
-      if (key && key.startsWith(PLATFORM_ASSISTANT_STORAGE_PREFIX)) {
-        const orgId = key.slice(PLATFORM_ASSISTANT_STORAGE_PREFIX.length);
-        const value = window.localStorage.getItem(key);
-        if (value != null) byOrg[orgId] = value;
-      }
-    }
-  } catch {
-    // ignore storage failures
-  }
-  return byOrg;
-}
-
-function persistByOrgToLocalStorage(byOrg: Record<string, string>): void {
-  if (typeof window === "undefined") return;
-  try {
-    for (const [orgId, id] of Object.entries(byOrg)) {
-      const key = storageKeyForOrg(orgId);
-      if (window.localStorage.getItem(key) !== id) {
-        window.localStorage.setItem(key, id);
-      }
-    }
-  } catch {
-    // ignore storage failures
-  }
-}
-
-function removeStoredAssistantId(orgId: string): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.removeItem(storageKeyForOrg(orgId));
-  } catch {
-    // ignore storage failures
-  }
+/**
+ * Assistants usable under the active org: local entries (no org), legacy
+ * entries with no org (`organizationId == null`), and platform entries owned
+ * by the active org. Cross-org platform entries are dropped.
+ */
+export function assistantsValidForOrg(
+  assistants: ResolvedAssistant[],
+  activeOrgId: string | null,
+): ResolvedAssistant[] {
+  return assistants.filter(
+    (a) =>
+      a.isLocal || a.organizationId == null || a.organizationId === activeOrgId,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -96,7 +73,14 @@ function removeStoredAssistantId(orgId: string): void {
 interface ResolvedAssistantsState {
   assistants: ResolvedAssistant[];
   activeAssistantId: string | null;
-  selectedPlatformAssistantByOrg: Record<string, string>;
+  selectedAssistantId: string | null;
+  /**
+   * Whether the resolved list reflects at least one authoritative load
+   * (`setFromApi` / `setFromLockfile`). Until then an unknown selection is
+   * passed through on read (the list may simply not have loaded yet); once
+   * hydrated, an unknown id is a ghost and is reconciled away.
+   */
+  assistantsHydrated: boolean;
 }
 
 interface ResolvedAssistantsActions {
@@ -106,31 +90,42 @@ interface ResolvedAssistantsActions {
   remove: (assistantId: string) => void;
   clear: () => void;
   setActiveAssistantId: (assistantId: string | null) => void;
-  setSelectedPlatformAssistant: (orgId: string, id: string | null) => void;
+  setSelectedAssistant: (id: string | null) => void;
 }
 
 type ResolvedAssistantsStore = ResolvedAssistantsState &
   ResolvedAssistantsActions;
 
 const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
-  (set) => ({
+  (set, get) => ({
     assistants: [],
     activeAssistantId: null,
-    selectedPlatformAssistantByOrg: readByOrgFromLocalStorage(),
+    selectedAssistantId: readSelectedAssistantId(),
+    assistantsHydrated: false,
 
-    setFromLockfile: (lockfile) =>
-      set({
-        assistants: lockfile.assistants.map((a) => ({
-          id: a.assistantId,
-          name: a.name,
-          hatchedAt: a.hatchedAt,
-          isLocal: isLocalAssistant(a),
-          isPlatformHosted: isPlatformAssistant(a),
-        })),
-      }),
+    setFromLockfile: (lockfile) => {
+      const assistants = lockfile.assistants.map((a) => ({
+        id: a.assistantId,
+        name: a.name,
+        hatchedAt: a.hatchedAt,
+        isLocal: isLocalAssistant(a),
+        isPlatformHosted: isPlatformAssistant(a),
+        organizationId: a.organizationId,
+      }));
+      set({ assistants, assistantsHydrated: true });
+      // The lockfile carries every org's entries, so an id absent from it is
+      // genuinely gone — safe to prune. (The API list is org-scoped, so
+      // `setFromApi` deliberately does NOT reconcile; a cross-org selection
+      // there is filtered out on read, not deleted.)
+      reconcileSelection(get, set);
+    },
 
+    // The platform `Assistant` API carries no org field, so API-sourced
+    // entries intentionally leave `organizationId` undefined (unlike
+    // `setFromLockfile`). Don't "fix" this by inventing an org here.
     setFromApi: (assistants) =>
       set({
+        assistantsHydrated: true,
         assistants: assistants.map((a) => ({
           id: a.id,
           name: a.name,
@@ -152,7 +147,9 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
         const idx = state.assistants.findIndex((a) => a.id === assistant.id);
         if (idx >= 0) {
           const next = [...state.assistants];
-          next[idx] = entry;
+          // The API payload has no org field; preserve the org the lockfile
+          // seeded so a lifecycle refresh doesn't erase it.
+          next[idx] = { ...entry, organizationId: next[idx]!.organizationId };
           return { assistants: next };
         }
         return { assistants: [...state.assistants, entry] };
@@ -168,23 +165,38 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
     setActiveAssistantId: (assistantId) =>
       set({ activeAssistantId: assistantId }),
 
-    setSelectedPlatformAssistant: (orgId, id) => {
+    // Internal plumbing for the selected id: the reactive slice and the
+    // persisted key move together. Callers go through the public wrapper in
+    // selection.ts (which adds the lockfile mirror); only that wrapper and
+    // the lifecycle 404 net call this directly. The lifecycle service
+    // subscribes to the slice, so every write republishes in gateway mode.
+    setSelectedAssistant: (id) => {
       if (id == null) {
-        removeStoredAssistantId(orgId);
+        clearSelectedAssistantId();
+      } else {
+        writeSelectedAssistantId(id);
       }
-      set((state) => {
-        const next = { ...state.selectedPlatformAssistantByOrg };
-        if (id == null) {
-          delete next[orgId];
-        } else {
-          next[orgId] = id;
-        }
-        persistByOrgToLocalStorage(next);
-        return { selectedPlatformAssistantByOrg: next };
-      });
+      set({ selectedAssistantId: id });
     },
   }),
 );
+
+/**
+ * Drop the selected id once it's provably a ghost: hydrated AND not present in
+ * the resolved list. Only `setFromLockfile` calls this (the lockfile is the
+ * cross-org universe); the org-scoped API list must not delete a valid
+ * cross-org selection.
+ */
+function reconcileSelection(
+  get: () => ResolvedAssistantsStore,
+  set: (partial: Partial<ResolvedAssistantsState>) => void,
+): void {
+  const { assistants, selectedAssistantId, assistantsHydrated } = get();
+  if (!assistantsHydrated || selectedAssistantId == null) return;
+  if (assistants.some((a) => a.id === selectedAssistantId)) return;
+  clearSelectedAssistantId();
+  set({ selectedAssistantId: null });
+}
 
 export const useResolvedAssistantsStore = createSelectors(
   useResolvedAssistantsStoreBase,
@@ -203,15 +215,14 @@ if (isLocalMode()) {
   });
 }
 
-// Cross-tab sync: pick up per-org selection changes from other tabs.
+// Cross-tab sync: pick up selection changes from other tabs. The native
+// `storage` event only fires in *other* tabs; same-tab writes update the slice
+// directly via `setSelectedAssistant`. `event.key === null` covers `clear()`.
 if (typeof window !== "undefined") {
   window.addEventListener("storage", (event) => {
-    if (
-      event.key === null ||
-      event.key.startsWith(PLATFORM_ASSISTANT_STORAGE_PREFIX)
-    ) {
+    if (event.key === null || event.key === SELECTED_ASSISTANT_STORAGE_KEY) {
       useResolvedAssistantsStoreBase.setState({
-        selectedPlatformAssistantByOrg: readByOrgFromLocalStorage(),
+        selectedAssistantId: readSelectedAssistantId(),
       });
     }
   });

@@ -28,12 +28,18 @@ import { useState, type ReactNode } from "react";
 import { ProfileQuickAddProvider } from "@/components/profile-quick-add-provider";
 import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
+import { queryRetryDelay, shouldRetryQuery } from "@/utils/query-retry";
 
 function createQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {
       queries: {
         staleTime: 10_000,
+        // Never retry 429/4xx — retrying a rate-limited request turns a
+        // transient burst into a self-sustaining storm against the daemon's
+        // request limiter. Per-query `retry` options still override this.
+        retry: shouldRetryQuery,
+        retryDelay: queryRetryDelay,
       },
     },
   });

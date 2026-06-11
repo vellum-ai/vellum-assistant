@@ -17,7 +17,9 @@
  *    already delivered visible text. The hook re-queries the model with
  *    `NUDGE_TEXT` (a tool trail exists to summarize, so a retry can recover a
  *    real answer). The retry is bounded to one pass per run by a one-shot
- *    per-conversation mark the hook owns.
+ *    per-conversation mark this hook sets; the sibling `stop` hook (see
+ *    `./stop.ts`) clears it when the turn terminates, so the next run nudges
+ *    afresh.
  *
  * Every other case leaves the decision at `"stop"` (the model said its piece,
  * or there is nothing to act on).
@@ -46,7 +48,6 @@ import type { PluginHookFn, PostModelCallContext } from "@vellumai/plugin-api";
 
 import type { ContentBlock, Message } from "../../../../providers/types.js";
 import {
-  clearEmptyResponseNudged,
   isEmptyResponseNudged,
   markEmptyResponseNudged,
 } from "../nudge-state-store.js";
@@ -110,13 +111,10 @@ function currentCycleMessages(
 }
 
 const postModelCall: PluginHookFn<PostModelCallContext> = async (ctx) => {
-  // A provider rejection ends this turn for the empty-response hook (a recovery
-  // hook owns the rejection). Clear the one-shot mark so a nudge issued earlier
-  // this run can't strand a stale bound into the next run.
-  if (ctx.error) {
-    clearEmptyResponseNudged(ctx.conversationId);
-    return;
-  }
+  // A provider rejection carries no turn content to assess (a recovery hook
+  // owns the rejection); the sibling `stop` hook clears the mark when the turn
+  // terminates.
+  if (ctx.error) return;
   // A tool-bearing turn continues mid-run — the loop runs the tools — so leave
   // the mark intact to keep the one-nudge-per-run bound across tool iterations.
   if (hasToolUse(ctx.content)) return;
@@ -139,7 +137,6 @@ const postModelCall: PluginHookFn<PostModelCallContext> = async (ctx) => {
     !priorAssistantHadVisibleText
   ) {
     ctx.content = [{ type: "text", text: REFUSAL_FALLBACK_TEXT }];
-    clearEmptyResponseNudged(ctx.conversationId);
     return;
   }
 
@@ -171,10 +168,6 @@ const postModelCall: PluginHookFn<PostModelCallContext> = async (ctx) => {
       "Model returned empty response after tool results — retries exhausted",
     );
   }
-
-  // The turn is ending (a real reply, an exhausted nudge, or nothing to act
-  // on): clear the mark so the next run nudges afresh.
-  clearEmptyResponseNudged(ctx.conversationId);
 };
 
 export default postModelCall;

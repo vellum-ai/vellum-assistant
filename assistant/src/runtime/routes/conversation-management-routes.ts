@@ -11,6 +11,8 @@
  * DELETE /v1/conversations/:id            — delete a single conversation
  * POST   /v1/conversations/:id/archive    — archive a conversation
  * POST   /v1/conversations/:id/unarchive  — restore an archived conversation
+ * POST   /v1/conversations/archive/bulk   — archive multiple conversations
+ * POST   /v1/conversations/:id/surface    — promote to / demote from Recents
  * POST   /v1/conversations/:id/cancel     — cancel generation
  * POST   /v1/conversations/:id/undo       — undo last message
  * POST   /v1/conversations/:id/regenerate — regenerate last assistant response
@@ -36,6 +38,7 @@ import {
   deleteConversation,
   forkConversation as forkConversationInStore,
   getConversation,
+  setConversationSurfaced,
   unarchiveConversation,
   updateConversationTitle,
   wipeConversation,
@@ -360,6 +363,78 @@ function handleUnarchiveConversation({
   return { ok: true, conversationId: resolvedId };
 }
 
+function handleArchiveConversationsBulk({
+  body = {},
+  headers,
+}: RouteHandlerArgs) {
+  const rawIds = body.conversationIds as string[] | undefined;
+  if (!Array.isArray(rawIds) || rawIds.length === 0) {
+    throw new BadRequestError("conversationIds must be a non-empty array");
+  }
+
+  const originClientId = headers?.["x-vellum-client-id"]?.trim() || undefined;
+  const archivedIds: string[] = [];
+
+  for (const rawId of rawIds) {
+    try {
+      const conversationId = resolveOrThrow(rawId);
+      const archived = archiveConversation(conversationId);
+      if (archived) {
+        archivedIds.push(conversationId);
+      }
+    } catch (err) {
+      log.error(
+        { err, conversationId: rawId },
+        "POST /v1/conversations/archive/bulk: failed for conversation",
+      );
+      // Best-effort: continue with remaining conversations.
+    }
+  }
+
+  if (archivedIds.length > 0) {
+    publishConversationListChanged("reordered", originClientId);
+  }
+
+  return { ok: true, archived: archivedIds.length };
+}
+
+/**
+ * Set or clear the `surfacedAt` promotion marker on a conversation.
+ *
+ * Surfacing is the explicit opt-in that makes a background/scheduled
+ * conversation appear in the default conversation listing (and therefore the
+ * Recents sidebar grouping). It is never set automatically — product flows
+ * call this when a background conversation deserves foreground visibility
+ * (e.g. the user sent a follow-up message in it).
+ */
+function handleSurfaceConversation({
+  pathParams = {},
+  body = {},
+  headers,
+}: RouteHandlerArgs) {
+  if (typeof body.surfaced !== "boolean") {
+    throw new BadRequestError("Missing surfaced boolean");
+  }
+  const resolvedId = resolveOrThrow(pathParams.id!);
+  const result = setConversationSurfaced(resolvedId, body.surfaced);
+  if (!result) {
+    throw new NotFoundError(`Conversation ${pathParams.id} not found`);
+  }
+  // Shape-changing for the default list (row appears in / disappears from
+  // the standard listing), so publish with a shape-changing reason — web
+  // refetches the paginated list, macOS gets the legacy typed broadcast.
+  publishConversationListAndMetadataChanged(
+    "reordered",
+    resolvedId,
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
+  return {
+    ok: true,
+    conversationId: resolvedId,
+    surfacedAt: result.surfacedAt,
+  };
+}
+
 function handleCancelGeneration({ pathParams = {} }: RouteHandlerArgs) {
   const resolvedId = resolveConversationId(pathParams.id!) ?? pathParams.id!;
   const cancelled = cancelGeneration(resolvedId);
@@ -655,6 +730,56 @@ export const ROUTES: RouteDefinition[] = [
       conversationId: z.string(),
     }),
     handler: handleUnarchiveConversation,
+  },
+  {
+    operationId: "archiveConversationsBulk",
+    endpoint: "conversations/archive/bulk",
+    method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Bulk archive conversations",
+    description:
+      "Archive multiple conversations in one request. Emits a single sync invalidation for the entire batch.",
+    tags: ["conversations"],
+    requestBody: z.object({
+      conversationIds: z.array(z.string()).min(1),
+    }),
+    responseBody: z.object({ ok: z.boolean(), archived: z.number() }),
+    handler: handleArchiveConversationsBulk,
+  },
+  {
+    operationId: "surfaceConversation",
+    endpoint: "conversations/:id/surface",
+    method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Surface a conversation into Recents",
+    description:
+      "Explicitly promote a background or scheduled conversation into the " +
+      "default conversation listing (the Recents sidebar grouping), or demote " +
+      "it with surfaced=false. Conversations are never surfaced automatically.",
+    tags: ["conversations"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    requestBody: z.object({
+      surfaced: z
+        .boolean()
+        .describe(
+          "true to surface the conversation into Recents, false to clear the promotion.",
+        ),
+    }),
+    responseBody: z.object({
+      ok: z.boolean(),
+      conversationId: z.string(),
+      surfacedAt: z
+        .number()
+        .nullable()
+        .describe("Epoch-ms timestamp of the promotion, or null when cleared."),
+    }),
+    handler: handleSurfaceConversation,
   },
   {
     operationId: "cancelConversationGeneration",

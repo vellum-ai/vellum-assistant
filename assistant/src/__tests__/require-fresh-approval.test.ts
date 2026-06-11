@@ -125,6 +125,9 @@ mock.module("../tools/registry.js", () => ({
 
 mock.module("../permissions/gateway-threshold-reader.js", () => ({
   getAutoApproveThreshold: async () => "medium",
+  // Refresh failure ("null") keeps the original decision — these tests
+  // exercise the cached-threshold paths only.
+  refreshAutoApproveThreshold: async () => null,
   _clearGlobalCacheForTesting: () => {},
 }));
 

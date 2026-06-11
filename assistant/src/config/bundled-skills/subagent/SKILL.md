@@ -6,6 +6,7 @@ metadata:
   emoji: "🤖"
   vellum:
     display-name: "Subagent"
+    category: "system"
     activation-hints:
       - "Spawn a background worker that runs in parallel with the main turn"
       - "Delegate a self-contained research or implementation task off the main thread"

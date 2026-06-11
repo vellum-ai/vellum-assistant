@@ -15,8 +15,9 @@
  * substitute in.
  *
  * Lifecycle:
- *   1. Bail if `config.memory.v2.enabled` is false (the worker may have
- *      claimed a stale row from before v2 was disabled).
+ *   1. Bail if `config.memory.enabled` or `config.memory.v2.enabled` is false
+ *      (the worker may have claimed a stale row from before memory was
+ *      disabled).
  *   2. Acquire a single-process lock at `memory/.v2-state/consolidation.lock`
  *      so two overlapping schedule windows can't fight over the same files.
  *      The lock contains the holder's PID + timestamp so a crashed run leaves
@@ -150,6 +151,11 @@ export async function memoryV2ConsolidateJob(
   _job: MemoryJob,
   config: AssistantConfig,
 ): Promise<ConsolidationOutcome> {
+  if (config.memory.enabled === false) {
+    log.debug("memory.enabled is false; consolidation skipped");
+    return { kind: "disabled" };
+  }
+
   if (!config.memory.v2.enabled) {
     log.debug("memory.v2.enabled is false; consolidation skipped");
     return { kind: "disabled" };
