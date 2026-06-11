@@ -521,6 +521,24 @@ export const MODELS_BY_PROVIDER = {
       maxOutputTokens: 5_000,
     },
   ],
+  minimax: [
+    {
+      id: "MiniMax-M3",
+      displayName: "MiniMax M3",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 512_000,
+      supportsThinking: true,
+    },
+    {
+      id: "MiniMax-M2.7",
+      displayName: "MiniMax M2.7",
+      contextWindowTokens: 200_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 16_384,
+      supportsThinking: true,
+    },
+  ],
   "openai-compatible": [
   ],
 } as const satisfies Record<string, readonly LlmCatalogModel[]>;
@@ -533,6 +551,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
   gemini: "gemini-2.5-flash",
   fireworks: "accounts/fireworks/models/kimi-k2p5",
   openrouter: "x-ai/grok-4.20-beta",
+  minimax: "MiniMax-M2.7",
   "openai-compatible": "",
 };
 
