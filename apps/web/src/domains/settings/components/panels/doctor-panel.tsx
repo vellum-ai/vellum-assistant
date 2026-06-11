@@ -236,7 +236,7 @@ export function DoctorPanel() {
 
   // Scroll when entries grow (new message) OR when the last entry's content
   // grows (streaming message_delta).
-  const entries = sessionId || storeEntries.length > 0 ? storeEntries : historyEntries;
+  const entries = sessionId || storeEntries.length > 0 ? storeEntries : (!historyDismissed ? historyEntries : []);
 
   useEffect(() => {
     const lastContentLen = entries.at(-1)?.content.length ?? 0;
@@ -298,7 +298,7 @@ export function DoctorPanel() {
   // Derived state
   // ---------------------------------------------------------------------------
 
-  const isSessionActive = sessionId !== null;
+  const isSessionActive = sessionId !== null && storeSessionStatus === "active";
   const isSessionEnded = !isSessionActive && storeEntries.length > 0 &&
     (storeSessionStatus === "completed" || storeSessionStatus === "error");
   const sessionStatus = (isSessionActive || isSessionEnded)
