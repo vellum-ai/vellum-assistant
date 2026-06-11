@@ -111,6 +111,15 @@ export const sseService: SseService = {
       if (cancelled || current) return;
       const causeAtOpen = nextOpenCause;
       nextOpenCause = "resume";
+      // Did THIS stream ever genuinely establish (a frame arrived)? A transport
+      // reconnect only triggers a reconcile when we'd actually been connected
+      // before. Otherwise a stream that never opens — e.g. a 502 loop against
+      // the gateway proxy — would publish `sse.opened` on every failed attempt,
+      // and each one fans out to a full reconcile/refetch across domains
+      // (conversations, messages, identity, flags…), storming the daemon's
+      // request limiter. Reconciling has nothing to recover when we never went
+      // live, so suppress it until the stream proves established.
+      let everOpened = false;
       const stream = subscribeEvents(
         assistantId,
         (envelope) => {
@@ -128,9 +137,14 @@ export const sseService: SseService = {
         },
         {
           onReconnect: (cause) => {
-            publish("sse.opened", { assistantId, cause });
+            if (everOpened) {
+              publish("sse.opened", { assistantId, cause });
+            }
           },
-          onStreamOpen: () => setConnected(true),
+          onStreamOpen: () => {
+            everOpened = true;
+            setConnected(true);
+          },
           onStreamClose: () => setConnected(false),
         },
       );
