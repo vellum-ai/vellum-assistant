@@ -1,4 +1,3 @@
-import { CHART_TOOLTIP_STYLE } from "@/components/charts/chart-config";
 import { formatDateLabel } from "@/components/charts/format-date-label";
 
 export type TooltipRowItem = {
@@ -76,7 +75,7 @@ export function StackedBarTooltip({
   const total = items.reduce((sum, i) => sum + i.numericValue, 0);
 
   return (
-    <div style={CHART_TOOLTIP_STYLE}>
+    <div className="rounded-lg border border-[#2d3339] bg-[#1c2024] px-3.5 py-2.5 shadow-[0_4px_12px_rgba(0,0,0,0.3)]">
       <div className="mb-1.5 text-xs font-medium text-[#a9b2bb]">
         {(formatLabel ?? formatDateLabel)(String(label))}
       </div>
