@@ -19464,6 +19464,24 @@ paths:
                   ref:
                     type: string
                     description: Git ref the catalog metadata / README were resolved at.
+                  artifact:
+                    anyOf:
+                      - type: object
+                        properties:
+                          url:
+                            type: string
+                            description: HTTPS URL the prebuilt client artifact is downloaded from.
+                          sha256:
+                            type: string
+                            description: Lowercase 64-char hex SHA-256 the download is verified against.
+                        required:
+                          - url
+                          - sha256
+                        additionalProperties: false
+                      - type: "null"
+                    description:
+                      Prebuilt client artifact from `package.json` `vellum.artifact`, or null when the plugin ships none or its
+                      descriptor is incomplete (e.g. a placeholder sha256).
                 required:
                   - name
                   - installed
@@ -19474,6 +19492,7 @@ paths:
                   - source
                   - readme
                   - ref
+                  - artifact
                 additionalProperties: false
         "400":
           description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
