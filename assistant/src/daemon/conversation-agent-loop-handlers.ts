@@ -17,6 +17,10 @@ import type {
 import { getConfig } from "../config/loader.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
+import {
+  recordCompactionEndBestEffort,
+  recordCompactionStartBestEffort,
+} from "../memory/compaction-log-writer-clickhouse.js";
 import { projectAssistantMessage } from "../memory/conversation-attention-store.js";
 import {
   deleteMessageById,
@@ -2311,6 +2315,7 @@ export async function dispatchAgentEvent(
         break;
       }
       case "context_compacting":
+        recordCompactionStartBestEffort(deps.ctx.conversationId, event);
         deps.ctx.emitActivityState("thinking", "context_compacting", {
           requestId: deps.reqId,
           statusText: "Compacting context",
@@ -2334,6 +2339,7 @@ export async function dispatchAgentEvent(
         // so the committed history is in place in time. A failed durable
         // commit re-throws below to abort the turn rather than re-injecting
         // against half-applied state.
+        recordCompactionEndBestEffort(deps.ctx.conversationId, event);
         deps.ctx.messages = event.basis;
         if (event.result.compacted) {
           await deps.applyCompaction(event.result, event.basis);
