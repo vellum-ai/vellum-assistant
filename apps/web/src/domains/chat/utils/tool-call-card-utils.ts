@@ -754,9 +754,9 @@ export function computeToolCallCardDataFromItems(
   // Tracks the text of the most recently pushed step that originated from a
   // GENUINE thinking *item* (a `{ kind: "thinking" }` reasoning segment) and
   // is still the last step in the list. Web-tool synthesis can also emit
-  // `kind: "thinking"` steps (the `Searching...` placeholder, `web_fetch`
-  // "Reading …"); those must keep flowing through the tool/web header
-  // derivation, so we don't promote them to a "Thinking" header.
+  // `kind: "thinking"` steps (`web_fetch` "Reading …"); those must keep
+  // flowing through the tool/web header derivation, so we don't promote them
+  // to a "Thinking" header.
   let trailingThinkingText: string | null = null;
   for (const item of items) {
     if (item.kind === "thinking") {
