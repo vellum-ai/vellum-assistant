@@ -74,5 +74,10 @@ export function usePreChatConsentGate(): boolean {
     }
   }, [consent.decision, isAuthInitializing, isAuthenticated, isNative, navigate]);
 
+  // Auth must be settled and user authenticated before the flow renders —
+  // without this, native (where isNative short-circuits consent) would render
+  // with userId === null during auth initialization or after logout.
+  if (isAuthInitializing || !isAuthenticated) return false;
+
   return isNative || consent.decision === "ok";
 }
