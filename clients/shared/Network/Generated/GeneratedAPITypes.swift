@@ -3380,12 +3380,13 @@ public struct SchedulesListResponseSchedule: Codable, Sendable {
     public let lastRunAt: Int?
     public let lastStatus: String?
     public let description: String
+    public let cadenceDescription: String
     public let mode: String
     public let status: String
     public let routingIntent: String
     public let isOneShot: Bool
 
-    public init(id: String, name: String, enabled: Bool, syntax: String, expression: String?, cronExpression: String?, timezone: String?, message: String, nextRunAt: Int, lastRunAt: Int?, lastStatus: String?, description: String, mode: String, status: String, routingIntent: String, isOneShot: Bool) {
+    public init(id: String, name: String, enabled: Bool, syntax: String, expression: String?, cronExpression: String?, timezone: String?, message: String, nextRunAt: Int, lastRunAt: Int?, lastStatus: String?, description: String, cadenceDescription: String, mode: String, status: String, routingIntent: String, isOneShot: Bool) {
         self.id = id
         self.name = name
         self.enabled = enabled
@@ -3398,6 +3399,7 @@ public struct SchedulesListResponseSchedule: Codable, Sendable {
         self.lastRunAt = lastRunAt
         self.lastStatus = lastStatus
         self.description = description
+        self.cadenceDescription = cadenceDescription
         self.mode = mode
         self.status = status
         self.routingIntent = routingIntent
