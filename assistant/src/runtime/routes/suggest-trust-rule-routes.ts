@@ -8,13 +8,10 @@
 
 import { z } from "zod";
 
-import {
-  createTimeout,
-  extractToolUse,
-  getConfiguredProvider,
-  userMessage,
-} from "../../providers/provider-send-message.js";
+import { runOneShotLLM } from "../../providers/one-shot-llm.js";
+import { userMessage } from "../../providers/provider-send-message.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { BadGatewayError, ServiceUnavailableError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Request / response shapes ─────────────────────────────────────────
@@ -88,6 +85,14 @@ const SUGGEST_RULE_TOOL = {
     required: ["pattern", "risk", "description"],
   },
 };
+
+/** Zod schema validating the `suggest_trust_rule` tool input. */
+const SuggestRuleToolInputSchema = z.object({
+  pattern: z.string(),
+  risk: z.enum(["low", "medium", "high"]),
+  scope: z.string().optional(),
+  description: z.string(),
+});
 
 // ── System prompt ────────────────────────────────────────────────────
 
@@ -175,44 +180,38 @@ async function handleSuggestTrustRule({
 }: RouteHandlerArgs): Promise<SuggestTrustRuleResponse> {
   const req = body as unknown as SuggestTrustRuleRequest;
 
-  const provider = await getConfiguredProvider("trustRuleSuggestion");
-  if (!provider) {
-    throw new Error("No LLM provider configured for trustRuleSuggestion");
-  }
+  const result = await runOneShotLLM(
+    "trustRuleSuggestion",
+    [userMessage(buildUserMessage(req))],
+    {
+      systemPrompt: SYSTEM_PROMPT,
+      tools: [SUGGEST_RULE_TOOL],
+      toolChoice: "suggest_trust_rule",
+      schema: SuggestRuleToolInputSchema,
+    },
+  );
 
-  const { signal, cleanup } = createTimeout(30_000);
-  try {
-    const response = await provider.sendMessage(
-      [userMessage(buildUserMessage(req))],
-      {
-        tools: [SUGGEST_RULE_TOOL],
-        systemPrompt: SYSTEM_PROMPT,
-        config: {
-          callSite: "trustRuleSuggestion",
-          tool_choice: { type: "tool" as const, name: "suggest_trust_rule" },
-        },
-        signal,
-      },
+  if (result.status === "unavailable") {
+    throw new ServiceUnavailableError(
+      "LLM backend unavailable: no provider configured for trust rule suggestion",
     );
-    cleanup();
-
-    const toolBlock = extractToolUse(response);
-    if (!toolBlock) {
-      throw new Error("No tool_use block in trust rule suggestion response");
-    }
-
-    const input = toolBlock.input as Record<string, unknown>;
-    return {
-      pattern: input.pattern as string,
-      risk: input.risk as string,
-      scope: input.scope as string | undefined,
-      description: input.description as string,
-      scopeOptions: req.scopeOptions,
-      directoryScopeOptions: req.directoryScopeOptions,
-    };
-  } finally {
-    cleanup();
   }
+  if (result.status === "failure") {
+    // The provider responded but produced no usable suggestion (timeout,
+    // missing tool_use block, or schema mismatch) — an upstream-output
+    // failure, not a client error.
+    throw new BadGatewayError(`Trust rule suggestion failed: ${result.reason}`);
+  }
+
+  const input = result.data;
+  return {
+    pattern: input.pattern,
+    risk: input.risk,
+    scope: input.scope,
+    description: input.description,
+    scopeOptions: req.scopeOptions,
+    directoryScopeOptions: req.directoryScopeOptions,
+  };
 }
 
 // ── Zod schemas for OpenAPI ──────────────────────────────────────────

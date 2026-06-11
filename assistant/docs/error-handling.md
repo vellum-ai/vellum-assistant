@@ -25,6 +25,18 @@ throw new AssistantError(
 );
 ```
 
+### Null-provider policy (LLM backend unavailable)
+
+`getConfiguredProvider(callSite)` returns `null` when no LLM provider is configured for the call site. How to handle that null depends on where the call originates — pick by context, not by convenience:
+
+| Context                     | Action                                                                                                                                                                                                                                                                                                                                                                                 |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| HTTP / IPC route handler    | Throw the appropriate `RouteError` subclass (`assistant/src/runtime/routes/errors.ts`) — `ServiceUnavailableError` (503) for "LLM backend unavailable", `BadRequestError` (400) when the caller can fix it (e.g. `inference/send` tells the user to configure a provider). Skill IPC handlers throw a plain `Error` whose message the IPC server serializes as the wire `error` field. |
+| Optional background feature | Log a warning and skip / fall back to a safe default (e.g. the meet consent monitor assumes "no objection"). Never crash a background job over a missing provider.                                                                                                                                                                                                                     |
+| Hard-required job           | Throw `BackendUnavailableError` (`util/errors.ts`) so the job aborts with a structured code.                                                                                                                                                                                                                                                                                           |
+
+The shared `runOneShotLLM` helper (`providers/one-shot-llm.ts`) centralizes this: `onUnavailable: "null"` returns `{ status: "unavailable" }` for optional callers to branch on; `onUnavailable: "throw"` raises `BackendUnavailableError` for hard-required callers.
+
 ## 2. Result objects for operations that can fail in expected ways
 
 Return a discriminated union or result object when:

@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { getConfigReadOnly } from "../../config/loader.js";
 import {
+  createTimeout,
   extractAllText,
   getConfiguredProvider,
   userMessage,
@@ -16,6 +17,9 @@ import {
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+/** Timeout for this user-facing one-shot inference endpoint. */
+const INFERENCE_TIMEOUT_MS = 60_000;
 
 // ---------------------------------------------------------------------------
 // Handler
@@ -56,25 +60,29 @@ async function handleInferenceSend({ body = {} }: RouteHandlerArgs) {
     );
   }
 
-  const response = await provider.sendMessage([userMessage(message)], {
-    systemPrompt,
-    config: {
-      callSite: "inference",
-      max_tokens: maxTokens,
-      model,
-    },
-  });
+  const { signal, cleanup } = createTimeout(INFERENCE_TIMEOUT_MS);
+  try {
+    const response = await provider.sendMessage([userMessage(message)], {
+      systemPrompt,
+      config: {
+        callSite: "inference",
+        max_tokens: maxTokens,
+        model,
+      },
+      signal,
+    });
 
-  const text = extractAllText(response);
-
-  return {
-    response: text,
-    model: response.model,
-    usage: {
-      inputTokens: response.usage.inputTokens,
-      outputTokens: response.usage.outputTokens,
-    },
-  };
+    return {
+      response: extractAllText(response),
+      model: response.model,
+      usage: {
+        inputTokens: response.usage.inputTokens,
+        outputTokens: response.usage.outputTokens,
+      },
+    };
+  } finally {
+    cleanup();
+  }
 }
 
 // ---------------------------------------------------------------------------

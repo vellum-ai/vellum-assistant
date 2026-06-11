@@ -168,6 +168,44 @@ describe("host.providers.llm.complete", () => {
       }),
     ).rejects.toThrow(/no provider configured/);
   });
+
+  test("passes an abort signal to sendMessage so the call is time-bounded", async () => {
+    await providersLlmCompleteRoute.handler({
+      callSite: "mainAgent",
+      messages: [],
+    });
+
+    const call = sendMessageSpy.mock.calls[0] as unknown as [
+      unknown[],
+      { signal?: AbortSignal },
+    ];
+    expect(call[1]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("accepts a caller-supplied timeoutMs", async () => {
+    await providersLlmCompleteRoute.handler({
+      callSite: "mainAgent",
+      messages: [],
+      timeoutMs: 5_000,
+    });
+
+    expect(sendMessageSpy).toHaveBeenCalledTimes(1);
+    const call = sendMessageSpy.mock.calls[0] as unknown as [
+      unknown[],
+      { signal?: AbortSignal },
+    ];
+    expect(call[1]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("rejects a non-positive timeoutMs", async () => {
+    await expect(
+      providersLlmCompleteRoute.handler({
+        callSite: "mainAgent",
+        messages: [],
+        timeoutMs: 0,
+      }),
+    ).rejects.toThrow();
+  });
 });
 
 describe("host.providers.stt.listProviderIds", () => {
