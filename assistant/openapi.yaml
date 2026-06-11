@@ -19573,6 +19573,9 @@ paths:
                           sha256:
                             type: string
                             description: Lowercase 64-char hex SHA-256 the download is verified against.
+                          label:
+                            description: Optional human label for the download (e.g. "Download for macOS"); absent when the plugin doesn't name it.
+                            type: string
                         required:
                           - url
                           - sha256
