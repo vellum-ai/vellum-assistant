@@ -1,10 +1,9 @@
 /**
  * Tests for `LogOutSection`.
  *
- * Uses `renderToStaticMarkup` (SSR) to assert the visibility gate that the
- * Preferences popover previously owned: the Log Out card shows whenever we
- * are not in pure local mode, and is hidden in local mode without a platform
- * session.
+ * Uses `renderToStaticMarkup` (SSR) to assert the visibility gate: the Log Out
+ * card shows whenever we are not in pure local mode, and is hidden in local
+ * mode without a platform session.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
