@@ -16,7 +16,7 @@ import { useState } from "react";
 import { Popover, Typography } from "@vellumai/design-library";
 
 import type { WebSearchResultItem } from "@/assistant/web-activity-types";
-import { FaviconChip } from "@/domains/chat/components/web-search/favicon-chip";
+import { ToolStepPill } from "@/domains/chat/components/tool-progress-card/tool-step-pill";
 import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
 
 /**
@@ -174,24 +174,17 @@ export function WebSearchStepRow({
   return (
     <div className="flex flex-wrap items-center gap-1">
       {step.results.map((r) => (
-        // Each result is a clickable, bordered pill (like a tool step pill) that
-        // opens the source in a new tab. Mirrors the chat's external-link
-        // convention (`target="_blank"` anchors).
-        <a
+        // Each result is a `ToolStepPill` web variant — the same pill chrome as
+        // tool steps, with the site favicon as the glyph, that opens the source
+        // in a new tab.
+        <ToolStepPill
           key={r.rank}
-          href={r.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          data-testid="web-search-result-pill"
-          className="max-w-full no-underline"
-        >
-          <FaviconChip
-            faviconUrl={r.faviconUrl}
-            title={r.title}
-            domain={r.domain}
-            className="cursor-pointer border border-[var(--border-element)] hover:bg-[var(--surface-hover)]"
-          />
-        </a>
+          variant="web"
+          url={r.url}
+          faviconUrl={r.faviconUrl}
+          domain={r.domain}
+          label={r.title}
+        />
       ))}
       {overflowResults.length > 0 ? (
         <OverflowChip results={overflowResults} />

@@ -422,7 +422,7 @@ describe("SingleActivity — web variant", () => {
     expect(getByText("Visit Toronto")).toBeTruthy();
   });
 
-  test("expanded result pills are external links to the source URL", () => {
+  test("expanded result pills are ToolStepPill web links to the source URL", () => {
     const { getAllByTestId } = render(
       <SingleActivity
         variant="web"
@@ -434,8 +434,12 @@ describe("SingleActivity — web variant", () => {
         onExpandChange={() => {}}
       />,
     );
-    const pills = getAllByTestId("web-search-result-pill");
+    // Web results render as the shared ToolStepPill (web variant) — an anchor
+    // pill opening the source in a new tab.
+    const pills = getAllByTestId("tool-step-pill");
     expect(pills.length).toBe(2);
+    expect(pills[0]!.tagName.toLowerCase()).toBe("a");
+    expect(pills[0]!.getAttribute("data-variant")).toBe("web");
     expect(pills[0]!.getAttribute("href")).toBe(
       "https://en.wikipedia.org/wiki/Toronto",
     );
