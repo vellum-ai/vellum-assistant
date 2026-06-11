@@ -225,7 +225,6 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   const {
     refreshConversations,
-    cancelScheduledRefetch,
     switchConversation,
     startNewConversation,
     conversationExistsOnServer,
@@ -257,7 +256,6 @@ export function ActiveChatView() {
     activeConversationId,
     conversationExistsOnServer,
     latestPageOldestTimestamp: historyResult.pagination.latestPageOldestTimestamp,
-    cancelScheduledRefetch,
     reachability,
     reachabilityReadyEpoch,
     avatarInvalidate: avatar.invalidate,

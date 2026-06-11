@@ -40,7 +40,6 @@ function renderEventStream(params: {
       reachabilityPhase: "ready",
       reachabilityReset: () => {},
       dispatchReconnect: async () => undefined,
-      cancelScheduledRefetch: () => {},
     });
   });
 }

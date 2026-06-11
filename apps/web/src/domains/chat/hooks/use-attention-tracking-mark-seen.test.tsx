@@ -188,6 +188,63 @@ describe("useAttentionTracking — mark-seen effect", () => {
     });
   });
 
+  test("resets ref on API failure so the next open retries", async () => {
+    // Simulate: mark-seen API fails → user navigates away → navigates back.
+    // The ref must reset on failure so the retry can fire.
+    let callCount = 0;
+    markConversationSeenImpl = async () => {
+      callCount++;
+      if (callCount === 1) throw new Error("429 rate limited");
+    };
+
+    conversationsImpl = [
+      { conversationId: "conv-1", hasUnseenLatestAssistantMessage: true },
+    ];
+    act(() => {
+      useConversationStore.getState().setActiveConversationId("conv-1");
+    });
+
+    const { rerender } = renderHook(
+      () =>
+        useAttentionTracking({
+          assistantId: "asst-1",
+          assistantStateKind: "active",
+        }),
+      { wrapper },
+    );
+
+    // First call fires and fails.
+    await waitFor(() => {
+      expect(markConversationSeenCalls).toHaveLength(1);
+    });
+
+    // Simulate navigating away (different conversation or no conversation).
+    conversationsImpl = [
+      { conversationId: "conv-1", hasUnseenLatestAssistantMessage: true },
+      { conversationId: "conv-2", hasUnseenLatestAssistantMessage: false },
+    ];
+    act(() => {
+      useConversationStore.getState().setActiveConversationId("conv-2");
+    });
+    rerender();
+    await Promise.resolve();
+
+    // Navigate back to the original unread conversation.
+    act(() => {
+      useConversationStore.getState().setActiveConversationId("conv-1");
+    });
+    rerender();
+
+    // The ref was reset on failure, so a retry fires.
+    await waitFor(() => {
+      expect(markConversationSeenCalls).toHaveLength(2);
+      expect(markConversationSeenCalls[1]).toEqual({
+        assistantId: "asst-1",
+        conversationId: "conv-1",
+      });
+    });
+  });
+
   test("does not fire concurrent mark-seen calls for the same conversation", async () => {
     // Use a deferred promise so we control when the first mark resolves.
     let resolveFirst: (() => void) | null = null;

@@ -34,7 +34,6 @@ export interface UseMessageLifecycleParams {
   activeConversationId: string | null;
   conversationExistsOnServer: boolean;
   latestPageOldestTimestamp: number | null;
-  cancelScheduledRefetch: () => void;
   reachability: UseAssistantReachabilityResult;
   reachabilityReadyEpoch: number;
   avatarInvalidate: () => void;
@@ -61,7 +60,6 @@ export function useMessageLifecycle({
   activeConversationId,
   conversationExistsOnServer,
   latestPageOldestTimestamp,
-  cancelScheduledRefetch,
   reachability,
   reachabilityReadyEpoch,
   avatarInvalidate,
@@ -121,7 +119,6 @@ export function useMessageLifecycle({
     reachabilityPhase: reachability.state.phase,
     reachabilityReset: reachability.reset,
     dispatchReconnect,
-    cancelScheduledRefetch,
   });
 
   return {

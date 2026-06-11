@@ -81,8 +81,7 @@ interface UseConversationLoaderParams {
  *
  * Owns the primary data-fetching lifecycle for the chat sidebar and
  * transcript. Returns `switchConversation`, `startNewConversation`,
- * `refreshConversations`, and `cancelScheduledRefetch` for use
- * by sibling hooks.
+ * and `refreshConversations` for use by sibling hooks.
  *
  * Delegates to:
  * - `useConversationHistory` -- conversation switch, cache, and history loading
@@ -113,7 +112,6 @@ export function useConversationLoader({
   useLayoutEffect(() => {
     assistantIdRef.current = assistantId;
   }, [assistantId]);
-  const conversationListInvalidatedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queryClient = useQueryClient();
 
   // -------------------------------------------------------------------------
@@ -139,14 +137,6 @@ export function useConversationLoader({
         });
     }
   }, [assistantId, conversationGroupsUI, queryClient]);
-
-  /** Cancel any pending debounced conversation list refetch. */
-  const cancelScheduledRefetch = useCallback(() => {
-    if (conversationListInvalidatedTimerRef.current) {
-      clearTimeout(conversationListInvalidatedTimerRef.current);
-      conversationListInvalidatedTimerRef.current = null;
-    }
-  }, []);
 
   // -------------------------------------------------------------------------
   // Conversation list query subscription
@@ -420,7 +410,6 @@ export function useConversationLoader({
 
   return {
     refreshConversations,
-    cancelScheduledRefetch,
     switchConversation,
     startNewConversation,
     conversationExistsOnServer,

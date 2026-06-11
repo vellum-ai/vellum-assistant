@@ -74,8 +74,6 @@ export interface UseEventStreamParams {
   // Sync router dispatch for post-reconnect reconcile
   dispatchReconnect: () => Promise<WebSyncReconnectResult | undefined>;
 
-  /** Cancel any pending debounced conversation list refetch on unmount. */
-  cancelScheduledRefetch: () => void;
 }
 
 export function useEventStream({
@@ -91,7 +89,6 @@ export function useEventStream({
   reachabilityPhase,
   reachabilityReset,
   dispatchReconnect,
-  cancelScheduledRefetch,
 }: UseEventStreamParams): void {
   // ---- Ref-stabilize unstable callback params ----
   //
@@ -108,7 +105,6 @@ export function useEventStream({
   const cancelReconciliationRef = useRef(cancelReconciliation);
   const reachabilityResetRef = useRef(reachabilityReset);
   const dispatchReconnectRef = useRef(dispatchReconnect);
-  const cancelScheduledRefetchRef = useRef(cancelScheduledRefetch);
   useLayoutEffect(() => {
     handleStreamEventRef.current = handleStreamEvent;
     reconcileActiveConversationRef.current = reconcileActiveConversation;
@@ -117,7 +113,6 @@ export function useEventStream({
     cancelReconciliationRef.current = cancelReconciliation;
     reachabilityResetRef.current = reachabilityReset;
     dispatchReconnectRef.current = dispatchReconnect;
-    cancelScheduledRefetchRef.current = cancelScheduledRefetch;
   });
 
   const reachabilityPhaseRef = useRef(reachabilityPhase);
@@ -366,7 +361,6 @@ export function useEventStream({
   useEffect(() => {
     return () => {
       cancelReconciliationRef.current();
-      cancelScheduledRefetchRef.current();
     };
   }, []);
 }
