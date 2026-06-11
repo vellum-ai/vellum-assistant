@@ -1726,7 +1726,10 @@ describe("buildUnifiedTurnContextBlock", () => {
 
     expect(vellumText).not.toContain("response_discretion:");
     expect(telegramText).toContain("response_discretion:");
-    expect(telegramText).toContain("<no_response/>");
+    expect(telegramText).toContain("no_response tool");
+    // The literal sentinel must never be prompted — models leaked it into
+    // channel replies; silence is signaled via the no_response tool instead.
+    expect(telegramText).not.toContain("<no_response/>");
   });
 
   test("adds task_progress hint only for Slack turns", () => {

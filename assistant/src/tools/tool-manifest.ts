@@ -23,6 +23,7 @@ import { fileWriteTool } from "./filesystem/write.js";
 import { recallTool, rememberTool } from "./memory/register.js";
 import { webFetchTool } from "./network/web-fetch.js";
 import { webSearchTool } from "./network/web-search.js";
+import { noResponseTool } from "./no-response.js";
 import { skillExecuteTool } from "./skills/execute.js";
 import { skillLoadTool } from "./skills/load.js";
 import { notifyParentTool } from "./subagent/notify-parent.js";
@@ -93,6 +94,7 @@ export const explicitTools: ToolDefinition[] = [
   credentialStoreTool,
   notifyParentTool,
   askQuestionTool,
+  noResponseTool,
   // NOTE: external skill tools (registered via registerExternalTools in
   // registry.ts) are intentionally NOT included here. `explicitTools` is a
   // module-level const whose value is fixed at first evaluation, so

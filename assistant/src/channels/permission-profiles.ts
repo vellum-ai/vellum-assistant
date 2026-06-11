@@ -12,6 +12,7 @@
  */
 
 import { getConfig } from "../config/loader.js";
+import { NO_RESPONSE_TOOL_NAME } from "../tools/no-response.js";
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -66,6 +67,11 @@ export function isToolAllowedInChannel(
   toolName: string,
   toolCategory?: string,
 ): boolean {
+  // The no_response turn-control tool is a silence signal, not a capability.
+  // Blocking it cannot protect anything and would force the model to post a
+  // reply in threads it should stay out of, so it bypasses channel profiles.
+  if (toolName === NO_RESPONSE_TOOL_NAME) return true;
+
   const profile = getChannelPermissionProfile(channelId);
   if (!profile) return true;
 

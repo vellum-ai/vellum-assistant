@@ -697,6 +697,102 @@ describe("channel-reply-delivery", () => {
     expect(deliveryCalls[0].payload.text).toBe("Real response.");
   });
 
+  it("strips an inline <no_response/> wrapped in other text instead of leaking it", async () => {
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: "http://gateway/deliver/slack",
+      chatId: "chat-wrapped",
+      textSegments: ["Sure thing! <no_response/>"],
+      interSegmentDelayMs: 0,
+    });
+
+    expect(deliveryCalls).toHaveLength(1);
+    expect(deliveryCalls[0].payload.text).toBe("Sure thing!");
+  });
+
+  it("suppresses delivery for case-variant sentinels", async () => {
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: "http://gateway/deliver/slack",
+      chatId: "chat-case",
+      textSegments: ["<No_Response/>"],
+      fallbackText: "Fallback text",
+      interSegmentDelayMs: 0,
+    });
+
+    expect(deliveryCalls).toHaveLength(0);
+  });
+
+  it("suppresses all delivery when the no_response tool was invoked", async () => {
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: "http://gateway/deliver/slack",
+      chatId: "chat-tool-silent",
+      textSegments: [],
+      fallbackText: "Fallback text",
+      noResponseToolInvoked: true,
+      attachments: [
+        {
+          id: "att-tool-silent",
+          filename: "notes.txt",
+          mimeType: "text/plain",
+          sizeBytes: 10,
+          kind: "uploaded",
+        },
+      ],
+      interSegmentDelayMs: 0,
+    });
+
+    expect(deliveryCalls).toHaveLength(0);
+  });
+
+  it("delivers real text segments even when the no_response tool was invoked", async () => {
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: "http://gateway/deliver/slack",
+      chatId: "chat-tool-mixed",
+      textSegments: ["Real response."],
+      noResponseToolInvoked: true,
+      interSegmentDelayMs: 0,
+    });
+
+    expect(deliveryCalls).toHaveLength(1);
+    expect(deliveryCalls[0].payload.text).toBe("Real response.");
+  });
+
+  it("treats a current-turn no_response tool call as terminal instead of falling back", async () => {
+    conversationMessages.push(
+      { id: "msg-current-user", role: "user", content: "current prompt" },
+      {
+        id: "msg-current-text",
+        role: "assistant",
+        content: '[{"type":"text","text":"current answer"}]',
+      },
+      {
+        id: "msg-current-tool-silent",
+        role: "assistant",
+        content:
+          '[{"type":"tool_use","id":"tu-nr","name":"no_response","input":{}}]',
+      },
+    );
+    const silentRendered = {
+      text: "",
+      textSegments: [],
+      toolCalls: [{ name: "no_response", input: {} }],
+      toolCallsBeforeText: true,
+      contentOrder: ["tool:0"],
+      surfaces: [],
+      thinkingSegments: [],
+    };
+    renderedHistoryContentQueue.push(silentRendered, silentRendered);
+
+    await deliverReplyViaCallback(
+      "conv-1",
+      "chat-current",
+      "http://gateway/deliver/slack",
+      "assistant-current",
+      { sinceMessageId: "msg-current-user" },
+    );
+
+    expect(deliveryCalls).toHaveLength(0);
+  });
+
   it("passes startFromSegment through deliverReplyViaCallback options", async () => {
     conversationMessages.push(
       { id: "msg-u", role: "user", content: "hi" },

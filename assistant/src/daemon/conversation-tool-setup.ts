@@ -21,6 +21,7 @@ import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
+import { NO_RESPONSE_TOOL_NAME } from "../tools/no-response.js";
 import { getMcpToolDefinitions } from "../tools/registry.js";
 import {
   ACTIVITY_SKIP_SET,
@@ -504,6 +505,15 @@ export function isToolActiveForContext(
     } catch {
       return true;
     }
+  }
+  if (name === NO_RESPONSE_TOOL_NAME) {
+    // Staying silent is only meaningful on external channel threads (Slack,
+    // Telegram, ...) where not every message is directed at the assistant.
+    // Vellum-native surfaces always expect a reply, so the tool is hidden
+    // there. Mirrors the `response_discretion` turn-context gate in
+    // unified-turn-context.ts.
+    const channel = ctx.channelCapabilities?.channel;
+    return channel !== undefined && channel !== "vellum";
   }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
     if (

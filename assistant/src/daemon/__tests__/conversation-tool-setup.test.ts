@@ -72,6 +72,34 @@ beforeEach(() => {
   mockClientCountByCapability.clear();
 });
 
+describe("isToolActiveForContext — no_response channel gating", () => {
+  test("no_response is active for external channel turns", () => {
+    for (const channel of ["slack", "telegram"]) {
+      const ctx = makeCtx({
+        hasNoClient: true,
+        channelCapabilities: { channel, supportsDynamicUi: false },
+      });
+      expect(isToolActiveForContext("no_response", ctx)).toBe(true);
+    }
+  });
+
+  test("no_response is hidden on vellum-native surfaces", () => {
+    expect(
+      isToolActiveForContext(
+        "no_response",
+        makeCtx({
+          hasNoClient: false,
+          channelCapabilities: { channel: "vellum", supportsDynamicUi: true },
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  test("no_response is hidden when channel capabilities are unresolved", () => {
+    expect(isToolActiveForContext("no_response", makeCtx())).toBe(false);
+  });
+});
+
 describe("isToolActiveForContext — Slack task_progress UI exception", () => {
   test("ui_show and ui_update are active for Slack task_progress turns", () => {
     const ctx = makeCtx({

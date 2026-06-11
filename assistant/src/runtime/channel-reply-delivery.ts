@@ -1,4 +1,7 @@
-import type { RenderedHistoryContent } from "../daemon/handlers/shared.js";
+import type {
+  HistoryToolCall,
+  RenderedHistoryContent,
+} from "../daemon/handlers/shared.js";
 import { renderHistoryContent } from "../daemon/handlers/shared.js";
 import { getAttachmentMetadataForMessage } from "../memory/attachments-store.js";
 import {
@@ -7,6 +10,7 @@ import {
   updateMessageMetadata,
 } from "../memory/conversation-crud.js";
 import { readSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
+import { NO_RESPONSE_TOOL_NAME } from "../tools/no-response.js";
 import { getLogger } from "../util/logger.js";
 import type { ChannelDeliveryResult } from "./gateway-client.js";
 import { deliverChannelReply } from "./gateway-client.js";
@@ -47,32 +51,60 @@ type DeliverRenderedReplyParams = {
   /** Called with the ts of the delivered/updated message so callers
    *  can use it for subsequent updates. */
   onMessageTs?: (ts: string) => void;
+  /**
+   * True when the source assistant message invoked the `no_response`
+   * turn-control tool. Treated like a `<no_response/>` sentinel: with no
+   * deliverable text remaining, all delivery (including attachments) is
+   * suppressed and fallbackText is never used.
+   */
+  noResponseToolInvoked?: boolean;
 };
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-const NO_RESPONSE_RE = /^\s*<no_response\s*\/?>\s*$/;
+// Presence check (non-global so `.test` is stateless) and global strip form.
+// Case-insensitive to match the Slack DM live-delivery and messages-API
+// handling of the sentinel.
+const NO_RESPONSE_PRESENT_RE = /<no_response\s*\/?>/i;
+const NO_RESPONSE_INLINE_RE = /<no_response\s*\/?>/gi;
 
-/** Returns true when any segment is a `<no_response/>` sentinel. */
+/**
+ * Returns true when any segment contains a `<no_response/>` sentinel —
+ * exact or embedded in other text (models sometimes wrap the sentinel in
+ * artifacts like timestamps or lead-in phrases).
+ */
 function hasNoResponseMarker(textSegments: string[]): boolean {
-  return textSegments.some((s) => NO_RESPONSE_RE.test(s));
+  return textSegments.some((s) => NO_RESPONSE_PRESENT_RE.test(s));
+}
+
+/** Returns true when the message invoked the `no_response` turn-control tool. */
+function hasNoResponseToolCall(toolCalls: HistoryToolCall[]): boolean {
+  return toolCalls.some((c) => c.name === NO_RESPONSE_TOOL_NAME);
+}
+
+function stripNoResponseSentinel(text: string): string {
+  return text.replace(NO_RESPONSE_INLINE_RE, "").trim();
 }
 
 function toDeliverableTextSegments(
   textSegments: string[],
   fallbackText?: string,
+  noResponseToolInvoked?: boolean,
 ): string[] {
-  const nonEmptySegments = textSegments.filter(
-    (segment) => segment.trim().length > 0 && !NO_RESPONSE_RE.test(segment),
-  );
-  if (nonEmptySegments.length > 0) return nonEmptySegments;
-  // If the only text was <no_response/>, treat as intentional silence —
-  // do not fall back to fallbackText.
-  if (hasNoResponseMarker(textSegments)) return [];
-  if (typeof fallbackText === "string" && fallbackText.trim().length > 0) {
-    return [fallbackText];
+  // Strip sentinels inline so a wrapped marker (e.g. "Sure! <no_response/>")
+  // never reaches the channel verbatim.
+  const strippedSegments = textSegments
+    .map(stripNoResponseSentinel)
+    .filter((segment) => segment.length > 0);
+  if (strippedSegments.length > 0) return strippedSegments;
+  // Intentional silence — sentinel-only text or a no_response tool call —
+  // must not fall back to fallbackText.
+  if (noResponseToolInvoked || hasNoResponseMarker(textSegments)) return [];
+  if (typeof fallbackText === "string") {
+    const strippedFallback = stripNoResponseSentinel(fallbackText);
+    if (strippedFallback.length > 0) return [strippedFallback];
   }
   return [];
 }
@@ -81,11 +113,16 @@ function hasDeliverableReply(
   rendered: RenderedHistoryContent,
   attachments: RuntimeAttachmentMetadata[],
 ): boolean {
+  const noResponseToolInvoked = hasNoResponseToolCall(rendered.toolCalls);
   return (
-    toDeliverableTextSegments(rendered.textSegments, rendered.text).length >
-      0 ||
+    toDeliverableTextSegments(
+      rendered.textSegments,
+      rendered.text,
+      noResponseToolInvoked,
+    ).length > 0 ||
     attachments.length > 0 ||
-    hasNoResponseMarker(rendered.textSegments)
+    hasNoResponseMarker(rendered.textSegments) ||
+    noResponseToolInvoked
   );
 }
 
@@ -106,18 +143,24 @@ export async function deliverRenderedReplyViaCallback(
     user,
     messageTs,
     onMessageTs,
+    noResponseToolInvoked,
   } = params;
 
   const deliverableSegments = toDeliverableTextSegments(
     textSegments,
     fallbackText,
+    noResponseToolInvoked,
   );
   const replyAttachments =
     attachments && attachments.length > 0 ? attachments : undefined;
 
-  // If the model output <no_response/> and no other deliverable text remains,
-  // suppress all delivery — including attachments — so nothing is posted.
-  if (deliverableSegments.length === 0 && hasNoResponseMarker(textSegments)) {
+  // If the model signaled silence — via the no_response tool or the
+  // <no_response/> sentinel — and no other deliverable text remains,
+  // suppress all delivery (including attachments) so nothing is posted.
+  if (
+    deliverableSegments.length === 0 &&
+    (noResponseToolInvoked || hasNoResponseMarker(textSegments))
+  ) {
     return;
   }
 
@@ -331,6 +374,7 @@ async function deliverPersistedAssistantMessageViaCallback(
     chatId: externalChatId,
     textSegments: rendered.textSegments,
     fallbackText: rendered.text,
+    noResponseToolInvoked: hasNoResponseToolCall(rendered.toolCalls),
     attachments: replyAttachments,
     assistantId,
     startFromSegment: options?.startFromSegment,
