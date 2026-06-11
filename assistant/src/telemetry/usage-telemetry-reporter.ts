@@ -98,6 +98,26 @@ export class UsageTelemetryReporter {
   private timer: ReturnType<typeof setInterval> | null = null;
   private activeFlush: Promise<void> | null = null;
 
+  constructor() {
+    // `tool_invocations` is an always-on audit table: while telemetry is
+    // opted out the reporter is never constructed, but the audit listener
+    // keeps writing rows. Initialize an absent watermark to "now" at
+    // construction so a later opt-in doesn't retroactively ship the opt-out
+    // window. Construction happens during daemon startup before any tool
+    // runs, so no legitimate row falls behind the watermark — initializing
+    // at first FLUSH instead would drop tools used during the 30s+ flush
+    // delay. The checkpoint is persisted immediately so a crash before the
+    // first flush can't leave it absent and re-initialize later.
+    // `skill_loaded` needs no init: recording is gated on collectUsageData,
+    // so opt-out rows never exist and its standard 0 default is safe.
+    if (getMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK) == null) {
+      setMemoryCheckpoint(
+        CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK,
+        String(Date.now()),
+      );
+    }
+  }
+
   start(): void {
     // Delay the first flush to allow the credential infrastructure (CES
     // handshake) to complete. Without this delay, VellumPlatformClient.create()
@@ -203,14 +223,14 @@ export class UsageTelemetryReporter {
         undefined;
 
       // Read tool-executed watermark (compound cursor: createdAt + id).
-      // The standard 0 default is safe even though `tool_invocations` is a
-      // pre-existing audit table: legacy rows — already shipped under the
-      // since-reverted `tool_execution` event type and lacking the
-      // arg_bytes/result_bytes/attribution columns — are excluded at the
-      // query level via the null `arg_bytes` discriminator (see
-      // queryUnreportedToolExecutedEvents), so they are never backfilled.
-      // Rows recorded after migration 278 but before the first flush ARE
-      // picked up, which a now-initialized watermark would have dropped.
+      // An absent checkpoint was initialized to construction time (see the
+      // constructor), guarding opt-out windows; the 0 fallback here is a
+      // defensive default matching the other event types. Legacy rows —
+      // already shipped under the since-reverted `tool_execution` event type
+      // and lacking the arg_bytes/result_bytes/attribution columns — are
+      // excluded at the query level via the null `arg_bytes` discriminator
+      // (see queryUnreportedToolExecutedEvents), so they are never
+      // backfilled.
       const toolExecutedWatermark = Number(
         getMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK) ?? "0",
       );

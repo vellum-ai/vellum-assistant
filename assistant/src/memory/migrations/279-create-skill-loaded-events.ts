@@ -1,11 +1,10 @@
 import type { DrizzleDb } from "../db-connection.js";
 
 /**
- * Create the skill_loaded_events table for `skill_loaded` telemetry events.
- * One row per activation of a Vellum-produced skill — metadata only, never
- * skill output or conversation content. Rows are flushed to the platform
- * telemetry endpoint by the usage telemetry reporter, which seeks with a
- * compound `(created_at, id)` watermark cursor backed by the index below.
+ * Create the skill_loaded_events table for `skill_loaded` telemetry events —
+ * one row per activation of a Vellum-produced skill (see
+ * skill-loaded-events-store.ts for the data contract). The index backs the
+ * telemetry reporter's compound `(created_at, id)` watermark cursor.
  */
 export function createSkillLoadedEventsTable(database: DrizzleDb): void {
   database.run(/*sql*/ `

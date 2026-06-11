@@ -52,9 +52,10 @@ export interface UnreportedToolExecutedEvent {
  * "executed" and "error" events) always computes a non-null `arg_bytes`;
  * the only path that leaves it null ("permission_denied") is already
  * excluded by the decision filter. This makes `arg_bytes IS NOT NULL` a
- * reliable legacy-row discriminator, which in turn lets the telemetry
- * reporter use the standard 0 watermark default without dropping rows
- * recorded before its first flush.
+ * reliable legacy-row discriminator. It only guards pre-migration rows —
+ * rows recorded while telemetry is opted out are guarded separately by the
+ * reporter's construction-time watermark initialization (see
+ * usage-telemetry-reporter.ts).
  *
  * Rows are written by the tool audit listener
  * (`events/tool-audit-listener.ts`) — there is no record function here.
