@@ -340,7 +340,7 @@ export type LLMConfigBase = z.infer<typeof LLMConfigBase>;
  * objects so callers can override individual leaves (e.g. `{ thinking:
  * { enabled: false } }`).
  */
-const LLMConfigFragment = z.object({
+export const LLMConfigFragment = z.object({
   provider: LLMProvider.optional(),
   model: ModelSchema.optional(),
   maxTokens: MaxTokensSchema.optional(),
@@ -353,7 +353,7 @@ const LLMConfigFragment = z.object({
   openrouter: OpenRouterDeepPartialSchema.optional(),
   logitBias: LogitBiasPresetSchema.optional(),
 });
-type LLMConfigFragment = z.infer<typeof LLMConfigFragment>;
+export type LLMConfigFragment = z.infer<typeof LLMConfigFragment>;
 
 export const ProfileStatusSchema = z.enum(["active", "disabled"]);
 export type ProfileStatus = z.infer<typeof ProfileStatusSchema>;

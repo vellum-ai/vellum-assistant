@@ -35,7 +35,7 @@ import {
 } from "../../config/loader.js";
 import { AssistantConfigSchema } from "../../config/schema.js";
 import { getSchemaAtPath } from "../../config/schema-utils.js";
-import { ProfileEntry } from "../../config/schemas/llm.js";
+import { LLMConfigFragment, ProfileEntry } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { getConfigWatcher } from "../../daemon/config-watcher.js";
 import {
@@ -443,6 +443,85 @@ function readPlainObject(value: unknown): Record<string, unknown> | undefined {
   }
   return value as Record<string, unknown>;
 }
+
+/**
+ * Wire-only extension of ProfileEntry: adds `supportsVision` resolved from
+ * the model catalog at response time. Never persisted to disk.
+ */
+const WireProfileEntry = ProfileEntry.extend({
+  supportsVision: z.boolean().optional(),
+});
+
+/**
+ * Response schema for `GET /v1/config`.
+ *
+ * Describes the wire shape of the raw `settings.json` response after
+ * context-default filling and vision-flag enrichment. All top-level fields
+ * are optional because the on-disk config may be sparse. Additional
+ * top-level config sections beyond what's typed here are preserved via
+ * passthrough — this schema types the fields that web/macOS clients consume
+ * without restricting the full config surface.
+ */
+const ConfigGetResponseSchema = z
+  .object({
+    llm: z
+      .object({
+        default: LLMConfigFragment.extend({
+          provider_connection: z.string().optional(),
+        }).optional(),
+        profiles: z.record(z.string(), WireProfileEntry).optional(),
+        profileOrder: z.array(z.string()).optional(),
+        activeProfile: z.string().optional(),
+        callSites: z
+          .record(
+            z.string(),
+            LLMConfigFragment.extend({
+              profile: z.string().optional(),
+            }).nullable(),
+          )
+          .optional(),
+        profileSession: z
+          .object({
+            defaultTtlSeconds: z.number().optional(),
+            maxTtlSeconds: z.number().optional(),
+          })
+          .optional(),
+        pricingOverrides: z.array(z.unknown()).optional(),
+      })
+      .passthrough()
+      .optional(),
+    memory: z
+      .object({
+        enabled: z.boolean().optional(),
+        v2: z
+          .object({ enabled: z.boolean().optional() })
+          .passthrough()
+          .optional(),
+      })
+      .passthrough()
+      .optional(),
+    services: z
+      .object({
+        "web-search": z
+          .object({
+            mode: z.string().optional(),
+            provider: z.string().optional(),
+          })
+          .passthrough()
+          .optional(),
+        "image-generation": z
+          .object({ mode: z.string().optional() })
+          .passthrough()
+          .optional(),
+        inference: z
+          .object({ mode: z.string().optional() })
+          .passthrough()
+          .optional(),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough();
 
 function handleGetConfig() {
   try {
@@ -1157,6 +1236,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Get full config",
     description: "Return the raw settings.json configuration object.",
     tags: ["config"],
+    responseBody: ConfigGetResponseSchema,
     handler: handleGetConfig,
   },
   {

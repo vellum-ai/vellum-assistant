@@ -11,11 +11,13 @@ import {
 } from "@/assistant/profile-pickers";
 import { useProfileQuickAdd } from "@/components/profile-quick-add-provider";
 import { activeProfileModelQueryKey } from "@/domains/chat/hooks/use-active-profile-model";
-import { client } from "@/generated/api/client.gen";
 import {
+    configGet,
+    configPatch,
     conversationsByIdGet,
     conversationsByIdInferenceprofilePut,
 } from "@/generated/daemon/sdk.gen";
+import type { ConfigGetResponse } from "@/generated/daemon/types.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
     deleteConversationOverride,
@@ -53,7 +55,8 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   // Profile state
   const [profileActiveKey, setProfileActiveKey] = useState<string | null>(null);
   const [profileOrder, setProfileOrder] = useState<string[]>([]);
-  const [profileMap, setProfileMap] = useState<Record<string, { label?: string | null; status?: "active" | "disabled" }>>({});
+  type Profiles = NonNullable<NonNullable<ConfigGetResponse["llm"]>["profiles"]>;
+  const [profileMap, setProfileMap] = useState<Profiles>({});
   // Global active profile from daemon config — used as fallback when there is
   // no per-conversation override, and as the target for no-conversation selects.
   const globalActiveProfileRef = useRef<string | null>(null);
@@ -132,8 +135,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
     (async () => {
       try {
         const [configResult, convResult] = await Promise.allSettled([
-          client.get<Record<string, unknown>, unknown>({
-            url: `/v1/assistants/{assistant_id}/config`,
+          configGet({
             path: { assistant_id: assistantId },
             throwOnError: false,
           }),
@@ -151,10 +153,10 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
         // whether the conversation fetch succeeded.
         let globalActive: string | null = null;
         if (configResult.status === "fulfilled" && configResult.value?.data) {
-          const llm = (configResult.value.data as { llm?: Record<string, unknown> }).llm ?? {};
-          const order = (llm.profileOrder as string[] | undefined) ?? [];
-          const map = (llm.profiles as Record<string, { label?: string | null }> | undefined) ?? {};
-          globalActive = (llm.activeProfile as string | null | undefined) ?? null;
+          const llm = configResult.value.data.llm;
+          const order = llm?.profileOrder ?? [];
+          const map = llm?.profiles ?? {};
+          globalActive = llm?.activeProfile ?? null;
           setProfileOrder(order);
           setProfileMap(map);
           globalActiveProfileRef.current = globalActive;
@@ -254,11 +256,9 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
           });
         } else {
           // No active conversation: update global active profile.
-          await client.patch({
-            url: `/v1/assistants/{assistant_id}/config`,
+          await configPatch({
             path: { assistant_id: assistantId },
             body: { llm: { activeProfile: name } },
-            headers: { "Content-Type": "application/json" },
             throwOnError: true,
           });
           globalActiveProfileRef.current = name;

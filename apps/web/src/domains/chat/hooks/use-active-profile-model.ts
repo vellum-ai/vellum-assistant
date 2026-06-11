@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { client } from "@/generated/api/client.gen";
-import { conversationsByIdGet } from "@/generated/daemon/sdk.gen";
+import { configGet, conversationsByIdGet } from "@/generated/daemon/sdk.gen";
+import type { ConfigGetResponse } from "@/generated/daemon/types.gen";
 
 /**
  * Resolves the (provider, model) pair currently in effect for a chat
@@ -13,13 +13,8 @@ import { conversationsByIdGet } from "@/generated/daemon/sdk.gen";
  * Returns `null` when the data isn't loaded yet or the active profile
  * doesn't declare a provider/model.
  *
- * `supportsVision` mirrors the daemon catalog's per-model flag and is
- * surfaced here at runtime so the web client doesn't duplicate it. The
- * daemon resolves the active model against its catalog and either
- * embeds the flag on the profile entry (`profile.supportsVision`) or
- * exposes a sibling `models` map; both shapes are handled below. When
- * neither is present the value is `undefined` and callers fall back to
- * a permissive default.
+ * `supportsVision` is resolved server-side by the daemon from its model
+ * catalog and embedded on each profile entry in the config response.
  */
 export interface ActiveProfileModel {
   provider: string;
@@ -27,61 +22,9 @@ export interface ActiveProfileModel {
   supportsVision?: boolean;
 }
 
-interface ProfileEntry {
-  provider?: string | null;
-  model?: string | null;
-  /**
-   * Optional vision-capability flag resolved by the daemon from its model
-   * catalog. The daemon may serve this directly on the profile entry or via
-   * a sibling catalog map — see `resolveSupportsVision` below.
-   */
-  supportsVision?: boolean | null;
-}
-
-interface CatalogModelEntry {
-  id?: string;
-  supportsVision?: boolean | null;
-}
-
-interface CatalogProviderEntry {
-  id?: string;
-  models?: readonly CatalogModelEntry[];
-}
-
-/**
- * Walk the daemon config response looking for `supportsVision` for the
- * resolved (provider, model). Tolerates two shapes so this works both today
- * (when the daemon embeds the flag on the profile entry) and after a future
- * daemon change that surfaces the full catalog map:
- *
- *   1. `data.llm.profiles[name].supportsVision` — daemon resolved it server-side.
- *   2. `data.llm.providers[].models[]` — daemon embedded its catalog inline.
- *
- * Returns `undefined` when the daemon hasn't surfaced the data — callers
- * should fall back to a permissive default.
- */
-function resolveSupportsVision(
-  llm: Record<string, unknown>,
-  profileEntry: ProfileEntry,
-  provider: string,
-  model: string,
-): boolean | undefined {
-  if (typeof profileEntry.supportsVision === "boolean") {
-    return profileEntry.supportsVision;
-  }
-  const providers = llm.providers as readonly CatalogProviderEntry[] | undefined;
-  if (!Array.isArray(providers)) return undefined;
-  const providerEntry = providers.find(
-    (p: CatalogProviderEntry) => p?.id === provider,
-  );
-  const modelEntry = providerEntry?.models?.find(
-    (m: CatalogModelEntry) => m?.id === model,
-  );
-  if (typeof modelEntry?.supportsVision === "boolean") {
-    return modelEntry.supportsVision;
-  }
-  return undefined;
-}
+type ProfileEntry = NonNullable<
+  NonNullable<ConfigGetResponse["llm"]>["profiles"]
+>[string];
 
 /**
  * Stable query key for the active-profile-model lookup. Callers that mutate
@@ -107,8 +50,7 @@ export function useActiveProfileModel(
     queryFn: async (): Promise<ActiveProfileModel | null> => {
       if (!assistantId) return null;
       const [configResult, convResult] = await Promise.allSettled([
-        client.get<Record<string, unknown>, unknown>({
-          url: `/v1/assistants/{assistant_id}/config`,
+        configGet({
           path: { assistant_id: assistantId },
           throwOnError: false,
         }),
@@ -123,12 +65,9 @@ export function useActiveProfileModel(
       if (configResult.status !== "fulfilled" || !configResult.value?.data) {
         return null;
       }
-      const llm =
-        (configResult.value.data as { llm?: Record<string, unknown> }).llm ?? {};
-      const profiles =
-        (llm.profiles as Record<string, ProfileEntry> | undefined) ?? {};
-      const globalActive =
-        (llm.activeProfile as string | null | undefined) ?? null;
+      const llm = configResult.value.data.llm;
+      const profiles = llm?.profiles ?? {};
+      const globalActive = llm?.activeProfile ?? null;
 
       let effective: string | null = globalActive;
       if (convResult?.status === "fulfilled" && convResult.value !== null) {
@@ -140,18 +79,14 @@ export function useActiveProfileModel(
       }
 
       if (!effective) return null;
-      const entry = profiles[effective];
+      const entry: ProfileEntry | undefined = profiles[effective];
       if (!entry?.provider || !entry.model) return null;
-      const supportsVision = resolveSupportsVision(
-        llm,
-        entry,
-        entry.provider,
-        entry.model,
-      );
       return {
         provider: entry.provider,
         model: entry.model,
-        ...(supportsVision !== undefined ? { supportsVision } : {}),
+        ...(typeof entry.supportsVision === "boolean"
+          ? { supportsVision: entry.supportsVision }
+          : {}),
       };
     },
     staleTime: 30_000,

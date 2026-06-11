@@ -242,7 +242,9 @@ export function applyConfigPatch(config: DaemonConfig, patch: DaemonConfigPatch)
       if (patch.llm.default === null) {
         delete llm.default;
       } else if (patch.llm.default) {
-        llm.default = { ...llm.default, ...patch.llm.default };
+        // Patch fields use wider types (e.g. `string`) than the response
+        // type's literal unions. Values are validated server-side on settle.
+        llm.default = { ...llm.default, ...patch.llm.default } as typeof llm.default;
       }
     }
 
@@ -252,7 +254,7 @@ export function applyConfigPatch(config: DaemonConfig, patch: DaemonConfigPatch)
         if (entry === null) {
           delete profiles[name];
         } else {
-          profiles[name] = { ...profiles[name], ...entry };
+          profiles[name] = { ...profiles[name], ...entry } as ProfileEntry;
         }
       }
       llm.profiles = profiles;
@@ -265,7 +267,7 @@ export function applyConfigPatch(config: DaemonConfig, patch: DaemonConfigPatch)
           callSites[id] = null;
         } else {
           const existing = callSites[id];
-          callSites[id] = { ...(existing ?? {}), ...entry };
+          callSites[id] = { ...(existing ?? {}), ...entry } as NonNullable<(typeof callSites)[string]>;
         }
       }
       llm.callSites = callSites;

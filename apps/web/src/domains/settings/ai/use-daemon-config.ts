@@ -16,7 +16,7 @@ import { useCallback, useMemo } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import type { CallSiteOverrideDraft, DaemonConfig, DaemonConfigPatch, ProfileEntry } from "@/domains/settings/ai/ai-types";
+import type { DaemonConfig, DaemonConfigPatch } from "@/domains/settings/ai/ai-types";
 import { applyConfigPatch, assertProvisionSuccess, buildOrderedProfiles, snapshotPatchedFields } from "@/domains/settings/ai/ai-utils";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { configGet, configPatch, secretsPost } from "@/generated/daemon/sdk.gen";
@@ -71,30 +71,26 @@ export function useDaemonConfigQuery(
         path: { assistant_id: assistantId },
         throwOnError: true,
       });
-      // The daemon config endpoint's OpenAPI spec doesn't define a typed
-      // response body yet — the generated type is `unknown`. This cast is
-      // the single point where we bridge to the hand-written DaemonConfig
-      // interface until the spec is updated.
-      return data as DaemonConfig;
+      return data;
     },
     enabled: !!assistantId && enabled,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
   });
 
-  const profiles: Record<string, ProfileEntry> = useMemo(
+  const profiles = useMemo(
     () => config?.llm?.profiles ?? {},
     [config?.llm?.profiles],
   );
-  const profileOrder: string[] = useMemo(
+  const profileOrder = useMemo(
     () => config?.llm?.profileOrder ?? [],
     [config?.llm?.profileOrder],
   );
-  const activeProfile: string | null = useMemo(
+  const activeProfile = useMemo(
     () => config?.llm?.activeProfile ?? null,
     [config?.llm?.activeProfile],
   );
-  const callSites: Record<string, CallSiteOverrideDraft | null | undefined> = useMemo(
+  const callSites = useMemo(
     () => config?.llm?.callSites ?? {},
     [config?.llm?.callSites],
   );

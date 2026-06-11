@@ -8,7 +8,7 @@ import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import type { CallSiteOverrideDraft, DaemonConfigPatch, ProfileEntry, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
+import type { CallSiteOverrideDraft, DaemonConfigPatch, ProfileEntry, ProfilePatchEntry, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
 import type { BlockedDeleteState } from "@/domains/settings/ai/manage-profiles-blocked-delete-modal";
 import { BlockedDeleteModal } from "@/domains/settings/ai/manage-profiles-blocked-delete-modal";
 import { ProfileListItem } from "@/domains/settings/ai/manage-profiles-list-item";
@@ -61,7 +61,7 @@ export function ManageProfilesModal({
 
   async function handleEditorSave(
     name: string,
-    entry: ProfileEntry,
+    entry: ProfilePatchEntry,
     options?: { mode?: "merge" | "replace" },
   ) {
     const mode = options?.mode ?? "replace";
@@ -79,7 +79,7 @@ export function ManageProfilesModal({
     }
 
     const llmPatch: {
-      profiles: Record<string, ProfileEntry>;
+      profiles: Record<string, ProfilePatchEntry>;
       profileOrder?: string[];
     } = { profiles: { [name]: entry } };
     if (isNew) {

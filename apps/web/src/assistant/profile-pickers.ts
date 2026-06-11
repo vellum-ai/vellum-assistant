@@ -14,7 +14,7 @@
 export interface ProfilePickerEntry {
   readonly name: string;
   readonly label?: string | null;
-  readonly status?: "active" | "disabled";
+  readonly status?: "active" | "disabled" | null;
 }
 
 /**

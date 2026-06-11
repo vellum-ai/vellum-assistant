@@ -12,7 +12,7 @@ import type { ProfileStatus } from "@/domains/settings/ai/ai-types";
 export interface ProfilePickerEntry {
   readonly name: string;
   readonly label?: string | null;
-  readonly status?: ProfileStatus;
+  readonly status?: ProfileStatus | null;
 }
 
 /**

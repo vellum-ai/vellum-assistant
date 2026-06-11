@@ -13,7 +13,7 @@ import { ChevronRight } from "lucide-react";
 import { getModelsForProvider } from "@/assistant/llm-model-catalog";
 import { inferenceProviderconnectionsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 
-import type { ProfileEntry, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
+import type { ProfileEntry, ProfilePatchEntry, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
 import { INFERENCE_PROVIDER_DISPLAY_NAMES } from "@/domains/settings/ai/ai-types";
 import {
     ProfileAdvancedParams,
@@ -72,7 +72,7 @@ export interface ProfileEditorModalProps {
    */
   onSave: (
     name: string,
-    entry: ProfileEntry,
+    entry: ProfilePatchEntry,
     options?: { mode?: "merge" | "replace" },
   ) => Promise<void>;
   onCancel: () => void;
@@ -130,7 +130,7 @@ interface ProfileEditorModalInnerProps {
   assistantId: string;
   onSave: (
     name: string,
-    entry: ProfileEntry,
+    entry: ProfilePatchEntry,
     options?: { mode?: "merge" | "replace" },
   ) => Promise<void>;
   onCancel: () => void;
@@ -167,7 +167,7 @@ function ProfileEditorModalInner({
   const [key, setKey] = useState(
     mode === "create" ? "" : (profileName ?? ""),
   );
-  const [provider, setProvider] = useState(initialValues?.provider ?? "");
+  const [provider, setProvider] = useState<NonNullable<ProfileEntry["provider"]> | "">(initialValues?.provider ?? "");
   const [model, setModel] = useState(initialValues?.model ?? "");
   // Per-profile provider-connection binding. Empty string means no explicit
   // binding — daemon falls back to its first-connection dispatch. Snake_case
@@ -203,11 +203,11 @@ function ProfileEditorModalInner({
 
   // Advanced params — segment controls
   // effort: "none" is the sentinel for "not overridden"
-  const [effort, setEffort] = useState<string>(initialValues?.effort ?? "none");
+  const [effort, setEffort] = useState<NonNullable<ProfileEntry["effort"]>>(initialValues?.effort ?? "none");
   // speed: "standard" is the sentinel for "not overridden"
-  const [speed, setSpeed] = useState<string>(initialValues?.speed ?? "standard");
+  const [speed, setSpeed] = useState<NonNullable<ProfileEntry["speed"]>>(initialValues?.speed ?? "standard");
   // verbosity: defaults to "medium"; always included when visible
-  const [verbosity, setVerbosity] = useState<string>(initialValues?.verbosity ?? "medium");
+  const [verbosity, setVerbosity] = useState<NonNullable<ProfileEntry["verbosity"]>>(initialValues?.verbosity ?? "medium");
 
   // Advanced params — temperature
   const [temperatureEnabled, setTemperatureEnabled] = useState<boolean>(
@@ -225,7 +225,8 @@ function ProfileEditorModalInner({
     initialValues?.thinking?.streamThinking ?? false,
   );
   // Gemini reasoning-depth knob. "default" = inherit the model default.
-  const [thinkingLevel, setThinkingLevel] = useState<string>(
+  type ThinkingLevel = NonNullable<NonNullable<ProfileEntry["thinking"]>["level"]>;
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel | typeof THINKING_LEVEL_INHERIT>(
     initialValues?.thinking?.level ?? THINKING_LEVEL_INHERIT,
   );
 
@@ -294,7 +295,7 @@ function ProfileEditorModalInner({
 
   function handleProviderChange(newProvider: string) {
     if (newProvider === provider) return;
-    setProvider(newProvider);
+    setProvider(newProvider as typeof provider);
     setModel("");
     // Auto-select connection: if exactly one connection exists for the new
     // provider, select it automatically. If multiple exist, clear so the user
@@ -455,7 +456,7 @@ function ProfileEditorModalInner({
     setSaving(true);
     setSaveError(null);
     try {
-      const entry: ProfileEntry = {};
+      const entry: ProfilePatchEntry = {};
       // Stale bindings are auto-cleared on save: if the saved
       // provider_connection doesn't match any known connection for the
       // current provider, treat it as cleared instead of silently
@@ -625,11 +626,11 @@ function ProfileEditorModalInner({
       contextWindowMaxInputTokens={contextWindowMaxInputTokens}
       onContextWindowChange={setContextWindowMaxInputTokens}
       effort={effort}
-      onEffortChange={setEffort}
+      onEffortChange={(v) => setEffort(v as typeof effort)}
       speed={speed}
-      onSpeedChange={setSpeed}
+      onSpeedChange={(v) => setSpeed(v as typeof speed)}
       verbosity={verbosity}
-      onVerbosityChange={setVerbosity}
+      onVerbosityChange={(v) => setVerbosity(v as typeof verbosity)}
       temperatureEnabled={temperatureEnabled}
       onTemperatureEnabledChange={setTemperatureEnabled}
       temperature={temperature}
@@ -639,7 +640,7 @@ function ProfileEditorModalInner({
       thinkingStreamThinking={thinkingStreamThinking}
       onThinkingStreamThinkingChange={setThinkingStreamThinking}
       thinkingLevel={thinkingLevel}
-      onThinkingLevelChange={setThinkingLevel}
+      onThinkingLevelChange={(v) => setThinkingLevel(v as typeof thinkingLevel)}
     />
   ) : null;
 
