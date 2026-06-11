@@ -185,6 +185,75 @@ describe("tool audit listener", () => {
     expect(records[0].resultBytes).toBe(2400);
   });
 
+  test("prefers the executor-stamped raw inputBytes over sizing the (sanitized) event input", () => {
+    const records: ToolInvocationRecord[] = [];
+    const listener = createToolAuditListener((record) => records.push(record));
+
+    // The executor sanitizes event.input before listeners run and stamps
+    // inputBytes from the RAW input — the listener must report that size,
+    // not the redacted payload's.
+    const rawInput = { path: "/tmp/a", token: "t-1" };
+    const rawSize = Buffer.byteLength(JSON.stringify(rawInput), "utf8");
+    const sanitizedInput = { path: "/tmp/a", token: "<redacted />" };
+
+    listener({
+      type: "executed",
+      toolName: "file_read",
+      input: sanitizedInput,
+      inputBytes: rawSize,
+      workingDir: "/tmp",
+      conversationId: "conv-raw-bytes",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 4,
+      result: { content: "ok", isError: false },
+    });
+    listener({
+      type: "error",
+      toolName: "file_read",
+      input: sanitizedInput,
+      inputBytes: rawSize,
+      workingDir: "/tmp",
+      conversationId: "conv-raw-bytes",
+      riskLevel: "low",
+      decision: "error",
+      durationMs: 4,
+      errorMessage: "boom",
+      isExpected: false,
+      errorCategory: "tool_failure",
+    });
+
+    expect(records).toHaveLength(2);
+    for (const record of records) {
+      expect(record.argBytes).toBe(rawSize);
+      expect(record.argBytes).not.toBe(
+        Buffer.byteLength(JSON.stringify(sanitizedInput), "utf8"),
+      );
+    }
+  });
+
+  test("falls back to sizing the event input when inputBytes is absent, keeping argBytes non-null", () => {
+    const records: ToolInvocationRecord[] = [];
+    const listener = createToolAuditListener((record) => records.push(record));
+
+    listener({
+      type: "executed",
+      toolName: "file_read",
+      input: { path: "/tmp/a" },
+      workingDir: "/tmp",
+      conversationId: "conv-fallback",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 4,
+      result: { content: "ok", isError: false },
+    });
+
+    expect(records).toHaveLength(1);
+    expect(records[0].argBytes).toBe(
+      Buffer.byteLength(JSON.stringify({ path: "/tmp/a" }), "utf8"),
+    );
+  });
+
   test("maps attribution onto executed records and leaves denied records null", () => {
     const records: ToolInvocationRecord[] = [];
     const listener = createToolAuditListener((record) => records.push(record));

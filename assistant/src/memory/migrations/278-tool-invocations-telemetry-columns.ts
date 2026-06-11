@@ -12,21 +12,14 @@ const COLUMNS: Array<{ name: string; type: string }> = [
 
 /**
  * Add nullable telemetry columns to `tool_invocations` for the
- * `tool_executed` telemetry projection.
+ * `tool_executed` telemetry projection: serialized payload sizes (only the
+ * sizes leave the device, never the payloads) and the conversation's model
+ * attribution at invocation time. Nullable so pre-migration and
+ * permission-denied rows stay NULL (see the legacy-row filter in
+ * tool-executed-events-store.ts).
  *
- * `arg_bytes` / `result_bytes` record the serialized payload sizes computed
- * by the audit listener BEFORE the stored `result` column is truncated and
- * redacted — only the sizes leave the device, never the payloads. The
- * `provider` / `model` / `inference_profile` / `inference_profile_source`
- * columns snapshot the conversation's model attribution at invocation time
- * (same mapping the `llm_usage` events use).
- *
- * All columns are nullable — `NULL` for rows persisted before this migration
- * ran and for permission-denied rows (the tool never executed; they are
- * filtered out of the telemetry projection).
- *
- * Idempotent — re-running is a no-op once the columns exist. Pure DDL with a
- * PRAGMA guard, no registry entry needed (matches the 273 / 275 pattern).
+ * Idempotent pure DDL with a PRAGMA guard, no registry entry needed
+ * (matches the 273 / 275 pattern).
  */
 export function migrateToolInvocationsTelemetryColumns(
   database: DrizzleDb,

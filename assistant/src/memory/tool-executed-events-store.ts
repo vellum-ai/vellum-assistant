@@ -17,17 +17,9 @@ export interface UnreportedToolExecutedEvent {
   /** `"allow"`-style decisions or `"error"`; never `"denied"` (filtered out). */
   decision: string;
   durationMs: number;
-  /**
-   * Serialized input size in bytes. Non-null in practice: legacy rows
-   * persisted before migration 278 have `arg_bytes IS NULL` and are excluded
-   * from the projection entirely (see the query's legacy-row filter).
-   */
+  /** Serialized raw input size in bytes. Non-null on projected rows (the legacy-row filter excludes null). */
   argBytes: number | null;
-  /**
-   * Full serialized result size in bytes. The audit listener writes it
-   * together with `argBytes`, so it is non-null on every projected row in
-   * practice.
-   */
+  /** Full serialized result size in bytes, computed before truncation/redaction. */
   resultBytes: number | null;
   provider: string | null;
   model: string | null;
@@ -40,30 +32,22 @@ export interface UnreportedToolExecutedEvent {
 /**
  * Query tool invocations that haven't been reported to telemetry yet.
  * Uses a compound cursor (createdAt + id) for reliable watermarking.
- *
- * Permission-denied rows are excluded — the tool never executed, so no
- * `tool_executed` event is emitted for them.
- *
- * Legacy rows persisted before migration 278 (null `arg_bytes`) are also
- * excluded: they were already shipped under the since-reverted
- * `tool_execution` event type and lack the size/attribution columns, so
- * re-shipping them as `tool_executed` would double-count with null
- * attribution. Every post-migration writer path (tool-audit-listener.ts
- * "executed" and "error" events) always computes a non-null `arg_bytes`;
- * the only path that leaves it null ("permission_denied") is already
- * excluded by the decision filter. This makes `arg_bytes IS NOT NULL` a
- * reliable legacy-row discriminator, which in turn lets the telemetry
- * reporter use the standard 0 watermark default without dropping rows
- * recorded before its first flush.
- *
  * Rows are written by the tool audit listener
  * (`events/tool-audit-listener.ts`) — there is no record function here.
  *
- * Reporting is best-effort: `rotateToolInvocations` purges rows by
- * `created_at` alone, so rows older than the configured
- * `auditLog.retentionDays` window may be rotated away before they are
- * reported (e.g. if the daemon is offline or failing for longer than
- * the retention window).
+ * Two row classes are excluded:
+ * - Permission-denied rows: the tool never executed.
+ * - Legacy pre-migration-278 rows (null `arg_bytes`): already shipped under
+ *   the since-reverted `tool_execution` event type and lacking the
+ *   size/attribution columns. Every post-migration writer path computes a
+ *   non-null `arg_bytes` (the only null writer, "permission_denied", is
+ *   excluded by the decision filter), making `arg_bytes IS NOT NULL` a
+ *   reliable legacy-row discriminator — which lets the reporter keep the
+ *   standard 0 watermark default without dropping pre-first-flush rows.
+ *
+ * Reporting is best-effort: `rotateToolInvocations` purges by `created_at`
+ * alone, so rows older than `auditLog.retentionDays` may rotate away before
+ * they are reported.
  */
 export function queryUnreportedToolExecutedEvents(
   afterCreatedAt: number,

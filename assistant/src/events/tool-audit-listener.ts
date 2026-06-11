@@ -3,9 +3,10 @@ import {
   type ToolInvocationRecord,
 } from "../memory/tool-usage-store.js";
 import { redactSecrets } from "../security/secret-scanner.js";
-import type {
-  ToolLifecycleEvent,
-  ToolLifecycleEventHandler,
+import {
+  stringifyToolInput,
+  type ToolLifecycleEvent,
+  type ToolLifecycleEventHandler,
 } from "../tools/types.js";
 import { toAttributionColumns } from "../usage/attribution.js";
 import { getLogger } from "../util/logger.js";
@@ -38,7 +39,7 @@ function toInvocationRecord(
 ): ToolInvocationRecord | null {
   switch (event.type) {
     case "executed": {
-      const input = stringifyInput(event.input);
+      const input = stringifyToolInput(event.input);
       return {
         conversationId: event.conversationId,
         toolName: event.toolName,
@@ -51,16 +52,20 @@ function toInvocationRecord(
         riskLevel: event.riskLevel,
         matchedTrustRuleId: event.matchedTrustRuleId,
         durationMs: event.durationMs,
-        // Byte sizes are computed here from the raw payloads — the stored
-        // `result` column is truncated and redacted above, so sizing at
-        // query time would undercount. Only the sizes leave the device.
-        argBytes: Buffer.byteLength(input, "utf8"),
+        // Byte sizes reflect the full raw payloads — only the sizes leave
+        // the device. The arg size prefers `event.inputBytes`, stamped by
+        // the executor BEFORE input sanitization; the fallback sizes the
+        // (sanitized) event input so argBytes stays non-null, which the
+        // tool_executed projection's legacy-row filter relies on. The
+        // result size is computed before the stored `result` column is
+        // truncated and redacted above.
+        argBytes: event.inputBytes ?? Buffer.byteLength(input, "utf8"),
         resultBytes: Buffer.byteLength(event.result.content, "utf8"),
         ...toAttributionColumns(event.attribution),
       };
     }
     case "error": {
-      const input = stringifyInput(event.input);
+      const input = stringifyToolInput(event.input);
       const result = `error: ${event.errorMessage}`;
       return {
         conversationId: event.conversationId,
@@ -71,7 +76,8 @@ function toInvocationRecord(
         riskLevel: event.riskLevel,
         matchedTrustRuleId: event.matchedTrustRuleId,
         durationMs: event.durationMs,
-        argBytes: Buffer.byteLength(input, "utf8"),
+        // Same sizing contract as the "executed" case above.
+        argBytes: event.inputBytes ?? Buffer.byteLength(input, "utf8"),
         resultBytes: Buffer.byteLength(result, "utf8"),
         ...toAttributionColumns(event.attribution),
       };
@@ -82,7 +88,7 @@ function toInvocationRecord(
       return {
         conversationId: event.conversationId,
         toolName: event.toolName,
-        input: stringifyInput(event.input),
+        input: stringifyToolInput(event.input),
         result: formatDeniedResult(event.reason),
         decision: "denied",
         riskLevel: event.riskLevel,
@@ -92,14 +98,6 @@ function toInvocationRecord(
     case "start":
     case "permission_prompt":
       return null;
-  }
-}
-
-function stringifyInput(input: Record<string, unknown>): string {
-  try {
-    return JSON.stringify(input);
-  } catch {
-    return "[unserializable-input]";
   }
 }
 
