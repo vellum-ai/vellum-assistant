@@ -97,6 +97,15 @@ export interface VellumBridge {
       onFinalized?(
         callback: (event: DictationPartialEvent) => void,
       ): () => void;
+      /**
+       * One-shot whole-utterance recognition of recorded 16 kHz mono Int16
+       * PCM — the offline transcript authority. Result arrives via
+       * `onTranscribed`.
+       */
+      transcribe?(audio: ArrayBuffer): Promise<{ ok: boolean; reason?: string }>;
+      onTranscribed?(
+        callback: (event: DictationPartialEvent) => void,
+      ): () => void;
     };
   };
   commands: {

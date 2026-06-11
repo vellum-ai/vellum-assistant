@@ -62,9 +62,11 @@ mock.module("@/domains/chat/voice/dictation-stream", () => ({
 let nativePartialsImpl: (
   onPartial: (text: string) => void,
 ) => Promise<(() => void | Promise<string | null>) | null> = async () => null;
+let transcribeBlobImpl: () => Promise<string | null> = async () => null;
 mock.module("@/runtime/native-dictation-partials", () => ({
   startNativeDictationPartials: (onPartial: (text: string) => void) =>
     nativePartialsImpl(onPartial),
+  transcribeNativeAudioBlob: () => transcribeBlobImpl(),
 }));
 
 mock.module("@/runtime/native-auth", () => ({
@@ -278,6 +280,7 @@ describe("VoiceInputButton — native partials fallback", () => {
 
   afterEach(() => {
     nativePartialsImpl = async () => null;
+    transcribeBlobImpl = async () => null;
     dictationStreamImpl = () => null;
     cleanup();
     useVoiceRecordingStore.getState().reset();
@@ -327,11 +330,7 @@ describe("VoiceInputButton — native partials fallback", () => {
     expect(lastBreadcrumb().data.outcome).toBe("completed");
   });
 
-  // TEST MODE (matches voice-input-button.tsx finalize): the native Apple
-  // Speech transcript currently wins over batch STT while the native path is
-  // field-verified. Restore the batch-first expectation ("hello world") when
-  // the finalize order flips back.
-  test("native partials text takes priority over batch STT (test mode)", async () => {
+  test("successful batch STT takes priority over native partials text", async () => {
     nativePartialsImpl = async (onPartial) => {
       onPartial("offline transcript");
       return () => {};
@@ -343,8 +342,32 @@ describe("VoiceInputButton — native partials fallback", () => {
     fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
 
     await waitFor(() => {
-      expect(onTranscript).toHaveBeenCalledWith("offline transcript");
+      expect(onTranscript).toHaveBeenCalledWith("hello world");
     });
+  });
+
+  test("whole-recording native transcribe wins when batch fails", async () => {
+    // The blob transcript covers the complete utterance; streamed partials
+    // can miss the leading words on short dictations.
+    nativePartialsImpl = async (onPartial) => {
+      onPartial("partial tail");
+      return () => Promise.resolve("streamed final");
+    };
+    transcribeBlobImpl = async () => "the complete utterance";
+    postSttTranscribeSpy.mockImplementationOnce(async () => ({
+      status: "error",
+      reason: "network",
+    }));
+
+    const onTranscript = mock(async (_text: string) => {});
+    await startSession(onTranscript);
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(onTranscript).toHaveBeenCalledWith("the complete utterance");
+    });
+    expect(lastBreadcrumb().data.outcome).toBe("completed");
   });
 
   test("native recognizer runs alongside a silent stream and wins the fallback", async () => {

@@ -211,6 +211,18 @@ const sendDictationPartialToOwner = (event: DictationPartialEvent): void => {
   owner.send("vellum:helper:dictation:partial", event);
 };
 
+const sendDictationTranscribedToOwner = (
+  event: DictationPartialEvent,
+): void => {
+  const owner = dictationEventTarget();
+  // Length only — transcript content must never be logged.
+  log.info(
+    `[mac-helper] dictation transcribed chars=${event.text.length} → ${owner ? `wc=${owner.id}` : "DROPPED (no owner)"}`,
+  );
+  if (!owner) return;
+  owner.send("vellum:helper:dictation:transcribed", event);
+};
+
 const sendDictationFinalizedToOwner = (event: DictationPartialEvent): void => {
   const owner = dictationEventTarget();
   // Length only — transcript content must never be logged.
@@ -433,6 +445,7 @@ let unsubscribeHotkeyEvents: (() => void) | null = null;
 let unsubscribeHelperState: (() => void) | null = null;
 let unsubscribeDictationPartials: (() => void) | null = null;
 let unsubscribeDictationFinalized: (() => void) | null = null;
+let unsubscribeDictationTranscribed: (() => void) | null = null;
 let unsubscribeDictationError: (() => void) | null = null;
 
 export const installHotkeyHelper = (): void => {
@@ -458,6 +471,13 @@ export const installHotkeyHelper = (): void => {
     DICTATION_PARTIAL_SCHEMA,
     (event) => {
       sendDictationFinalizedToOwner(event);
+    },
+  );
+  unsubscribeDictationTranscribed = client.onNotification(
+    "dictation.transcribed",
+    DICTATION_PARTIAL_SCHEMA,
+    (event) => {
+      sendDictationTranscribedToOwner(event);
     },
   );
   unsubscribeDictationError = client.onNotification(
@@ -524,6 +544,41 @@ export const installHotkeyHelper = (): void => {
       });
   });
 
+  handle(
+    "vellum:helper:dictation:transcribe",
+    z.tuple([z.unknown()]),
+    async ([audio], event): Promise<{ ok: boolean; reason?: string }> => {
+      let buf: Buffer | null = null;
+      if (Buffer.isBuffer(audio)) buf = audio;
+      else if (audio instanceof Uint8Array) buf = Buffer.from(audio);
+      else if (audio instanceof ArrayBuffer)
+        buf = Buffer.from(new Uint8Array(audio));
+      if (!buf || buf.length === 0) {
+        return { ok: false, reason: "empty audio" };
+      }
+      // Route the upcoming `dictation.transcribed` to the requester.
+      dictationFinalOwner = event.sender;
+      try {
+        const result = await client.call("dictation.transcribe", {
+          audio: buf.toString("base64"),
+          sampleRate: DICTATION_PUSH_SAMPLE_RATE,
+        });
+        const parsed = z
+          .object({ ok: z.boolean(), reason: z.string().optional() })
+          .safeParse(result);
+        if (!parsed.success) {
+          return { ok: false, reason: "invalid transcribe result" };
+        }
+        return parsed.data;
+      } catch (err) {
+        return {
+          ok: false,
+          reason: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
+
   app.on("before-quit", () => {
     client.shutdown({
       method: "hotkey.fnPushToTalk",
@@ -552,6 +607,8 @@ export const __resetForTesting = (): void => {
   unsubscribeDictationError = null;
   unsubscribeDictationFinalized?.();
   unsubscribeDictationFinalized = null;
+  unsubscribeDictationTranscribed?.();
+  unsubscribeDictationTranscribed = null;
   dictationPartialsOwner = null;
   dictationFinalOwner = null;
   for (const owner of hotkeyOwners.values()) owner.cleanup();

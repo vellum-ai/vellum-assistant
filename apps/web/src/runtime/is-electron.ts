@@ -126,6 +126,12 @@ declare global {
           onFinalized?(
             callback: (event: DictationPartialEvent) => void,
           ): () => void;
+          transcribe?(
+            audio: ArrayBuffer,
+          ): Promise<{ ok: boolean; reason?: string }>;
+          onTranscribed?(
+            callback: (event: DictationPartialEvent) => void,
+          ): () => void;
         };
       };
       commands: {

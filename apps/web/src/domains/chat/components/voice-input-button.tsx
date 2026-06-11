@@ -16,6 +16,7 @@ import {
 } from "@/domains/chat/voice/dictation-stream";
 import {
   startNativeDictationPartials,
+  transcribeNativeAudioBlob,
   type StopNativeDictationPartials,
 } from "@/runtime/native-dictation-partials";
 import {
@@ -771,19 +772,27 @@ export const VoiceInputButton = forwardRef<
           }
         }
 
+        // Batch text is the authority. When it fails (offline, provider
+        // down), recognize the COMPLETE recorded audio natively — the
+        // streamed session races pump warmup and recognition latency on
+        // short dictations and can miss the leading words, so it is only
+        // the fallback's fallback. The Web Speech accumulator only matters
+        // in plain browsers — inside Electron the API ships without a
+        // speech service, so it stays empty.
+        let blobText = "";
+        if (!text && audioBlob) {
+          blobText = (await transcribeNativeAudioBlob(audioBlob)) ?? "";
+        }
+
         // Character counts only — transcript content must never be logged.
         console.info(
-          `dictation: finalize mode=native-first batchChars=${text.length} nativeChars=${nativeText.length} streamChars=${streamText.length} webChars=${fallbackText.length} failure=${daemonFailure ?? "none"}`,
+          `dictation: finalize batchChars=${text.length} blobChars=${blobText.length} nativeChars=${nativeText.length} streamChars=${streamText.length} webChars=${fallbackText.length} failure=${daemonFailure ?? "none"}`,
         );
 
-        // TEST MODE: the native Apple Speech transcript wins outright when
-        // present — batch STT is the backup while the native path is being
-        // field-verified. Restore batch-first (`if (!text && nativeText)`)
-        // once verified. Stream text covers sessions where the helper
-        // couldn't run; the Web Speech accumulator only matters in plain
-        // browsers — inside Electron the API ships without a speech
-        // service, so it stays empty.
-        if (nativeText) {
+        if (!text && blobText) {
+          text = blobText;
+        }
+        if (!text && nativeText) {
           text = nativeText;
         }
         if (!text && streamText) {

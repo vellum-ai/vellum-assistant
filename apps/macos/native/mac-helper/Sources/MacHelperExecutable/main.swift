@@ -83,6 +83,11 @@ final class MacHelper: @unchecked Sendable {
     // disable. Held strongly so the next enable can cancel it; cleared by
     // its own onFinal.
     private var finishingSession: DictationPartialsSession?
+    // One-shot whole-utterance recognition of the renderer's recorded
+    // audio (`dictation.transcribe`) — the offline transcript authority.
+    // Streaming partials race the pump warmup and recognition latency on
+    // short dictations; recognizing the complete recording does not.
+    private var transcribeSession: DictationPartialsSession?
     // Whether the current dictation session has produced any partial or
     // error callback — read by the on-device watchdog on the main queue.
     private var dictationSawActivity = false
@@ -149,6 +154,24 @@ final class MacHelper: @unchecked Sendable {
                 self.pendingPushAudio.append(data)
             }
             return ["ok": true]
+        }
+        router.register("dictation.transcribe") { [weak self] params in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            guard
+                let object = params as? [String: Any],
+                let base64 = object["audio"] as? String,
+                let data = Data(base64Encoded: base64)
+            else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "dictation.transcribe requires base64 audio"
+                )
+            }
+            return self.transcribeOnce(
+                pcm: data,
+                sampleRate: object["sampleRate"] as? Double ?? 16000
+            )
         }
         return router
     }()
@@ -367,6 +390,59 @@ final class MacHelper: @unchecked Sendable {
         }
     }
 
+    /// Recognize a complete utterance in one shot: append the whole PCM
+    /// buffer, end the audio, and emit the final transcript as a
+    /// `dictation.transcribed` notification (empty text on failure).
+    private func transcribeOnce(
+        pcm data: Data, sampleRate: Double
+    ) -> [String: Any] {
+        let fakeRecognition =
+            ProcessInfo.processInfo.environment["VELLUM_HELPER_FAKE_RECOGNITION"] == "1"
+        guard
+            fakeRecognition
+                || SFSpeechRecognizer.authorizationStatus() == .authorized
+        else {
+            return ["ok": false, "reason": "speech-recognition-not-authorized"]
+        }
+        transcribeSession?.stop()
+        transcribeSession = nil
+
+        let emitTranscribed: @Sendable (String) -> Void = { [weak self] text in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.writeNotification(
+                    method: "dictation.transcribed",
+                    params: ["text": text]
+                )
+                self.transcribeSession = nil
+            }
+        }
+        let session = DictationPartialsSession(
+            requireOnDevice: true,
+            inputDeviceName: nil,
+            pushSampleRate: sampleRate,
+            emit: { _ in },
+            onError: { _ in
+                // finish() runs immediately below, so recognition errors
+                // normally resolve through the finishing path with the best
+                // partial. This only catches a pre-finish failure.
+                emitTranscribed("")
+            },
+            onFinal: { text in
+                emitTranscribed(text)
+            }
+        )
+        do {
+            try session.start()
+        } catch {
+            return ["ok": false, "reason": error.localizedDescription]
+        }
+        transcribeSession = session
+        session.append(pcm: data)
+        session.finish()
+        return ["ok": true]
+    }
+
     private func startDictationSession(requireOnDevice: Bool = true) -> [String: Any] {
         let generation = dictationGeneration
         dictationSawActivity = false
@@ -436,7 +512,12 @@ final class MacHelper: @unchecked Sendable {
                 }
                 pendingPushAudio.removeAll()
             }
-            if requireOnDevice {
+            // The watchdog's restart-on-server-path only makes sense for
+            // the mic tap: in push mode it would abandon the PCM already
+            // appended to the request (and offline the server path is
+            // useless anyway) — short dictations finish via
+            // `dictation.finalized`/`dictation.transcribe` instead.
+            if requireOnDevice, dictationPushRate == nil {
                 scheduleOnDeviceWatchdog(generation: generation)
             }
             return ["enabled": true, "tap": session.tappedDevice]
@@ -597,6 +678,8 @@ final class MacHelper: @unchecked Sendable {
         dictationGeneration += 1
         finishingSession?.stop()
         finishingSession = nil
+        transcribeSession?.stop()
+        transcribeSession = nil
         dictationSession?.stop()
         dictationSession = nil
         unregisterFnHotkey()

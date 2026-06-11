@@ -193,6 +193,25 @@ const bridge: VellumBridge = {
           ipcRenderer.off("vellum:helper:dictation:finalized", handler);
         };
       },
+      transcribe: (
+        audio: ArrayBuffer,
+      ): Promise<{ ok: boolean; reason?: string }> =>
+        ipcRenderer.invoke(
+          "vellum:helper:dictation:transcribe",
+          audio,
+        ) as Promise<{ ok: boolean; reason?: string }>,
+      onTranscribed: (callback) => {
+        const handler = (
+          _event: IpcRendererEvent,
+          payload: DictationPartialEvent,
+        ) => {
+          callback(payload);
+        };
+        ipcRenderer.on("vellum:helper:dictation:transcribed", handler);
+        return () => {
+          ipcRenderer.off("vellum:helper:dictation:transcribed", handler);
+        };
+      },
     },
   },
   commands: {

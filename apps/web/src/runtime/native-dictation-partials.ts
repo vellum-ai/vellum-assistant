@@ -33,6 +33,8 @@ const WORKLET_PROCESSOR_NAME = "pcm-downsample";
 // The worklet emits one tiny chunk per render quantum (~8ms at 16 kHz);
 // batch to ~100ms before crossing the IPC + JSON-RPC boundary.
 const PUSH_BATCH_SAMPLES = 1600;
+// Mirror of the pcm-downsample worklet's TARGET_SAMPLE_RATE.
+const PUSH_SAMPLE_RATE = 16000;
 
 export interface NativeDictationPartialsOptions {
   /**
@@ -48,20 +50,33 @@ export interface NativeDictationPartialsOptions {
  * helper. Returns a teardown function, or `null` when the audio graph
  * can't be constructed (missing AudioWorklet, context failure).
  */
+// One warm AudioContext (+ compiled worklet) shared across sessions:
+// constructing and resuming a context plus addModule costs ~1s, which on a
+// 1-2s dictation discards most of the utterance (the stream source only
+// delivers frames rendered after the graph connects).
+let warmContext: AudioContext | null = null;
+let warmWorkletReady: Promise<void> | null = null;
+
+async function ensurePumpContext(): Promise<AudioContext> {
+  if (!warmContext) {
+    warmContext = createAudioContext();
+    warmWorkletReady = warmContext.audioWorklet.addModule(WORKLET_MODULE_URL);
+  }
+  // Contexts constructed outside a user gesture start suspended and the
+  // worklet never receives a render quantum — resume explicitly.
+  if (warmContext.state !== "running") {
+    await warmContext.resume();
+  }
+  await warmWorkletReady;
+  return warmContext;
+}
+
 async function startAudioPump(
   stream: MediaStream,
   push: (chunk: ArrayBuffer) => void,
 ): Promise<(() => void) | null> {
   try {
-    const context = createAudioContext();
-    // Contexts constructed outside a user gesture start suspended and the
-    // worklet never receives a render quantum — resume explicitly (this
-    // runs after getUserMedia awaits, so the click's gesture window is
-    // gone).
-    if (context.state !== "running") {
-      await context.resume();
-    }
-    await context.audioWorklet.addModule(WORKLET_MODULE_URL);
+    const context = await ensurePumpContext();
     const source = context.createMediaStreamSource(stream);
     const worklet = new AudioWorkletNode(context, WORKLET_PROCESSOR_NAME, {
       numberOfInputs: 1,
@@ -104,14 +119,96 @@ async function startAudioPump(
       worklet.port.onmessage = null;
       worklet.disconnect();
       source.disconnect();
-      void context.close().catch(() => {
-        // Already closed.
-      });
+      // The context stays warm for the next session.
     };
   } catch (err) {
     console.warn("native-dictation-partials: audio pump failed", err);
     return null;
   }
+}
+
+const TRANSCRIBED_TIMEOUT_MS = 12000;
+
+/**
+ * One-shot Apple Speech recognition of a complete recording — the offline
+ * transcript authority. Streaming partials race the pump warmup and
+ * recognition latency on short dictations; the recorded blob contains
+ * every millisecond, so recognizing it whole does not. Resolves `null`
+ * when unavailable (off Electron, old shell, decode failure, denied).
+ */
+export async function transcribeNativeAudioBlob(
+  blob: Blob,
+): Promise<string | null> {
+  const dictation = isElectron()
+    ? window.vellum?.helper?.dictation
+    : undefined;
+  if (!dictation?.transcribe || !dictation.onTranscribed) {
+    return null;
+  }
+
+  let pcm: ArrayBuffer;
+  try {
+    pcm = await decodeBlobTo16kMonoInt16(blob);
+  } catch (err) {
+    console.warn("dictation: blob decode for native transcribe failed", err);
+    return null;
+  }
+  if (pcm.byteLength === 0) return null;
+
+  let resolveText: ((text: string | null) => void) | null = null;
+  const unsubscribe = dictation.onTranscribed((event) => {
+    resolveText?.(event.text || null);
+  });
+  try {
+    const result = await dictation.transcribe(pcm);
+    if (!result.ok) {
+      console.info("dictation: native transcribe unavailable:", result.reason);
+      return null;
+    }
+    const text = await new Promise<string | null>((resolve) => {
+      resolveText = resolve;
+      setTimeout(() => resolve(null), TRANSCRIBED_TIMEOUT_MS);
+    });
+    // Length only — transcript content must never be logged.
+    console.info(
+      `dictation: native transcribe ${text ? `chars=${text.length}` : "produced no text"}`,
+    );
+    return text;
+  } catch (err) {
+    console.warn("dictation: native transcribe failed", err);
+    return null;
+  } finally {
+    unsubscribe();
+  }
+}
+
+/**
+ * Decode a recorded blob (webm/opus, mp4, …) and resample to the helper's
+ * push format. `decodeAudioData` resamples to the context rate, so an
+ * offline context pinned at 16 kHz does the conversion in one step.
+ */
+async function decodeBlobTo16kMonoInt16(blob: Blob): Promise<ArrayBuffer> {
+  const raw = await blob.arrayBuffer();
+  const context = new OfflineAudioContext(1, 1, PUSH_SAMPLE_RATE);
+  const audio = await context.decodeAudioData(raw);
+  const channels = audio.numberOfChannels;
+  const length = audio.length;
+  let mono = audio.getChannelData(0);
+  if (channels > 1) {
+    const mixed = new Float32Array(length);
+    for (let c = 0; c < channels; c++) {
+      const data = audio.getChannelData(c);
+      for (let i = 0; i < length; i++) mixed[i]! += data[i]! / channels;
+    }
+    mono = mixed;
+  }
+  const out = new Int16Array(length);
+  for (let i = 0; i < length; i++) {
+    const sample = mono[i]!;
+    const clamped = sample < -1 ? -1 : sample > 1 ? 1 : sample;
+    out[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
+  }
+  return out.buffer;
 }
 
 /**
