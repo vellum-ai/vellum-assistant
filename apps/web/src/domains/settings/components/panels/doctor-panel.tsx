@@ -331,19 +331,23 @@ export function DoctorPanel() {
     historyDetailQuery.error,
   ]);
 
-  // Recover from stale active session after remount.
+  // Recover from stale active session on same-assistant remount.
   // When the component unmounts, useDoctorSSE's cleanup aborts the SSE stream,
   // but the module-level store retains sessionStatus === "active". On remount
   // with the same assistant, the assistant-change effect below skips (IDs match),
-  // leaving a dead active session with no stream. Reset local state to idle but
-  // do NOT destroy the server session — it may still be running diagnostics and
-  // will appear in history when it completes (matches pre-Zustand behavior where
-  // unmount only aborted SSE without server cleanup).
+  // leaving a dead active session with no stream. Reset local state to idle.
+  // Only handles same-assistant case — different-assistant remounts are handled
+  // by the assistant-change effect which reads sessionId before clearing it.
   useEffect(() => {
     const store = useDoctorPanelStore.getState();
-    if (store.lastAssistantId && store.sessionStatus === "active" && store.sessionId) {
+    if (
+      store.lastAssistantId === assistantId &&
+      store.sessionStatus === "active" &&
+      store.sessionId
+    ) {
       store.teardown();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: assistantId is stable at mount time
   }, []);
 
   // Reset all doctor state when active assistant changes (including remount
