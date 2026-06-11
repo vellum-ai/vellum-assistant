@@ -96,9 +96,6 @@ export interface UseStreamEventHandlerParams {
   // --- UI surfaces ---
   setAssetsRefreshKey: Dispatch<SetStateAction<number>>;
 
-  // --- Conversations ---
-  scheduleConversationListRefetch: () => void;
-
   // --- Sync router ---
   dispatchSyncChanged: (event: SyncChangedEvent) => void;
 }
@@ -133,7 +130,6 @@ export function useStreamEventHandler(
     cancelReconciliation,
     startReconciliationLoop,
     setAssetsRefreshKey,
-    scheduleConversationListRefetch,
     dispatchSyncChanged,
   } = params;
 
@@ -239,7 +235,6 @@ export function useStreamEventHandler(
         addDismissedSurfaceId: store.addDismissedSurfaceId,
         setContextWindowUsageForConversation: store.setContextWindowUsageForConversation,
         setContextWindowUsage: store.setContextWindowUsage,
-        scheduleConversationListRefetch,
         queryClient,
         setCompactionCircuitOpenUntil: store.setCompactionCircuitOpenUntil,
         shiftPendingQueuedMessageId: store.shiftPendingQueuedMessageId,
@@ -414,7 +409,6 @@ export function useStreamEventHandler(
       isNative,
       cancelReconciliation,
       startReconciliationLoop,
-      scheduleConversationListRefetch,
       // Stable deps listed for correctness — React guarantees identity
       // stability for refs, and store getState is module-level stable.
       dispatchSyncChanged,

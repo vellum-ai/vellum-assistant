@@ -25,8 +25,10 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { refreshConversationRow } from "@/utils/conversation-cache-mutations";
 import { invalidateConversationQueries, patchConversation } from "@/utils/conversation-cache";
+import { createConcurrencyLimiter } from "@/utils/concurrency-limiter";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { conversationGroupsQueryKey } from "@/lib/sync/query-tags";
+import { getClientId } from "@/lib/telemetry/client-identity";
 import {
   parseConversationSyncTag,
   SYNC_TAGS,
@@ -34,6 +36,21 @@ import {
 } from "@/lib/sync/types";
 
 const CONVERSATION_LIST_DEBOUNCE_MS = 250;
+
+/**
+ * Cap concurrent per-conversation GET requests triggered by metadata
+ * sync tags. A mark-all-read on 2000 conversations emits 2000 metadata
+ * tags; without a cap every tag fires a GET /v1/conversations/:id in
+ * parallel, blowing the 300 req/min rate limit.
+ *
+ * Excess calls are dropped. For events that include `conversationsList`
+ * (shape-changing: create, delete, reorder), the debounced list refetch
+ * reconciles dropped rows. For metadata-only events (seen_changed),
+ * dropped rows stay stale until the next reconnect/refetch — acceptable
+ * as a rate-limit guard. The long-term fix is a typed event with inline
+ * state so the client can patch the cache without a GET.
+ */
+const MAX_CONCURRENT_ROW_REFRESHES = 6;
 
 /**
  * Subscribes to conversation-related sync events via the event bus.
@@ -68,6 +85,14 @@ export function useConversationSync(
 
     switch (event.type) {
       case "sync_changed":
+        // Self-echo suppression — mirrors the same guard in
+        // web-sync-router.ts. The daemon's hub already skips the
+        // originating SSE subscriber when it can match the origin
+        // client id; this catches any sync_changed that still surfaces
+        // (e.g. a reconnect re-delivering a queued event).
+        if (event.originClientId && event.originClientId === getClientId()) {
+          return;
+        }
         handleConversationSyncTags(
           event,
           assistantId,
@@ -101,6 +126,22 @@ export function useConversationSync(
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Module-scoped concurrency-limited row refresher. Shared across all
+ * hook instances (only one exists — RootLayout), but the module scope
+ * ensures the active-count survives React strict-mode double-invoke.
+ */
+const limitedRefreshConversationRow = createConcurrencyLimiter(
+  async (
+    queryClient: ReturnType<typeof useQueryClient>,
+    assistantId: string,
+    conversationId: string,
+  ) => {
+    await refreshConversationRow(queryClient, assistantId, conversationId);
+  },
+  MAX_CONCURRENT_ROW_REFRESHES,
+);
 
 function scheduleConversationListRefetch(
   queryClient: ReturnType<typeof useQueryClient>,
@@ -138,7 +179,7 @@ function handleConversationSyncTags(
       // work for fields the UI tolerates going slightly stale.
       const parsed = parseConversationSyncTag(tag);
       if (parsed?.resource === "metadata") {
-        void refreshConversationRow(
+        void limitedRefreshConversationRow(
           queryClient,
           assistantId,
           parsed.conversationId,
