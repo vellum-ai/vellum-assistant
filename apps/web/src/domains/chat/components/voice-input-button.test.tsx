@@ -21,17 +21,27 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import type { SttTranscribeOutcome } from "@/domains/chat/voice/stt-api";
 
 const addBreadcrumbSpy = mock((_breadcrumb: unknown) => {});
 mock.module("@sentry/react", () => ({
   addBreadcrumb: addBreadcrumbSpy,
 }));
 
+type PostSttTranscribeImpl = (
+  _blob: Blob,
+  _assistantId: string,
+  _signal?: AbortSignal,
+) => Promise<SttTranscribeOutcome>;
+
+let postSttTranscribeImpl: PostSttTranscribeImpl = async () => ({
+  status: "ok" as const,
+  text: "hello world",
+  providerId: "test-provider",
+});
 const postSttTranscribeSpy = mock(
-  async (_blob: Blob, _assistantId: string, _signal?: AbortSignal) => ({
-    status: "ok" as const,
-    text: "hello world",
-  }),
+  (blob: Blob, assistantId: string, signal?: AbortSignal) =>
+    postSttTranscribeImpl(blob, assistantId, signal),
 );
 mock.module("@/domains/chat/voice/stt-api", () => ({
   postSttTranscribe: postSttTranscribeSpy,
@@ -42,8 +52,15 @@ mock.module("@/domains/chat/voice/stt-api", () => ({
 mock.module("@/domains/chat/voice/dictation-stream", () => ({
   startDictationStream: () => null,
 }));
+let startNativeDictationPartialsImpl = async (
+  _onPartial: (text: string) => void,
+): Promise<(() => void) | null> => null;
+const startNativeDictationPartialsSpy = mock(
+  (onPartial: (text: string) => void) =>
+    startNativeDictationPartialsImpl(onPartial),
+);
 mock.module("@/runtime/native-dictation-partials", () => ({
-  startNativeDictationPartials: async () => null,
+  startNativeDictationPartials: startNativeDictationPartialsSpy,
 }));
 
 mock.module("@/runtime/native-auth", () => ({
@@ -138,6 +155,19 @@ function lastBreadcrumb(): RecordedBreadcrumb {
   return calls[calls.length - 1]![0] as RecordedBreadcrumb;
 }
 
+function resetSessionMocks() {
+  postSttTranscribeImpl = async () => ({
+    status: "ok" as const,
+    text: "hello world",
+    providerId: "test-provider",
+  });
+  startNativeDictationPartialsImpl = async () => null;
+  addBreadcrumbSpy.mockClear();
+  postSttTranscribeSpy.mockClear();
+  startNativeDictationPartialsSpy.mockClear();
+  useVoiceRecordingStore.getState().reset();
+}
+
 async function startSession(onTranscript: (text: string) => Promise<void>) {
   render(
     <VoiceInputButton assistantId="assistant-1" onTranscript={onTranscript} />,
@@ -154,9 +184,7 @@ async function startSession(onTranscript: (text: string) => Promise<void>) {
 
 describe("VoiceInputButton — Esc cancellation", () => {
   beforeEach(() => {
-    addBreadcrumbSpy.mockClear();
-    postSttTranscribeSpy.mockClear();
-    useVoiceRecordingStore.getState().reset();
+    resetSessionMocks();
   });
 
   afterEach(() => {
@@ -216,9 +244,7 @@ describe("VoiceInputButton — Esc cancellation", () => {
 
 describe("VoiceInputButton — session breadcrumb", () => {
   beforeEach(() => {
-    addBreadcrumbSpy.mockClear();
-    postSttTranscribeSpy.mockClear();
-    useVoiceRecordingStore.getState().reset();
+    resetSessionMocks();
   });
 
   afterEach(() => {
@@ -244,5 +270,34 @@ describe("VoiceInputButton — session breadcrumb", () => {
     expect(crumb.data.finalLength).toBe("hello world".length);
     expect(crumb.data.durationMs).toBeGreaterThanOrEqual(0);
     expect(typeof crumb.data.locale).toBe("string");
+  });
+
+  test("uses native Apple Speech text when batch STT fails", async () => {
+    postSttTranscribeImpl = async () => ({
+      status: "error" as const,
+      reason: "network" as const,
+    });
+    const stopNativePartials = mock(() => {});
+    startNativeDictationPartialsImpl = async (onPartial) => {
+      onPartial("native transcript");
+      return stopNativePartials;
+    };
+
+    const onTranscript = mock(async (_text: string) => {});
+    await startSession(onTranscript);
+
+    await waitFor(() => {
+      expect(useVoiceRecordingStore.getState().interimTranscript).toBe(
+        "native transcript",
+      );
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(onTranscript).toHaveBeenCalledWith("native transcript");
+    });
+    expect(postSttTranscribeSpy).toHaveBeenCalledTimes(1);
+    expect(stopNativePartials).toHaveBeenCalledTimes(1);
+    expect(lastBreadcrumb().data.outcome).toBe("completed");
   });
 });

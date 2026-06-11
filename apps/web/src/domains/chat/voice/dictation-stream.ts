@@ -60,6 +60,13 @@ export interface StartDictationStreamArgs {
    * on every partial/final event.
    */
   onPartial: (text: string) => void;
+  /**
+   * Called when the streaming session cannot become the live transcript
+   * source. The batch recording path continues independently; Electron uses
+   * this signal to start the native Apple Speech fallback without waiting for
+   * final batch STT to fail.
+   */
+  onUnavailable?: () => void;
 }
 
 /** Injection seams for tests. */
@@ -115,7 +122,7 @@ function joinTranscript(a: string, b: string): string {
  * session down silently; the batch recording path is unaffected.
  */
 export function startDictationStream(
-  { onPartial }: StartDictationStreamArgs,
+  { onPartial, onUnavailable }: StartDictationStreamArgs,
   options: DictationStreamOptions = {},
 ): DictationStreamHandle | null {
   const ingressUrl = getSelfHostedIngressUrl();
@@ -142,6 +149,13 @@ export function startDictationStream(
   let live = false;
   let closed = false;
   let committedText = "";
+  let unavailableNotified = false;
+
+  const notifyUnavailable = (): void => {
+    if (unavailableNotified) return;
+    unavailableNotified = true;
+    onUnavailable?.();
+  };
 
   const capture = (
     options.captureFactory ??
@@ -178,6 +192,7 @@ export function startDictationStream(
       // Mic denied / device busy: no partials, batch capture unaffected.
       if (!result.ok) {
         console.warn("dictation-stream: PCM capture failed", result.error);
+        notifyUnavailable();
         teardown();
       }
     });
@@ -217,6 +232,7 @@ export function startDictationStream(
           "dictation-stream: server error event",
           (parsed as { message?: string }).message ?? event.data,
         );
+        notifyUnavailable();
         teardown();
         return;
       case "closed":
@@ -234,10 +250,14 @@ export function startDictationStream(
       console.warn(
         `dictation-stream: socket closed before ready (code ${event.code})`,
       );
+      notifyUnavailable();
     }
     teardown();
   });
-  ws.addEventListener("error", teardown);
+  ws.addEventListener("error", () => {
+    if (!live) notifyUnavailable();
+    teardown();
+  });
 
   return {
     isLive: () => live && !closed,
