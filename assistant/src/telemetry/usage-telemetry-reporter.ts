@@ -67,6 +67,31 @@ const CHECKPOINT_KEY_SKILL_LOADED_WATERMARK =
   "telemetry:skill_loaded:last_reported_at";
 const CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID =
   "telemetry:skill_loaded:last_reported_id";
+// Written into the `*_id` watermark checkpoints by the opt-out flush branch.
+// Sorts lexicographically above every real row ID (all event stores generate
+// lowercase v4 UUIDs), so the compound cursor's same-millisecond arm
+// (`createdAt == watermark AND id > afterId`) can never match an opt-out row.
+const OPT_OUT_WATERMARK_ID_SENTINEL = "ffffffff-ffff-ffff-ffff-ffffffffffff";
+// (timestamp, id) checkpoint-key pairs for every event type's compound
+// cursor — keep in sync when adding an event type.
+const WATERMARK_KEY_PAIRS: ReadonlyArray<readonly [string, string]> = [
+  [CHECKPOINT_KEY_WATERMARK, CHECKPOINT_KEY_WATERMARK_ID],
+  [CHECKPOINT_KEY_TURN_WATERMARK, CHECKPOINT_KEY_TURN_WATERMARK_ID],
+  [CHECKPOINT_KEY_LIFECYCLE_WATERMARK, CHECKPOINT_KEY_LIFECYCLE_WATERMARK_ID],
+  [CHECKPOINT_KEY_ONBOARDING_WATERMARK, CHECKPOINT_KEY_ONBOARDING_WATERMARK_ID],
+  [
+    CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK,
+    CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK_ID,
+  ],
+  [
+    CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK,
+    CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK_ID,
+  ],
+  [
+    CHECKPOINT_KEY_SKILL_LOADED_WATERMARK,
+    CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID,
+  ],
+];
 const REPORT_INTERVAL_MS = 5 * 60 * 1000;
 const INITIAL_FLUSH_DELAY_MS = 30_000; // Delay first flush to let CES handshake complete
 const BATCH_SIZE = 500;
@@ -186,21 +211,24 @@ export class UsageTelemetryReporter {
       // reporter even when opted out specifically so this branch keeps
       // executing — every cycle plus the final flush in stop() — which is
       // what lets a later opt-in (runtime or via restart) resume from a
-      // watermark that already covers the opt-out window.
+      // watermark that already covers the opt-out window. One caveat: a
+      // RUNTIME false→true flip can still ship up to one flush interval
+      // (≤5 min) of pre-toggle rows recorded since the last opted-out flush;
+      // the restart path is fully covered by the final flush in stop().
       if (!getConfig().collectUsageData) {
-        // Advance only the timestamp watermarks. Leave the ID watermarks
-        // untouched so the compound-cursor branch stays active — setting them
-        // to "" would make the truthy check fail, falling back to a
-        // timestamp-only `gt(createdAt, watermark)` query that silently drops
-        // events created in the same millisecond as the opt-out watermark.
+        // Advance the timestamp watermarks and pin the ID watermarks to a
+        // sentinel that sorts above any real UUID. The sentinel (rather than
+        // "") keeps the compound-cursor branch active — a falsy ID would
+        // downgrade the query to a timestamp-only `gt(createdAt, watermark)`
+        // — while making its same-millisecond arm unsatisfiable, so a row
+        // written in the same millisecond as this flush's Date.now() can
+        // never ship after a later opt-in. The next opted-in flush that
+        // ships events overwrites the sentinel with a real row ID.
         const now = String(Date.now());
-        setMemoryCheckpoint(CHECKPOINT_KEY_WATERMARK, now);
-        setMemoryCheckpoint(CHECKPOINT_KEY_TURN_WATERMARK, now);
-        setMemoryCheckpoint(CHECKPOINT_KEY_LIFECYCLE_WATERMARK, now);
-        setMemoryCheckpoint(CHECKPOINT_KEY_ONBOARDING_WATERMARK, now);
-        setMemoryCheckpoint(CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK, now);
-        setMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK, now);
-        setMemoryCheckpoint(CHECKPOINT_KEY_SKILL_LOADED_WATERMARK, now);
+        for (const [timestampKey, idKey] of WATERMARK_KEY_PAIRS) {
+          setMemoryCheckpoint(timestampKey, now);
+          setMemoryCheckpoint(idKey, OPT_OUT_WATERMARK_ID_SENTINEL);
+        }
         return;
       }
 

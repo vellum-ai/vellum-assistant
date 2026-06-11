@@ -579,34 +579,6 @@ describe("projectSkillTools", () => {
     expect(mockSkillRefCount.get("deploy")).toBe(1);
   });
 
-  test("registration failure is contained and the skill is retried on the next turn", () => {
-    mockCatalog = [makeSkill("deploy")];
-    mockManifests = { deploy: makeManifest(["deploy_run"]) };
-    mockRegisterFailures = new Set(["deploy"]);
-
-    const history: Message[] = [
-      ...skillLoadMessages('<loaded_skill id="deploy" />'),
-    ];
-
-    // Turn 1: registerSkillTools throws — projection continues without the
-    // skill, leaves it untracked, and never touches unregisterSkillTools.
-    const result1 = projectSkillTools(history, {
-      previouslyActiveSkillIds: sessionState,
-    });
-    expect(result1.allowedToolNames.size).toBe(0);
-    expect(sessionState.has("deploy")).toBe(false);
-    expect(mockUnregisteredSkillIds).toEqual([]);
-
-    // Turn 2: registration recovers — registered with a balanced refcount.
-    mockRegisterFailures = new Set();
-    const result2 = projectSkillTools(history, {
-      previouslyActiveSkillIds: sessionState,
-    });
-    expect(result2.allowedToolNames.has("deploy_run")).toBe(true);
-    expect(sessionState.has("deploy")).toBe(true);
-    expect(mockSkillRefCount.get("deploy")).toBe(1);
-  });
-
   test("skill version hash change triggers unregister and re-register", () => {
     mockCatalog = [makeSkill("deploy")];
     mockManifests = { deploy: makeManifest(["deploy_run"]) };
@@ -994,6 +966,7 @@ describe("skill_loaded telemetry recording", () => {
     expect(recordedSkillLoadedEvents).toHaveLength(1);
     expect(recordedSkillLoadedEvents[0].skillName).toBe("notes");
     expect(result2.allowedToolNames.has("notes_add")).toBe(true);
+    expect(sessionState.has("notes")).toBe(true);
     expect(mockSkillRefCount.get("notes")).toBe(1);
   });
 

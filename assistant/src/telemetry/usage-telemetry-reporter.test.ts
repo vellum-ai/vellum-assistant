@@ -1009,19 +1009,30 @@ describe("UsageTelemetryReporter", () => {
     // No HTTP call should have been made
     expect(mockFetch).not.toHaveBeenCalled();
 
-    // All 7 timestamp watermarks should have been advanced (IDs left untouched
-    // so the compound-cursor branch stays active)
-    expect(mockSetMemoryCheckpoint).toHaveBeenCalledTimes(7);
+    // All 7 timestamp watermarks should have been advanced, and all 7 ID
+    // watermarks pinned to the high-sorting sentinel (a truthy value keeps
+    // the compound-cursor branch active while closing its same-millisecond
+    // arm against opt-out rows).
+    expect(mockSetMemoryCheckpoint).toHaveBeenCalledTimes(14);
 
     const calls = mockSetMemoryCheckpoint.mock.calls;
     const keys = calls.map((c) => c[0]);
-    expect(keys).toContain("telemetry:usage:last_reported_at");
-    expect(keys).toContain("telemetry:turns:last_reported_at");
-    expect(keys).toContain("telemetry:lifecycle:last_reported_at");
-    expect(keys).toContain("telemetry:onboarding:last_reported_at");
-    expect(keys).toContain("telemetry:auth_fallback:last_reported_at");
-    expect(keys).toContain("telemetry:tool_executed:last_reported_at");
-    expect(keys).toContain("telemetry:skill_loaded:last_reported_at");
+    const eventTypes = [
+      "usage",
+      "turns",
+      "lifecycle",
+      "onboarding",
+      "auth_fallback",
+      "tool_executed",
+      "skill_loaded",
+    ];
+    for (const eventType of eventTypes) {
+      expect(keys).toContain(`telemetry:${eventType}:last_reported_at`);
+      const idCall = calls.find(
+        (c) => c[0] === `telemetry:${eventType}:last_reported_id`,
+      );
+      expect(idCall?.[1]).toBe("ffffffff-ffff-ffff-ffff-ffffffffffff");
+    }
   });
 
   test("events sent normally after re-enabling collectUsageData", async () => {
@@ -1531,8 +1542,8 @@ describe("UsageTelemetryReporter", () => {
     // Regression coverage for the review finding: the reporter delays its
     // first flush by 30s+, so a tool used right after daemon startup is
     // recorded before any flush has run. The construction-time watermark
-    // init must not drop it — only rows from before construction (the
-    // opt-out window) stay behind the watermark.
+    // init must not drop it — only rows from before construction (rows
+    // predating the reporter) stay behind the watermark.
     const checkpoints = useStatefulCheckpoints();
 
     const reporter = new UsageTelemetryReporter();
@@ -1665,6 +1676,49 @@ describe("UsageTelemetryReporter", () => {
     // after the opt-out epoch ship — the opt-out-window row never does.
     mockCollectUsageData = true;
     seedToolInvocation({ id: "ti-after-opt-in", createdAt: advanced + 1000 });
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["ti-after-opt-in"]);
+  });
+
+  test("opt-out row written in the same millisecond as the opt-out flush never ships after re-opt-in", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    // A previous opted-in session left a low-sorting ID watermark behind.
+    const checkpoints = useStatefulCheckpoints({
+      "telemetry:tool_executed:last_reported_at": String(1700000001000),
+      "telemetry:tool_executed:last_reported_id":
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    });
+
+    // Opted-out flush: advances the timestamp watermark to Date.now() and
+    // must also pin the ID watermark to the high-sorting sentinel.
+    mockCollectUsageData = false;
+    const optedOutReporter = new UsageTelemetryReporter();
+    await optedOutReporter.flush();
+    expect(mockFetch).not.toHaveBeenCalled();
+    const watermark = Number(
+      checkpoints.get("telemetry:tool_executed:last_reported_at"),
+    );
+
+    // An audit row written in the SAME millisecond as the opt-out flush's
+    // Date.now(), with a UUID sorting above the stale pre-opt-out ID
+    // watermark. With only the timestamp watermark advanced, the compound
+    // cursor's `createdAt == watermark AND id > afterId` arm would match it.
+    seedToolInvocation({
+      id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      createdAt: watermark,
+    });
+
+    // Re-opt-in: only rows strictly after the opt-out epoch ship.
+    mockCollectUsageData = true;
+    seedToolInvocation({ id: "ti-after-opt-in", createdAt: watermark + 1000 });
     const reporter = new UsageTelemetryReporter();
     await reporter.flush();
 
