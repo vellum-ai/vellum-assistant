@@ -1,7 +1,3 @@
-/**
- * @jest-environment happy-dom
- */
-
 import { describe, expect, test } from "bun:test";
 import type { MutableRefObject } from "react";
 
