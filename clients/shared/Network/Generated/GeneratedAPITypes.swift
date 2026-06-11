@@ -3380,12 +3380,33 @@ public struct SchedulesListResponseSchedule: Codable, Sendable {
     public let lastRunAt: Int?
     public let lastStatus: String?
     public let description: String
+    public let cadenceDescription: String
     public let mode: String
     public let status: String
     public let routingIntent: String
     public let isOneShot: Bool
 
-    public init(id: String, name: String, enabled: Bool, syntax: String, expression: String?, cronExpression: String?, timezone: String?, message: String, nextRunAt: Int, lastRunAt: Int?, lastStatus: String?, description: String, mode: String, status: String, routingIntent: String, isOneShot: Bool) {
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case enabled
+        case syntax
+        case expression
+        case cronExpression
+        case timezone
+        case message
+        case nextRunAt
+        case lastRunAt
+        case lastStatus
+        case description
+        case cadenceDescription
+        case mode
+        case status
+        case routingIntent
+        case isOneShot
+    }
+
+    public init(id: String, name: String, enabled: Bool, syntax: String, expression: String?, cronExpression: String?, timezone: String?, message: String, nextRunAt: Int, lastRunAt: Int?, lastStatus: String?, description: String, cadenceDescription: String, mode: String, status: String, routingIntent: String, isOneShot: Bool) {
         self.id = id
         self.name = name
         self.enabled = enabled
@@ -3398,10 +3419,38 @@ public struct SchedulesListResponseSchedule: Codable, Sendable {
         self.lastRunAt = lastRunAt
         self.lastStatus = lastStatus
         self.description = description
+        self.cadenceDescription = cadenceDescription
         self.mode = mode
         self.status = status
         self.routingIntent = routingIntent
         self.isOneShot = isOneShot
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        enabled = try container.decode(Bool.self, forKey: .enabled)
+        syntax = try container.decode(String.self, forKey: .syntax)
+        expression = try container.decodeIfPresent(String.self, forKey: .expression)
+        cronExpression = try container.decodeIfPresent(String.self, forKey: .cronExpression)
+        timezone = try container.decodeIfPresent(String.self, forKey: .timezone)
+        message = try container.decode(String.self, forKey: .message)
+        nextRunAt = try container.decode(Int.self, forKey: .nextRunAt)
+        lastRunAt = try container.decodeIfPresent(Int.self, forKey: .lastRunAt)
+        lastStatus = try container.decodeIfPresent(String.self, forKey: .lastStatus)
+        let rawDescription = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        if let cadence = try container.decodeIfPresent(String.self, forKey: .cadenceDescription) {
+            description = rawDescription
+            cadenceDescription = cadence
+        } else {
+            description = ""
+            cadenceDescription = rawDescription
+        }
+        mode = try container.decode(String.self, forKey: .mode)
+        status = try container.decode(String.self, forKey: .status)
+        routingIntent = try container.decode(String.self, forKey: .routingIntent)
+        isOneShot = try container.decode(Bool.self, forKey: .isOneShot)
     }
 }
 

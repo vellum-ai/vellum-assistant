@@ -20325,9 +20325,9 @@ paths:
                             - type: number
                             - type: "null"
                         description:
-                          anyOf:
-                            - type: string
-                            - type: "null"
+                          type: string
+                        cadenceDescription:
+                          type: string
                         mode:
                           type: string
                           enum:
@@ -20377,6 +20377,7 @@ paths:
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
                         - description
+                        - cadenceDescription
                         - mode
                         - status
                         - routingIntent
@@ -20474,9 +20475,9 @@ paths:
                             - type: number
                             - type: "null"
                         description:
-                          anyOf:
-                            - type: string
-                            - type: "null"
+                          type: string
+                        cadenceDescription:
+                          type: string
                         mode:
                           type: string
                           enum:
@@ -20526,6 +20527,7 @@ paths:
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
                         - description
+                        - cadenceDescription
                         - mode
                         - status
                         - routingIntent
@@ -20547,6 +20549,9 @@ paths:
                 name:
                   type: string
                   description: Display name
+                description:
+                  type: string
+                  description: Authored schedule description. Defaults to the schedule name when omitted for backward compatibility.
                 expression:
                   type: string
                   description: Cron or RRULE expression
@@ -20649,9 +20654,9 @@ paths:
                             - type: number
                             - type: "null"
                         description:
-                          anyOf:
-                            - type: string
-                            - type: "null"
+                          type: string
+                        cadenceDescription:
+                          type: string
                         mode:
                           type: string
                           enum:
@@ -20701,6 +20706,7 @@ paths:
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
                         - description
+                        - cadenceDescription
                         - mode
                         - status
                         - routingIntent
@@ -20797,9 +20803,9 @@ paths:
                             - type: number
                             - type: "null"
                         description:
-                          anyOf:
-                            - type: string
-                            - type: "null"
+                          type: string
+                        cadenceDescription:
+                          type: string
                         mode:
                           type: string
                           enum:
@@ -20849,6 +20855,7 @@ paths:
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
                         - description
+                        - cadenceDescription
                         - mode
                         - status
                         - routingIntent
@@ -20874,6 +20881,8 @@ paths:
               type: object
               properties:
                 name:
+                  type: string
+                description:
                   type: string
                 expression:
                   type: string
@@ -20988,9 +20997,9 @@ paths:
                             - type: number
                             - type: "null"
                         description:
-                          anyOf:
-                            - type: string
-                            - type: "null"
+                          type: string
+                        cadenceDescription:
+                          type: string
                         mode:
                           type: string
                           enum:
@@ -21040,6 +21049,7 @@ paths:
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
                         - description
+                        - cadenceDescription
                         - mode
                         - status
                         - routingIntent
@@ -21137,9 +21147,9 @@ paths:
                             - type: number
                             - type: "null"
                         description:
-                          anyOf:
-                            - type: string
-                            - type: "null"
+                          type: string
+                        cadenceDescription:
+                          type: string
                         mode:
                           type: string
                           enum:
@@ -21189,6 +21199,7 @@ paths:
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
                         - description
+                        - cadenceDescription
                         - mode
                         - status
                         - routingIntent
@@ -21375,9 +21386,9 @@ paths:
                             - type: number
                             - type: "null"
                         description:
-                          anyOf:
-                            - type: string
-                            - type: "null"
+                          type: string
+                        cadenceDescription:
+                          type: string
                         mode:
                           type: string
                           enum:
@@ -21427,6 +21438,7 @@ paths:
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
                         - description
+                        - cadenceDescription
                         - mode
                         - status
                         - routingIntent

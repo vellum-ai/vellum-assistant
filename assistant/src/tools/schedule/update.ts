@@ -65,6 +65,16 @@ export async function executeScheduleUpdate(
 
   const updates: Record<string, unknown> = {};
   if (input.name !== undefined) updates.name = input.name;
+  if (input.description !== undefined) {
+    const description = input.description as string;
+    if (typeof description !== "string" || description.trim().length === 0) {
+      return {
+        content: "Error: description must be a non-empty string when provided",
+        isError: true,
+      };
+    }
+    updates.description = description;
+  }
   if (input.timezone !== undefined) updates.timezone = input.timezone;
   if (input.message !== undefined) updates.message = input.message;
   if (input.script !== undefined) updates.script = input.script;
@@ -184,6 +194,7 @@ export async function executeScheduleUpdate(
       jobId,
       updates as {
         name?: string;
+        description?: string;
         cronExpression?: string;
         timezone?: string | null;
         message?: string;
@@ -217,6 +228,7 @@ export async function executeScheduleUpdate(
       content: [
         `Schedule updated successfully.`,
         `  Name: ${job.name}`,
+        `  Description: ${job.description}`,
         `  Syntax: ${job.syntax}`,
         `  Mode: ${job.mode}`,
         `  Schedule: ${scheduleDescription}${job.timezone ? ` (${job.timezone})` : ""}`,

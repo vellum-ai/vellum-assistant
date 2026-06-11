@@ -10,6 +10,7 @@ import {
 export const cronJobs = sqliteTable("cron_jobs", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  description: text("description").notNull().default(""),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   cronExpression: text("cron_expression"), // nullable for one-shot schedules; e.g. '0 9 * * 1-5'
   scheduleSyntax: text("schedule_syntax").notNull().default("cron"), // 'cron' | 'rrule'
