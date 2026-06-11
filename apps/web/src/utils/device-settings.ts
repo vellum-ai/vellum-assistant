@@ -38,6 +38,7 @@ const DEVICE_SETTINGS = {
   timezone: { key: "device:timezone", legacy: "vellum_timezone" },
   mediaEmbedsEnabled: { key: "device:media_embeds_enabled", legacy: "vellum_media_embeds_enabled" },
   mediaEmbedDomains: { key: "device:media_embed_domains", legacy: "vellum_media_embed_domains" },
+  dockBadgesEnabled: { key: "device:dock_badges_enabled", legacy: "vellum_dock_badges_enabled" },
   lastUserId: { key: "device:last_user_id", legacy: "onboarding.lastUserId" },
 } as const;
 

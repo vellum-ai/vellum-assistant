@@ -31,8 +31,14 @@
           },
           "role": {
             "type": "string",
-            "enum": ["general", "researcher", "coder", "planner"],
-            "description": "Agent specialization that controls tool access. 'researcher': read-only (web, files, memory). 'coder': file and bash access. 'planner': read-only analysis. 'general': full access (default). Ignored when fork: true (forks always use general)."
+            "enum": [
+              "general",
+              "researcher",
+              "coder",
+              "planner",
+              "investigator"
+            ],
+            "description": "Agent specialization that controls tool access. 'researcher': read-only (web, files, memory). 'coder': file and bash access. 'planner': read-only analysis. 'investigator': root-cause analysis — debugging, log forensics, tracing behavior across many files; has bash for read-only investigation (grep/find/log inspection) and returns a compact root-cause report. 'general': full access (default). Ignored when fork: true (forks always use general)."
           }
         },
         "required": ["label", "objective"]

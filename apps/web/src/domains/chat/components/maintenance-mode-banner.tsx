@@ -13,11 +13,13 @@ import { Notice } from "@vellumai/design-library/components/notice";
 interface MaintenanceModeBannerProps {
   assistantId: string;
   onExited: () => void;
+  showExitAction?: boolean;
 }
 
 export function MaintenanceModeBanner({
   assistantId,
   onExited,
+  showExitAction = true,
 }: MaintenanceModeBannerProps) {
   const [isExiting, setIsExiting] = useState(false);
   const [exitError, setExitError] = useState<string | null>(null);
@@ -86,26 +88,28 @@ export function MaintenanceModeBanner({
           </p>
         ) : null}
       </div>
-      {platformGate === "disabled" ? (
-        <Notice tone="info">
-          Log in to the Vellum platform to exit Recovery Mode.
-        </Notice>
-      ) : (
-        <Button
-          variant="primary"
-          size="compact"
-          leftIcon={
-            isExiting || isResolving ? (
-              <Loader2 className="animate-spin" />
-            ) : undefined
-          }
-          onClick={() => void handleResumeAssistant()}
-          disabled={isExiting || isResolving}
-          data-testid="resume-assistant-button"
-        >
-          Resume Assistant
-        </Button>
-      )}
+      {showExitAction ? (
+        platformGate === "disabled" ? (
+          <Notice tone="info">
+            Log in to the Vellum platform to exit Recovery Mode.
+          </Notice>
+        ) : (
+          <Button
+            variant="primary"
+            size="compact"
+            leftIcon={
+              isExiting || isResolving ? (
+                <Loader2 className="animate-spin" />
+              ) : undefined
+            }
+            onClick={() => void handleResumeAssistant()}
+            disabled={isExiting || isResolving}
+            data-testid="resume-assistant-button"
+          >
+            Resume Assistant
+          </Button>
+        )
+      ) : null}
     </div>
   );
 }

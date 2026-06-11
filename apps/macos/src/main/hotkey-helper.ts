@@ -1,4 +1,7 @@
 import { BrowserWindow, app, ipcMain, type WebContents } from "electron";
+import { spawn } from "node:child_process";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { z } from "zod";
 
@@ -30,6 +33,17 @@ export type {
   HotkeyEventState,
 };
 
+export type MacHelperPermissionKind =
+  | "speechRecognition"
+  | "inputMonitoring";
+
+export type MacHelperPermissionStatus =
+  | "unknown"
+  | "restricted"
+  | "denied"
+  | "not-determined"
+  | "granted";
+
 const HOTKEY_EVENT_SCHEMA = z.object({
   kind: z.literal("fnPushToTalk"),
   state: z.enum(["down", "up"]),
@@ -37,6 +51,16 @@ const HOTKEY_EVENT_SCHEMA = z.object({
 
 const HOTKEY_RESULT_SCHEMA = z.object({
   enabled: z.boolean(),
+});
+
+const HELPER_PERMISSION_STATUS_SCHEMA = z.object({
+  status: z.enum([
+    "unknown",
+    "restricted",
+    "denied",
+    "not-determined",
+    "granted",
+  ]),
 });
 
 const DICTATION_PARTIAL_SCHEMA = z.object({
@@ -72,10 +96,19 @@ const getPlatform = (): NodeJS.Platform =>
   platformForTesting ?? process.platform;
 
 export const getMacHelperPath = (): string => {
+  return path.join(
+    getMacHelperAppPath(),
+    "Contents",
+    "MacOS",
+    "vellum-mac-helper",
+  );
+};
+
+export const getMacHelperAppPath = (): string => {
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, "bin", "vellum-mac-helper");
+    return path.join(process.resourcesPath, "bin", "vellum-mac-helper.app");
   }
-  return path.join(app.getAppPath(), "resources", "vellum-mac-helper");
+  return path.join(app.getAppPath(), "resources", "vellum-mac-helper.app");
 };
 
 const makeClient = (): MacHelperClient =>
@@ -113,6 +146,107 @@ const ping = async (): Promise<"pong"> => {
     throw new Error("mac helper returned invalid ping result");
   }
   return "pong";
+};
+
+export const queryMacHelperPermission = async (
+  kind: MacHelperPermissionKind,
+): Promise<MacHelperPermissionStatus> => {
+  const result = await client.call("permission.status", { kind });
+  return HELPER_PERMISSION_STATUS_SCHEMA.parse(result).status;
+};
+
+export const queryFreshMacHelperPermission = async (
+  kind: MacHelperPermissionKind,
+): Promise<MacHelperPermissionStatus> => {
+  const result = await queryBundledMacHelperPermission(kind);
+  return HELPER_PERMISSION_STATUS_SCHEMA.parse(result).status;
+};
+
+export const requestMacHelperSpeechRecognitionPermission =
+  async (): Promise<void> => {
+    await openMacHelperApp(["--request-speech-recognition"]);
+  };
+
+export const requestMacHelperInputMonitoringPermission =
+  async (): Promise<void> => {
+    await openMacHelperApp(["--request-input-monitoring"]);
+  };
+
+const queryBundledMacHelperPermission = async (
+  kind: MacHelperPermissionKind,
+): Promise<unknown> => {
+  const tempDir = await mkdtemp(
+    path.join(tmpdir(), "vellum-mac-helper-permission-"),
+  );
+  const outputPath = path.join(tempDir, "status.json");
+
+  try {
+    await openMacHelperApp(
+      [
+        "--permission-status",
+        kind,
+        "--status-output",
+        outputPath,
+      ],
+    );
+    return await readPermissionStatusFile(outputPath);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+};
+
+const openMacHelperApp = async (
+  helperArgs: string[],
+): Promise<void> => {
+  await new Promise<void>((resolve, reject) => {
+    const args = [
+      "-n",
+      getMacHelperAppPath(),
+      "--args",
+      ...helperArgs,
+    ];
+    const child = spawn("open", args, { stdio: "ignore" });
+    let settled = false;
+
+    const settle = (err?: Error) => {
+      if (settled) return;
+      settled = true;
+      if (err) {
+        reject(err);
+      } else {
+        resolve();
+      }
+    };
+
+    child.once("error", settle);
+    child.once("exit", (code) => {
+      if (code === 0) {
+        settle();
+      } else {
+        settle(new Error(`open exited with code ${code ?? "unknown"}`));
+      }
+    });
+  });
+};
+
+const readPermissionStatusFile = async (
+  outputPath: string,
+): Promise<unknown> => {
+  const deadline = Date.now() + 5_000;
+  let lastError: unknown = null;
+
+  while (Date.now() < deadline) {
+    try {
+      return JSON.parse(await readFile(outputPath, "utf8"));
+    } catch (err) {
+      lastError = err;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("mac helper permission status did not appear");
 };
 
 interface HotkeyOwner {

@@ -32,7 +32,10 @@ module.exports = {
   },
   extraResources: [
     { from: "resources/bun", to: "bun" },
-    { from: "resources/vellum-mac-helper", to: "bin/vellum-mac-helper" },
+    {
+      from: "resources/vellum-mac-helper.app",
+      to: "bin/vellum-mac-helper.app",
+    },
     { from: "resources/web-dist", to: "web-dist" },
     { from: "resources/cli-lockfile", to: "cli-lockfile" },
     { from: "build/icon.icns", to: "icon.icns" },
@@ -62,6 +65,8 @@ module.exports = {
       CFBundleIconName: "AppIcon",
       NSMicrophoneUsageDescription:
         "Vellum uses the microphone to record voice input for chat.",
+      NSSpeechRecognitionUsageDescription:
+        "Vellum uses speech recognition to transcribe dictated voice input.",
       NSAppleEventsUsageDescription:
         "Vellum uses Automation to paste dictated voice input into the app you are using.",
       NSUserNotificationAlertStyle: "alert",

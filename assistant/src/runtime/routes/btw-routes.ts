@@ -14,7 +14,6 @@
 
 import { z } from "zod";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import { readNowScratchpad } from "../../daemon/now-scratchpad.js";
@@ -34,9 +33,6 @@ const IDENTITY_INTRO_KEY = "identity-intro";
 
 /** Conversation key used by the client for empty-state greeting generation. */
 const GREETING_KEY = "greeting";
-const EMPTY_STATE_DYNAMIC_GREETINGS_FLAG =
-  "empty-state-dynamic-greetings" as const;
-const STATIC_EMPTY_STATE_GREETING = "What are we working on?";
 
 // ---------------------------------------------------------------------------
 // SSE helpers
@@ -67,16 +63,6 @@ async function handleBtw({
   }
 
   const trimmedContent = content.trim();
-
-  if (
-    conversationKey === GREETING_KEY &&
-    !isAssistantFeatureFlagEnabled(
-      EMPTY_STATE_DYNAMIC_GREETINGS_FLAG,
-      getConfig(),
-    )
-  ) {
-    return streamText(STATIC_EMPTY_STATE_GREETING);
-  }
 
   // ----- Cached identity intro fast-path -----
   if (conversationKey === IDENTITY_INTRO_KEY) {

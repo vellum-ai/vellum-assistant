@@ -46,7 +46,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/level-up",
-        "ref": "60a392b7e7866589cac7ced5bd80fe1e2b2bc1b5"
+        "ref": "3eae182601c5a81c238ce348db1c2dbe44f2c730"
       },
       "description": "Surfaces a first-class \"Level Up\" diff card whenever the assistant edits its own skills or plugins, so you can see how it improved itself after the fact.",
       "category": "developer",

@@ -4,7 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PACKAGE_DIR="$ROOT_DIR/native/mac-helper"
 OUTPUT_DIR="$ROOT_DIR/resources"
-OUTPUT="$OUTPUT_DIR/vellum-mac-helper"
+OUTPUT_BUNDLE="$OUTPUT_DIR/vellum-mac-helper.app"
+OUTPUT="$OUTPUT_BUNDLE/Contents/MacOS/vellum-mac-helper"
+OUTPUT_INFO_PLIST="$OUTPUT_BUNDLE/Contents/Info.plist"
+INFO_PLIST="$PACKAGE_DIR/Sources/MacHelperExecutable/Info.plist"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "build-mac-helper: skipping non-macOS host"
@@ -36,19 +39,30 @@ BUILD_ARGS+=(
 )
 
 mkdir -p "$OUTPUT_DIR"
-rm -f "$OUTPUT_DIR/hotkey-helper"
+# Legacy layouts (bare binary / old name) — always clear.
+rm -f "$OUTPUT_DIR/hotkey-helper" "$OUTPUT_DIR/vellum-mac-helper" "$OUTPUT_DIR/Info.plist"
 xcrun swift build "${BUILD_ARGS[@]}"
 BUILD_DIR="$(xcrun swift build "${BUILD_ARGS[@]}" --show-bin-path)"
-# Skip the copy when the binary is byte-identical: replacing it churns the
-# ad-hoc CDHash that TCC keys the helper's mic/speech grants on, so every
-# no-op rebuild (e.g. `bun run dev`'s postinstall) would re-prompt.
-if cmp -s "$BUILD_DIR/vellum-mac-helper" "$OUTPUT"; then
-  echo "build-mac-helper: binary unchanged; keeping existing copy"
+
+# Skip the install when the build output is unchanged: replacing and
+# re-signing churns nothing semantically, but a fresh bundle invalidates
+# the CDHash that TCC keys the helper's mic/speech grants on, so every
+# no-op rebuild (e.g. `bun run dev`'s postinstall) would re-prompt. The
+# signed binary never byte-matches the unsigned build output, so compare
+# against a hash marker of the inputs recorded at install time.
+SOURCE_HASH="$(cat "$BUILD_DIR/vellum-mac-helper" "$INFO_PLIST" "$ROOT_DIR/scripts/entitlements/helper.plist" | shasum -a 256 | cut -d' ' -f1)"
+HASH_MARKER="$OUTPUT_DIR/.vellum-mac-helper.source-hash"
+if [ -x "$OUTPUT" ] && [ -f "$HASH_MARKER" ] && [ "$(cat "$HASH_MARKER")" = "$SOURCE_HASH" ]; then
+  echo "build-mac-helper: bundle unchanged; keeping existing copy"
 else
-  # Remove before copying: overwriting a signed Mach-O in place reuses the
-  # inode, and the kernel's stale signature cache SIGKILLs the next spawn
-  # (exit 137). A fresh inode sidesteps it.
-  rm -f "$OUTPUT"
+  # Remove before installing: overwriting a signed Mach-O in place reuses
+  # the inode, and the kernel's stale signature cache SIGKILLs the next
+  # spawn (exit 137). A fresh bundle sidesteps it.
+  rm -rf "$OUTPUT_BUNDLE"
+  mkdir -p "$OUTPUT_BUNDLE/Contents/MacOS"
   cp "$BUILD_DIR/vellum-mac-helper" "$OUTPUT"
+  cp "$INFO_PLIST" "$OUTPUT_INFO_PLIST"
   chmod 755 "$OUTPUT"
+  codesign --force --sign - --entitlements "$ROOT_DIR/scripts/entitlements/helper.plist" "$OUTPUT_BUNDLE"
+  printf '%s' "$SOURCE_HASH" > "$HASH_MARKER"
 fi

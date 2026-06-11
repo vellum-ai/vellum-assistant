@@ -50,8 +50,8 @@ export type {
 // changes; this module owns the transport and is the only writer.
 const getCachedLockfile = (): Lockfile | null =>
   useLockfileStore.getState().lockfile;
-const setCachedLockfile = (data: Lockfile): void =>
-  useLockfileStore.getState().setLockfile(data);
+const setCachedLockfile = (data: Lockfile, committed = true): void =>
+  useLockfileStore.getState().setLockfile(data, committed);
 
 const EMPTY_LOCKFILE: Lockfile = { assistants: [], activeAssistant: null };
 
@@ -73,8 +73,8 @@ const commitLockfile = (data: Lockfile): void => {
   setCachedLockfile(data);
   setLocalSetting(LOCKFILE_STORAGE_KEY, JSON.stringify(data));
   // Only reconcile against a lockfile from a successful host read/write — never
-  // the transient empty fallback in `loadLockfile`/`getLockfile`, which would
-  // wrongly drop a valid selection on a boot/read failure.
+  // the transient empty fallback in `getLockfile`, which would wrongly drop a
+  // valid selection on a boot/read failure.
   reconcileSelectedAssistant();
 };
 
@@ -113,9 +113,10 @@ export async function loadLockfile(): Promise<Lockfile> {
     commitLockfile(data);
     return data;
   } catch {
-    const empty = { ...EMPTY_LOCKFILE };
-    setCachedLockfile(empty);
-    return empty;
+    // Host read failed — keep whatever we already have (the in-memory cache,
+    // then the persisted mirror) rather than clobbering it with an empty
+    // lockfile that subscribers would mistake for "no assistants".
+    return getLockfile();
   }
 }
 
@@ -135,8 +136,10 @@ export function getLockfile(): Lockfile {
     }
   }
 
+  // Not committed: this is a "nothing loaded yet" placeholder, not evidence
+  // that the assistants are gone — reconciling subscribers must ignore it.
   const empty = { ...EMPTY_LOCKFILE };
-  setCachedLockfile(empty);
+  setCachedLockfile(empty, false);
   return empty;
 }
 
@@ -193,10 +196,14 @@ export async function setActiveLockfileAssistant(
 export async function syncPlatformAssistantsToLockfile(
   assistants: Array<{ id: string; name?: string; is_local: boolean; created: string }>,
   organizationId?: string,
+  shouldApply: () => boolean = () => true,
 ): Promise<void> {
   // Without a resolved org we can't scope the replace; a full wipe here would
   // drop other orgs' platform entries. Skip — a later sync re-runs with the org.
   if (organizationId == null) return;
+  // `shouldApply` lets a superseded caller (e.g. an out-of-date session probe)
+  // back out before the host replace, and again before committing the result.
+  if (!shouldApply()) return;
 
   const platformAssistants = assistants
     .filter((a) => !a.is_local)
@@ -213,7 +220,7 @@ export async function syncPlatformAssistantsToLockfile(
     platformAssistants,
     organizationId,
   );
-  if (result.ok) {
+  if (result.ok && shouldApply()) {
     commitLockfile(result.lockfile);
   }
 }

@@ -186,24 +186,34 @@ function metricFromEvalResult(
 }
 
 /**
- * Roll the agent's two conversation event streams + the LLM judge's
- * usage record (if any) into the same `usage.json` shape `runEvalOnce`
- * writes. Sharing `summarizeAssistantUsage` keeps token sums, cost
- * pricing, and cost diagnostics consistent across the two runner shapes
- * — Phase 2's cost/latency Pareto reads usage.json identically for both.
+ * Roll the run's usage into the same `usage.json` shape `runEvalOnce`
+ * writes, then fold it through the shared `summarizeAssistantUsage` so token
+ * sums, cost pricing, and cost diagnostics stay consistent across both runner
+ * shapes — Phase 2's cost/latency Pareto reads usage.json identically for
+ * both.
  *
- * The judge record is synthesized as a single `type: "usage"` event so
- * the summarizer treats it exactly like any other usage-bearing
- * AgentEvent. `EvalResult.usage` is already shaped (provider/model/
- * input_tokens/output_tokens) by the judge so no further translation
- * happens here.
+ * Two usage sources, deliberately separated by trust:
+ *
+ * - **Assistant usage** comes from `recordedUsage` — token counts the egress
+ *   jail's recording sidecar parsed out of the assistant's *observed* model
+ *   traffic. It is NOT derived from `ingestEvents`/`questionEvents`: an
+ *   assistant (or its adapter) can choose what events to emit, so pricing
+ *   emitted events would let a species under-report its own cost. The jail
+ *   sees the real provider responses, so it is the un-spoofable authority.
+ * - **Judge usage** is the harness's *own* grading call (`EvalResult.usage`,
+ *   already shaped provider/model/input_tokens/output_tokens). It is not
+ *   assistant-emitted, so synthesizing it as a `type: "usage"` event is fine.
+ *
+ * Each record is wrapped as a single `type: "usage"` event so the summarizer
+ * treats it exactly like any other usage-bearing AgentEvent.
  */
 function buildRunUsageEvents(
-  ingestEvents: AgentEvent[],
-  questionEvents: AgentEvent[],
+  recordedUsage: Array<Record<string, unknown>>,
   judgeUsage: Record<string, unknown> | undefined,
 ): AgentEvent[] {
-  const events: AgentEvent[] = [...ingestEvents, ...questionEvents];
+  const events: AgentEvent[] = recordedUsage.map((usage) => ({
+    message: { type: "usage", usage },
+  }));
   if (judgeUsage) {
     events.push({ message: { type: "usage", usage: judgeUsage } });
   }
@@ -384,13 +394,12 @@ export async function runLongMemEvalV2Unit(
     }
     await writeFile(artifacts.metricsPath, JSON.stringify([metric], null, 2));
 
-    // Roll usage from both conversations + the judge (if it surfaced
-    // one) through the shared summarizer. Best-effort: a write failure
-    // is logged via the swallowed promise but never blocks the run —
-    // the metric + transcript are already on disk.
+    // Roll the egress jail's observed assistant usage + the judge's own
+    // usage (if it surfaced one) through the shared summarizer. Best-effort:
+    // a write failure is logged via the swallowed promise but never blocks
+    // the run — the metric + transcript are already on disk.
     const usageEvents = buildRunUsageEvents(
-      ingestAskResult.ingestEvents,
-      ingestAskResult.questionEvents,
+      ingestAskResult.recordedUsage,
       judgeUsage,
     );
     await writeUsage(input.runId, summarizeAssistantUsage(usageEvents)).catch(

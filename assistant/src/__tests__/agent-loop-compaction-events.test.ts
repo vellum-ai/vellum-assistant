@@ -4,8 +4,9 @@
  * The compaction pipeline between `context_compacting` (start) and
  * `compaction_completed` (end) is plugin-owned, so consumers reconstruct a
  * compaction attempt purely from the pair — correlated by `compactionId`.
- * These tests pin the pairing contract: shared id, trigger, timestamps, and
- * pre-compaction state on the start event.
+ * These tests pin the pairing contract: shared id, trigger, timestamps,
+ * pre-compaction state on the start event, and the unnested
+ * `ContextWindowResult` fields on the end event.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
@@ -185,11 +186,11 @@ describe("AgentLoop compaction start/end event pair", () => {
     expect(end!.finishedAt).toBeGreaterThanOrEqual(end!.startedAt);
     expect(end!.finishedAt).toBeLessThanOrEqual(after);
 
-    // Start carries the pre-compaction history; end carries the result and
-    // the stripped history the summary was built from.
+    // Start carries the pre-compaction history; end carries the
+    // ContextWindowResult fields unnested on the event.
     expect(start!.messages.length).toBeGreaterThan(0);
-    expect(end!.result.compacted).toBe(true);
-    expect(end!.messages.length).toBeGreaterThan(0);
+    expect(end!.compacted).toBe(true);
+    expect(end!.exhausted).toBe(false);
 
     // Start precedes end in the event stream.
     expect(events.indexOf(start!)).toBeLessThan(events.indexOf(end!));

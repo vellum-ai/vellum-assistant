@@ -7,8 +7,8 @@
  * {@link DEFAULT_EMPTY_STATE_GREETING} when the assistant ID is missing, the
  * daemon is unreachable, or the response is empty.
  *
- * The query has a long `staleTime` (5 minutes) since the intro text only
- * changes when the assistant's identity or soul prompt changes.
+ * The query has a long `staleTime` (5 minutes) since the intro text is cached
+ * server-side and refreshed in the background.
  */
 
 import { useMemo } from "react";
@@ -41,6 +41,7 @@ async function fetchIdentityIntro(
   try {
     const { data, error, response } = await identityIntroGet({
       path: { assistant_id: assistantId },
+      query: buildLocalTimeQuery(),
       throwOnError: false,
     });
     assertHasResponse(response, error, "Failed to fetch identity intro");
@@ -61,6 +62,16 @@ async function fetchIdentityIntro(
   } catch {
     return null;
   }
+}
+
+function buildLocalTimeQuery(date: Date = new Date()): {
+  localHour: number;
+  localMinute: number;
+} {
+  return {
+    localHour: date.getHours(),
+    localMinute: date.getMinutes(),
+  };
 }
 
 function normalizeIdentityIntroCandidates(

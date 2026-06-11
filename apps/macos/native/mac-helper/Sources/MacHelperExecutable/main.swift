@@ -3,6 +3,7 @@ import AVFoundation
 import Carbon
 import Darwin
 import Foundation
+import IOKit.hid
 import MacHelperCore
 import Speech
 
@@ -114,6 +115,13 @@ final class MacHelper: @unchecked Sendable {
                 )
             }
             return try self.setFnPushToTalk(enable: enable)
+        }
+        router.register("permission.status") { [weak self] params in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            let kind = try self.parsePermissionKind(params)
+            return ["status": self.permissionStatus(kind: kind)]
         }
         router.register("dictation.setPartials") { [weak self] params in
             guard let self else {
@@ -567,6 +575,70 @@ final class MacHelper: @unchecked Sendable {
         }
     }
 
+    private enum PermissionKind: String {
+        case speechRecognition
+        case inputMonitoring
+    }
+
+    private func parsePermissionKind(_ params: Any?) throws -> PermissionKind {
+        guard
+            let object = params as? [String: Any],
+            let rawKind = object["kind"] as? String,
+            let kind = PermissionKind(rawValue: rawKind)
+        else {
+            throw JsonRpcDispatchError.invalidParams(
+                "permission status calls require kind"
+            )
+        }
+        return kind
+    }
+
+    private func permissionStatus(kind: PermissionKind) -> String {
+        switch kind {
+        case .speechRecognition:
+            return speechRecognitionStatus()
+        case .inputMonitoring:
+            return inputMonitoringStatus()
+        }
+    }
+
+    func permissionStatus(rawKind: String) throws -> String {
+        guard let kind = PermissionKind(rawValue: rawKind) else {
+            throw JsonRpcDispatchError.invalidParams(
+                "permission status calls require kind"
+            )
+        }
+        return permissionStatus(kind: kind)
+    }
+
+    private func speechRecognitionStatus() -> String {
+        switch SFSpeechRecognizer.authorizationStatus() {
+        case .authorized:
+            return "granted"
+        case .denied:
+            return "denied"
+        case .restricted:
+            return "restricted"
+        case .notDetermined:
+            return "not-determined"
+        @unknown default:
+            return "unknown"
+        }
+    }
+
+    private func inputMonitoringStatus() -> String {
+        switch IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) {
+        case kIOHIDAccessTypeGranted:
+            return "granted"
+        case kIOHIDAccessTypeDenied:
+            return "denied"
+        case kIOHIDAccessTypeUnknown:
+            return "not-determined"
+        default:
+            return "unknown"
+        }
+    }
+
     private func registerFnHotkey() throws {
         if !handlerRefs.isEmpty {
             return
@@ -720,6 +792,69 @@ private enum HelperError: LocalizedError {
 
 let disclaimed = ensureDisclaimedResponsibility()
 let helper = MacHelper(isDisclaimed: disclaimed)
-MainActor.assumeIsolated {
-    helper.run()
+
+private func argumentValue(after flag: String) -> String? {
+    guard let index = CommandLine.arguments.firstIndex(of: flag) else {
+        return nil
+    }
+    let valueIndex = CommandLine.arguments.index(after: index)
+    guard valueIndex < CommandLine.arguments.endIndex else {
+        return nil
+    }
+    return CommandLine.arguments[valueIndex]
+}
+
+private func writePermissionStatusAndExit() {
+    guard
+        let kind = argumentValue(after: "--permission-status"),
+        let outputPath = argumentValue(after: "--status-output")
+    else {
+        FileHandle.standardError.write(
+            Data("[vellum-mac-helper] permission status requires kind and output path\n".utf8)
+        )
+        exit(2)
+    }
+
+    do {
+        let status = try helper.permissionStatus(rawKind: kind)
+        let data = try JSONSerialization.data(
+            withJSONObject: ["status": status],
+            options: []
+        )
+        try data.write(to: URL(fileURLWithPath: outputPath), options: .atomic)
+        exit(0)
+    } catch {
+        FileHandle.standardError.write(
+            Data("[vellum-mac-helper] failed to write permission status: \(error.localizedDescription)\n".utf8)
+        )
+        exit(1)
+    }
+}
+
+if CommandLine.arguments.contains("--request-speech-recognition") {
+    MainActor.assumeIsolated {
+        NSApplication.shared.setActivationPolicy(.prohibited)
+        if SFSpeechRecognizer.authorizationStatus() == .notDetermined {
+            SFSpeechRecognizer.requestAuthorization { _ in
+                DispatchQueue.main.async {
+                    NSApplication.shared.terminate(nil)
+                }
+            }
+            NSApplication.shared.run()
+        }
+    }
+} else if CommandLine.arguments.contains("--request-input-monitoring") {
+    MainActor.assumeIsolated {
+        NSApplication.shared.setActivationPolicy(.prohibited)
+        if IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) != kIOHIDAccessTypeGranted {
+            _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+        }
+        NSApplication.shared.terminate(nil)
+    }
+} else if CommandLine.arguments.contains("--permission-status") {
+    writePermissionStatusAndExit()
+} else {
+    MainActor.assumeIsolated {
+        helper.run()
+    }
 }

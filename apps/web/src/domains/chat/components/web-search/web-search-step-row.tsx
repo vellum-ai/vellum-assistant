@@ -1,6 +1,6 @@
 /**
  * Shared web-search step-row primitives consumed by both
- * `WebSearchProgressCard` (the dedicated purely-web card) and
+ * `SingleActivity variant="web"` (the lone web-search inline link) and
  * `MultiActivityGroup` (the unified card that handles mixed groups).
  *
  * Lifted here to dedupe the previously copy/pasted `OverflowChip` definitions
@@ -173,7 +173,7 @@ export function WebSearchStepRow({
   const overflowResults = step.overflowResults ?? [];
   return (
     <div className="flex flex-wrap items-center gap-1">
-      {step.results.map((r) => (
+      {(step.results ?? []).map((r) => (
         // Each result is a `ToolStepPill` web variant — the same pill chrome as
         // tool steps, with the site favicon as the glyph, that opens the source
         // in a new tab.
