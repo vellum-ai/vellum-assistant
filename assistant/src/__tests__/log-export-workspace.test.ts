@@ -9,6 +9,7 @@
 
 import { spawnSync } from "node:child_process";
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -110,9 +111,13 @@ async function extractArchive(res: Response): Promise<string> {
 // ---------------------------------------------------------------------------
 
 // config.json at workspace root — needed for config-snapshot tests. The
-// acp.agents env values are obviously-synthetic secrets that must be redacted
-// from the exported snapshot.
-const SYNTHETIC_ACP_API_KEY = "sk-proj-synthetic-test-key-000000";
+// acp.agents env value is a synthetic secret that must be redacted from the
+// exported snapshot. Unlike the shared `SYNTHETIC_OPENAI_PROJECT_KEY`, it is
+// deliberately below the secret scanner's 40-char minimum, so the export-time
+// sweep cannot see it — only the config snapshot's structural env redaction
+// can keep it out of the archive, meaning a sanitizer regression cannot be
+// masked by the sweep.
+const SWEEP_INVISIBLE_SYNTHETIC_KEY = "sk-proj-synthetic-test-key-000000";
 writeFileSync(
   join(testWorkspaceDir, "config.json"),
   JSON.stringify({
@@ -121,7 +126,7 @@ writeFileSync(
       agents: {
         codex: {
           env: {
-            OPENAI_API_KEY: SYNTHETIC_ACP_API_KEY,
+            OPENAI_API_KEY: SWEEP_INVISIBLE_SYNTHETIC_KEY,
             PATH: "/data/.bun/bin",
           },
         },
@@ -242,7 +247,7 @@ describe("POST /v1/export — tar.gz archive", () => {
       for (const value of Object.values(env)) {
         expect(value).toBe("(set)");
       }
-      expect(configContent).not.toContain(SYNTHETIC_ACP_API_KEY);
+      expect(configContent).not.toContain(SWEEP_INVISIBLE_SYNTHETIC_KEY);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -449,6 +454,13 @@ describe("POST /v1/export — workspace allowlist", () => {
       );
       const content = readFileSync(messagesPath, "utf-8");
       expect(content).toBe('{"role":"user","content":"jan 15"}\n');
+      // Clean daemon log files must also ship byte-identical — the secret
+      // sweep does no gratuitous rewrites.
+      for (const logFile of ["assistant-2025-01-10.log", "vellum.log"]) {
+        expect(readFileSync(join(dir, "daemon-logs", logFile), "utf-8")).toBe(
+          readFileSync(join(logsDir, logFile), "utf-8"),
+        );
+      }
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -517,41 +529,16 @@ describe("POST /v1/export — staged-file secret sweep", () => {
 
       const result = redactStagedExportFiles(staging);
 
-      expect(result).toEqual({ filesScanned: 3, filesRedacted: 0 });
+      expect(result).toEqual({
+        filesScanned: 3,
+        filesRedacted: 0,
+        filesOmitted: 0,
+      });
       for (const [rel, content] of Object.entries(seeded)) {
         expect(readFileSync(join(staging, rel), "utf-8")).toBe(content);
       }
     } finally {
       rmSync(staging, { recursive: true, force: true });
-    }
-  });
-
-  test("clean export round-trip ships staged files byte-identical (no gratuitous rewrites)", async () => {
-    // Route-level variant of the byte-identical property above: every clean
-    // seeded source file must come out of the archive exactly as it went in,
-    // proving the sweep does no gratuitous rewrites end-to-end.
-    const res = await callExport();
-    const dir = await extractArchive(res);
-    try {
-      for (const logFile of ["assistant-2025-01-10.log", "vellum.log"]) {
-        expect(readFileSync(join(dir, "daemon-logs", logFile), "utf-8")).toBe(
-          readFileSync(join(logsDir, logFile), "utf-8"),
-        );
-      }
-      for (const name of [
-        "2025-01-10T00-00-00.000Z_conv-jan10",
-        "2025-01-15T00-00-00.000Z_conv-jan15",
-      ]) {
-        const srcDir = join(conversationsDir, name);
-        const outDir = join(dir, "workspace", "conversations", name);
-        for (const file of readdirSync(srcDir)) {
-          expect(readFileSync(join(outDir, file), "utf-8")).toBe(
-            readFileSync(join(srcDir, file), "utf-8"),
-          );
-        }
-      }
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
     }
   });
 
@@ -571,7 +558,11 @@ describe("POST /v1/export — staged-file secret sweep", () => {
       );
 
       const result = redactStagedExportFiles(staging);
-      expect(result).toEqual({ filesScanned: 1, filesRedacted: 1 });
+      expect(result).toEqual({
+        filesScanned: 1,
+        filesRedacted: 1,
+        filesOmitted: 0,
+      });
 
       const lines = readFileSync(filePath, "utf-8").split("\n");
       expect(lines[0]).not.toContain(SYNTHETIC_OPENAI_PROJECT_KEY);
@@ -623,7 +614,11 @@ describe("POST /v1/export — staged-file secret sweep", () => {
 
       const result = redactStagedExportFiles(staging);
 
-      expect(result).toEqual({ filesScanned: 2, filesRedacted: 2 });
+      expect(result).toEqual({
+        filesScanned: 2,
+        filesRedacted: 2,
+        filesOmitted: 0,
+      });
       for (const file of ["creds.env", "no-extension"]) {
         const content = readFileSync(join(attachmentsDir, file), "utf-8");
         expect(content).toContain(OPENAI_PROJECT_KEY_REDACTION_MARKER);
@@ -639,7 +634,8 @@ describe("POST /v1/export — staged-file secret sweep", () => {
     const staging = mkdtempSync(join(tmpdir(), "redact-staged-oversize-"));
     try {
       // One byte over the cap. The content must never ship unswept — it is
-      // replaced wholesale with the omission note.
+      // replaced wholesale with the omission note. An omitted file was never
+      // actually scanned or redacted, so it only counts as omitted.
       writeFileSync(
         join(staging, "messages.json"),
         Buffer.alloc(MAX_SWEEP_FILE_BYTES + 1, 0x61),
@@ -647,7 +643,11 @@ describe("POST /v1/export — staged-file secret sweep", () => {
 
       const result = redactStagedExportFiles(staging);
 
-      expect(result).toEqual({ filesScanned: 1, filesRedacted: 1 });
+      expect(result).toEqual({
+        filesScanned: 0,
+        filesRedacted: 0,
+        filesOmitted: 1,
+      });
       expect(readFileSync(join(staging, "messages.json"), "utf-8")).toBe(
         OVERSIZED_FILE_NOTE,
       );
@@ -655,6 +655,75 @@ describe("POST /v1/export — staged-file secret sweep", () => {
       rmSync(staging, { recursive: true, force: true });
     }
   });
+
+  test("redacts BOM-prefixed .json files via the JSON-aware path, preserving the BOM", () => {
+    const staging = mkdtempSync(join(tmpdir(), "redact-staged-bom-"));
+    try {
+      // A UTF-8 BOM (common in user attachments) makes JSON.parse throw, so
+      // without BOM handling the file would take the plain-text fallback and
+      // the quoted marker would corrupt the JSON string it lands in.
+      const filePath = join(staging, "attachment.json");
+      writeFileSync(
+        filePath,
+        "\uFEFF" +
+          JSON.stringify({ key: SYNTHETIC_OPENAI_PROJECT_KEY }, null, 2),
+        "utf-8",
+      );
+
+      const result = redactStagedExportFiles(staging);
+      expect(result).toEqual({
+        filesScanned: 1,
+        filesRedacted: 1,
+        filesOmitted: 0,
+      });
+
+      const content = readFileSync(filePath, "utf-8");
+      expect(content.startsWith("\uFEFF")).toBe(true);
+      expect(content).not.toContain(SYNTHETIC_OPENAI_PROJECT_KEY);
+      // Stripping the preserved BOM yields valid JSON with the marker stored
+      // as a proper string value.
+      const parsed = JSON.parse(content.slice(1)) as { key: string };
+      expect(parsed.key).toContain(OPENAI_PROJECT_KEY_REDACTION_MARKER);
+    } finally {
+      rmSync(staging, { recursive: true, force: true });
+    }
+  });
+
+  // Root bypasses file permission checks, so chmod 0o000 cannot make the
+  // file unreadable — skip rather than assert a degraded path that cannot
+  // be exercised.
+  test.skipIf(process.getuid?.() === 0)(
+    "sweep continues past an unreadable staged file (degraded, not failed)",
+    () => {
+      const staging = mkdtempSync(join(tmpdir(), "redact-staged-unreadable-"));
+      const unreadablePath = join(staging, "unreadable.log");
+      try {
+        writeFileSync(
+          join(staging, "readable.log"),
+          `key ${SYNTHETIC_OPENAI_PROJECT_KEY}\n`,
+          "utf-8",
+        );
+        writeFileSync(unreadablePath, "any content\n", "utf-8");
+        chmodSync(unreadablePath, 0o000);
+
+        // Must return normally: the unreadable file is logged and skipped,
+        // and every other staged file is still swept.
+        const result = redactStagedExportFiles(staging);
+
+        expect(result).toEqual({
+          filesScanned: 1,
+          filesRedacted: 1,
+          filesOmitted: 0,
+        });
+        const content = readFileSync(join(staging, "readable.log"), "utf-8");
+        expect(content).toContain(OPENAI_PROJECT_KEY_REDACTION_MARKER);
+        expect(content).not.toContain(SYNTHETIC_OPENAI_PROJECT_KEY);
+      } finally {
+        chmodSync(unreadablePath, 0o600);
+        rmSync(staging, { recursive: true, force: true });
+      }
+    },
+  );
 
   test("redacts raw keys from workspace conversation files in the archive", async () => {
     seedConversation(
