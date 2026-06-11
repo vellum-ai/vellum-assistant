@@ -83,6 +83,13 @@ describe("schedule_create tool description", () => {
     expect(scheduleCreateDef.description).toContain("cron");
   });
 
+  test("requires an authored description", () => {
+    expect(scheduleCreateDef.input_schema.required).toContain("description");
+    expect(
+      scheduleCreateDef.input_schema.properties.description.description,
+    ).toContain("what it does and why");
+  });
+
   test('warns against using for "add to my tasks" requests', () => {
     expect(scheduleCreateDef.description).toContain(
       'Do NOT use this for "add to my tasks"',

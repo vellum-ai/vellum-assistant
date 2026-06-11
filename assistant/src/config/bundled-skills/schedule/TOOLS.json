@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "schedule_create",
-      "description": "Create a scheduled automation. For recurring: provide expression (cron/RRULE). For one-time: provide fire_at (ISO 8601 timestamp). ONLY use this when the user explicitly wants something to run on a schedule (e.g. \"every day at 9am\", \"remind me tomorrow at 3pm\", \"weekly on Mondays\"). Do NOT use this for \"add to my tasks\" or \"add to my queue\" - use task_list_add for those requests instead.",
+      "description": "Create a scheduled automation. Always provide a concise description of what the schedule does and why. For recurring: provide expression (cron/RRULE). For one-time: provide fire_at (ISO 8601 timestamp). ONLY use this when the user explicitly wants something to run on a schedule (e.g. \"every day at 9am\", \"remind me tomorrow at 3pm\", \"weekly on Mondays\"). Do NOT use this for \"add to my tasks\" or \"add to my queue\" - use task_list_add for those requests instead.",
       "category": "schedule",
       "risk": "medium",
       "input_schema": {
@@ -12,6 +12,10 @@
           "name": {
             "type": "string",
             "description": "A human-readable name for the scheduled task"
+          },
+          "description": {
+            "type": "string",
+            "description": "Required concise authored description of what it does and why. Keep this distinct from the timing/cadence."
           },
           "syntax": {
             "type": "string",
@@ -77,7 +81,7 @@
             "description": "For script mode: maximum time in milliseconds the shell command may run before it is killed. Defaults to 60000 (60s). Allowed range: 1000 to 1800000."
           }
         },
-        "required": ["name"]
+        "required": ["name", "description"]
       },
       "executor": "tools/schedule-create.ts",
       "execution_target": "host"
@@ -106,7 +110,7 @@
     },
     {
       "name": "schedule_update",
-      "description": "Update an existing scheduled automation (expression, syntax, message, name, enabled state, mode, or routing)",
+      "description": "Update an existing scheduled automation (expression, syntax, message, name, description, enabled state, mode, or routing)",
       "category": "schedule",
       "risk": "medium",
       "input_schema": {
@@ -119,6 +123,10 @@
           "name": {
             "type": "string",
             "description": "New name for the job"
+          },
+          "description": {
+            "type": "string",
+            "description": "New concise authored description of what the schedule does and why. Keep this distinct from the timing/cadence."
           },
           "syntax": {
             "type": "string",
