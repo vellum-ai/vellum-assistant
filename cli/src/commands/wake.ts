@@ -7,7 +7,12 @@ import {
   saveAssistantEntry,
 } from "../lib/assistant-config.js";
 import { dockerResourceNames, wakeContainers } from "../lib/docker.js";
-import { seedGuardianTokenFromSiblingEnv } from "../lib/guardian-token.js";
+import {
+  leaseGuardianToken,
+  loadGuardianToken,
+  resetGuardianBootstrap,
+  seedGuardianTokenFromSiblingEnv,
+} from "../lib/guardian-token.js";
 import { resolveProcessState, stopProcessByPidFile } from "../lib/process";
 import {
   generateLocalSigningKey,
@@ -219,6 +224,35 @@ export async function wake(): Promise<void> {
   // and strictly additive.
   if (seedGuardianTokenFromSiblingEnv(entry.assistantId)) {
     console.log("   Seeded guardian token from sibling environment.");
+  }
+
+  // Last-resort recovery: if no guardian token exists for this env even after
+  // sibling seeding, re-provision one. The single-use bootstrap secret may
+  // already be spent — a prior connect can lease a token that's then lost, or
+  // the gateway marks the secret consumed before the client persists the token
+  // — which otherwise bricks connect into a 401 → auth-rate-limit → 429
+  // cascade with no path back short of retire+hatch. Reset the gateway's
+  // bootstrap lock+consumed state (loopback-only, authorized by the lockfile
+  // secret — mirrors the macOS client's forceReBootstrap), then re-lease.
+  if (!loadGuardianToken(entry.assistantId)) {
+    const loopbackUrl = `http://127.0.0.1:${resources.gatewayPort}`;
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await resetGuardianBootstrap(loopbackUrl, bootstrapSecret);
+        await leaseGuardianToken(loopbackUrl, entry.assistantId, bootstrapSecret);
+        console.log("   Re-provisioned guardian token.");
+        break;
+      } catch (err) {
+        if (attempt < maxAttempts) {
+          await new Promise((r) => setTimeout(r, 2000 * 2 ** (attempt - 1)));
+        } else {
+          console.warn(
+            `   Guardian token re-provision failed after ${maxAttempts} attempts: ${err}`,
+          );
+        }
+      }
+    }
   }
 
   // Auto-start ngrok if webhook integrations (e.g. Telegram) are configured.

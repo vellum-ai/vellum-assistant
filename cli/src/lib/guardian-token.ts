@@ -17,6 +17,10 @@ import { platform } from "os";
 import { dirname, join } from "path";
 
 import { SEEDS } from "@vellumai/environments";
+import {
+  guardianTokenPath,
+  resolveConfigDir,
+} from "@vellumai/local-mode";
 
 import { getConfigDir } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
@@ -38,12 +42,12 @@ export interface GuardianTokenData {
 }
 
 function getGuardianTokenPath(assistantId: string): string {
-  return join(
-    getConfigDir(getCurrentEnvironment()),
-    "assistants",
-    assistantId,
-    "guardian-token.json",
-  );
+  // Resolve via the shared @vellumai/local-mode resolver — the same one every
+  // host-seam reader (`getGuardianAccessToken`) uses — so the token is always
+  // written where it's read. Must stay in lockstep with `getConfigDir(
+  // getCurrentEnvironment())`; the parity test in guardian-token.test.ts guards
+  // against drift.
+  return guardianTokenPath(resolveConfigDir(process.env), assistantId);
 }
 
 /**
@@ -428,6 +432,37 @@ export async function leaseGuardianToken(
 
   saveGuardianToken(assistantId, tokenData);
   return tokenData;
+}
+
+/**
+ * Clear the gateway's guardian-init lock + consumed-secret state via
+ * `POST /v1/guardian/reset-bootstrap`, so a spent single-use bootstrap secret
+ * can be used again by a subsequent `leaseGuardianToken`. Loopback-only on the
+ * gateway; when bootstrap secrets are configured the gateway requires a
+ * matching `x-bootstrap-secret`. Mirrors the macOS client's `forceReBootstrap`
+ * recovery. Throws on a non-OK response.
+ */
+export async function resetGuardianBootstrap(
+  gatewayUrl: string,
+  bootstrapSecret?: string,
+): Promise<void> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (bootstrapSecret) {
+    headers["x-bootstrap-secret"] = bootstrapSecret;
+  }
+  const response = await fetch(`${gatewayUrl}/v1/guardian/reset-bootstrap`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({}),
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(
+      `guardian/reset-bootstrap failed (${response.status}): ${body}`,
+    );
+  }
 }
 
 /**
