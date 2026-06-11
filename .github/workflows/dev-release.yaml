@@ -2185,14 +2185,19 @@ jobs:
           if ! bun install --frozen-lockfile; then
             rm -f bun.lock && rm -rf node_modules && bun install
           fi
-      # The rollup compiles the `packages/*` contract sources the authoring
-      # surface reaches, so each must have its own node_modules (the repo uses
-      # per-package file: deps with no Bun workspaces — see the root AGENTS.md).
+      # The rollup only compiles the @vellumai/* contract sources the authoring
+      # surface reaches, which it discovers under assistant/node_modules/@vellumai.
+      # Because the repo uses per-package file: deps with no Bun workspaces, each
+      # of those packages needs its own node_modules. Install exactly that set by
+      # mapping each resolved @vellumai/* dep back to packages/<name>; this skips
+      # unrelated packages (e.g. design-library, which pulls heavy Storybook and
+      # Playwright trees) that would needlessly risk the job timeout.
       - name: Install shared package dependencies
         run: |
-          for dir in packages/*/; do
-            [ -f "${dir}/package.json" ] || continue
-            (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
+          for dep in assistant/node_modules/@vellumai/*; do
+            name="${dep##*/}"
+            [ -d "packages/${name}" ] || continue
+            (cd "packages/${name}" && bun install --frozen-lockfile 2>/dev/null || bun install)
           done
       - name: Build plugin-api package
         run: cd assistant && bun run scripts/build-plugin-api.ts --version "${{ needs.compute-version.outputs.version }}"
