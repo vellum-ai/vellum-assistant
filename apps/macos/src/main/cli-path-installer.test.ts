@@ -119,6 +119,15 @@ mock.module("./shell-path", () => ({
   },
 }));
 
+// Spread the real module so path/quote/locator helpers keep production
+// behavior; only the install entry point is faked.
+const ensureCliInstalledMock = mock(async (): Promise<void> => undefined);
+const realCliInstaller = await import("./cli-installer");
+mock.module("./cli-installer", () => ({
+  ...realCliInstaller,
+  ensureCliInstalled: ensureCliInstalledMock,
+}));
+
 const {
   WRAPPER_MARKER,
   getWrapperDir,
@@ -128,6 +137,7 @@ const {
   installWrapper,
   uninstallWrapper,
   getCliPathInstallState,
+  provisionCliForWrapper,
 } = await import("./cli-path-installer");
 
 const wrapperDir = `${mockHome}/.local/bin`;
@@ -148,6 +158,7 @@ afterEach(() => {
   shellPathHits = [];
   resolveShellPathCalls = 0;
   findExecutablesCalls.length = 0;
+  ensureCliInstalledMock.mockClear();
 });
 
 // --- Path helpers ---
@@ -319,6 +330,38 @@ describe("uninstallWrapper", () => {
 
     expect(uninstallWrapper()).toBe("absent");
     expect(rmSyncCalls).toHaveLength(0);
+  });
+});
+
+// --- provisionCliForWrapper ---
+
+describe("provisionCliForWrapper", () => {
+  test("provisions the CLI when the wrapper is ours", async () => {
+    readFileSyncResult = buildWrapperScript();
+
+    expect(await provisionCliForWrapper()).toBe(true);
+    expect(ensureCliInstalledMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("skips provisioning when the wrapper is absent", async () => {
+    readFileSyncResult = null;
+
+    expect(await provisionCliForWrapper()).toBe(false);
+    expect(ensureCliInstalledMock).not.toHaveBeenCalled();
+  });
+
+  test("skips provisioning for a foreign wrapper", async () => {
+    readFileSyncResult = "#!/bin/sh\necho not ours\n";
+
+    expect(await provisionCliForWrapper()).toBe(false);
+    expect(ensureCliInstalledMock).not.toHaveBeenCalled();
+  });
+
+  test("propagates install failures to the caller", async () => {
+    readFileSyncResult = buildWrapperScript();
+    ensureCliInstalledMock.mockRejectedValueOnce(new Error("offline"));
+
+    await expect(provisionCliForWrapper()).rejects.toThrow("offline");
   });
 });
 

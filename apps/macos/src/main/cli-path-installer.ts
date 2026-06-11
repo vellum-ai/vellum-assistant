@@ -9,6 +9,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 import {
+  ensureCliInstalled,
   getCliLocatorPath,
   isCliInstalled,
   shQuote,
@@ -102,6 +103,18 @@ export function installWrapper(opts: {
   mkdirSync(getWrapperDir(), { recursive: true });
   writeFileAtomicSync(getWrapperPath(), buildWrapperScript(), 0o755);
   return "installed";
+}
+
+/**
+ * Startup self-heal for PATH-wrapper users: when the wrapper is ours,
+ * provision the pinned CLI so a version bump rewrites the locator promptly
+ * instead of waiting for the next in-app CLI action. Absent/foreign wrappers
+ * keep the lazy install path. Returns whether provisioning ran.
+ */
+export async function provisionCliForWrapper(): Promise<boolean> {
+  if (readWrapperOwnership() !== "ours") return false;
+  await ensureCliInstalled();
+  return true;
 }
 
 export type CliPathInstallState =
