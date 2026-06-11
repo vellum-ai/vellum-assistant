@@ -13,8 +13,6 @@
  * interface; the renderer references the payload types (from `./types.ts`)
  * in its ambient declaration.
  */
-import type { Lockfile, LockfileWriteResult } from "@vellumai/local-mode/contract";
-
 import type {
   AppVersionInfo,
   AssistantStatus,
@@ -29,7 +27,10 @@ import type {
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
+  Lockfile,
+  LockfileWriteResult,
   NotificationActionEvent,
+  PowerEvent,
   ResolvedHotkey,
   ShowNotificationPayload,
   TextInsertionResult,
@@ -127,7 +128,7 @@ export interface VellumBridge {
     setOnboarding(active: boolean): Promise<void>;
   };
   power: {
-    onEvent(callback: (event: { kind: "suspend" | "resume" | "lock" | "unlock" | "active" }) => void): () => void;
+    onEvent(callback: (event: PowerEvent) => void): () => void;
   };
   deepLinks: {
     drain(): Promise<DeepLink[]>;

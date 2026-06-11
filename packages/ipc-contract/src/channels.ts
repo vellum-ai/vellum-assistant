@@ -10,6 +10,9 @@
 export const APP_VERSION_INFO = "vellum:app:versionInfo";
 export const APP_OPEN_WEBSITE = "vellum:app:openWebsite";
 
+// Config
+export const CONFIG_GET = "vellum:config:get";
+
 // Text insertion
 export const TEXT_INSERT = "vellum:text:insertIntoFrontApp";
 export const TEXT_OPEN_SETTINGS = "vellum:text:openAutomationSettings";
@@ -34,7 +37,7 @@ export const FEATURE_FLAGS_SET = "vellum:featureFlags:set";
 
 // Helper (native sidecar)
 export const HELPER_PING = "vellum:helper:ping";
-export const HELPER_GET_STATE = "vellum:helper:getState";
+export const HELPER_GET_STATE = "vellum:helper:state:get";
 export const HELPER_RESTART = "vellum:helper:restart";
 export const HELPER_STATE_EVENT = "vellum:helper:state";
 export const HELPER_HOTKEY_FN_PTT = "vellum:helper:hotkey:fnPushToTalk";
@@ -76,6 +79,8 @@ export const POWER_EVENT = "vellum:power:event";
 
 // Deep links
 export const DEEP_LINKS_DRAIN = "vellum:deepLinks:drain";
+export const DEEP_LINKS_SUBSCRIBE = "vellum:deepLinks:subscribe";
+export const DEEP_LINKS_UNSUBSCRIBE = "vellum:deepLinks:unsubscribe";
 export const DEEP_LINKS_EVENT = "vellum:deepLinks:event";
 
 // File open
@@ -91,7 +96,7 @@ export const FEEDBACK_LOGS = "vellum:feedback:logs";
 // Connectivity
 export const CONNECTIVITY_GET = "vellum:connectivity:get";
 export const CONNECTIVITY_STATE = "vellum:connectivity:state";
-export const CONNECTIVITY_SET_DEVICE = "vellum:connectivity:setDevice";
+export const CONNECTIVITY_SET_DEVICE = "vellum:connectivity:device";
 export const CONNECTIVITY_RETRY = "vellum:connectivity:retry";
 
 // Notifications

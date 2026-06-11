@@ -7,9 +7,6 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "dependencies": {
-    "@vellumai/local-mode": "file:../local-mode"
-  },
   "peerDependencies": {
     "zod": ">=4.0.0"
   },

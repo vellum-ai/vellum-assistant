@@ -307,3 +307,42 @@ export interface AppVersionInfo {
   copyright: string;
   website: string;
 }
+
+// ---------------------------------------------------------------------------
+// Lockfile (bridge-facing subset of @vellumai/local-mode/contract)
+// ---------------------------------------------------------------------------
+
+/**
+ * Shape of the lockfile as returned across the Electron bridge.
+ *
+ * Matches the canonical `Lockfile` / `LockfileWriteResult` types in
+ * `@vellumai/local-mode/contract`. Declared here so the contract package
+ * has no `file:` dependency on local-mode (which carries a transitive
+ * `file:` chain to `@vellumai/environments` that breaks lockfile
+ * resolution in consumer packages).
+ */
+
+export interface LocalAssistantResources {
+  gatewayPort: number;
+  daemonPort: number;
+}
+
+export interface LockfileAssistant {
+  assistantId: string;
+  name?: string;
+  cloud?: string;
+  runtimeUrl?: string;
+  species?: string;
+  hatchedAt?: string;
+  organizationId?: string;
+  resources?: LocalAssistantResources;
+}
+
+export interface Lockfile {
+  assistants: LockfileAssistant[];
+  activeAssistant: string | null;
+}
+
+export type LockfileWriteResult =
+  | { ok: true; lockfile: Lockfile }
+  | { ok: false; error: string };
