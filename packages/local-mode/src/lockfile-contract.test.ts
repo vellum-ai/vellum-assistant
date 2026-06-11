@@ -14,6 +14,7 @@ describe("parseLockfile", () => {
           runtimeUrl: "http://127.0.0.1:7777",
           species: "vellum",
           hatchedAt: "2026-01-01T00:00:00.000Z",
+          version: "0.7.0",
           organizationId: "org_1",
           resources: { gatewayPort: 7777, daemonPort: 7778 },
         },
@@ -166,6 +167,20 @@ describe("parseLockfile", () => {
       { assistantId: "asst_1", cloud: "vellum", organizationId: "org_1" },
       { assistantId: "asst_2", cloud: "vellum" },
       { assistantId: "asst_3", cloud: "local" },
+    ]);
+  });
+
+  test("keeps version when a string and drops it when mistyped", () => {
+    const raw = {
+      assistants: [
+        { assistantId: "asst_1", cloud: "docker", version: "0.7.0" },
+        { assistantId: "asst_2", cloud: "docker", version: 7 }, // mistyped
+      ],
+      activeAssistant: null,
+    };
+    expect(parseLockfile(raw).assistants).toEqual([
+      { assistantId: "asst_1", cloud: "docker", version: "0.7.0" },
+      { assistantId: "asst_2", cloud: "docker" },
     ]);
   });
 

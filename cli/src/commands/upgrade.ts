@@ -6,6 +6,7 @@ import {
   findAssistantByName,
   getActiveAssistant,
   loadAllAssistants,
+  normalizeVersion,
   resolveCloud,
   saveAssistantEntry,
   type AssistantEntry,
@@ -435,6 +436,7 @@ async function upgradeDocker(
       previousContainerInfo: entry.containerInfo,
       previousDbMigrationVersion: preMigrationState.dbVersion,
       previousWorkspaceMigrationId: preMigrationState.lastWorkspaceMigrationId,
+      version: normalizeVersion(versionTag),
       // Preserve the backup path so `vellum rollback` can restore it later
       preUpgradeBackupPath: backupPath ?? undefined,
     };

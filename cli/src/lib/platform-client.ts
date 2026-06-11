@@ -177,6 +177,7 @@ export interface HatchedAssistant {
   id: string;
   name: string;
   status: string;
+  current_release_version?: string | null;
 }
 
 export interface HatchAssistantResult {
