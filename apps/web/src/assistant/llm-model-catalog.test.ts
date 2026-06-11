@@ -1,44 +1,29 @@
 /**
- * Targeted assertions for the web LLM model catalog: the minimax provider
- * mirrors the daemon catalog, and every provider's default model exists in
- * its models list (the web mirror of the daemon catalog invariant).
+ * Parity guard for the web LLM model catalog: enforces full parity with
+ * `meta/llm-provider-catalog.json` (the canonical catalog generated from the
+ * daemon's `assistant/src/providers/model-catalog.ts`) so this
+ * hand-maintained mirror can never silently drift again.
  *
- * Also enforces full parity with `meta/llm-provider-catalog.json` (the
- * canonical catalog generated from the daemon's
- * `assistant/src/providers/model-catalog.ts`) so this hand-maintained
- * mirror can never silently drift again.
+ * Covers every catalog surface the web UI consumes: per-model fields
+ * (ids, order, display names, token limits, thinking flags), per-provider
+ * default models, the provider display-name and platform-auth maps, and the
+ * INFERENCE_PROVIDERS picker list in ai-types.ts.
  */
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
+import { INFERENCE_PROVIDERS } from "@/domains/settings/ai/ai-types";
+
 import {
   DEFAULT_MODEL_BY_PROVIDER,
   MODELS_BY_PROVIDER,
+  PROVIDER_DISPLAY_NAMES,
+  PROVIDER_SUPPORTS_PLATFORM_AUTH,
   getModelsForProvider,
   type LlmProviderId,
 } from "./llm-model-catalog";
-
-describe("llm-model-catalog", () => {
-  test("minimax provider lists MiniMax M3 then MiniMax M2.7", () => {
-    expect(getModelsForProvider("minimax").map((model) => model.id)).toEqual([
-      "MiniMax-M3",
-      "MiniMax-M2.7",
-    ]);
-  });
-
-  test("every provider's default model exists in its models list", () => {
-    for (const [provider, models] of Object.entries(MODELS_BY_PROVIDER)) {
-      // openai-compatible is a free-form escape hatch: models are configured
-      // per-connection, so it has no catalog entries or default model.
-      if (provider === "openai-compatible") continue;
-      const defaultModel = DEFAULT_MODEL_BY_PROVIDER[provider as LlmProviderId];
-      const modelIds: string[] = models.map((model) => model.id);
-      expect(modelIds).toContain(defaultModel);
-    }
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Parity with meta/llm-provider-catalog.json
@@ -52,10 +37,13 @@ interface MetaCatalogModel {
   defaultContextWindowTokens?: number;
   longContextPricingThresholdTokens?: number;
   supportsThinking?: boolean;
+  adaptiveThinkingOnly?: boolean;
 }
 
 interface MetaCatalogProvider {
   id: string;
+  displayName: string;
+  supportsPlatformAuth?: boolean;
   defaultModel: string;
   models: MetaCatalogModel[];
 }
@@ -75,9 +63,9 @@ const META_CATALOG_PATH = join(
 /**
  * Project a model down to the fields the web UI uses. The web mirror omits
  * capability fields the UI doesn't render (vision/caching/toolUse/pricing),
- * so only the shared subset is compared. `supportsThinking` is normalized to
- * a boolean because the web mirror omits it when false while the meta JSON
- * carries an explicit `false`.
+ * so only the shared subset is compared. `supportsThinking` and
+ * `adaptiveThinkingOnly` are normalized to booleans because the web mirror
+ * omits them when false while the meta JSON may carry an explicit `false`.
  */
 function comparableModel(model: MetaCatalogModel) {
   return {
@@ -88,6 +76,7 @@ function comparableModel(model: MetaCatalogModel) {
     defaultContextWindowTokens: model.defaultContextWindowTokens,
     longContextPricingThresholdTokens: model.longContextPricingThresholdTokens,
     supportsThinking: model.supportsThinking === true,
+    adaptiveThinkingOnly: model.adaptiveThinkingOnly === true,
   };
 }
 
@@ -121,6 +110,40 @@ describe("parity with meta/llm-provider-catalog.json", () => {
         `meta provider "${provider.id}" is missing from MODELS_BY_PROVIDER`,
       ).toBe(true);
     }
+  });
+
+  test("provider display names match the meta catalog", () => {
+    // The display-name map deliberately covers every daemon provider
+    // (including daemon-only ones like ollama), so this iterates the full
+    // meta catalog — the same stale-map drift class as the original bug.
+    for (const provider of metaCatalog.providers) {
+      expect(
+        PROVIDER_DISPLAY_NAMES[provider.id],
+        `PROVIDER_DISPLAY_NAMES["${provider.id}"] drifted from meta`,
+      ).toBe(provider.displayName);
+    }
+  });
+
+  test("provider platform-auth support matches the meta catalog", () => {
+    // Like the display-name map, this covers every daemon provider so the
+    // connection editor can filter auth types for daemon-only providers.
+    // Normalized to boolean: missing entries on either side mean `false`.
+    for (const provider of metaCatalog.providers) {
+      expect(
+        PROVIDER_SUPPORTS_PLATFORM_AUTH[provider.id],
+        `PROVIDER_SUPPORTS_PLATFORM_AUTH["${provider.id}"] drifted from meta`,
+      ).toBe(provider.supportsPlatformAuth === true);
+    }
+  });
+
+  test("INFERENCE_PROVIDERS covers every web catalog provider", () => {
+    // The call-site overrides picker is driven by INFERENCE_PROVIDERS in
+    // ai-types.ts. It must list exactly the catalog providers (minus the
+    // free-form openai-compatible escape hatch) or a provider becomes
+    // unselectable there. Order is not asserted: the list's order is the
+    // picker's display order (a UI choice, with index 0 as the default
+    // fallback), not the catalog's.
+    expect([...INFERENCE_PROVIDERS].sort()).toEqual([...webProviderIds].sort());
   });
 
   for (const providerId of webProviderIds) {
