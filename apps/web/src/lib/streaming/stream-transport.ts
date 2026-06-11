@@ -12,6 +12,7 @@ import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import { parseAssistantEvent } from "@/lib/streaming/event-parser";
 
 import { getReconnectCursor } from "@/lib/streaming/reconnect-cursor";
+import { normalizeSSEPayload, toSseError } from "@/lib/streaming/sse-payload";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import {
   type SseClientEndReason,
@@ -248,8 +249,7 @@ export function subscribeEvents(
           // Keep reconnect behavior controlled by this function.
           sseMaxRetryAttempts: 1,
           onSseError: (error) => {
-            streamError =
-              error instanceof Error ? error : new Error("Stream disconnected");
+            streamError = toSseError(error, "Stream disconnected");
           },
           onSseEvent: (event) => {
             // Fires for every parsed SSE chunk including heartbeat
@@ -312,28 +312,7 @@ export function subscribeEvents(
           // callback ordering.
           watchdog.arm(abortController, reconnectCount);
 
-          const data =
-            typeof payload === "string"
-              ? (() => {
-                  try {
-                    const parsed = JSON.parse(payload);
-                    if (
-                      parsed &&
-                      typeof parsed === "object" &&
-                      !Array.isArray(parsed)
-                    ) {
-                      return parsed as Record<string, unknown>;
-                    }
-                  } catch {
-                    // not JSON
-                  }
-                  return null;
-                })()
-              : payload &&
-                  typeof payload === "object" &&
-                  !Array.isArray(payload)
-                ? (payload as Record<string, unknown>)
-                : null;
+          const data = normalizeSSEPayload(payload);
 
           if (!data) {
             continue;
@@ -392,9 +371,7 @@ export function subscribeEvents(
       if (cancelled) return;
       const reconnected = await reconnect();
       if (!reconnected) {
-        onError(
-          err instanceof Error ? err : new Error("Stream connection failed"),
-        );
+        onError(toSseError(err, "Stream connection failed"));
       }
     } finally {
       // Report the connection's end reason to the debug registry, which
@@ -418,7 +395,7 @@ export function subscribeEvents(
 
   connect().catch((err) => {
     if (!cancelled) {
-      onError(err instanceof Error ? err : new Error("Stream setup failed"));
+      onError(toSseError(err, "Stream setup failed"));
     }
   });
 

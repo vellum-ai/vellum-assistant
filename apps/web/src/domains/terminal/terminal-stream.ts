@@ -7,6 +7,7 @@
  */
 
 import { client as platformClient } from "@/generated/api/client.gen";
+import { normalizeSSEPayload, toSseError } from "@/lib/streaming/sse-payload";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 
 // ---------------------------------------------------------------------------
@@ -69,33 +70,14 @@ export function subscribeTerminalEvents(
         signal: abortController.signal,
         sseMaxRetryAttempts: 3,
         onSseError: (error) => {
-          streamError =
-            error instanceof Error
-              ? error
-              : new Error("Terminal stream disconnected");
+          streamError = toSseError(error, "Terminal stream disconnected");
         },
       });
 
       for await (const payload of stream) {
         if (cancelled) return;
 
-        const raw =
-          typeof payload === "string"
-            ? (() => {
-                try {
-                  const parsed = JSON.parse(payload);
-                  return parsed &&
-                    typeof parsed === "object" &&
-                    !Array.isArray(parsed)
-                    ? (parsed as Record<string, unknown>)
-                    : null;
-                } catch {
-                  return null;
-                }
-              })()
-            : payload && typeof payload === "object" && !Array.isArray(payload)
-              ? (payload as Record<string, unknown>)
-              : null;
+        const raw = normalizeSSEPayload(payload);
 
         if (!raw) continue;
 
@@ -131,19 +113,13 @@ export function subscribeTerminalEvents(
       onError(new Error("Terminal stream ended unexpectedly"));
     } catch (err) {
       if (cancelled) return;
-      onError(
-        err instanceof Error
-          ? err
-          : new Error("Terminal stream connection failed"),
-      );
+      onError(toSseError(err, "Terminal stream connection failed"));
     }
   };
 
   connect().catch((err) => {
     if (!cancelled) {
-      onError(
-        err instanceof Error ? err : new Error("Terminal stream setup failed"),
-      );
+      onError(toSseError(err, "Terminal stream setup failed"));
     }
   });
 

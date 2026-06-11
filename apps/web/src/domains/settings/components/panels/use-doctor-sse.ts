@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { ChatEntry, NewChatEntry } from "@/domains/settings/components/panels/doctor-history";
 import { assistantsDoctorSessionsEventsRetrieve } from "@/generated/api";
 import { captureError } from "@/lib/sentry/capture-error";
+import { normalizeSSEPayload, toSseError } from "@/lib/streaming/sse-payload";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 
 // ---------------------------------------------------------------------------
@@ -45,13 +46,10 @@ export type DoctorEvent = z.infer<typeof DoctorEventSchema>;
 const SESSION_EXPIRED_STATUSES = new Set([404, 410]);
 
 export function parseDoctorEvent(payload: Record<string, unknown> | string): DoctorEvent | null {
-  try {
-    const obj: unknown = typeof payload === "string" ? JSON.parse(payload) : payload;
-    const result = DoctorEventSchema.safeParse(obj);
-    return result.success ? result.data : null;
-  } catch {
-    return null;
-  }
+  const obj = normalizeSSEPayload(payload);
+  if (!obj) return null;
+  const result = DoctorEventSchema.safeParse(obj);
+  return result.success ? result.data : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -321,10 +319,7 @@ export function useDoctorSSE(callbacks: DoctorSSECallbacks) {
             }) as typeof globalThis.fetch,
             onSseError: (error) => {
               if (sessionExpired) return;
-              streamError =
-                error instanceof Error
-                  ? error
-                  : new Error("Doctor stream disconnected");
+              streamError = toSseError(error, "Doctor stream disconnected");
             },
           });
 
