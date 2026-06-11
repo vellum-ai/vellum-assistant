@@ -11,7 +11,6 @@ import {
   CHART_AXIS_LINE,
   CHART_AXIS_TICK,
   CHART_GRID_PROPS,
-  CHART_TOOLTIP_STYLE,
 } from "@/components/charts/chart-config";
 import { formatDateLabel } from "@/components/charts/format-date-label";
 import { StackedBarTooltip } from "@/components/charts/stacked-bar-tooltip";
@@ -93,7 +92,7 @@ function generateTicks(max: number, count: number): number[] {
   const step = max / count;
   const ticks: number[] = [];
   for (let i = 0; i <= count; i++) {
-    ticks.push(Math.round(step * i * 100) / 100);
+    ticks.push(step * i);
   }
   return ticks;
 }
@@ -209,10 +208,15 @@ export function BillingUsageChart({
   );
 
   const formatAxisTick = useCallback(
-    (v: number) =>
-      metric === "spend"
-        ? `$${isMobile ? Math.round(v).toLocaleString("en-US") : v}`
-        : v.toLocaleString("en-US"),
+    (v: number) => {
+      if (metric === "spend") {
+        if (isMobile && v >= 1) return `$${Math.round(v).toLocaleString("en-US")}`;
+        if (v === 0) return "$0";
+        const digits = v < 0.01 ? 4 : v < 1 ? 2 : 0;
+        return `$${v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+      }
+      return v.toLocaleString("en-US");
+    },
     [metric, isMobile],
   );
 
@@ -314,7 +318,6 @@ export function BillingUsageChart({
 
   // Constrain tooltip within container bounds
   const tooltipStyle: React.CSSProperties = {
-    ...CHART_TOOLTIP_STYLE,
     position: "absolute" as const,
     pointerEvents: "none" as const,
     zIndex: 1,
