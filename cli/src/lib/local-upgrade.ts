@@ -1,4 +1,6 @@
 import type { AssistantEntry } from "./assistant-config.js";
+import { findAssistantByName, saveAssistantEntry } from "./assistant-config.js";
+import { createBackup, pruneOldBackups } from "./backup-ops.js";
 import { emitCliError } from "./cli-error.js";
 import {
   getBlockingCallLeases,
@@ -47,6 +49,17 @@ export function resolveLocalUpgradeTarget(
 }
 
 /**
+ * Same-machine probe URL for a local assistant. `runtimeUrl` may be an
+ * external/public address (e.g. a tunnel), while `localUrl` is persisted
+ * specifically for loopback health checks.
+ */
+export function resolveLocalProbeUrl(
+  entry: Pick<AssistantEntry, "localUrl" | "runtimeUrl">,
+): string {
+  return entry.localUrl ?? entry.runtimeUrl;
+}
+
+/**
  * "Upgrade" a local assistant: restart its daemon/gateway processes so they
  * pick up the installed CLI's embedded runtime. The actual version change
  * happens when the CLI itself is updated (see `vellum upgrade --latest`).
@@ -79,6 +92,34 @@ export async function upgradeLocal(
     `🔄 Restarting local assistant '${entry.assistantId}' on ${tag}...\n`,
   );
 
+  const probeUrl = resolveLocalProbeUrl(entry);
+
+  // Pre-upgrade backup before anything is stopped (best-effort, mirrors the
+  // Docker upgrade path — the restarted runtime may run migrations).
+  console.log("📦 Creating pre-upgrade backup...");
+  const backupPath = await createBackup(probeUrl, entry.assistantId, {
+    prefix: `${entry.assistantId}-pre-upgrade`,
+    description: `Pre-upgrade snapshot before local restart on ${tag}`,
+  });
+  if (backupPath) {
+    console.log(`   Backup saved: ${backupPath}\n`);
+    pruneOldBackups(entry.assistantId, 3);
+  } else {
+    console.warn("⚠️  Pre-upgrade backup failed (continuing with upgrade)\n");
+  }
+
+  // Persist the backup path so restores target this attempt's snapshot,
+  // never a stale backup from a prior cycle.
+  {
+    const current = findAssistantByName(entry.assistantId);
+    if (current) {
+      saveAssistantEntry({
+        ...current,
+        preUpgradeBackupPath: backupPath ?? undefined,
+      });
+    }
+  }
+
   // Best-effort client notification (broadcastUpgradeEvent never throws).
   await broadcastUpgradeEvent(
     entry.runtimeUrl,
@@ -99,7 +140,7 @@ export async function upgradeLocal(
   await wakeLocalAssistant(entry, { watch: false, foreground: false });
 
   console.log("Waiting for assistant to become ready...");
-  const ready = await waitForReady(entry.runtimeUrl);
+  const ready = await waitForReady(probeUrl);
   if (!ready) {
     console.error("\n❌ Assistant failed to become ready within the timeout.");
     await broadcastUpgradeEvent(

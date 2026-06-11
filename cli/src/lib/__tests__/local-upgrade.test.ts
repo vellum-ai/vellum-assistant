@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { resolveLocalUpgradeTarget } from "../local-upgrade.js";
+import {
+  resolveLocalProbeUrl,
+  resolveLocalUpgradeTarget,
+} from "../local-upgrade.js";
 
 describe("resolveLocalUpgradeTarget", () => {
   test("null requested version resolves to the CLI's own tag", () => {
@@ -40,5 +43,22 @@ describe("resolveLocalUpgradeTarget", () => {
     if (!result.ok) {
       expect(result.reason).toContain("--latest");
     }
+  });
+});
+
+describe("resolveLocalProbeUrl", () => {
+  test("prefers localUrl when present", () => {
+    expect(
+      resolveLocalProbeUrl({
+        localUrl: "http://127.0.0.1:18300",
+        runtimeUrl: "https://my-assistant.example.com",
+      }),
+    ).toBe("http://127.0.0.1:18300");
+  });
+
+  test("falls back to runtimeUrl when localUrl is absent", () => {
+    expect(
+      resolveLocalProbeUrl({ runtimeUrl: "http://127.0.0.1:18300" }),
+    ).toBe("http://127.0.0.1:18300");
   });
 });
