@@ -1241,11 +1241,13 @@ enum LogExporter {
             config["mcp"] = mcp
         }
 
-        // Strip ACP agent env vars
+        // Strip ACP agent env vars. Sanitize per-entry (mirroring the daemon-side
+        // sanitizer) so a single malformed agent value can't skip redaction for
+        // every well-formed agent.
         if var acp = config["acp"] as? [String: Any],
-           var agents = acp["agents"] as? [String: [String: Any]] {
-            for name in agents.keys {
-                var agent = agents[name]!
+           var agents = acp["agents"] as? [String: Any] {
+            for (name, value) in agents {
+                guard var agent = value as? [String: Any] else { continue }
                 if let env = agent["env"] as? [String: Any] {
                     agent["env"] = redactAllValues(env)
                 }
