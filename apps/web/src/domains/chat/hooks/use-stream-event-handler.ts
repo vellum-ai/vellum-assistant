@@ -322,6 +322,11 @@ export function useStreamEventHandler(
         case "usage_update":
           handleUsageUpdate(event, ctx);
           break;
+        // Per-call usage deltas. The top-level chat surface reads running
+        // totals from `usage_update`; per-call deltas are only consumed by
+        // subagent surfaces via the `subagent_event` envelope.
+        case "usage_progress":
+          break;
         case "conversation_list_invalidated":
           // Legacy macOS-only broadcast. Web receives the paired
           // `sync_changed` (`conversationsList` umbrella for shape
