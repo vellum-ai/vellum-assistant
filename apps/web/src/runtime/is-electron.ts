@@ -418,6 +418,11 @@ declare global {
           ) => void,
         ): () => void;
       };
+      // Optional: older Electron shells predate the file-open channel.
+      fileOpen?: {
+        drain(): Promise<string[]>;
+        onFile(callback: (filePath: string) => void): () => void;
+      };
       feedback?: {
         diagnostics(): Promise<Record<string, unknown>>;
         logs(): Promise<string>;

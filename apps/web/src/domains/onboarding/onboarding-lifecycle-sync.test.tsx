@@ -217,8 +217,8 @@ mock.module("@/runtime/local-mode-host", () => ({
   hatchLocalAssistant: async () => ({ ok: true, assistantId: "local-1" }),
 }));
 
-mock.module("@/assistant/select-platform-assistant", () => ({
-  selectPlatformAssistant: async () => {},
+mock.module("@/assistant/selection", () => ({
+  setSelectedAssistant: async () => {},
 }));
 
 mock.module("@/stores/resolved-assistants-store", () => ({

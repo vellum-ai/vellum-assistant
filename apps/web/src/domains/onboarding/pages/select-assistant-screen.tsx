@@ -2,7 +2,7 @@ import { Check, Cloud, Laptop } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
+import { setSelectedAssistant } from "@/assistant/selection";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { formatRelativeDate } from "@/utils/format-date";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
@@ -65,7 +65,7 @@ export function SelectAssistantScreen() {
       if (assistant.isLocal) {
         await useAuthStore.getState().connectLocalAssistant(assistant.id);
       } else {
-        await selectPlatformAssistant(assistant.id);
+        await setSelectedAssistant(assistant.id);
         await useAuthStore.getState().connectPlatformAssistant(assistant.id);
       }
       void navigate(routes.assistant, { replace: true });
