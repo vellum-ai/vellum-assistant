@@ -467,6 +467,31 @@ describe("GET /schedules — default defer exclusion", () => {
     });
   });
 
+  test("returns One-time as the cadence description for one-shot schedules", () => {
+    createSchedule({
+      name: "One-shot schedule",
+      description: "Send a one-time reminder",
+      cronExpression: null,
+      nextRunAt: Date.now() + 60_000,
+      message: "remember this",
+    });
+
+    const route = findRoute("schedules", "GET");
+    const result = route.handler({}) as {
+      schedules: Array<{
+        name: string;
+        description: string;
+        cadenceDescription: string;
+      }>;
+    };
+
+    expect(result.schedules[0]).toMatchObject({
+      name: "One-shot schedule",
+      description: "Send a one-time reminder",
+      cadenceDescription: "One-time",
+    });
+  });
+
   test("mutation responses also exclude deferred wakes", () => {
     createSchedule({
       name: "Agent schedule",
@@ -1077,9 +1102,6 @@ describe("POST /schedules — create", () => {
       "message is required",
     );
     expect(() =>
-      postCreate({ name: "x", expression: "* * * * *", message: "hi" }),
-    ).toThrow("description is required");
-    expect(() =>
       postCreate({
         name: "x",
         description: "   ",
@@ -1087,6 +1109,17 @@ describe("POST /schedules — create", () => {
         message: "hi",
       }),
     ).toThrow("description is required");
+  });
+
+  test("defaults omitted create descriptions for backward compatibility", () => {
+    postCreate({
+      name: "Description fallback",
+      expression: "0 9 * * *",
+      message: "hi",
+    });
+
+    const job = listSchedules()[0];
+    expect(job.description).toBe("Description fallback");
   });
 
   test("rejects non-execute modes", () => {

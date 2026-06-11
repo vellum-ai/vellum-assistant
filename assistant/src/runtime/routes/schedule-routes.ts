@@ -130,6 +130,9 @@ function getCreatedFromConversationState(
 function getCadenceDescription(
   job: Pick<ScheduleJob, "syntax" | "cronExpression" | "expression">,
 ): string {
+  if (job.cronExpression === null) {
+    return describeCronExpression(job.cronExpression);
+  }
   if (job.syntax === "cron") {
     return describeCronExpression(job.cronExpression);
   }
@@ -190,7 +193,11 @@ function handleCreateSchedule(body: Record<string, unknown>) {
   const expression =
     typeof body.expression === "string" ? body.expression.trim() : "";
   const description =
-    typeof body.description === "string" ? body.description.trim() : "";
+    body.description === undefined
+      ? undefined
+      : typeof body.description === "string"
+        ? body.description.trim()
+        : "";
   const message = typeof body.message === "string" ? body.message : "";
   const timezoneRaw =
     typeof body.timezone === "string" ? body.timezone.trim() : "";
@@ -201,7 +208,9 @@ function handleCreateSchedule(body: Record<string, unknown>) {
   if (!name) throw new BadRequestError("name is required");
   if (!expression) throw new BadRequestError("expression is required");
   if (!message) throw new BadRequestError("message is required");
-  if (!description) throw new BadRequestError("description is required");
+  if (description === "") {
+    throw new BadRequestError("description is required");
+  }
 
   // The settings UI only exposes execute mode for now. Other modes
   // remain reachable via the schedule_create LLM tool.
@@ -482,7 +491,12 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["schedules"],
     requestBody: z.object({
       name: z.string().describe("Display name"),
-      description: z.string().describe("Authored schedule description"),
+      description: z
+        .string()
+        .describe(
+          "Authored schedule description. Defaults to the schedule name when omitted for backward compatibility.",
+        )
+        .optional(),
       expression: z.string().describe("Cron or RRULE expression"),
       message: z.string().describe("Message body to execute on each fire"),
       timezone: z

@@ -143,7 +143,10 @@ export function createSchedule(params: {
   const retryBackoffMs = params.retryBackoffMs ?? 60000;
   const timeoutMs = params.timeoutMs ?? null;
   const createdFromConversationId = params.createdFromConversationId ?? null;
-  const description = normalizeDescription(params.description);
+  const description = normalizeDescription(
+    params.description,
+    params.createdBy === "defer" ? "" : params.name,
+  );
 
   let nextRunAt: number;
   if (isOneShot) {
@@ -1016,8 +1019,12 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
   };
 }
 
-function normalizeDescription(value: string | undefined): string {
-  return value?.trim() ?? "";
+function normalizeDescription(
+  value: string | undefined,
+  fallback = "",
+): string {
+  const normalized = value?.trim() ?? "";
+  return normalized || fallback;
 }
 
 function safeParseJson(

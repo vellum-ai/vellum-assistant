@@ -160,6 +160,7 @@ describe("createSchedule (cron)", () => {
     expect(job.syntax).toBe("cron");
     expect(job.expression).toBe("0 9 * * *");
     expect(job.cronExpression).toBe("0 9 * * *");
+    expect(job.description).toBe("Morning ping");
     expect(job.nextRunAt).toBeGreaterThan(Date.now() - 1000);
     expect(job.enabled).toBe(true);
   });
