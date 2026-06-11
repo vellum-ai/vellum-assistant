@@ -38,7 +38,12 @@ import type {
   PendingQuestionState,
   PendingSecretState,
 } from "@/types/interaction-ui-types";
-import { recordDiagnostic } from "@/lib/diagnostics";
+import {
+  type DiagnosticsEvent,
+  getDiagnosticsEvents,
+  getLifecycleDiagnosticsEvents,
+  recordDiagnostic,
+} from "@/lib/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
@@ -240,6 +245,25 @@ export interface ChatDebugScrollState {
   diagnosis: string;
 }
 
+/**
+ * Kind prefixes that make up the reconciliation triage view returned by
+ * {@link ChatDebugApi.getReconciliationDiagnostics}: the reconcile loop
+ * itself (`reconciliation_*`, `debug_force_reconcile_*`), the pre-updater
+ * drop gates that silently discard SSE events (`sse_event_seq_replayed`,
+ * `sse_event_wrong_conversation*`, `sse_event_stale`), and the seq-frontier
+ * transitions that explain them (`sse_seq_generation_reset`,
+ * `sse_seq_gap_detected`).
+ */
+export const RECONCILIATION_DIAGNOSTIC_KIND_PREFIXES: readonly string[] = [
+  "reconciliation_",
+  "debug_force_reconcile_",
+  "sse_event_seq_replayed",
+  "sse_event_wrong_conversation",
+  "sse_event_stale",
+  "sse_seq_generation_reset",
+  "sse_seq_gap_detected",
+];
+
 /** The dev API surface attached to `window._vellumDebug.chat`. */
 export interface ChatDebugApi {
   /**
@@ -362,6 +386,43 @@ export interface ChatDebugApi {
    * - If `hasMore === false`, the server reports no more history.
    */
   getScrollState(): ChatDebugScrollState;
+  /**
+   * Return the main (high-volume) diagnostics ring — per-delta SSE
+   * diagnostics, history applies, drop-gate skips — newest last, each
+   * entry timestamped (`ts`, ISO). Optionally filter by kind prefix,
+   * e.g. `getDiagnostics("sse_event_")` or
+   * `getDiagnostics("reconciliation_applied")`.
+   *
+   * Reads the sessionStorage-backed ring from `@/lib/diagnostics`
+   * (`vellum:chat-diagnostics:v1`, capped at 200 entries). Synchronous
+   * and side-effect-free; returns defensive copies.
+   */
+  getDiagnostics(kindPrefix?: string): DiagnosticsEvent[];
+  /**
+   * Return the durable lifecycle diagnostics ring — stream open / close /
+   * reconnect / watchdog, tab visibility, network, power transitions —
+   * newest last. Optionally filter by kind prefix. Kept in a separate
+   * buffer (`vellum:chat-diagnostics-lifecycle:v1`) so high-volume
+   * per-delta events never flush the connection timeline.
+   *
+   * Synchronous and side-effect-free; returns defensive copies.
+   */
+  getLifecycleDiagnostics(kindPrefix?: string): DiagnosticsEvent[];
+  /**
+   * Curated triage view for "streamed text never showed up" /
+   * "reconcile clobbered my messages" reports: the main ring filtered to
+   * {@link RECONCILIATION_DIAGNOSTIC_KIND_PREFIXES} — reconcile loop
+   * activity, the SSE drop gates (`sse_event_seq_replayed` et al.), and
+   * seq-frontier resets/gaps — in chronological order.
+   *
+   * Reading it: an `sse_event_seq_replayed` whose `details.localSeq` is
+   * far above `details.eventSeq` right after an `sse_seq_generation_reset`
+   * is the stale-frontier signature; a `reconciliation_applied` in the
+   * same window explains an alias-only row with no streamed text.
+   *
+   * Synchronous and side-effect-free.
+   */
+  getReconciliationDiagnostics(): DiagnosticsEvent[];
   /** Print help for this API. Log-only, returns undefined. */
   help(): void;
 }
@@ -725,6 +786,30 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     };
   }
 
+  function filterByKindPrefix(
+    events: DiagnosticsEvent[],
+    kindPrefix?: string,
+  ): DiagnosticsEvent[] {
+    if (!kindPrefix) return events;
+    return events.filter((event) => event.kind.startsWith(kindPrefix));
+  }
+
+  function getDiagnostics(kindPrefix?: string): DiagnosticsEvent[] {
+    return filterByKindPrefix(getDiagnosticsEvents(), kindPrefix);
+  }
+
+  function getLifecycleDiagnostics(kindPrefix?: string): DiagnosticsEvent[] {
+    return filterByKindPrefix(getLifecycleDiagnosticsEvents(), kindPrefix);
+  }
+
+  function getReconciliationDiagnostics(): DiagnosticsEvent[] {
+    return getDiagnosticsEvents().filter((event) =>
+      RECONCILIATION_DIAGNOSTIC_KIND_PREFIXES.some((prefix) =>
+        event.kind.startsWith(prefix),
+      ),
+    );
+  }
+
   function help(): void {
     const lines = [
       "window._vellumDebug.chat — surgical chat debug API",
@@ -743,6 +828,11 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       "                              contact-request/question) and submission flags",
       "  .getScrollState()          scroll geometry + pagination — why can't I scroll up?",
       "                              .diagnosis gives a human-readable summary",
+      "  .getDiagnostics(prefix?)   main diagnostics ring (per-delta SSE / drop gates / history applies),",
+      "                              optionally filtered by kind prefix, e.g. .getDiagnostics('sse_event_')",
+      "  .getLifecycleDiagnostics(prefix?)  durable lifecycle ring — stream open/close/reconnect, visibility, network",
+      "  .getReconciliationDiagnostics()    curated timeline: reconcile loop + SSE drop gates + seq resets/gaps —",
+      "                              the 'streamed text never showed up' triage view",
       "  .help()                    print this message",
     ];
     console.log(lines.join("\n"));
@@ -758,6 +848,9 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     serverMessages,
     listPendingInteractions,
     getScrollState,
+    getDiagnostics,
+    getLifecycleDiagnostics,
+    getReconciliationDiagnostics,
     help,
   };
 }
