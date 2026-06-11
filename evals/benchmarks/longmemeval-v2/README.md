@@ -175,7 +175,7 @@ and `dispose()` from their `finally`.
 the shared `summarizeAssistantUsage` + pricing pass:
 
 - **Assistant usage** — token counts the egress jail's recording sidecar
-  parsed out of the assistant's *observed* model traffic, exposed as
+  parsed out of the assistant's _observed_ model traffic, exposed as
   `recordedUsage` on `runIngestAsk`'s result. This is the un-spoofable
   cost authority (see `evals/AGENTS.md`): an assistant or its adapter
   can choose what events to emit, so cost is taken from the wire, never

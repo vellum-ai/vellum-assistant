@@ -283,8 +283,18 @@ describe("runIngestAsk — happy path", () => {
   test("surfaces the egress jail's usage records, read before the agent is retired", async () => {
     // GIVEN an agent whose egress jail observed two model calls
     const records = [
-      { provider: "anthropic", model: "claude", input_tokens: 100, output_tokens: 20 },
-      { provider: "anthropic", model: "claude", input_tokens: 5, output_tokens: 300 },
+      {
+        provider: "anthropic",
+        model: "claude",
+        input_tokens: 100,
+        output_tokens: 20,
+      },
+      {
+        provider: "anthropic",
+        model: "claude",
+        input_tokens: 5,
+        output_tokens: 300,
+      },
     ];
     const harness = makeFakeAgent({
       responses: [[textEvent("ack"), readyEvent()], [textEvent("answer")]],
