@@ -44,7 +44,11 @@ interface CardSurfaceData {
 
 interface CardSurfaceProps {
   surface: Surface;
-  onAction: (surfaceId: string, actionId: string, data?: Record<string, unknown>) => void | Promise<void>;
+  onAction: (
+    surfaceId: string,
+    actionId: string,
+    data?: Record<string, unknown>,
+  ) => void | Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -52,13 +56,25 @@ interface CardSurfaceProps {
 // ---------------------------------------------------------------------------
 
 const STATUS_CONFIG: Record<string, { label: string; colorClass: string }> = {
-  completed: { label: "Completed", colorClass: "text-[var(--system-positive-strong)]" },
-  in_progress: { label: "In Progress", colorClass: "text-[var(--system-mid-strong)]" },
+  completed: {
+    label: "Completed",
+    colorClass: "text-[var(--system-positive-strong)]",
+  },
+  in_progress: {
+    label: "In Progress",
+    colorClass: "text-[var(--system-mid-strong)]",
+  },
   waiting: { label: "Waiting", colorClass: "text-[var(--system-mid-strong)]" },
-  failed: { label: "Failed", colorClass: "text-[var(--system-negative-strong)]" },
+  failed: {
+    label: "Failed",
+    colorClass: "text-[var(--system-negative-strong)]",
+  },
 };
 
-const DEFAULT_STATUS = { label: "Pending", colorClass: "text-[var(--content-disabled)]" };
+const DEFAULT_STATUS = {
+  label: "Pending",
+  colorClass: "text-[var(--content-disabled)]",
+};
 
 function getStatusConfig(status: string | undefined) {
   return STATUS_CONFIG[status ?? ""] ?? DEFAULT_STATUS;
@@ -87,7 +103,9 @@ function StatusBadge({ status }: { status: string | undefined }) {
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-body-small-default ${colorClass}`}
-      style={{ backgroundColor: "color-mix(in srgb, currentColor 15%, transparent)" }}
+      style={{
+        backgroundColor: "color-mix(in srgb, currentColor 15%, transparent)",
+      }}
     >
       {label}
     </span>
@@ -116,7 +134,28 @@ function StepIcon({ status }: { status: string | undefined }) {
 // Task progress template
 // ---------------------------------------------------------------------------
 
-function TaskProgressBar({ templateData }: { templateData: Record<string, unknown> }) {
+/**
+ * The counter-style task_progress fallback only makes sense when the template
+ * data actually carries usable `{ completed, total }` counters. Malformed
+ * template data — e.g. a model emitting `steps` as an object instead of an
+ * array, which fails `isTaskProgressSurface` — must not fall through to a
+ * meaningless "0 / 0 tasks · 0%" bar; the card degrades to its plain body
+ * instead. `completed` may be absent (treated as 0 by the bar), `total` must
+ * coerce to a finite positive number.
+ */
+function hasUsableProgressCounters(
+  templateData: Record<string, unknown>,
+): boolean {
+  const completed = Number(templateData.completed ?? 0);
+  const total = Number(templateData.total ?? NaN);
+  return Number.isFinite(completed) && Number.isFinite(total) && total > 0;
+}
+
+function TaskProgressBar({
+  templateData,
+}: {
+  templateData: Record<string, unknown>;
+}) {
   const completed = Number(templateData.completed ?? 0);
   const total = Number(templateData.total ?? 0);
   const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
@@ -152,7 +191,10 @@ function TaskStepList({
         const status = effectiveStepStatus(step.status, taskCompleted);
         const showDetailOnRight = status === "in_progress" && !!step.detail;
         return (
-          <div key={step.id || index} className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
+          <div
+            key={step.id || index}
+            className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0"
+          >
             <span className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-md bg-[var(--tag-bg-neutral)] px-1.5 text-label-medium-default tabular-nums text-[var(--content-tertiary)]">
               {index + 1}
             </span>
@@ -193,23 +235,30 @@ function TaskStepList({
 export function CardSurface({ surface, onAction }: CardSurfaceProps) {
   const data = surface.data as unknown as CardSurfaceData;
   const isWeather = data.template === "weather_forecast" && data.templateData;
-  const isTaskProgress = data.template === "task_progress" && data.templateData;
+  const isTaskProgress =
+    data.template === "task_progress" &&
+    !!data.templateData &&
+    hasUsableProgressCounters(data.templateData);
   // Shared predicate so this render-detection and the activity-summary
   // hoist-detection in transcript-message-body cannot drift.
   const hasSteps = isTaskProgressSurface(surface);
-  const cardTitle = normalizedTitle(data.title) || normalizedTitle(surface.title);
+  const cardTitle =
+    normalizedTitle(data.title) || normalizedTitle(surface.title);
 
   if (hasSteps) {
     const templateData = data.templateData!;
     const title = normalizedTitle(templateData.title) || cardTitle || "Task";
-    const status = typeof templateData.status === "string" ? templateData.status : undefined;
+    const status =
+      typeof templateData.status === "string" ? templateData.status : undefined;
     const steps = templateData.steps as TaskStepItem[];
 
     return (
       <SurfaceContainer surface={surface} onAction={onAction} hideTitle>
         <div>
           <div className="flex items-center justify-between">
-            <span className="text-title-small text-[var(--content-strong)]">{title}</span>
+            <span className="text-title-small text-[var(--content-strong)]">
+              {title}
+            </span>
             <StatusBadge status={status} />
           </div>
           <TaskStepList steps={steps} taskCompleted={status === "completed"} />
@@ -229,16 +278,23 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
     <SurfaceContainer surface={surface} onAction={onAction} hideTitle>
       <div>
         {cardTitle && (
-          <h3 className="text-title-small text-[var(--content-strong)]">{cardTitle}</h3>
+          <h3 className="text-title-small text-[var(--content-strong)]">
+            {cardTitle}
+          </h3>
         )}
 
         {data.subtitle && (
-          <p className="mt-0.5 text-body-small-default text-[var(--content-quiet)]">{data.subtitle}</p>
+          <p className="mt-0.5 text-body-small-default text-[var(--content-quiet)]">
+            {data.subtitle}
+          </p>
         )}
 
         {isWeather ? (
           <LazyBoundary fallback={bodyMarkdown} errorFallback={bodyMarkdown}>
-            <WeatherForecastDisplay templateData={data.templateData!} fallback={bodyMarkdown} />
+            <WeatherForecastDisplay
+              templateData={data.templateData!}
+              fallback={bodyMarkdown}
+            />
           </LazyBoundary>
         ) : (
           <>
@@ -251,7 +307,9 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
                     <dt className="text-body-small-default text-[var(--content-quiet)]">
                       {item.label}
                     </dt>
-                    <dd className="text-body-medium-lighter text-[var(--content-strong)]">{item.value}</dd>
+                    <dd className="text-body-medium-lighter text-[var(--content-strong)]">
+                      {item.value}
+                    </dd>
                   </div>
                 ))}
               </div>

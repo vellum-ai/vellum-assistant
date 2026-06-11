@@ -22,7 +22,12 @@ import type { WorkspaceMigration } from "./types.js";
 //   - Already have thinking enabled (idempotent)
 //   - Are source: "user" (user-created profiles are untouched)
 //   - Have a non-managed, non-absent source (unknown origin)
-//   - Use a non-Anthropic provider (adaptive thinking is Anthropic-specific)
+//   - Resolve to a non-Anthropic provider (adaptive thinking is
+//     Anthropic-specific). A profile with no explicit provider inherits
+//     llm.default.provider, so the check falls back to that — with a
+//     completely absent llm.default.provider treated as Anthropic, matching
+//     migration 052's own `?? "anthropic"` default. This keeps the legacy
+//     non-Anthropic empty `{}` shells seeded by migration 052 off the repair.
 //
 // Note: the live startup path re-runs the same repair after the platform
 // overlay merge — see assistant/src/workspace/adaptive-thinking-repair.ts.
@@ -56,6 +61,14 @@ export const enableAdaptiveThinkingManagedProfilesMigration: WorkspaceMigration 
       const profiles = readObject(llm.profiles);
       if (profiles === null) return;
 
+      // Profiles without an explicit provider inherit llm.default.provider at
+      // resolution time; an absent llm.default.provider resolves to Anthropic.
+      const defaultBlock = readObject(llm.default);
+      const defaultProvider =
+        typeof defaultBlock?.provider === "string"
+          ? defaultBlock.provider
+          : "anthropic";
+
       let changed = false;
 
       for (const name of TARGET_PROFILES) {
@@ -66,18 +79,18 @@ export const enableAdaptiveThinkingManagedProfilesMigration: WorkspaceMigration 
         // Legacy profiles created before the `source` metadata field was
         // introduced have source=undefined. Treat these as managed when the
         // profile name is one of the canonical managed names (which
-        // TARGET_PROFILES already guarantees) and the provider is Anthropic
-        // (or absent). Explicit `source: "user"` profiles are always skipped.
+        // TARGET_PROFILES already guarantees) and the effective provider —
+        // explicit, or inherited from llm.default — is Anthropic. Explicit
+        // `source: "user"` profiles are always skipped.
         if (profile.source === "user") continue;
         if (profile.source !== undefined && profile.source !== "managed") {
           continue;
         }
-        if (
-          typeof profile.provider === "string" &&
-          profile.provider !== "anthropic"
-        ) {
-          continue;
-        }
+        const effectiveProvider =
+          typeof profile.provider === "string"
+            ? profile.provider
+            : defaultProvider;
+        if (effectiveProvider !== "anthropic") continue;
 
         // Skip if thinking is already enabled.
         const thinking = readObject(profile.thinking);
