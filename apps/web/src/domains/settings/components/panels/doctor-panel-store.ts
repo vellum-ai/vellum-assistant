@@ -47,6 +47,9 @@ export interface DoctorPanelState {
 
   /** Monotonic counter for generating unique entry IDs. */
   entryCounter: number;
+
+  /** Tracks which assistant owns the current store state. */
+  lastAssistantId: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -61,8 +64,11 @@ export interface DoctorPanelActions {
   /** Reset session state but keep entries visible (end session). */
   teardown: () => void;
 
-  /** Clear everything — entries, history, input (assistant change / new session). */
+  /** Clear everything — entries, history, input (assistant change). */
   reset: () => void;
+
+  /** Clear session + entries for "New Session" without resetting history flag. */
+  resetForNewSession: () => void;
 
   setInputValue: (v: string) => void;
   setThinking: (v: boolean) => void;
@@ -123,12 +129,13 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
   ending: false,
   streamingEntryId: null,
   entryCounter: 0,
+  lastAssistantId: null,
 
   // Actions
   nextId: () => {
-    const id = `entry-${get().entryCounter + 1}`;
-    set({ entryCounter: get().entryCounter + 1 });
-    return id;
+    const next = get().entryCounter + 1;
+    set({ entryCounter: next });
+    return `entry-${next}`;
   },
 
   appendEntry: (entry) => {
@@ -168,6 +175,27 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
       selectedHistorySessionId: null,
       appliedHistorySessionId: null,
       historyAutoLoadAttempted: false,
+      sending: false,
+      starting: false,
+      ending: false,
+      streamingEntryId: null,
+      entryCounter: 0,
+    });
+  },
+
+  resetForNewSession: () => {
+    set({
+      entries: [],
+      inputValue: "",
+      thinking: false,
+      sessionId: null,
+      sessionStatus: "idle",
+      pendingApproval: false,
+      pendingBackup: false,
+      selectedHistorySessionId: null,
+      appliedHistorySessionId: null,
+      // historyAutoLoadAttempted intentionally NOT reset — prevents
+      // re-triggering history auto-load after "New Session".
       sending: false,
       starting: false,
       ending: false,

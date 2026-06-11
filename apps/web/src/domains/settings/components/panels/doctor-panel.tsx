@@ -41,6 +41,22 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { isPointerCoarse } from "@/utils/pointer";
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Fire-and-forget server-side cleanup for a doctor session. */
+function cleanupServerSession(assistantId: string, sessionId: string): void {
+  assistantsDoctorSessionsDestroy({
+    path: { assistant_id: assistantId, session_id: sessionId },
+    throwOnError: false,
+  }).catch(() => {});
+  assistantsMaintenanceModeExitCreate({
+    path: { assistant_id: assistantId },
+    throwOnError: false,
+  }).catch(() => {});
+}
+
+// ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
@@ -167,14 +183,7 @@ export function DoctorPanel() {
     try {
       abort();
       if (store.sessionId && assistantId) {
-        await assistantsDoctorSessionsDestroy({
-          path: { assistant_id: assistantId, session_id: store.sessionId },
-          throwOnError: false,
-        }).catch(() => {});
-        assistantsMaintenanceModeExitCreate({
-          path: { assistant_id: assistantId },
-          throwOnError: false,
-        }).catch(() => {});
+        cleanupServerSession(assistantId, store.sessionId);
       }
       useDoctorPanelStore.getState().teardown();
     } finally {
@@ -186,16 +195,9 @@ export function DoctorPanel() {
     const store = useDoctorPanelStore.getState();
     abort();
     if (store.sessionId && assistantId) {
-      await assistantsDoctorSessionsDestroy({
-        path: { assistant_id: assistantId, session_id: store.sessionId },
-        throwOnError: false,
-      }).catch(() => {});
-      assistantsMaintenanceModeExitCreate({
-        path: { assistant_id: assistantId },
-        throwOnError: false,
-      }).catch(() => {});
+      cleanupServerSession(assistantId, store.sessionId);
     }
-    useDoctorPanelStore.getState().reset();
+    useDoctorPanelStore.getState().resetForNewSession();
   }, [assistantId, abort]);
 
   const sendMessage = useCallback(
@@ -329,29 +331,20 @@ export function DoctorPanel() {
     historyDetailQuery.error,
   ]);
 
-  // Reset all doctor state when active assistant changes.
-  // State is cleared synchronously so a quick "Start Session" on the new
-  // assistant cannot be clobbered by delayed setters from the old teardown.
-  const prevAssistantIdRef = useRef(assistantId);
+  // Reset all doctor state when active assistant changes (including remount
+  // with a different assistant — the store is module-level and survives unmount).
   useEffect(() => {
-    if (prevAssistantIdRef.current === assistantId) return;
-    const oldAssistantId = prevAssistantIdRef.current;
-    const oldSessionId = useDoctorPanelStore.getState().sessionId;
-    prevAssistantIdRef.current = assistantId;
+    const store = useDoctorPanelStore.getState();
+    if (store.lastAssistantId === assistantId) return;
+    const oldAssistantId = store.lastAssistantId;
+    const oldSessionId = store.sessionId;
 
     abort();
-    useDoctorPanelStore.getState().reset();
+    store.reset();
+    useDoctorPanelStore.setState({ lastAssistantId: assistantId });
 
-    // Fire-and-forget: server-side cleanup for old assistant
     if (oldSessionId && oldAssistantId) {
-      assistantsDoctorSessionsDestroy({
-        path: { assistant_id: oldAssistantId, session_id: oldSessionId },
-        throwOnError: false,
-      }).catch(() => {});
-      assistantsMaintenanceModeExitCreate({
-        path: { assistant_id: oldAssistantId },
-        throwOnError: false,
-      }).catch(() => {});
+      cleanupServerSession(oldAssistantId, oldSessionId);
     }
   }, [assistantId, abort]);
 
