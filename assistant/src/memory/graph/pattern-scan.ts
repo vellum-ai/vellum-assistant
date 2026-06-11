@@ -13,6 +13,7 @@ import { z } from "zod";
 import type { AssistantConfig } from "../../config/types.js";
 import { runOneShotLLM } from "../../providers/one-shot-llm.js";
 import { userMessage } from "../../providers/provider-send-message.js";
+import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { createEdge, createNode, queryNodes } from "./store.js";
 
@@ -173,8 +174,7 @@ export async function runPatternScan(
   );
 
   // `onUnavailable: "throw"` preserves the prior BackendUnavailableError
-  // semantics. A schema mismatch or missing tool_use degrades to "no patterns
-  // detected" — the same empty result the old `!toolBlock` path produced.
+  // semantics for the no-provider case.
   const llmResult = await runOneShotLLM(
     "patternScan",
     [
@@ -193,6 +193,28 @@ export async function runPatternScan(
   );
 
   if (llmResult.status !== "ok") {
+    // Required-job semantics: pattern scan runs as the `graph_pattern_scan`
+    // memory job, and `jobs-worker.ts` calls `completeMemoryJob()` when this
+    // returns normally — the maintenance checkpoint has already advanced at
+    // enqueue time. A transient transport failure (timeout / provider error)
+    // must NOT return an empty result, or the worker marks the job COMPLETED
+    // and the scan is silently skipped for a full interval. Re-throw
+    // BackendUnavailableError so `classifyError` (memory/job-utils.ts) routes
+    // it to defer/retry, matching `consolidateChunk` / `runGraphExtraction`
+    // and the sweep job. Malformed model output (`tool_use_missing` /
+    // `schema_mismatch`) is NOT transient — retrying won't help — so it keeps
+    // degrading to "no patterns detected", the same empty result the old
+    // `!toolBlock` path produced.
+    if (
+      llmResult.status === "failure" &&
+      (llmResult.reason === "timeout" || llmResult.reason === "provider_error")
+    ) {
+      throw llmResult.error instanceof BackendUnavailableError
+        ? llmResult.error
+        : new BackendUnavailableError(
+            `Pattern scan LLM call failed (${llmResult.reason})`,
+          );
+    }
     log.warn(
       { reason: llmResult.status === "failure" ? llmResult.reason : undefined },
       "Pattern scan produced no usable tool output",

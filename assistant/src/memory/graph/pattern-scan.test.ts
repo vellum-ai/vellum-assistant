@@ -38,15 +38,20 @@ mock.module("../../providers/provider-send-message.js", () => ({
   extractToolUse: (response: ProviderResponse) =>
     response.content.find((b): b is ToolUseContent => b.type === "tool_use"),
   extractAllText: () => "",
+  // Cap the fuse at 100ms so the timeout-path test aborts quickly instead of
+  // waiting the scan's real 60s `PATTERN_SCAN_TIMEOUT_MS`. Providers in the
+  // other tests resolve on the next microtask, well before 100ms, so the cap
+  // never trips them.
   createTimeout: (ms: number) => {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), ms);
+    const timer = setTimeout(() => controller.abort(), Math.min(ms, 100));
     return { signal: controller.signal, cleanup: () => clearTimeout(timer) };
   },
 }));
 
 import { resetDbForTesting } from "../../__tests__/db-test-helpers.js";
 import { DEFAULT_CONFIG } from "../../config/defaults.js";
+import { BackendUnavailableError } from "../../util/errors.js";
 import { initializeDb } from "../db-init.js";
 import { runPatternScan } from "./pattern-scan.js";
 import { createNode, queryNodes } from "./store.js";
@@ -103,6 +108,38 @@ function makeToolProvider(input: unknown): Provider {
         },
       ],
     }),
+  } as Provider;
+}
+
+/** Provider stub whose `sendMessage` throws — simulates `provider_error`. */
+function makeThrowingProvider(err: unknown): Provider {
+  return {
+    name: "stub",
+    sendMessage: async () => {
+      throw err;
+    },
+  } as Provider;
+}
+
+/**
+ * Provider stub that rejects with an AbortError once its abort signal fires —
+ * simulates the timeout path. `runOneShotLLM` sees `signal.aborted` and reports
+ * `reason: "timeout"`. Pair with a small `createTimeout` so the abort is fast.
+ */
+function makeAbortAwaitingProvider(): Provider {
+  return {
+    name: "stub",
+    sendMessage: (_msgs: Message[], opts?: SendMessageOptions) =>
+      new Promise<ProviderResponse>((_resolve, reject) => {
+        const signal = opts?.signal;
+        if (signal?.aborted) {
+          reject(new DOMException("Aborted", "AbortError"));
+          return;
+        }
+        signal?.addEventListener("abort", () => {
+          reject(new DOMException("Aborted", "AbortError"));
+        });
+      }),
   } as Provider;
 }
 
@@ -175,6 +212,35 @@ describe("runPatternScan — schema validation + degradation", () => {
     providerStub = null;
 
     await expect(runPatternScan(SCOPE, DEFAULT_CONFIG)).rejects.toThrow();
+  });
+
+  test("re-throws BackendUnavailableError on a provider error (transient) so the worker retries", async () => {
+    seedNodes(12);
+    const before = queryNodes({ scopeId: SCOPE }).length;
+    // A transport failure (provider.sendMessage throws, signal NOT aborted)
+    // surfaces as `reason: "provider_error"`. The pattern-scan job must re-throw
+    // BackendUnavailableError so `classifyError` defers/retries instead of
+    // marking the job COMPLETED and skipping the scan for a full interval.
+    providerStub = makeThrowingProvider(new Error("upstream 503"));
+
+    await expect(runPatternScan(SCOPE, DEFAULT_CONFIG)).rejects.toBeInstanceOf(
+      BackendUnavailableError,
+    );
+    // No graph writes on a failed scan.
+    expect(queryNodes({ scopeId: SCOPE }).length).toBe(before);
+  });
+
+  test("re-throws BackendUnavailableError on a timeout (transient) so the worker retries", async () => {
+    seedNodes(12);
+    // A stalled provider connection that hits the timeout aborts the request;
+    // `runOneShotLLM` reports `reason: "timeout"`, which the job must re-throw
+    // as BackendUnavailableError (the established transient-backend signal). The
+    // mocked `createTimeout` caps the fuse at 100ms, so the abort fires fast.
+    providerStub = makeAbortAwaitingProvider();
+
+    await expect(runPatternScan(SCOPE, DEFAULT_CONFIG)).rejects.toBeInstanceOf(
+      BackendUnavailableError,
+    );
   });
 
   test("returns an empty result without an LLM call for too-few nodes", async () => {

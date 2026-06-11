@@ -14,6 +14,7 @@ import { z } from "zod";
 import type { AssistantConfig } from "../../config/types.js";
 import { runOneShotLLM } from "../../providers/one-shot-llm.js";
 import { userMessage } from "../../providers/provider-send-message.js";
+import { BackendUnavailableError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { queryNodes, updateNode } from "./store.js";
 import type { MemoryNode } from "./types.js";
@@ -211,9 +212,8 @@ export async function runNarrativeRefinement(
     })),
   );
 
-  // `onUnavailable: "throw"` preserves the prior BackendUnavailableError.
-  // A missing tool_use or schema mismatch degrades to "no updates" — the same
-  // empty result the old `!toolBlock` path produced.
+  // `onUnavailable: "throw"` preserves the prior BackendUnavailableError for
+  // the no-provider case.
   const llmResult = await runOneShotLLM(
     "narrativeRefinement",
     [
@@ -232,6 +232,25 @@ export async function runNarrativeRefinement(
   );
 
   if (llmResult.status !== "ok") {
+    // Required-job semantics (mirrors pattern-scan): narrative refinement runs
+    // as a memory maintenance job whose worker calls `completeMemoryJob()` when
+    // this returns normally, and the checkpoint has already advanced at enqueue
+    // time. A transient transport failure (timeout / provider error) must
+    // re-throw BackendUnavailableError so `classifyError` routes it to
+    // defer/retry — otherwise the weekly refinement is silently skipped for a
+    // full interval. Malformed model output (`tool_use_missing` /
+    // `schema_mismatch`) is not transient, so it keeps degrading to "no
+    // updates" — the same empty result the old `!toolBlock` path produced.
+    if (
+      llmResult.status === "failure" &&
+      (llmResult.reason === "timeout" || llmResult.reason === "provider_error")
+    ) {
+      throw llmResult.error instanceof BackendUnavailableError
+        ? llmResult.error
+        : new BackendUnavailableError(
+            `Narrative refinement LLM call failed (${llmResult.reason})`,
+          );
+    }
     log.warn(
       { reason: llmResult.status === "failure" ? llmResult.reason : undefined },
       "Narrative refinement produced no usable tool output",
