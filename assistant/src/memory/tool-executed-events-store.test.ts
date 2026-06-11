@@ -61,8 +61,11 @@ function insertInvocation(spec: SeedSpec): void {
       riskLevel: "low",
       durationMs: spec.durationMs ?? 12,
       createdAt: spec.createdAt,
-      argBytes: spec.argBytes ?? null,
-      resultBytes: spec.resultBytes ?? null,
+      // Post-migration writer paths always compute byte sizes (legacy
+      // pre-migration rows are the only null-argBytes rows), so the seed
+      // defaults to non-null. Pass an explicit null to seed a legacy row.
+      argBytes: spec.argBytes !== undefined ? spec.argBytes : 2,
+      resultBytes: spec.resultBytes !== undefined ? spec.resultBytes : 9,
       provider: spec.provider ?? null,
       model: spec.model ?? null,
       inferenceProfile: spec.inferenceProfile ?? null,
@@ -130,13 +133,29 @@ describe("tool-executed-events-store", () => {
     expect(rows.map((r) => r.id)).toEqual(["ti-allow", "ti-error"]);
   });
 
-  test("pre-migration rows project with null telemetry columns", () => {
-    insertInvocation({ id: "ti-old", createdAt: 1000 });
+  test("excludes legacy pre-migration rows (null arg_bytes)", () => {
+    // Pre-migration-278 rows were already shipped under the since-reverted
+    // tool_execution event type — they must never be projected, even from
+    // a zero watermark.
+    insertInvocation({
+      id: "ti-legacy",
+      createdAt: 1000,
+      argBytes: null,
+      resultBytes: null,
+    });
+    insertInvocation({ id: "ti-new", createdAt: 2000 });
+
+    const rows = queryUnreportedToolExecutedEvents(0, undefined, 100);
+    expect(rows.map((r) => r.id)).toEqual(["ti-new"]);
+  });
+
+  test("post-migration rows project with null attribution columns", () => {
+    insertInvocation({ id: "ti-no-attr", createdAt: 1000 });
 
     const rows = queryUnreportedToolExecutedEvents(0, undefined, 100);
     expect(rows[0]).toMatchObject({
-      argBytes: null,
-      resultBytes: null,
+      argBytes: 2,
+      resultBytes: 9,
       provider: null,
       model: null,
       inferenceProfile: null,

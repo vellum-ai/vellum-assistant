@@ -23,8 +23,11 @@ import {
 import { queryUnreportedLifecycleEvents } from "../memory/lifecycle-events-store.js";
 import { queryUnreportedUsageEvents } from "../memory/llm-usage-store.js";
 import { queryUnreportedOnboardingEvents } from "../memory/onboarding-events-store.js";
+import { queryUnreportedSkillLoadedEvents } from "../memory/skill-loaded-events-store.js";
+import { queryUnreportedToolExecutedEvents } from "../memory/tool-executed-events-store.js";
 import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
 import { VellumPlatformClient } from "../platform/client.js";
+import type { UsageAttributionProfileSource } from "../usage/types.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger } from "../util/logger.js";
 import { APP_VERSION } from "../version.js";
@@ -56,6 +59,14 @@ const CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK =
   "telemetry:auth_fallback:last_reported_at";
 const CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK_ID =
   "telemetry:auth_fallback:last_reported_id";
+const CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK =
+  "telemetry:tool_executed:last_reported_at";
+const CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK_ID =
+  "telemetry:tool_executed:last_reported_id";
+const CHECKPOINT_KEY_SKILL_LOADED_WATERMARK =
+  "telemetry:skill_loaded:last_reported_at";
+const CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID =
+  "telemetry:skill_loaded:last_reported_id";
 const REPORT_INTERVAL_MS = 5 * 60 * 1000;
 const INITIAL_FLUSH_DELAY_MS = 30_000; // Delay first flush to let CES handshake complete
 const BATCH_SIZE = 500;
@@ -149,6 +160,8 @@ export class UsageTelemetryReporter {
         setMemoryCheckpoint(CHECKPOINT_KEY_LIFECYCLE_WATERMARK, now);
         setMemoryCheckpoint(CHECKPOINT_KEY_ONBOARDING_WATERMARK, now);
         setMemoryCheckpoint(CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK, now);
+        setMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK, now);
+        setMemoryCheckpoint(CHECKPOINT_KEY_SKILL_LOADED_WATERMARK, now);
         return;
       }
 
@@ -189,6 +202,31 @@ export class UsageTelemetryReporter {
         getMemoryCheckpoint(CHECKPOINT_KEY_AUTH_FALLBACK_WATERMARK_ID) ??
         undefined;
 
+      // Read tool-executed watermark (compound cursor: createdAt + id).
+      // The standard 0 default is safe even though `tool_invocations` is a
+      // pre-existing audit table: legacy rows — already shipped under the
+      // since-reverted `tool_execution` event type and lacking the
+      // arg_bytes/result_bytes/attribution columns — are excluded at the
+      // query level via the null `arg_bytes` discriminator (see
+      // queryUnreportedToolExecutedEvents), so they are never backfilled.
+      // Rows recorded after migration 278 but before the first flush ARE
+      // picked up, which a now-initialized watermark would have dropped.
+      const toolExecutedWatermark = Number(
+        getMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK) ?? "0",
+      );
+      const toolExecutedWatermarkId =
+        getMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK_ID) ??
+        undefined;
+
+      // Read skill-loaded watermark (compound cursor: createdAt + id).
+      // Brand-new table, so the standard 0 default is safe.
+      const skillLoadedWatermark = Number(
+        getMemoryCheckpoint(CHECKPOINT_KEY_SKILL_LOADED_WATERMARK) ?? "0",
+      );
+      const skillLoadedWatermarkId =
+        getMemoryCheckpoint(CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID) ??
+        undefined;
+
       // Query unreported events
       const events = queryUnreportedUsageEvents(
         watermark,
@@ -215,13 +253,25 @@ export class UsageTelemetryReporter {
         authFallbackWatermarkId,
         BATCH_SIZE,
       );
+      const toolExecutedEvents = queryUnreportedToolExecutedEvents(
+        toolExecutedWatermark,
+        toolExecutedWatermarkId,
+        BATCH_SIZE,
+      );
+      const skillLoadedEvents = queryUnreportedSkillLoadedEvents(
+        skillLoadedWatermark,
+        skillLoadedWatermarkId,
+        BATCH_SIZE,
+      );
 
       if (
         events.length === 0 &&
         turnEvents.length === 0 &&
         lifecycleEvents.length === 0 &&
         onboardingEvents.length === 0 &&
-        authFallbackEvents.length === 0
+        authFallbackEvents.length === 0 &&
+        toolExecutedEvents.length === 0 &&
+        skillLoadedEvents.length === 0
       )
         return;
 
@@ -236,6 +286,8 @@ export class UsageTelemetryReporter {
           lifecycleCount: lifecycleEvents.length,
           onboardingCount: onboardingEvents.length,
           authFallbackCount: authFallbackEvents.length,
+          toolExecutedCount: toolExecutedEvents.length,
+          skillLoadedCount: skillLoadedEvents.length,
         },
         "Telemetry flush: resolved auth context",
       );
@@ -402,6 +454,50 @@ export class UsageTelemetryReporter {
             assistant_version: APP_VERSION,
           }),
         ),
+        ...toolExecutedEvents.map(
+          (e): TelemetryEvent => ({
+            type: "tool_executed",
+            daemon_event_id: e.id,
+            recorded_at: e.createdAt,
+            tool_name: e.toolName,
+            // The store filters out permission-denied rows, so the only
+            // non-success decision that reaches here is "error".
+            status: e.decision === "error" ? "errored" : "fulfilled",
+            duration_ms: e.durationMs,
+            arg_bytes: e.argBytes,
+            result_bytes: e.resultBytes,
+            conversation_id: e.conversationId,
+            provider: e.provider,
+            model: e.model,
+            inference_profile: e.inferenceProfile,
+            inference_profile_source:
+              e.inferenceProfileSource as UsageAttributionProfileSource | null,
+            // `tool_invocations` has no record-time version column — stamp
+            // the running binary's `APP_VERSION` so the wire value is
+            // concrete rather than an explicit null that would override the
+            // envelope under the platform's per-event-wins contract.
+            assistant_version: APP_VERSION,
+          }),
+        ),
+        ...skillLoadedEvents.map(
+          (e): TelemetryEvent => ({
+            type: "skill_loaded",
+            daemon_event_id: e.id,
+            recorded_at: e.createdAt,
+            skill_name: e.skillName,
+            skill_updated_at: e.skillUpdatedAt,
+            conversation_id: e.conversationId,
+            provider: e.provider,
+            model: e.model,
+            inference_profile: e.inferenceProfile,
+            inference_profile_source:
+              e.inferenceProfileSource as UsageAttributionProfileSource | null,
+            // `skill_loaded_events` has no record-time version column — same
+            // upload-time APP_VERSION stamping as the other non-llm_usage
+            // event types.
+            assistant_version: APP_VERSION,
+          }),
+        ),
       ];
 
       const organizationId = getPlatformOrganizationId() || undefined;
@@ -501,13 +597,42 @@ export class UsageTelemetryReporter {
         );
       }
 
+      // Advance tool-executed watermark (compound cursor)
+      if (toolExecutedEvents.length > 0) {
+        const lastToolExecuted =
+          toolExecutedEvents[toolExecutedEvents.length - 1];
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK,
+          String(lastToolExecuted.createdAt),
+        );
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK_ID,
+          lastToolExecuted.id,
+        );
+      }
+
+      // Advance skill-loaded watermark (compound cursor)
+      if (skillLoadedEvents.length > 0) {
+        const lastSkillLoaded = skillLoadedEvents[skillLoadedEvents.length - 1];
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_SKILL_LOADED_WATERMARK,
+          String(lastSkillLoaded.createdAt),
+        );
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID,
+          lastSkillLoaded.id,
+        );
+      }
+
       // If we got a full batch of any type, there may be more — recurse
       if (
         events.length === BATCH_SIZE ||
         turnEvents.length === BATCH_SIZE ||
         lifecycleEvents.length === BATCH_SIZE ||
         onboardingEvents.length === BATCH_SIZE ||
-        authFallbackEvents.length === BATCH_SIZE
+        authFallbackEvents.length === BATCH_SIZE ||
+        toolExecutedEvents.length === BATCH_SIZE ||
+        skillLoadedEvents.length === BATCH_SIZE
       ) {
         await this._doFlush(batchCount + 1);
       }
