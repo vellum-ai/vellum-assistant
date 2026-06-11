@@ -27,7 +27,7 @@ import { buildNavigationState } from "@/lib/navigation/build-state";
 import { hatchLocalAssistant } from "@/runtime/local-mode-host";
 import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
-import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
+import { setSelectedAssistant } from "@/assistant/selection";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -367,7 +367,7 @@ export function HatchingScreen() {
               is_local: true,
               created: new Date().toISOString(),
             } as Assistant);
-            void selectPlatformAssistant(result.assistantId);
+            void setSelectedAssistant(result.assistantId);
             void persistHatchAvatar(result.assistantId);
           }
 
@@ -458,7 +458,7 @@ export function HatchingScreen() {
           if (result.ok) {
             const assistantId = result.data.id;
             useResolvedAssistantsStore.getState().upsertFromApi(result.data);
-            void selectPlatformAssistant(assistantId);
+            void setSelectedAssistant(assistantId);
             if (createdFreshAssistant || preflightFoundNoAssistant) {
               void persistHatchAvatar(assistantId);
             }
