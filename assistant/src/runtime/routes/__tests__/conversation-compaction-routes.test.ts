@@ -516,6 +516,38 @@ describe("handleGetCompactionTrail — compaction log store", () => {
     expect(result.events).toHaveLength(1);
     expect((result.events[0] as { id: string }).id).toBe("compaction-legacy");
   });
+
+  test("falls back to the legacy projection when any event is missing its end row", async () => {
+    state.conversation = { id: "conv-1" };
+    state.selectedCall = fakeLogRow({
+      id: "call-1",
+      conversationId: "conv-1",
+      createdAt: 5000,
+    });
+    state.turnBounds = { startTime: 2000, endTime: 9000 };
+    state.compactionStoreEvents = [
+      fakeCompactionLogEvent(),
+      fakeCompactionLogEvent({
+        compactionId: "comp-2",
+        finishedAt: null,
+        durationMs: null,
+        completed: false,
+      }),
+    ];
+    state.compactionLogs = [
+      fakeLogRow({ id: "compaction-legacy", conversationId: "conv-1" }),
+    ];
+
+    const result = await handler({
+      pathParams: { id: "conv-1" },
+      queryParams: { callId: "call-1" },
+    });
+
+    expect(sourceCalls.getEventsBetweenArgs).toHaveLength(1);
+    expect(sourceCalls.getCompactionLogsBetweenArgs).toHaveLength(1);
+    expect(result.events).toHaveLength(1);
+    expect((result.events[0] as { id: string }).id).toBe("compaction-legacy");
+  });
 });
 
 // ---------------------------------------------------------------------

@@ -269,7 +269,11 @@ async function handleGetCompactionTrail({
   // in. Zero rows means the turn predates the log (it is append-only from
   // the moment the destination is configured), so fall through to the
   // legacy projection rather than returning an empty trail; same for a
-  // failed ClickHouse read.
+  // failed ClickHouse read. Writes are best-effort and the start/end rows
+  // land independently, so an event without its end row (no `finishedAt`)
+  // means the end write failed or is lagging — in that case the legacy
+  // projection may still have the summarizer call details, so fall back
+  // rather than serve a trail with null model/tokens/duration.
   const compactionStore = getCompactionLogStore();
   if (compactionStore) {
     try {
@@ -278,7 +282,10 @@ async function handleGetCompactionTrail({
         afterCreatedAt,
         beforeCreatedAt,
       );
-      if (events.length > 0) {
+      if (
+        events.length > 0 &&
+        events.every((event) => event.finishedAt !== null)
+      ) {
         return {
           conversationId,
           events: events.map(projectCompactionLogEventToTrailEvent),
