@@ -214,7 +214,12 @@ export class UsageTelemetryReporter {
       // watermark that already covers the opt-out window. One caveat: a
       // RUNTIME false→true flip can still ship up to one flush interval
       // (≤5 min) of pre-toggle rows recorded since the last opted-out flush;
-      // the restart path is fully covered by the final flush in stop().
+      // the restart path is fully covered by the final flush in stop(). The
+      // caveat applies to the always-on tables without a write-time opt-out
+      // gate (llm_usage, turn events) and to tool_invocations rows recorded
+      // under builds predating the audit listener's write-time gate — new
+      // opted-out tool_invocations rows persist NULL telemetry columns and
+      // are unreportable by construction regardless of watermark timing.
       if (!getConfig().collectUsageData) {
         // Advance the timestamp watermarks and pin the ID watermarks to a
         // sentinel that sorts above any real UUID. The sentinel (rather than

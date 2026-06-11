@@ -8,11 +8,21 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+// Toggle for the collectUsageData opt-out gate the audit listener consults
+// when populating the telemetry columns.
+let collectUsageData = true;
+
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({ collectUsageData }),
+}));
+
 import {
   seedToolInvocation,
   TOOL_INVOCATION_PII_SENTINEL as PII_SENTINEL,
   type ToolInvocationSeedSpec,
 } from "../__tests__/test-support/tool-invocation-seed.js";
+import { createToolAuditListener } from "../events/tool-audit-listener.js";
+import type { ToolLifecycleEvent } from "../tools/types.js";
 import { getDb } from "./db-connection.js";
 import { initializeDb } from "./db-init.js";
 import { toolInvocations } from "./schema.js";
@@ -30,6 +40,7 @@ function insertInvocation(
 
 describe("tool-executed-events-store", () => {
   beforeEach(() => {
+    collectUsageData = true;
     getDb().delete(toolInvocations).run();
   });
 
@@ -100,6 +111,55 @@ describe("tool-executed-events-store", () => {
 
     const rows = queryUnreportedToolExecutedEvents(0, undefined, 100);
     expect(rows.map((r) => r.id)).toEqual(["ti-new"]);
+  });
+
+  test("rows recorded while opted out are never projected, even from a zero watermark", () => {
+    // End-to-end through the real audit listener: the write-time opt-out
+    // gate persists NULL telemetry columns, which the arg_bytes IS NOT NULL
+    // filter excludes permanently — the same mechanism as legacy rows. No
+    // watermark state is involved, so no later opt-in can ship these rows.
+    const listener = createToolAuditListener();
+    const executedEvent = (toolName: string): ToolLifecycleEvent => ({
+      type: "executed",
+      toolName,
+      input: { path: "/tmp/a" },
+      workingDir: "/tmp",
+      conversationId: CONVERSATION_ID,
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 5,
+      result: { content: "ok", isError: false },
+    });
+
+    listener(executedEvent("t-opted-in-before"));
+
+    collectUsageData = false;
+    listener(executedEvent("t-opted-out"));
+
+    collectUsageData = true;
+    listener(executedEvent("t-opted-in-after"));
+
+    // Mid-session opt-out flip: only rows recorded while opted in project.
+    const rows = queryUnreportedToolExecutedEvents(0, undefined, 100);
+    expect(rows.map((r) => r.toolName).sort()).toEqual([
+      "t-opted-in-after",
+      "t-opted-in-before",
+    ]);
+
+    // The audit row itself is still recorded — only its telemetry columns
+    // are NULL.
+    const auditRows = getDb().select().from(toolInvocations).all();
+    expect(auditRows).toHaveLength(3);
+    const optedOut = auditRows.find((r) => r.toolName === "t-opted-out");
+    expect(optedOut).toMatchObject({
+      decision: "allow",
+      argBytes: null,
+      resultBytes: null,
+      provider: null,
+      model: null,
+      inferenceProfile: null,
+      inferenceProfileSource: null,
+    });
   });
 
   test("post-migration rows project with null attribution columns", () => {

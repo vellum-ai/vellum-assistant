@@ -311,6 +311,15 @@ export class ToolExecutor {
         }
       }
 
+      // Sized from the RAW pre-sanitization result — sensitive-output
+      // extraction below strips directives and swaps raw values for
+      // placeholders, which changes the content length, and telemetry must
+      // report the true payload size. Only the size leaves the device,
+      // never the payload. Stamped here (not centrally in
+      // emitLifecycleEvent) because only this site sees the content before
+      // extractAndSanitize() rewrites it.
+      const rawResultBytes = Buffer.byteLength(execResult.content, "utf8");
+
       // Sensitive output extraction: strip directives, replace raw values
       // with placeholders, and attach bindings for agent-loop substitution.
       const { sanitizedContent, bindings } = extractAndSanitize(
@@ -342,6 +351,7 @@ export class ToolExecutor {
         decision,
         durationMs,
         result: safeResult,
+        resultBytes: rawResultBytes,
       });
 
       // Merge risk metadata from the classifier assessment cache onto the
@@ -498,7 +508,10 @@ function emitLifecycleEvent(
   // them — including the pre-execution gate failures (aborted, disk
   // pressure, unknown/inactive tool) emitted from checkPreExecutionGates(),
   // whose emission sites don't have to remember to copy them. This is the
-  // sole writer of both fields.
+  // sole writer of both fields. (`resultBytes` is the exception: it is
+  // stamped at the executed emission site in executeInternal, the only
+  // place that sees the result content before sensitive-output extraction
+  // rewrites it; the spread above passes it through untouched.)
   if (sanitizedEvent.type === "executed" || sanitizedEvent.type === "error") {
     sanitizedEvent.attribution = context.attribution ?? null;
     // Sized from the RAW pre-sanitization input — redaction changes the

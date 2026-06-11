@@ -647,10 +647,13 @@ export async function runDaemon(): Promise<void> {
     // Construct and start the reporter even when usage collection is disabled:
     // flush() re-checks collectUsageData each cycle and, when opted out, sends
     // nothing but advances all watermarks (including the final flush in
-    // stop()). That keeps the watermarks ahead of the always-on
-    // tool_invocations audit rows across opted-out sessions, so a later opt-in
-    // — runtime or via restart — never retroactively ships events recorded
-    // during the opt-out window. Deliberately NOT gated on dbReady: getDb()
+    // stop()). New opted-out tool_invocations rows are already unreportable by
+    // construction — the audit listener persists NULL telemetry columns for
+    // them, which the tool_executed projection filters out — so the opted-out
+    // flushes are defense in depth there (covering rows recorded under builds
+    // that predate that write-time gate) and remain the primary guard for the
+    // always-on tables without a write-time gate (llm_usage, turn events).
+    // Deliberately NOT gated on dbReady: getDb()
     // can still work when initializeDb() failed mid-migration, in which case
     // the audit listener keeps writing rows that the opt-out branch must keep
     // covered. The reporter is degraded-mode safe — its constructor and

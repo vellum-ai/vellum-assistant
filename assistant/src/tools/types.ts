@@ -178,6 +178,15 @@ export interface ExecutorTelemetryStamp {
    * leaves the device, never the payload.
    */
   inputBytes?: number | null;
+  /**
+   * Byte size of the RAW tool result content, stamped by the executor
+   * before sensitive-output extraction rewrites `result.content`. Only
+   * stamped on `executed` events: error events carry no executor-side
+   * result — the audit listener sizes the error string it builds itself,
+   * which never goes through sanitization, so it is already raw. Only the
+   * size leaves the device, never the payload.
+   */
+  resultBytes?: number | null;
 }
 
 /**

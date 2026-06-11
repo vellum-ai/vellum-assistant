@@ -1,9 +1,21 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+// Toggle for the collectUsageData opt-out gate the listener consults when
+// populating the telemetry columns.
+let collectUsageData = true;
+
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({ collectUsageData }),
+}));
 
 import { createToolAuditListener } from "../events/tool-audit-listener.js";
 import type { ToolInvocationRecord } from "../memory/tool-usage-store.js";
 
 describe("tool audit listener", () => {
+  beforeEach(() => {
+    collectUsageData = true;
+  });
+
   test("records executed events with truncated output", () => {
     const records: ToolInvocationRecord[] = [];
     const listener = createToolAuditListener((record) => records.push(record));
@@ -230,6 +242,111 @@ describe("tool audit listener", () => {
         Buffer.byteLength(JSON.stringify(sanitizedInput), "utf8"),
       );
     }
+  });
+
+  test("prefers the executor-stamped raw resultBytes over sizing the (sanitized) event result", () => {
+    const records: ToolInvocationRecord[] = [];
+    const listener = createToolAuditListener((record) => records.push(record));
+
+    // For sensitive-output tools, the executor sanitizes result.content
+    // before listeners run and stamps resultBytes from the RAW content —
+    // the listener must report that size, not the placeholder-rewritten
+    // payload's.
+    const sanitizedContent = "code: VELLUM_ASSISTANT_INVITE_CODE_AB12CD34";
+    const rawSize = 4096;
+
+    listener({
+      type: "executed",
+      toolName: "create_invite",
+      input: { count: 1 },
+      workingDir: "/tmp",
+      conversationId: "conv-raw-result-bytes",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 4,
+      result: { content: sanitizedContent, isError: false },
+      resultBytes: rawSize,
+    });
+
+    expect(records).toHaveLength(1);
+    expect(records[0].resultBytes).toBe(rawSize);
+    expect(records[0].resultBytes).not.toBe(
+      Buffer.byteLength(sanitizedContent, "utf8"),
+    );
+  });
+
+  test("persists NULL telemetry columns when usage data collection is opted out", () => {
+    collectUsageData = false;
+    const records: ToolInvocationRecord[] = [];
+    const listener = createToolAuditListener((record) => records.push(record));
+
+    const attribution = {
+      callSite: "mainAgent" as const,
+      activeProfile: "balanced",
+      overrideProfile: null,
+      callSiteProfile: null,
+      appliedProfile: "balanced",
+      profileSource: "active" as const,
+      resolvedProvider: "anthropic",
+      resolvedModel: "model-a",
+      resolvedMixArm: null,
+    };
+    listener({
+      type: "executed",
+      toolName: "file_read",
+      input: { path: "/tmp/a" },
+      inputBytes: 42,
+      resultBytes: 99,
+      workingDir: "/tmp",
+      conversationId: "conv-opt-out",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 12,
+      result: { content: "ok", isError: false },
+      attribution,
+    });
+    listener({
+      type: "error",
+      toolName: "file_read",
+      input: { path: "/tmp/b" },
+      inputBytes: 42,
+      workingDir: "/tmp",
+      conversationId: "conv-opt-out",
+      riskLevel: "low",
+      decision: "error",
+      durationMs: 9,
+      errorMessage: "boom",
+      isExpected: false,
+      errorCategory: "tool_failure",
+      attribution,
+    });
+
+    // Telemetry columns are NULL — the tool_executed projection's
+    // arg_bytes IS NOT NULL filter makes these rows permanently
+    // unreportable, even from a zero watermark.
+    expect(records).toHaveLength(2);
+    for (const record of records) {
+      expect(record.argBytes).toBeNull();
+      expect(record.resultBytes).toBeNull();
+      expect(record.provider).toBeNull();
+      expect(record.model).toBeNull();
+      expect(record.inferenceProfile).toBeNull();
+      expect(record.inferenceProfileSource).toBeNull();
+    }
+    // The audit row itself is unaffected by the opt-out.
+    expect(records[0]).toMatchObject({
+      conversationId: "conv-opt-out",
+      toolName: "file_read",
+      input: JSON.stringify({ path: "/tmp/a" }),
+      result: "ok",
+      decision: "allow",
+      durationMs: 12,
+    });
+    expect(records[1]).toMatchObject({
+      result: "error: boom",
+      decision: "error",
+      durationMs: 9,
+    });
   });
 
   test("maps attribution onto executed records and leaves denied records null", () => {

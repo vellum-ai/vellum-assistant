@@ -34,6 +34,9 @@ const mockConfig = {
   permissions: {
     mode: "workspace" as const,
   },
+  // The audit listener nulls the telemetry columns when this is false; the
+  // end-to-end listener tests below assert the opted-in sizing behavior.
+  collectUsageData: true,
 };
 
 let checkerDecision: "allow" | "prompt" | "deny" = "allow";
@@ -690,6 +693,72 @@ describe("ToolExecutor lifecycle events", () => {
     expect(errorEvent.inputBytes).toBe(
       Buffer.byteLength(JSON.stringify(rawInput), "utf8"),
     );
+  });
+
+  test("stamps resultBytes from the raw content before sensitive-output sanitization", async () => {
+    // Directive stripping + placeholder substitution shrink the content the
+    // lifecycle event carries; the stamped size must reflect the raw output.
+    const rawContent =
+      'Your invite: <vellum-sensitive-output kind="invite_code" value="SECRET-CODE-123" /> use SECRET-CODE-123';
+    fakeToolResult = { content: rawContent, isError: false };
+
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    await executor.execute("file_read", { path: "a" }, makeContext(events));
+
+    const executed = events.find((event) => event.type === "executed");
+    if (executed?.type !== "executed")
+      throw new Error("Expected executed event");
+    // The event carries the sanitized content...
+    expect(executed.result.content).not.toContain("SECRET-CODE-123");
+    // ...but the stamped size is the raw pre-sanitization byte length.
+    expect(executed.resultBytes).toBe(Buffer.byteLength(rawContent, "utf8"));
+    expect(executed.resultBytes).not.toBe(
+      Buffer.byteLength(executed.result.content, "utf8"),
+    );
+  });
+
+  test("stamps resultBytes for non-sensitive results too (raw equals emitted content)", async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    await executor.execute("file_read", { path: "a" }, makeContext(events));
+
+    const executed = events.find((event) => event.type === "executed");
+    if (executed?.type !== "executed")
+      throw new Error("Expected executed event");
+    expect(executed.result.content).toBe("ok");
+    expect(executed.resultBytes).toBe(Buffer.byteLength("ok", "utf8"));
+  });
+
+  test("audit listener records result_bytes from the raw pre-sanitization output", async () => {
+    const { createToolAuditListener } =
+      await import("../events/tool-audit-listener.js");
+    const records: Array<{ resultBytes?: number | null; result: string }> = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    const rawContent =
+      'Code: <vellum-sensitive-output kind="invite_code" value="SECRET-CODE-456" />SECRET-CODE-456';
+    fakeToolResult = { content: rawContent, isError: false };
+
+    await executor.execute(
+      "file_read",
+      { path: "a" },
+      {
+        workingDir: "/tmp/project",
+        conversationId: "conversation-1",
+        trustClass: "guardian" as const,
+        onToolLifecycleEvent: createToolAuditListener((record) =>
+          records.push(record),
+        ),
+      },
+    );
+
+    expect(records).toHaveLength(1);
+    expect(records[0].resultBytes).toBe(Buffer.byteLength(rawContent, "utf8"));
+    // The stored result column is still the sanitized payload.
+    expect(records[0].result).not.toContain("SECRET-CODE-456");
   });
 
   test("audit listener records arg_bytes equal to the raw serialized input size", async () => {

@@ -17,9 +17,9 @@ export interface UnreportedToolExecutedEvent {
   /** `"allow"`-style decisions or `"error"`; never `"denied"` (filtered out). */
   decision: string;
   durationMs: number;
-  /** Serialized raw input size in bytes. Non-null on projected rows (the legacy-row filter excludes null). */
+  /** Serialized raw input size in bytes. Non-null on projected rows (the null-arg-bytes filter excludes legacy and opted-out rows). */
   argBytes: number | null;
-  /** Full serialized result size in bytes, computed before truncation/redaction. */
+  /** Raw result size in bytes, computed before truncation/redaction and sensitive-output sanitization. */
   resultBytes: number | null;
   provider: string | null;
   model: string | null;
@@ -37,13 +37,19 @@ export interface UnreportedToolExecutedEvent {
  *
  * Two row classes are excluded:
  * - Permission-denied rows: the tool never executed.
- * - Legacy pre-migration-278 rows (null `arg_bytes`): already shipped under
- *   the since-reverted `tool_execution` event type and lacking the
- *   size/attribution columns. Every post-migration writer path computes a
- *   non-null `arg_bytes` (the only null writer, "permission_denied", is
+ * - Rows with null `arg_bytes`, which covers two populations:
+ *   - Legacy pre-migration-278 rows: already shipped under the
+ *     since-reverted `tool_execution` event type and lacking the
+ *     size/attribution columns.
+ *   - Rows recorded while usage data collection was opted out: the audit
+ *     listener (`events/tool-audit-listener.ts`) persists NULL telemetry
+ *     columns for them at write time, making them unreportable by
+ *     construction — no later opt-in or watermark race can ship them.
+ *   Every opted-in post-migration writer path computes a non-null
+ *   `arg_bytes` (the only other null writer, "permission_denied", is
  *   excluded by the decision filter), making `arg_bytes IS NOT NULL` a
- *   reliable legacy-row discriminator. It only guards pre-migration rows —
- *   rows recorded while telemetry is opted out are guarded separately by
+ *   reliable discriminator. Opted-out rows recorded under builds that
+ *   predate the write-time gate carry non-null columns and are guarded by
  *   the reporter's opt-out flush branch, which advances watermarks without
  *   sending (see usage-telemetry-reporter.ts).
  *

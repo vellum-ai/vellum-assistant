@@ -1,3 +1,4 @@
+import { getConfig } from "../config/loader.js";
 import {
   recordToolInvocation,
   type ToolInvocationRecord,
@@ -8,7 +9,10 @@ import {
   type ToolLifecycleEvent,
   type ToolLifecycleEventHandler,
 } from "../tools/types.js";
-import { toAttributionColumns } from "../usage/attribution.js";
+import {
+  toAttributionColumns,
+  type UsageAttributionColumns,
+} from "../usage/attribution.js";
 import { getLogger } from "../util/logger.js";
 
 const RESULT_PREVIEW_LIMIT = 1000;
@@ -52,11 +56,16 @@ function toInvocationRecord(
         riskLevel: event.riskLevel,
         matchedTrustRuleId: event.matchedTrustRuleId,
         durationMs: event.durationMs,
-        // The fallback keeps argBytes non-null, which the tool_executed
-        // projection's legacy-row filter relies on.
-        argBytes: event.inputBytes ?? Buffer.byteLength(input, "utf8"),
-        resultBytes: Buffer.byteLength(event.result.content, "utf8"),
-        ...toAttributionColumns(event.attribution),
+        // Prefer the executor-stamped raw pre-sanitization size: by the
+        // time listeners run, sensitive-output extraction has already
+        // rewritten `result.content`, so sizing it here would undercount
+        // for sensitive-output tools. The fallback covers emitters that
+        // don't stamp.
+        ...telemetryColumns(
+          event,
+          input,
+          event.resultBytes ?? Buffer.byteLength(event.result.content, "utf8"),
+        ),
       };
     }
     case "error": {
@@ -71,10 +80,10 @@ function toInvocationRecord(
         riskLevel: event.riskLevel,
         matchedTrustRuleId: event.matchedTrustRuleId,
         durationMs: event.durationMs,
-        // Same sizing contract as the "executed" case above.
-        argBytes: event.inputBytes ?? Buffer.byteLength(input, "utf8"),
-        resultBytes: Buffer.byteLength(result, "utf8"),
-        ...toAttributionColumns(event.attribution),
+        // The error result string is built right here and never goes
+        // through sensitive-output sanitization, so sizing it directly is
+        // already raw — no executor stamp exists or is needed.
+        ...telemetryColumns(event, input, Buffer.byteLength(result, "utf8")),
       };
     }
     case "permission_denied":
@@ -94,6 +103,46 @@ function toInvocationRecord(
     case "permission_prompt":
       return null;
   }
+}
+
+type TelemetryColumns = Pick<ToolInvocationRecord, "argBytes" | "resultBytes"> &
+  UsageAttributionColumns;
+
+const NULL_TELEMETRY_COLUMNS: TelemetryColumns = {
+  argBytes: null,
+  resultBytes: null,
+  provider: null,
+  model: null,
+  inferenceProfile: null,
+  inferenceProfileSource: null,
+};
+
+/**
+ * Telemetry-only columns (payload sizes + model attribution) for an
+ * executed/error audit row. This is the single write-time privacy gate for
+ * `tool_executed` telemetry: when usage data collection is disabled, the
+ * columns persist as NULL, which the projection's `arg_bytes IS NOT NULL`
+ * filter excludes permanently — the same mechanism that excludes legacy
+ * pre-migration rows (see tool-executed-events-store.ts). That makes
+ * opted-out rows unreportable by construction: no later opt-in, crash, or
+ * watermark race can ship them. The audit fields themselves (tool name,
+ * decision, input/result previews, duration) are unaffected —
+ * `tool_invocations` is a local always-on audit log.
+ *
+ * When opted in, the non-null sizing keeps `argBytes` populated, which the
+ * projection's legacy-row filter relies on.
+ */
+function telemetryColumns(
+  event: Extract<ToolLifecycleEvent, { type: "executed" | "error" }>,
+  input: string,
+  resultBytes: number,
+): TelemetryColumns {
+  if (!getConfig().collectUsageData) return NULL_TELEMETRY_COLUMNS;
+  return {
+    argBytes: event.inputBytes ?? Buffer.byteLength(input, "utf8"),
+    resultBytes,
+    ...toAttributionColumns(event.attribution),
+  };
 }
 
 function formatDeniedResult(reason: string): string {
