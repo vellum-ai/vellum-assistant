@@ -38,8 +38,6 @@ import {
   isLocalMode,
   getPlatformAssistants,
   getLocalAssistants,
-  clearSelectedAssistant,
-  setSelectedAssistantId,
   primeLocalGatewayConnection,
   primeLocalGatewayConnectionWithRepair,
   syncPlatformAssistantsToLockfile,
@@ -485,14 +483,14 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
    * stays on the plain primitive so app launch never spawns daemon processes.
    */
   connectLocalAssistant: async (assistantId: string) => {
-    setSelectedAssistantId(assistantId);
+    useResolvedAssistantsStore.getState().setSelectedAssistant(assistantId);
     await primeLocalGatewayConnectionWithRepair();
     set(authenticatedLocalUser());
     probePlatformSessionIfReachable(set);
   },
 
   connectPlatformAssistant: async (assistantId: string) => {
-    setSelectedAssistantId(assistantId);
+    useResolvedAssistantsStore.getState().setSelectedAssistant(assistantId);
     const result = await getSession();
     if (!result.ok || !result.data.user) {
       throw new Error("Platform authentication required");
@@ -555,7 +553,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
 
   logout: async () => {
     if (isGatewayAuthMode()) {
-      clearSelectedAssistant();
+      useResolvedAssistantsStore.getState().setSelectedAssistant(null);
       clearGatewayToken();
       clearOrganization();
       clearUserScopedStorage();

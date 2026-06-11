@@ -18,7 +18,8 @@ let mockIsGatewayAuth = false;
 let mockIsLocalMode = false;
 let mockPlatformAssistants: unknown[] = [];
 let mockPrimeError: Error | null = null;
-const setSelectedAssistantIdMock = mock((_id: string) => {});
+const setSelectedAssistantMock = mock((_id: string | null) => {});
+const setFromApiMock = mock((_assistants: unknown) => {});
 const primeLocalGatewayConnectionMock = mock(async () => {
   if (mockPrimeError) throw mockPrimeError;
 });
@@ -91,8 +92,6 @@ mock.module("@/lib/local-mode", () => ({
   isPlatformAssistant: (a: { cloud?: string }) => a.cloud === "vellum",
   getPlatformAssistants: () => mockPlatformAssistants,
   getLocalAssistants: () => [],
-  clearSelectedAssistant: () => {},
-  setSelectedAssistantId: setSelectedAssistantIdMock,
   primeLocalGatewayConnection: primeLocalGatewayConnectionMock,
   primeLocalGatewayConnectionWithRepair:
     primeLocalGatewayConnectionWithRepairMock,
@@ -141,6 +140,15 @@ mock.module("@/domains/onboarding/onboarding-store", () => ({
 
 mock.module("@/lib/auth/session-cleanup", () => ({
   clearUserScopedStorage: clearUserScopedStorageMock,
+}));
+
+mock.module("@/stores/resolved-assistants-store", () => ({
+  useResolvedAssistantsStore: {
+    getState: () => ({
+      setSelectedAssistant: setSelectedAssistantMock,
+      setFromApi: setFromApiMock,
+    }),
+  },
 }));
 
 mock.module("@/stores/organization-store", () => ({
@@ -197,7 +205,8 @@ beforeEach(() => {
   mockIsBiometricEnabled = false;
   mockBiometricToken = null;
   mockPrimeError = null;
-  setSelectedAssistantIdMock.mockClear();
+  setSelectedAssistantMock.mockClear();
+  setFromApiMock.mockClear();
   primeLocalGatewayConnectionMock.mockClear();
   primeLocalGatewayConnectionWithRepairMock.mockClear();
   restoreConsentForUserMock.mockClear();
@@ -501,7 +510,7 @@ describe("connectLocalAssistant", () => {
 
     await useAuthStore.getState().connectLocalAssistant("local-a");
 
-    expect(setSelectedAssistantIdMock).toHaveBeenCalledWith("local-a");
+    expect(setSelectedAssistantMock).toHaveBeenCalledWith("local-a");
     expect(primeLocalGatewayConnectionWithRepairMock).toHaveBeenCalledTimes(1);
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
     expect(useAuthStore.getState().user?.id).toBe("gateway-local");
@@ -518,7 +527,7 @@ describe("connectLocalAssistant", () => {
       useAuthStore.getState().connectLocalAssistant("local-a"),
     ).rejects.toThrow("Guardian token not found");
 
-    expect(setSelectedAssistantIdMock).toHaveBeenCalledWith("local-a");
+    expect(setSelectedAssistantMock).toHaveBeenCalledWith("local-a");
     expect(useAuthStore.getState().sessionStatus).not.toBe("authenticated");
   });
 });

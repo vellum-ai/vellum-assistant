@@ -215,13 +215,7 @@ class AssistantLifecycleService {
       // stale selection and retry without an ID so the lifecycle
       // falls back to the default first-listed assistant.
       if (selectedId && !result.ok && result.status === 404) {
-        const store = useResolvedAssistantsStore.getState();
-        const byOrg = store.selectedPlatformAssistantByOrg;
-        for (const orgId of Object.keys(byOrg)) {
-          if (byOrg[orgId] === selectedId) {
-            store.setSelectedPlatformAssistant(orgId, null);
-          }
-        }
+        useResolvedAssistantsStore.getState().setSelectedAssistant(null);
         result = await this.inputs.queryClient.fetchQuery({
           queryKey: ASSISTANT_QUERY_KEY,
           queryFn: () => getAssistant(),

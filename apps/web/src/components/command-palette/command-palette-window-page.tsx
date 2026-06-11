@@ -86,17 +86,17 @@ export function CommandPaletteWindowPage() {
 
   const assistants = useResolvedAssistantsStore.use.assistants();
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const selectedPlatformAssistantByOrg =
-    useResolvedAssistantsStore.use.selectedPlatformAssistantByOrg();
+  const selectedAssistantId =
+    useResolvedAssistantsStore.use.selectedAssistantId();
   const currentOrganizationId =
     useOrganizationStore.use.currentOrganizationId();
   const multiAssistantEnabled =
     useClientFeatureFlagStore.use.multiPlatformAssistant();
-  // Mirror use-lifecycle's gating: only resolve the per-org cache when the
+  // Mirror use-lifecycle's gating: only resolve the selection when the
   // multi-assistant flag is on; otherwise track the lifecycle's active id, so
-  // the palette never binds to a stale cached selection the lifecycle ignored.
-  // The resolver reads selectedPlatformAssistantByOrg via getState() (non-
-  // reactive), so that slice stays in the dep array as the recompute signal.
+  // the palette never binds to a stale selection the lifecycle ignored. The
+  // resolver reads selectedAssistantId via getState() (non-reactive), so that
+  // slice stays in the dep array as the recompute signal.
   const selectedAssistant = useMemo(
     () => {
       const selectedId =
@@ -113,7 +113,7 @@ export function CommandPaletteWindowPage() {
       activeAssistantId,
       assistants,
       currentOrganizationId,
-      selectedPlatformAssistantByOrg,
+      selectedAssistantId,
     ],
   );
   const assistantId = selectedAssistant?.id ?? null;

@@ -207,7 +207,6 @@ mock.module("@/lib/local-mode", () => ({
   getPlatformRuntimeUrl: () => "https://platform.vellum.ai",
   getSelectedAssistant: () => undefined,
   loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
-  setSelectedAssistantId: () => {},
   setActiveLockfileAssistant: async () => {},
   saveLockfileAssistant: async () => {},
   primeLocalGatewayConnection: async () => {},
@@ -227,13 +226,16 @@ mock.module("@/stores/resolved-assistants-store", () => ({
     getState: () => ({
       assistants: [],
       activeAssistantId: null,
+      selectedAssistantId: null,
+      assistantsHydrated: true,
       upsertFromApi: () => {},
       setActiveAssistantId: () => {},
+      setSelectedAssistant: () => {},
     }),
     use: {
       assistants: () => [],
       activeAssistantId: () => null,
-      selectedPlatformAssistantByOrg: () => ({}),
+      selectedAssistantId: () => null,
     },
   },
 }));

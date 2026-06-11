@@ -26,14 +26,17 @@ import {
   isLocalAssistant,
   isPlatformAssistant,
   reconcileSelectedAssistant,
-  setSelectedAssistantId,
   syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
+import { SELECTED_ASSISTANT_STORAGE_KEY } from "@/assistant/selected-assistant-storage";
 import type { Lockfile, LockfileAssistant } from "@/runtime/local-mode-host";
 import { useLockfileStore } from "@/stores/lockfile-store";
 
 const LOCKFILE_STORAGE_KEY = "vellum:local:lockfile";
-const SELECTED_ASSISTANT_STORAGE_KEY = "vellum:local:selectedAssistantId";
+
+function setSelected(id: string): void {
+  localStorage.setItem(SELECTED_ASSISTANT_STORAGE_KEY, id);
+}
 
 const localA: LockfileAssistant = {
   assistantId: "local-a",
@@ -138,7 +141,7 @@ describe("getActiveAssistant", () => {
 describe("reconcileSelectedAssistant", () => {
   test("clears a stale selection whose id is absent from the lockfile", () => {
     setLockfile({ assistants: [localA], activeAssistant: "local-a" });
-    setSelectedAssistantId("local-b");
+    setSelected("local-b");
 
     reconcileSelectedAssistant();
 
@@ -150,7 +153,7 @@ describe("reconcileSelectedAssistant", () => {
 
   test("preserves a selection that is still present in the lockfile", () => {
     setLockfile({ assistants: [localA, localB], activeAssistant: "local-a" });
-    setSelectedAssistantId("local-b");
+    setSelected("local-b");
 
     reconcileSelectedAssistant();
 
@@ -172,7 +175,7 @@ describe("reconcileSelectedAssistant", () => {
     // No cached lockfile and nothing persisted → getLockfile() hits its empty
     // fallback (setCachedLockfile), which must NOT reconcile. Otherwise a boot/
     // read failure would wrongly drop a still-valid selection.
-    setSelectedAssistantId("local-a");
+    setSelected("local-a");
 
     getLockfile();
 

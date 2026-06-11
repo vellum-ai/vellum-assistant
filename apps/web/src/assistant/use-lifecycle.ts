@@ -55,13 +55,13 @@ export function useAssistantLifecycle({
   // Which platform assistant the user has selected, gated by the
   // multi-platform-assistant flag. When the flag is off this stays null,
   // so the resolution falls back to the default first-listed assistant —
-  // identical to the pre-multi-assistant behavior. Subscribe to the cache
+  // identical to the pre-multi-assistant behavior. Subscribe to the selection
   // and resolved list so the hook re-renders when either changes, then
-  // resolve through the unified resolver (per-org cache → validate for org
+  // resolve through the unified resolver (selected id → validate for org
   // → lockfile activeAssistant → first valid).
   const multiAssistantEnabled =
     useClientFeatureFlagStore.use.multiPlatformAssistant();
-  useResolvedAssistantsStore.use.selectedPlatformAssistantByOrg();
+  useResolvedAssistantsStore.use.selectedAssistantId();
   // Subscribe so the hook re-renders (and the lockfile-local check below
   // re-evaluates) when the resolved list / lockfile change.
   useResolvedAssistantsStore.use.assistants();
@@ -73,8 +73,7 @@ export function useAssistantLifecycle({
   // they're gateway-based, never registered on the platform, so getAssistant(id)
   // 404s. Managed AND platform self-hosted (API `is_local`) assistants ARE valid
   // there — the lifecycle's projectSelfHosted handles the self-hosted response —
-  // and unknown ids (only ever the per-org platform cache) pass through for the
-  // 404 net.
+  // and a pre-hydration unknown id passes through for the 404 net.
   const selectedPlatformAssistantId =
     resolvedSelectionId &&
     !getLocalAssistants().some((a) => a.assistantId === resolvedSelectionId)

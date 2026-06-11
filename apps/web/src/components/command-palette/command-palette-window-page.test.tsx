@@ -16,7 +16,8 @@ const resolvedRef = {
     },
   ],
   activeAssistantId: "assistant-1" as string | null,
-  selectedPlatformAssistantByOrg: {} as Record<string, string>,
+  selectedAssistantId: null as string | null,
+  assistantsHydrated: true,
 };
 const orgRef = {
   currentOrganizationId: "org-1" as string | null,
@@ -55,14 +56,12 @@ mock.module("@/hooks/conversation-queries", () => ({
 const localSelectedRef = {
   value: null as { assistantId: string; name?: string } | null,
 };
-const tabLocalSelectedRef = { value: null as string | null };
 mock.module("@/lib/local-mode", () => ({
   getSelectedAssistant: () => localSelectedRef.value,
   getActiveAssistant: () =>
     resolvedRef.activeAssistantId
       ? { assistantId: resolvedRef.activeAssistantId }
       : undefined,
-  getTabLocalSelectedAssistantId: () => tabLocalSelectedRef.value,
   setActiveLockfileAssistant: async () => undefined,
 }));
 
@@ -104,12 +103,12 @@ mock.module("@/stores/resolved-assistants-store", () => {
   useResolvedAssistantsStore.use = {
     assistants: () => resolvedRef.assistants,
     activeAssistantId: () => resolvedRef.activeAssistantId,
-    selectedPlatformAssistantByOrg: () =>
-      resolvedRef.selectedPlatformAssistantByOrg,
+    selectedAssistantId: () => resolvedRef.selectedAssistantId,
   };
   useResolvedAssistantsStore.getState = () => ({
     assistants: resolvedRef.assistants,
-    selectedPlatformAssistantByOrg: resolvedRef.selectedPlatformAssistantByOrg,
+    selectedAssistantId: resolvedRef.selectedAssistantId,
+    assistantsHydrated: resolvedRef.assistantsHydrated,
   });
   return {
     useResolvedAssistantsStore,
@@ -165,7 +164,8 @@ beforeEach(() => {
     },
   ];
   resolvedRef.activeAssistantId = "assistant-1";
-  resolvedRef.selectedPlatformAssistantByOrg = {};
+  resolvedRef.selectedAssistantId = null;
+  resolvedRef.assistantsHydrated = true;
   orgRef.currentOrganizationId = "org-1";
   localSelectedRef.value = null;
 
@@ -210,7 +210,7 @@ describe("CommandPaletteWindowPage", () => {
       },
     ];
     resolvedRef.activeAssistantId = null;
-    resolvedRef.selectedPlatformAssistantByOrg = { "org-1": "assistant-2" };
+    resolvedRef.selectedAssistantId = "assistant-2";
 
     render(<CommandPaletteWindowPage />);
 
