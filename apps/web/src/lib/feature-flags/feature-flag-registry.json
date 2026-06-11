@@ -404,14 +404,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "empty-state-dynamic-greetings",
-      "scope": "assistant",
-      "key": "empty-state-dynamic-greetings",
-      "label": "Dynamic Empty-State Greetings",
-      "description": "Enable the empty new-chat screen to refresh cached greeting options via the empty-state greeting LLM call site. When off, the assistant serves workspace-authored greetings or static fallbacks only.",
-      "defaultEnabled": false
-    },
-    {
       "id": "self-intro-greeting",
       "scope": "both",
       "key": "self-intro-greeting",

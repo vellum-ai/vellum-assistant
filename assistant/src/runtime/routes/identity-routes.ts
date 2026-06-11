@@ -7,7 +7,6 @@ import { availableParallelism, cpus, totalmem } from "node:os";
 
 import { z } from "zod";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getCpuLimit, getIsPlatform } from "../../config/env-registry.js";
 import { resolveCallSiteConfig } from "../../config/llm-resolver.js";
 import { getConfig } from "../../config/loader.js";
@@ -410,12 +409,10 @@ const FALLBACK_GREETINGS = [
   "Ready when you are.",
 ];
 
-const GENERATED_GREETING_LIMIT = 4;
+const GENERATED_GREETING_LIMIT = 5;
 const GREETING_GENERATION_TIMEOUT_MS = 10_000;
 const GREETING_GENERATION_FAILURE_COOLDOWN_MS = 60_000;
 const EMPTY_STATE_GREETING_CALLSITE = "emptyStateGreeting" as const;
-const EMPTY_STATE_DYNAMIC_GREETINGS_FLAG =
-  "empty-state-dynamic-greetings" as const;
 
 type IdentityIntroSource = "workspace" | "cache" | "fallback";
 
@@ -449,14 +446,7 @@ function getIdentityIntro(): IdentityIntroResponse {
     return identityIntroResponse(workspaceGreetings, "workspace");
   }
 
-  const config = getConfig();
-  if (
-    !isAssistantFeatureFlagEnabled(EMPTY_STATE_DYNAMIC_GREETINGS_FLAG, config)
-  ) {
-    return identityIntroResponse(FALLBACK_GREETINGS, "fallback");
-  }
-
-  // 2. Cached LLM-generated greetings (populated by background refresh)
+  // 2. Cached LLM-generated greetings
   const cached = getCachedIntro();
   if (cached) {
     return identityIntroResponse(cached.greetings, "cache");
@@ -527,12 +517,14 @@ async function generateEmptyStateGreetings(): Promise<string[] | null> {
       excludeBootstrap: true,
       excludeCustomPrefix: true,
     });
+    const timeOfDay = formatEmptyStateGreetingTimeOfDay(new Date());
     const result = await runBtwSidechain({
       content:
         `Generate ${GENERATED_GREETING_LIMIT} short first-person greeting options for the empty new-chat screen. ` +
         "Use the assistant identity, voice, and relationship guidance from IDENTITY.md and SOUL.md. " +
         "Each greeting should feel personal and inviting, not like a generic assistant introduction. " +
-        "Return only a JSON array of strings. No markdown, keys, or explanation.",
+        "Return only a JSON array of strings. No markdown, keys, or explanation. " +
+        `Current time of day: ${timeOfDay}.`,
       provider,
       systemPrompt,
       messages: [],
@@ -556,6 +548,23 @@ async function generateEmptyStateGreetings(): Promise<string[] | null> {
     );
     return null;
   }
+}
+
+function formatEmptyStateGreetingTimeOfDay(date: Date): string {
+  const hour = date.getHours();
+  const period =
+    hour >= 5 && hour < 12
+      ? "morning"
+      : hour >= 12 && hour < 17
+        ? "afternoon"
+        : hour >= 17 && hour < 21
+          ? "evening"
+          : "late night";
+  const time = new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+  return `${period} (${time})`;
 }
 
 function parseGeneratedGreetings(text: string): string[] {
