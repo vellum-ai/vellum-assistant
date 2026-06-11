@@ -63,6 +63,26 @@ import type { SeededConversationMessage } from "../setup-command";
  * the timeout — by hatch time the daemon should be quiet and a 5s wait
  * is generous.
  *
+ * ## Who creates and owns state.db
+ *
+ * The gateway is the sole creator and owner of `state.db`. It runs as the
+ * unprivileged `hermes` user and lazily builds the `sessions`/`messages`
+ * schema only after it finishes syncing its bundled skills at startup
+ * (~10-15s). Two rules keep seeding from corrupting that:
+ *
+ *   1. **The schema-wait probe is read-only** (`file:<path>?mode=ro`). A
+ *      read-write connect would *create* `state.db` if absent — and since
+ *      `docker exec` runs as root, that root-owned file blocks the
+ *      `hermes`-user gateway from writing its schema (`attempt to write a
+ *      readonly database`), so the gateway silently falls back to JSONL
+ *      and the tables never appear. Probing read-only lets the gateway
+ *      stay the sole creator; we only open read-write once the tables it
+ *      created are visible.
+ *   2. **The seed `docker exec` runs as `--user hermes`**, so the write
+ *      (and the WAL/SHM sidecar files SQLite creates next to the DB) are
+ *      owned by the gateway's user, never root — symmetric protection so
+ *      the gateway's own subsequent writes never hit a root-owned file.
+ *
  * @see ../adapter.ts  AdapterTestSetupCommand contract.
  * @see https://github.com/NousResearch/hermes-agent/blob/main/hermes_state.py  Upstream schema.
  */
@@ -75,7 +95,18 @@ export const HERMES_EVAL_SESSION_SOURCE = "evals";
 
 /** Title prefix written into `sessions.title` for traceability in `hermes sessions list`. */
 export const HERMES_EVAL_SESSION_TITLE_PREFIX = "evals seed";
-export const HERMES_SCHEMA_WAIT_TIMEOUT_SECONDS = 20;
+/**
+ * How long the seed waits for the gateway to create the session schema.
+ * The gateway only builds it after syncing ~87 bundled skills at startup
+ * (observed ready at ~12s); 30s leaves headroom for slower cold starts.
+ */
+export const HERMES_SCHEMA_WAIT_TIMEOUT_SECONDS = 30;
+/**
+ * Unprivileged user the Hermes gateway runs as. The seed `docker exec`
+ * runs as this user (not the default root) so state.db and its WAL/SHM
+ * files stay gateway-owned. @see the "Who creates and owns state.db" note.
+ */
+export const HERMES_RUNTIME_USER = "hermes";
 
 export interface SeedHermesSessionInput {
   runner: CommandRunner;
@@ -89,6 +120,8 @@ export interface SeedHermesSessionInput {
   stateDbPath?: string;
   /** Override the in-container python3 binary path (test seam). */
   pythonBinary?: string;
+  /** Override the user the seed exec runs as (test seam). */
+  runtimeUser?: string;
 }
 
 /**
@@ -111,6 +144,40 @@ title = payload["title"]
 messages = payload["messages"]
 schema_wait_timeout_seconds = payload["schema_wait_timeout_seconds"]
 
+# Wait for the gateway to create the session schema, probing READ-ONLY via
+# a file: URI so this check never creates state.db itself. A read-write
+# connect would create the file as root (docker exec runs as root), which
+# blocks the unprivileged hermes-user gateway from writing its schema and
+# silently drops it to JSONL. See the "Who creates and owns state.db" note.
+required = {"sessions", "messages"}
+deadline = time.time() + schema_wait_timeout_seconds
+while True:
+    tables = set()
+    try:
+        probe = sqlite3.connect("file:" + db_path + "?mode=ro", uri=True)
+        try:
+            tables = {
+                row[0]
+                for row in probe.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('sessions', 'messages')"
+                )
+            }
+        finally:
+            probe.close()
+    except sqlite3.OperationalError:
+        # state.db not created by the gateway yet — keep waiting.
+        tables = set()
+    if required.issubset(tables):
+        break
+    if time.time() >= deadline:
+        raise sqlite3.OperationalError(
+            "Hermes state DB schema not ready after "
+            + str(schema_wait_timeout_seconds)
+            + "s: missing "
+            + ",".join(sorted(required - tables))
+        )
+    time.sleep(0.25)
+
 # timeout=5 lets us wait through transient WAL write locks held by the
 # Hermes daemon. isolation_level=None puts us in autocommit so the
 # explicit BEGIN IMMEDIATE below acquires the write lock at txn start
@@ -118,23 +185,6 @@ schema_wait_timeout_seconds = payload["schema_wait_timeout_seconds"]
 conn = sqlite3.connect(db_path, timeout=5, isolation_level=None)
 try:
     conn.execute("PRAGMA foreign_keys=ON")
-    deadline = time.time() + schema_wait_timeout_seconds
-    while True:
-        tables = {
-            row[0]
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('sessions', 'messages')"
-            )
-        }
-        if {"sessions", "messages"}.issubset(tables):
-            break
-        if time.time() >= deadline:
-            raise sqlite3.OperationalError(
-                "Hermes state DB schema not ready: missing "
-                + ",".join(sorted({"sessions", "messages"} - tables))
-            )
-        time.sleep(0.25)
-
     now = time.time()
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -185,6 +235,7 @@ export async function seedHermesSession({
   testLabel,
   stateDbPath = HERMES_STATE_DB_PATH,
   pythonBinary = "python3",
+  runtimeUser = HERMES_RUNTIME_USER,
 }: SeedHermesSessionInput): Promise<{ sessionId: string }> {
   const title = testLabel
     ? `${HERMES_EVAL_SESSION_TITLE_PREFIX}: ${testLabel}`
@@ -203,7 +254,16 @@ export async function seedHermesSession({
 
   const result = await runner.run(
     "docker",
-    ["exec", "-i", containerName, pythonBinary, "-c", SEED_PYTHON_SCRIPT],
+    [
+      "exec",
+      "-i",
+      "--user",
+      runtimeUser,
+      containerName,
+      pythonBinary,
+      "-c",
+      SEED_PYTHON_SCRIPT,
+    ],
     { stdin: payload },
   );
   assertSuccess(result, `seed Hermes session ${sessionId}`);
