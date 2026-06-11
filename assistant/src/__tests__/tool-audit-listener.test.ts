@@ -101,6 +101,86 @@ describe("tool audit listener", () => {
     expect(records[0].result).toContain("<redacted");
   });
 
+  test("redacts known-pattern secrets in tool inputs before recording", () => {
+    const records: ToolInvocationRecord[] = [];
+    const listener = createToolAuditListener((record) => records.push(record));
+
+    // OpenAI Project Key pattern requires 40+ base64url chars after
+    // "sk-proj-"; value chosen to dodge the scanner's placeholder filtering
+    // (no test/fake/example markers, not same-char or x-runs).
+    const openaiKey =
+      "sk-proj-Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4zAb7cDe0fGh3iJk6l";
+    const input = { command: `export OPENAI_API_KEY="${openaiKey}"` };
+
+    listener({
+      type: "executed",
+      toolName: "bash",
+      input,
+      workingDir: "/tmp",
+      conversationId: "conv-input-redact",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 5,
+      result: { content: "ok", isError: false },
+    });
+    listener({
+      type: "error",
+      toolName: "bash",
+      input,
+      workingDir: "/tmp",
+      conversationId: "conv-input-redact",
+      riskLevel: "low",
+      decision: "error",
+      durationMs: 5,
+      errorMessage: "boom",
+      isExpected: false,
+      errorCategory: "tool_failure",
+    });
+    listener({
+      type: "permission_denied",
+      toolName: "bash",
+      input,
+      workingDir: "/tmp",
+      conversationId: "conv-input-redact",
+      riskLevel: "high",
+      decision: "deny",
+      reason: "Permission denied by user",
+      durationMs: 5,
+    });
+
+    expect(records).toHaveLength(3);
+    for (const record of records) {
+      expect(record.input).toContain('<redacted type="OpenAI Project Key" />');
+      expect(record.input).not.toContain(openaiKey);
+    }
+  });
+
+  test("benign inputs round-trip byte-identical (no false-positive mangling)", () => {
+    const records: ToolInvocationRecord[] = [];
+    const listener = createToolAuditListener((record) => records.push(record));
+
+    const input = {
+      command: "git log --oneline -5 && echo done",
+      cwd: "/tmp/project",
+      env: { LANG: "en_US.UTF-8" },
+    };
+
+    listener({
+      type: "executed",
+      toolName: "bash",
+      input,
+      workingDir: "/tmp",
+      conversationId: "conv-benign-input",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 2,
+      result: { content: "ok", isError: false },
+    });
+
+    expect(records).toHaveLength(1);
+    expect(records[0].input).toBe(JSON.stringify(input));
+  });
+
   test("does not redact non-secret content like UUIDs or hashes", () => {
     const records: ToolInvocationRecord[] = [];
     const listener = createToolAuditListener((record) => records.push(record));

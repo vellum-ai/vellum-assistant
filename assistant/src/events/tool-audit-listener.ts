@@ -43,11 +43,14 @@ function toInvocationRecord(
 ): ToolInvocationRecord | null {
   switch (event.type) {
     case "executed": {
-      const input = stringifyToolInput(event.input);
+      const rawInput = stringifyToolInput(event.input);
       return {
         conversationId: event.conversationId,
         toolName: event.toolName,
-        input,
+        // Inputs can carry secrets the model typed verbatim (e.g.
+        // `export OPENAI_API_KEY=...` in a bash command) — redact before
+        // the row reaches the audit store, like results below.
+        input: redactSecrets(rawInput),
         result: redactSecrets(event.result.content).slice(
           0,
           RESULT_PREVIEW_LIMIT,
@@ -63,18 +66,18 @@ function toInvocationRecord(
         // don't stamp.
         ...telemetryColumns(
           event,
-          input,
+          rawInput,
           event.resultBytes ?? Buffer.byteLength(event.result.content, "utf8"),
         ),
       };
     }
     case "error": {
-      const input = stringifyToolInput(event.input);
+      const rawInput = stringifyToolInput(event.input);
       const result = `error: ${event.errorMessage}`;
       return {
         conversationId: event.conversationId,
         toolName: event.toolName,
-        input,
+        input: redactSecrets(rawInput),
         result,
         decision: "error",
         riskLevel: event.riskLevel,
@@ -83,7 +86,7 @@ function toInvocationRecord(
         // The error result string is built right here and never goes
         // through sensitive-output sanitization, so sizing it directly is
         // already raw — no executor stamp exists or is needed.
-        ...telemetryColumns(event, input, Buffer.byteLength(result, "utf8")),
+        ...telemetryColumns(event, rawInput, Buffer.byteLength(result, "utf8")),
       };
     }
     case "permission_denied":
@@ -92,7 +95,7 @@ function toInvocationRecord(
       return {
         conversationId: event.conversationId,
         toolName: event.toolName,
-        input: stringifyToolInput(event.input),
+        input: redactSecrets(stringifyToolInput(event.input)),
         result: formatDeniedResult(event.reason),
         decision: "denied",
         riskLevel: event.riskLevel,
@@ -134,12 +137,12 @@ const NULL_TELEMETRY_COLUMNS: TelemetryColumns = {
  */
 function telemetryColumns(
   event: Extract<ToolLifecycleEvent, { type: "executed" | "error" }>,
-  input: string,
+  rawInput: string,
   resultBytes: number,
 ): TelemetryColumns {
   if (!getConfig().collectUsageData) return NULL_TELEMETRY_COLUMNS;
   return {
-    argBytes: event.inputBytes ?? Buffer.byteLength(input, "utf8"),
+    argBytes: event.inputBytes ?? Buffer.byteLength(rawInput, "utf8"),
     resultBytes,
     ...toAttributionColumns(event.attribution),
   };
