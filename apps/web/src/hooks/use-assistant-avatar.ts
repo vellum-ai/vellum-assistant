@@ -99,6 +99,14 @@ export function useAssistantAvatar(assistantId: string | null) {
           : fetchAvatarViaLegacyFiles(id),
       ]);
 
+      // Character components are needed for the animated SVG avatar but NOT
+      // for custom uploaded images — ChatAvatar renders those via a plain
+      // <img> tag. Only treat null components as a failure when there is no
+      // image to fall back on; otherwise the partial result is usable.
+      if (!components && !imageUrl) {
+        throw new Error("Failed to fetch character components");
+      }
+
       const prev = activeBlobUrls.get(id);
       if (prev && prev !== imageUrl) {
         URL.revokeObjectURL(prev);
@@ -114,8 +122,9 @@ export function useAssistantAvatar(assistantId: string | null) {
     enabled: Boolean(assistantId),
     staleTime: Infinity,
     structuralSharing: false,
-    // Retry transient `/avatar/state` failures once so a flaky fetch or a
-    // briefly-unavailable daemon recovers without a manual invalidate.
+    // Retry transient failures (character-components or avatar-state) once
+    // so a flaky fetch or a briefly-unavailable daemon recovers without a
+    // manual invalidate.
     retry: 1,
   });
 

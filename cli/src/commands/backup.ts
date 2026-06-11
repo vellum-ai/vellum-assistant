@@ -16,6 +16,7 @@ import {
   platformRequestSignedUrl,
   readPlatformToken,
 } from "../lib/platform-client.js";
+import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
 
 export async function backup(): Promise<void> {
   const args = process.argv.slice(3);
@@ -112,7 +113,7 @@ export async function backup(): Promise<void> {
   // Call the export endpoint
   let response: Response;
   try {
-    response = await fetch(`${entry.runtimeUrl}/v1/migrations/export`, {
+    response = await loopbackSafeFetch(`${entry.runtimeUrl}/v1/migrations/export`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -138,7 +139,7 @@ export async function backup(): Promise<void> {
       }
       if (refreshedToken) {
         accessToken = refreshedToken;
-        response = await fetch(`${entry.runtimeUrl}/v1/migrations/export`, {
+        response = await loopbackSafeFetch(`${entry.runtimeUrl}/v1/migrations/export`, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${accessToken}`,

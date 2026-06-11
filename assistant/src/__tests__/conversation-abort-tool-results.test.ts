@@ -274,7 +274,6 @@ mock.module("../agent/loop.js", () => ({
       return {
         history,
         exitReason: null,
-        appendedNewMessages: true,
         newMessages: history.slice(messages.length),
       };
     }

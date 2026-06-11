@@ -1,20 +1,25 @@
+import { useQuery } from "@tanstack/react-query";
 import { Check, Monitor } from "lucide-react";
 
 import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { DetailCard } from "@/components/detail-card";
-import { useCurrentPlatformAssistant } from "@/hooks/use-current-platform-assistant";
+import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
+import type { Assistant } from "@/generated/api/types.gen";
 import { Button } from "@vellumai/design-library/components/button";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { toast } from "@vellumai/design-library/components/toast";
 
-export function AssistantPicker() {
-  const {
-    assistantId: activeAssistantId,
-    isLoading,
-    platformAssistants,
-  } = useCurrentPlatformAssistant();
+const PLATFORM_LIST_OPTIONS = assistantsListOptions({
+  query: { hosting: "platform" },
+});
 
-  if (isLoading || platformAssistants.length < 2) {
+export function AssistantPicker() {
+  const activeAssistantId = useActiveAssistantId();
+  const listQuery = useQuery(PLATFORM_LIST_OPTIONS);
+  const platformAssistants = (listQuery.data?.results ?? []) as Assistant[];
+
+  if (listQuery.isPending || platformAssistants.length < 2) {
     return null;
   }
 

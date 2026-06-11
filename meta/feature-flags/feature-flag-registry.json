@@ -60,6 +60,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "workspace-tools-watcher",
+      "scope": "assistant",
+      "key": "workspace-tools-watcher",
+      "label": "Workspace tools file watcher",
+      "description": "Hot-reload workspace tool overrides under `<workspaceDir>/tools/` by watching the directory and re-registering tools as files change. When disabled, workspace tools still load from disk once at daemon startup, but live edits require a restart to take effect.",
+      "defaultEnabled": false
+    },
+    {
       "id": "settings-developer-nav",
       "scope": "assistant",
       "key": "settings-developer-nav",
@@ -321,6 +329,14 @@
       "key": "platform-notifications",
       "label": "Platform Notifications",
       "description": "Enable the Notifications tab in settings.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "centralized-assistant-status",
+      "scope": "client",
+      "key": "centralized-assistant-status",
+      "label": "Centralized Assistant Status",
+      "description": "Enable client polling of the centralized assistant operational status endpoint.",
       "defaultEnabled": false
     },
     {

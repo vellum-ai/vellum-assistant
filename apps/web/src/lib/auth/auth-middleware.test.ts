@@ -9,6 +9,7 @@ mock.module("@/lib/local-mode", () => ({
 }));
 
 import { authMiddleware } from "./auth-middleware";
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAuthStore, type AuthUser } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 
@@ -40,6 +41,7 @@ beforeEach(() => {
   isLocalModeMock.mockImplementation(() => true);
   hasAssistantsMock.mockImplementation(() => false);
   useAuthStore.setState(initialAuthState, true);
+  useAssistantLifecycleStore.setState({ assistantState: { kind: "error", message: "no assistant" } });
 });
 
 afterEach(() => {

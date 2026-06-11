@@ -73,6 +73,10 @@ export function getPlatformRuntimeUrl(): string {
 const commitLockfile = (data: Lockfile): void => {
   setCachedLockfile(data);
   setLocalSetting(LOCKFILE_STORAGE_KEY, JSON.stringify(data));
+  // Only reconcile against a lockfile from a successful host read/write — never
+  // the transient empty fallback in `loadLockfile`/`getLockfile`, which would
+  // wrongly drop a valid selection on a boot/read failure.
+  reconcileSelectedAssistant();
 };
 
 // ---------------------------------------------------------------------------
@@ -147,7 +151,7 @@ export function getLockfile(): Lockfile {
  * cache only advances once the on-disk write succeeds.
  */
 export async function saveLockfileAssistant(
-  assistant: { assistantId: string; cloud: string; runtimeUrl: string; hatchedAt: string },
+  assistant: { assistantId: string; name?: string; cloud: string; runtimeUrl: string; hatchedAt: string; organizationId?: string },
 ): Promise<void> {
   const result = await saveLockfileAssistantHost(
     assistant,
@@ -181,20 +185,35 @@ export async function setActiveLockfileAssistant(
 /**
  * Replace all platform-hosted assistant entries in the lockfile with the
  * current set from the API. Removes stale entries and adds new ones atomically.
+ *
+ * `organizationId` is stamped onto every platform entry so the host proxy can
+ * scope requests without guessing. The caller passes the active org: the API
+ * list is org-scoped by the `Vellum-Organization-Id` header, so every assistant
+ * in `assistants` belongs to that org.
  */
 export async function syncPlatformAssistantsToLockfile(
-  assistants: Array<{ id: string; is_local: boolean; created: string }>,
+  assistants: Array<{ id: string; name?: string; is_local: boolean; created: string }>,
+  organizationId?: string,
 ): Promise<void> {
+  // Without a resolved org we can't scope the replace; a full wipe here would
+  // drop other orgs' platform entries. Skip — a later sync re-runs with the org.
+  if (organizationId == null) return;
+
   const platformAssistants = assistants
     .filter((a) => !a.is_local)
     .map((a) => ({
       assistantId: a.id,
+      ...(a.name != null && { name: a.name }),
       cloud: "vellum",
       runtimeUrl: getPlatformRuntimeUrl(),
       hatchedAt: a.created,
+      ...(organizationId != null && { organizationId }),
     }));
 
-  const result = await replacePlatformAssistantsHost(platformAssistants);
+  const result = await replacePlatformAssistantsHost(
+    platformAssistants,
+    organizationId,
+  );
   if (result.ok) {
     commitLockfile(result.lockfile);
   }
@@ -278,12 +297,37 @@ export function getSelectedAssistant(): LockfileAssistant | undefined {
   return getActiveAssistant();
 }
 
+/**
+ * The raw tab-local selection id, or null — without the `activeAssistant`
+ * fallback that `getSelectedAssistant` folds in. Callers that resolve the
+ * lockfile active through their own validation must use this so a stale active
+ * id isn't mistaken for a deliberate tab pick.
+ */
+export function getTabLocalSelectedAssistantId(): string | null {
+  return getLocalSetting(SELECTED_ASSISTANT_STORAGE_KEY, "") || null;
+}
+
 export function setSelectedAssistantId(id: string): void {
   setLocalSetting(SELECTED_ASSISTANT_STORAGE_KEY, id);
 }
 
 export function clearSelectedAssistant(): void {
   removeLocalSetting(SELECTED_ASSISTANT_STORAGE_KEY);
+}
+
+/**
+ * Reconcile the tab-local selection cache against the lockfile registry: if the
+ * selected id no longer names a lockfile entry, clear it so `getSelectedAssistant`
+ * falls back to `getActiveAssistant`. No-op when there is no tab-local selection —
+ * resolution is left to `getActiveAssistant`.
+ */
+export function reconcileSelectedAssistant(): void {
+  const selectedId = getLocalSetting(SELECTED_ASSISTANT_STORAGE_KEY, "");
+  if (!selectedId) return;
+  const present = getLockfile().assistants.some(
+    (a) => a.assistantId === selectedId,
+  );
+  if (!present) clearSelectedAssistant();
 }
 
 // ---------------------------------------------------------------------------

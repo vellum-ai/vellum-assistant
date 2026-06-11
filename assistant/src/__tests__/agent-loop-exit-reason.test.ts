@@ -192,6 +192,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: (e) => {
         events.push(e);
@@ -214,6 +215,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: (e) => {
         events.push(e);
@@ -237,6 +239,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: (e) => {
         events.push(e);
@@ -244,9 +247,14 @@ describe("AgentLoop exit-reason instrumentation", () => {
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
+    // The mock provider returns its content without streaming any text_delta
+    // live, so the loop surfaces the truncated reply once via a synthetic
+    // text_delta before stopping (a real provider streams the text live, where
+    // this emit is a no-op).
     expect(events.map((e) => e.type)).toEqual([
       "llm_call_started",
       "usage",
+      "text_delta",
       "max_tokens_reached",
       "message_complete",
       "agent_loop_exit",
@@ -281,6 +289,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const events: AgentEvent[] = [];
     const { history: result } = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: (e) => {
         events.push(e);
@@ -308,6 +317,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: (e) => {
         events.push(e);
@@ -339,6 +349,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: (e) => {
         events.push(e);
@@ -365,10 +376,11 @@ describe("AgentLoop exit-reason instrumentation", () => {
     });
 
     const onCheckpoint = (_info: CheckpointInfo): CheckpointDecision =>
-      "budget";
+      "handoff";
 
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: (e) => {
         events.push(e);
@@ -380,42 +392,9 @@ describe("AgentLoop exit-reason instrumentation", () => {
     expect(countExitEvents(events)).toBe(0);
   });
 
-  test("yields with 'budget' when the in-loop budget gate trips", async () => {
-    // GIVEN a provider that calls a tool (reaching a checkpoint) before it
-    // would continue with a text response.
-    const { provider } = createMockProvider([
-      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
-      textResponse("never reached"),
-    ]);
-    const toolExecutor = async () => ({ content: "ok", isError: false });
-    const loop = new AgentLoop({
-      provider: provider,
-      systemPrompt: "system",
-      conversationId: "test-conversation",
-      tools: dummyTools,
-      toolExecutor: toolExecutor,
-    });
-
-    // AND an effective context window so small that any real token estimate
-    // of the running history exceeds the mid-loop threshold.
-    // WHEN the loop checkpoints after the tool results land
-    const result = await loop.run({
-      messages: [userMessage],
-      onEvent: () => {},
-      trust: { sourceChannel: "vellum", trustClass: "unknown" },
-      resolveContextWindow: () => ({
-        maxInputTokens: 10,
-        overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
-      }),
-    });
-
-    // THEN it yields for budget before issuing the next provider call.
-    expect(result.exitReason).toBe("budget");
-  });
-
-  test("does not yield for budget when overflow recovery is disabled", async () => {
-    // GIVEN the same tiny context window but overflow recovery disabled — the
-    // agent-wake configuration, which must never yield for budget.
+  test("runs to a clean exit when overflow recovery is disabled", async () => {
+    // GIVEN a tiny context window but overflow recovery disabled — the
+    // agent-wake configuration, which must never compact mid-loop.
     const { provider } = createMockProvider([
       toolUseResponse("t1", "read_file", { path: "/a.txt" }),
       textResponse("done"),
@@ -431,6 +410,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     // WHEN the loop runs to completion
     const result = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -440,8 +420,8 @@ describe("AgentLoop exit-reason instrumentation", () => {
       }),
     });
 
-    // THEN it never yields for budget.
-    expect(result.exitReason).not.toBe("budget");
+    // THEN it reaches a clean exit without pausing the loop.
+    expect(result.exitReason).toBeNull();
   });
 
   test("compacts in place and continues when the budget gate trips with a compaction hook", async () => {
@@ -469,6 +449,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     // WHEN the in-loop budget gate trips at the checkpoint
     const result = await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: (event) => {
         events.push(event);
@@ -485,52 +466,13 @@ describe("AgentLoop exit-reason instrumentation", () => {
     });
 
     // THEN the loop runs the compaction ceremony in place and continues to a
-    // clean exit instead of yielding for budget. The durable commit is
-    // signalled via a `compaction_completed` event rather than an injected hook.
+    // clean exit. The durable commit is signalled via a `compaction_completed`
+    // event rather than an injected hook.
     expect(events.some((event) => event.type === "compaction_completed")).toBe(
       true,
     );
     expect(reinjected).toBe(true);
-    expect(result.exitReason).not.toBe("budget");
-  });
-
-  test("yields 'budget' when inline compaction reports exhausted", async () => {
-    const { provider } = createMockProvider([
-      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
-      textResponse("never reached"),
-    ]);
-    const toolExecutor = async () => ({ content: "ok", isError: false });
-    const loop = new AgentLoop({
-      provider: provider,
-      systemPrompt: "system",
-      conversationId: "test-conversation",
-      tools: dummyTools,
-      toolExecutor: toolExecutor,
-    });
-
-    postCompactImpl = async () => {
-      throw new Error(
-        "post-compaction re-injection must not run when exhausted",
-      );
-    };
-
-    // WHEN compaction exhausts its retry budget
-    const result = await loop.run({
-      messages: [userMessage],
-      onEvent: () => {},
-      resolveContextWindow: () => ({
-        maxInputTokens: 10,
-        overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
-      }),
-      compactInPlace: true,
-      ...fakeCompaction("test-conversation", {
-        compacted: false,
-        exhausted: true,
-      }),
-    });
-
-    // THEN the loop yields for budget so the orchestrator can escalate.
-    expect(result.exitReason).toBe("budget");
+    expect(result.exitReason).toBeNull();
   });
 
   test("emits 'error' when provider throws an unhandled error", async () => {
@@ -548,6 +490,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: (e) => {
         events.push(e);
@@ -581,6 +524,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: (e) => {
         events.push(e);
@@ -612,6 +556,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const events: AgentEvent[] = [];
     await loop.run({
+      requestId: "test-request",
       messages: [userMessage],
       onEvent: (e) => {
         events.push(e);

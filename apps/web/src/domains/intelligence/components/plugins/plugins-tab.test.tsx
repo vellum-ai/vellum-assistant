@@ -128,14 +128,20 @@ describe("PluginsTab", () => {
         matches: [
           {
             name: "apollo-bot-brain",
-            path: "plugins/apollo-bot-brain",
-            source: { kind: "first-party" },
+            path: "github:acme/apollo-bot-brain@1111111111111111111111111111111111111111",
+            source: {
+              kind: "github",
+              repo: "acme/apollo-bot-brain",
+              ref: "1111111111111111111111111111111111111111",
+            },
           },
         ],
       },
     });
     expect(html).toContain("apollo-bot-brain");
-    expect(html).toContain("plugins/apollo-bot-brain");
+    expect(html).toContain(
+      "github:acme/apollo-bot-brain@1111111111111111111111111111111111111111",
+    );
     expect(html).toContain('href="/assistant/plugins/apollo-bot-brain"');
     // The inline CLI install hint was replaced by the detail page.
     expect(html).not.toContain("assistant plugins install");
@@ -159,24 +165,36 @@ describe("PluginsTab", () => {
         matches: [
           {
             name: "simple-memory",
-            path: "plugins/simple-memory",
-            source: { kind: "first-party" },
+            path: "github:vellum-ai/simple-memory@ed09a4c01bf18e4ac8859faee94cb65c7cbd1ca3",
+            source: {
+              kind: "github",
+              repo: "vellum-ai/simple-memory",
+              ref: "ed09a4c01bf18e4ac8859faee94cb65c7cbd1ca3",
+            },
           },
           {
             name: "apollo-bot-brain",
-            path: "plugins/apollo-bot-brain",
-            source: { kind: "first-party" },
+            path: "github:acme/apollo-bot-brain@1111111111111111111111111111111111111111",
+            source: {
+              kind: "github",
+              repo: "acme/apollo-bot-brain",
+              ref: "1111111111111111111111111111111111111111",
+            },
           },
         ],
       },
     });
-    // CatalogRow renders the origin path in a `title` attribute, which is
+    // CatalogRow renders the origin locator in a `title` attribute, which is
     // unique to the catalog row — the installed row links to the same detail
     // page (`/assistant/plugins/<name>`) but renders no such title. Asserting
     // on the title attribute proves the already-installed entry was suppressed
-    // without colliding with the shared `plugins/<name>` href substring.
-    expect(html).not.toContain('title="plugins/simple-memory"');
-    expect(html).toContain('title="plugins/apollo-bot-brain"');
+    // without colliding with the shared `/assistant/plugins/<name>` href.
+    expect(html).not.toContain(
+      'title="github:vellum-ai/simple-memory@ed09a4c01bf18e4ac8859faee94cb65c7cbd1ca3"',
+    );
+    expect(html).toContain(
+      'title="github:acme/apollo-bot-brain@1111111111111111111111111111111111111111"',
+    );
   });
 
   test("shows the installed empty state when nothing is installed", () => {

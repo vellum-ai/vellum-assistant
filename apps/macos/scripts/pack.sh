@@ -26,4 +26,4 @@ bash scripts/build-mac-helper.sh
 bun run build:web
 bash scripts/generate-cli-lockfile.sh
 electron-vite build
-electron-builder --config electron-builder.config.cjs
+electron-builder --config electron-builder.config.cjs --publish always

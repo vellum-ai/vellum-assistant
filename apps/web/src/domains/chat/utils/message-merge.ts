@@ -78,21 +78,21 @@ function concatOptionalArrays<T>(
  *
  * History payloads from the server reference array members by *position*
  * — `{ type: "text", id: "0" }`, `{ type: "attachment", id: "2" }`,
- * `{ type: "tool", id: "1" }`, `{ type: "surface", id: "0" }`. The
- * transcript renderer (`resolveSurface`, `resolveToolCall`, text-segment
- * lookup in `transcript-message-body.tsx`) first tries id-keyed lookup
- * and falls back to `parseInt(id, 10) → array[idx]` when the id matches
- * none of the array members' real ids. When we concatenate the donor's
- * `textSegments` / `attachments` / `toolCalls` / `surfaces` onto the
- * survivor's, every *positional* numeric reference in the donor's
- * contentOrder must shift by the survivor's array length so it still
- * resolves to the right member in the merged arrays.
+ * `{ type: "tool", id: "1" }`, `{ type: "surface", id: "0" }`.
+ * `normalizeContentBlocks` (api/messages.ts) walks `contentOrder` and
+ * resolves each numeric id via `parseInt(id, 10) → array[idx]` to
+ * synthesize a `contentBlocks` projection for rows the server sent
+ * without one. When we concatenate the donor's `textSegments` /
+ * `attachments` / `toolCalls` / `surfaces` onto the survivor's, every
+ * *positional* numeric reference in the donor's contentOrder must shift
+ * by the survivor's array length so it still resolves to the right
+ * member in the merged arrays.
  *
  * Streaming-shape entries carry real ids instead (text-segment object
- * `id`s, tool-use ids like `toolu_…`, surface UUIDs). Those resolve via
- * the renderer's id-keyed lookup and must pass through untouched. The
- * `/^\d+$/` gate distinguishes positional numeric ids ("0", "12") from
- * real ids ("toolu_abc", "surf-uuid", "seg-3").
+ * `id`s, tool-use ids like `toolu_…`, surface UUIDs); those are not
+ * positional and must pass through untouched. The `/^\d+$/` gate
+ * distinguishes positional numeric ids ("0", "12") from real ids
+ * ("toolu_abc", "surf-uuid", "seg-3").
  */
 function remapAdjacentContentOrder(
   entries: Array<{ type: string; id: string }> | undefined,

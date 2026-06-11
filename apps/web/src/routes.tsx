@@ -116,6 +116,21 @@ export const routeTree = [
     // outside auth middleware and RootLayout for fast load.
     { path: "/assistant/quick-input", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/quick-input-page").then((m) => m.QuickInputPage) } },
 
+    // Command palette — focused floating Electron BrowserWindow opened by
+    // the app menu's Cmd/Ctrl+K accelerator. Standalone and unauthenticated
+    // so it does not depend on ChatLayout being mounted in the main window.
+    { path: "/assistant/floating/command-palette", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/command-palette/command-palette-window-page").then((m) => m.CommandPaletteWindowPage) } },
+
+    // Dictation overlay — live transcription pill rendered inside the
+    // Electron dictation overlay BrowserWindow (a click-through floating
+    // panel pinned top-center of the screen while push-to-talk dictation
+    // is active). Same pattern as Quick Input: sibling of `/assistant`,
+    // outside auth middleware and RootLayout for fast load.
+    { path: "/assistant/floating/dictation-overlay", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/dictation-overlay-page").then((m) => m.DictationOverlayPage) } },
+    // Legacy direct path retained so old dev windows do not blank during
+    // rolling Electron/web updates.
+    { path: "/assistant/dictation-overlay", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/dictation-overlay-page").then((m) => m.DictationOverlayPage) } },
+
     // Assistant routes — auth-protected app with layout
     {
       path: "/assistant",
@@ -186,51 +201,59 @@ export const routeTree = [
           ],
         },
 
-        // Settings routes — full-screen overlay panel (no ChatLayout sidebar).
-        // SidebarShell provides its own layout with back-arrow, sidebar nav,
-        // and content area — the main app sidebar is intentionally hidden.
-        // Lazy-loaded: visited occasionally, heavy deps (Stripe, schedules, voice).
+        // Settings and logs require a resolved assistant. The gate
+        // defers child rendering until the lifecycle reaches active/
+        // self_hosted, so route components can use useActiveAssistantId().
         {
-          path: "settings",
-          lazy: { Component: () => import("@/domains/settings/settings-layout").then((m) => m.SettingsLayout) },
+          Component: ActiveAssistantGate,
           children: [
-            { index: true, lazy: { Component: () => import("@/domains/settings/pages/general-page").then((m) => m.GeneralPage) } },
-            { path: "general", lazy: { Component: () => import("@/domains/settings/pages/general-page").then((m) => m.GeneralPage) } },
-            { path: "ai", lazy: { Component: () => import("@/domains/settings/ai/ai-page").then((m) => m.AiPage) } },
-            { path: "integrations", lazy: { Component: () => import("@/domains/settings/pages/integrations-page").then((m) => m.IntegrationsPage) } },
-            { path: "schedules", lazy: { Component: () => import("@/domains/settings/pages/schedules-page").then((m) => m.SchedulesPage) } },
-            { path: "schedules/:scheduleId", lazy: { Component: () => import("@/domains/settings/pages/schedules-page").then((m) => m.SchedulesPage) } },
-            { path: "notifications", lazy: { Component: () => import("@/domains/settings/pages/notifications-page").then((m) => m.NotificationsPage) } },
-            { path: "keyboard-shortcuts", lazy: { Component: () => import("@/domains/settings/keyboard-shortcuts/keyboard-shortcuts-page").then((m) => m.KeyboardShortcutsPage) } },
-            { path: "sounds", lazy: { Component: () => import("@/domains/settings/pages/sounds-page").then((m) => m.SoundsPage) } },
-            { path: "voice", lazy: { Component: () => import("@/domains/settings/pages/voice-page").then((m) => m.VoicePage) } },
-            { path: "devices", lazy: { Component: () => import("@/domains/settings/pages/devices-page").then((m) => m.DevicesPage) } },
-            { path: "privacy", lazy: { Component: () => import("@/domains/settings/pages/privacy-page").then((m) => m.PrivacyPage) } },
-            { path: "archive", lazy: { Component: () => import("@/domains/settings/pages/archive-page").then((m) => m.ArchivePage) } },
-            { path: "billing", lazy: { Component: () => import("@/domains/settings/billing/billing-page").then((m) => m.BillingPage) } },
-            { path: "billing/upgrade/cancel", lazy: { Component: () => import("@/domains/settings/billing/upgrade-cancel-page").then((m) => m.UpgradeCancelPage) } },
-            { path: "billing/upgrade/success", lazy: { Component: () => import("@/domains/settings/billing/upgrade-success-page").then((m) => m.UpgradeSuccessPage) } },
-            { path: "community", lazy: { Component: () => import("@/domains/settings/pages/community-page").then((m) => m.CommunityPage) } },
-            { path: "debug", lazy: { Component: () => import("@/domains/settings/pages/debug-page").then((m) => m.DebugPage) } },
-            { path: "developer", lazy: { Component: () => import("@/domains/settings/pages/developer-page").then((m) => m.DeveloperPage) } },
-            { path: "advanced", lazy: { Component: () => import("@/domains/settings/pages/advanced-page").then((m) => m.AdvancedPage) } },
-            { path: "danger-zone", lazy: { Component: () => import("@/domains/settings/pages/danger-zone-redirect-page").then((m) => m.DangerZoneRedirectPage) } },
-            { path: "system-events", lazy: { Component: () => import("@/domains/settings/pages/system-events-redirect-page").then((m) => m.SystemEventsRedirectPage) } },
-          ],
-        },
+            // Settings routes — full-screen overlay panel (no ChatLayout sidebar).
+            // SidebarShell provides its own layout with back-arrow, sidebar nav,
+            // and content area — the main app sidebar is intentionally hidden.
+            // Lazy-loaded: visited occasionally, heavy deps (Stripe, schedules, voice).
+            {
+              path: "settings",
+              lazy: { Component: () => import("@/domains/settings/settings-layout").then((m) => m.SettingsLayout) },
+              children: [
+                { index: true, lazy: { Component: () => import("@/domains/settings/pages/general-page").then((m) => m.GeneralPage) } },
+                { path: "general", lazy: { Component: () => import("@/domains/settings/pages/general-page").then((m) => m.GeneralPage) } },
+                { path: "ai", lazy: { Component: () => import("@/domains/settings/ai/ai-page").then((m) => m.AiPage) } },
+                { path: "integrations", lazy: { Component: () => import("@/domains/settings/pages/integrations-page").then((m) => m.IntegrationsPage) } },
+                { path: "schedules", lazy: { Component: () => import("@/domains/settings/pages/schedules-page").then((m) => m.SchedulesPage) } },
+                { path: "schedules/:scheduleId", lazy: { Component: () => import("@/domains/settings/pages/schedules-page").then((m) => m.SchedulesPage) } },
+                { path: "notifications", lazy: { Component: () => import("@/domains/settings/pages/notifications-page").then((m) => m.NotificationsPage) } },
+                { path: "keyboard-shortcuts", lazy: { Component: () => import("@/domains/settings/keyboard-shortcuts/keyboard-shortcuts-page").then((m) => m.KeyboardShortcutsPage) } },
+                { path: "sounds", lazy: { Component: () => import("@/domains/settings/pages/sounds-page").then((m) => m.SoundsPage) } },
+                { path: "voice", lazy: { Component: () => import("@/domains/settings/pages/voice-page").then((m) => m.VoicePage) } },
+                { path: "devices", lazy: { Component: () => import("@/domains/settings/pages/devices-page").then((m) => m.DevicesPage) } },
+                { path: "privacy", lazy: { Component: () => import("@/domains/settings/pages/privacy-page").then((m) => m.PrivacyPage) } },
+                { path: "archive", lazy: { Component: () => import("@/domains/settings/pages/archive-page").then((m) => m.ArchivePage) } },
+                { path: "billing", lazy: { Component: () => import("@/domains/settings/billing/billing-page").then((m) => m.BillingPage) } },
+                { path: "billing/upgrade/cancel", lazy: { Component: () => import("@/domains/settings/billing/upgrade-cancel-page").then((m) => m.UpgradeCancelPage) } },
+                { path: "billing/upgrade/success", lazy: { Component: () => import("@/domains/settings/billing/upgrade-success-page").then((m) => m.UpgradeSuccessPage) } },
+                { path: "community", lazy: { Component: () => import("@/domains/settings/pages/community-page").then((m) => m.CommunityPage) } },
+                { path: "debug", lazy: { Component: () => import("@/domains/settings/pages/debug-page").then((m) => m.DebugPage) } },
+                { path: "developer", lazy: { Component: () => import("@/domains/settings/pages/developer-page").then((m) => m.DeveloperPage) } },
+                { path: "advanced", lazy: { Component: () => import("@/domains/settings/pages/advanced-page").then((m) => m.AdvancedPage) } },
+                { path: "danger-zone", lazy: { Component: () => import("@/domains/settings/pages/danger-zone-redirect-page").then((m) => m.DangerZoneRedirectPage) } },
+                { path: "system-events", lazy: { Component: () => import("@/domains/settings/pages/system-events-redirect-page").then((m) => m.SystemEventsRedirectPage) } },
+              ],
+            },
 
-        // Logs routes — full-screen overlay panel (like SettingsLayout).
-        // LogsLayout reuses SidebarShell for visual consistency.
-        // Lazy-loaded: analytics-only, pulls in recharts.
-        {
-          path: "logs",
-          lazy: { Component: () => import("@/domains/logs/logs-layout").then((m) => m.LogsLayout) },
-          children: [
-            { index: true, lazy: { Component: () => import("@/domains/logs/pages/usage-page").then((m) => m.UsagePage) } },
-            { path: "trace", lazy: { Component: () => import("@/domains/logs/pages/trace-page").then((m) => m.TracePage) } },
-            { path: "usage", lazy: { Component: () => import("@/domains/logs/pages/usage-page").then((m) => m.UsagePage) } },
-            { path: "system-events", lazy: { Component: () => import("@/domains/logs/pages/system-events-page").then((m) => m.SystemEventsPage) } },
-            { path: "emails", lazy: { Component: () => import("@/domains/logs/pages/emails-page").then((m) => m.EmailsPage) } },
+            // Logs routes — full-screen overlay panel (like SettingsLayout).
+            // LogsLayout reuses SidebarShell for visual consistency.
+            // Lazy-loaded: analytics-only, pulls in recharts.
+            {
+              path: "logs",
+              lazy: { Component: () => import("@/domains/logs/logs-layout").then((m) => m.LogsLayout) },
+              children: [
+                { index: true, lazy: { Component: () => import("@/domains/logs/pages/usage-page").then((m) => m.UsagePage) } },
+                { path: "trace", lazy: { Component: () => import("@/domains/logs/pages/trace-page").then((m) => m.TracePage) } },
+                { path: "usage", lazy: { Component: () => import("@/domains/logs/pages/usage-page").then((m) => m.UsagePage) } },
+                { path: "system-events", lazy: { Component: () => import("@/domains/logs/pages/system-events-page").then((m) => m.SystemEventsPage) } },
+                { path: "emails", lazy: { Component: () => import("@/domains/logs/pages/emails-page").then((m) => m.EmailsPage) } },
+              ],
+            },
           ],
         },
 

@@ -1264,7 +1264,11 @@ jobs:
           git push origin "v${VERSION}"
           echo "Tagged staging release: v${VERSION}"
 
-  publish-npm-prod:
+  # Build (untrusted: runs `bun install` postinstall scripts) is isolated from
+  # publish (holds NPM_TOKEN) in a separate job. `npm pack` produces the tarball
+  # here with no token; `npm publish <tarball>` below does not re-run prepack, so
+  # no build/dependency code executes alongside the credential.
+  build-npm-prod:
     needs: [extract-version, ci-cli, ci-gateway, ci-playwright, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image]
     if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' && (needs.ci-playwright.result == 'success' || inputs.playwright_blocks_release != true) && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' }}
     runs-on: ubuntu-latest
@@ -1284,7 +1288,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
-          registry-url: https://registry.npmjs.org
 
       - name: Sync feature flag registry for publish
         run: bun run meta/feature-flags/sync-bundled-copies.ts
@@ -1299,15 +1302,55 @@ jobs:
             rm -rf node_modules
             bun install
           fi
+      - name: Pack tarball
+        run: |
+          cd "${{ matrix.package }}"
+          mkdir -p /tmp/npm-dist
+          npm pack --pack-destination /tmp/npm-dist
+          mv /tmp/npm-dist/*.tgz /tmp/npm-dist/package.tgz
+          node -p "require('./package.json').name" > /tmp/npm-dist/name
+          node -p "require('./package.json').version" > /tmp/npm-dist/version
+      - name: Upload tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-tarball-prod-${{ matrix.package }}
+          path: /tmp/npm-dist/
+          retention-days: 1
+
+  publish-npm-prod:
+    needs: [extract-version, build-npm-prod]
+    if: ${{ always() && !cancelled() && needs.build-npm-prod.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        package: [assistant, cli, credential-executor, gateway]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+
+      - name: Download tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-tarball-prod-${{ matrix.package }}
+          path: /tmp/npm-dist
+
       - name: Publish package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           E2E_BLOCKS_RELEASE: ${{ inputs.playwright_blocks_release }}
         run: |
-          PACKAGE="${{ matrix.package }}"
-          cd "$PACKAGE"
-          PKG_NAME=$(node -p "require('./package.json').name")
-          PKG_VERSION=$(node -p "require('./package.json').version")
+          PKG_NAME=$(cat /tmp/npm-dist/name)
+          PKG_VERSION=$(cat /tmp/npm-dist/version)
           if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
             if [ "$E2E_BLOCKS_RELEASE" = "true" ]; then
               echo "::error::$PKG_NAME@$PKG_VERSION is already published, but e2e tests are gating this release. Bump the version — refusing to silently retry."
@@ -1316,7 +1359,93 @@ jobs:
             echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping (e2e is non-blocking, treating as retry)."
             exit 0
           fi
-          npm publish --access public --no-provenance
+          npm publish /tmp/npm-dist/package.tgz --access public --no-provenance
+
+  # `@vellumai/plugin-api` is the public TypeScript authoring contract external
+  # plugins compile against. Unlike the other npm packages it is not a package
+  # directory `npm pack` can consume directly: scripts/build-plugin-api.ts rolls
+  # the plugin-api surface into a single self-contained `index.d.ts` (API
+  # Extractor, zod-only external) and stamps the release version, so it gets its
+  # own build/publish pair rather than a slot in the npm matrix. Published in
+  # lockstep with the assistant version the loader's peerDependency gate expects.
+  build-plugin-api-prod:
+    needs: [extract-version, ci-cli, ci-gateway, ci-playwright, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image]
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' && (needs.ci-playwright.result == 'success' || inputs.playwright_blocks_release != true) && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+      - name: Install assistant dependencies
+        run: |
+          cd assistant
+          if ! bun install --frozen-lockfile; then
+            echo "bun install --frozen-lockfile failed; regenerating lockfile and retrying..."
+            rm -f bun.lock
+            rm -rf node_modules
+            bun install
+          fi
+      - name: Build plugin-api package
+        run: cd assistant && bun run scripts/build-plugin-api.ts --version "${{ needs.extract-version.outputs.version }}"
+      - name: Pack tarball
+        run: |
+          cd assistant/.plugin-api-build/package
+          mkdir -p /tmp/npm-dist
+          npm pack --pack-destination /tmp/npm-dist
+          mv /tmp/npm-dist/*.tgz /tmp/npm-dist/package.tgz
+          node -p "require('./package.json').name" > /tmp/npm-dist/name
+          node -p "require('./package.json').version" > /tmp/npm-dist/version
+      - name: Upload tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-tarball-prod-plugin-api
+          path: /tmp/npm-dist/
+          retention-days: 1
+
+  publish-plugin-api-prod:
+    needs: [extract-version, build-plugin-api-prod]
+    if: ${{ always() && !cancelled() && needs.build-plugin-api-prod.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+      - name: Download tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-tarball-prod-plugin-api
+          path: /tmp/npm-dist
+      - name: Publish package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          E2E_BLOCKS_RELEASE: ${{ inputs.playwright_blocks_release }}
+        run: |
+          PKG_NAME=$(cat /tmp/npm-dist/name)
+          PKG_VERSION=$(cat /tmp/npm-dist/version)
+          if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+            if [ "$E2E_BLOCKS_RELEASE" = "true" ]; then
+              echo "::error::$PKG_NAME@$PKG_VERSION is already published, but e2e tests are gating this release. Bump the version — refusing to silently retry."
+              exit 1
+            fi
+            echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping (e2e is non-blocking, treating as retry)."
+            exit 0
+          fi
+          npm publish /tmp/npm-dist/package.tgz --access public --no-provenance
 
   # ── Staging: pack CLI tarball and dispatch QA to platform repo ──────
   pack-cli:
@@ -1378,7 +1507,7 @@ jobs:
             --field version="${{ needs.extract-version.outputs.version }}" \
             --field run_id="${{ github.run_id }}"
 
-  publish-npm-staging:
+  build-npm-staging:
     needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
     runs-on: ubuntu-latest
@@ -1396,7 +1525,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
-          registry-url: https://registry.npmjs.org
       - name: Sync feature flag registry
         run: bun run meta/feature-flags/sync-bundled-copies.ts
       - name: Stamp staging version
@@ -1407,21 +1535,130 @@ jobs:
           if ! bun install --frozen-lockfile; then
             rm -f bun.lock && rm -rf node_modules && bun install
           fi
+      - name: Pack tarball
+        run: |
+          cd "${{ matrix.package }}"
+          mkdir -p /tmp/npm-dist
+          npm pack --pack-destination /tmp/npm-dist
+          mv /tmp/npm-dist/*.tgz /tmp/npm-dist/package.tgz
+          node -p "require('./package.json').name" > /tmp/npm-dist/name
+          node -p "require('./package.json').version" > /tmp/npm-dist/version
+      - name: Upload tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-tarball-staging-${{ matrix.package }}
+          path: /tmp/npm-dist/
+          retention-days: 1
+
+  publish-npm-staging:
+    needs: [extract-version, build-npm-staging]
+    if: ${{ always() && !cancelled() && needs.build-npm-staging.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        package: [assistant, cli, credential-executor, gateway]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+      - name: Download tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-tarball-staging-${{ matrix.package }}
+          path: /tmp/npm-dist
       - name: Publish package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          cd "${{ matrix.package }}"
-          PKG_NAME=$(node -p "require('./package.json').name")
-          PKG_VERSION=$(node -p "require('./package.json').version")
+          PKG_NAME=$(cat /tmp/npm-dist/name)
+          PKG_VERSION=$(cat /tmp/npm-dist/version)
           if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
             echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping."
             exit 0
           fi
-          npm publish --tag staging --access public --no-provenance
+          npm publish /tmp/npm-dist/package.tgz --tag staging --access public --no-provenance
 
-  publish-web-staging:
-    name: publish-npm-staging (web)
+  build-plugin-api-staging:
+    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+      - name: Install assistant dependencies
+        run: |
+          cd assistant
+          if ! bun install --frozen-lockfile; then
+            rm -f bun.lock && rm -rf node_modules && bun install
+          fi
+      - name: Build plugin-api package
+        run: cd assistant && bun run scripts/build-plugin-api.ts --version "${{ needs.extract-version.outputs.version }}"
+      - name: Pack tarball
+        run: |
+          cd assistant/.plugin-api-build/package
+          mkdir -p /tmp/npm-dist
+          npm pack --pack-destination /tmp/npm-dist
+          mv /tmp/npm-dist/*.tgz /tmp/npm-dist/package.tgz
+          node -p "require('./package.json').name" > /tmp/npm-dist/name
+          node -p "require('./package.json').version" > /tmp/npm-dist/version
+      - name: Upload tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-tarball-staging-plugin-api
+          path: /tmp/npm-dist/
+          retention-days: 1
+
+  publish-plugin-api-staging:
+    needs: [extract-version, build-plugin-api-staging]
+    if: ${{ always() && !cancelled() && needs.build-plugin-api-staging.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+      - name: Download tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-tarball-staging-plugin-api
+          path: /tmp/npm-dist
+      - name: Publish package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          PKG_NAME=$(cat /tmp/npm-dist/name)
+          PKG_VERSION=$(cat /tmp/npm-dist/version)
+          if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+            echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping."
+            exit 0
+          fi
+          npm publish /tmp/npm-dist/package.tgz --tag staging --access public --no-provenance
+
+  build-web-staging:
+    name: build-npm-staging (web)
     needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
     if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
     runs-on: ubuntu-latest
@@ -1436,7 +1673,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
-          registry-url: https://registry.npmjs.org
       - name: Install design-library dependencies
         working-directory: packages/design-library
         run: bun install --frozen-lockfile
@@ -1463,18 +1699,54 @@ jobs:
         run: |
           VERSION="${{ needs.extract-version.outputs.version }}"
           jq --arg v "$VERSION" '{name, version: $v, license, type, description, files}' package.json > tmp && mv tmp package.json
-      - name: Publish
+      - name: Pack tarball
         working-directory: apps/web
+        run: |
+          mkdir -p /tmp/npm-dist
+          npm pack --pack-destination /tmp/npm-dist
+          mv /tmp/npm-dist/*.tgz /tmp/npm-dist/package.tgz
+          node -p "require('./package.json').name" > /tmp/npm-dist/name
+          node -p "require('./package.json').version" > /tmp/npm-dist/version
+      - name: Upload tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-tarball-staging-web
+          path: /tmp/npm-dist/
+          retention-days: 1
+
+  publish-web-staging:
+    name: publish-npm-staging (web)
+    needs: [extract-version, build-web-staging]
+    if: ${{ always() && !cancelled() && needs.build-web-staging.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+      - name: Download tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-tarball-staging-web
+          path: /tmp/npm-dist
+      - name: Publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          PKG_NAME=$(node -p "require('./package.json').name")
-          PKG_VERSION=$(node -p "require('./package.json').version")
+          PKG_NAME=$(cat /tmp/npm-dist/name)
+          PKG_VERSION=$(cat /tmp/npm-dist/version)
           if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
             echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping."
             exit 0
           fi
-          npm publish --tag staging --access public --no-provenance
+          npm publish /tmp/npm-dist/package.tgz --tag staging --access public --no-provenance
 
   publish-meta-staging:
     name: publish-npm-staging (meta)
@@ -1515,8 +1787,8 @@ jobs:
           fi
           npm publish --tag staging --access public --no-provenance
 
-  publish-web-prod:
-    name: publish-npm-prod (web)
+  build-web-prod:
+    name: build-npm-prod (web)
     needs: [extract-version, ci-cli, ci-gateway, ci-playwright, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image]
     if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' && (needs.ci-playwright.result == 'success' || inputs.playwright_blocks_release != true) && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' }}
     runs-on: ubuntu-latest
@@ -1533,7 +1805,6 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
-          registry-url: https://registry.npmjs.org
 
       - name: Install design-library dependencies
         working-directory: packages/design-library
@@ -1569,14 +1840,54 @@ jobs:
         run: |
           jq '{name, version, license, type, description, files}' package.json > tmp && mv tmp package.json
 
-      - name: Publish
+      - name: Pack tarball
         working-directory: apps/web
+        run: |
+          mkdir -p /tmp/npm-dist
+          npm pack --pack-destination /tmp/npm-dist
+          mv /tmp/npm-dist/*.tgz /tmp/npm-dist/package.tgz
+          node -p "require('./package.json').name" > /tmp/npm-dist/name
+          node -p "require('./package.json').version" > /tmp/npm-dist/version
+
+      - name: Upload tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-tarball-prod-web
+          path: /tmp/npm-dist/
+          retention-days: 1
+
+  publish-web-prod:
+    name: publish-npm-prod (web)
+    needs: [extract-version, build-web-prod]
+    if: ${{ always() && !cancelled() && needs.build-web-prod.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+
+      - name: Download tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-tarball-prod-web
+          path: /tmp/npm-dist
+
+      - name: Publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           E2E_BLOCKS_RELEASE: ${{ inputs.playwright_blocks_release }}
         run: |
-          PKG_NAME=$(node -p "require('./package.json').name")
-          PKG_VERSION=$(node -p "require('./package.json').version")
+          PKG_NAME=$(cat /tmp/npm-dist/name)
+          PKG_VERSION=$(cat /tmp/npm-dist/version)
           if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
             if [ "$E2E_BLOCKS_RELEASE" = "true" ]; then
               echo "::error::$PKG_NAME@$PKG_VERSION is already published, but e2e tests are gating this release. Bump the version — refusing to silently retry."
@@ -1585,7 +1896,7 @@ jobs:
             echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping (e2e is non-blocking, treating as retry)."
             exit 0
           fi
-          npm publish --access public --no-provenance
+          npm publish /tmp/npm-dist/package.tgz --access public --no-provenance
 
   publish-meta-prod:
     name: publish-npm-prod (meta)
@@ -2561,7 +2872,7 @@ jobs:
         with:
           name: ${{ matrix.update_artifact_name }}
           path: |
-            apps/macos/dist/latest-mac.yml
+            apps/macos/dist/*-mac.yml
             apps/macos/dist/*.zip
             apps/macos/dist/*.zip.blockmap
           if-no-files-found: warn
@@ -2577,8 +2888,7 @@ jobs:
   # ── Upload Electron update artifacts to GCS ────────────────────────────
   # Push per-arch update feeds (manifest + ZIP + blockmap) to the public
   # GCS bucket so electron-updater can pull delta updates. Each arch gets
-  # its own path: electron/{channel}/{arch}/. Production → latest channel,
-  # staging → beta channel.
+  # its own path: mac-electron/{channel}/{arch}/.
 
   upload-electron-updates:
     needs: [extract-version, build-electron]
@@ -2607,8 +2917,8 @@ jobs:
           MISSING=0
           for ARCH in arm64 x64; do
             DIR="electron-artifacts/${ARCH}"
-            if [ ! -f "$(find "$DIR" -name 'latest-mac.yml' -type f 2>/dev/null | grep -m1 .)" ]; then
-              echo "::error::Missing latest-mac.yml for ${ARCH}"
+            if [ ! -f "$(find "$DIR" -name '*-mac.yml' -type f 2>/dev/null | grep -m1 .)" ]; then
+              echo "::error::Missing update manifest (*-mac.yml) for ${ARCH}"
               MISSING=1
             fi
             if [ -z "$(find "$DIR" -name '*.zip' -type f ! -name '*.blockmap' 2>/dev/null | grep -m1 .)" ]; then
@@ -2626,14 +2936,14 @@ jobs:
 
       - name: Upload Electron update artifacts to GCS
         run: |
-          CHANNEL=${{ needs.extract-version.outputs.is_staging == 'true' && 'beta' || 'latest' }}
-          BUCKET="vellum-desktop-releases"
-          MANIFEST_NAME="${CHANNEL}-mac.yml"
+          ENVIRONMENT=${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
+          BUCKET=${{ needs.extract-version.outputs.is_staging == 'true' && 'vellum-ai-staging-releases' || 'vellum-ai-prod-releases' }}
+          MANIFEST_NAME="${ENVIRONMENT}-mac.yml"
 
           for ARCH in arm64 x64; do
             ARCH_DIR="electron-artifacts/${ARCH}"
             [ -d "$ARCH_DIR" ] || continue
-            PREFIX="electron/${CHANNEL}/${ARCH}"
+            PREFIX="mac-electron/${ARCH}"
 
             find "$ARCH_DIR" -name "*.zip" -type f ! -name "*.blockmap" | while read -r ZIP; do
               gcloud storage cp "$ZIP" "gs://${BUCKET}/${PREFIX}/$(basename "$ZIP")"
@@ -2643,13 +2953,13 @@ jobs:
               gcloud storage cp "$BM" "gs://${BUCKET}/${PREFIX}/$(basename "$BM")"
             done
 
-            YML=$(find "$ARCH_DIR" -name "latest-mac.yml" -type f | grep -m1 .)
+            YML=$(find "$ARCH_DIR" -name "*-mac.yml" -type f | grep -m1 .)
             [ -n "$YML" ] && gcloud storage cp "$YML" "gs://${BUCKET}/${PREFIX}/${MANIFEST_NAME}"
           done
 
   release:
-    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, build-macos-arm64, build-macos-x64, build-electron, upload-electron-updates, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, ci-playwright, build-chrome-extension]
-    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.extract-version.result == 'success' && needs.publish-npm-prod.result == 'success' && needs.publish-web-prod.result == 'success' && needs.publish-meta-prod.result == 'success' && needs.build-macos-arm64.result == 'success' && (needs.ci-playwright.result == 'success' || inputs.playwright_blocks_release != true) && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' && (needs.upload-electron-updates.result == 'success' || needs.upload-electron-updates.result == 'skipped') }}
+    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, build-macos-arm64, build-macos-x64, build-electron, upload-electron-updates, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, ci-playwright, build-chrome-extension]
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.extract-version.result == 'success' && needs.publish-npm-prod.result == 'success' && needs.publish-web-prod.result == 'success' && needs.publish-meta-prod.result == 'success' && needs.publish-plugin-api-prod.result == 'success' && needs.build-macos-arm64.result == 'success' && (needs.ci-playwright.result == 'success' || inputs.playwright_blocks_release != true) && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' && (needs.upload-electron-updates.result == 'success' || needs.upload-electron-updates.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -2717,7 +3027,7 @@ jobs:
       # Only attach Electron DMGs when their update feed was successfully
       # published to GCS. If `upload-electron-updates` was skipped (Electron
       # build failed, or its DMG step succeeded while the update-artifact
-      # step did not), shipping the DMG without a matching `latest-mac.yml`
+      # step did not), shipping the DMG without a matching update manifest
       # would strand installed clients with no path back to auto-update.
       - name: Download Electron DMG artifact (arm64)
         if: ${{ needs.upload-electron-updates.result == 'success' }}
@@ -2930,7 +3240,7 @@ jobs:
   # ── iOS release (same-repo reusable workflow) ────────────────────────
 
   release-ios:
-    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, build-chrome-extension]
+    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, build-chrome-extension]
     if: >-
       ${{
         always() && !cancelled()
@@ -2944,6 +3254,7 @@ jobs:
         && (needs.publish-npm-prod.result == 'success' || needs.publish-npm-prod.result == 'skipped')
         && (needs.publish-web-prod.result == 'success' || needs.publish-web-prod.result == 'skipped')
         && (needs.publish-meta-prod.result == 'success' || needs.publish-meta-prod.result == 'skipped')
+        && (needs.publish-plugin-api-prod.result == 'success' || needs.publish-plugin-api-prod.result == 'skipped')
         && (needs.push-dockerhub-image.result == 'success' || needs.push-dockerhub-image.result == 'skipped')
       }}
     uses: ./.github/workflows/release-ios.yaml
@@ -3319,7 +3630,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: ${{ always() && !cancelled() }}
-    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, build-macos-arm64, build-macos-x64, build-electron, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, release-ios, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright, build-chrome-extension, publish-chrome-extension]
+    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, build-macos-arm64, build-macos-x64, build-electron, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, release-ios, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright, build-chrome-extension, publish-chrome-extension]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true

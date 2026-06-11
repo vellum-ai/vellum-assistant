@@ -43,6 +43,34 @@ export interface UsageAttributionSnapshot {
 }
 
 /**
+ * The four nullable attribution columns shared by telemetry event rows
+ * (`tool_invocations`, `skill_loaded_events`).
+ */
+export interface UsageAttributionColumns {
+  provider: string | null;
+  model: string | null;
+  inferenceProfile: string | null;
+  inferenceProfileSource: string | null;
+}
+
+/**
+ * Maps an attribution snapshot to the shared telemetry columns — the same
+ * mapping `llm_usage` reporting uses (`appliedProfile` → inference_profile,
+ * `profileSource` → inference_profile_source). Accepts a missing snapshot so
+ * producers that resolve attribution best-effort can pass it through as-is.
+ */
+export function toAttributionColumns(
+  snapshot: UsageAttributionSnapshot | null | undefined,
+): UsageAttributionColumns {
+  return {
+    provider: snapshot?.resolvedProvider ?? null,
+    model: snapshot?.resolvedModel ?? null,
+    inferenceProfile: snapshot?.appliedProfile ?? null,
+    inferenceProfileSource: snapshot?.profileSource ?? null,
+  };
+}
+
+/**
  * Sanitizes values before they are copied into external metadata surfaces.
  * Empty strings and control-character-bearing strings are dropped, and long
  * values are capped so later forwarding cannot create unbounded headers.

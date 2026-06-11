@@ -345,7 +345,13 @@ function SessionCard({ session }: { session: ReportSessionSummary }) {
   );
 }
 
-function IndexPage({ sessions }: { sessions: ReportSessionSummary[] }) {
+function IndexPage({
+  sessions,
+  readOnly,
+}: {
+  sessions: ReportSessionSummary[];
+  readOnly: boolean;
+}) {
   return (
     <>
       <header className="hero">
@@ -369,24 +375,26 @@ function IndexPage({ sessions }: { sessions: ReportSessionSummary[] }) {
           </div>
         ) : (
           <>
-            <div className="panel-actions">
-              <details className="confirm-action">
-                <summary className="bad">Delete all non-running</summary>
-                <form
-                  className="confirm-form"
-                  method="post"
-                  action="/api/runs/delete-all"
-                >
-                  <p className="confirm-prompt">
-                    This deletes every run on disk that isn&rsquo;t currently
-                    running. It cannot be undone.
-                  </p>
-                  <button className="bad" type="submit">
-                    Yes, delete every non-running run
-                  </button>
-                </form>
-              </details>
-            </div>
+            {!readOnly && (
+              <div className="panel-actions">
+                <details className="confirm-action">
+                  <summary className="bad">Delete all non-running</summary>
+                  <form
+                    className="confirm-form"
+                    method="post"
+                    action="/api/runs/delete-all"
+                  >
+                    <p className="confirm-prompt">
+                      This deletes every run on disk that isn&rsquo;t currently
+                      running. It cannot be undone.
+                    </p>
+                    <button className="bad" type="submit">
+                      Yes, delete every non-running run
+                    </button>
+                  </form>
+                </details>
+              </div>
+            )}
             <div className="session-list">
               {sessions.map((session) => (
                 <SessionCard key={session.sessionId} session={session} />
@@ -968,7 +976,13 @@ function RunnerLogs({ events }: { events: PersistedProgressEvent[] }) {
   );
 }
 
-function ExecutionPage({ run }: { run: ReportRunDetail }) {
+function ExecutionPage({
+  run,
+  readOnly,
+}: {
+  run: ReportRunDetail;
+  readOnly: boolean;
+}) {
   const sessionUrl = `/sessions/${encodeURIComponent(run.sessionId)}`;
   const testUrl =
     run.testId !== undefined
@@ -1021,29 +1035,31 @@ function ExecutionPage({ run }: { run: ReportRunDetail }) {
               <span>{run.metadata.lastHeartbeatAt}</span>
             </div>
           )}
-          <div className="action-buttons">
-            <details className="confirm-action">
-              <summary className="bad">Delete run</summary>
-              <form
-                className="confirm-form"
-                method="post"
-                action={`/api/runs/${encodeURIComponent(run.runId)}/delete`}
-              >
-                <input
-                  type="hidden"
-                  name="backToSession"
-                  value={run.sessionId}
-                />
-                <p className="confirm-prompt">
-                  This deletes <code>{run.runId}</code> permanently. It cannot
-                  be undone.
-                </p>
-                <button className="bad" type="submit">
-                  Yes, delete this run
-                </button>
-              </form>
-            </details>
-          </div>
+          {!readOnly && (
+            <div className="action-buttons">
+              <details className="confirm-action">
+                <summary className="bad">Delete run</summary>
+                <form
+                  className="confirm-form"
+                  method="post"
+                  action={`/api/runs/${encodeURIComponent(run.runId)}/delete`}
+                >
+                  <input
+                    type="hidden"
+                    name="backToSession"
+                    value={run.sessionId}
+                  />
+                  <p className="confirm-prompt">
+                    This deletes <code>{run.runId}</code> permanently. It cannot
+                    be undone.
+                  </p>
+                  <button className="bad" type="submit">
+                    Yes, delete this run
+                  </button>
+                </form>
+              </details>
+            </div>
+          )}
         </section>
       )}
 
@@ -1255,22 +1271,34 @@ function pageTitle(input: ReportPageInput): string {
   }
 }
 
-function PageBody({ input }: { input: ReportPageInput }) {
+function PageBody({
+  input,
+  readOnly,
+}: {
+  input: ReportPageInput;
+  readOnly: boolean;
+}) {
   switch (input.kind) {
     case "index":
-      return <IndexPage sessions={input.sessions} />;
+      return <IndexPage sessions={input.sessions} readOnly={readOnly} />;
     case "session":
       return <SessionPage session={input.session} />;
     case "test":
       return <TestInSessionPage test={input.test} />;
     case "execution":
-      return <ExecutionPage run={input.run} />;
+      return <ExecutionPage run={input.run} readOnly={readOnly} />;
     case "not-found":
       return <NotFoundPage message={input.message} />;
   }
 }
 
-function ReportDocument({ input }: { input: ReportPageInput }) {
+function ReportDocument({
+  input,
+  readOnly,
+}: {
+  input: ReportPageInput;
+  readOnly: boolean;
+}) {
   return (
     <html lang="en">
       <head>
@@ -1281,13 +1309,28 @@ function ReportDocument({ input }: { input: ReportPageInput }) {
       </head>
       <body>
         <div className="shell">
-          <PageBody input={input} />
+          <PageBody input={input} readOnly={readOnly} />
         </div>
       </body>
     </html>
   );
 }
 
-export function renderReportPage(input: ReportPageInput): string {
-  return `<!doctype html>${renderToStaticMarkup(<ReportDocument input={input} />)}`;
+export interface RenderReportOptions {
+  /**
+   * Suppress the mutating affordances (the delete-run / delete-all forms) so
+   * the page is safe to serve as a static, read-only artifact — e.g. an
+   * exported run bundle hosted on the QA dashboard, where the report-server
+   * delete endpoints don't exist. Defaults to `false` (the live server).
+   */
+  readOnly?: boolean;
+}
+
+export function renderReportPage(
+  input: ReportPageInput,
+  options: RenderReportOptions = {},
+): string {
+  return `<!doctype html>${renderToStaticMarkup(
+    <ReportDocument input={input} readOnly={options.readOnly ?? false} />,
+  )}`;
 }

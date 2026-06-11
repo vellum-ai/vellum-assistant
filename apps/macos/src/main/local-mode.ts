@@ -8,6 +8,7 @@ import {
   getLockfileData,
   replacePlatformAssistants,
   resolveConfigDir,
+  resolveEnvironmentName,
   resolveLockfilePaths,
   runHatch,
   runRetire,
@@ -23,7 +24,6 @@ import {
   ensureCliInstalled,
   getBundledBunPath,
   getCliBinPath,
-  isCliInstalled,
 } from "./cli-installer";
 
 /**
@@ -64,8 +64,8 @@ interface WakeResult {
  * Resolve how to invoke the CLI. Precedence:
  *  1. `VELLUM_CLI_PATH` env var override
  *  2. Dev source tree (when `!app.isPackaged`)
- *  3. Already-installed CLI in the user-data directory
- *  4. Lazy install via `ensureCliInstalled()`, then use the installed path
+ *  3. `ensureCliInstalled()` — early-returns when already installed and
+ *     refreshes the PATH-wrapper locator either way
  *
  * Throws when no CLI path can be resolved (e.g. install fails).
  */
@@ -81,10 +81,6 @@ export async function resolveCliInvocation(): Promise<CliInvocation> {
     if (existsSync(cliEntry)) {
       return { command: "bun", baseArgs: ["run", cliEntry] };
     }
-  }
-
-  if (isCliInstalled()) {
-    return { command: getBundledBunPath(), baseArgs: ["run", getCliBinPath()] };
   }
 
   await ensureCliInstalled();
@@ -161,6 +157,13 @@ export const installLocalMode = (): void => {
 
   const lockfilePaths = resolveLockfilePaths(process.env);
   const configDir = resolveConfigDir(process.env);
+  // Pin the environment the guardian-token CLI subprocess (refresh/lease) sees
+  // to the same one `configDir` was resolved from, so the token is always read
+  // and written under the same env dir. Overlaid on `process.env` by the host
+  // seam, so PATH etc. are preserved.
+  const guardianTokenEnv = {
+    VELLUM_ENVIRONMENT: resolveEnvironmentName(process.env),
+  };
 
   // `species` is optional on the wire so an empty/omitted request
   // falls back to the default rather than being rejected.
@@ -199,9 +202,9 @@ export const installLocalMode = (): void => {
 
   handle(
     "vellum:localMode:replacePlatformAssistants",
-    z.tuple([z.array(assistantRecord)]),
-    ([list]): LockfileWriteResult => {
-      const result = replacePlatformAssistants(lockfilePaths, list);
+    z.tuple([z.array(assistantRecord), z.string().optional()]),
+    ([list, organizationId]): LockfileWriteResult => {
+      const result = replacePlatformAssistants(lockfilePaths, list, organizationId);
       return result.ok
         ? { ok: true, lockfile: result.lockfile }
         : { ok: false, error: result.error };
@@ -231,7 +234,13 @@ export const installLocalMode = (): void => {
       } catch (err) {
         return { ok: false, status: 500, error: (err as Error).message };
       }
-      return getGuardianAccessToken(assistantId, configDir, invocation, true);
+      return getGuardianAccessToken(
+        assistantId,
+        configDir,
+        invocation,
+        true,
+        guardianTokenEnv,
+      );
     },
   );
 };

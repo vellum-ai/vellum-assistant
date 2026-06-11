@@ -4,6 +4,7 @@ import {
     ChevronDown,
     ChevronRight,
     Clock,
+    ExternalLink,
     Hash,
     Layers,
     LayoutGrid,
@@ -13,7 +14,7 @@ import {
     SquarePen,
     X,
 } from "lucide-react";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
@@ -62,6 +63,17 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onOpenApp?: (appId: string) => void;
   activeAppId?: string;
   onStartNewConversation?: () => void;
+  onNewConversationInNewWindow?: () => void;
+  /**
+   * Returns a freshly-minted URL for a brand-new conversation. When provided
+   * alongside `onStartNewConversation`, the "New conversation" affordance
+   * renders as a link so the browser's native open-in-new-tab / new-window
+   * gestures work; a plain left click still starts the conversation in place.
+   *
+   * A *generator* (not a static string) so every gesture gets a distinct draft
+   * id — opening several tabs in a row must not land them on one shared draft.
+   */
+  getNewConversationHref?: () => string;
   footerAction?: ReactNode;
   onClose?: () => void;
 
@@ -140,6 +152,8 @@ export function AssistantSideMenu({
   onOpenApp,
   activeAppId,
   onStartNewConversation,
+  onNewConversationInNewWindow,
+  getNewConversationHref,
   footerAction,
   onPinConversation,
   onRenameConversation,
@@ -318,18 +332,92 @@ export function AssistantSideMenu({
   );
 
   // --- Header actions ---
+  //
+  // Rendered as a link (when a href generator is supplied) so the browser's
+  // native open-in-new-tab / new-window gestures work on the pencil. A fresh
+  // draft id is minted on every pointer-down and context-menu so sequential
+  // new-tab opens never share one draft. A plain left click is intercepted to
+  // start the conversation in place; modified / non-primary clicks fall
+  // through to the browser and follow the href.
 
-  const headerActions = onStartNewConversation ? (
-    <Button
-      variant="ghost"
-      size="compact"
-      iconOnly={<SquarePen />}
-      aria-label="New conversation"
-      tooltip="New conversation"
-      tooltipSide="right"
-      onClick={() => { onStartNewConversation(); onClose?.(); }}
-    />
-  ) : null;
+  const [newConversationHref, setNewConversationHref] = useState<
+    string | undefined
+  >(() => getNewConversationHref?.());
+
+  const refreshNewConversationHref = useCallback(() => {
+    if (getNewConversationHref) {
+      setNewConversationHref(getNewConversationHref());
+    }
+  }, [getNewConversationHref]);
+
+  const handleNewConversationClick = useCallback(
+    (event: MouseEvent<HTMLAnchorElement>) => {
+      if (
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return;
+      }
+      event.preventDefault();
+      onStartNewConversation?.();
+      onClose?.();
+    },
+    [onStartNewConversation, onClose],
+  );
+
+  let newConversationButton: ReactNode = null;
+  if (onStartNewConversation && newConversationHref != null) {
+    newConversationButton = (
+      <Button
+        asChild
+        variant="ghost"
+        size="compact"
+        iconOnly={<SquarePen />}
+        aria-label="New conversation"
+        tooltip="New conversation"
+        tooltipSide="right"
+      >
+        <a
+          href={newConversationHref}
+          onClick={handleNewConversationClick}
+          onPointerDown={refreshNewConversationHref}
+          onContextMenu={refreshNewConversationHref}
+        />
+      </Button>
+    );
+  } else if (onStartNewConversation) {
+    newConversationButton = (
+      <Button
+        variant="ghost"
+        size="compact"
+        iconOnly={<SquarePen />}
+        aria-label="New conversation"
+        tooltip="New conversation"
+        tooltipSide="right"
+        onClick={() => {
+          onStartNewConversation();
+          onClose?.();
+        }}
+      />
+    );
+  }
+
+  const headerActions = newConversationButton && onNewConversationInNewWindow ? (
+    <ContextMenu.Root>
+      <ContextMenu.Trigger>{newConversationButton}</ContextMenu.Trigger>
+      <ContextMenu.Content>
+        <ContextMenu.Item
+          leftIcon={<ExternalLink size={14} />}
+          onSelect={onNewConversationInNewWindow}
+        >
+          New Conversation in New Window
+        </ContextMenu.Item>
+      </ContextMenu.Content>
+    </ContextMenu.Root>
+  ) : newConversationButton;
 
   // --- Flat conversation list renderer ---
 

@@ -33,7 +33,6 @@ import {
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
-import type { CesClient } from "../credential-execution/client.js";
 import { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
 import { createToolAuditListener } from "../events/tool-audit-listener.js";
@@ -186,7 +185,6 @@ import { isPersonalMemoryAllowed, type TrustContext } from "./trust-context.js";
 
 export interface ConversationConstructorOptions {
   maxTokens?: number;
-  sharedCesClient?: CesClient;
   speedOverride?: Speed;
   cacheTtl?: "5m" | "1h";
   modelOverride?: string;
@@ -208,6 +206,15 @@ export class Conversation {
   /** @internal */ eventBus = new EventBus<AssistantDomainEvents>();
   /** @internal */ workingDir: string;
   /** @internal */ allowedToolNames?: Set<string>;
+  /**
+   * Durable copy of the full tool set resolved on the most recent turn,
+   * kept for read-only inventory queries. Unlike {@link allowedToolNames}
+   * — the per-turn execution gate the agent loop clears at turn teardown —
+   * this survives between turns so a query against an idle conversation
+   * still reports the skill/MCP tools it gained over its lifecycle.
+   * @internal
+   */
+  lastResolvedToolNames?: Set<string>;
   /** @internal */ diskPressureCleanupModeActive?: boolean;
   /** @internal */ toolsDisabledDepth = 0;
   /** @internal */ preactivatedSkillIds?: string[];
@@ -262,7 +269,6 @@ export class Conversation {
    * @internal
    */
   hostAppControlProxy?: HostAppControlProxy;
-  /** @internal */ cesClient?: CesClient;
   /** @internal */ readonly queue = new MessageQueue();
   /** @internal */ currentActiveSurfaceId?: string;
   /** @internal */ currentPage?: string;
@@ -495,13 +501,7 @@ export class Conversation {
     workingDir: string,
     options?: ConversationConstructorOptions,
   ) {
-    const {
-      maxTokens,
-      sharedCesClient,
-      speedOverride,
-      cacheTtl,
-      modelOverride,
-    } = options ?? {};
+    const { maxTokens, speedOverride, cacheTtl, modelOverride } = options ?? {};
     this.conversationId = conversationId;
     this.systemPrompt = systemPrompt;
     this.provider = provider;
@@ -569,13 +569,6 @@ export class Conversation {
     const config = getConfig();
     const resolvedMainAgent = resolveCallSiteConfig("mainAgent", config.llm);
     this.streamThinking = resolvedMainAgent.thinking.streamThinking ?? false;
-
-    // CES (Credential Execution Service) — use the shared server-level client.
-    // The CES sidecar accepts exactly one bootstrap connection, so the
-    // client is owned by DaemonServer and passed in here.
-    if (sharedCesClient) {
-      this.cesClient = sharedCesClient;
-    }
 
     const resolveTools = createResolveToolsCallback(toolDefs, this);
 
@@ -1270,9 +1263,6 @@ export class Conversation {
     this.hostCuProxy?.dispose();
     this.hostAppControlProxy?.dispose();
     this.hostAppControlProxy = undefined;
-    // CES client is owned by DaemonServer — just drop the reference.
-    // Do NOT close it here; the server manages the CES lifecycle.
-    this.cesClient = undefined;
     this.activeContextNodeIds = this.graphMemory.tracker.getActiveNodeIds();
     this.graphMemory.persistState();
     this.graphMemory.dispose();
@@ -1767,6 +1757,22 @@ export class Conversation {
       ...options,
       onEvent: options.onEvent ?? this.sendToClient,
     });
+  }
+
+  // ── Tools ────────────────────────────────────────────────────────
+
+  /**
+   * The set of tool names available to this conversation as of its most
+   * recent turn — including skill/MCP tools registered over the
+   * conversation's lifecycle. Reads the durable {@link lastResolvedToolNames}
+   * snapshot the `resolveTools` callback records each turn (which, unlike the
+   * per-turn `allowedToolNames` gate, is not cleared at turn teardown); before
+   * the first turn it falls back to the core tool set. This is a pure read: it
+   * does not re-run `resolveTools`, which has registry/projection side effects
+   * that must not fire outside a turn.
+   */
+  getRegisteredToolNames(): Set<string> {
+    return new Set(this.lastResolvedToolNames ?? this.coreToolNames);
   }
 
   // ── History ──────────────────────────────────────────────────────

@@ -282,6 +282,22 @@ export function getWorkspacePluginsDir(): string {
   return join(getWorkspaceDir(), "plugins");
 }
 
+/**
+ * Returns $VELLUM_WORKSPACE_DIR/tools — user-defined tool overrides.
+ *
+ * Each subdirectory `<name>/` provides either an override of a core tool of
+ * the same name or a net-new tool. The single canonical location removes
+ * the "which plugin wins" ambiguity that would arise if multiple plugins
+ * could register competing overrides for the same tool.
+ *
+ * Files under this directory are dynamic-imported by the workspace-tool
+ * loader on daemon start; the file risk classifier escalates writes under
+ * this path to High for the same reason `plugins/` is escalated.
+ */
+export function getWorkspaceToolsDir(): string {
+  return join(getWorkspaceDir(), "tools");
+}
+
 /** Returns $VELLUM_WORKSPACE_DIR/routes — user-defined HTTP route handlers. */
 export function getWorkspaceRoutesDir(): string {
   return join(getWorkspaceDir(), "routes");

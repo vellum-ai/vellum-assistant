@@ -208,6 +208,39 @@ describe("writePage + readPage round-trip", () => {
     ]);
   });
 
+  test("accepts and round-trips the v3 wiki-article frontmatter fields", async () => {
+    // The full shape CONSOLIDATION_PROMPT_V3 teaches and migrated corpora
+    // arrive in. readPage() throws on schema failure and one invalid page in
+    // a turn's top-K no-ops the whole v2 injection block, so rejecting these
+    // fields would break every article of a migrated corpus at once.
+    const page = makePage({
+      slug: "wiki-shaped",
+      frontmatter: {
+        edges: [],
+        ref_files: [],
+        ref_urls: [],
+        title: "Wiki Shaped — A Display Title",
+        slug: "wiki-shaped",
+        tags: ["topic-area", "index"],
+        main: "parent-hub",
+        kind: "index",
+        status: "cc-draft",
+        links: ["child-slug — why this link exists"],
+      },
+    });
+    await writePage(workspaceDir, page);
+
+    const read = await readPage(workspaceDir, "wiki-shaped");
+    expect(read).not.toBeNull();
+    expect(read!.frontmatter.title).toBe("Wiki Shaped — A Display Title");
+    expect(read!.frontmatter.tags).toEqual(["topic-area", "index"]);
+    expect(read!.frontmatter.main).toBe("parent-hub");
+    expect(read!.frontmatter.kind).toBe("index");
+    // The draft marker must survive a programmatic write → read round-trip:
+    // stripping it would silently un-draft a page mid-voice-pass.
+    expect(read!.frontmatter.status).toBe("cc-draft");
+  });
+
   test("renders frontmatter at the top with --- delimiters", async () => {
     const page = makePage();
     await writePage(workspaceDir, page);

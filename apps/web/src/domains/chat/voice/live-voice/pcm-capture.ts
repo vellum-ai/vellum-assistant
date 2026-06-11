@@ -33,6 +33,7 @@ import WORKLET_MODULE_URL from "./pcm-downsample-worklet.ts?worker&url";
 
 import { createAudioContext, getAudioContextCtor } from "@/domains/chat/voice/audio-context";
 import { LIVE_VOICE_AUDIO_FORMAT } from "@/domains/chat/voice/live-voice/protocol";
+import { voiceInputAudioConstraints } from "@/utils/voice-input-device";
 
 // Re-exported for capture consumers (e.g. use-live-voice.ts) so they don't need
 // to reach into the protocol module. Canonical definition lives in protocol.ts.
@@ -148,7 +149,9 @@ export class LiveVoiceAudioCapture {
 
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: voiceInputAudioConstraints(),
+      });
     } catch (cause) {
       return { ok: false, error: classifyError(cause), cause };
     }

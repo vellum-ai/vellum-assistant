@@ -7,11 +7,11 @@
  * (`useAssistantLifecycleStore`, `useResolvedAssistantsStore`),
  * which is how the React tree reads it. Also owns the generation
  * counter that drops stale async responses on timeout escalations,
- * the 5-minute stuck-initializing watchdog, the gateway-auth
- * short-circuit, and the onboarding-redirect coordination.
+ * the 5-minute stuck-initializing watchdog, and the gateway-auth
+ * short-circuit.
  *
- * Inputs from React (auth, env, the navigate callback, the
- * TanStack Query client) flow in through `setInputs()`;
+ * Inputs from React (auth, env, the TanStack Query client) flow
+ * in through `setInputs()`;
  * `useAssistantLifecycle` is the thin wiring layer that pushes
  * them.
  *
@@ -27,8 +27,10 @@ import type { QueryClient } from "@tanstack/react-query";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import {
   getAssistant,
+  getAssistantHealthz,
   type GetAssistantResult,
 } from "@/assistant/api";
+import { subscribeAssistantUnreachable } from "@/assistant/unreachable-bus";
 import {
   buildInitializingTimeoutError,
   INITIALIZING_TIMEOUT_MS,
@@ -44,26 +46,16 @@ import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
 import {
   getSelectedAssistant,
   getLocalGatewayUrl,
-  isLocalMode,
 } from "@/lib/local-mode";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { isAuthenticated, type SessionStatus } from "@/stores/session-status";
 
+const PROBE_RETRY_DELAY_MS = 4_000;
+const PROBE_RETRY_LIMIT_MS = 60_000;
+
 export interface LifecycleServiceInputs {
   sessionStatus: SessionStatus;
-  isRetired: boolean;
   hasPlatformSession: boolean;
-  /** Framework-agnostic redirect — called instead of router.replace(). */
-  onRedirect: (url: string) => void;
-  /**
-   * Returns the path to redirect to when onboarding should intercept,
-   * or `null` if the intended destination is fine as-is. Injected so
-   * `assistant/` stays free of the onboarding domain (the
-   * `shared → domains` direction).
-   */
-  resolveOnboardingRedirect: (input: {
-    intendedDestination: string;
-  }) => string | null;
   /** The TanStack Query client owned by `RootLayout`'s provider. */
   queryClient: QueryClient;
   /**
@@ -80,10 +72,6 @@ export interface LifecycleServiceInputs {
    */
   isOrgReady?: boolean;
 }
-
-const NOOP_REDIRECT = (_: string) => {};
-const NOOP_RESOLVE: LifecycleServiceInputs["resolveOnboardingRedirect"] =
-  () => null;
 
 class AssistantLifecycleService {
   private state: AssistantState = { kind: "loading" };
@@ -107,13 +95,15 @@ class AssistantLifecycleService {
   private ready = false;
   private inputs: LifecycleServiceInputs = {
     sessionStatus: "initializing",
-    isRetired: false,
     hasPlatformSession: false,
-    onRedirect: NOOP_REDIRECT,
-    resolveOnboardingRedirect: NOOP_RESOLVE,
     queryClient: null as unknown as QueryClient,
     selectedPlatformAssistantId: null,
   };
+  private probeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  constructor() {
+    subscribeAssistantUnreachable(() => this.onUnreachable());
+  }
 
   // ---------------------------------------------------------------------------
   // React-facing API
@@ -141,6 +131,7 @@ class AssistantLifecycleService {
     if (useResolvedAssistantsStore.getState().activeAssistantId !== null) {
       useResolvedAssistantsStore.getState().setActiveAssistantId(null);
     }
+    this.setOperationalStatusAssistantId(null);
     if (this.state.kind !== "loading") {
       this.transition({ kind: "loading" });
     }
@@ -168,17 +159,6 @@ class AssistantLifecycleService {
 
     if (isGatewayAuthMode()) {
       this.applyGatewayAuthShortCircuit();
-      return;
-    }
-    if (
-      isLocalMode() &&
-      !isGatewayAuthMode() &&
-      !this.inputs.hasPlatformSession
-    ) {
-      const redirect = this.inputs.resolveOnboardingRedirect({
-        intendedDestination: window.location.pathname,
-      });
-      if (redirect) this.inputs.onRedirect(redirect);
       return;
     }
     if (this.inputs.hasPlatformSession) {
@@ -343,6 +323,7 @@ class AssistantLifecycleService {
   ): void {
     const mm = result.data.maintenance_mode;
     setSelfHostedConnection(null);
+    this.setOperationalStatusAssistantId(result.data.id);
     const store = useResolvedAssistantsStore.getState();
     store.upsertFromApi(result.data);
     store.setActiveAssistantId(result.data.id);
@@ -351,6 +332,7 @@ class AssistantLifecycleService {
       isLocal: result.data.is_local ?? false,
       maintenanceMode: { enabled: mm?.enabled },
     });
+    void this.probeReachability(result.data.id);
   }
 
   /**
@@ -374,6 +356,7 @@ class AssistantLifecycleService {
   private projectSelfHosted(
     result: GetAssistantResult & { ok: true },
   ): void {
+    this.setOperationalStatusAssistantId(null);
     setSelfHostedConnection({
       url: result.data.ingress_url,
       token: result.data.platform_actor_token,
@@ -394,6 +377,7 @@ class AssistantLifecycleService {
       resolvedAssistantId = assistant?.assistantId ?? resolvedAssistantId;
     }
     setSelfHostedConnection({ url: ingressUrl, token: getGatewayToken() });
+    this.setOperationalStatusAssistantId(null);
     useResolvedAssistantsStore
       .getState()
       .setActiveAssistantId(resolvedAssistantId);
@@ -405,6 +389,11 @@ class AssistantLifecycleService {
   ): Promise<void> {
     const generation = this.generation;
     const nextState = resolveAssistantLifecycleState(result);
+    if (result.ok) {
+      this.setOperationalStatusAssistantId(result.data.id);
+    } else {
+      this.setOperationalStatusAssistantId(null);
+    }
 
     if (nextState.kind === "auto_hatch") {
       // No assistant found. Don't hatch or redirect — the navigation
@@ -429,6 +418,68 @@ class AssistantLifecycleService {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Reachability probe
+  // ---------------------------------------------------------------------------
+
+  private async probeReachability(assistantId: string): Promise<void> {
+    const generation = this.generation;
+    try {
+      const result = await getAssistantHealthz(assistantId);
+      if (generation !== this.generation) return;
+      if (this.state.kind !== "active") return;
+      if (useResolvedAssistantsStore.getState().activeAssistantId !== assistantId) return;
+      this.transition({ ...this.state, reachable: result.ok });
+    } catch {
+      if (generation !== this.generation) return;
+      if (this.state.kind !== "active") return;
+      if (useResolvedAssistantsStore.getState().activeAssistantId !== assistantId) return;
+      this.transition({ ...this.state, reachable: false });
+    }
+  }
+
+  private cancelProbeTimer(): void {
+    if (this.probeTimer) {
+      clearTimeout(this.probeTimer);
+      this.probeTimer = null;
+    }
+  }
+
+  private startProbeLoop(assistantId: string): void {
+    this.cancelProbeTimer();
+    const startedAt = Date.now();
+    const tick = async () => {
+      if (this.state.kind !== "active" || this.state.reachable === true) return;
+      if (Date.now() - startedAt > PROBE_RETRY_LIMIT_MS) return;
+      await this.probeReachability(assistantId);
+      const s = this.state;
+      if (s.kind !== "active" || s.reachable === true) return;
+      if (Date.now() - startedAt > PROBE_RETRY_LIMIT_MS) return;
+      this.probeTimer = setTimeout(() => void tick(), PROBE_RETRY_DELAY_MS);
+    };
+    this.probeTimer = setTimeout(() => void tick(), PROBE_RETRY_DELAY_MS);
+  }
+
+  private onUnreachable(): void {
+    this.triggerReachabilityProbe();
+  }
+
+  /**
+   * Kick off a reachability probe. Marks `reachable: false` and
+   * starts the background probe loop so the lifecycle store's
+   * `reachable` field updates when the daemon responds. Called
+   * internally by the unreachable-bus subscriber and externally
+   * by the reachability hook on SSE drops / user retry.
+   */
+  triggerReachabilityProbe(): void {
+    if (this.state.kind !== "active") return;
+    const assistantId =
+      useResolvedAssistantsStore.getState().activeAssistantId;
+    if (!assistantId) return;
+    this.transition({ ...this.state, reachable: false });
+    this.startProbeLoop(assistantId);
+  }
+
   /**
    * Reset all state to the post-import default. For tests only —
    * production code should never call this. (Use `respondToInputs`
@@ -439,20 +490,33 @@ class AssistantLifecycleService {
       clearTimeout(this.initializingTimeout);
       this.initializingTimeout = null;
     }
+    this.cancelProbeTimer();
     this.state = { kind: "loading" };
     this.generation = 0;
     this.ready = false;
-    useAssistantLifecycleStore.setState({ expectingFirstMessage: false });
+    useAssistantLifecycleStore.setState({
+      expectingFirstMessage: false,
+      operationalStatusAssistantId: null,
+    });
     this.inputs = {
       sessionStatus: "initializing",
-      isRetired: false,
       hasPlatformSession: false,
-      onRedirect: NOOP_REDIRECT,
-      resolveOnboardingRedirect: NOOP_RESOLVE,
       queryClient: null as unknown as QueryClient,
     };
     useAssistantLifecycleStore.setState({ assistantState: this.state });
     useResolvedAssistantsStore.setState({ activeAssistantId: null });
+  }
+
+  private setOperationalStatusAssistantId(assistantId: string | null): void {
+    if (
+      useAssistantLifecycleStore.getState().operationalStatusAssistantId ===
+      assistantId
+    ) {
+      return;
+    }
+    useAssistantLifecycleStore.setState({
+      operationalStatusAssistantId: assistantId,
+    });
   }
 }
 

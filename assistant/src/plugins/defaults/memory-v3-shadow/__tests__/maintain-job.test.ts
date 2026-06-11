@@ -518,4 +518,99 @@ describe("backfillAllSections", () => {
     // next pass re-embed it.
     expect(calls.committed).toEqual([]);
   });
+
+  test("capability row that renders empty embeds on the post-loop retry once the store seeds", async () => {
+    // Models the startup race: the skill store is cold when the main loop
+    // reaches the capability row (renders ""), and has seeded by the time the
+    // retry pass runs.
+    let skillReads = 0;
+    const readPageBody = async (slug: Slug): Promise<string> => {
+      if (slug === "skills/example") {
+        skillReads += 1;
+        return skillReads === 1
+          ? ""
+          : "# Skill: example\nexample capability body";
+      }
+      return `body for ${slug}`;
+    };
+
+    const { deps: d, calls } = deps({
+      selectAllPages: async () => ["skills/example", "page-a"],
+      readPageBody,
+    });
+    const outcome = await backfillAllSections(CONFIG, d);
+
+    // The cold row was skipped without building on the first pass, then built
+    // and embedded on the retry.
+    expect(calls.built).toEqual([["page-a"], ["skills/example"]]);
+    // The cold render never deleted the row's existing points; the retry did.
+    expect(calls.deleted).toEqual(["page-a", "skills/example"]);
+    expect(
+      calls.upserted.flat().filter((s) => s.article === "skills/example")
+        .length,
+    ).toBeGreaterThan(0);
+    expect(outcome.articles).toBe(2);
+    expect(outcome.failures).toBe(0);
+    expect(calls.committed).toEqual([4242]);
+  });
+
+  test("capability row still empty after retry is a failure: never deleted, checkpoint HELD", async () => {
+    const { deps: d, calls } = deps({
+      selectAllPages: async () => ["page-a", "skills/example"],
+      readPageBody: async (slug) =>
+        slug === "skills/example" ? "" : `body for ${slug}`,
+    });
+    const outcome = await backfillAllSections(CONFIG, d);
+
+    // The empty render must never wipe previously-good points with nothing.
+    expect(calls.deleted).toEqual(["page-a"]);
+    expect(
+      calls.upserted.flat().filter((s) => s.article === "skills/example"),
+    ).toEqual([]);
+    expect(outcome.articles).toBe(1);
+    expect(outcome.failures).toBe(1);
+    expect(calls.committed).toEqual([]);
+  });
+
+  test("capability row missing from the first index snapshot is swept up after the main loop", async () => {
+    // Models the other face of the startup race: the capability store had not
+    // listed its rows in the page index yet when `selectAllPages` first ran,
+    // and has by the time the pass re-enumerates.
+    let listCalls = 0;
+    const { deps: d, calls } = deps({
+      selectAllPages: async () => {
+        listCalls += 1;
+        return listCalls === 1 ? ["page-a"] : ["page-a", "skills/example"];
+      },
+      readPageBody: async (slug) =>
+        slug === "skills/example"
+          ? "# Skill: example\nexample capability body"
+          : `body for ${slug}`,
+    });
+    const outcome = await backfillAllSections(CONFIG, d);
+
+    expect(listCalls).toBe(2);
+    // Only the late CAPABILITY row is swept in; page-a is not re-embedded.
+    expect(calls.built).toEqual([["page-a"], ["skills/example"]]);
+    expect(calls.deleted).toEqual(["page-a", "skills/example"]);
+    expect(outcome.articles).toBe(2);
+    expect(outcome.failures).toBe(0);
+    expect(calls.committed).toEqual([4242]);
+  });
+
+  test("a real page with an empty body still empties its sections (capability guard does not apply)", async () => {
+    const { deps: d, calls } = deps({
+      selectAllPages: async () => ["page-empty"],
+      readPageBody: async () => "",
+    });
+    const outcome = await backfillAllSections(CONFIG, d);
+
+    // Existing behavior for on-disk pages: an empty body still replaces the
+    // page's sections (the chunker synthesizes a minimal head section) — only
+    // capability rows treat an empty body as "store not seeded".
+    expect(calls.deleted).toEqual(["page-empty"]);
+    expect(outcome.articles).toBe(1);
+    expect(outcome.failures).toBe(0);
+    expect(calls.committed).toEqual([4242]);
+  });
 });

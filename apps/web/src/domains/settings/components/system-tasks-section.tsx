@@ -9,7 +9,6 @@ import {
   type ScheduleRowUsage,
 } from "@/domains/settings/utils/schedule-formatters";
 import { Notice } from "@vellumai/design-library/components/notice";
-import { Tag } from "@vellumai/design-library/components/tag";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import type {
@@ -57,7 +56,6 @@ export function SystemTaskRow({
             <span className="truncate text-body-medium-default text-[var(--content-default)]">
               {name}
             </span>
-            <Tag tone="neutral">system</Tag>
           </div>
           <div className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]">
             {subtitle}
@@ -205,5 +203,4 @@ export function SystemTasksSection({
     </DetailCard>
   );
 }
-
 

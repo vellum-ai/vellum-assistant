@@ -108,10 +108,13 @@ mock.module("../../jobs-store.js", () => ({
 // ── v3 follow-up flag mock ──────────────────────────────────────────
 //
 // A v3 flag being on appends `memory_v3_maintain` to the post-consolidation
-// follow-up fan-out. This mock lets each test toggle the flag.
+// follow-up fan-out, and the LIVE flag (alone) selects the v3 article-shape
+// prompt. `v3FlagOn` toggles all flags at once for the existing tests;
+// `flagStates` overrides individual keys for the shadow-vs-live tests.
 let v3FlagOn = false;
+let flagStates: Record<string, boolean> = {};
 mock.module("../../../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: () => v3FlagOn,
+  isAssistantFeatureFlagEnabled: (key: string) => flagStates[key] ?? v3FlagOn,
 }));
 
 // ── Workspace pin ───────────────────────────────────────────────────
@@ -185,6 +188,7 @@ beforeEach(() => {
 
   // v3 follow-up flag default: off.
   v3FlagOn = false;
+  flagStates = {};
 });
 
 // ---------------------------------------------------------------------------
@@ -336,6 +340,20 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v2_reembed"]);
   });
 
+  test("includes the core-pages curation section in the prompt only when a v3 flag is on", async () => {
+    // v2-only installs must not be instructed to curate memory/core-pages.md
+    // — the file feeds the v3 core lane and is inert without it.
+    v3FlagOn = false;
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    expect(runnerLastArgs?.prompt as string).not.toContain("core-pages");
+
+    v3FlagOn = true;
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+    expect(runnerLastArgs?.prompt as string).toContain(
+      "## 10. Review `memory/core-pages.md`",
+    );
+  });
+
   test("returns run_failed and skips follow-ups when the runner reports failure", async () => {
     runnerImpl = async () => ({
       conversationId: "conv-1",
@@ -385,22 +403,44 @@ describe("memoryV2ConsolidateJob — concurrent invocations", () => {
   });
 
   test("a live lock holder blocks a second concurrent invocation", async () => {
-    // Pre-seed a lock file with the current process's PID so the liveness
-    // probe sees a running holder and the second invocation correctly
-    // reports `locked` rather than taking over.
+    // GIVEN a lock seeded with the current process's PID and a fresh
+    // timestamp, so the liveness probe sees a running holder AND the lock is
+    // well within the staleness TTL (i.e. a genuinely in-flight run).
     mkdirSync(join(memoryDir(), ".v2-state"), { recursive: true });
-    writeFileSync(lockPath(), `${process.pid} 1700000000000\n`);
+    writeFileSync(lockPath(), `${process.pid} ${Date.now()}\n`);
 
+    // WHEN a second invocation tries to acquire the lock
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
+    // THEN it reports `locked` rather than taking over
     expect(result.kind).toBe("locked");
     if (result.kind === "locked") {
       expect(result.holder).toContain(`${process.pid}`);
     }
     expect(runnerCalls).toBe(0);
     expect(enqueuedJobs).toHaveLength(0);
-    // The live holder's lock must NOT be removed by a contender.
+    // AND the live holder's lock must NOT be removed by a contender.
     expect(existsSync(lockPath())).toBe(true);
+  });
+
+  test("a lock from a live PID but older than the TTL is taken over (container PID-1 collision)", async () => {
+    // GIVEN a lock held by a live PID (the current process stands in for the
+    // container's PID-1 daemon, which always probes as alive) whose timestamp
+    // is far older than the staleness TTL. This is the wedge from the
+    // incident: a restarted daemon reuses the dead holder's PID, so the
+    // liveness probe alone could never reclaim the abandoned lock.
+    mkdirSync(join(memoryDir(), ".v2-state"), { recursive: true });
+    const ancient = Date.now() - 365 * 24 * 60 * 60 * 1000;
+    writeFileSync(lockPath(), `${process.pid} ${ancient}\n`);
+
+    // WHEN consolidation runs
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    // THEN the expired lock is taken over and consolidation proceeds
+    expect(result.kind).toBe("invoked");
+    expect(runnerCalls).toBe(1);
+    // AND the lock is released in the finally block after a successful run.
+    expect(existsSync(lockPath())).toBe(false);
   });
 
   test("a stale lock from a non-running PID is taken over and consolidation proceeds", async () => {
@@ -449,5 +489,42 @@ describe("CONSOLIDATION_PROMPT", () => {
     expect(CONSOLIDATION_PROMPT).toContain("memory/threads.md");
     expect(CONSOLIDATION_PROMPT).toContain("memory/recent.md");
     expect(CONSOLIDATION_PROMPT).toContain("memory/buffer.md");
+  });
+});
+
+describe("article-shape selection — live flag only, never shadow", () => {
+  // The v3 article shape drops the `summary:` field that v2 injection
+  // depends on. Under SHADOW, live prompts are still served by v2, so
+  // consolidation must keep producing v2-shaped pages — only the LIVE flag
+  // may select the v3 template. Collapsing this distinction (e.g. keying the
+  // shape on shadow||live) would corrupt the corpus of every shadow install
+  // before its flip.
+  const V3_MARKER = "The lead IS the card";
+
+  test("shadow on, live off → v2 article shape", async () => {
+    writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
+    flagStates = { "memory-v3-shadow": true, "memory-v3-live": false };
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(runnerCalls).toBe(1);
+    const prompt = runnerLastArgs?.prompt as string;
+    expect(prompt).not.toContain(V3_MARKER);
+    expect(prompt).toContain("The `summary` field is required");
+    // §10 still rides the shadow flag.
+    expect(prompt).toContain("memory/core-pages.md");
+  });
+
+  test("live on → v3 article shape", async () => {
+    writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
+    flagStates = { "memory-v3-shadow": false, "memory-v3-live": true };
+
+    await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(runnerCalls).toBe(1);
+    const prompt = runnerLastArgs?.prompt as string;
+    expect(prompt).toContain(V3_MARKER);
+    expect(prompt).not.toContain("The `summary` field is required");
+    expect(prompt).toContain("memory/core-pages.md");
   });
 });

@@ -25,11 +25,24 @@ export type VellumCommand =
   | { kind: "previousConversation" }
   | { kind: "nextConversation" }
   | { kind: "commandPalette" }
+  | { kind: "openConversation"; conversationId: string }
+  | { kind: "openLibrary" }
+  | { kind: "openIdentity" }
+  | { kind: "navigateBack" }
+  | { kind: "navigateForward" }
+  | { kind: "zoomIn" }
+  | { kind: "zoomOut" }
+  | { kind: "actualSize" }
   | { kind: "selectAssistant"; assistantId: string }
   | { kind: "createAssistant" }
   | { kind: "retireAssistant"; assistantId: string }
   | { kind: "quickInputSubmit"; message: string }
-  | { kind: "cancelActiveAction" };
+  | { kind: "cancelActiveAction" }
+  | { kind: "cancelDictation" }
+  | { kind: "replayOnboarding" }
+  | { kind: "previewPrechat" }
+  | { kind: "replayHatchFailure" }
+  | { kind: "openComponentGallery" };
 
 export type VellumCommandKind = VellumCommand["kind"];
 
@@ -58,11 +71,24 @@ export const DEFAULT_ACCELERATORS: Record<VellumCommandKind, string> = {
   previousConversation: "CmdOrCtrl+Up",
   nextConversation: "CmdOrCtrl+Down",
   commandPalette: "CmdOrCtrl+K",
+  openConversation: "",
+  openLibrary: "",
+  openIdentity: "",
+  navigateBack: "",
+  navigateForward: "",
+  zoomIn: "",
+  zoomOut: "",
+  actualSize: "",
   selectAssistant: "",
   createAssistant: "",
   retireAssistant: "",
   quickInputSubmit: "",
   cancelActiveAction: "",
+  cancelDictation: "",
+  replayOnboarding: "",
+  previewPrechat: "",
+  replayHatchFailure: "",
+  openComponentGallery: "",
 };
 
 /**

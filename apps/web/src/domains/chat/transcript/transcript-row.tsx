@@ -87,7 +87,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   isStreaming,
 }: TranscriptRowProps) {
   switch (item.kind) {
-    case "message":
+    case "message": {
       return (
         <TranscriptMessageBody
           message={item.message}
@@ -108,6 +108,7 @@ export const TranscriptRow = memo(function TranscriptRow({
           isStreaming={isStreaming}
         />
       );
+    }
 
     case "surface":
       return (

@@ -72,6 +72,7 @@ import {
   memorySummaries,
   messageAttachments,
   messages,
+  skillLoadedEvents,
   toolInvocations,
 } from "./schema.js";
 import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
@@ -1187,6 +1188,9 @@ export function deleteConversation(id: string): DeletedMemoryIds {
       tx.delete(toolInvocations)
         .where(eq(toolInvocations.conversationId, id))
         .run();
+      tx.delete(skillLoadedEvents)
+        .where(eq(skillLoadedEvents.conversationId, id))
+        .run();
       // Cascade deletes memory_segments, message_attachments.
       tx.delete(messages).where(eq(messages.conversationId, id)).run();
 
@@ -1208,6 +1212,9 @@ export function deleteConversation(id: string): DeletedMemoryIds {
         .run();
       tx.delete(toolInvocations)
         .where(eq(toolInvocations.conversationId, id))
+        .run();
+      tx.delete(skillLoadedEvents)
+        .where(eq(skillLoadedEvents.conversationId, id))
         .run();
     }
 
@@ -1266,7 +1273,7 @@ export function wipeConversation(id: string): WipeConversationResult {
 
   // Step D — Delegate to deleteConversation which handles messages (cascade
   // segments, attachments), llmRequestLogs, toolInvocations,
-  // embeddings, and the conversation row.
+  // skillLoadedEvents, embeddings, and the conversation row.
   const deletedMemoryIds = deleteConversation(id);
 
   // Step E — Return the combined result.
@@ -2137,6 +2144,7 @@ export async function clearAll(): Promise<{
   await runOrThrow("DELETE FROM message_attachments");
   await runOrThrow("DELETE FROM attachments");
   await runOrThrow("DELETE FROM tool_invocations");
+  await runOrThrow("DELETE FROM skill_loaded_events");
   let messagesFtsCorrupted = false;
   const ftsResult = await runAsyncSqlite("DELETE FROM messages_fts");
   if (!ftsResult.ok) {

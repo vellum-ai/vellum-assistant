@@ -458,17 +458,3 @@ export async function resolveSlash(
 
   return { kind: "passthrough", content };
 }
-
-// ── Provider Ordering Error Detection ────────────────────────────────
-
-const ORDERING_ERROR_PATTERNS = [
-  /tool_result.*not immediately after.*tool_use/i,
-  /tool_use.*must have.*tool_result/i,
-  /tool_use_id.*without.*tool_result/i,
-  /tool_result.*tool_use_id.*not found/i,
-  /messages.*invalid.*order/i,
-];
-
-export function isProviderOrderingError(message: string): boolean {
-  return ORDERING_ERROR_PATTERNS.some((pattern) => pattern.test(message));
-}

@@ -307,6 +307,31 @@ export const activationSessions = sqliteTable("activation_sessions", {
   createdAt: integer("created_at").notNull(),
 });
 
+// One row per `skill_loaded` telemetry event, emitted when a Vellum-produced
+// skill is activated in a conversation — see skill-loaded-events-store.ts for
+// the data contract. Flushed by the usage telemetry reporter.
+export const skillLoadedEvents = sqliteTable(
+  "skill_loaded_events",
+  {
+    id: text("id").primaryKey(),
+    createdAt: integer("created_at").notNull(),
+    conversationId: text("conversation_id"),
+    skillName: text("skill_name").notNull(),
+    // ISO 8601 timestamp from the merged skill catalog, when known.
+    skillUpdatedAt: text("skill_updated_at"),
+    provider: text("provider"),
+    model: text("model"),
+    inferenceProfile: text("inference_profile"),
+    inferenceProfileSource: text("inference_profile_source"),
+  },
+  (table) => [
+    index("idx_skill_loaded_events_created_at_id").on(
+      table.createdAt,
+      table.id,
+    ),
+  ],
+);
+
 export const traceEvents = sqliteTable(
   "trace_events",
   {

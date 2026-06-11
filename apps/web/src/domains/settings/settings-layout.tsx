@@ -1,9 +1,6 @@
-import { Loader2 } from "lucide-react";
 import { useMemo } from "react";
 import { Outlet, useLocation } from "react-router";
 
-import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { isElectron } from "@/runtime/is-electron";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -13,7 +10,6 @@ import { SETTINGS_SIDEBAR } from "@/utils/settings-navigation";
 import { SidebarShell } from "@/components/sidebar-shell";
 import { SidebarTree } from "@/components/sidebar-tree";
 import { useSettingsSync } from "@/domains/settings/hooks/use-settings-sync";
-import { Typography } from "@vellumai/design-library/components/typography";
 
 /**
  * React Router layout route for `/assistant/settings/*`.
@@ -24,10 +20,6 @@ import { Typography } from "@vellumai/design-library/components/typography";
  * fresh while the user is on any settings page.
  */
 export function SettingsLayout() {
-  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const assistantStateKind = useAssistantLifecycleStore(
-    (s) => s.assistantState.kind,
-  );
   const settingsDeveloperNav = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
   const platformNotifications = useClientFeatureFlagStore.use.platformNotifications();
   const platformGate = usePlatformGate({ platformHostedOnly: true });
@@ -91,20 +83,7 @@ export function SettingsLayout() {
       }
       title={pageTitle}
     >
-      {!assistantId || (assistantStateKind !== "active" && assistantStateKind !== "self_hosted") ? (
-        <div
-          className="flex min-h-0 flex-1 flex-col items-center justify-center gap-[var(--app-spacing-md)] text-[var(--content-tertiary)]"
-          role="status"
-          aria-live="polite"
-        >
-          <Loader2 className="size-6 animate-spin" aria-hidden="true" />
-          <Typography variant="body-medium-default">
-            Connecting to your assistant…
-          </Typography>
-        </div>
-      ) : (
-        <Outlet />
-      )}
+      <Outlet />
     </SidebarShell>
   );
 }

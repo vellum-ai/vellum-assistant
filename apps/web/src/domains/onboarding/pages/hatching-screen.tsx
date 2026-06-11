@@ -1,5 +1,6 @@
 import { captureError } from "@/lib/sentry/capture-error";
 import * as Sentry from "@sentry/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -20,12 +21,15 @@ import {
 import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { getLocalGatewayUrl, getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, saveLockfileAssistant, setSelectedAssistantId } from "@/lib/local-mode";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
+import { avatarQueryKey } from "@/lib/sync/query-tags";
 import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { hatchLocalAssistant } from "@/runtime/local-mode-host";
+import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
 import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
 import { useAuthStore } from "@/stores/auth-store";
+import { useOrganizationStore } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { CharacterTraits } from "@/types/avatar";
 import { extractErrorMessage } from "@/utils/api-errors";
@@ -91,8 +95,15 @@ export function decideHatchGate(): HatchGateDecision {
 
 export function HatchingScreen() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const hostingParam = searchParams.get("hosting");
+  const failParam = searchParams.get("fail");
+  // On Electron the window is short (630px) with `titleBarStyle: "hidden"`, so
+  // the macOS traffic lights + global WindowDragRegion (28px) overlap the top
+  // of this `justify-center` layout. Gate the title-bar clearance + the content
+  // trim that keeps it inside the window on Electron so web/iOS are untouched.
+  const electron = isElectron();
   const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
   const sessionStatus = useAuthStore.use.sessionStatus();
   const [hatchTraits] = useState<CharacterTraits>(() =>
@@ -130,6 +141,15 @@ export function HatchingScreen() {
 
 
   useEffect(() => {
+    // Developer "Replay Hatch Failure" tool: when opened with `?fail`, skip the
+    // gate and the real hatch flow and render the error UI directly so the
+    // failure screen can be exercised on demand from the Electron developer menu.
+    if (failParam !== null) {
+      setError(
+        "Simulated hatch failure (developer menu → Replay Hatch Failure).",
+      );
+      return;
+    }
     const decision = decideHatchGate();
     if (decision.kind === "redirect") {
       void navigate(decision.to, { replace: true });
@@ -145,6 +165,19 @@ export function HatchingScreen() {
     let readyPollTimer: ReturnType<typeof setTimeout> | null = null;
     const pollStartMs = Date.now();
     let hatchedAssistantId: string | undefined;
+    // Two independent signals that the assistant the poll discovers is THIS
+    // run's brand-new hatch (and so may be seeded with a random avatar) rather
+    // than a returning user's existing one (which might carry an uploaded/AI
+    // image avatar that a "no traits" read would clobber):
+    //   - `createdFreshAssistant`: the hatch POST returned 201 (newly created).
+    //   - `preflightFoundNoAssistant`: the pre-flight `getAssistant()` cleanly
+    //     resolved `auto_hatch` (HTTP 404 = no assistant existed yet), so any
+    //     later-active assistant must be this hatch — covers the case where the
+    //     hatch response is lost and 201 never lands. A pre-existing non-active
+    //     assistant, a thrown pre-flight, or a 5xx leaves both false, so a
+    //     returning user is never re-seeded.
+    let createdFreshAssistant = false;
+    let preflightFoundNoAssistant = false;
 
     const pinnedVersion = readSelectedVersion();
 
@@ -183,6 +216,35 @@ export function HatchingScreen() {
       }, COMPLETION_NAVIGATE_DELAY_MS);
     };
 
+    // Persist the random hatch avatar (skipping the save when one already
+    // exists) and invalidate the avatar query that feeds the Dock + menu-bar
+    // icons, the favicon, and the in-app avatar. Fire-and-forget: callers do
+    // NOT await it, so onboarding never blocks on the server-side render — it
+    // runs in the background as the user lands in the app. The avatar query
+    // holds results with `staleTime: Infinity` and is disabled until the
+    // assistant activates, so its first fetch can beat the save and cache an
+    // avatar-less result; the post-save invalidate forces a refetch that picks
+    // up the persisted traits, so the icons self-correct within a beat rather
+    // than sticking on the bundled mark.
+    //
+    // Only call this for a freshly hatched assistant, never for an
+    // already-active one: a returning user may have an uploaded/AI image
+    // avatar, which deletes the character-traits sidecar, so a "no traits"
+    // read would wrongly seed random traits over their image.
+    const persistHatchAvatar = async (assistantId: string): Promise<void> => {
+      try {
+        const existing = await fetchCharacterTraits(assistantId);
+        if (!existing) {
+          await saveCharacterTraits(assistantId, hatchTraits);
+        }
+        void queryClient.invalidateQueries({
+          queryKey: avatarQueryKey(assistantId),
+        });
+      } catch (err) {
+        captureError(err, { context: "onboarding_avatar_sync" });
+      }
+    };
+
     const startHatch = async () => {
       transitionPhase("provisioning");
 
@@ -193,17 +255,27 @@ export function HatchingScreen() {
       if (!useLocalHatch) {
         try {
           const existing = await getAssistant();
-          if (!cancelled && existing.ok && resolveAssistantLifecycleState(existing).kind === "active") {
+          const preflightState = resolveAssistantLifecycleState(existing);
+          if (!cancelled && existing.ok && preflightState.kind === "active") {
             if (isLocalMode()) {
               void saveLockfileAssistant({
                 assistantId: existing.data.id,
+                name: existing.data.name,
                 cloud: "vellum",
                 runtimeUrl: getPlatformRuntimeUrl(),
                 hatchedAt: new Date().toISOString(),
+                organizationId:
+                  useOrganizationStore.getState().currentOrganizationId ?? undefined,
               });
             }
             handleHatchReady();
             return;
+          }
+          // A clean 404 (`auto_hatch`) means no assistant existed yet, so the
+          // assistant the poll later finds active is necessarily this run's
+          // fresh hatch — seedable even if the hatch response is lost.
+          if (preflightState.kind === "auto_hatch") {
+            preflightFoundNoAssistant = true;
           }
         } catch {
           // Fall through to normal hatch
@@ -294,6 +366,7 @@ export function HatchingScreen() {
               created: new Date().toISOString(),
             } as Assistant);
             void selectPlatformAssistant(result.assistantId);
+            void persistHatchAvatar(result.assistantId);
           }
 
           handleHatchReady();
@@ -317,6 +390,8 @@ export function HatchingScreen() {
         if (result.ok) {
           hatchedAssistantId = result.data.id;
         }
+        // 201 = newly created; 200 = an existing assistant was returned.
+        createdFreshAssistant = result.ok && result.status === 201;
         if (!result.ok) {
           Sentry.captureMessage("Onboarding hatch request failed", {
             level: "warning",
@@ -382,18 +457,18 @@ export function HatchingScreen() {
             const assistantId = result.data.id;
             useResolvedAssistantsStore.getState().upsertFromApi(result.data);
             void selectPlatformAssistant(assistantId);
-            fetchCharacterTraits(assistantId).then((existing) => {
-              if (existing) return;
-              return saveCharacterTraits(assistantId, hatchTraits);
-            }).catch((err) => {
-              captureError(err, { context: "onboarding_avatar_sync" });
-            });
+            if (createdFreshAssistant || preflightFoundNoAssistant) {
+              void persistHatchAvatar(assistantId);
+            }
             if (isLocalMode()) {
               void saveLockfileAssistant({
                 assistantId,
+                name: result.data.name,
                 cloud: "vellum",
                 runtimeUrl: getPlatformRuntimeUrl(),
                 hatchedAt: new Date().toISOString(),
+                organizationId:
+                  useOrganizationStore.getState().currentOrganizationId ?? undefined,
               });
             }
 
@@ -448,9 +523,11 @@ export function HatchingScreen() {
     };
   }, [
     attempt,
+    failParam,
     hatchTraits,
     sessionStatus,
     navigate,
+    queryClient,
     transitionPhase,
     useLocalHatch,
   ]);
@@ -483,7 +560,7 @@ export function HatchingScreen() {
       <OnboardingLayout>
         <div
           role="alert"
-          className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 pb-40 text-center text-[var(--content-default)]"
+          className={`mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 ${electron ? "pt-[3.25rem] pb-8" : "pb-40"} text-center text-[var(--content-default)]`}
         >
           <h1 className="text-3xl font-semibold tracking-tight">
             Something went wrong
@@ -514,7 +591,7 @@ export function HatchingScreen() {
             alt=""
             width={160}
             height={160}
-            className="my-16 onboarding-avatar-failed"
+            className={`${electron ? "my-8" : "my-16"} onboarding-avatar-failed`}
           />
           <div className="flex w-full max-w-sm flex-col gap-2">
             <Button
@@ -561,7 +638,7 @@ export function HatchingScreen() {
 
   return (
     <OnboardingLayout>
-      <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 pb-40 text-center text-[var(--content-default)]">
+      <div className={`mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 ${electron ? "pt-[3.25rem] pb-8" : "pb-40"} text-center text-[var(--content-default)]`}>
         <h1 className="text-3xl font-semibold tracking-tight">
           {phase === "ready" ? "Your assistant is ready!" : "Waking up…"}
         </h1>
@@ -576,7 +653,7 @@ export function HatchingScreen() {
           alt=""
           width={160}
           height={160}
-          className={`my-16 ${phase === "ready" ? "onboarding-avatar-awake" : "onboarding-avatar-pulse"}`}
+          className={`${electron ? "my-8" : "my-16"} ${phase === "ready" ? "onboarding-avatar-awake" : "onboarding-avatar-pulse"}`}
         />
         <ProgressBar
           value={displayProgress}

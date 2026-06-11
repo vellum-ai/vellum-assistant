@@ -17,6 +17,7 @@ import {
   addMessage,
   clearAll,
   createConversation,
+  deleteConversation,
   deleteLastExchange,
   getConversation,
   getMessages,
@@ -24,6 +25,7 @@ import {
 import { isLastUserMessageToolResult } from "../memory/conversation-queries.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import { skillLoadedEvents } from "../memory/schema.js";
 // Initialize db once before all tests
 initializeDb();
 
@@ -349,6 +351,78 @@ describe("attachment orphan cleanup", () => {
       .get() as { c: number };
     expect(attachmentCount.c).toBe(0);
     expect(linkCount.c).toBe(0);
+  });
+
+  test("clearAll removes skill_loaded_events", async () => {
+    // Privacy posture: Clear All wins over unflushed telemetry — the
+    // skill_loaded_events rows (conversation id, skill name, model
+    // attribution) must not survive the wipe and ship later.
+    getDb().delete(skillLoadedEvents).run();
+    const conv = createConversation("test");
+    getDb()
+      .insert(skillLoadedEvents)
+      .values([
+        {
+          id: "sle-clear-1",
+          createdAt: 1000,
+          conversationId: conv.id,
+          skillName: "web-research",
+        },
+        // Rows without a conversation are wiped too.
+        { id: "sle-clear-2", createdAt: 2000, skillName: "tasks" },
+      ])
+      .run();
+
+    await clearAll();
+
+    expect(getDb().select().from(skillLoadedEvents).all()).toHaveLength(0);
+  });
+
+  test("deleteConversation removes that conversation's skill_loaded_events", async () => {
+    getDb().delete(skillLoadedEvents).run();
+    const conv = createConversation("doomed");
+    await addMessage(conv.id, "user", "hello");
+    const other = createConversation("kept");
+    getDb()
+      .insert(skillLoadedEvents)
+      .values([
+        {
+          id: "sle-del-1",
+          createdAt: 1000,
+          conversationId: conv.id,
+          skillName: "web-research",
+        },
+        {
+          id: "sle-del-2",
+          createdAt: 2000,
+          conversationId: other.id,
+          skillName: "tasks",
+        },
+      ])
+      .run();
+
+    deleteConversation(conv.id);
+
+    const remaining = getDb().select().from(skillLoadedEvents).all();
+    expect(remaining.map((r) => r.id)).toEqual(["sle-del-2"]);
+  });
+
+  test("deleteConversation removes skill_loaded_events when the conversation has no messages", () => {
+    getDb().delete(skillLoadedEvents).run();
+    const conv = createConversation("empty");
+    getDb()
+      .insert(skillLoadedEvents)
+      .values({
+        id: "sle-del-empty",
+        createdAt: 1000,
+        conversationId: conv.id,
+        skillName: "web-research",
+      })
+      .run();
+
+    deleteConversation(conv.id);
+
+    expect(getDb().select().from(skillLoadedEvents).all()).toHaveLength(0);
   });
 
   test("deleteLastExchange does not delete unlinked user uploads", async () => {

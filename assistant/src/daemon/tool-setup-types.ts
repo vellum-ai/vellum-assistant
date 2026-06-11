@@ -4,7 +4,7 @@
  */
 
 import type { InterfaceId } from "../channels/types.js";
-import type { CesClient } from "../credential-execution/client.js";
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { SurfaceConversationContext } from "./conversation-surfaces.js";
 import type { TrustContext } from "./trust-context.js";
 
@@ -33,8 +33,6 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   trustContext?: TrustContext;
   /** Voice/call session ID, if the conversation originates from a call. Propagated into ToolContext for scoped grant consumption. */
   callSessionId?: string;
-  /** CES RPC client for credential execution operations. Injected when CES tools are enabled and the CES process is available. */
-  cesClient?: CesClient;
   /** The interface ID of the connected client driving the current turn (e.g. "macos", "chrome-extension"). Propagated into ToolContext for browser backend selection. */
   readonly transportInterface?: InterfaceId;
 
@@ -49,6 +47,14 @@ export interface ToolSetupContext extends SurfaceConversationContext {
    * trust rules auto-executing side-effect tools in non-interactive contexts.
    */
   forcePromptSideEffects?: boolean;
+  /**
+   * The LLM call site driving the current turn, set by `runAgentLoopImpl`
+   * (`options.callSite ?? "mainAgent"`). Non-main turns (voice `callAgent`,
+   * `filingAgent`, …) resolve different provider/model/profile config, so
+   * tool telemetry attribution must use this rather than assuming
+   * `mainAgent`. Absent before the first turn starts.
+   */
+  currentCallSite?: LLMCallSite;
   /**
    * Per-turn snapshot of the resolved inference-profile override, set by
    * `runAgentLoopImpl`. Propagated into `ToolContext.overrideProfile` so

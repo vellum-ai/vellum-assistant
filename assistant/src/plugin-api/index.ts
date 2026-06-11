@@ -45,8 +45,9 @@
  *   per tool result before it joins the provider-bound history
  * - {@link StopContext} — passed to `stop` hook, fired when the model yields
  *   a response with no tool calls
- * - {@link PostModelCallContext} — passed to `post-model-call` hook,
- *   fired for each finalized assistant message to transform its content
+ * - {@link PostModelCallContext} — passed to `post-model-call` hook, fired at
+ *   every model-call outcome (a finalized reply or a provider rejection) to
+ *   transform content and decide whether to retry
  * - {@link PluginHookFn} — signature every lifecycle hook implements
  * - {@link PluginLogger} — pino-compatible logger shape on the contexts
  * - {@link ToolDefinition} — author-facing tool spec (default-export shape
@@ -57,6 +58,23 @@
 
 export type { HookName } from "./constants.js";
 export { HOOKS } from "./constants.js";
+// Conversation message/content shapes. A hook receives the live message
+// history (e.g. `PostToolUseContext.latestMessages: Message[]`), so plugins
+// that inspect or narrow content blocks — reading a `tool_use` block's input,
+// matching a `tool_result` — need to name these types.
+export type {
+  ContentBlock,
+  FileContent,
+  ImageContent,
+  Message,
+  RedactedThinkingContent,
+  ServerToolUseContent,
+  TextContent,
+  ThinkingContent,
+  ToolResultContent,
+  ToolUseContent,
+  WebSearchToolResultContent,
+} from "../providers/types.js";
 export type {
   PluginHookFn,
   PluginInitContext,
@@ -64,6 +82,7 @@ export type {
   PluginShutdownContext,
   PostCompactContext,
   PostModelCallContext,
+  PostModelCallDecision,
   PostToolUseContext,
   PreModelCallContext,
   StopContext,

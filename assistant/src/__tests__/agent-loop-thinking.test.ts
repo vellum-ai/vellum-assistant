@@ -48,6 +48,7 @@ describe("AgentLoop thinking and effort", () => {
     });
 
     await loop.run({
+      requestId: "test-request",
       messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -71,6 +72,7 @@ describe("AgentLoop thinking and effort", () => {
     });
 
     await loop.run({
+      requestId: "test-request",
       messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -93,6 +95,7 @@ describe("AgentLoop thinking and effort", () => {
     });
 
     await loop.run({
+      requestId: "test-request",
       messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
@@ -116,6 +119,7 @@ describe("AgentLoop thinking and effort", () => {
     });
 
     await loop.run({
+      requestId: "test-request",
       messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
       onEvent: () => {},
       trust: { sourceChannel: "vellum", trustClass: "unknown" },

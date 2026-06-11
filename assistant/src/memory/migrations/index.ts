@@ -265,7 +265,9 @@ export { createActivationSessionsTable } from "./274-create-activation-sessions.
 export { migrateToolInvocationsSkillId } from "./275-tool-invocations-add-skill-id.js";
 export { migrateToolInvocationsCreatedAtIdIndex } from "./276-tool-invocations-created-at-id-index.js";
 export { migrateAddMemoryV3EverInjected } from "./277-add-memory-v3-ever-injected.js";
-export { migrateConversationsSurfacedAt } from "./278-conversations-surfaced-at.js";
+export { migrateToolInvocationsTelemetryColumns } from "./278-tool-invocations-telemetry-columns.js";
+export { createSkillLoadedEventsTable } from "./279-create-skill-loaded-events.js";
+export { migrateConversationsSurfacedAt } from "./280-conversations-surfaced-at.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

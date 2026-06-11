@@ -55,7 +55,7 @@ import { getPageIndex } from "../../../memory/v2/page-index.js";
 import { readPage } from "../../../memory/v2/page-store.js";
 import { getLogger } from "../../../util/logger.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
-import { capabilityOrDiskBody } from "./capabilities.js";
+import { capabilityOrDiskBody, isCapabilitySlug } from "./capabilities.js";
 import { loadCoreSet as realLoadCoreSet } from "./core-set.js";
 import {
   deleteSectionsForArticle as realDeleteSectionsForArticle,
@@ -152,7 +152,12 @@ export interface MaintainJobDeps {
  * collection-ensure step rather than the change-delta machinery.
  */
 export interface BackfillJobDeps {
-  /** All page-index slugs, including synthetic skill/CLI capability rows. */
+  /**
+   * All page-index slugs, including synthetic skill/CLI capability rows.
+   * Called once at the start and once after the main loop — the second call
+   * catches capability rows whose startup seed had not yet listed them in the
+   * index when the first snapshot was taken.
+   */
   selectAllPages: () => Promise<Slug[]>;
   /** Create the section collection if absent before the first upsert. */
   ensureSectionCollection: typeof realEnsureSectionCollection;
@@ -412,6 +417,22 @@ async function pruneDeletedPages(
  * checkpoint is held (not advanced): a failed page was delete-then-upsert'd and
  * so has no sections, and advancing past its mtime would hide it from the
  * incremental selector forever — holding the mark lets the next pass re-embed it.
+ *
+ * Capability rows get an extra guard. Their stores (skill/CLI caches) are
+ * seeded fire-and-forget at daemon startup, so a backfill fired shortly after a
+ * restart can race the seed in two ways: (a) the rows are missing from the page
+ * index entirely when `selectAllPages` snapshots it, so they are silently
+ * absent from the work list; (b) the rows are listed but their content cache is
+ * still cold, so they render `""` — and the section chunker synthesizes a junk
+ * one-line head section from the bare slug, which would be embedded as if it
+ * were real content. Both end with capabilities effectively missing from the
+ * dense lane while the pass reports zero failures. So: a capability row whose
+ * body resolves empty is skipped without deleting its existing points (never
+ * replace good points with a blank), the page index is re-enumerated after the
+ * main loop (which spans long enough for the startup seed to finish) to pick up
+ * late-appearing capability rows, cold rows are retried, and any capability row
+ * that still resolves empty counts as a failure — holding the checkpoint and
+ * surfacing in the outcome instead of silently succeeding.
  */
 export async function backfillAllSections(
   config: AssistantConfig,
@@ -426,29 +447,65 @@ export async function backfillAllSections(
   let articles = 0;
   let sections = 0;
   let failures = 0;
-  for (const slug of slugs) {
+
+  // "cold" is only reported for capability rows whose body resolves empty —
+  // their store has not seeded yet. Real pages never report cold: an empty
+  // on-disk body legitimately replaces the page's sections.
+  const embedOne = async (
+    slug: Slug,
+  ): Promise<"embedded" | "cold" | "failed"> => {
     try {
+      if (isCapabilitySlug(slug)) {
+        const body = await deps.readPageBody(slug);
+        if (body.trim().length === 0) return "cold";
+      }
       const index = await deps.buildSectionIndex([slug], deps.readPageBody);
       await deps.deleteSectionsForArticle(deps.config, slug);
       await deps.upsertSections(deps.config, index.sections);
       articles += 1;
       sections += index.sections.length;
+      return "embedded";
     } catch (err) {
       failures += 1;
       log.warn(
         { slug, err: err instanceof Error ? err.message : String(err) },
         "memory-v3 backfill: page embed failed (non-fatal)",
       );
+      return "failed";
+    }
+  };
+
+  const coldCapabilities: Slug[] = [];
+  for (const slug of slugs) {
+    if ((await embedOne(slug)) === "cold") coldCapabilities.push(slug);
+  }
+
+  // Late-capability sweep + cold retry. The main loop spans minutes on a real
+  // corpus, so the startup-seeded capability stores have typically warmed by
+  // now: re-enumerate the index to catch capability rows that were not listed
+  // yet at snapshot time, and retry the ones that rendered cold. A row that
+  // still resolves empty is a real failure.
+  const processed = new Set(slugs);
+  const lateCapabilities = (await deps.selectAllPages()).filter(
+    (slug) => isCapabilitySlug(slug) && !processed.has(slug),
+  );
+  for (const slug of [...coldCapabilities, ...lateCapabilities]) {
+    if ((await embedOne(slug)) === "cold") {
+      failures += 1;
+      log.warn(
+        { slug },
+        "memory-v3 backfill: capability row still empty after retry (capability store not seeded?) — re-run backfill-sections once the store seeds",
+      );
     }
   }
 
   // Advance the maintain high-water mark only when every page embedded cleanly,
   // so the next incremental pass deltas from here rather than re-embedding
-  // everything. A failed page was delete-then-upsert'd, so it now has no
-  // sections; advancing past its mtime would hide it from `computeChangedPages`
-  // forever. Holding the checkpoint keeps failed pages above the mark so the
-  // next pass re-embeds them — re-embedding the succeeded pages too is
-  // idempotent and cheap.
+  // everything. A thrown failure was delete-then-upsert'd (it now has no
+  // sections) and an empty capability row was never embedded at all; advancing
+  // past them would hide them from `computeChangedPages` forever. Holding the
+  // checkpoint keeps failed pages above the mark so the next pass re-embeds
+  // them — re-embedding the succeeded pages too is idempotent and cheap.
   if (failures === 0) {
     deps.commitEmbedHighWater(startedAtMs);
   } else {

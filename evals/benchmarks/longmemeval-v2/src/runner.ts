@@ -39,6 +39,7 @@ import {
 import type { EvalProgressReporter } from "../../../src/lib/runner/progress";
 import { createRunProgressLifecycle } from "../../../src/lib/runner/progress-lifecycle";
 import {
+  appendAssistantEvents,
   ensureRunArtifacts,
   type MetricResult,
   updateRunMetadata,
@@ -112,16 +113,19 @@ export interface RunLongMemEvalV2UnitInput {
 
 /**
  * Compose the conversation-A "ingest" prompt. Deliberately
- * question-blind — it points at the staged files and tells the agent to
- * deliberately commit what matters to memory *now*, in this turn, then
- * emit the completion sentinel. We don't reveal the question text here;
- * the question turn is a fresh conversation B.
+ * question-blind — it points at the staged files and asks the agent to
+ * save a single durable memory note recording that the dataset exists,
+ * where it lives, and that later questions are answered by consulting
+ * the files on demand. It does not ask the agent to read or memorize the
+ * trajectories up front, and it does not reveal the question text; the
+ * question turn is a fresh conversation B.
  *
- * The explicit "commit using your memory tools, then reply Ready." is the
- * portable contract the runner relies on: for any species whose memory
- * write is synchronous within the turn, committing here means the facts
- * persist into conversation B with no out-of-band "await memory" step.
- * Memory-less baselines simply have nothing to commit and still answer.
+ * The "save a pointer to memory, then reply Ready." contract is portable:
+ * for any species whose memory write is synchronous within the turn, the
+ * note persists into conversation B with no out-of-band "await memory"
+ * step, and the staged workspace files remain available there for
+ * on-demand retrieval. Memory-less baselines have nothing to save and
+ * still answer.
  */
 function buildIngestMessage(trajectoryCount: number): string {
   return [
@@ -130,15 +134,20 @@ function buildIngestMessage(trajectoryCount: number): string {
     `\`<trajectory_id>.json\`).`,
     `An index of the files in haystack order lives at \`${WORKSPACE_MANIFEST_PATH}\`.`,
     "",
-    "Read through every trajectory and commit everything worth remembering to",
-    "your long-term memory using your memory tools — now, during this turn.",
-    "Afterwards I will ask follow-up questions in a brand-new conversation that",
-    "will NOT have access to this chat history or these files: only what you",
-    "have saved to memory will be available to you then. Save as you go and do",
-    "not rely on this conversation persisting.",
+    "These files stay in your workspace. You do NOT need to read or memorize",
+    "them now. I will ask follow-up questions in a brand-new conversation that",
+    "will NOT share this chat history — so the one thing that must survive is a",
+    "memory that this dataset exists and how to use it.",
     "",
-    "When — and only when — you have finished reading all trajectories AND",
-    'committed what matters to memory, reply with a single line: "Ready."',
+    "Using your memory tools, save a short, durable note recording: that this",
+    "dataset of web-agent / ServiceNow task trajectories exists, that it lives",
+    `at \`${WORKSPACE_TRAJECTORY_DIR}/\` indexed by \`${WORKSPACE_MANIFEST_PATH}\`,`,
+    "and that to answer later questions you should consult these files on",
+    "demand — reading the specific trajectories relevant to each question",
+    "rather than all of them.",
+    "",
+    "When — and only when — that note is saved to memory, reply with a single",
+    'line: "Ready."',
   ]
     .join(" \n")
     .trim();
@@ -388,13 +397,22 @@ export async function runLongMemEvalV2Unit(
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    // Persist whatever ingest-turn events were captured before the
-    // failure so a run that aborted (e.g. an ingest that never reached
-    // its completion sentinel) can still be inspected in the report.
-    if (err instanceof IngestAskError && err.ingestEvents.length > 0) {
-      await writeIngestAssistantEvents(input.runId, [
-        ...err.ingestEvents,
-      ]).catch(() => undefined);
+    // Persist whatever events were captured before the failure so a run
+    // that aborted can still be inspected in the report: ingest-turn
+    // events (e.g. an ingest that never reached its completion sentinel)
+    // and question-turn events (e.g. conversation B did retrieval work
+    // but returned no gradable answer).
+    if (err instanceof IngestAskError) {
+      if (err.ingestEvents.length > 0) {
+        await writeIngestAssistantEvents(input.runId, [
+          ...err.ingestEvents,
+        ]).catch(() => undefined);
+      }
+      if (err.questionEvents.length > 0) {
+        await appendAssistantEvents(input.runId, [...err.questionEvents]).catch(
+          () => undefined,
+        );
+      }
     }
     progress({
       step: "shutdown",

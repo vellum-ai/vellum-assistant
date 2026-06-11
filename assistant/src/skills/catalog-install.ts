@@ -47,11 +47,6 @@ export interface CatalogSkill {
   };
 }
 
-export interface CatalogManifest {
-  version: number;
-  skills: CatalogSkill[];
-}
-
 /**
  * Resolve the directory containing a `catalog.json` and first-party skill
  * sources — either bundled next to a compiled binary (e.g. `Vellum.app`) or
@@ -97,6 +92,75 @@ export function getRepoSkillsDir(): string | undefined {
 
 // ─── Catalog operations ──────────────────────────────────────────────────────
 
+/**
+ * Raw skill entry as returned by the platform `/v1/skills/` API. The platform
+ * serializer flattens the skill's metadata into top-level fields
+ * (`category`, `display_name`, `icon`) rather than the nested
+ * `metadata.vellum.*` shape used by the local `catalog.json`. Both shapes are
+ * accepted here so the daemon has a single canonical representation downstream.
+ */
+interface RawCatalogEntry {
+  id?: unknown;
+  name?: unknown;
+  description?: unknown;
+  icon?: unknown;
+  emoji?: string;
+  includes?: string[];
+  version?: string;
+  updatedAt?: unknown;
+  display_name?: unknown;
+  category?: unknown;
+  updated_at?: unknown;
+  metadata?: CatalogSkill["metadata"];
+}
+
+function asStr(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/**
+ * Normalize a platform API entry into a canonical {@link CatalogSkill}.
+ *
+ * The platform flattens `category`, `display_name`, and `icon` to the top
+ * level, so re-nest them under `metadata.vellum` to match the local catalog
+ * shape that the rest of the daemon reads (`metadata.vellum.category`,
+ * `metadata.vellum["display-name"]`). Existing nested values take precedence
+ * so a future API change to the nested shape keeps working.
+ */
+function normalizeCatalogEntry(raw: unknown): CatalogSkill | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const entry = raw as RawCatalogEntry;
+
+  const id = asStr(entry.id);
+  if (!id) return null;
+
+  const nested = entry.metadata?.vellum;
+  const category = nested?.category ?? asStr(entry.category);
+  const displayName = nested?.["display-name"] ?? asStr(entry.display_name);
+  const icon = asStr(entry.icon) ?? asStr(entry.metadata?.icon);
+  const updatedAt = asStr(entry.updatedAt) ?? asStr(entry.updated_at);
+
+  return {
+    id,
+    name: asStr(entry.name) ?? id,
+    description: asStr(entry.description) ?? "",
+    ...(icon ? { icon } : {}),
+    ...(entry.emoji ? { emoji: entry.emoji } : {}),
+    ...(entry.includes ? { includes: entry.includes } : {}),
+    ...(entry.version ? { version: entry.version } : {}),
+    ...(updatedAt ? { updatedAt } : {}),
+    metadata: {
+      ...entry.metadata,
+      ...(icon ? { icon } : {}),
+      vellum: {
+        ...nested,
+        ...(displayName ? { "display-name": displayName } : {}),
+        ...(category ? { category } : {}),
+      },
+    },
+  };
+}
+
 export async function fetchCatalog(): Promise<CatalogSkill[]> {
   const platformUrl = getPlatformBaseUrl();
   const url = `${platformUrl}/v1/skills/`;
@@ -110,23 +174,23 @@ export async function fetchCatalog(): Promise<CatalogSkill[]> {
     );
   }
 
-  const manifest = (await response.json()) as CatalogManifest;
+  const manifest = (await response.json()) as { skills?: unknown };
   if (!Array.isArray(manifest.skills)) {
     throw new Error("Platform catalog has invalid skills array");
   }
-  return manifest.skills.filter(
-    (s): s is CatalogSkill => !!s && typeof s.id === "string",
-  );
+  return manifest.skills
+    .map((s) => normalizeCatalogEntry(s))
+    .filter((s): s is CatalogSkill => s !== null);
 }
 
 export function readLocalCatalog(repoSkillsDir: string): CatalogSkill[] {
   try {
     const raw = readFileSync(join(repoSkillsDir, "catalog.json"), "utf-8");
-    const manifest = JSON.parse(raw) as CatalogManifest;
+    const manifest = JSON.parse(raw) as { skills?: unknown };
     if (!Array.isArray(manifest.skills)) return [];
-    return manifest.skills.filter(
-      (s): s is CatalogSkill => !!s && typeof s.id === "string",
-    );
+    return manifest.skills
+      .map((s) => normalizeCatalogEntry(s))
+      .filter((s): s is CatalogSkill => s !== null);
   } catch {
     return [];
   }

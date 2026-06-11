@@ -25,9 +25,11 @@ const TEST_INITIALIZING_TIMEOUT_MS = 30;
 // --- module mocks --- //
 
 const getAssistantMock = mock(async () => ({ ok: false, status: 404 }));
+const getAssistantHealthzMock = mock(async () => ({ ok: true }));
 
 mock.module("@/assistant/api", () => ({
   getAssistant: getAssistantMock,
+  getAssistantHealthz: getAssistantHealthzMock,
 }));
 
 const setSelfHostedConnectionMock = mock((_args: unknown) => {});
@@ -58,6 +60,17 @@ mock.module("@sentry/react", () => ({
   addBreadcrumb: () => {},
 }));
 
+// Capture the unreachable-bus listener so tests can trigger it.
+let capturedUnreachableListener: (() => void) | null = null;
+mock.module("@/assistant/unreachable-bus", () => ({
+  subscribeAssistantUnreachable: (listener: () => void) => {
+    capturedUnreachableListener = listener;
+    return () => {
+      capturedUnreachableListener = null;
+    };
+  },
+}));
+
 mock.module("@/assistant/lifecycle", () => ({
   buildInitializingTimeoutError,
   INITIALIZING_TIMEOUT_MS: TEST_INITIALIZING_TIMEOUT_MS,
@@ -83,14 +96,12 @@ function makeQueryClient(): QueryClient {
 
 const baseInputs = {
   sessionStatus: "authenticated" as const,
-  isRetired: false,
   hasPlatformSession: true,
-  onRedirect: () => {},
-  resolveOnboardingRedirect: () => null,
 };
 
 beforeEach(() => {
   getAssistantMock.mockClear();
+  getAssistantHealthzMock.mockClear();
   setSelfHostedConnectionMock.mockClear();
   // Re-baseline implementations every test so a `mockImplementationOnce`
   // or `mockImplementation` from a prior test doesn't leak.
@@ -100,6 +111,7 @@ beforeEach(() => {
   isGatewayAuthModeMock.mockImplementation(() => false);
   isLocalModeMock.mockImplementation(() => false);
   getAssistantMock.mockImplementation(async () => ({ ok: false, status: 404 }));
+  getAssistantHealthzMock.mockImplementation(async () => ({ ok: true }));
   lifecycleService.__resetForTesting();
 });
 
@@ -129,11 +141,43 @@ describe("lifecycleService — server state projection", () => {
     expect(
       useResolvedAssistantsStore.getState().activeAssistantId,
     ).toBe("asst-1");
-    expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
+    expect(
+      useAssistantLifecycleStore.getState().operationalStatusAssistantId,
+    ).toBe("asst-1");
+    expect(useAssistantLifecycleStore.getState().assistantState).toMatchObject({
       kind: "active",
       isLocal: false,
       maintenanceMode: { enabled: false },
     });
+  });
+
+  test("cleanup result publishes an operational-status polling id without activating the assistant", async () => {
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: true,
+      status: 200,
+      data: {
+        id: "asst-cleanup",
+        status: "to_be_deleted",
+        is_local: false,
+        maintenance_mode: { enabled: false },
+      },
+    }));
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+
+    await lifecycleService.checkAssistant();
+
+    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
+      "cleaning_up",
+    );
+    expect(
+      useResolvedAssistantsStore.getState().activeAssistantId,
+    ).toBeNull();
+    expect(
+      useAssistantLifecycleStore.getState().operationalStatusAssistantId,
+    ).toBe("asst-cleanup");
   });
 
   test("self_hosted result primes the self-hosted connection and writes the id", async () => {
@@ -167,7 +211,6 @@ describe("lifecycleService — server state projection", () => {
     );
   });
 });
-
 describe("lifecycleService — bootstrap branches", () => {
   test("respondToInputs with an unauthenticated session clears both stores (safety-net for token-expiry-style auth flips that don't call logout())", async () => {
     // Drive the service into an `active` state through the
@@ -202,6 +245,9 @@ describe("lifecycleService — bootstrap branches", () => {
     expect(
       useResolvedAssistantsStore.getState().activeAssistantId,
     ).toBeNull();
+    expect(
+      useAssistantLifecycleStore.getState().operationalStatusAssistantId,
+    ).toBeNull();
     expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
       kind: "loading",
     });
@@ -233,6 +279,9 @@ describe("lifecycleService — bootstrap branches", () => {
 
     expect(
       useResolvedAssistantsStore.getState().activeAssistantId,
+    ).toBeNull();
+    expect(
+      useAssistantLifecycleStore.getState().operationalStatusAssistantId,
     ).toBeNull();
     expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
       kind: "loading",
@@ -290,21 +339,18 @@ describe("lifecycleService — bootstrap branches", () => {
 });
 
 describe("lifecycleService — 404 (no assistant)", () => {
-  test("404 is a no-op — no redirect, no state transition", async () => {
+  test("404 is a no-op — no state transition", async () => {
     getAssistantMock.mockImplementationOnce(async () => ({
       ok: false,
       status: 404,
     }));
 
-    const onRedirect = mock(() => {});
     lifecycleService.setInputs({
       ...baseInputs,
-      onRedirect,
       queryClient: makeQueryClient(),
     });
     await lifecycleService.checkAssistant();
 
-    expect(onRedirect).not.toHaveBeenCalled();
     expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
       "loading",
     );
@@ -484,6 +530,9 @@ describe("lifecycleService — watchdog timeout", () => {
     expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
       "initializing",
     );
+    expect(
+      useAssistantLifecycleStore.getState().operationalStatusAssistantId,
+    ).toBe("asst-stuck");
 
     await waitFor(
       () =>
@@ -499,4 +548,152 @@ describe("lifecycleService — watchdog timeout", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Reachability probe
+// ---------------------------------------------------------------------------
 
+describe("lifecycleService — reachability probe", () => {
+  test("after projectActive, reachable becomes true when healthz succeeds", async () => {
+    getAssistantHealthzMock.mockImplementation(async () => ({ ok: true }));
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: true,
+      status: 200,
+      data: {
+        id: "asst-reach-1",
+        status: "active",
+        is_local: false,
+        maintenance_mode: { enabled: false },
+      },
+    }));
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+
+    await lifecycleService.checkAssistant();
+
+    await waitFor(() => {
+      const s = useAssistantLifecycleStore.getState().assistantState;
+      return s.kind === "active" && s.reachable === true;
+    });
+
+    const state = useAssistantLifecycleStore.getState().assistantState;
+    expect(state.kind).toBe("active");
+    if (state.kind === "active") {
+      expect(state.reachable).toBe(true);
+    }
+  });
+
+  test("after projectActive, reachable becomes false when healthz fails", async () => {
+    getAssistantHealthzMock.mockImplementation(async () => ({ ok: false, status: 503 }));
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: true,
+      status: 200,
+      data: {
+        id: "asst-reach-2",
+        status: "active",
+        is_local: false,
+        maintenance_mode: { enabled: false },
+      },
+    }));
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+
+    await lifecycleService.checkAssistant();
+
+    await waitFor(() => {
+      const s = useAssistantLifecycleStore.getState().assistantState;
+      return s.kind === "active" && s.reachable === false;
+    });
+
+    const state = useAssistantLifecycleStore.getState().assistantState;
+    expect(state.kind).toBe("active");
+    if (state.kind === "active") {
+      expect(state.reachable).toBe(false);
+    }
+  });
+
+  test("after projectActive, reachable becomes false when healthz throws", async () => {
+    getAssistantHealthzMock.mockImplementation(async () => {
+      throw new Error("network error");
+    });
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: true,
+      status: 200,
+      data: {
+        id: "asst-reach-3",
+        status: "active",
+        is_local: false,
+        maintenance_mode: { enabled: false },
+      },
+    }));
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+
+    await lifecycleService.checkAssistant();
+
+    await waitFor(() => {
+      const s = useAssistantLifecycleStore.getState().assistantState;
+      return s.kind === "active" && s.reachable === false;
+    });
+
+    const state = useAssistantLifecycleStore.getState().assistantState;
+    expect(state.kind).toBe("active");
+    if (state.kind === "active") {
+      expect(state.reachable).toBe(false);
+    }
+  });
+
+  test("unreachable bus sets reachable to false", async () => {
+    getAssistantHealthzMock.mockImplementation(async () => ({ ok: true }));
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: true,
+      status: 200,
+      data: {
+        id: "asst-unreach-1",
+        status: "active",
+        is_local: false,
+        maintenance_mode: { enabled: false },
+      },
+    }));
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+
+    await lifecycleService.checkAssistant();
+
+    // Wait for the initial probe to complete with reachable=true
+    await waitFor(() => {
+      const s = useAssistantLifecycleStore.getState().assistantState;
+      return s.kind === "active" && s.reachable === true;
+    });
+
+    // Now make the healthz fail so the retry probe doesn't flip it back
+    getAssistantHealthzMock.mockImplementation(async () => ({ ok: false, status: 503 }));
+
+    // Fire the unreachable bus listener
+    expect(capturedUnreachableListener).not.toBeNull();
+    capturedUnreachableListener!();
+
+    const state = useAssistantLifecycleStore.getState().assistantState;
+    expect(state.kind).toBe("active");
+    if (state.kind === "active") {
+      expect(state.reachable).toBe(false);
+    }
+  });
+
+  test("unreachable bus is a no-op when not in active state", () => {
+    // Service is in loading state (never driven to active)
+    expect(capturedUnreachableListener).not.toBeNull();
+    capturedUnreachableListener!();
+
+    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
+      "loading",
+    );
+  });
+});

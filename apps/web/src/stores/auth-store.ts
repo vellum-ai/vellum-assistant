@@ -54,7 +54,7 @@ import { clearOrganization, useOrganizationStore } from "@/stores/organization-s
 import { clearUserScopedStorage } from "@/lib/auth/session-cleanup";
 import { subscribe } from "@/lib/event-bus";
 import { isElectron } from "@/runtime/is-electron";
-import { isNativePlatform, installSessionCookies, waitForNativeSessionCookie } from "@/runtime/native-auth";
+import { isNativePlatform, isOAuthFlowInFlight, installSessionCookies, waitForNativeSessionCookie } from "@/runtime/native-auth";
 import { isBiometricEnabled, retrieveBiometricToken } from "@/runtime/native-biometric";
 
 export interface AuthUser {
@@ -278,7 +278,10 @@ function probePlatformSession(
               ),
             ]);
             if (!isStale() && apiAssistants.ok) {
-              await syncPlatformAssistantsToLockfile(apiAssistants.data);
+              await syncPlatformAssistantsToLockfile(
+                apiAssistants.data,
+                useOrganizationStore.getState().currentOrganizationId ?? undefined,
+              );
             }
           } catch {
             // Sync failed or timed out — continue with cached lockfile data
@@ -385,7 +388,10 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
               await useOrganizationStore.getState().fetchOrganizations();
               const apiAssistants = await listAssistants();
               if (apiAssistants.ok) {
-                await syncPlatformAssistantsToLockfile(apiAssistants.data);
+                await syncPlatformAssistantsToLockfile(
+                  apiAssistants.data,
+                  useOrganizationStore.getState().currentOrganizationId ?? undefined,
+                );
                 if (getPlatformAssistants().length === 0 && getLocalAssistants().length === 0) {
                   set(authenticatedPlatformUser(user));
                   return;
@@ -493,6 +499,8 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     }
     const user = toAuthUser(result.data.user);
     await syncUserScopedState(user?.id ?? null);
+    // Hydrate the organizations to avoid race conditions from lazy fetch.
+    await useOrganizationStore.getState().fetchOrganizations();
     set(authenticatedPlatformUser(user));
   },
 
@@ -525,7 +533,10 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
             await useOrganizationStore.getState().fetchOrganizations();
             const apiAssistants = await listAssistants();
             if (apiAssistants.ok) {
-              await syncPlatformAssistantsToLockfile(apiAssistants.data);
+              await syncPlatformAssistantsToLockfile(
+                apiAssistants.data,
+                useOrganizationStore.getState().currentOrganizationId ?? undefined,
+              );
             }
           } catch {
             // Sync failed — continue with cached lockfile data.
@@ -616,6 +627,8 @@ export function setupAuthListeners(): () => void {
     );
 
   const unsubResume = subscribe("app.resume", () => {
+    // Mid-OAuth refocus — an unauthenticated probe would tear down state.
+    if (isOAuthFlowInFlight()) return;
     void safeRefresh();
   });
   cleanups.push(unsubResume);

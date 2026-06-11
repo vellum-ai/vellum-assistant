@@ -11,6 +11,7 @@ type TextInsertionStatus =
 
 let nextTextInsertionStatus: TextInsertionStatus = "unavailable";
 const insertedTexts: string[] = [];
+let nextDictationResult: { mode: "dictation"; text: string } | null = null;
 
 mock.module("@/runtime/text-insertion", () => ({
   insertTextIntoFrontApp: async (text: string) => {
@@ -29,7 +30,7 @@ mock.module("@/domains/chat/components/mic-permission-primer", () => ({
 }));
 
 mock.module("@/domains/chat/voice/dictation-api", () => ({
-  postDictation: async () => null,
+  postDictation: async () => nextDictationResult,
 }));
 
 mock.module("@/domains/chat/voice/push-to-talk-host", () => ({
@@ -42,7 +43,7 @@ mock.module("@/domains/chat/voice/use-push-to-talk", () => ({
 
 const { useVoiceInput } = await import("./use-voice-input");
 
-const renderVoiceInput = () => {
+const renderVoiceInput = (assistantId: string | null = null) => {
   let input = "";
   let focusCount = 0;
   const setInput: Dispatch<SetStateAction<string>> = (value) => {
@@ -58,7 +59,7 @@ const renderVoiceInput = () => {
   } satisfies RefObject<HTMLTextAreaElement | null>;
 
   const hook = renderHook(() =>
-    useVoiceInput({ assistantId: null, inputRef, setInput }),
+    useVoiceInput({ assistantId, inputRef, setInput }),
   );
 
   return {
@@ -71,10 +72,26 @@ const renderVoiceInput = () => {
 afterEach(() => {
   cleanup();
   nextTextInsertionStatus = "unavailable";
+  nextDictationResult = null;
   insertedTexts.length = 0;
 });
 
 describe("useVoiceInput", () => {
+  test("inserts the cleaned final transcript into the front app", async () => {
+    nextTextInsertionStatus = "inserted";
+    nextDictationResult = { mode: "dictation", text: "cleaned text" };
+    const { hook, getInput, getFocusCount } = renderVoiceInput("assistant-1");
+
+    await act(async () => {
+      await hook.result.current.handleVoiceTranscript("raw text");
+    });
+
+    expect(insertedTexts).toEqual(["cleaned text"]);
+    expect(getInput()).toBe("");
+    expect(getFocusCount()).toBe(0);
+    expect(hook.result.current.voiceError).toBeNull();
+  });
+
   test("keeps blocked external-paste dictation in the composer", async () => {
     nextTextInsertionStatus = "blocked";
     const { hook, getInput, getFocusCount } = renderVoiceInput();
@@ -102,4 +119,5 @@ describe("useVoiceInput", () => {
     expect(getFocusCount()).toBe(1);
     expect(hook.result.current.voiceError).toBe("dictation-automation-denied");
   });
+
 });

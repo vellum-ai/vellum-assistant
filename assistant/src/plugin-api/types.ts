@@ -42,11 +42,19 @@ export interface PluginLogger {
 // ─── Hook function ───────────────────────────────────────────────────────────
 
 /**
- * A plugin lifecycle hook. Receives a per-lifecycle context shape and
- * may return either a transformed context or `void`. Today's runtime
- * consumes only the resolved-or-rejected nature of the promise; the
- * `TCtx` return is reserved for hooks that fan a transformed context out
- * to downstream plugins (e.g. `user-prompt-submit`).
+ * A plugin lifecycle hook. Receives a per-lifecycle context shape and may
+ * either mutate `ctx` in place (returning `void`) or return a *partial*
+ * context whose fields are merged onto the threaded context — only the keys
+ * it returns are overwritten, every other field is preserved. Returning a
+ * partial lets a hook edit just the subset of fields it cares about without
+ * having to re-specify the rest. The merged context is threaded to the next
+ * hook in the chain (e.g. `user-prompt-submit`).
+ *
+ * Because an omitted key means "keep the existing value", every field on a
+ * context shape is required (no `?`-optional or `| undefined` members): a
+ * present key always carries a concrete value, so "absent from the returned
+ * partial" is never ambiguous with "explicitly cleared". Fields that can be
+ * empty model that with `| null`, not `| undefined`.
  *
  * Each known hook key has a documented context shape:
  *   - `init` — {@link PluginInitContext}
@@ -57,7 +65,9 @@ export interface PluginLogger {
  *   - `stop` — {@link StopContext}
  *   - `post-model-call` — {@link PostModelCallContext}
  */
-export type PluginHookFn<TCtx = unknown> = (ctx: TCtx) => Promise<TCtx | void>;
+export type PluginHookFn<TCtx = unknown> = (
+  ctx: TCtx,
+) => Promise<Partial<TCtx> | void>;
 
 // ─── Init context ────────────────────────────────────────────────────────────
 
@@ -226,7 +236,7 @@ export interface PostCompactContext {
    * re-applied blocks are attributed to the originating request; it is fixed
    * for the turn and cannot be recovered from the message history.
    */
-  readonly requestId: string | undefined;
+  readonly requestId: string;
   /** Conversation ID the turn being compacted is scoped to. */
   readonly conversationId: string;
   /**
@@ -245,6 +255,13 @@ export interface PostCompactContext {
    * from this key rather than receiving the rendered string.
    */
   readonly modelProfileKey: string | null;
+  /**
+   * Volume of runtime injection to re-apply. `"full"` restores the complete
+   * runtime context; `"minimal"` is the reduced volume overflow recovery's
+   * injection-downgrade rung selects to keep the re-injected prompt small.
+   * Defaults to `"full"` when omitted.
+   */
+  readonly injectionMode?: "full" | "minimal";
 }
 
 // ─── Post-tool-use hook context ──────────────────────────────────────────────
@@ -294,9 +311,9 @@ export interface PostToolUseContext {
    * a separate block *after* emitting the tool_result, so it reaches the model
    * without polluting the client-facing or persisted tool output. Mirrors
    * Claude Code's PostToolUse `hookSpecificOutput.additionalContext` and the
-   * singular of Codex's `additional_contexts`. Unset means no extra context.
+   * singular of Codex's `additional_contexts`. `null` means no extra context.
    */
-  additionalContext?: string;
+  additionalContext: string | null;
   /**
    * The model's context-window size in tokens. Plugins derive their own
    * character budget from this (e.g. a share of the window) rather than
@@ -329,19 +346,31 @@ export interface PostToolUseContext {
 export type StopDecision = "continue" | "stop";
 
 /**
- * Context passed to the `stop` hook. Fires when the model yields a response
- * with no tool calls — the run's stop boundary, where the loop is about to
- * hand the turn back to the user. The default empty-response plugin uses it
- * to re-query the model when a turn came back empty or as a provider refusal.
+ * Context passed to the `stop` hook. Fires at the run's stop boundary — the
+ * point where the loop has nothing more to produce this turn and is about to
+ * hand back to the user. There are two stop moments:
+ *
+ * - **Successful stop.** The model yielded a response with no tool calls.
+ *   {@link error} is absent, {@link responseContent} holds the turn's content,
+ *   and {@link stopReason} carries the provider's stop reason. The default
+ *   empty-response plugin uses this to re-query when a turn came back empty or
+ *   as a provider refusal.
+ * - **Error stop.** The provider rejected the call before any response
+ *   existed. {@link error} holds the rejection, {@link responseContent} is
+ *   empty, and {@link stopReason} is `null`. A hook that recognizes the
+ *   rejection (e.g. history-repair on an ordering violation) may repair
+ *   {@link messages} and set {@link decision} to `"continue"` to retry;
+ *   otherwise the loop surfaces the error. Hooks that only act on a real
+ *   response must guard on {@link error} and ignore error stops.
  *
  * The hook decides the outcome by setting {@link decision}. When it sets
- * `"continue"` it must also append the follow-up turn (e.g. a nudge `user`
- * message) to {@link messages}; the loop threads those messages into the next
- * iteration. {@link messages} is the full conversation history, carried back
- * verbatim. A hook that needs to reason about just the current response cycle
- * (e.g. whether an earlier turn already delivered visible text) derives that
- * boundary from the history itself — the messages after the last genuine user
- * prompt — rather than an index, since mid-run compaction can rewrite the
+ * `"continue"` it must also leave {@link messages} as the history the next
+ * iteration should send — a successful-stop hook appends its follow-up turn
+ * (e.g. a nudge `user` message); an error-stop hook replaces the history with
+ * a repaired one. A hook that needs to reason about just the current response
+ * cycle (e.g. whether an earlier turn already delivered visible text) derives
+ * that boundary from the history itself — the messages after the last genuine
+ * user prompt — rather than an index, since mid-run compaction can rewrite the
  * array.
  *
  * Multiple plugins' hooks chain in registration order — each sees the
@@ -361,13 +390,29 @@ export interface StopContext {
    * Content blocks of the assistant turn that triggered the stop. Guaranteed
    * to contain no `tool_use` blocks — the hook only fires at the boundary
    * where the model stopped requesting tools.
+   *
+   * Writable: a hook may rewrite the turn by assigning new content — e.g. the
+   * default empty-response plugin replaces a provider `refusal` (which zeroes
+   * the response) with a plain-text apology. The loop persists the final value
+   * and streams any text not already emitted live (nothing streams live for a
+   * turn the model left empty), so a rewrite reaches the user. Later hooks in
+   * the chain observe the rewritten content.
    */
-  readonly responseContent: ReadonlyArray<ContentBlock>;
+  responseContent: ReadonlyArray<ContentBlock>;
   /**
    * Provider-reported stop reason for the assistant turn (e.g. `"refusal"`,
-   * `"end_turn"`). `null`/`undefined` when the provider didn't report one.
+   * `"end_turn"`). `null` when the provider didn't report one, including every
+   * error stop (no response existed to carry a stop reason).
    */
-  readonly stopReason: string | null | undefined;
+  readonly stopReason: string | null;
+  /**
+   * The provider rejection that ended the turn, on an error stop. Absent on a
+   * successful stop (the model returned a response). A hook that recovers from
+   * a specific rejection class inspects this and may repair {@link messages}
+   * and set {@link decision} to `"continue"`; hooks that only act on a real
+   * response must return early when it is present.
+   */
+  readonly error?: Error;
   /**
    * Seeded to `"stop"`. A hook sets it to `"continue"` to force another loop
    * iteration; later hooks in the chain may override it.
@@ -400,14 +445,14 @@ export interface PreModelCallContext {
   readonly conversationId: string;
   /**
    * The call site this provider call serves — `"mainAgent"` for the user-facing
-   * reply, or a background/utility site. Omitted by call sites that don't tag one.
+   * reply, or a background/utility site. `null` for call sites that don't tag one.
    */
-  readonly callSite?: LLMCallSite;
+  readonly callSite: LLMCallSite | null;
   /**
    * The system prompt about to be sent. A hook may replace it (e.g. strip or
    * append a section); the loop sends the resulting value.
    */
-  systemPrompt: string | undefined;
+  systemPrompt: string | null;
   /**
    * Seeded `false`. When a hook sets it `true`, the loop suppresses this turn's
    * live assistant `text_delta` stream; a `post-model-call` hook is then
@@ -423,32 +468,80 @@ export interface PreModelCallContext {
 // ─── Post-model-call hook context ────────────────────────────────────────────
 
 /**
- * Context passed to the `post-model-call` hook. Fires for each finalized
- * assistant message — once per model call, at the message-complete boundary —
- * before the message is persisted and (if deferred) streamed-final. Unlike
- * {@link StopContext}'s read-only `responseContent` (which exists for the stop
- * decision), {@link content} is mutable: the loop adopts the hook's result as the
- * persisted and streamed message.
+ * Binary outcome of the `post-model-call` hook. The agent loop seeds it to
+ * `"stop"` and acts on the value the chain settles on:
  *
- * Fires on tool-bearing turns too (a reply can carry both text and `tool_use`),
- * so a hook should transform only the blocks it owns and leave others — notably
- * `tool_use` — intact. Runs for every finalized message regardless of call site;
- * hooks MUST self-gate on {@link callSite} / {@link conversationId}. Mutate in
- * place or return a new context; throwing is contained by the loop (the original
- * content is kept).
+ * - `"stop"`     — accept the model-call outcome. On a finalized reply the loop
+ *                  keeps the (possibly transformed) message; on a rejection it
+ *                  surfaces the error. This is the default.
+ * - `"continue"` — re-query the model. The hook is responsible for leaving
+ *                  {@link PostModelCallContext.messages} as the history the next
+ *                  iteration should send (append a follow-up turn, or replace
+ *                  the array with a repaired one).
+ */
+export type PostModelCallDecision = "continue" | "stop";
+
+/**
+ * Context passed to the `post-model-call` hook. Fires at every model-call
+ * outcome — the seam where the loop reacts to what the provider returned:
+ *
+ * - **Finalized reply.** The provider returned a message. {@link error} is
+ *   absent, {@link content} holds the reply's blocks (mutable — the loop adopts
+ *   the hook's result as the persisted and streamed message), and
+ *   {@link stopReason} carries the provider's stop reason. Fires once per model
+ *   call, including tool-bearing turns (a reply can carry both text and
+ *   `tool_use`), so a hook should transform only the blocks it owns and leave
+ *   others — notably `tool_use` — intact.
+ * - **Provider rejection.** The call threw before any reply existed.
+ *   {@link error} holds the rejection, {@link content} is empty, and
+ *   {@link stopReason} is `null`. A hook that recognizes the rejection may
+ *   repair {@link messages} and set {@link decision} to `"continue"` to retry;
+ *   hooks that only act on a real reply must guard on {@link error} and return
+ *   early.
+ *
+ * The retry decision is honored only at actionable outcomes — a no-tool reply
+ * or a `mainAgent` rejection — and is ignored on tool-bearing turns (the loop
+ * already runs the tools) and non-`mainAgent` call sites. Runs for every
+ * finalized message regardless of call site; hooks MUST self-gate on
+ * {@link callSite} / {@link conversationId}. Mutate in place or return a new
+ * context; throwing is contained by the loop (the original content is kept and
+ * the outcome is treated as `"stop"`). Multiple plugins' hooks chain in
+ * registration order — each sees the previous hook's `decision` and mutations.
  */
 export interface PostModelCallContext {
   /** Conversation ID the message belongs to. */
   readonly conversationId: string;
-  /** The call site this message serves — `"mainAgent"` for the user-facing reply. */
-  readonly callSite?: LLMCallSite;
+  /** The call site this message serves — `"mainAgent"` for the user-facing reply; `null` when untagged. */
+  readonly callSite: LLMCallSite | null;
   /**
    * The finalized message content. Mutable — transform the text blocks and leave
-   * `tool_use` (and other non-text blocks) intact.
+   * `tool_use` (and other non-text blocks) intact. Empty on a provider rejection.
    */
   content: ContentBlock[];
-  /** Provider-reported stop reason for the turn, when reported. */
-  readonly stopReason: string | null | undefined;
+  /**
+   * Full conversation history: the inbound conversation followed by every
+   * message produced this run. A hook that sets {@link decision} to
+   * `"continue"` leaves this as the history the next iteration should send — a
+   * finalized-reply hook appends its follow-up turn (e.g. a nudge `user`
+   * message); a rejection-recovery hook replaces the array with a repaired one.
+   */
+  messages: Message[];
+  /** Provider-reported stop reason for the turn; `null` when not reported. */
+  readonly stopReason: string | null;
+  /**
+   * The provider rejection that ended the call, on a rejection outcome. Absent
+   * on a finalized reply. A hook that recovers from a specific rejection class
+   * inspects this and may repair {@link messages} and set {@link decision} to
+   * `"continue"`; hooks that only act on a real reply must return early when it
+   * is present.
+   */
+  readonly error?: Error;
+  /**
+   * Seeded to `"stop"`. A hook sets it to `"continue"` to force another loop
+   * iteration; later hooks in the chain may override it. Honored only at
+   * actionable outcomes (see the interface docstring).
+   */
+  decision: PostModelCallDecision;
   /** Logger scoped to the current turn (tag structured fields with `{ plugin }`). */
   readonly logger: PluginLogger;
 }

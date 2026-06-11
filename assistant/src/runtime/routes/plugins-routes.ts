@@ -99,27 +99,20 @@ const pluginsListResponseSchema = z.object({
 });
 
 const pluginMatchSourceSchema = z
-  .discriminatedUnion("kind", [
-    z.object({
-      kind: z.literal("first-party"),
-    }),
-    z.object({
-      kind: z.literal("github"),
-      repo: z
-        .string()
-        .describe("`owner/repo` of the external plugin repository."),
-      path: z
-        .string()
-        .optional()
-        .describe(
-          "Directory within the repo, when the plugin is not at the root.",
-        ),
-      ref: z.string().describe("Pinned git ref the plugin is fetched from."),
-    }),
-  ])
-  .describe(
-    "Origin of the match: a first-party in-repo plugin or a whitelisted external one.",
-  );
+  .object({
+    kind: z.literal("github"),
+    repo: z
+      .string()
+      .describe("`owner/repo` of the external plugin repository."),
+    path: z
+      .string()
+      .optional()
+      .describe(
+        "Directory within the repo, when the plugin is not at the root.",
+      ),
+    ref: z.string().describe("Pinned git ref the plugin is fetched from."),
+  })
+  .describe("Origin of the match: a whitelisted external plugin repository.");
 
 const pluginSearchMatchSchema = z.object({
   name: z
@@ -128,7 +121,7 @@ const pluginSearchMatchSchema = z.object({
   path: z
     .string()
     .describe(
-      "Human-readable origin: a repo-relative path (`plugins/<name>`) for first-party plugins or a `github:owner/repo@ref` locator for external ones.",
+      "Human-readable origin: a `github:owner/repo@ref` locator for the external plugin.",
     ),
   description: z
     .string()
@@ -186,7 +179,11 @@ const pluginDetailsResponseSchema = z.object({
     .describe(
       "Resolved version (installed copy first, then repo `package.json`).",
     ),
-  source: pluginMatchSourceSchema,
+  source: pluginMatchSourceSchema
+    .nullable()
+    .describe(
+      "Pinned origin from the marketplace entry, or null when an installed copy has no catalog entry.",
+    ),
   readme: z
     .string()
     .nullable()
@@ -199,9 +196,7 @@ const pluginDetailsResponseSchema = z.object({
 const pluginInstallRequestSchema = z.object({
   name: z
     .string()
-    .describe(
-      "Install name to resolve against the catalog (first-party directory or marketplace entry).",
-    ),
+    .describe("Install name to resolve against the marketplace catalog."),
   force: z
     .boolean()
     .optional()
@@ -255,9 +250,7 @@ interface PluginMatchView {
   name: string;
   path: string;
   description?: string;
-  source:
-    | { kind: "first-party" }
-    | { kind: "github"; repo: string; path?: string; ref: string };
+  source: { kind: "github"; repo: string; path?: string; ref: string };
 }
 
 /**
@@ -269,15 +262,12 @@ function projectMatch(m: PluginSearchMatch): PluginMatchView {
   const view: PluginMatchView = {
     name: m.name,
     path: m.path,
-    source:
-      m.source.kind === "github"
-        ? {
-            kind: "github",
-            repo: m.source.repo,
-            ref: m.source.ref,
-            ...(m.source.path !== undefined ? { path: m.source.path } : {}),
-          }
-        : { kind: "first-party" },
+    source: {
+      kind: "github",
+      repo: m.source.repo,
+      ref: m.source.ref,
+      ...(m.source.path !== undefined ? { path: m.source.path } : {}),
+    },
   };
   if (m.description !== undefined) {
     view.description = m.description;
@@ -441,11 +431,10 @@ async function handleInstallPlugin({ body = {} }: RouteHandlerArgs) {
   // The ref is pinned to the curated `DEFAULT_PLUGIN_REF` rather than taken
   // from the request: a caller-supplied ref would let any `settings.write`
   // principal install from an unreviewed revision (a PR branch, fork ref,
-  // ...) whose marketplace manifest or first-party plugin directory could
-  // carry attacker code that the loader then dynamically imports. Installs
-  // over HTTP therefore only ever resolve against the reviewed catalog on
-  // the default ref. Operators who need another ref use the local CLI's
-  // `assistant plugins install --ref`.
+  // ...) whose marketplace manifest could carry attacker code that the loader
+  // then dynamically imports. Installs over HTTP therefore only ever resolve
+  // against the reviewed catalog on the default ref. Operators who need
+  // another ref use the local CLI's `assistant plugins install --ref`.
   try {
     const result = await installPlugin(
       { name, ref: DEFAULT_PLUGIN_REF, force },
@@ -517,7 +506,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Search the plugin catalog",
     description:
-      "List installable plugins from the canonical `vellum-ai/vellum-assistant` catalog at `plugins/`. The query is an ECMAScript regex matched case-insensitively against the directory name (e.g. `memory`, `^simple`). Empty query returns every entry. Mirrors the CLI's `assistant plugins search`.",
+      "List installable plugins from the curated `plugins/marketplace.json` catalog. The query is an ECMAScript regex matched case-insensitively against the plugin name (e.g. `memory`, `^simple`). Empty query returns every entry. Mirrors the CLI's `assistant plugins search`.",
     tags: ["plugins"],
     queryParams: [
       {
@@ -546,7 +535,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Install a plugin",
     description:
-      "Install a plugin by name from the canonical source — a whitelisted `plugins/marketplace.json` entry, else the first-party `plugins/<name>/` convention. Always resolves against the curated default git ref (no caller-supplied ref): installing from an unreviewed revision would bypass the marketplace/first-party curation boundary and let attacker-controlled code be loaded. Materializes the plugin under `<workspaceDir>/plugins/<name>/`; the assistant must be restarted to load it. Mirrors the CLI's `assistant plugins install <name>`. An already-installed name without `force` returns 409; a name that resolves to nothing returns 404. Sibling to `POST /v1/skills/install`.",
+      "Install a plugin by name from the canonical source — a whitelisted `plugins/marketplace.json` entry. Always resolves against the curated default git ref (no caller-supplied ref): installing from an unreviewed revision would bypass the marketplace curation boundary and let attacker-controlled code be loaded. Materializes the plugin under `<workspaceDir>/plugins/<name>/`; the assistant must be restarted to load it. Mirrors the CLI's `assistant plugins install <name>`. An already-installed name without `force` returns 409; a name that resolves to nothing returns 404. Sibling to `POST /v1/skills/install`.",
     tags: ["plugins"],
     requestBody: pluginInstallRequestSchema,
     responseBody: pluginInstallResponseSchema,

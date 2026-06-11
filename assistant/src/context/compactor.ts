@@ -743,12 +743,19 @@ export async function runAssistantDrivenCompaction(
   let response: ProviderResponse;
   try {
     response = await args.provider.sendMessage(requestMessages, {
+      // Tools are passed so the cached prefix (system prompt + tools +
+      // history) matches the agent's main-turn cache key. Force
+      // `tool_choice: "none"` so the model can only answer with the
+      // `<compaction_result>` text and never burns the turn on a tool call
+      // it cannot complete — an empty text response yields no parseable
+      // summary, stalls compaction, and exhausts the agent loop budget.
       tools: args.tools,
       systemPrompt: args.systemPrompt,
       signal: args.signal,
       config: {
         callSite: COMPACTION_CALL_SITE,
         usageTracking: "manual",
+        tool_choice: { type: "none" },
         ...(args.overrideProfile
           ? { overrideProfile: args.overrideProfile }
           : {}),
@@ -1113,12 +1120,16 @@ export async function runEmergencyCompaction(
   let response: ProviderResponse;
   try {
     response = await args.provider.sendMessage(requestMessages, {
+      // See the assistant-driven path: tools keep the prefix cache warm, but
+      // `tool_choice: "none"` forces a text-only `<compaction_result>` so the
+      // model can't stall compaction by emitting an uncompletable tool call.
       tools: args.tools,
       systemPrompt: args.systemPrompt,
       signal: args.signal,
       config: {
         callSite: COMPACTION_CALL_SITE,
         usageTracking: "manual",
+        tool_choice: { type: "none" },
         ...(args.overrideProfile
           ? { overrideProfile: args.overrideProfile }
           : {}),

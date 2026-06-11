@@ -1,15 +1,21 @@
 import { Download, ExternalLink, FileText, Loader2 } from "lucide-react";
+import { useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
 import { organizationsBillingInvoicesRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
-import { organizationsBillingInvoicesRetrieve } from "@/generated/api/sdk.gen";
-import type { Invoice, InvoiceListResponse } from "@/generated/api/types.gen";
+import {
+  organizationsBillingInvoicesDownloadRetrieve,
+  organizationsBillingInvoicesRetrieve,
+} from "@/generated/api/sdk.gen";
+import type { InvoiceListResponse } from "@/generated/api/types.gen";
+import { captureError } from "@/lib/sentry/capture-error";
 import { formatFriendlyDate } from "@/utils/format-date";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Tag, type TagTone } from "@vellumai/design-library/components/tag";
+import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 const EMPTY_RESPONSE: InvoiceListResponse = { invoices: [] };
@@ -77,6 +83,8 @@ interface InvoicesModalProps {
 }
 
 export function InvoicesModal({ open, onOpenChange }: InvoicesModalProps) {
+  const [isDownloadingAll, setIsDownloadingAll] = useState(false);
+
   const invoicesQuery = useQuery({
     queryKey: organizationsBillingInvoicesRetrieveQueryKey(),
     enabled: open,
@@ -100,10 +108,31 @@ export function InvoicesModal({ open, onOpenChange }: InvoicesModalProps) {
   });
 
   const invoices = invoicesQuery.data?.invoices ?? [];
-  const downloadable = invoices.filter(
-    (invoice): invoice is Invoice & { invoice_pdf: string } =>
-      invoice.invoice_pdf != null,
+  const hasDownloadablePdfs = invoices.some(
+    (invoice) => invoice.invoice_pdf != null,
   );
+
+  async function downloadAllInvoices(): Promise<void> {
+    setIsDownloadingAll(true);
+    try {
+      const { data, response } =
+        await organizationsBillingInvoicesDownloadRetrieve({
+          throwOnError: false,
+        });
+      if (!response?.ok || !(data instanceof Blob)) {
+        throw new Error(
+          `Failed to download invoices (${response?.status ?? "network error"})`,
+        );
+      }
+      const { saveFile } = await import("@/runtime/native-file");
+      await saveFile(data, "invoices.zip");
+    } catch (error) {
+      captureError(error, { context: "download_all_invoices" });
+      toast.error("Failed to download invoices.");
+    } finally {
+      setIsDownloadingAll(false);
+    }
+  }
 
   return (
     <Modal.Root open={open} onOpenChange={onOpenChange}>
@@ -199,15 +228,18 @@ export function InvoicesModal({ open, onOpenChange }: InvoicesModalProps) {
         </Modal.Body>
 
         <Modal.Footer>
-          {downloadable.length > 0 && (
+          {hasDownloadablePdfs && (
             <Button
               variant="outlined"
-              leftIcon={<Download />}
-              onClick={() => {
-                for (const invoice of downloadable) {
-                  downloadPdf(invoice.invoice_pdf);
-                }
-              }}
+              leftIcon={
+                isDownloadingAll ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <Download />
+                )
+              }
+              disabled={isDownloadingAll}
+              onClick={downloadAllInvoices}
             >
               Download all
             </Button>

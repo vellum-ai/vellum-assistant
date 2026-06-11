@@ -8,6 +8,7 @@ import {
 } from "@/lib/local-mode";
 import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
+import { useOrganizationStore } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { routes } from "@/utils/routes";
 
@@ -80,7 +81,10 @@ export async function retireAssistant(
         try {
           const remaining = await listAssistants();
           if (remaining.ok) {
-            await syncPlatformAssistantsToLockfile(remaining.data);
+            await syncPlatformAssistantsToLockfile(
+              remaining.data,
+              useOrganizationStore.getState().currentOrganizationId ?? undefined,
+            );
           }
         } catch {
           // Best-effort sync — the retire itself already succeeded.
