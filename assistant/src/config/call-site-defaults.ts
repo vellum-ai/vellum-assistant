@@ -54,6 +54,7 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   styleAnalyzer: { profile: "cost-optimized" },
   meetConsentMonitor: { profile: "cost-optimized" },
   meetChatOpportunity: { profile: "cost-optimized" },
+  mediaReduce: { profile: "cost-optimized" },
   inference: { profile: "cost-optimized" },
 
   heartbeatAgent: {

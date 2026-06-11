@@ -287,6 +287,13 @@ const CATALOG_RECORD: CatalogRecord = {
     description: "Identifies opportunities to engage in meeting chat.",
     domain: "skills",
   },
+  mediaReduce: {
+    id: "mediaReduce",
+    displayName: "Media Reduce",
+    description:
+      "Analyzes extracted video-segment data to answer a query or summarize the content during media processing.",
+    domain: "skills",
+  },
   inference: {
     id: "inference",
     displayName: "Inference",
