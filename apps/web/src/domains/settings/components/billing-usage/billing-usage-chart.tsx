@@ -201,7 +201,8 @@ export function BillingUsageChart({
         if (v === 0) return "$0";
         if (isMobile && v >= 1) return `$${Math.round(v).toLocaleString("en-US")}`;
         const step = yMax / Y_TICK_COUNT;
-        const digits = step > 0 ? Math.max(0, Math.ceil(-Math.log10(step))) : 2;
+        const stepDigits = step > 0 ? Math.max(0, Math.ceil(-Math.log10(step))) : 2;
+        const digits = step < 1 ? Math.max(stepDigits, 2) : stepDigits;
         return `$${v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
       }
       return v.toLocaleString("en-US");
