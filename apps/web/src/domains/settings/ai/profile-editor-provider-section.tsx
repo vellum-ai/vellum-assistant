@@ -290,8 +290,10 @@ export function ProfileEditorProviderSection({
               value: "",
               label: !provider
                 ? "Select a provider first"
-                : provider === OPENAI_COMPATIBLE_PROVIDER && availableModels.length === 0
-                  ? "Configure models on connection"
+                : availableModels.length === 0
+                  ? provider === OPENAI_COMPATIBLE_PROVIDER
+                    ? "Configure models on connection"
+                    : "No models available"
                   : "Select a model",
             },
             ...availableModels.map((m) => ({
@@ -306,8 +308,10 @@ export function ProfileEditorProviderSection({
             as="p"
             className="text-(--system-negative-strong)"
           >
-            {provider === OPENAI_COMPATIBLE_PROVIDER && availableModels.length === 0
-              ? "No models available. Configure models on the provider connection first."
+            {availableModels.length === 0
+              ? provider === OPENAI_COMPATIBLE_PROVIDER
+                ? "No models available. Configure models on the provider connection first."
+                : "No models are available for this provider in this app version. Update the app, or use an OpenAI-compatible connection to enter a custom model."
               : "Select a model."}
           </Typography>
         ) : null}
