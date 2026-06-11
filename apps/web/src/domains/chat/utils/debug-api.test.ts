@@ -15,9 +15,14 @@ import type {
   PendingInteractionsSnapshot,
 } from "@/domains/chat/utils/debug-api";
 import {
+  RECONCILIATION_DIAGNOSTIC_KIND_PREFIXES,
   createChatDebugApi,
   installVellumDebugApi,
 } from "@/domains/chat/utils/debug-api";
+import {
+  recordDiagnostic,
+  recordLifecycleDiagnostic,
+} from "@/lib/diagnostics";
 import {
   INITIAL_TURN_STATE,
   type TurnState,
@@ -1023,5 +1028,80 @@ describe("createChatDebugApi.getScrollState", () => {
     expect(state.itemCount).toBe(3);
     expect(state.scrollTop).toBe(500);
     expect(state.distanceFromBottom).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+//  createChatDebugApi — diagnostics ring accessors
+// ---------------------------------------------------------------------------
+
+describe("createChatDebugApi diagnostics accessors", () => {
+  test("getDiagnostics returns recorded main-ring events, newest last", () => {
+    const api = createChatDebugApi(makeRefs());
+    recordDiagnostic("test_kind_a", { value: 1 });
+    recordDiagnostic("test_kind_b", { value: 2 });
+    const events = api.getDiagnostics();
+    const kinds = events.map((e) => e.kind);
+    expect(kinds.indexOf("test_kind_a")).toBeLessThan(
+      kinds.indexOf("test_kind_b"),
+    );
+    const last = events.at(-1)!;
+    expect(last.ts).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(last.details.value).toBe(2);
+  });
+
+  test("getDiagnostics(prefix) filters by kind prefix", () => {
+    const api = createChatDebugApi(makeRefs());
+    recordDiagnostic("prefix_match_one", {});
+    recordDiagnostic("prefix_match_two", {});
+    recordDiagnostic("other_kind", {});
+    const events = api.getDiagnostics("prefix_match_");
+    expect(events.length).toBeGreaterThanOrEqual(2);
+    expect(events.every((e) => e.kind.startsWith("prefix_match_"))).toBe(true);
+  });
+
+  test("getLifecycleDiagnostics reads the lifecycle ring, not the main ring", () => {
+    const api = createChatDebugApi(makeRefs());
+    recordLifecycleDiagnostic("lifecycle_only_kind", { source: "test" });
+    recordDiagnostic("main_only_kind", {});
+    const lifecycle = api.getLifecycleDiagnostics();
+    expect(lifecycle.some((e) => e.kind === "lifecycle_only_kind")).toBe(true);
+    expect(lifecycle.some((e) => e.kind === "main_only_kind")).toBe(false);
+    const filtered = api.getLifecycleDiagnostics("lifecycle_only_");
+    expect(filtered.every((e) => e.kind.startsWith("lifecycle_only_"))).toBe(
+      true,
+    );
+  });
+
+  test("getReconciliationDiagnostics returns only reconciliation-related kinds", () => {
+    const api = createChatDebugApi(makeRefs());
+    recordDiagnostic("reconciliation_applied", { messagesAdded: 1 });
+    recordDiagnostic("sse_event_seq_replayed", { eventSeq: 5, localSeq: 900 });
+    recordDiagnostic("sse_seq_generation_reset", { eventSeq: 1 });
+    recordDiagnostic("sse_event_wrong_conversation_filtered", {});
+    recordDiagnostic("unrelated_kind", {});
+    const events = api.getReconciliationDiagnostics();
+    const kinds = events.map((e) => e.kind);
+    expect(kinds).toContain("reconciliation_applied");
+    expect(kinds).toContain("sse_event_seq_replayed");
+    expect(kinds).toContain("sse_seq_generation_reset");
+    expect(kinds).toContain("sse_event_wrong_conversation_filtered");
+    expect(kinds).not.toContain("unrelated_kind");
+    expect(
+      kinds.every((kind) =>
+        RECONCILIATION_DIAGNOSTIC_KIND_PREFIXES.some((prefix) =>
+          kind.startsWith(prefix),
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  test("returned events are defensive copies", () => {
+    const api = createChatDebugApi(makeRefs());
+    recordDiagnostic("copy_check_kind", { value: "original" });
+    const first = api.getDiagnostics("copy_check_kind");
+    first.at(-1)!.details.value = "mutated";
+    const second = api.getDiagnostics("copy_check_kind");
+    expect(second.at(-1)!.details.value).toBe("original");
   });
 });
