@@ -1163,8 +1163,22 @@ enum LogExporter {
     /// Fetches the workspace config from the daemon and writes a sanitized copy
     /// with sensitive values replaced by presence flags.
     private nonisolated static func writeSanitizedWorkspaceConfig(to url: URL) async {
-        var config = await SettingsClient().fetchConfig() ?? [:]
+        let config = await SettingsClient().fetchConfig() ?? [:]
         guard !config.isEmpty else { return }
+
+        let sanitized = sanitizeWorkspaceConfig(config)
+
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: sanitized,
+            options: [.prettyPrinted, .sortedKeys]
+        ) else { return }
+        try? data.write(to: url)
+    }
+
+    /// Returns a copy of the workspace config with sensitive values replaced
+    /// by presence flags ("(set)" / "(empty)").
+    nonisolated static func sanitizeWorkspaceConfig(_ config: [String: Any]) -> [String: Any] {
+        var config = config
 
         // Strip API key values — preserve which providers have keys configured
         if var apiKeys = config["apiKeys"] as? [String: Any] {
@@ -1234,11 +1248,24 @@ enum LogExporter {
             config["mcp"] = mcp
         }
 
-        guard let data = try? JSONSerialization.data(
-            withJSONObject: config,
-            options: [.prettyPrinted, .sortedKeys]
-        ) else { return }
-        try? data.write(to: url)
+        // Strip ACP agent env vars
+        if var acp = config["acp"] as? [String: Any],
+           var agents = acp["agents"] as? [String: [String: Any]] {
+            for name in agents.keys {
+                var agent = agents[name]!
+                if var env = agent["env"] as? [String: Any] {
+                    for key in env.keys {
+                        env[key] = redactValue(env[key])
+                    }
+                    agent["env"] = env
+                }
+                agents[name] = agent
+            }
+            acp["agents"] = agents
+            config["acp"] = acp
+        }
+
+        return config
     }
 
     /// Writes a human-readable error log file for a failed export API call.
