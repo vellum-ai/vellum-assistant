@@ -49,6 +49,21 @@ final class DictationPartialsSession: @unchecked Sendable {
     private var pushFormat: AVAudioFormat?
     private let emit: (String) -> Void
     private let onError: (Error) -> Void
+    private let onFinal: (String) -> Void
+
+    // Graceful-finish state. Short dictations (1-2s taps) end before the
+    // recognizer's first partial, so cancelling the task at stop throws the
+    // whole transcript away. finish() ends the audio and lets recognition
+    // run to its final result instead. Mutations are serialized on the main
+    // queue.
+    private var finishing = false
+    private var didFinal = false
+    private var latestText = ""
+
+    // See the test-hook comment in start().
+    private static let fakeRecognition =
+        ProcessInfo.processInfo.environment["VELLUM_HELPER_FAKE_RECOGNITION"] == "1"
+    private var fakeAppendedFrames: AVAudioFrameCount = 0
 
     /// Whether any captured buffer carried non-silence. Distinguishes "the
     /// recognizer produced nothing" from "the mic delivered nothing": a
@@ -64,41 +79,18 @@ final class DictationPartialsSession: @unchecked Sendable {
         inputDeviceName: String?,
         pushSampleRate: Double? = nil,
         emit: @escaping (String) -> Void,
-        onError: @escaping (Error) -> Void
+        onError: @escaping (Error) -> Void,
+        onFinal: @escaping (String) -> Void
     ) {
         self.requireOnDevice = requireOnDevice
         self.inputDeviceName = inputDeviceName
         self.pushSampleRate = pushSampleRate
         self.emit = emit
         self.onError = onError
+        self.onFinal = onFinal
     }
 
     func start() throws {
-        guard
-            let recognizer = SFSpeechRecognizer()
-                ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US")),
-            recognizer.isAvailable
-        else {
-            throw DictationPartialsError.recognizerUnavailable
-        }
-
-        request.shouldReportPartialResults = true
-        // Pin recognition on-device when the locale has a local model:
-        // dictation audio shouldn't leave the machine, and it keeps the
-        // transcript working offline. Locales without an on-device model
-        // stay on Apple's server path — forcing the flag there would fail
-        // recognition outright instead of degrading.
-        //
-        // `supportsOnDeviceRecognition` is a capability claim, not an
-        // enablement check: with macOS Dictation switched off the pinned
-        // task dies at runtime (kLSRErrorDomain 201 "Siri and Dictation
-        // are disabled"). The owner watches `onError` for that and retries
-        // once with `requireOnDevice: false` so the server path still
-        // serves online sessions.
-        if requireOnDevice, recognizer.supportsOnDeviceRecognition {
-            request.requiresOnDeviceRecognition = true
-        }
-
         if let rate = pushSampleRate {
             guard
                 let format = AVAudioFormat(
@@ -136,21 +128,120 @@ final class DictationPartialsSession: @unchecked Sendable {
             }
         }
 
+        // Headless test hook: a scripted recognizer exercises the JSON-RPC
+        // contract (partials → graceful finish → finalized) without speech
+        // authorization, which terminal contexts cannot prompt for. Never
+        // set by the app.
+        if Self.fakeRecognition {
+            return
+        }
+
+        guard
+            let recognizer = SFSpeechRecognizer()
+                ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US")),
+            recognizer.isAvailable
+        else {
+            throw DictationPartialsError.recognizerUnavailable
+        }
+
+        request.shouldReportPartialResults = true
+        // Pin recognition on-device when the locale has a local model:
+        // dictation audio shouldn't leave the machine, and it keeps the
+        // transcript working offline. Locales without an on-device model
+        // stay on Apple's server path — forcing the flag there would fail
+        // recognition outright instead of degrading.
+        //
+        // `supportsOnDeviceRecognition` is a capability claim, not an
+        // enablement check: with macOS Dictation switched off the pinned
+        // task dies at runtime (kLSRErrorDomain 201 "Siri and Dictation
+        // are disabled"). The owner watches `onError` for that and retries
+        // once with `requireOnDevice: false` so the server path still
+        // serves online sessions.
+        if requireOnDevice, recognizer.supportsOnDeviceRecognition {
+            request.requiresOnDeviceRecognition = true
+        }
+
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
-            guard let self, !self.stopped else { return }
-            if let error {
-                self.onError(error)
-                return
+            guard let self else { return }
+            // SFSpeechRecognitionResult is not Sendable — extract what we
+            // need before hopping to the main queue.
+            let text = result?.bestTranscription.formattedString
+            let isFinal = result?.isFinal ?? false
+            DispatchQueue.main.async {
+                self.handleRecognition(text: text, isFinal: isFinal, error: error)
             }
-            guard let result else { return }
-            self.emit(result.bestTranscription.formattedString)
         }
     }
 
+    private func handleRecognition(
+        text: String?, isFinal: Bool, error: Error?
+    ) {
+        guard !stopped else { return }
+        if let error {
+            // While finishing, errors (including the cancellation that
+            // follows endAudio on some paths) terminate recognition — the
+            // best partial so far IS the final transcript. Mid-session
+            // errors keep the owner's retry semantics.
+            if finishing {
+                completeFinish(with: latestText)
+            } else {
+                onError(error)
+            }
+            return
+        }
+        guard let text else { return }
+        if !text.isEmpty {
+            latestText = text
+        }
+        emit(text)
+        if isFinal {
+            completeFinish(with: latestText)
+        }
+    }
+
+    /// End the audio and let recognition run to its final result —
+    /// `onFinal` fires with the completed transcript (or the best partial
+    /// if the recognizer errors/times out). Use for normal end-of-recording.
+    func finish() {
+        guard !stopped, !finishing else { return }
+        finishing = true
+        if pushSampleRate == nil {
+            audioEngine.inputNode.removeTap(onBus: 0)
+            audioEngine.stop()
+        }
+        request.endAudio()
+        if Self.fakeRecognition {
+            // Scripted recognizer "finalizes" shortly after the audio ends.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                guard let self else { return }
+                self.completeFinish(
+                    with: self.latestText.isEmpty ? "fake final" : self.latestText
+                )
+            }
+            return
+        }
+        // A pinned on-device task normally finalizes well under a second
+        // after endAudio; the timeout only catches a wedged task.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
+            guard let self else { return }
+            self.completeFinish(with: self.latestText)
+        }
+    }
+
+    private func completeFinish(with text: String) {
+        guard !didFinal, !stopped else { return }
+        didFinal = true
+        onFinal(text)
+        task?.cancel()
+        task = nil
+    }
+
+    /// Immediate teardown with no final callback — for session replacement
+    /// and shutdown.
     func stop() {
         guard !stopped else { return }
         stopped = true
-        if pushSampleRate == nil {
+        if pushSampleRate == nil, !finishing {
             audioEngine.inputNode.removeTap(onBus: 0)
             audioEngine.stop()
         }
@@ -162,7 +253,7 @@ final class DictationPartialsSession: @unchecked Sendable {
     /// Push-mode input: append a chunk of Int16 mono LE PCM at
     /// `pushSampleRate` from the renderer's capture pipeline.
     func append(pcm data: Data) {
-        guard !stopped, let format = pushFormat else { return }
+        guard !stopped, !finishing, let format = pushFormat else { return }
         let frameCount = AVAudioFrameCount(data.count / 2)
         guard
             frameCount > 0,
@@ -181,6 +272,20 @@ final class DictationPartialsSession: @unchecked Sendable {
             heardAudio = true
         }
         request.append(buffer)
+
+        if Self.fakeRecognition {
+            fakeAppendedFrames += frameCount
+            // One scripted partial per ~half second of appended audio.
+            let interval = AVAudioFrameCount((pushSampleRate ?? 16000) / 2)
+            if fakeAppendedFrames >= interval {
+                fakeAppendedFrames = 0
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, !self.stopped, !self.didFinal else { return }
+                    self.latestText += self.latestText.isEmpty ? "fake" : " fake"
+                    self.emit(self.latestText)
+                }
+            }
+        }
     }
 
     private static func hasSignal(_ buffer: AVAudioPCMBuffer) -> Bool {

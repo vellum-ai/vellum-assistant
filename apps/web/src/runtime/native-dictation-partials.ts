@@ -115,6 +115,18 @@ async function startAudioPump(
 }
 
 /**
+ * Stops the session and resolves the recognizer's FINAL transcript of the
+ * whole utterance, or `null` when no final arrives (old shell, timeout).
+ * Short dictations end before the first partial, so the final — delivered
+ * after the recognizer drains — is the only reliable transcript source.
+ */
+export type StopNativeDictationPartials = () => Promise<string | null>;
+
+// The helper finalizes ~immediately on-device and self-times-out at 5s;
+// this guards against a dead helper.
+const FINALIZED_TIMEOUT_MS = 6000;
+
+/**
  * Start native dictation partials, delivering cumulative transcription text
  * to `onPartial`. Resolves a stop function on success, or `null` when the
  * capability is unavailable (off Electron, old shell, speech permission
@@ -123,7 +135,7 @@ async function startAudioPump(
 export async function startNativeDictationPartials(
   onPartial: (text: string) => void,
   options?: NativeDictationPartialsOptions,
-): Promise<(() => void) | null> {
+): Promise<StopNativeDictationPartials | null> {
   const dictation = isElectron()
     ? window.vellum?.helper?.dictation
     : undefined;
@@ -140,16 +152,31 @@ export async function startNativeDictationPartials(
     onPartial(event.text);
   });
 
+  // The final transcript can land before stop() is called (the recognizer
+  // self-finalizes on silence) or after — capture both.
+  let finalText: string | null = null;
+  let finalResolve: ((text: string | null) => void) | null = null;
+  const unsubscribeFinal =
+    dictation.onFinalized?.((event) => {
+      finalText = event.text || null;
+      finalResolve?.(finalText);
+    }) ?? null;
+
+  const teardownSubscriptions = (): void => {
+    unsubscribeFinal?.();
+    unsubscribe();
+  };
+
   try {
     const result = await dictation.setPartials(true, undefined, pushMode);
     if (!result.ok) {
       console.info("native-dictation-partials: unavailable:", result.reason);
-      unsubscribe();
+      teardownSubscriptions();
       return null;
     }
   } catch (err) {
     console.warn("native-dictation-partials: setPartials failed", err);
-    unsubscribe();
+    teardownSubscriptions();
     return null;
   }
 
@@ -163,7 +190,7 @@ export async function startNativeDictationPartials(
     if (!stopPump) {
       // Without audio the session would sit silent forever — tear down so
       // the caller knows partials aren't running.
-      unsubscribe();
+      teardownSubscriptions();
       dictation.setPartials(false).catch(() => {
         // Helper may have exited; nothing to stop.
       });
@@ -171,14 +198,30 @@ export async function startNativeDictationPartials(
     }
   }
 
-  let stopped = false;
+  let stopPromise: Promise<string | null> | null = null;
   return () => {
-    if (stopped) return;
-    stopped = true;
+    if (stopPromise) return stopPromise;
     stopPump?.();
-    unsubscribe();
     dictation.setPartials(false).catch(() => {
       // Helper may have exited; nothing to stop.
     });
+    stopPromise = (async () => {
+      let text = finalText;
+      if (!text && unsubscribeFinal) {
+        text = await new Promise<string | null>((resolve) => {
+          finalResolve = resolve;
+          setTimeout(() => resolve(null), FINALIZED_TIMEOUT_MS);
+        });
+      }
+      teardownSubscriptions();
+      if (text !== null) {
+        // Length only — transcript content must never be logged.
+        console.info(`dictation: native finalized chars=${text.length}`);
+      } else {
+        console.info("dictation: native finalized not received");
+      }
+      return text;
+    })();
+    return stopPromise;
   };
 }

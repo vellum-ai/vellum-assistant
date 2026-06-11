@@ -157,6 +157,9 @@ const setDictationPartials = async (
     }
     const previousOwner = dictationPartialsOwner;
     dictationPartialsOwner = enable ? webContents : null;
+    // The finalized transcript (and the final partial flush) arrive AFTER
+    // disable — keep routing to the window that just stopped recording.
+    dictationFinalOwner = webContents;
     if (enable) {
       forwardedPartialCount = 0;
       audioChunkCount = 0;
@@ -180,13 +183,24 @@ const setDictationPartials = async (
 
 let forwardedPartialCount = 0;
 let audioChunkCount = 0;
+// The window that should receive post-disable dictation events (the final
+// partial flush and `dictation.finalized`) — survives the owner being
+// nulled by the disable call.
+let dictationFinalOwner: WebContents | null = null;
+
+const dictationEventTarget = (): WebContents | null => {
+  if (dictationPartialsOwner && !dictationPartialsOwner.isDestroyed()) {
+    return dictationPartialsOwner;
+  }
+  if (dictationFinalOwner && !dictationFinalOwner.isDestroyed()) {
+    return dictationFinalOwner;
+  }
+  return null;
+};
 
 const sendDictationPartialToOwner = (event: DictationPartialEvent): void => {
   forwardedPartialCount += 1;
-  const owner =
-    dictationPartialsOwner && !dictationPartialsOwner.isDestroyed()
-      ? dictationPartialsOwner
-      : null;
+  const owner = dictationEventTarget();
   if (forwardedPartialCount === 1 || forwardedPartialCount % 25 === 0) {
     // Count/length only — transcript content must never be logged.
     log.info(
@@ -195,6 +209,16 @@ const sendDictationPartialToOwner = (event: DictationPartialEvent): void => {
   }
   if (!owner) return;
   owner.send("vellum:helper:dictation:partial", event);
+};
+
+const sendDictationFinalizedToOwner = (event: DictationPartialEvent): void => {
+  const owner = dictationEventTarget();
+  // Length only — transcript content must never be logged.
+  log.info(
+    `[mac-helper] dictation finalized chars=${event.text.length} → ${owner ? `wc=${owner.id}` : "DROPPED (no owner)"}`,
+  );
+  if (!owner) return;
+  owner.send("vellum:helper:dictation:finalized", event);
 };
 
 const hotkeyOwners = new Map<number, HotkeyOwner>();
@@ -387,6 +411,7 @@ const handleHelperState = (state: MacHelperState): void => {
   // The partials session lived in the dead helper process; the renderer's
   // session simply continues without live text.
   dictationPartialsOwner = null;
+  dictationFinalOwner = null;
   sendSyntheticHotkeyUpIfNeeded();
 };
 
@@ -407,6 +432,7 @@ let installed = false;
 let unsubscribeHotkeyEvents: (() => void) | null = null;
 let unsubscribeHelperState: (() => void) | null = null;
 let unsubscribeDictationPartials: (() => void) | null = null;
+let unsubscribeDictationFinalized: (() => void) | null = null;
 let unsubscribeDictationError: (() => void) | null = null;
 
 export const installHotkeyHelper = (): void => {
@@ -425,6 +451,13 @@ export const installHotkeyHelper = (): void => {
     DICTATION_PARTIAL_SCHEMA,
     (event) => {
       sendDictationPartialToOwner(event);
+    },
+  );
+  unsubscribeDictationFinalized = client.onNotification(
+    "dictation.finalized",
+    DICTATION_PARTIAL_SCHEMA,
+    (event) => {
+      sendDictationFinalizedToOwner(event);
     },
   );
   unsubscribeDictationError = client.onNotification(
@@ -517,7 +550,10 @@ export const __resetForTesting = (): void => {
   unsubscribeDictationPartials = null;
   unsubscribeDictationError?.();
   unsubscribeDictationError = null;
+  unsubscribeDictationFinalized?.();
+  unsubscribeDictationFinalized = null;
   dictationPartialsOwner = null;
+  dictationFinalOwner = null;
   for (const owner of hotkeyOwners.values()) owner.cleanup();
   hotkeyOwners.clear();
   activeHotkeyOwnerId = null;

@@ -79,6 +79,10 @@ final class MacHelper: @unchecked Sendable {
     // into the session on start so the first words aren't eaten. Capped at
     // ~10s (100 × 100ms chunks).
     private var pendingPushAudio: [Data] = []
+    // The session draining toward its final transcript after a graceful
+    // disable. Held strongly so the next enable can cancel it; cleared by
+    // its own onFinal.
+    private var finishingSession: DictationPartialsSession?
     // Whether the current dictation session has produced any partial or
     // error callback — read by the on-device watchdog on the main queue.
     private var dictationSawActivity = false
@@ -226,15 +230,40 @@ final class MacHelper: @unchecked Sendable {
         pushAudio: Bool = false,
         sampleRate: Double = 16000
     ) -> [String: Any] {
+        guard enable else {
+            // Graceful end: short dictations (1-2s taps) stop before the
+            // recognizer's first partial, so cancelling here would discard
+            // the whole utterance. finish() ends the audio and lets
+            // recognition complete — `dictation.finalized` carries the full
+            // transcript (the finishing session's notifications are
+            // unconditional, so the generation bump below doesn't mute it).
+            // The bump kills stragglers that would otherwise outlive the
+            // session: the watchdog, and a pending authorization callback
+            // that would start a zombie mic session after the recording
+            // already ended.
+            dictationGeneration += 1
+            finishingSession?.stop()
+            finishingSession = dictationSession
+            finishingSession?.finish()
+            dictationSession = nil
+            dictationPushRate = nil
+            pendingPushAudio.removeAll()
+            return ["enabled": false]
+        }
+
         dictationGeneration += 1
+        finishingSession?.stop()
+        finishingSession = nil
         dictationSession?.stop()
         dictationSession = nil
         dictationDeviceName = deviceName
         dictationPushRate = pushAudio ? sampleRate : nil
         pendingPushAudio.removeAll()
 
-        guard enable else {
-            return ["enabled": false]
+        // Headless test hook — the scripted recognizer touches no privacy
+        // API, so skip authorization entirely. Never set by the app.
+        if ProcessInfo.processInfo.environment["VELLUM_HELPER_FAKE_RECOGNITION"] == "1" {
+            return startDictationSession()
         }
 
         // Push mode receives PCM from the renderer — it opens no device, so
@@ -381,6 +410,20 @@ final class MacHelper: @unchecked Sendable {
                     self.dictationSession?.stop()
                     self.dictationSession = nil
                     _ = self.startDictationSession(requireOnDevice: false)
+                }
+            },
+            onFinal: { [weak self] text in
+                // Fires once per session, after finish() (or a recognizer
+                // self-finalization). The recording is already over — route
+                // the completed transcript to the renderer. A session
+                // cancelled by stop() never reaches this.
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.writeNotification(
+                        method: "dictation.finalized",
+                        params: ["text": text]
+                    )
+                    self.finishingSession = nil
                 }
             }
         )
@@ -552,6 +595,8 @@ final class MacHelper: @unchecked Sendable {
 
     private func shutdown() {
         dictationGeneration += 1
+        finishingSession?.stop()
+        finishingSession = nil
         dictationSession?.stop()
         dictationSession = nil
         unregisterFnHotkey()

@@ -14,7 +14,10 @@ import {
   startDictationStream,
   type DictationStreamHandle,
 } from "@/domains/chat/voice/dictation-stream";
-import { startNativeDictationPartials } from "@/runtime/native-dictation-partials";
+import {
+  startNativeDictationPartials,
+  type StopNativeDictationPartials,
+} from "@/runtime/native-dictation-partials";
 import {
     postSttTranscribe,
     type SttFailureReason,
@@ -311,8 +314,14 @@ export const VoiceInputButton = forwardRef<
   // gateway ingress; platform-managed assistants ride the platform proxy,
   // which has no WebSocket path). Same role the native recognizer played
   // in the legacy Swift client.
-  const nativePartialsStopRef = useRef<(() => void) | null>(null);
+  const nativePartialsStopRef = useRef<StopNativeDictationPartials | null>(
+    null,
+  );
   const nativePartialsTextRef = useRef("");
+  // Resolves with the recognizer's final transcript of the whole utterance
+  // after stopNativePartials — short dictations end before the first
+  // partial, so this is the only reliable native text source.
+  const nativeFinalPromiseRef = useRef<Promise<string | null> | null>(null);
 
   // Latest running transcript from the daemon stream — kept through
   // teardown so it can serve as the final-transcript fallback when batch
@@ -366,8 +375,13 @@ export const VoiceInputButton = forwardRef<
     // Deliberately leaves nativePartialsTextRef intact: stopRecording runs
     // this before recorder.onstop reads the text as the final-transcript
     // fallback. startRecording resets it for the next session.
-    nativePartialsStopRef.current?.();
+    const stop = nativePartialsStopRef.current;
     nativePartialsStopRef.current = null;
+    if (!stop) return;
+    // The promise resolves once the helper's recognizer drains the session
+    // (dictation.finalized); recorder.onstop awaits it alongside batch STT.
+    const final = stop();
+    if (final) nativeFinalPromiseRef.current = final;
   }, []);
 
   // Run the mac helper's local speech recognizer alongside the whole
@@ -563,6 +577,7 @@ export const VoiceInputButton = forwardRef<
     // Chrome to silently starve SpeechRecognition of audio input.
     speechAccumulatorRef.current = "";
     nativePartialsTextRef.current = "";
+    nativeFinalPromiseRef.current = null;
     streamTranscriptRef.current = "";
     const Ctor = getSpeechRecognitionCtor();
     if (Ctor) {
@@ -676,8 +691,10 @@ export const VoiceInputButton = forwardRef<
       stopSpeechRecognition();
       stopDictationStream();
       const streamText = streamTranscriptRef.current;
-      const nativeText = nativePartialsTextRef.current;
+      const nativePartialText = nativePartialsTextRef.current;
       stopNativePartials();
+      const pendingNativeFinal = nativeFinalPromiseRef.current;
+      nativeFinalPromiseRef.current = null;
       publishInterim("");
 
       if (discardedRef.current) {
@@ -703,7 +720,13 @@ export const VoiceInputButton = forwardRef<
       chunksRef.current = [];
       const fallbackText = speechAccumulatorRef.current;
       speechAccumulatorRef.current = "";
-      if (chunks.length === 0 && !fallbackText && !nativeText && !streamText) {
+      if (
+        chunks.length === 0 &&
+        !fallbackText &&
+        !nativePartialText &&
+        !streamText &&
+        !pendingNativeFinal
+      ) {
         addDictationSessionBreadcrumb("empty", durationMs, 0);
         vsReset();
         return;
@@ -736,18 +759,30 @@ export const VoiceInputButton = forwardRef<
           daemonFailure = "unknown";
         }
 
+        // The recognizer keeps draining briefly after the recording ends —
+        // its final result is the complete utterance, where the live
+        // partials of a 1-2s dictation are usually still empty. The await
+        // overlaps the batch POST above, so it adds ~no wall-clock time.
+        let nativeText = nativePartialText;
+        if (pendingNativeFinal) {
+          const finalText = await pendingNativeFinal;
+          if (finalText) {
+            nativeText = finalText;
+          }
+        }
+
         // Character counts only — transcript content must never be logged.
         console.info(
           `dictation: finalize mode=native-first batchChars=${text.length} nativeChars=${nativeText.length} streamChars=${streamText.length} webChars=${fallbackText.length} failure=${daemonFailure ?? "none"}`,
         );
 
         // TEST MODE: the native Apple Speech transcript wins outright when
-        // present — batch STT is the backup while we shake out why the
-        // native path produces nothing on this machine. Restore batch-first
-        // (`if (!text && nativeText)`) once verified. Stream text covers
-        // sessions where the helper couldn't run; the Web Speech
-        // accumulator only matters in plain browsers — inside Electron the
-        // API ships without a speech service, so it stays empty.
+        // present — batch STT is the backup while the native path is being
+        // field-verified. Restore batch-first (`if (!text && nativeText)`)
+        // once verified. Stream text covers sessions where the helper
+        // couldn't run; the Web Speech accumulator only matters in plain
+        // browsers — inside Electron the API ships without a speech
+        // service, so it stays empty.
         if (nativeText) {
           text = nativeText;
         }

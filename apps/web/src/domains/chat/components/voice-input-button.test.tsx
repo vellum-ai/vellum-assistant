@@ -61,7 +61,7 @@ mock.module("@/domains/chat/voice/dictation-stream", () => ({
 // fallback tests swap in an implementation that emits text.
 let nativePartialsImpl: (
   onPartial: (text: string) => void,
-) => Promise<(() => void) | null> = async () => null;
+) => Promise<(() => void | Promise<string | null>) | null> = async () => null;
 mock.module("@/runtime/native-dictation-partials", () => ({
   startNativeDictationPartials: (onPartial: (text: string) => void) =>
     nativePartialsImpl(onPartial),
@@ -300,6 +300,29 @@ describe("VoiceInputButton — native partials fallback", () => {
 
     await waitFor(() => {
       expect(onTranscript).toHaveBeenCalledWith("offline transcript");
+    });
+    expect(lastBreadcrumb().data.outcome).toBe("completed");
+  });
+
+  test("recognizer final transcript delivered after stop becomes the transcript", async () => {
+    // A 1-2s dictation ends before the first partial: live text stays
+    // empty, and the full utterance arrives only via the post-stop
+    // finalized result.
+    nativePartialsImpl = async () => {
+      return () => Promise.resolve("the full final sentence");
+    };
+    postSttTranscribeSpy.mockImplementationOnce(async () => ({
+      status: "error",
+      reason: "network",
+    }));
+
+    const onTranscript = mock(async (_text: string) => {});
+    await startSession(onTranscript);
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(onTranscript).toHaveBeenCalledWith("the full final sentence");
     });
     expect(lastBreadcrumb().data.outcome).toBe("completed");
   });

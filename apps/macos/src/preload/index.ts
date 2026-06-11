@@ -181,6 +181,18 @@ const bridge: VellumBridge = {
           ipcRenderer.off("vellum:helper:dictation:partial", handler);
         };
       },
+      onFinalized: (callback) => {
+        const handler = (
+          _event: IpcRendererEvent,
+          payload: DictationPartialEvent,
+        ) => {
+          callback(payload);
+        };
+        ipcRenderer.on("vellum:helper:dictation:finalized", handler);
+        return () => {
+          ipcRenderer.off("vellum:helper:dictation:finalized", handler);
+        };
+      },
     },
   },
   commands: {

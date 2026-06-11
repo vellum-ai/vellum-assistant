@@ -88,6 +88,15 @@ export interface VellumBridge {
       /** Fire-and-forget 16 kHz mono Int16 LE PCM for push-mode partials. */
       pushAudioChunk?(chunk: ArrayBuffer): void;
       onPartial(callback: (event: DictationPartialEvent) => void): () => void;
+      /**
+       * The session's completed transcript, delivered after a graceful
+       * `setPartials(false)` — short dictations end before the first
+       * partial, so the recognizer runs to completion instead of being
+       * cancelled.
+       */
+      onFinalized?(
+        callback: (event: DictationPartialEvent) => void,
+      ): () => void;
     };
   };
   commands: {

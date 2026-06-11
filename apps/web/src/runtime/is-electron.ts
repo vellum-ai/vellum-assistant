@@ -123,6 +123,9 @@ declare global {
           onPartial(
             callback: (event: DictationPartialEvent) => void,
           ): () => void;
+          onFinalized?(
+            callback: (event: DictationPartialEvent) => void,
+          ): () => void;
         };
       };
       commands: {
