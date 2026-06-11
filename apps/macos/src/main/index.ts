@@ -409,6 +409,19 @@ app.on("web-contents-created", (_event, contents) => {
   // MaxListenersExceededWarning. Bump the limit to silence it.
   contents.setMaxListeners(20);
 
+  // Mirror renderer console output (info and up) into the main log file.
+  // The packaged app has no devtools, so without this the renderer's
+  // diagnostics — voice/dictation fallback decisions especially — are
+  // invisible in the field; `vellum.log` is the only artifact a debugging
+  // session can read.
+  contents.on("console-message", (event) => {
+    if (event.level === "debug") return;
+    const line = `[renderer] ${event.message}`;
+    if (event.level === "error") log.error(line);
+    else if (event.level === "warning") log.warn(line);
+    else log.info(line);
+  });
+
   contents.setWindowOpenHandler(({ url, disposition }) => {
     // Only http(s) is ever opened — file:, javascript:, custom schemes are
     // denied with no fallback.

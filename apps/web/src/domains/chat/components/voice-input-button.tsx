@@ -379,14 +379,21 @@ export const VoiceInputButton = forwardRef<
   // provider behind it is unreachable, so it just stays silent. Same role
   // the recognizer played in the legacy Swift client.
   const startNativePartials = useCallback(() => {
-    if (!mediaRecorderRef.current || nativePartialsStopRef.current) return;
+    if (!mediaRecorderRef.current || nativePartialsStopRef.current) {
+      console.info(
+        "dictation: native partials not started (session ended or already running)",
+      );
+      return;
+    }
     void startNativeDictationPartials((text) => {
       nativePartialsTextRef.current = text;
       if (!dictationStreamRef.current?.isLive()) {
         publishInterim(text);
       }
     }).then((stop) => {
+      // The unavailable case logs its reason in native-dictation-partials.
       if (!stop) return;
+      console.info("dictation: native partials running");
       // The session may have ended while the helper call was in flight.
       if (!mediaRecorderRef.current) {
         stop();
@@ -702,6 +709,11 @@ export const VoiceInputButton = forwardRef<
           console.warn("VoiceInputButton: STT transcribe threw", err);
           daemonFailure = "unknown";
         }
+
+        // Character counts only — transcript content must never be logged.
+        console.info(
+          `dictation: finalize batchChars=${text.length} nativeChars=${nativeText.length} streamChars=${streamText.length} webChars=${fallbackText.length} failure=${daemonFailure ?? "none"}`,
+        );
 
         // Batch text is the authority. When it fails (offline, provider
         // down), the native recognizer's transcript is the most complete
