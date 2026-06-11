@@ -52,13 +52,8 @@ function toInvocationRecord(
         riskLevel: event.riskLevel,
         matchedTrustRuleId: event.matchedTrustRuleId,
         durationMs: event.durationMs,
-        // Byte sizes reflect the full raw payloads — only the sizes leave
-        // the device. The arg size prefers `event.inputBytes`, stamped by
-        // the executor BEFORE input sanitization; the fallback sizes the
-        // (sanitized) event input so argBytes stays non-null, which the
-        // tool_executed projection's legacy-row filter relies on. The
-        // result size is computed before the stored `result` column is
-        // truncated and redacted above.
+        // The fallback keeps argBytes non-null, which the tool_executed
+        // projection's legacy-row filter relies on.
         argBytes: event.inputBytes ?? Buffer.byteLength(input, "utf8"),
         resultBytes: Buffer.byteLength(event.result.content, "utf8"),
         ...toAttributionColumns(event.attribution),

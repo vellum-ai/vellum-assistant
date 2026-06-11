@@ -162,12 +162,31 @@ export type ProxyToolResolver = (
 ) => Promise<ToolExecutionResult>;
 
 /**
+ * Telemetry fields stamped centrally by the executor's `emitLifecycleEvent`
+ * on terminal (executed/error) lifecycle events.
+ */
+export interface ExecutorTelemetryStamp {
+  /**
+   * Model attribution snapshot for the conversation at invocation time.
+   * Copied from {@link ToolContext.attribution} by the executor; `null` when
+   * resolution failed or no attribution was available.
+   */
+  attribution?: UsageAttributionSnapshot | null;
+  /**
+   * Serialized byte size of the RAW tool input, stamped by the executor
+   * before sensitive-field sanitization rewrites `input`. Only the size
+   * leaves the device, never the payload.
+   */
+  inputBytes?: number | null;
+}
+
+/**
  * `ToolExecutedEvent` carries a `result: ToolExecutionResult` field, so
  * the assistant re-declares it here to reference the assistant-side
  * `ToolExecutionResult` (which narrows `contentBlocks` to `ContentBlock[]`
  * and `cesApprovalRequired` to `ApprovalRequired`).
  */
-export interface ToolExecutedEvent {
+export interface ToolExecutedEvent extends ExecutorTelemetryStamp {
   type: "executed";
   toolName: string;
   input: Record<string, unknown>;
@@ -185,38 +204,14 @@ export interface ToolExecutedEvent {
   decision: string;
   durationMs: number;
   result: ToolExecutionResult;
-  /**
-   * Model attribution snapshot for the conversation at invocation time.
-   * Copied from {@link ToolContext.attribution} by the executor; `null` when
-   * resolution failed or no attribution was available.
-   */
-  attribution?: UsageAttributionSnapshot | null;
-  /**
-   * Serialized byte size of the RAW tool input, stamped by the executor
-   * before sensitive-field sanitization rewrites `input`. Only the size
-   * leaves the device, never the payload.
-   */
-  inputBytes?: number | null;
 }
 
 /**
  * Extends the contracts declaration with the assistant-side telemetry
  * fields stamped centrally by the executor's `emitLifecycleEvent`.
  */
-export interface ToolExecutionErrorEvent extends ContractsToolExecutionErrorEvent {
-  /**
-   * Model attribution snapshot for the conversation at invocation time.
-   * Copied from {@link ToolContext.attribution} by the executor; `null` when
-   * resolution failed or no attribution was available.
-   */
-  attribution?: UsageAttributionSnapshot | null;
-  /**
-   * Serialized byte size of the RAW tool input, stamped by the executor
-   * before sensitive-field sanitization rewrites `input`. Only the size
-   * leaves the device, never the payload.
-   */
-  inputBytes?: number | null;
-}
+export interface ToolExecutionErrorEvent
+  extends ContractsToolExecutionErrorEvent, ExecutorTelemetryStamp {}
 
 export type ToolLifecycleEvent =
   | ToolExecutionStartEvent

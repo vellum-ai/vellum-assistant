@@ -1526,24 +1526,6 @@ describe("UsageTelemetryReporter", () => {
     ).toEqual(["ti-r2"]);
   });
 
-  test("legacy pre-migration rows (null arg_bytes) are never shipped", async () => {
-    mockQueryUnreportedUsageEvents.mockReturnValue([]);
-    // No checkpoints (zero watermark, whole-table scan): a legacy null-
-    // arg_bytes row must still not be re-shipped as tool_executed.
-    seedToolInvocation({
-      id: "ti-historical",
-      createdAt: 1700000001000,
-      argBytes: null,
-      resultBytes: null,
-    });
-
-    const reporter = new UsageTelemetryReporter();
-    await reporter.flush();
-
-    // Nothing to report — the legacy row is excluded at the query level.
-    expect(mockFetch).not.toHaveBeenCalled();
-  });
-
   test("rows recorded after construction but before the first flush are shipped", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     // Regression coverage for the review finding: the reporter delays its

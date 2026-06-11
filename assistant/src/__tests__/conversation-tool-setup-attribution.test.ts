@@ -181,24 +181,10 @@ beforeEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
+// Precedence semantics (override/active/call-site/default) are owned by
+// resolveUsageAttribution and covered in usage-attribution.test.ts; the
+// tests here only exercise what the wrapper adds on top.
 describe("resolveConversationAttribution", () => {
-  test("attributes the conversation's override profile like the main-loop usage path", () => {
-    const snapshot = resolveConversationAttribution({
-      conversationId: "conv-test",
-      currentTurnOverrideProfile: "pinned",
-    });
-
-    expect(snapshot).toMatchObject({
-      callSite: "mainAgent",
-      activeProfile: "active",
-      overrideProfile: "pinned",
-      appliedProfile: "pinned",
-      profileSource: "conversation",
-      resolvedProvider: "gemini",
-      resolvedModel: "model-pinned",
-    });
-  });
-
   test("falls back to the workspace active profile when no override is set", () => {
     const snapshot = resolveConversationAttribution({
       conversationId: "conv-test",
@@ -241,51 +227,6 @@ describe("resolveConversationAttribution", () => {
       profileSource: "call_site",
       resolvedProvider: "gemini",
       resolvedModel: "model-pinned",
-    });
-  });
-
-  test("non-main call sites prefer the call-site profile over the conversation override", () => {
-    setLlmConfig({
-      default: { provider: "anthropic", model: "model-default" },
-      profiles: {
-        active: { provider: "openai", model: "model-active" },
-        pinned: { provider: "gemini", model: "model-pinned" },
-      },
-      activeProfile: "active",
-      callSites: { callAgent: { profile: "pinned" } },
-    });
-
-    const snapshot = resolveConversationAttribution({
-      conversationId: "conv-test",
-      currentCallSite: "callAgent",
-      currentTurnOverrideProfile: "active",
-    });
-
-    expect(snapshot).toMatchObject({
-      callSite: "callAgent",
-      overrideProfile: "active",
-      callSiteProfile: "pinned",
-      appliedProfile: "pinned",
-      profileSource: "call_site",
-      resolvedProvider: "gemini",
-      resolvedModel: "model-pinned",
-    });
-  });
-
-  test("resolves profileSource default when no profiles apply", () => {
-    setLlmConfig({
-      default: { provider: "anthropic", model: "model-default" },
-    });
-
-    const snapshot = resolveConversationAttribution({
-      conversationId: "conv-test",
-    });
-
-    expect(snapshot).toMatchObject({
-      appliedProfile: null,
-      profileSource: "default",
-      resolvedProvider: "anthropic",
-      resolvedModel: "model-default",
     });
   });
 
