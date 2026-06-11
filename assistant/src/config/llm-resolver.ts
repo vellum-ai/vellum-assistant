@@ -34,6 +34,15 @@ import {
  *   5. `llm.profiles[llm.activeProfile]`
  *   6. `llm.profiles[opts.overrideProfile]`
  *
+ * A call site whose `CALL_SITE_DEFAULTS` entry sets `resolvesLikeMainAgent`
+ * (e.g. `compactionAgent`) resolves IDENTICALLY to `mainAgent` — it reads
+ * `mainAgent`'s persisted/default fragment under `mainAgent`'s precedence, so
+ * the resolved config is byte-identical for the same `opts`. Its own
+ * `llm.callSites[id]` entry is ignored for resolution; the distinct wire
+ * `callSite` is for usage attribution only. This lets compaction keep the
+ * agent's exact provider/model/system-prompt/tools (prefix-cache warm) while
+ * still reporting under its own monitoring ID. See `resolvesLikeMainAgent`.
+ *
  * Shipped tuning base layer (layer 5 above): `CALL_SITE_DEFAULTS[callSite]`
  * carries the shipped per-site config (e.g. `replySuggestion`'s 60-token cap).
  * When `llm.callSites[callSite]` is ABSENT, that default supplies the whole
@@ -112,20 +121,31 @@ export function resolveCallSiteConfig(
     llm,
     opts,
   );
-  const persisted = llm.callSites?.[callSite];
+  // A call site flagged `resolvesLikeMainAgent` resolves entirely as if it were
+  // `mainAgent`: it reads `mainAgent`'s persisted/default fragment and uses
+  // `mainAgent`'s precedence so the resolved config is byte-identical to what
+  // `mainAgent` would produce for the same `opts` — including any static
+  // `llm.callSites.mainAgent` override the user has. The site's OWN
+  // `llm.callSites[id]` entry is intentionally ignored (none exists today; the
+  // wire `callSite` is for attribution only, not resolution). `mainAgent`
+  // itself resolves under its own key.
+  const likeMain = resolvesLikeMainAgent(callSite);
+  const resolutionKey: LLMCallSite = likeMain ? "mainAgent" : callSite;
+
+  const persisted = llm.callSites?.[resolutionKey];
   const site =
     persisted != null
-      ? mergeShippedTuningUnderPersisted(callSite, persisted)
-      : effectiveDefault(callSite, llm, opts.overrideProfile != null);
+      ? mergeShippedTuningUnderPersisted(resolutionKey, persisted)
+      : effectiveDefault(resolutionKey, llm, opts.overrideProfile != null);
 
-  if (callSite === "mainAgent") {
-    appendCallSiteLayers(layers, callSite, llm, site, opts, biasRef);
+  if (likeMain) {
+    appendCallSiteLayers(layers, resolutionKey, llm, site, opts, biasRef);
     appendProfileLayer(layers, activeFragment, biasRef);
     appendProfileLayer(layers, overrideFragment, biasRef);
   } else {
     appendProfileLayer(layers, activeFragment, biasRef);
     appendProfileLayer(layers, overrideFragment, biasRef);
-    appendCallSiteLayers(layers, callSite, llm, site, opts, biasRef);
+    appendCallSiteLayers(layers, resolutionKey, llm, site, opts, biasRef);
   }
 
   const resolved = finalize(
@@ -150,6 +170,38 @@ type LogitBiasRef = { preset: ProfileEntry["logitBias"] };
 // ---------------------------------------------------------------------------
 
 type Mergeable = Record<string, unknown>;
+
+/**
+ * True when a call site's shipped default declares `resolvesLikeMainAgent` —
+ * i.e. it must resolve with `mainAgent`'s precedence (active/override profiles
+ * floating above the static call-site override) so it follows the user's
+ * chat-model selection turn-for-turn. `mainAgent` itself qualifies implicitly.
+ *
+ * The flag is shipped metadata, never a `LLMConfigBase` field, so it is
+ * stripped alongside `profile` before any fragment is merged (see
+ * `stripDefaultMeta`).
+ */
+function resolvesLikeMainAgent(callSite: LLMCallSite): boolean {
+  return (
+    callSite === "mainAgent" ||
+    CALL_SITE_DEFAULTS[callSite]?.resolvesLikeMainAgent === true
+  );
+}
+
+/**
+ * Strip the non-config discriminators (`profile` and `resolvesLikeMainAgent`)
+ * from a `CALL_SITE_DEFAULTS` entry, leaving only the tuning fields that belong
+ * in a merged `LLMConfigBase`. `profile` is handled by the resolver's
+ * profile-layer machinery; `resolvesLikeMainAgent` is shipped metadata that
+ * must never leak into the resolved config.
+ */
+function stripDefaultMeta(dflt: (typeof CALL_SITE_DEFAULTS)[LLMCallSite]): {
+  profile?: string;
+  tuning: Mergeable;
+} {
+  const { profile, resolvesLikeMainAgent: _flag, ...tuning } = dflt;
+  return { profile, tuning: tuning as Mergeable };
+}
 
 /**
  * FNV-1a 32-bit string hash → unit float in [0, 1). Deterministic and stable
@@ -231,9 +283,10 @@ function resolveProfileFragment(
  * select for a call site when no per-turn `overrideProfile` is supplied.
  *
  * Mirrors the layering in `resolveCallSiteConfig`:
- * - For `mainAgent`, the workspace's `activeProfile` sits ABOVE the
- *   call-site catalog default (and above any static `llm.callSites.mainAgent`
- *   override), so a non-disabled `activeProfile` wins.
+ * - For `mainAgent` (and any `resolvesLikeMainAgent` site), the workspace's
+ *   `activeProfile` sits ABOVE the call-site catalog default (and above any
+ *   static `llm.callSites[id]` override), so a non-disabled `activeProfile`
+ *   wins.
  * - For other call sites, the catalog default sits ABOVE `activeProfile`,
  *   so the catalog default (with `custom-*` fallback) wins.
  */
@@ -241,7 +294,7 @@ export function resolveDefaultProfileKey(
   callSite: LLMCallSite,
   llm: z.infer<typeof LLMSchema>,
 ): string | undefined {
-  if (callSite === "mainAgent" && llm.activeProfile != null) {
+  if (resolvesLikeMainAgent(callSite) && llm.activeProfile != null) {
     const active = llm.profiles?.[llm.activeProfile];
     if (active != null && active.status !== "disabled") {
       return llm.activeProfile;
@@ -266,26 +319,25 @@ function effectiveDefault(
 ): z.infer<typeof LLMSchema>["callSites"][LLMCallSite] | undefined {
   const dflt = CALL_SITE_DEFAULTS[callSite];
   if (dflt == null) return undefined;
-  const targetProfile =
-    dflt.profile != null ? llm.profiles?.[dflt.profile] : undefined;
+  const { profile, tuning } = stripDefaultMeta(dflt);
+  const targetProfile = profile != null ? llm.profiles?.[profile] : undefined;
   const profileUnavailable =
-    dflt.profile != null &&
+    profile != null &&
     (targetProfile == null || targetProfile.status === "disabled");
 
   if (profileUnavailable && !hasOverrideProfile) {
-    const customKey = `custom-${dflt.profile}`;
+    const customKey = `custom-${profile}`;
     const customProfile = llm.profiles?.[customKey];
     if (customProfile != null && customProfile.status !== "disabled") {
-      return { ...dflt, profile: customKey };
+      return { ...tuning, profile: customKey };
     }
   }
 
   const stripProfile = hasOverrideProfile || profileUnavailable;
   if (stripProfile) {
-    const { profile: _profile, ...rest } = dflt;
-    return Object.keys(rest).length > 0 ? rest : undefined;
+    return Object.keys(tuning).length > 0 ? tuning : undefined;
   }
-  return dflt;
+  return profile != null ? { ...tuning, profile } : tuning;
 }
 
 /**
@@ -321,7 +373,7 @@ function mergeShippedTuningUnderPersisted(
 ): z.infer<typeof LLMSchema>["callSites"][LLMCallSite] {
   const dflt = CALL_SITE_DEFAULTS[callSite];
   if (dflt == null) return persisted;
-  const { profile: _profile, ...shippedTuning } = dflt;
+  const { tuning: shippedTuning } = stripDefaultMeta(dflt);
   if (Object.keys(shippedTuning).length === 0) return persisted;
   // Deep-merge so nested `thinking`/`contextWindow` leaves combine rather than
   // wholesale-replace; the persisted fragment is the rightmost source so its

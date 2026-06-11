@@ -244,13 +244,13 @@ describe("FilingService", () => {
   });
 
   describe("runCompactionOnce()", () => {
-    test("passes callSite: 'compactionAgent' to processMessage", async () => {
+    test("passes callSite: 'filingCompaction' to processMessage", async () => {
       const service = createService();
       await service.runCompactionOnce();
 
       expect(processMessageCalls).toHaveLength(1);
       expect(processMessageCalls[0].options).toMatchObject({
-        callSite: "compactionAgent",
+        callSite: "filingCompaction",
       });
     });
 
@@ -264,7 +264,7 @@ describe("FilingService", () => {
 
       expect(ran).toBe(true);
       expect(processMessageCalls).toHaveLength(1);
-      expect(processMessageCalls[0].options?.callSite).toBe("compactionAgent");
+      expect(processMessageCalls[0].options?.callSite).toBe("filingCompaction");
     });
 
     test("invokes processMessage with the compaction prompt template", async () => {
@@ -328,7 +328,7 @@ describe("FilingService", () => {
             release = () => resolve({ messageId: "filing-done" });
           });
         }
-        if (callSite === "compactionAgent") {
+        if (callSite === "filingCompaction") {
           compactionCalls += 1;
         }
         return Promise.resolve({ messageId: "mock" });
@@ -466,12 +466,12 @@ describe("FilingService", () => {
       expect(processMessageCalls[0].options?.callSite).toBe("filingAgent");
     });
 
-    test("runCompactionOnce only fires the compactionAgent call site", async () => {
+    test("runCompactionOnce only fires the filingCompaction call site", async () => {
       const service = createService();
       await service.runCompactionOnce();
 
       expect(processMessageCalls).toHaveLength(1);
-      expect(processMessageCalls[0].options?.callSite).toBe("compactionAgent");
+      expect(processMessageCalls[0].options?.callSite).toBe("filingCompaction");
     });
 
     test("filing prompt no longer contains audit/review instructions", async () => {
