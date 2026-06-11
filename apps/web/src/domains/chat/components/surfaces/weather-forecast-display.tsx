@@ -11,7 +11,6 @@ import {
   getDayHigh,
   getDayLow,
   getHourlyTemp,
-  getPrecip,
   getWeatherIcon,
   parseWeatherData,
 } from "@/domains/chat/components/surfaces/weather-utils";
@@ -216,7 +215,7 @@ function DailySection({
           const isToday = dayName.toLowerCase() === "today";
           const lowStr = getDayLow(item, sourceIsFahrenheit, useFahrenheit);
           const highStr = getDayHigh(item, sourceIsFahrenheit, useFahrenheit);
-          const precip = getPrecip(item);
+          const precip = item.precip;
 
           // Bar positioning: normalize low/high within [globalMin, globalMax]
           const rawLow = item.lowC ?? item.low ?? globalMin;

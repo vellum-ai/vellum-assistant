@@ -25,6 +25,8 @@ import {
   Wind,
 } from "lucide-react";
 
+import { filterRecords, num, rec, str } from "@/domains/chat/components/surfaces/surface-parse-helpers";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -137,22 +139,6 @@ export function getWeatherIcon(iconStr: string): IconEntry {
 // Data parsing
 // ---------------------------------------------------------------------------
 
-function num(val: unknown): number | undefined {
-  if (val === undefined || val === null) return undefined;
-  const n = Number(val);
-  return Number.isFinite(n) ? n : undefined;
-}
-
-function str(val: unknown): string | undefined {
-  return typeof val === "string" ? val : undefined;
-}
-
-function rec(val: unknown): Record<string, unknown> | undefined {
-  return val !== null && typeof val === "object" && !Array.isArray(val)
-    ? (val as Record<string, unknown>)
-    : undefined;
-}
-
 function parseWind(val: unknown): { speed?: number; direction?: string } {
   if (typeof val === "string") {
     const match = val.match(/^(\d+)\s*mph\s*(.*)/i);
@@ -189,9 +175,7 @@ export function parseWeatherData(raw: Record<string, unknown>): WeatherForecastD
   const unit = str(units?.temperature) ?? str(current?.unit) ?? str(raw.unit) ?? "F";
 
   // Hourly
-  const hourlyRaw = Array.isArray(raw.hourly) ? raw.hourly : [];
-  const hourly: WeatherHourlyItem[] = hourlyRaw
-    .filter((h): h is Record<string, unknown> => h !== null && typeof h === "object")
+  const hourly: WeatherHourlyItem[] = filterRecords(raw.hourly)
     .map((h, i) => ({
       id: str(h.id) ?? String(i),
       time: str(h.time) ?? "",
@@ -201,12 +185,8 @@ export function parseWeatherData(raw: Record<string, unknown>): WeatherForecastD
     }));
 
   // Daily / forecast — accept forecast, daily, or days
-  const dailyRaw = Array.isArray(raw.forecast) ? raw.forecast
-    : Array.isArray(raw.daily) ? raw.daily
-    : Array.isArray(raw.days) ? raw.days
-    : [];
-  const forecast: WeatherForecastItem[] = dailyRaw
-    .filter((d): d is Record<string, unknown> => d !== null && typeof d === "object")
+  const dailyRaw = raw.forecast ?? raw.daily ?? raw.days;
+  const forecast: WeatherForecastItem[] = filterRecords(dailyRaw)
     .map((d, i) => ({
       id: str(d.id) ?? String(i),
       day: str(d.day) ?? str(d.date),
@@ -272,8 +252,4 @@ export function getDayLow(item: WeatherForecastItem, sourceIsFahrenheit: boolean
 export function getDayHigh(item: WeatherForecastItem, sourceIsFahrenheit: boolean, useFahrenheit: boolean): string | null {
   if (item.highC !== undefined) return displayTemp(item.highC, false, useFahrenheit);
   return displayTemp(item.high, sourceIsFahrenheit, useFahrenheit);
-}
-
-export function getPrecip(item: WeatherForecastItem): number | undefined {
-  return item.precip;
 }

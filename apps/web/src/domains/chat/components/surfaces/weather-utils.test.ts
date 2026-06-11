@@ -6,7 +6,6 @@ import {
   getDayHigh,
   getDayLow,
   getHourlyTemp,
-  getPrecip,
   getWeatherIcon,
   parseWeatherData,
 } from "@/domains/chat/components/surfaces/weather-utils";
@@ -296,16 +295,3 @@ describe("getDayHigh", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// getPrecip
-// ---------------------------------------------------------------------------
-
-describe("getPrecip", () => {
-  test("returns precip value", () => {
-    expect(getPrecip({ icon: "cloud.fill", precip: 30 })).toBe(30);
-  });
-
-  test("returns undefined when no precip", () => {
-    expect(getPrecip({ icon: "cloud.fill" })).toBeUndefined();
-  });
-});
