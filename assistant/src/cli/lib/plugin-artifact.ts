@@ -10,7 +10,8 @@
  *     "vellum": {
  *       "artifact": {
  *         "url": "https://github.com/owner/repo/releases/download/v1.0.0/App.dmg",
- *         "sha256": "<64-hex>"
+ *         "sha256": "<64-hex>",
+ *         "label": "Download for macOS"
  *       }
  *     }
  *
@@ -34,6 +35,13 @@ export interface PluginArtifact {
   readonly url: string;
   /** Lowercase 64-char hex SHA-256 the download is verified against. */
   readonly sha256: string;
+  /**
+   * Optional human label for the download affordance — useful when a plugin
+   * ships more than one artifact (e.g. "Download for macOS", "Apple Silicon").
+   * Absent (or blank) when the plugin doesn't name it; clients fall back to a
+   * generic label.
+   */
+  readonly label?: string;
 }
 
 const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
@@ -54,6 +62,10 @@ const PluginArtifactSchema = z.object({
   sha256: z
     .string()
     .regex(SHA256_HEX_RE, "artifact sha256 must be 64 lowercase hex chars"),
+  // Optional, non-critical metadata: a malformed label must never nullify an
+  // otherwise-valid `url` + `sha256`, so a wrong-typed value falls back to
+  // `undefined` rather than failing the whole descriptor.
+  label: z.string().optional().catch(undefined),
 });
 
 /**
@@ -80,5 +92,12 @@ export function parsePluginArtifact(
   const artifact = (vellum as Record<string, unknown>).artifact;
   const parsed = PluginArtifactSchema.safeParse(artifact);
   if (!parsed.success) return null;
-  return { url: parsed.data.url, sha256: parsed.data.sha256 };
+  // A blank or whitespace-only label is treated as absent so it never
+  // invalidates an otherwise well-formed `url` + `sha256` descriptor.
+  const label = parsed.data.label?.trim();
+  return {
+    url: parsed.data.url,
+    sha256: parsed.data.sha256,
+    ...(label ? { label } : {}),
+  };
 }

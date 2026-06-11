@@ -251,7 +251,7 @@ function Header({
             {artifact ? (
               <Button asChild leftIcon={<Download aria-hidden />}>
                 <a href={artifact.url} download>
-                  Download for macOS
+                  {artifact.label ?? "Download"}
                 </a>
               </Button>
             ) : null}
