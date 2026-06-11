@@ -4,6 +4,8 @@ import {
   generateTicks,
   linearScale,
   niceMax,
+  niceStep,
+  niceStepDigits,
   pickXTickIndices,
   topRoundedRect,
 } from "./chart-scale-utils";
@@ -33,19 +35,80 @@ describe("linearScale", () => {
   });
 });
 
+describe("niceStep", () => {
+  it("rounds up to the nearest nice value (1, 2, 2.5, 5, 10 × 10^n)", () => {
+    expect(niceStep(0.3)).toBe(0.5);
+    expect(niceStep(0.7)).toBe(1);
+    expect(niceStep(1.5)).toBe(2);
+    expect(niceStep(2.1)).toBe(2.5);
+    expect(niceStep(3)).toBe(5);
+    expect(niceStep(7)).toBe(10);
+    expect(niceStep(14)).toBe(20);
+    expect(niceStep(70)).toBe(100);
+  });
+
+  it("returns 1 for zero or negative input", () => {
+    expect(niceStep(0)).toBe(1);
+    expect(niceStep(-5)).toBe(1);
+  });
+
+  it("handles sub-cent step sizes", () => {
+    expect(niceStep(0.0016)).toBe(0.002);
+    expect(niceStep(0.003)).toBe(0.005);
+    expect(niceStep(0.008)).toBe(0.01);
+  });
+});
+
+describe("niceStepDigits", () => {
+  it("returns 0 for integer steps >= 1", () => {
+    expect(niceStepDigits(1)).toBe(0);
+    expect(niceStepDigits(2)).toBe(0);
+    expect(niceStepDigits(5)).toBe(0);
+    expect(niceStepDigits(10)).toBe(0);
+    expect(niceStepDigits(50)).toBe(0);
+  });
+
+  it("returns 1 for 2.5× steps >= 1", () => {
+    expect(niceStepDigits(2.5)).toBe(1);
+    expect(niceStepDigits(25)).toBe(0);
+  });
+
+  it("returns correct digits for sub-dollar steps", () => {
+    expect(niceStepDigits(0.5)).toBe(1);
+    expect(niceStepDigits(0.2)).toBe(1);
+    expect(niceStepDigits(0.1)).toBe(1);
+    expect(niceStepDigits(0.05)).toBe(2);
+    expect(niceStepDigits(0.02)).toBe(2);
+    expect(niceStepDigits(0.01)).toBe(2);
+    expect(niceStepDigits(0.005)).toBe(3);
+    expect(niceStepDigits(0.002)).toBe(3);
+  });
+
+  it("adds extra digit for 2.5× sub-dollar steps", () => {
+    expect(niceStepDigits(0.25)).toBe(2);
+    expect(niceStepDigits(0.025)).toBe(3);
+    expect(niceStepDigits(0.0025)).toBe(4);
+  });
+});
+
 describe("niceMax", () => {
   it("returns 1 for all-zero values (continuous)", () => {
     expect(niceMax([0, 0, 0])).toBe(1);
   });
 
-  it("rounds up to nearest magnitude", () => {
-    expect(niceMax([73])).toBe(80);
-    expect(niceMax([350])).toBe(400);
-    expect(niceMax([0.07])).toBeCloseTo(0.08, 4);
+  it("produces a ceiling where yMax / tickCount is a nice number", () => {
+    // raw=73 → step≈14.6 → niceStep=20 → yMax=100
+    expect(niceMax([73])).toBe(100);
+    // raw=350 → step≈70 → niceStep=100 → yMax=500
+    expect(niceMax([350])).toBe(500);
+    // raw=0.07 → step≈0.014 → niceStep=0.02 → yMax=0.1
+    expect(niceMax([0.07])).toBeCloseTo(0.1, 10);
   });
 
-  it("handles single-element arrays", () => {
+  it("handles exact nice boundaries", () => {
     expect(niceMax([100])).toBe(100);
+    expect(niceMax([50])).toBe(50);
+    expect(niceMax([10])).toBe(10);
   });
 
   it("returns tickCount for all-zero integer mode", () => {
@@ -68,6 +131,39 @@ describe("niceMax", () => {
     expect(result).toBe(5);
     expect(result % 5).toBe(0);
   });
+
+  it("guarantees every tick label matches its gridline position", () => {
+    const testRawValues = [0.001, 0.008, 0.011, 0.07, 0.15, 0.5, 0.73, 0.9, 1.5, 7.3, 11, 73, 350];
+    for (const raw of testRawValues) {
+      const yMax = niceMax([raw]);
+      const step = yMax / 5;
+      const ticks = generateTicks(yMax, 5);
+
+      // Step should be a nice number (1, 2, 2.5, or 5 × 10^n)
+      const magnitude = 10 ** Math.floor(Math.log10(step));
+      const normalized = step / magnitude;
+      const isNice = [1, 2, 2.5, 5, 10].some((n) => Math.abs(normalized - n) < 1e-9);
+      expect(isNice).toBe(true);
+
+      // Use the same formatter as the component: niceStepDigits + min 2 for sub-dollar
+      const digits = Math.max(step < 1 ? 2 : 0, niceStepDigits(step));
+      const labels = ticks.map((t) =>
+        t === 0
+          ? "$0"
+          : `$${t.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`,
+      );
+
+      // No duplicate labels
+      const uniqueLabels = new Set(labels);
+      expect(uniqueLabels.size).toBe(labels.length);
+
+      // Parsed labels match tick values exactly
+      for (let i = 1; i < ticks.length; i++) {
+        const parsed = parseFloat(labels[i]!.replace("$", "").replace(/,/g, ""));
+        expect(Math.abs(parsed - ticks[i]!)).toBeLessThan(1e-9);
+      }
+    }
+  });
 });
 
 describe("generateTicks", () => {
@@ -86,6 +182,20 @@ describe("generateTicks", () => {
     for (const t of ticks) {
       expect(Number.isInteger(t)).toBe(true);
     }
+  });
+
+  it("rounds ticks to avoid floating-point drift", () => {
+    // 0.2 × 3 = 0.6000000000000001 in raw JS — must be cleaned up
+    const ticks = generateTicks(1.0, 5);
+    expect(ticks).toEqual([0, 0.2, 0.4, 0.6, 0.8, 1.0]);
+    for (const t of ticks) {
+      expect(t).toBe(parseFloat(t.toFixed(10)));
+    }
+  });
+
+  it("handles sub-cent tick generation", () => {
+    const ticks = generateTicks(0.01, 5);
+    expect(ticks).toEqual([0, 0.002, 0.004, 0.006, 0.008, 0.01]);
   });
 });
 

@@ -1,4 +1,6 @@
 import {
+  type CSSProperties,
+  type MouseEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -21,6 +23,7 @@ import {
   generateTicks,
   linearScale,
   niceMax,
+  niceStepDigits,
   pickXTickIndices,
   topRoundedRect,
 } from "./chart-scale-utils";
@@ -199,15 +202,13 @@ export function BillingUsageChart({
     (v: number) => {
       if (metric === "spend") {
         if (v === 0) return "$0";
-        if (isMobile && v >= 1) return `$${Math.round(v).toLocaleString("en-US")}`;
         const step = yMax / Y_TICK_COUNT;
-        const stepDigits = step > 0 ? Math.max(0, Math.ceil(-Math.log10(step))) : 2;
-        const digits = step < 1 ? Math.max(stepDigits, 2) : stepDigits;
+        const digits = Math.max(step < 1 ? 2 : 0, niceStepDigits(step));
         return `$${v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
       }
       return v.toLocaleString("en-US");
     },
-    [metric, isMobile, yMax],
+    [metric, yMax],
   );
   const yScale = useMemo(
     () => linearScale([0, yMax], [plotTop + plotHeight, plotTop]),
@@ -248,7 +249,7 @@ export function BillingUsageChart({
   });
 
   const handleBarMouseMove = (
-    e: React.MouseEvent<SVGRectElement>,
+    e: MouseEvent<SVGElement>,
     datumIndex: number,
     key: string,
   ) => {
@@ -279,32 +280,27 @@ export function BillingUsageChart({
 
   // Clamp tooltip so it stays within the container on both edges
   const tooltipLeft = tooltip
-    ? Math.min(
+    ? Math.max(0, Math.min(
         tooltip.x + TOOLTIP_OFFSET,
         width - ESTIMATED_TOOLTIP_WIDTH,
-      )
+      ))
     : 0;
 
-  const tooltipStyle: React.CSSProperties = {
-    position: "absolute",
-    pointerEvents: "none",
-    zIndex: 1,
-    maxWidth: "calc(100vw - 32px)",
+  const tooltipStyle: CSSProperties = {
     left: tooltipLeft,
     top: tooltip ? tooltip.y - TOOLTIP_OFFSET : 0,
-    transform: "translateY(-100%)",
     visibility: tooltip ? "visible" : "hidden",
   };
 
   return (
     <div onMouseDown={(e) => e.preventDefault()}>
-      <div ref={containerRef} style={{ width: "100%", height: CHART_HEIGHT, position: "relative" }}>
+      <div ref={containerRef} className="relative w-full" style={{ height: CHART_HEIGHT }}>
         {width > 0 && (
           <>
             <svg
               width={width}
               height={CHART_HEIGHT}
-              style={{ display: "block" }}
+              className="block"
             >
               {/* Grid lines */}
               {yTicks.map((t) => (
@@ -377,12 +373,8 @@ export function BillingUsageChart({
                     fill: seg.color,
                     opacity,
                     cursor: onBarClick ? "pointer" : undefined,
-                    onMouseMove: (e: React.MouseEvent<SVGElement>) =>
-                      handleBarMouseMove(
-                        e as React.MouseEvent<SVGRectElement>,
-                        di,
-                        seg.key,
-                      ),
+                    onMouseMove: (e: MouseEvent<SVGElement>) =>
+                      handleBarMouseMove(e, di, seg.key),
                     onMouseLeave: handleBarMouseLeave,
                     onClick: () => handleBarClick(seg.key),
                   };
@@ -416,7 +408,10 @@ export function BillingUsageChart({
             </svg>
 
             {/* Tooltip */}
-            <div style={tooltipStyle}>
+            <div
+              className="pointer-events-none absolute z-[1] max-w-[calc(100vw-32px)] -translate-y-full"
+              style={tooltipStyle}
+            >
               <StackedBarTooltip
                 active={!!tooltip}
                 payload={tooltipPayload}

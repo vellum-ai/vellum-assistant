@@ -10,7 +10,6 @@ export const CHART_GRID_PROPS = {
   strokeDasharray: "3 3",
   stroke: "#3a3f47",
   strokeOpacity: 0.4,
-  vertical: false,
 } as const;
 
 export const CHART_AXIS_TICK = { fontSize: 12, fill: "#8d99a5" } as const;

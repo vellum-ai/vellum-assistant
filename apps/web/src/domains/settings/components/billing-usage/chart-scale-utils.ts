@@ -15,33 +15,74 @@ export function linearScale(
 }
 
 /**
- * Round a raw max up to the nearest "nice" ceiling so axis labels are
- * round numbers. For integer-only metrics pass `integerOnly: true` to
- * guarantee the result is a whole number divisible by `tickCount`.
+ * Round `rawStep` up to the nearest "nice" value (1, 2, 2.5, or 5 × 10^n).
+ * This is the standard algorithm used by D3, Chart.js, and similar charting
+ * libraries to produce clean, human-readable axis labels.
+ *
+ * @see https://observablehq.com/@d3/d3-ticks — D3's tick generation reference
+ */
+export function niceStep(rawStep: number): number {
+  if (rawStep <= 0) return 1;
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const normalized = rawStep / magnitude;
+  let nice: number;
+  if (normalized <= 1) nice = 1;
+  else if (normalized <= 2) nice = 2;
+  else if (normalized <= 2.5) nice = 2.5;
+  else if (normalized <= 5) nice = 5;
+  else nice = 10;
+  return nice * magnitude;
+}
+
+/**
+ * Return the number of decimal digits needed to display a nice step exactly.
+ * Since nice steps are always `n × 10^k` where `n ∈ {1, 2, 2.5, 5}`, this
+ * is deterministic — no heuristics, no floating-point guessing.
+ */
+export function niceStepDigits(step: number): number {
+  if (step >= 1) return Number.isInteger(step) ? 0 : 1;
+  const magnitude = 10 ** Math.floor(Math.log10(step));
+  const normalized = step / magnitude;
+  const is25 = Math.abs(normalized - 2.5) < 0.01;
+  return Math.ceil(-Math.log10(step)) + (is25 ? 1 : 0);
+}
+
+/**
+ * Compute a "nice" Y-axis ceiling so that `result / tickCount` is a clean
+ * round number and every axis label matches its gridline position exactly.
+ *
+ * For integer-only metrics (e.g. event counts) pass `integerOnly: true` to
+ * guarantee whole-number ticks divisible by `tickCount`.
  */
 export function niceMax(
   values: number[],
   opts?: { integerOnly?: boolean; tickCount?: number },
 ): number {
   const raw = Math.max(0, ...values);
-  if (raw === 0) return opts?.integerOnly ? (opts.tickCount ?? 5) : 1;
+  const tickCount = opts?.tickCount ?? 5;
+
+  if (raw === 0) return opts?.integerOnly ? tickCount : 1;
 
   if (opts?.integerOnly) {
-    const tickCount = opts.tickCount ?? 5;
-    return Math.ceil(raw / tickCount) * tickCount;
+    const step = Math.max(1, Math.ceil(raw / tickCount));
+    return step * tickCount;
   }
 
-  const magnitude = 10 ** Math.floor(Math.log10(raw));
-  return Math.ceil(raw / magnitude) * magnitude;
+  const step = niceStep(raw / tickCount);
+  return step * tickCount;
 }
 
 /** Generate `count + 1` evenly-spaced tick values from 0 to `max`. */
 export function generateTicks(max: number, count: number): number[] {
   if (max === 0) return [0];
   const step = max / count;
+  // Round each tick to the step's precision to avoid floating-point drift
+  // (e.g. 0.2 × 3 = 0.6000000000000001).
+  const precision = step >= 1 ? 0 : Math.ceil(-Math.log10(step)) + 2;
+  const factor = 10 ** precision;
   const ticks: number[] = [];
   for (let i = 0; i <= count; i++) {
-    ticks.push(step * i);
+    ticks.push(Math.round(step * i * factor) / factor);
   }
   return ticks;
 }
