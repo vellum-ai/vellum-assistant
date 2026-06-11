@@ -39,7 +39,7 @@ export function NameExchangeScreen({
   return (
     <OnboardingLayout showCreatureFooter={false}>
       <div
-        className={`mx-auto flex w-full max-w-md flex-col items-center ${electron ? "px-8 pt-11 pb-4 electron-prechat-type" : "px-6 pt-12 pb-40"} text-[var(--content-default)]`}
+        className={`mx-auto flex w-full max-w-md flex-col items-center ${electron ? "min-h-full px-8 pt-11 pb-4 electron-prechat-type" : "px-6 pt-12 pb-40"} text-[var(--content-default)]`}
       >
         <div
           className={`grid w-full items-center ${onBack ? "grid-cols-[auto_1fr_auto]" : ""}`}
@@ -136,7 +136,7 @@ export function NameExchangeScreen({
         </div>
 
         <div
-          className="mt-8 flex w-full flex-col gap-2"
+          className={`${electron ? "mt-auto" : "mt-8"} flex w-full flex-col gap-2`}
           style={{ animation: "fadeInUp 0.3s ease-out 0.3s both" }}
         >
           <Button

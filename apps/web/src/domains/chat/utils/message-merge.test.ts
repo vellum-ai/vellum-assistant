@@ -395,8 +395,7 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
       id: "page-old-anchor",
       timestamp: 1000,
       mergedMessageIds: Array.from({ length: 14 }, (_, i) => `row-A-${i}`),
-      textSegments: ["[A] "],
-      contentOrder: [{ type: "text", id: "0" }],
+      ...textBody("[A] "),
       toolCalls: [
         { id: "tool-A-1", name: "bash", input: {}, completedAt: 1 },
       ],
@@ -405,8 +404,7 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
       id: "page-middle-anchor",
       timestamp: 1010,
       mergedMessageIds: Array.from({ length: 24 }, (_, i) => `row-B-${i}`),
-      textSegments: ["[B] "],
-      contentOrder: [{ type: "text", id: "0" }],
+      ...textBody("[B] "),
       toolCalls: [
         { id: "tool-B-1", name: "edit", input: {}, completedAt: 1 },
       ],
@@ -415,8 +413,7 @@ describe("mergeAdjacentAssistantMessages · cross-page bug repro", () => {
       id: "page-latest-anchor",
       timestamp: 1020,
       mergedMessageIds: Array.from({ length: 34 }, (_, i) => `row-C-${i}`),
-      textSegments: ["[C]"],
-      contentOrder: [{ type: "text", id: "0" }],
+      ...textBody("[C]"),
       toolCalls: [
         { id: "tool-C-1", name: "test", input: {}, completedAt: 1 },
       ],

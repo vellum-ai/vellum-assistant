@@ -23,7 +23,7 @@ const listAssistantsMock = mock(async () => ({
   status: 200,
   data: [{ id: "ast-new", is_local: false, created: "" }],
 }));
-const selectPlatformAssistantMock = mock(async (_id: string) => {});
+const setSelectedAssistantMock = mock(async (_id: string) => {});
 const syncPlatformAssistantsToLockfileMock = mock(
   async (_a: unknown, _orgId?: string) => {},
 );
@@ -32,8 +32,8 @@ mock.module("@/assistant/api", () => ({
   hatchAssistant: hatchAssistantMock,
   listAssistants: listAssistantsMock,
 }));
-mock.module("@/assistant/select-platform-assistant", () => ({
-  selectPlatformAssistant: selectPlatformAssistantMock,
+mock.module("@/assistant/selection", () => ({
+  setSelectedAssistant: setSelectedAssistantMock,
 }));
 mock.module("@/lib/local-mode", () => ({
   syncPlatformAssistantsToLockfile: syncPlatformAssistantsToLockfileMock,
@@ -56,7 +56,7 @@ beforeEach(() => {
   hatchResult = { ok: true, status: 201, data: { id: "ast-new" } };
   hatchAssistantMock.mockClear();
   listAssistantsMock.mockClear();
-  selectPlatformAssistantMock.mockClear();
+  setSelectedAssistantMock.mockClear();
   syncPlatformAssistantsToLockfileMock.mockClear();
 });
 
@@ -68,7 +68,7 @@ describe("createPlatformAssistant", () => {
       [{ id: "ast-new", is_local: false, created: "" }],
       "org-test",
     );
-    expect(selectPlatformAssistantMock).toHaveBeenCalledWith("ast-new");
+    expect(setSelectedAssistantMock).toHaveBeenCalledWith("ast-new");
     expect(result).toEqual({ ok: true, id: "ast-new" });
   });
 
@@ -82,6 +82,6 @@ describe("createPlatformAssistant", () => {
     const result = await createPlatformAssistant("x");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBe("boom");
-    expect(selectPlatformAssistantMock).not.toHaveBeenCalled();
+    expect(setSelectedAssistantMock).not.toHaveBeenCalled();
   });
 });

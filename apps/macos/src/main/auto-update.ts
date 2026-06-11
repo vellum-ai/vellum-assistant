@@ -2,6 +2,8 @@ import { autoUpdater } from "electron-updater";
 import { app, BrowserWindow } from "electron";
 import { z } from "zod";
 
+import type { UpdateState, UpdateStatus } from "@vellumai/ipc-contract";
+
 import { handle } from "./ipc";
 import log from "./logger";
 
@@ -14,20 +16,7 @@ const ENVIRONMENT: string =
 
 const BUCKET_ENV = ENVIRONMENT === "production" ? "prod" : ENVIRONMENT;
 
-type UpdateStatus =
-  | "idle"
-  | "checking"
-  | "available"
-  | "downloading"
-  | "downloaded"
-  | "error";
-
-interface UpdateState {
-  status: UpdateStatus;
-  version?: string;
-  progress?: { percent: number; transferred: number; total: number };
-  error?: string;
-}
+export type { UpdateState, UpdateStatus };
 
 let currentState: UpdateState = { status: "idle" };
 
@@ -62,7 +51,7 @@ export const installAutoUpdate = (): void => {
   autoUpdater.allowDowngrade = false;
   autoUpdater.setFeedURL({
     provider: "generic",
-    url: `https://storage.googleapis.com/vellum-${BUCKET_ENV}-releases/mac-electron/${process.arch}/`,
+    url: `https://storage.googleapis.com/vellum-ai-${BUCKET_ENV}-releases/mac-electron/${process.arch}/`,
   });
 
   autoUpdater.on("checking-for-update", () => {

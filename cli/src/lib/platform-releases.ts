@@ -1,6 +1,7 @@
 import { getPlatformUrl } from "./platform-client.js";
 import { DOCKERHUB_IMAGES } from "./docker.js";
 import type { ServiceName } from "./docker.js";
+import { loopbackSafeFetch } from "./loopback-fetch.js";
 
 export interface ResolvedImageRefs {
   imageTags: Record<ServiceName, string>;
@@ -15,7 +16,7 @@ export interface ResolvedImageRefs {
 export async function fetchLatestStableVersion(): Promise<string | null> {
   try {
     const platformUrl = getPlatformUrl();
-    const response = await fetch(`${platformUrl}/v1/releases/?stable=true`, {
+    const response = await loopbackSafeFetch(`${platformUrl}/v1/releases/?stable=true`, {
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) return null;
@@ -80,7 +81,7 @@ async function fetchPlatformImageRefs(
 
     log?.(`Fetching releases from ${url}`);
 
-    const response = await fetch(url, {
+    const response = await loopbackSafeFetch(url, {
       signal: AbortSignal.timeout(10_000),
     });
 

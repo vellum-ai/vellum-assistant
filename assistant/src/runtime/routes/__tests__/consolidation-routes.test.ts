@@ -24,7 +24,7 @@
  *     once assistant output exists.
  */
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -40,7 +40,6 @@ import { invalidateConfigCache } from "../../../config/loader.js";
 import { createConversation } from "../../../memory/conversation-crud.js";
 import { getDb } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
-import { enqueueMemoryJob } from "../../../memory/jobs-store.js";
 import { recordUsageEvent } from "../../../memory/llm-usage-store.js";
 import { rawAll, rawRun } from "../../../memory/raw-query.js";
 import { ROUTES } from "../consolidation-routes.js";
@@ -110,10 +109,6 @@ function recordUsageCostAt(
     createdAt,
     event.id,
   );
-}
-
-function readConfig(): Record<string, unknown> {
-  return JSON.parse(readFileSync(configPath, "utf-8"));
 }
 
 function readMemoryJobRows(): Array<{
@@ -379,7 +374,7 @@ describe("listConsolidationRuns handler", () => {
   });
 });
 
-describe("updateConsolidationConfig handler", () => {
+describe("consolidation config and run-now handlers", () => {
   beforeEach(() => {
     workspaceDir = mkdtempSync(join(tmpdir(), "vellum-consolidation-routes-"));
     origWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
@@ -399,12 +394,13 @@ describe("updateConsolidationConfig handler", () => {
     rmSync(workspaceDir, { recursive: true, force: true });
   });
 
-  test("persists only the consolidation enabled override without disabling memory v2", async () => {
+  test("reports consolidation unavailable when global memory is disabled", async () => {
     writeFileSync(
       configPath,
       JSON.stringify(
         {
           memory: {
+            enabled: false,
             v2: {
               enabled: true,
               consolidation_interval_hours: 4,
@@ -416,8 +412,8 @@ describe("updateConsolidationConfig handler", () => {
       ) + "\n",
     );
 
-    const handler = findHandler("updateConsolidationConfig");
-    const result = (await handler({ body: { enabled: false } })) as {
+    const handler = findHandler("getConsolidationConfig");
+    const result = (await handler({})) as {
       available: boolean;
       enabled: boolean;
       intervalMs: number;
@@ -425,17 +421,8 @@ describe("updateConsolidationConfig handler", () => {
       success: boolean;
     };
 
-    expect(readConfig()).toEqual({
-      memory: {
-        v2: {
-          enabled: true,
-          consolidation_interval_hours: 4,
-          consolidation_enabled: false,
-        },
-      },
-    });
     expect(result).toMatchObject({
-      available: true,
+      available: false,
       enabled: false,
       intervalMs: 4 * 60 * 60 * 1000,
       nextRunAt: null,
@@ -443,15 +430,15 @@ describe("updateConsolidationConfig handler", () => {
     });
   });
 
-  test("disabling automatic consolidation cancels pending automatic jobs but preserves manual run-now jobs", async () => {
+  test("run-now is unavailable when global memory is disabled", async () => {
     writeFileSync(
       configPath,
       JSON.stringify(
         {
           memory: {
+            enabled: false,
             v2: {
               enabled: true,
-              consolidation_enabled: true,
             },
           },
         },
@@ -459,36 +446,12 @@ describe("updateConsolidationConfig handler", () => {
         2,
       ) + "\n",
     );
-    const automaticJobId = enqueueMemoryJob("memory_v2_consolidate", {
-      trigger: "automatic",
-    });
-    const legacyJobId = enqueueMemoryJob("memory_v2_consolidate", {});
-    const manualJobId = enqueueMemoryJob("memory_v2_consolidate", {
-      trigger: "manual",
-    });
 
-    const handler = findHandler("updateConsolidationConfig");
-    await handler({ body: { enabled: false } });
-
-    const rowsById = new Map(
-      readMemoryJobRows().map((row) => [row.id, row] as const),
-    );
-    expect(rowsById.get(automaticJobId)).toMatchObject({
-      status: "failed",
-      lastError: "automatic_consolidation_disabled",
-    });
-    expect(rowsById.get(legacyJobId)).toMatchObject({
-      status: "failed",
-      lastError: "automatic_consolidation_disabled",
-    });
-    expect(rowsById.get(manualJobId)).toMatchObject({
-      status: "pending",
-      lastError: null,
-      payload: JSON.stringify({ trigger: "manual" }),
-    });
+    const handler = findHandler("runConsolidationNow");
+    await expect(handler({})).rejects.toThrow("Consolidation is not available");
   });
 
-  test("run-now remains available when automatic consolidation is disabled", async () => {
+  test("run-now remains available when memory v2 is enabled", async () => {
     writeFileSync(
       configPath,
       JSON.stringify(
@@ -496,7 +459,6 @@ describe("updateConsolidationConfig handler", () => {
           memory: {
             v2: {
               enabled: true,
-              consolidation_enabled: false,
             },
           },
         },

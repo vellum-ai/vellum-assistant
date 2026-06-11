@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { lazy, useMemo, useState } from "react";
 
 import { ArrowLeft, Coins, Loader2, Target } from "lucide-react";
 
@@ -22,13 +22,31 @@ import {
     type LlmUsageDimension,
 } from "@/utils/llm-dimension";
 
-import { BillingUsageChart, type ChartMetric } from "@/domains/settings/components/billing-usage/billing-usage-chart";
+import { LazyBoundary } from "@/components/lazy-boundary";
+import type { ChartMetric } from "@/domains/settings/components/billing-usage/billing-usage-chart";
 import {
     type BillingUsageSourceFilter,
     getDefaultDateRange,
     useBillingUsageData,
 } from "@/domains/settings/components/billing-usage/use-billing-usage-data";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
+
+/**
+ * recharts (~100 kB) is the only hard dependency on the billing surface
+ * that can fail to *evaluate* — e.g. a corrupted Vite dep pre-bundle in
+ * dev. As a static import it sat in the eager `billing-page` module
+ * graph, so any recharts failure blanked the entire Billing tab with no
+ * error surfaced. `React.lazy` splits it into its own chunk (loaded only
+ * when the chart renders) so the page is robust to a chart-dep failure,
+ * and `LazyBoundary` degrades the chart area gracefully if that chunk
+ * ever fails to load. The `ChartMetric` type stays a static `import
+ * type` — it's erased at build time and pulls in no runtime code.
+ */
+const BillingUsageChart = lazy(() =>
+  import(
+    "@/domains/settings/components/billing-usage/billing-usage-chart"
+  ).then((m) => ({ default: m.BillingUsageChart })),
+);
 
 const METRIC_ITEMS: SegmentControlItem<ChartMetric>[] = [
   { value: "spend", label: "Spend ($)" },
@@ -237,11 +255,24 @@ export function BillingUsagePanel() {
           </div>
         ) : series ? (
           <div className="rounded-xl bg-[var(--surface-base)] p-3">
-            <BillingUsageChart
-              buckets={series.buckets}
-              metric={metric}
-              onBarClick={handleBarClick}
-            />
+            <LazyBoundary
+              fallback={
+                <div className="flex h-[345px] items-center justify-center">
+                  <Loader2 className="h-6 w-6 animate-spin text-[var(--content-tertiary)]" />
+                </div>
+              }
+              errorFallback={
+                <div className="flex h-[345px] items-center justify-center text-body-medium-lighter text-[var(--content-tertiary)]">
+                  Couldn&apos;t load the usage chart. Reload to try again.
+                </div>
+              }
+            >
+              <BillingUsageChart
+                buckets={series.buckets}
+                metric={metric}
+                onBarClick={handleBarClick}
+              />
+            </LazyBoundary>
           </div>
         ) : null}
       </div>

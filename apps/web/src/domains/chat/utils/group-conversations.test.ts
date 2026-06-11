@@ -2,11 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 
 import type { Conversation, ConversationGroup } from "@/types/conversation-types";
-import {
-  buildMoveToGroupTargets,
-  getEffectiveGroupId,
-  groupConversations,
-} from "@/domains/chat/utils/group-conversations";
+import { groupConversations } from "@/domains/chat/utils/group-conversations";
 
 function makeConversation(overrides: Partial<Conversation>): Conversation {
   return {
@@ -174,21 +170,6 @@ describe("groupConversations · bucket routing", () => {
     ]);
     expect(result.background.map((c) => c.conversationId)).toEqual([
       "background-slack",
-    ]);
-  });
-
-  test("treats Slack as a virtual effective group for move target filtering", () => {
-    const conversation = makeConversation({
-      conversationId: "slack",
-      originChannel: "slack",
-    });
-
-    expect(getEffectiveGroupId(conversation)).toBe("system:slack");
-    expect(buildMoveToGroupTargets(conversation).map((g) => g.id)).toEqual([
-      "system:pinned",
-      "system:scheduled",
-      "system:background",
-      "system:all",
     ]);
   });
 
@@ -590,5 +571,114 @@ describe("groupConversations · displayOrder for pinned and custom groups", () =
       "y",
       "z",
     ]);
+  });
+});
+
+describe("groupConversations · surfaced promotion to recents", () => {
+  test("a surfaced scheduled conversation lands in recents, not scheduled", () => {
+    const result = groupConversations([
+      makeConversation({
+        conversationId: "sched-surfaced",
+        conversationType: "scheduled",
+        surfacedAt: 1704067200000,
+      }),
+      makeConversation({
+        conversationId: "sched-plain",
+        conversationType: "scheduled",
+      }),
+    ]);
+    expect(result.recents.map((c) => c.conversationId)).toEqual([
+      "sched-surfaced",
+    ]);
+    expect(result.scheduled.map((c) => c.conversationId)).toEqual([
+      "sched-plain",
+    ]);
+  });
+
+  test("a surfaced background conversation lands in recents, not background", () => {
+    const result = groupConversations([
+      makeConversation({
+        conversationId: "bg-surfaced",
+        conversationType: "background",
+        surfacedAt: 1704067200000,
+      }),
+      makeConversation({
+        conversationId: "bg-legacy-surfaced",
+        groupId: "system:background",
+        surfacedAt: 1704067200000,
+      }),
+      makeConversation({
+        conversationId: "bg-plain",
+        conversationType: "background",
+      }),
+    ]);
+    expect(result.recents.map((c) => c.conversationId).sort()).toEqual([
+      "bg-legacy-surfaced",
+      "bg-surfaced",
+    ]);
+    expect(result.background.map((c) => c.conversationId)).toEqual([
+      "bg-plain",
+    ]);
+  });
+
+  test("surfaced conversations sort into recents by lastMessageAt desc", () => {
+    const result = groupConversations([
+      makeConversation({
+        conversationId: "older-standard",
+        lastMessageAt: 1704067200000,
+      }),
+      makeConversation({
+        conversationId: "newer-surfaced",
+        conversationType: "background",
+        surfacedAt: 1,
+        lastMessageAt: 1704153600000,
+      }),
+    ]);
+    expect(result.recents.map((c) => c.conversationId)).toEqual([
+      "newer-surfaced",
+      "older-standard",
+    ]);
+  });
+
+  test("pinned wins over surfaced", () => {
+    const result = groupConversations([
+      makeConversation({
+        conversationId: "pinned-surfaced",
+        conversationType: "background",
+        isPinned: true,
+        surfacedAt: 1704067200000,
+      }),
+    ]);
+    expect(result.pinned.map((c) => c.conversationId)).toEqual([
+      "pinned-surfaced",
+    ]);
+    expect(result.recents).toEqual([]);
+  });
+
+  test("slack wins over surfaced", () => {
+    const result = groupConversations([
+      makeConversation({
+        conversationId: "slack-surfaced",
+        originChannel: "slack",
+        surfacedAt: 1704067200000,
+      }),
+    ]);
+    expect(result.slack.map((c) => c.conversationId)).toEqual([
+      "slack-surfaced",
+    ]);
+    expect(result.recents).toEqual([]);
+  });
+
+  test("archived surfaced conversations stay excluded", () => {
+    const result = groupConversations([
+      makeConversation({
+        conversationId: "archived-surfaced",
+        conversationType: "background",
+        surfacedAt: 1704067200000,
+        archivedAt: 1704153600000,
+      }),
+    ]);
+    expect(result.recents).toEqual([]);
+    expect(result.background).toEqual([]);
   });
 });

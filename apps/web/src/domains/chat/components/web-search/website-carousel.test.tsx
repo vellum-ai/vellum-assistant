@@ -2,9 +2,11 @@
  * Tests for `WebsiteCarousel`.
  *
  * bun:test doesn't ship a `vi.useFakeTimers()` equivalent, so we drive the
- * carousel's `setInterval` manually by monkey-patching the global. Each test
- * captures the callback the component registers, then invokes it from `act()`
- * to advance the rotation without real-time delays.
+ * carousel's `setTimeout` manually by monkey-patching the global. Each timeout
+ * the component schedules is captured, then fired from `act()` to advance the
+ * walk without real-time delays. This lets us assert that an advance only
+ * happens once the `minDwellMs` timeout fires (the 0.5s floor) and that the
+ * carousel walks toward the latest item and then holds — never wrapping back.
  *
  * The reduced-motion path is verified by stubbing `motion/react` so that
  * `useReducedMotion()` returns `true` and `motion.div` resolves to a plain
@@ -20,63 +22,74 @@ import { cleanup, render } from "@testing-library/react";
 import { WebsiteCarousel } from "@/domains/chat/components/web-search/website-carousel";
 
 // ---------------------------------------------------------------------------
-// setInterval harness
+// setTimeout harness
 // ---------------------------------------------------------------------------
 
-interface IntervalHandle {
+interface TimeoutHandle {
   id: number;
   fn: () => void;
   ms: number;
   cleared: boolean;
 }
 
-let intervals: IntervalHandle[] = [];
-let nextIntervalId = 1;
-let setIntervalCallCount = 0;
-let originalSetInterval: typeof globalThis.setInterval;
-let originalClearInterval: typeof globalThis.clearInterval;
+let timeouts: TimeoutHandle[] = [];
+let nextTimeoutId = 1;
+let setTimeoutCallCount = 0;
+let originalSetTimeout: typeof globalThis.setTimeout;
+let originalClearTimeout: typeof globalThis.clearTimeout;
 
 beforeEach(() => {
-  intervals = [];
-  nextIntervalId = 1;
-  setIntervalCallCount = 0;
-  originalSetInterval = globalThis.setInterval;
-  originalClearInterval = globalThis.clearInterval;
-  globalThis.setInterval = ((
+  timeouts = [];
+  nextTimeoutId = 1;
+  setTimeoutCallCount = 0;
+  originalSetTimeout = globalThis.setTimeout;
+  originalClearTimeout = globalThis.clearTimeout;
+  globalThis.setTimeout = ((
     fn: (...args: unknown[]) => void,
     ms?: number,
   ) => {
-    setIntervalCallCount += 1;
-    const handle: IntervalHandle = {
-      id: nextIntervalId++,
+    setTimeoutCallCount += 1;
+    const handle: TimeoutHandle = {
+      id: nextTimeoutId++,
       fn: () => fn(),
       ms: ms ?? 0,
       cleared: false,
     };
-    intervals.push(handle);
-    return handle.id as unknown as ReturnType<typeof globalThis.setInterval>;
-  }) as typeof globalThis.setInterval;
-  globalThis.clearInterval = ((id: number) => {
-    const handle = intervals.find((h) => h.id === id);
+    timeouts.push(handle);
+    return handle.id as unknown as ReturnType<typeof globalThis.setTimeout>;
+  }) as typeof globalThis.setTimeout;
+  globalThis.clearTimeout = ((id?: number) => {
+    const handle = timeouts.find((h) => h.id === id);
     if (handle) handle.cleared = true;
-  }) as typeof globalThis.clearInterval;
+  }) as typeof globalThis.clearTimeout;
 });
 
 afterEach(() => {
-  globalThis.setInterval = originalSetInterval;
-  globalThis.clearInterval = originalClearInterval;
+  globalThis.setTimeout = originalSetTimeout;
+  globalThis.clearTimeout = originalClearTimeout;
   cleanup();
 });
 
-/** Fire every pending (non-cleared) interval one tick. */
-function advanceOneTick() {
-  for (const handle of intervals) {
+/**
+ * Fire every currently-pending (non-cleared) timeout once. The component
+ * schedules at most one timeout per render, so this advances the walk by a
+ * single step. After firing, the timeout is marked cleared so it isn't
+ * re-fired on the next call.
+ */
+function fireDwellTimer() {
+  for (const handle of timeouts) {
     if (!handle.cleared) {
+      handle.cleared = true;
       act(() => {
         handle.fn();
       });
     }
   }
+}
+
+/** Count of timeouts that are still pending (scheduled and not yet fired/cleared). */
+function pendingTimeouts() {
+  return timeouts.filter((h) => !h.cleared);
 }
 
 // ---------------------------------------------------------------------------
@@ -89,63 +102,94 @@ const ITEMS = [
   { faviconUrl: "https://c.test/favicon.ico", title: "Charlie", domain: "c.test" },
 ];
 
-describe("WebsiteCarousel — rotation", () => {
-  test("advances to the next item after the interval fires", () => {
+describe("WebsiteCarousel — walk to latest", () => {
+  test("advances one step per dwell tick toward the last item, then holds", () => {
     const { getByText } = render(
-      <WebsiteCarousel items={ITEMS} intervalMs={1000} />,
+      <WebsiteCarousel items={ITEMS} minDwellMs={1000} />,
     );
     // Initial frame shows the first item.
     expect(getByText("Alpha")).toBeTruthy();
-    // After one interval tick → second item visible.
-    advanceOneTick();
+    // After one dwell tick → second item visible.
+    fireDwellTimer();
     expect(getByText("Bravo")).toBeTruthy();
-    // After two ticks → third item visible (interval * 2 worth of progress).
+    // After another tick → the last (latest) item is visible.
     // Note: `AnimatePresence mode="popLayout"` retains the previous element
     // during its exit animation, so we only assert that the new entry is in
     // the tree — the old one may still be there mid-fade.
-    advanceOneTick();
+    fireDwellTimer();
+    expect(getByText("Charlie")).toBeTruthy();
+    // Once caught up to the latest, the walk holds: no further timer is
+    // scheduled, and it does NOT wrap back to the first item.
+    expect(pendingTimeouts()).toHaveLength(0);
     expect(getByText("Charlie")).toBeTruthy();
   });
 
-  test("wraps back to the first item after the last", () => {
+  test("does not advance before the dwell timeout fires (honours the floor)", () => {
     const { getByText } = render(
-      <WebsiteCarousel items={ITEMS} intervalMs={500} />,
+      <WebsiteCarousel items={ITEMS} minDwellMs={500} />,
     );
-    advanceOneTick(); // Bravo
-    advanceOneTick(); // Charlie
-    advanceOneTick(); // Alpha again
+    // A timer is scheduled but not yet fired — still on the first item.
     expect(getByText("Alpha")).toBeTruthy();
+    expect(pendingTimeouts()).toHaveLength(1);
+    expect(pendingTimeouts()[0]!.ms).toBe(500);
   });
 
-  test("uses the supplied intervalMs when scheduling", () => {
-    render(<WebsiteCarousel items={ITEMS} intervalMs={1234} />);
-    expect(intervals).toHaveLength(1);
-    expect(intervals[0]!.ms).toBe(1234);
+  test("resumes the walk when a newer item is appended", () => {
+    const { getByText, rerender } = render(
+      <WebsiteCarousel items={ITEMS} minDwellMs={500} />,
+    );
+    // Walk to the current latest item.
+    fireDwellTimer(); // Bravo
+    fireDwellTimer(); // Charlie
+    expect(getByText("Charlie")).toBeTruthy();
+    expect(pendingTimeouts()).toHaveLength(0);
+
+    // Parent appends a newer searched site — the target grows and the walk
+    // resumes toward it.
+    const moreItems = [
+      ...ITEMS,
+      {
+        faviconUrl: "https://d.test/favicon.ico",
+        title: "Delta",
+        domain: "d.test",
+      },
+    ];
+    rerender(<WebsiteCarousel items={moreItems} minDwellMs={500} />);
+    expect(pendingTimeouts()).toHaveLength(1);
+    fireDwellTimer();
+    expect(getByText("Delta")).toBeTruthy();
+    expect(pendingTimeouts()).toHaveLength(0);
+  });
+
+  test("defaults minDwellMs to 500", () => {
+    render(<WebsiteCarousel items={ITEMS} />);
+    expect(pendingTimeouts()).toHaveLength(1);
+    expect(pendingTimeouts()[0]!.ms).toBe(500);
   });
 });
 
 describe("WebsiteCarousel — degenerate cases", () => {
-  test("with one item: renders it statically and never schedules an interval", () => {
+  test("with one item: renders it statically and never schedules a timer", () => {
     const { getByText } = render(
-      <WebsiteCarousel items={[ITEMS[0]!]} intervalMs={500} />,
+      <WebsiteCarousel items={[ITEMS[0]!]} minDwellMs={500} />,
     );
     expect(getByText("Alpha")).toBeTruthy();
-    expect(setIntervalCallCount).toBe(0);
+    expect(setTimeoutCallCount).toBe(0);
   });
 
-  test("with zero items: renders nothing and never schedules an interval", () => {
+  test("with zero items: renders nothing and never schedules a timer", () => {
     const { container } = render(<WebsiteCarousel items={[]} />);
     expect(container.firstChild).toBeNull();
-    expect(setIntervalCallCount).toBe(0);
+    expect(setTimeoutCallCount).toBe(0);
   });
 
-  test("clears its interval on unmount", () => {
+  test("clears its pending timer on unmount", () => {
     const { unmount } = render(
-      <WebsiteCarousel items={ITEMS} intervalMs={500} />,
+      <WebsiteCarousel items={ITEMS} minDwellMs={500} />,
     );
-    expect(intervals).toHaveLength(1);
+    expect(pendingTimeouts()).toHaveLength(1);
     unmount();
-    expect(intervals[0]!.cleared).toBe(true);
+    expect(pendingTimeouts()).toHaveLength(0);
   });
 });
 
@@ -192,8 +236,8 @@ describe("WebsiteCarousel — reduced motion", () => {
         return <div {...rest}>{children}</div>;
       };
       // The mock module bleeds across files in the same `bun test` run, so
-      // also stub `motion.span` (used by `WebSearchProgressCard`'s header
-      // carousel) — otherwise downstream suites that touch that card render
+      // also stub `motion.span` (used by the header carousel) — otherwise
+      // downstream suites that touch that card render
       // `undefined` and crash. Span is rendered as a passthrough since the
       // y-offset assertion only inspects `motion.div`.
       const motionSpan = ({
@@ -215,7 +259,7 @@ describe("WebsiteCarousel — reduced motion", () => {
     const { WebsiteCarousel: PatchedCarousel } = await import(
       "./website-carousel"
     );
-    render(<PatchedCarousel items={ITEMS} intervalMs={500} />);
+    render(<PatchedCarousel items={ITEMS} minDwellMs={500} />);
 
     // At least one motion.div should have been rendered.
     expect(motionDivCalls.length).toBeGreaterThan(0);

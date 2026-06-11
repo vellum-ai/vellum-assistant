@@ -10,7 +10,7 @@
  */
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
+import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import { toDisplayAttachments } from "@/utils/display-attachments";
 import type {
   ConversationContentBlock,
@@ -470,7 +470,7 @@ export function handleConversationError(
 
   const finalized = finalizeRunningToolCalls(last);
   const hasContent =
-    segmentsToPlainText(last.textSegments).trim().length > 0 ||
+    messagePlainText(last).trim().length > 0 ||
     (last.thinkingSegments != null && last.thinkingSegments.length > 0) ||
     (last.toolCalls != null && last.toolCalls.length > 0) ||
     (last.surfaces != null && last.surfaces.length > 0);

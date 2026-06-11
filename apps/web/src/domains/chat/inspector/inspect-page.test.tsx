@@ -75,6 +75,11 @@ let contextStub: ContextStub = {
   refetch: () => {},
 };
 
+// Conversation-wide context returned when the page asks for the
+// unscoped logs (used for global call numbering in message mode).
+// `null` falls back to `contextStub` so existing tests are unaffected.
+let conversationContextStub: ContextStub | null = null;
+
 interface MessageListEntry {
   id: string;
   role: "user" | "assistant";
@@ -133,7 +138,18 @@ mock.module("@/stores/auth-store", () => ({
 }));
 
 mock.module("@/domains/chat/inspector/inspector-api", () => ({
-  useLlmContext: () => contextStub,
+  useLlmContext: (
+    _assistantId: string | undefined,
+    _conversationId: string | undefined,
+    messageId?: string | null,
+  ) => (messageId ? contextStub : (conversationContextStub ?? contextStub)),
+  useConversationCallNumbering: (
+    _assistantId: string | undefined,
+    _conversationId: string | undefined,
+    enabled: boolean,
+  ) => ({
+    data: enabled ? (conversationContextStub?.data?.logs ?? null) : null,
+  }),
   useConversationMessageList: () => ({
     data: messageListStub,
     isLoading: false,
@@ -178,6 +194,7 @@ beforeEach(() => {
     error: null,
     refetch: () => {},
   };
+  conversationContextStub = null;
   messageListStub = [];
   navigateCalls.length = 0;
 });
@@ -412,6 +429,66 @@ describe("InspectPage — dual-mode chrome", () => {
     // "All messages" can always clear the message scope.
     expect(html).not.toContain('disabled=""');
     expect(html).not.toContain("View all conversation calls");
+  });
+
+  test("message mode keeps conversation-wide call numbers and shows the turn position", () => {
+    paramsStub = { conversationId: "conv-1" };
+    searchParamsMap.set("messageId", "msg-u2");
+    // The scoped turn produced calls 3–4 of a 5-call conversation.
+    contextStub = {
+      data: {
+        conversationId: "conv-int-1",
+        conversationKey: "conv-1",
+        conversationKind: "user",
+        conversationTotalEstimatedCostUsd: null,
+        logs: [makeLog("log-3", 3), makeLog("log-4", 4)],
+        memoryRecall: null,
+        memoryV2Activation: null,
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: () => {},
+    };
+    conversationContextStub = {
+      data: {
+        conversationId: "conv-int-1",
+        conversationKey: "conv-1",
+        conversationKind: "user",
+        conversationTotalEstimatedCostUsd: null,
+        logs: [
+          makeLog("log-1", 1),
+          makeLog("log-2", 2),
+          makeLog("log-3", 3),
+          makeLog("log-4", 4),
+          makeLog("log-5", 5),
+        ],
+        memoryRecall: null,
+        memoryV2Activation: null,
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: () => {},
+    };
+    messageListStub = [
+      { id: "msg-u1", role: "user", ...textBody("First turn"), timestamp: 1 },
+      { id: "msg-a1", role: "assistant", ...textBody("Reply"), timestamp: 2 },
+      { id: "msg-u2", role: "user", ...textBody("Second turn"), timestamp: 3 },
+      { id: "msg-a2", role: "assistant", ...textBody("Reply"), timestamp: 4 },
+    ];
+
+    const html = renderInspector();
+
+    // Rail rows retain their conversation-wide numbers instead of
+    // renumbering the scoped subset from 1.
+    expect(html).toContain("Call 3");
+    expect(html).toContain("Call 4");
+    expect(html).not.toContain("Call 1");
+    // The mobile trigger counts against the whole conversation.
+    expect(html).toContain("Call 4 of 5");
+    // The subtitle locates the scoped turn within the conversation.
+    expect(html).toContain("Scoped to turn 2 of 2");
   });
 
   test("message mode empty state copy is message-specific", () => {

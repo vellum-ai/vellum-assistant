@@ -2,6 +2,7 @@ import {
   isLocalMode,
   getLocalGatewayUrl,
 } from "@/lib/local-mode";
+import type { LockfileAssistant } from "@/runtime/local-mode-host";
 
 const LS_TOKEN_KEY = "vellum:gw:token";
 const LS_EXPIRES_KEY = "vellum:gw:expiresAt";
@@ -96,8 +97,10 @@ export async function ensureGatewayToken(tokenUrl?: string, guardianToken?: stri
   return acquireGatewayToken(tokenUrl, guardianToken);
 }
 
-export function getLocalTokenUrl(): string | undefined {
-  const gatewayUrl = getLocalGatewayUrl();
+export function getLocalTokenUrl(
+  assistant?: LockfileAssistant,
+): string | undefined {
+  const gatewayUrl = getLocalGatewayUrl(assistant);
   if (!gatewayUrl) return undefined;
   return `${gatewayUrl}/auth/token`;
 }

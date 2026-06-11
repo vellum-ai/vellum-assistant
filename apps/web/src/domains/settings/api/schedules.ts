@@ -5,7 +5,6 @@
  */
 import {
   consolidationConfigGet,
-  consolidationConfigPut,
   consolidationRunnowPost,
   consolidationRunsGet,
   heartbeatConfigGet,
@@ -22,7 +21,6 @@ import {
 } from "@/generated/daemon/sdk.gen";
 import type {
   ConsolidationConfigGetResponse,
-  ConsolidationConfigPutResponse,
   ConsolidationRunnowPostResponse,
   HeartbeatConfigGetResponse,
   HeartbeatConfigPutResponse,
@@ -45,6 +43,7 @@ export { ApiError };
 
 export interface CreateSchedulePayload {
   name: string;
+  description: string;
   expression: string;
   message: string;
   timezone?: string | null;
@@ -350,21 +349,6 @@ export async function fetchConsolidationConfig(
     );
   }
   return data;
-}
-
-export async function updateConsolidationConfig(
-  assistantId: string,
-  payload: UpdateSystemTaskConfigPayload,
-): Promise<ConsolidationConfigPutResponse> {
-  return updateSystemTaskConfig(
-    () =>
-      consolidationConfigPut({
-        path: { assistant_id: assistantId },
-        body: payload,
-        throwOnError: false,
-      }),
-    "Failed to update consolidation config.",
-  );
 }
 
 export async function runConsolidationNow(

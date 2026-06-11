@@ -140,14 +140,26 @@ const { memoryV2ConsolidateJob } = await import("../consolidation-job.js");
 const { CUTOFF_PLACEHOLDER, CONSOLIDATION_PROMPT } =
   await import("../prompts/consolidation.js");
 
-// The resolver only reads `config.memory.v2.enabled` and
-// `config.memory.v2.consolidation_prompt_path`, so a minimal stand-in
-// covers both call sites without materializing the full default config.
+// The handler only reads `config.memory.enabled`, `config.memory.v2.enabled`,
+// and `config.memory.v2.consolidation_prompt_path`, so a minimal stand-in
+// covers those call sites without materializing the full default config.
 const CONFIG = {
-  memory: { v2: { enabled: true, consolidation_prompt_path: null } },
+  memory: {
+    enabled: true,
+    v2: { enabled: true, consolidation_prompt_path: null },
+  },
 } as Parameters<typeof memoryV2ConsolidateJob>[1];
 const CONFIG_DISABLED = {
-  memory: { v2: { enabled: false, consolidation_prompt_path: null } },
+  memory: {
+    enabled: true,
+    v2: { enabled: false, consolidation_prompt_path: null },
+  },
+} as Parameters<typeof memoryV2ConsolidateJob>[1];
+const CONFIG_MEMORY_DISABLED = {
+  memory: {
+    enabled: false,
+    v2: { enabled: true, consolidation_prompt_path: null },
+  },
 } as Parameters<typeof memoryV2ConsolidateJob>[1];
 
 function makeJob(): Parameters<typeof memoryV2ConsolidateJob>[0] {
@@ -194,6 +206,22 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("memoryV2ConsolidateJob — v2 disabled", () => {
+  test("returns disabled without invoking the runner when memory.enabled is false", async () => {
+    writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
+
+    const result = await memoryV2ConsolidateJob(
+      makeJob(),
+      CONFIG_MEMORY_DISABLED,
+    );
+
+    expect(result).toEqual({ kind: "disabled" });
+    expect(runnerCalls).toBe(0);
+    expect(enqueuedJobs).toHaveLength(0);
+    // Lock must NOT linger on the disabled path — the handler bailed before
+    // the lock was acquired.
+    expect(existsSync(lockPath())).toBe(false);
+  });
+
   test("returns disabled without invoking the runner when memory.v2.enabled is false", async () => {
     writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
 

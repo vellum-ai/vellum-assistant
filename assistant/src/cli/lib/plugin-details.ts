@@ -33,6 +33,7 @@ import {
   type FetchLike,
   sanitizePluginName,
 } from "./install-from-github.js";
+import { parsePluginArtifact, type PluginArtifact } from "./plugin-artifact.js";
 import {
   fetchMarketplaceEntries,
   type MarketplaceEntry,
@@ -56,6 +57,7 @@ interface PluginManifestFields {
   readonly description: string | null;
   readonly homepage: string | null;
   readonly license: string | null;
+  readonly artifact: PluginArtifact | null;
 }
 
 /** Options that control which plugin to resolve and at what ref. */
@@ -97,6 +99,13 @@ export interface PluginDetails {
   readonly readme: string | null;
   /** Git ref the catalog metadata / README were resolved at. */
   readonly ref: string;
+  /**
+   * Prebuilt client artifact (download URL + sha256) declared in the
+   * plugin's `package.json` `vellum.artifact`, resolved from the installed
+   * copy first then the repo; `null` when the plugin ships none or its
+   * descriptor is incomplete (e.g. a placeholder `sha256`).
+   */
+  readonly artifact: PluginArtifact | null;
 }
 
 /** No installed copy and no catalog/source entry claims the name. */
@@ -175,6 +184,7 @@ export async function getPluginDetails(
     source,
     readme,
     ref,
+    artifact: local.manifest.artifact ?? remote.manifest.artifact,
   };
 }
 
@@ -342,7 +352,13 @@ function githubFetch(
 }
 
 function emptyManifest(): PluginManifestFields {
-  return { version: null, description: null, homepage: null, license: null };
+  return {
+    version: null,
+    description: null,
+    homepage: null,
+    license: null,
+    artifact: null,
+  };
 }
 
 function safeParseManifest(raw: string): PluginManifestFields {
@@ -365,6 +381,7 @@ function parseManifest(raw: string): PluginManifestFields {
     description: typeof meta.description === "string" ? meta.description : null,
     homepage: typeof meta.homepage === "string" ? meta.homepage : null,
     license: normalizeLicense(meta.license),
+    artifact: parsePluginArtifact(parsed),
   };
 }
 

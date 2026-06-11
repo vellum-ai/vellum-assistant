@@ -28,6 +28,7 @@ import {
   getSchedule,
   getScheduleRuns,
   listSchedules,
+  type ScheduleJob,
   setScheduleRunConversationId,
   updateSchedule,
 } from "../../schedule/schedule-store.js";
@@ -64,7 +65,8 @@ const scheduleSchema = z.object({
   createdFromConversationId: z.string().nullable(),
   createdFromConversationExists: z.boolean(),
   createdFromConversationArchivedAt: z.number().nullable(),
-  description: z.string().nullable(),
+  description: z.string(),
+  cadenceDescription: z.string(),
   mode: z.enum(["notify", "execute", "script", "wake"]),
   status: z.enum(["active", "firing", "fired", "cancelled"]),
   routingIntent: z.enum(["single_channel", "multi_channel", "all_channels"]),
@@ -125,6 +127,18 @@ function getCreatedFromConversationState(
   return state;
 }
 
+function getCadenceDescription(
+  job: Pick<ScheduleJob, "syntax" | "cronExpression" | "expression">,
+): string {
+  if (job.cronExpression === null) {
+    return describeCronExpression(job.cronExpression);
+  }
+  if (job.syntax === "cron") {
+    return describeCronExpression(job.cronExpression);
+  }
+  return job.expression ?? "";
+}
+
 function handleListSchedules(queryParams: Record<string, string>) {
   const includeAll = queryParams.include_all === "true";
   const jobs = listSchedules();
@@ -161,10 +175,8 @@ function handleListSchedules(queryParams: Record<string, string>) {
         createdFromConversationId: j.createdFromConversationId,
         createdFromConversationExists: sourceConversation.exists,
         createdFromConversationArchivedAt: sourceConversation.archivedAt,
-        description:
-          j.syntax === "cron"
-            ? describeCronExpression(j.cronExpression)
-            : j.expression,
+        description: j.description,
+        cadenceDescription: getCadenceDescription(j),
         mode: j.mode,
         status: j.status,
         routingIntent: j.routingIntent,
@@ -180,6 +192,12 @@ function handleCreateSchedule(body: Record<string, unknown>) {
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const expression =
     typeof body.expression === "string" ? body.expression.trim() : "";
+  const description =
+    body.description === undefined
+      ? undefined
+      : typeof body.description === "string"
+        ? body.description.trim()
+        : "";
   const message = typeof body.message === "string" ? body.message : "";
   const timezoneRaw =
     typeof body.timezone === "string" ? body.timezone.trim() : "";
@@ -190,6 +208,9 @@ function handleCreateSchedule(body: Record<string, unknown>) {
   if (!name) throw new BadRequestError("name is required");
   if (!expression) throw new BadRequestError("expression is required");
   if (!message) throw new BadRequestError("message is required");
+  if (description === "") {
+    throw new BadRequestError("description is required");
+  }
 
   // The settings UI only exposes execute mode for now. Other modes
   // remain reachable via the schedule_create LLM tool.
@@ -209,6 +230,7 @@ function handleCreateSchedule(body: Record<string, unknown>) {
   try {
     const job = createSchedule({
       name,
+      description,
       message,
       mode: "execute",
       enabled,
@@ -302,6 +324,15 @@ function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
     if (key in body) {
       updates[key] = body[key];
     }
+  }
+
+  if ("description" in body) {
+    const description =
+      typeof body.description === "string" ? body.description.trim() : "";
+    if (!description) {
+      throw new BadRequestError("description is required");
+    }
+    updates.description = description;
   }
 
   if (updates.timeoutMs != null) {
@@ -460,6 +491,12 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["schedules"],
     requestBody: z.object({
       name: z.string().describe("Display name"),
+      description: z
+        .string()
+        .describe(
+          "Authored schedule description. Defaults to the schedule name when omitted for backward compatibility.",
+        )
+        .optional(),
       expression: z.string().describe("Cron or RRULE expression"),
       message: z.string().describe("Message body to execute on each fire"),
       timezone: z
@@ -552,6 +589,7 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["schedules"],
     requestBody: z.object({
       name: z.string().optional(),
+      description: z.string().optional(),
       expression: z.string().optional(),
       timezone: z.string().optional(),
       message: z.string().optional(),

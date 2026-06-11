@@ -17,6 +17,7 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
+  AgentLoopExitReason,
   PostCompactContext,
   PostModelCallContext,
   PostModelCallDecision,
@@ -124,55 +125,13 @@ interface CompactionAttempt {
   autoCompressApplied: boolean;
 }
 
+export type { AgentLoopExitReason };
+
 /**
- * Why an agent turn reached a terminal state.
- *
- * Emitted as part of an {@link AgentEvent} of type `agent_loop_exit`, then
- * persisted onto the **final** `llm_request_logs` row of the turn. Rows from
- * intermediate turns keep a NULL `agent_loop_exit_reason`, which is how
- * downstream tooling (and the LLM Context Inspector) distinguishes "loop kept
- * going" from "loop is done".
- *
- * Values are stable wire/DB strings — they are written to SQLite and
- * surfaced over the inspector wire format, so renaming any of them is a
- * breaking change.
- *
- * Keep in sync with `emitExit` call sites in {@link AgentLoop.run} and the
- * outer conversation orchestrator paths that terminate after a checkpoint
- * yield. A checkpoint yield used for budget compaction is intentionally not
- * a terminal reason — it is a control transfer before re-entering the loop.
+ * Why a mid-loop compaction ran: `"budget"` for the proactive estimate gate,
+ * `"overflow"` for recovery from a provider context-overflow rejection.
  */
-export type AgentLoopExitReason =
-  /** `if (signal?.aborted) break;` at the top of the loop. */
-  | "aborted_pre_call"
-  /** Assistant message has no tool-use blocks (or no tool executor). */
-  | "no_tool_calls"
-  /** Signal aborted while building the user-side tool-results message. */
-  | "aborted_post_response"
-  /** Signal aborted mid-tool-execution; completed results were pushed. */
-  | "aborted_during_tools"
-  /** A tool result requested handing back to the user. */
-  | "yield_to_user"
-  /** The orchestrator yielded at checkpoint to process a queued message. */
-  | "checkpoint_handoff"
-  /** Context-window recovery exhausted and the turn ended with an error. */
-  | "context_too_large"
-  /**
-   * Auto-compress rerun (post-emergency-compaction, post-tier reducer)
-   * still yielded at the mid-loop budget checkpoint — the turn silently
-   * terminated with no further recovery layer to re-enter. Pure
-   * observability signal so the silent stall is attributable instead of
-   * leaving `agent_loop_exit_reason` NULL.
-   */
-  | "budget_yield_unrecovered"
-  /** Provider stopped because the configured output-token limit was reached. */
-  | "max_tokens_reached"
-  /** User cancellation landed after a non-terminal checkpoint yield. */
-  | "aborted_after_checkpoint"
-  /** Signal aborted while the catch handler was synthesizing an error turn. */
-  | "aborted_via_error"
-  /** Catch-block fallback: an unhandled error broke the loop. */
-  | "error";
+export type CompactionTrigger = "budget" | "overflow";
 
 export type AgentEvent =
   /**
@@ -314,33 +273,66 @@ export type AgentEvent =
        * the mid-loop budget gate tripped. The daemon's event dispatcher
        * translates it into a "compacting context" activity state so clients
        * surface that the turn paused to summarize context.
+       *
+       * Carries the start-side half of the compaction record: everything the
+       * loop knows before handing the history to the compaction pipeline.
+       * The pipeline between this event and `compaction_completed` is
+       * plugin-owned, so consumers must treat the start/end pair (correlated
+       * by `compactionId`) as the complete picture of an attempt. A start
+       * event with no matching end means the pipeline threw or the turn
+       * aborted mid-compaction.
        */
       type: "context_compacting";
+      /** Correlates this start event with its `compaction_completed` pair. */
+      compactionId: string;
+      /** The turn's request id, linking the attempt to the triggering turn. */
+      requestId: string;
+      /**
+       * Why the loop compacted: `"budget"` when the proactive mid-loop
+       * estimate gate tripped, `"overflow"` when recovering from a provider
+       * context-overflow rejection via the reduction ladder.
+       */
+      trigger: CompactionTrigger;
+      /** Epoch ms when the loop began the compaction ceremony. */
+      startedAt: number;
+      /** The running history before injection stripping and compaction. */
+      messages: Message[];
     }
-  | {
+  | ({
       /**
        * Emitted after the loop's inline mid-loop compaction pipeline runs,
        * immediately before re-injection — whether or not the pipeline actually
-       * compacted. The daemon's event dispatcher always commits `basis` (the
-       * stripped pre-compaction history) as the conversation's durable message
-       * state, so re-injection (the post-compaction hook) re-applies
-       * injections onto the stripped base rather than stacking on top of the
-       * still-injected messages. When `result.compacted` is set it
-       * additionally commits the durable compaction result (DB-record fields,
-       * graph-memory side effects, SSE) and flips the per-turn re-injection
-       * guards on the handler state.
+       * compacted. Carries the pipeline's `ContextWindowResult` unnested into
+       * the event, so `messages` here is the pipeline's output history. The
+       * pre-compaction history lives on the paired `context_compacting` start
+       * event (correlated by `compactionId`); consumers that need the
+       * stripped pre-compaction base re-derive it from the start event via
+       * `stripInjectionsForCompaction`.
+       *
+       * The daemon's event dispatcher commits the stripped pre-compaction
+       * base as the conversation's durable message state, so re-injection
+       * (the post-compaction hook) re-applies injections onto the stripped
+       * base rather than stacking on top of the still-injected messages.
+       * When `compacted` is set it additionally commits the durable
+       * compaction result (DB-record fields, graph-memory side effects, SSE)
+       * and projects Slack provenance from the pre-compaction base.
        *
        * Treated as a critical event: a failed durable commit re-throws so the
        * turn aborts rather than re-injecting against half-applied state.
-       *
-       * `basis` is the stripped pre-compaction history the summary was built
-       * from; the dispatcher uses it to project Slack provenance onto the
-       * compacted result.
        */
       type: "compaction_completed";
-      result: ContextWindowResult;
-      basis: Message[];
-    }
+      /** Correlates this end event with its `context_compacting` pair. */
+      compactionId: string;
+      /** The turn's request id, linking the attempt to the triggering turn. */
+      requestId: string;
+      /** Same trigger as the paired start event, duplicated so the end
+       * event is self-sufficient for consumers that only buffer ends. */
+      trigger: CompactionTrigger;
+      /** Epoch ms when the loop began the compaction ceremony. */
+      startedAt: number;
+      /** Epoch ms when the compaction pipeline returned. */
+      finishedAt: number;
+    } & ContextWindowResult)
   | {
       /**
        * Emitted right after the loop strips runtime injections from the
@@ -743,7 +735,18 @@ export class AgentLoop {
     modelProfileKey: string | null,
     overflowSignal?: { actualTokens: number | null; isInteractive: boolean },
   ): Promise<CompactionAttempt> {
-    await onEvent({ type: "context_compacting" });
+    const compactionId = crypto.randomUUID();
+    const startedAt = Date.now();
+    const trigger: CompactionTrigger =
+      overflowSignal != null ? "overflow" : "budget";
+    await onEvent({
+      type: "context_compacting",
+      compactionId,
+      requestId,
+      trigger,
+      startedAt,
+      messages: history,
+    });
     // Strip runtime injections so the compactor summarizes the raw persistent
     // messages.
     const rawHistory = stripInjectionsForCompaction(history);
@@ -779,14 +782,18 @@ export class AgentLoop {
         onEvent,
       );
     }
-    // Emit unconditionally: the dispatcher commits the stripped `basis` as the
-    // durable message base whether or not the pipeline compacted (re-injection
-    // reads it), and runs the durable compaction commit only when
-    // `result.compacted`.
+    // Emit unconditionally: the dispatcher commits the stripped pre-compaction
+    // base (re-derived from the start event) as the durable message base
+    // whether or not the pipeline compacted (re-injection reads it), and runs
+    // the durable compaction commit only when `compacted`.
     await onEvent({
       type: "compaction_completed",
-      result: compactResult,
-      basis: rawHistory,
+      compactionId,
+      requestId,
+      trigger,
+      startedAt,
+      finishedAt: Date.now(),
+      ...compactResult,
     });
     const exhausted = compactResult.exhausted ?? false;
     const autoCompressApplied = compactResult.autoCompressApplied ?? false;
@@ -890,21 +897,61 @@ export class AgentLoop {
     const substitutionMap = new Map<string, string>();
     let streamingPending = "";
 
-    // Idempotency guard for `emitExit`: the first reason stamped wins. A break
-    // site that stamps a specific reason before unwinding into the catch
-    // handler keeps that reason instead of the generic "error", and the guard
-    // also defends against accidental double-emits if a new break site is
-    // added without checking this.
-    let exitReasonEmitted = false;
-    const emitExit = async (reason: AgentLoopExitReason): Promise<void> => {
-      if (exitReasonEmitted) return;
-      exitReasonEmitted = true;
-      await onEvent({ type: "agent_loop_exit", reason });
+    // Single chokepoint for ending the turn. Runs the definitive terminal
+    // `stop` hook chain exactly once — by the time it fires the loop has
+    // committed to ending, so teardown hooks can clear per-turn state with the
+    // guarantee that nothing will re-enter the loop this turn. The first reason
+    // stamped wins: a break site that stamps a specific reason before unwinding
+    // into the catch handler keeps that reason instead of the generic "error",
+    // and the guard also defends against accidental double-invocation if a new
+    // terminal break site is added.
+    //
+    // `emitExit` controls whether the matching `agent_loop_exit` observability
+    // event fires. Real terminal exits emit it; a `checkpoint_handoff` runs the
+    // teardown chain (so per-turn state like recovery bounds is cleared before
+    // the queued message drains) but does not emit, because the orchestrator
+    // owns the handoff signal and the conversation resumes in a fresh run.
+    //
+    // A throwing `stop` hook must not suppress the terminal exit: the chain is
+    // isolated so a failing teardown hook (e.g. a third-party plugin) is logged
+    // but `agent_loop_exit` still fires with the real exit reason. Otherwise the
+    // throw would unwind into the outer catch, which re-enters here as a no-op
+    // (the guard is already set) and the turn's terminal observability event
+    // would be dropped.
+    let turnStopped = false;
+    const runTerminalStop = async (
+      reason: AgentLoopExitReason,
+      { emitExit, error }: { emitExit: boolean; error?: Error },
+    ): Promise<void> => {
+      if (turnStopped) return;
+      turnStopped = true;
+      const stopCtx: StopContext = {
+        conversationId: this.conversationId,
+        messages: [...history],
+        error,
+        exitReason: reason,
+        logger: rlog,
+      };
+      try {
+        await runHook(HOOKS.STOP, stopCtx);
+      } catch (stopHookError) {
+        rlog.error(
+          { err: stopHookError, exitReason: reason },
+          "stop hook threw during terminal teardown; continuing",
+        );
+      }
+      if (emitExit) {
+        await onEvent({ type: "agent_loop_exit", reason });
+      }
     };
+    const stopTurn = (
+      reason: AgentLoopExitReason,
+      error?: Error,
+    ): Promise<void> => runTerminalStop(reason, { emitExit: true, error });
 
     while (true) {
       if (signal?.aborted) {
-        await emitExit("aborted_pre_call");
+        await stopTurn("aborted_pre_call");
         break;
       }
 
@@ -1481,7 +1528,7 @@ export class AgentLoop {
             type: "message_complete",
             message: safeAssistantMessage,
           });
-          await emitExit("max_tokens_reached");
+          await stopTurn("max_tokens_reached");
           break;
         }
 
@@ -1543,28 +1590,14 @@ export class AgentLoop {
         // nothing live (a deferred stream, or a hook-rewritten empty turn).
         emitFinalAssistantText(assistantMessage.content);
 
-        if (toolUseBlocks.length === 0) {
-          // The model stopped requesting tools and `post-model-call` settled on
-          // ending the turn: notify the `stop` chain so terminal hooks (e.g.
-          // title regeneration) react. `stop` has no retry decision here — the
-          // turn's outcome is already resolved.
-          const stopCtx: StopContext = {
-            conversationId: this.conversationId,
-            messages: [...history],
-            responseContent: assistantMessage.content,
-            stopReason: response.stopReason,
-            decision: "stop",
-            logger: rlog,
-          };
-          await runHook(HOOKS.STOP, stopCtx);
-        }
-
         history.push(assistantMessage);
 
         await onEvent({ type: "message_complete", message: assistantMessage });
 
         if (toolUseBlocks.length === 0 || !this.toolExecutor) {
-          await emitExit("no_tool_calls");
+          // The model stopped requesting tools and `post-model-call` settled on
+          // ending the turn: the terminal `stop` chain fires via `stopTurn`.
+          await stopTurn("no_tool_calls");
           break;
         }
 
@@ -1598,7 +1631,7 @@ export class AgentLoop {
               cancelled: true,
             });
           }
-          await emitExit("aborted_post_response");
+          await stopTurn("aborted_post_response");
           break;
         }
 
@@ -1761,7 +1794,7 @@ export class AgentLoop {
         // If cancelled during execution, push completed results and stop
         if (signal?.aborted) {
           history.push({ role: "user", content: resultBlocks });
-          await emitExit("aborted_during_tools");
+          await stopTurn("aborted_during_tools");
           break;
         }
 
@@ -1769,7 +1802,7 @@ export class AgentLoop {
         // surface awaiting a button click), push results and stop the loop.
         if (toolResults.some(({ result }) => result.yieldToUser)) {
           history.push({ role: "user", content: resultBlocks });
-          await emitExit("yield_to_user");
+          await stopTurn("yield_to_user");
           break;
         }
 
@@ -1798,6 +1831,13 @@ export class AgentLoop {
             history,
           });
           if (decision !== "continue") {
+            // A handoff pauses this run so the orchestrator can drain a queued
+            // message, then re-enters with a fresh run. It still ends *this*
+            // turn, so fire the terminal `stop` chain to run teardown (clearing
+            // per-turn state such as recovery bounds before the queued message
+            // is processed) — but without emitting `agent_loop_exit`, since the
+            // orchestrator owns the handoff signal and the conversation resumes.
+            await runTerminalStop("checkpoint_handoff", { emitExit: false });
             exitReason = decision;
             break;
           }
@@ -1833,9 +1873,11 @@ export class AgentLoop {
               });
             }
           }
-          await emitExit("aborted_via_error");
+          await stopTurn("aborted_via_error");
           break;
         }
+
+        const err = error instanceof Error ? error : new Error(String(error));
 
         // Reactive context-overflow recovery. The provider rejected the call
         // because the prompt exceeded its window. Fold the provider's actual
@@ -1853,10 +1895,11 @@ export class AgentLoop {
           (resolveContextWindow?.().overflowRecovery.enabled ?? false)
         ) {
           if (overflowLadderExhausted) {
-            await emitExit(
+            await stopTurn(
               overflowAutoCompressApplied
                 ? "budget_yield_unrecovered"
                 : "context_too_large",
+              err,
             );
             break;
           }
@@ -1899,7 +1942,6 @@ export class AgentLoop {
         // the turn body (tool execution, the success-path stop/post-model-call
         // hooks) is not a provider stop, so it falls straight through to the
         // error path below.
-        const err = error instanceof Error ? error : new Error(String(error));
         if (error === providerCallError) {
           const errorOutcomeCtx: PostModelCallContext = {
             conversationId: this.conversationId,
@@ -1936,31 +1978,6 @@ export class AgentLoop {
             newMessagesStart = history.length;
             continue;
           }
-
-          // A provider rejection is also a stop moment for hooks that still
-          // recover at the stop boundary. Run the chain with the rejection
-          // attached; a `"continue"` re-issues the call with the hook's
-          // repaired history, otherwise the rejection falls through to the
-          // error path.
-          const errorStopCtx: StopContext = {
-            conversationId: this.conversationId,
-            messages: [...history],
-            responseContent: [],
-            stopReason: null,
-            error: err,
-            decision: "stop",
-            logger: rlog,
-          };
-          const finalErrorStopCtx = await runHook(HOOKS.STOP, errorStopCtx);
-          if (finalErrorStopCtx.decision === "continue") {
-            history = finalErrorStopCtx.messages;
-            // A recovery hook rewrites the history anywhere (deep repair merges
-            // and drops messages), so the prior input boundary no longer maps
-            // onto the new array; the repaired history is the base the retry's
-            // output appends after.
-            newMessagesStart = history.length;
-            continue;
-          }
         }
 
         rlog.error(
@@ -1974,7 +1991,7 @@ export class AgentLoop {
         // Catch-block fallback. A break site that stamped a more specific
         // reason before unwinding here keeps it; the guard makes this a no-op.
         // Otherwise this is the genuine unhandled-error exit.
-        await emitExit("error");
+        await stopTurn("error", err);
         break;
       }
     }

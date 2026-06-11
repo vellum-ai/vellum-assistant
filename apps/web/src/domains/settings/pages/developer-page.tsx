@@ -1,13 +1,15 @@
 import { useMemo } from "react";
-import { Navigate, useSearchParams } from "react-router";
+import { Navigate, useNavigate, useSearchParams } from "react-router";
 
 import { AssistantLifecyclePanel } from "@/domains/settings/components/panels/assistant-lifecycle-panel";
 import { EnvironmentConfigPanel } from "@/domains/settings/components/panels/environment-config-panel";
 import { FeatureFlagsPanel } from "@/domains/settings/components/panels/feature-flags-panel";
 import { SentryTestingPanel } from "@/domains/settings/components/panels/sentry-testing-panel";
+import { isLocalMode } from "@/lib/local-mode";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { cn } from "@/utils/misc";
 import { routes } from "@/utils/routes";
+import { Button } from "@vellumai/design-library/components/button";
 
 const ALL_TABS = [
   { id: "feature-flags", label: "Feature Flags" },
@@ -18,6 +20,7 @@ const ALL_TABS = [
 type DeveloperTabId = (typeof ALL_TABS)[number]["id"];
 
 export function DeveloperPage() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const settingsDeveloperNav = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
   const hasHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
@@ -44,33 +47,44 @@ export function DeveloperPage() {
 
   return (
     <div data-slot="developer-page" className="flex min-h-0 flex-1 flex-col">
-      <div
-        role="tablist"
-        aria-label="Developer sections"
-        className="flex shrink-0 items-center gap-1 border-b border-[var(--border-base)]"
-      >
-        {ALL_TABS.map((tab) => {
-          const isActive = tab.id === activeTab;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              aria-controls={`developer-tab-panel-${tab.id}`}
-              id={`developer-tab-${tab.id}`}
-              onClick={() => setActiveTab(tab.id)}
-              className={cn(
-                "relative -mb-px cursor-pointer border-b-2 px-4 py-2 text-body-medium-default transition-colors",
-                isActive
-                  ? "border-[var(--system-positive-strong)] text-[var(--system-positive-strong)]"
-                  : "border-transparent text-[var(--content-tertiary)] hover:text-[var(--content-default)] dark:text-[var(--content-disabled)] dark:hover:text-[var(--content-default)]",
-              )}
-            >
-              {tab.label}
-            </button>
-          );
-        })}
+      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-[var(--border-base)]">
+        <div
+          role="tablist"
+          aria-label="Developer sections"
+          className="flex items-center gap-1"
+        >
+          {ALL_TABS.map((tab) => {
+            const isActive = tab.id === activeTab;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                aria-controls={`developer-tab-panel-${tab.id}`}
+                id={`developer-tab-${tab.id}`}
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(
+                  "relative -mb-px cursor-pointer border-b-2 px-4 py-2 text-body-medium-default transition-colors",
+                  isActive
+                    ? "border-[var(--system-positive-strong)] text-[var(--system-positive-strong)]"
+                    : "border-transparent text-[var(--content-tertiary)] hover:text-[var(--content-default)] dark:text-[var(--content-disabled)] dark:hover:text-[var(--content-default)]",
+                )}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+        {isLocalMode() && (
+          <Button
+            variant="outlined"
+            className="mb-1 shrink-0"
+            onClick={() => void navigate(`${routes.selectAssistant}?fromSettings=1`)}
+          >
+            Choose Assistant
+          </Button>
+        )}
       </div>
 
       <div

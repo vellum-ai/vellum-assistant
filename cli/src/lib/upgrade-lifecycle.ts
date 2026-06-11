@@ -27,6 +27,7 @@ import {
 } from "./statefulset.js";
 import { exec, execOutput } from "./step-runner.js";
 import { compareVersions } from "./version-compat.js";
+import { loopbackSafeFetch } from "./loopback-fetch.js";
 
 // ---------------------------------------------------------------------------
 // Failure log capture
@@ -219,8 +220,8 @@ interface ReplayState {
  * already-captured assistant/gateway envs. GUARDIAN_BOOTSTRAP_SECRET is only
  * set on the gateway; CES_SERVICE_TOKEN and ACTOR_TOKEN_SIGNING_KEY fall back
  * to fresh values for instances that predate them. VELLUM_DEVICE_ID is
- * backfilled from the host for gateways hatched before device-id injection
- * (captured value wins — it was itself host-derived).
+ * backfilled on the gateway from the host, and the assistant inherits the
+ * gateway's value (captured values win) so the pair always matches.
  */
 export function buildReplayState(
   capturedEnv: Record<string, string>,
@@ -229,13 +230,16 @@ export function buildReplayState(
   const extraGatewayEnv = buildReplayEnv(gatewayEnv, "gateway");
   extraGatewayEnv.VELLUM_DEVICE_ID ??= getOrCreateHostDeviceId();
 
+  const extraAssistantEnv = buildReplayEnv(capturedEnv, "assistant");
+  extraAssistantEnv.VELLUM_DEVICE_ID ??= extraGatewayEnv.VELLUM_DEVICE_ID;
+
   return {
     bootstrapSecret: gatewayEnv["GUARDIAN_BOOTSTRAP_SECRET"],
     cesServiceToken:
       capturedEnv["CES_SERVICE_TOKEN"] || randomBytes(32).toString("hex"),
     signingKey:
       capturedEnv["ACTOR_TOKEN_SIGNING_KEY"] || randomBytes(32).toString("hex"),
-    extraAssistantEnv: buildReplayEnv(capturedEnv, "assistant"),
+    extraAssistantEnv,
     extraGatewayEnv,
   };
 }
@@ -271,7 +275,7 @@ export async function fetchCurrentVersion(
   runtimeUrl: string,
 ): Promise<string | undefined> {
   try {
-    const resp = await fetch(`${runtimeUrl}/healthz`, {
+    const resp = await loopbackSafeFetch(`${runtimeUrl}/healthz`, {
       signal: AbortSignal.timeout(5000),
     });
     if (resp.ok) {
@@ -296,7 +300,7 @@ export async function fetchAssistantIngressUrl(
 ): Promise<string | undefined> {
   if (!bearerToken) return undefined;
   try {
-    const resp = await fetch(`${runtimeUrl}/integrations/ingress/config`, {
+    const resp = await loopbackSafeFetch(`${runtimeUrl}/integrations/ingress/config`, {
       headers: { Authorization: `Bearer ${bearerToken}` },
       signal: AbortSignal.timeout(5000),
     });
@@ -338,7 +342,7 @@ export async function fetchPreviousVersion(
   try {
     const { getPlatformUrl } = await import("./platform-client.js");
     const platformUrl = getPlatformUrl();
-    const resp = await fetch(`${platformUrl}/v1/releases/?stable=true`, {
+    const resp = await loopbackSafeFetch(`${platformUrl}/v1/releases/?stable=true`, {
       signal: AbortSignal.timeout(10_000),
     });
     if (!resp.ok) return undefined;
@@ -370,7 +374,7 @@ export async function waitForReady(runtimeUrl: string): Promise<boolean> {
 
   while (Date.now() - start < DOCKER_READY_TIMEOUT_MS) {
     try {
-      const resp = await fetch(readyUrl, {
+      const resp = await loopbackSafeFetch(readyUrl, {
         signal: AbortSignal.timeout(5000),
       });
       if (resp.ok) {
@@ -416,7 +420,7 @@ export async function broadcastUpgradeEvent(
     if (token?.accessToken) {
       headers["Authorization"] = `Bearer ${token.accessToken}`;
     }
-    await fetch(`${gatewayUrl}/v1/admin/upgrade-broadcast`, {
+    await loopbackSafeFetch(`${gatewayUrl}/v1/admin/upgrade-broadcast`, {
       method: "POST",
       headers,
       body: JSON.stringify(event),
@@ -445,7 +449,7 @@ export async function commitWorkspaceViaGateway(
     if (token?.accessToken) {
       headers["Authorization"] = `Bearer ${token.accessToken}`;
     }
-    await fetch(`${gatewayUrl}/v1/admin/workspace-commit`, {
+    await loopbackSafeFetch(`${gatewayUrl}/v1/admin/workspace-commit`, {
       method: "POST",
       headers,
       body: JSON.stringify({ message }),
@@ -488,7 +492,7 @@ export async function rollbackMigrations(
       body.targetWorkspaceMigrationId = targetWorkspaceMigrationId;
     if (rollbackToRegistryCeiling) body.rollbackToRegistryCeiling = true;
 
-    const resp = await fetch(`${gatewayUrl}/v1/admin/rollback-migrations`, {
+    const resp = await loopbackSafeFetch(`${gatewayUrl}/v1/admin/rollback-migrations`, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
@@ -569,7 +573,7 @@ export async function performDockerRollback(
     lastWorkspaceMigrationId?: string;
   } = {};
   try {
-    const healthResp = await fetch(
+    const healthResp = await loopbackSafeFetch(
       `${entry.runtimeUrl}/healthz?include=migrations`,
       { signal: AbortSignal.timeout(5000) },
     );

@@ -21,6 +21,13 @@ export interface Conversation {
   latestAssistantMessageAt?: number;
   lastSeenAssistantMessageAt?: number;
   archivedAt?: number;
+  /**
+   * Epoch-ms timestamp set when a background/scheduled conversation was
+   * explicitly promoted ("surfaced") into the Recents sidebar grouping via
+   * the daemon's surface API. Absent when not surfaced. Conversations are
+   * never surfaced automatically.
+   */
+  surfacedAt?: number;
   groupId?: string;
   source?: string;
   isPinned?: boolean;

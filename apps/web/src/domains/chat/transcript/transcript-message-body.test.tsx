@@ -159,8 +159,8 @@ function toolUseBlock(toolCall: ChatMessageToolCall): ConversationContentBlock {
 }
 
 /**
- * A surface block referencing a surface by id. The block stream drives ordering
- * and presence; the rich `Surface` resolves from `message.surfaces`.
+ * A surface block embedding its surface. The block stream drives ordering and
+ * presence, and the render reads the surface straight off the block.
  */
 function surfaceBlock(surfaceId: string): ConversationContentBlock {
   return { type: "surface", surface: { surfaceId } as never };
@@ -654,14 +654,13 @@ describe("TranscriptMessageBody", () => {
     expect(html).not.toContain("Thinking");
   });
 
-  test("resolves a surface block against message.surfaces by id", () => {
+  test("renders a surface straight off its content block", () => {
     const { container } = render(
       <TranscriptMessageBody
         message={{
           id: "b-surface",
           role: "assistant",
           contentBlocks: [surfaceBlock("s-1")],
-          surfaces: [{ surfaceId: "s-1" } as never],
           timestamp: 1_000,
         }}
         onSurfaceAction={noop}
@@ -680,10 +679,9 @@ describe("TranscriptMessageBody", () => {
       contentBlocks: [
         thinkingBlock("reasoning"),
         toolUseBlock({ id: "tc-1", name: "bash", input: {}, completedAt: 1 }),
-        surfaceBlock("tps-1"),
+        { type: "surface", surface: taskProgressSurface("tps-1") },
         textBlock("all done"),
       ],
-      surfaces: [taskProgressSurface("tps-1")],
       timestamp: 1_000,
     };
 
@@ -816,7 +814,6 @@ describe("TranscriptMessageBody", () => {
           id: "u3",
           role: "user",
           contentBlocks: [textBlock("do this"), surfaceBlock("s-1")],
-          surfaces: [{ surfaceId: "s-1" } as never],
         }}
         onSurfaceAction={noop}
       />,
@@ -843,7 +840,6 @@ describe("TranscriptMessageBody", () => {
           id: "u-order-1",
           role: "user",
           contentBlocks: [surfaceBlock("s-1"), textBlock("after surface")],
-          surfaces: [{ surfaceId: "s-1" } as never],
         }}
         onSurfaceAction={noop}
       />,

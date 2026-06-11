@@ -83,7 +83,6 @@ export function makeCtx(
     }),
     setContextWindowUsageForConversation: mock(() => {}),
     setContextWindowUsage: mock(() => {}),
-    scheduleConversationListRefetch: mock(() => {}),
     queryClient: new QueryClient(),
     setCompactionCircuitOpenUntil: mock(() => {}),
     shiftPendingQueuedMessageId: mock(() => {

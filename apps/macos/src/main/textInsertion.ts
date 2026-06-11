@@ -7,6 +7,8 @@ import {
 } from "electron";
 import { z } from "zod";
 
+import type { TextInsertionResult } from "@vellumai/ipc-contract";
+
 import { runAppleScript } from "./appleScriptExecutor";
 import { handle } from "./ipc";
 import log from "./logger";
@@ -26,11 +28,7 @@ const FILE_CLIPBOARD_FORMATS = [
   "text/uri-list",
 ];
 
-export type TextInsertionResult =
-  | { status: "inserted" }
-  | { status: "vellum-focused" }
-  | { status: "automation-denied" }
-  | { status: "blocked" };
+export type { TextInsertionResult };
 
 export type ClipboardSnapshot =
   | { kind: "structured"; data: Data }

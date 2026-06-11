@@ -856,15 +856,6 @@ export function getConnectionByProvider(
   return getActiveConnection(provider, { clientId });
 }
 
-/** @deprecated Use {@link getActiveConnection} instead. */
-export function getConnectionByProviderAndAccount(
-  provider: string,
-  accountInfo?: string,
-  clientId?: string,
-): OAuthConnectionRow | undefined {
-  return getActiveConnection(provider, { clientId, account: accountInfo });
-}
-
 /**
  * Get ALL active connections for a provider (supports multi-account).
  */

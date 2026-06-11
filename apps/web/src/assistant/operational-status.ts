@@ -8,7 +8,6 @@ import {
   useActiveAssistantIsPlatformHosted,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
   ApiError,
   assertHasResponse,
@@ -117,13 +116,10 @@ export function useAssistantOperationalStatus(assistantId: string | null) {
   const operationalStatusAssistantId =
     useAssistantLifecycleStore.use.operationalStatusAssistantId();
   const activeAssistantIsPlatformHosted = useActiveAssistantIsPlatformHosted();
-  const centralizedAssistantStatus =
-    useClientFeatureFlagStore.use.centralizedAssistantStatus();
   const isOrgReady = useIsOrgReady();
   const targetIsLifecycleOperationAssistant =
     Boolean(assistantId) && assistantId === operationalStatusAssistantId;
   const enabled =
-    centralizedAssistantStatus &&
     Boolean(assistantId) &&
     platformHostedGate === "full" &&
     platformApiGate === "full" &&

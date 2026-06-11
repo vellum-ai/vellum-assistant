@@ -9,7 +9,7 @@ import {
   type ScheduleRowUsage,
 } from "@/domains/settings/utils/schedule-formatters";
 import { Notice } from "@vellumai/design-library/components/notice";
-import { Tag } from "@vellumai/design-library/components/tag";
+import { Tag, type TagTone } from "@vellumai/design-library/components/tag";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import type {
@@ -29,8 +29,11 @@ interface SystemTaskRowProps {
   lastRunAt: number | null;
   usage: ScheduleRowUsage;
   showToggle: boolean;
+  helperText?: string;
+  statusLabel?: string;
+  statusTone?: TagTone;
   onClick: () => void;
-  onToggle: (enabled: boolean) => void;
+  onToggle?: (enabled: boolean) => void;
 }
 
 export function SystemTaskRow({
@@ -41,6 +44,9 @@ export function SystemTaskRow({
   lastRunAt,
   usage,
   showToggle,
+  helperText,
+  statusLabel,
+  statusTone = "neutral",
   onClick,
   onToggle,
 }: SystemTaskRowProps) {
@@ -57,11 +63,15 @@ export function SystemTaskRow({
             <span className="truncate text-body-medium-default text-[var(--content-default)]">
               {name}
             </span>
-            <Tag tone="neutral">system</Tag>
           </div>
           <div className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]">
             {subtitle}
           </div>
+          {helperText ? (
+            <div className="mt-0.5 text-body-small-default text-[var(--content-secondary)]">
+              {helperText}
+            </div>
+          ) : null}
           <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-body-small-default text-[var(--content-tertiary)]">
             {nextRunAt ? (
               <span>Next: {formatTimestamp(nextRunAt)}</span>
@@ -73,7 +83,9 @@ export function SystemTaskRow({
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
           <ScheduleUsageStats scheduleName={name} usage={usage} />
-          {showToggle ? null : (
+          {showToggle ? null : statusLabel ? (
+            <Tag tone={statusTone}>{statusLabel}</Tag>
+          ) : (
             <span
               className="h-2 w-2 rounded-full"
               style={{
@@ -87,7 +99,7 @@ export function SystemTaskRow({
           <ChevronRight className="h-4 w-4 text-[var(--content-tertiary)]" />
         </div>
       </button>
-      {showToggle ? (
+      {showToggle && onToggle ? (
         <Toggle
           checked={enabled}
           onChange={onToggle}
@@ -114,7 +126,6 @@ interface SystemTasksSectionProps {
   onSelectConsolidation: () => void;
   showSystemTaskToggles: boolean;
   onToggleHeartbeat: (enabled: boolean) => void;
-  onToggleConsolidation: (enabled: boolean) => void;
 }
 
 export function SystemTasksSection({
@@ -129,7 +140,6 @@ export function SystemTasksSection({
   onSelectConsolidation,
   showSystemTaskToggles,
   onToggleHeartbeat,
-  onToggleConsolidation,
 }: SystemTasksSectionProps) {
   const showHeartbeat = heartbeatConfig != null;
   const showConsolidation = consolidationConfig?.available === true;
@@ -178,12 +188,18 @@ export function SystemTasksSection({
               name="Consolidation"
               subtitle={consolidationSubtitle(consolidationConfig)}
               enabled={consolidationConfig.enabled}
+              helperText={
+                consolidationConfig.enabled
+                  ? undefined
+                  : "Memory is off, so consolidation is paused."
+              }
               nextRunAt={consolidationConfig.nextRunAt}
               lastRunAt={consolidationConfig.lastRunAt}
               usage={consolidationUsage}
-              showToggle={showSystemTaskToggles}
+              showToggle={false}
+              statusLabel={consolidationConfig.enabled ? undefined : "Paused"}
+              statusTone="warning"
               onClick={onSelectConsolidation}
-              onToggle={onToggleConsolidation}
             />
           ) : null}
           {hasError ? (
@@ -205,5 +221,3 @@ export function SystemTasksSection({
     </DetailCard>
   );
 }
-
-

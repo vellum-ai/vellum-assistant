@@ -39,9 +39,9 @@ import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
 import { useElectronFeatureFlagBridge } from "@/runtime/electron-feature-flags";
 import { GlobalPushToTalkBridge } from "@/domains/chat/voice/global-push-to-talk-bridge";
 import { TimezoneSync } from "@/components/timezone-sync";
-import { UpdateBanner } from "@/components/update-banner";
+import { UpdateToast } from "@/components/update-toast";
 import { retireAssistant } from "@/assistant/retire-service";
-import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
+import { setSelectedAssistant } from "@/assistant/selection";
 import { CreateAssistantDialog } from "@/components/create-assistant-dialog";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -165,7 +165,7 @@ export function RootLayout() {
         // The tray lists managed (platform-hosted) assistants, so switching
         // goes through the platform selection path — not connectLocalAssistant,
         // which primes a local gateway and no-ops for managed assistants.
-        void selectPlatformAssistant(command.assistantId);
+        void setSelectedAssistant(command.assistantId);
       }
     },
     createAssistant: () => {
@@ -253,7 +253,7 @@ export function RootLayout() {
         flexDirection: "column",
       }}
     >
-      <UpdateBanner />
+      <UpdateToast />
       <div className="flex min-w-0 flex-col overflow-hidden w-full" style={{ flex: "1 1 0%", minHeight: 0 }}>
         <Outlet />
       </div>

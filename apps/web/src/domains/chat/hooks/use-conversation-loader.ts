@@ -45,7 +45,6 @@ import { isBackgroundConversation } from "@/utils/conversation-predicates";
 // Module constants
 // ---------------------------------------------------------------------------
 
-const CONVERSATION_LIST_INVALIDATED_DEBOUNCE_MS = 250;
 const CONVERSATION_LIST_LOAD_FAILED_CODE = "CONVERSATION_LIST_LOAD_FAILED";
 
 interface UseConversationLoaderParams {
@@ -82,8 +81,7 @@ interface UseConversationLoaderParams {
  *
  * Owns the primary data-fetching lifecycle for the chat sidebar and
  * transcript. Returns `switchConversation`, `startNewConversation`,
- * `refreshConversations`, and `scheduleConversationListRefetch` for use
- * by sibling hooks.
+ * and `refreshConversations` for use by sibling hooks.
  *
  * Delegates to:
  * - `useConversationHistory` -- conversation switch, cache, and history loading
@@ -114,8 +112,6 @@ export function useConversationLoader({
   useLayoutEffect(() => {
     assistantIdRef.current = assistantId;
   }, [assistantId]);
-  const refreshConversationsRef = useRef<() => Promise<void>>(async () => {});
-  const conversationListInvalidatedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queryClient = useQueryClient();
 
   // -------------------------------------------------------------------------
@@ -141,32 +137,6 @@ export function useConversationLoader({
         });
     }
   }, [assistantId, conversationGroupsUI, queryClient]);
-
-  // Keep the ref in sync so the debounced scheduler always calls the latest.
-  useLayoutEffect(() => {
-    refreshConversationsRef.current = refreshConversations;
-  }, [refreshConversations]);
-
-  // -------------------------------------------------------------------------
-  // scheduleConversationListRefetch -- trailing-edge debounce (250 ms)
-  // -------------------------------------------------------------------------
-  const scheduleConversationListRefetch = useCallback(() => {
-    if (conversationListInvalidatedTimerRef.current) {
-      clearTimeout(conversationListInvalidatedTimerRef.current);
-    }
-    conversationListInvalidatedTimerRef.current = setTimeout(() => {
-      conversationListInvalidatedTimerRef.current = null;
-      refreshConversationsRef.current();
-    }, CONVERSATION_LIST_INVALIDATED_DEBOUNCE_MS);
-  }, []);
-
-  /** Cancel any pending debounced conversation list refetch. */
-  const cancelScheduledRefetch = useCallback(() => {
-    if (conversationListInvalidatedTimerRef.current) {
-      clearTimeout(conversationListInvalidatedTimerRef.current);
-      conversationListInvalidatedTimerRef.current = null;
-    }
-  }, []);
 
   // -------------------------------------------------------------------------
   // Conversation list query subscription
@@ -440,8 +410,6 @@ export function useConversationLoader({
 
   return {
     refreshConversations,
-    scheduleConversationListRefetch,
-    cancelScheduledRefetch,
     switchConversation,
     startNewConversation,
     conversationExistsOnServer,

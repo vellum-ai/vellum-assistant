@@ -1,6 +1,8 @@
 import { BrowserWindow } from "electron";
 import { z } from "zod";
 
+import type { HotkeyScope, ResolvedHotkey } from "@vellumai/ipc-contract";
+
 import { isValidAccelerator } from "./accelerator";
 import {
   DEFAULT_ACCELERATORS,
@@ -10,13 +12,7 @@ import {
 import { handle } from "./ipc";
 import { onSettingChange, readHotkeyOverride, readSetting, writeSetting } from "./settings";
 
-/**
- * Whether a shortcut is registered system-wide (`globalShortcut`, active even
- * when the app is unfocused) or only as a menu accelerator (fires when the app
- * has focus). The renderer uses this to group the two sections the way the
- * native Settings card does.
- */
-export type HotkeyScope = "global" | "menu";
+export type { HotkeyScope, ResolvedHotkey };
 
 interface HotkeyCommand {
   /** Key into `settings.hotkeys` and the matching defaults map. */
@@ -90,28 +86,6 @@ const resolveCommand = (
     rebindable,
   };
 };
-
-/**
- * A catalog command resolved against the current settings: the compiled
- * default, the user's override (if any), and the effective accelerator the app
- * is actually bound to. `override` distinguishes the three states the UI
- * renders: `null` (using the default), `""` (explicitly disabled), or a custom
- * accelerator string.
- */
-export interface ResolvedHotkey {
-  key: string;
-  label: string;
-  scope: HotkeyScope;
-  defaultAccelerator: string;
-  override: string | null;
-  accelerator: string;
-  /**
-   * Whether the user can rebind this command from the settings UI. `false`
-   * entries are reserved accelerators included only so the recorder can detect
-   * conflicts against them; the page does not render a row for them.
-   */
-  rebindable: boolean;
-}
 
 /**
  * The resolved catalog: every rebindable command followed by the reserved

@@ -462,7 +462,7 @@ export class ConversationGraphMemory {
       metrics: null as RetrievalMetrics | null,
     };
 
-    if (!config.memory.enabled) {
+    if (config.memory.enabled === false) {
       // Clear any cached injection so a later overflow-reduction
       // re-injection via `reinjectCachedMemory()` cannot reintroduce a
       // stale <memory> block after the user disables memory.

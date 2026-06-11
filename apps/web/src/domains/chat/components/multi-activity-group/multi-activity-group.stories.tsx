@@ -236,11 +236,13 @@ export const SkillTool: Story = {
 };
 
 /**
- * A purely-web `web_search` group. This is the ONE single-tool case that still
- * renders through `MultiActivityGroup`: web tools always route through the
- * web-search view (never the inline `SingleActivity` link), so even a lone web
- * search is the card's responsibility. The inline favicon chips + carousel
- * header derive from the call's `activityMetadata.webSearch`.
+ * A LONE purely-web `web_search` group (exactly one web tool call). The
+ * dispatcher routes this through the inline, expand-in-place `SingleActivity`
+ * web link — "Web Search | <rotating WebsiteCarousel>" that expands to the
+ * favicon result row in place — rather than a boxed card. Grouped (2+) web
+ * goes through the unified bare activity card instead (see
+ * {@link GroupedWebSearch}). The favicon chips + carousel header derive from
+ * the call's `activityMetadata.webSearch`.
  */
 export const WebSearch: Story = {
   args: baseProps({
@@ -267,6 +269,61 @@ export const WebSearch: Story = {
                 title: "Toronto Time — Time Zone Converter",
                 url: "https://time.is/Toronto",
                 domain: "time.is",
+              },
+            ],
+          },
+        },
+      }),
+    ],
+  }),
+};
+
+/**
+ * A GROUPED purely-web group: TWO `web_search` calls. Unlike the lone case,
+ * this renders through the unified bare `MultiActivityGroup` card with the
+ * favicon-timeline expanded body — one `web_search` step per call grouped under
+ * a single phase header.
+ */
+export const GroupedWebSearch: Story = {
+  args: baseProps({
+    toolCalls: [
+      makeToolCall({
+        name: "web_search",
+        riskLevel: undefined,
+        input: { query: "current time in Toronto" },
+        activityMetadata: {
+          webSearch: {
+            query: "current time in Toronto",
+            provider: "anthropic-native",
+            resultCount: 1,
+            durationMs: 1_400,
+            results: [
+              {
+                rank: 1,
+                title: "Current Local Time in Toronto, Ontario, Canada",
+                url: "https://www.timeanddate.com/worldclock/canada/toronto",
+                domain: "timeanddate.com",
+              },
+            ],
+          },
+        },
+      }),
+      makeToolCall({
+        name: "web_search",
+        riskLevel: undefined,
+        input: { query: "weather in Toronto" },
+        activityMetadata: {
+          webSearch: {
+            query: "weather in Toronto",
+            provider: "anthropic-native",
+            resultCount: 1,
+            durationMs: 900,
+            results: [
+              {
+                rank: 1,
+                title: "Toronto, ON — 7 Day Forecast",
+                url: "https://weather.gc.ca/city/pages/on-143_metric_e.html",
+                domain: "weather.gc.ca",
               },
             ],
           },

@@ -9,11 +9,15 @@ let connectivityStateMock: "online" | "device-offline" | "backend-unreachable" =
 let isElectronMock = false;
 let activeAssistantIdMock: string | null = "assistant-123";
 let operationalStatusAssistantIdMock: string | null = null;
-let activeAssistantIsPlatformHostedMock = true;
+let assistantStateMock:
+  | { kind: "loading" }
+  | { kind: "active"; isLocal: boolean; maintenanceMode?: { enabled: boolean } } =
+  { kind: "active", isLocal: false };
 let requestedOperationalStatusAssistantId: string | null | undefined;
 let operationalStatusQueryMock: {
   data: { state: string } | null | undefined;
   isError: boolean;
+  refetch?: () => void;
 } = {
   data: null,
   isError: false,
@@ -33,10 +37,6 @@ mock.module("@/hooks/use-connectivity-state", () => ({
   useConnectivityState: () => connectivityStateMock,
 }));
 
-mock.module("@/hooks/use-platform-gate", () => ({
-  useActiveAssistantIsPlatformHosted: () => activeAssistantIsPlatformHostedMock,
-}));
-
 mock.module("@/runtime/is-electron", () => ({
   isElectron: () => isElectronMock,
 }));
@@ -51,18 +51,37 @@ mock.module("react-router", () => ({
   ),
 }));
 
+mock.module("@/generated/api/sdk.gen", () => ({
+  assistantsMaintenanceModeExitCreate: () =>
+    Promise.resolve({ response: new Response(null, { status: 204 }) }),
+}));
+
+mock.module("@/assistant/lifecycle-service", () => ({
+  lifecycleService: {
+    checkAssistant: () => Promise.resolve(),
+  },
+}));
+
+mock.module("@/lib/sentry/capture-error", () => ({
+  captureError: () => {},
+}));
+
 mock.module("@/assistant/operational-status", () => ({
   isHealthyOperationalStatus: (status: { state?: string } | null | undefined) =>
     status?.state === "active",
   useAssistantOperationalStatus: (assistantId: string | null) => {
     requestedOperationalStatusAssistantId = assistantId;
-    return operationalStatusQueryMock;
+    return {
+      ...operationalStatusQueryMock,
+      refetch: operationalStatusQueryMock.refetch ?? (() => {}),
+    };
   },
 }));
 
 mock.module("@/assistant/lifecycle-store", () => ({
   useAssistantLifecycleStore: {
     use: {
+      assistantState: () => assistantStateMock,
       operationalStatusAssistantId: () => operationalStatusAssistantIdMock,
     },
   },
@@ -108,7 +127,7 @@ beforeEach(() => {
   isElectronMock = false;
   activeAssistantIdMock = "assistant-123";
   operationalStatusAssistantIdMock = null;
-  activeAssistantIsPlatformHostedMock = true;
+  assistantStateMock = { kind: "active", isLocal: false };
   requestedOperationalStatusAssistantId = undefined;
   operationalStatusQueryMock = {
     data: null,
@@ -175,7 +194,7 @@ describe("StatusBanner", () => {
   });
 
   test("does not render Doctor action for local assistant operational errors", () => {
-    activeAssistantIsPlatformHostedMock = false;
+    assistantStateMock = { kind: "active", isLocal: true };
     operationalStatusQueryMock = {
       data: { state: "crash_loop" },
       isError: false,
@@ -188,7 +207,6 @@ describe("StatusBanner", () => {
   });
 
   test("does not render Doctor action for lifecycle operation errors that do not target the active assistant", () => {
-    activeAssistantIsPlatformHostedMock = true;
     activeAssistantIdMock = "assistant-active";
     operationalStatusAssistantIdMock = "assistant-operation";
     operationalStatusQueryMock = {
@@ -223,6 +241,21 @@ describe("StatusBanner", () => {
 
     expect(maintenanceHtml).toContain("Assistant is in maintenance mode");
     expect(maintenanceHtml).toContain('data-tone="info"');
+    expect(maintenanceHtml).toContain("Resume Assistant");
+  });
+
+  test("renders maintenance mode from lifecycle state when operational status is absent", () => {
+    assistantStateMock = {
+      kind: "active",
+      isLocal: false,
+      maintenanceMode: { enabled: true },
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(html).toContain("Assistant is in maintenance mode");
+    expect(html).toContain('data-tone="info"');
+    expect(html).toContain("Resume Assistant");
   });
 
   test("renders status query failures as error banners", () => {
@@ -239,7 +272,7 @@ describe("StatusBanner", () => {
   });
 
   test("does not render Doctor action for local assistant status query failures", () => {
-    activeAssistantIsPlatformHostedMock = false;
+    assistantStateMock = { kind: "active", isLocal: true };
     operationalStatusQueryMock = {
       data: null,
       isError: true,

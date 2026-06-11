@@ -19,7 +19,7 @@ import {
     writeSelectedVersion,
 } from "@/domains/onboarding/prefs";
 import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
-import { getLocalGatewayUrl, getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, saveLockfileAssistant, setSelectedAssistantId } from "@/lib/local-mode";
+import { getLocalGatewayUrl, getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, saveLockfileAssistant } from "@/lib/local-mode";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { avatarQueryKey } from "@/lib/sync/query-tags";
 import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
@@ -27,7 +27,7 @@ import { buildNavigationState } from "@/lib/navigation/build-state";
 import { hatchLocalAssistant } from "@/runtime/local-mode-host";
 import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
-import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
+import { setSelectedAssistant } from "@/assistant/selection";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -304,7 +304,11 @@ export function HatchingScreen() {
           }
           await loadLockfile();
           if (result.assistantId) {
-            setSelectedAssistantId(result.assistantId);
+            // The selection key is written synchronously, so the /readyz loop
+            // below resolves the new assistant's gateway URL. The lifecycle's
+            // selection subscription may briefly point at the not-yet-ready
+            // gateway; the re-prime below converges it.
+            void setSelectedAssistant(result.assistantId);
           }
 
           // Wait for the gateway + daemon to be fully ready before proceeding.
@@ -365,7 +369,7 @@ export function HatchingScreen() {
               is_local: true,
               created: new Date().toISOString(),
             } as Assistant);
-            void selectPlatformAssistant(result.assistantId);
+            void setSelectedAssistant(result.assistantId);
             void persistHatchAvatar(result.assistantId);
           }
 
@@ -456,7 +460,7 @@ export function HatchingScreen() {
           if (result.ok) {
             const assistantId = result.data.id;
             useResolvedAssistantsStore.getState().upsertFromApi(result.data);
-            void selectPlatformAssistant(assistantId);
+            void setSelectedAssistant(assistantId);
             if (createdFreshAssistant || preflightFoundNoAssistant) {
               void persistHatchAvatar(assistantId);
             }

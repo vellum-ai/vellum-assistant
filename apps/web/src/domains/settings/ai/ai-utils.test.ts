@@ -46,6 +46,20 @@ describe("applyConfigPatch", () => {
     );
   });
 
+  test("merges memory.enabled without clobbering sibling config", () => {
+    const config: DaemonConfig = {
+      ...BASE_CONFIG,
+      memory: { enabled: true, v2: { enabled: true } },
+    };
+    const patch: DaemonConfigPatch = {
+      memory: { enabled: false },
+    };
+
+    const result = applyConfigPatch(config, patch);
+
+    expect(result.memory).toEqual({ enabled: false, v2: { enabled: true } });
+  });
+
   test("updates activeProfile", () => {
     const patch: DaemonConfigPatch = { llm: { activeProfile: "fast" } };
     const result = applyConfigPatch(BASE_CONFIG, patch);
@@ -203,6 +217,24 @@ describe("snapshotPatchedFields", () => {
     };
     const snapshot = snapshotPatchedFields(sparse, patch);
     expect(snapshot.services?.["web-search"]).toBeNull();
+  });
+
+  test("snapshots memory when touched by the patch", () => {
+    const config: DaemonConfig = {
+      ...BASE_CONFIG,
+      memory: { enabled: true, v2: { enabled: true } },
+    };
+
+    const snapshot = snapshotPatchedFields(config, {
+      memory: { enabled: false },
+    });
+
+    expect(snapshot.memory).toEqual({
+      enabled: true,
+      v2: { enabled: true },
+    });
+    expect(snapshot.services).toBeUndefined();
+    expect(snapshot.llm).toBeUndefined();
   });
 
   test("snapshots only the profile entries touched by the patch", () => {

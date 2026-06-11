@@ -19,6 +19,7 @@ import {
   refreshGuardianToken,
   guardianTokenDueForRenewal,
 } from "./guardian-token.js";
+import { loopbackSafeFetch } from "./loopback-fetch.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const FALLBACK_RUNTIME_URL = `http://127.0.0.1:${GATEWAY_PORT}`;
@@ -203,7 +204,7 @@ export class AssistantClient {
     const doFetch = (): Promise<Response> => {
       const headers = buildHeaders();
       if (opts?.signal) {
-        return fetch(url, {
+        return loopbackSafeFetch(url, {
           method,
           headers,
           body: jsonBody,
@@ -213,7 +214,7 @@ export class AssistantClient {
       const timeout = opts?.timeout ?? DEFAULT_TIMEOUT_MS;
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeout);
-      return fetch(url, {
+      return loopbackSafeFetch(url, {
         method,
         headers,
         body: jsonBody,

@@ -14,6 +14,7 @@
 import { create } from "zustand";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
+import { setSelectedAssistant } from "@/assistant/selection";
 import { createSelectors } from "@/utils/create-selectors";
 import {
   isAuthenticated,
@@ -38,8 +39,6 @@ import {
   isLocalMode,
   getPlatformAssistants,
   getLocalAssistants,
-  clearSelectedAssistant,
-  setSelectedAssistantId,
   primeLocalGatewayConnection,
   primeLocalGatewayConnectionWithRepair,
   syncPlatformAssistantsToLockfile,
@@ -265,24 +264,37 @@ function probePlatformSession(
         // platformSession to "present". The auth middleware unblocks on
         // `platformSession !== "unknown"`, and hasAssistants() must
         // already reflect synced platform assistants at that point.
-        // Bounded to 3s so a hanging list call can't block the probe
-        // from settling — the middleware's 5s timeout would loop
-        // indefinitely otherwise.
+        // The whole sequence (org fetch, list, host replace) is bounded
+        // to 3s so a hanging call can't block the probe from settling —
+        // the middleware's 5s timeout would loop indefinitely otherwise.
+        // The race does not cancel the inner branch, so the guard also
+        // checks `timedOut`: once the probe settles without the sync, a
+        // late commit must not land after routing decisions were made on
+        // the un-synced lockfile. `!isStale()` likewise keeps a
+        // superseded probe from committing an out-of-date lockfile.
         if (isLocalMode()) {
+          let timedOut = false;
+          const syncIsCurrent = (): boolean => !timedOut && !isStale();
           try {
-            await useOrganizationStore.getState().fetchOrganizations();
-            const apiAssistants = await Promise.race([
-              listAssistants(),
+            await Promise.race([
+              (async () => {
+                await useOrganizationStore.getState().fetchOrganizations();
+                const apiAssistants = await listAssistants();
+                if (syncIsCurrent() && apiAssistants.ok) {
+                  await syncPlatformAssistantsToLockfile(
+                    apiAssistants.data,
+                    useOrganizationStore.getState().currentOrganizationId ?? undefined,
+                    syncIsCurrent,
+                  );
+                }
+              })(),
               new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error("sync timeout")), 3_000),
+                setTimeout(() => {
+                  timedOut = true;
+                  reject(new Error("sync timeout"));
+                }, 3_000),
               ),
             ]);
-            if (!isStale() && apiAssistants.ok) {
-              await syncPlatformAssistantsToLockfile(
-                apiAssistants.data,
-                useOrganizationStore.getState().currentOrganizationId ?? undefined,
-              );
-            }
           } catch {
             // Sync failed or timed out — continue with cached lockfile data
           }
@@ -392,10 +404,6 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
                   apiAssistants.data,
                   useOrganizationStore.getState().currentOrganizationId ?? undefined,
                 );
-                if (getPlatformAssistants().length === 0 && getLocalAssistants().length === 0) {
-                  set(authenticatedPlatformUser(user));
-                  return;
-                }
               }
             } catch {
               // Sync failed — continue with cached data
@@ -472,8 +480,13 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
 
   /**
    * Connect to a specific local assistant from an interactive surface (the
-   * login picker / auto-connect). Selects the assistant, primes its gateway
-   * connection, and marks the session logged in.
+   * login picker / auto-connect). Primes its gateway connection, selects the
+   * assistant, and marks the session logged in.
+   *
+   * Priming runs BEFORE the selection write: the lifecycle's selection
+   * subscription republishes the connection synchronously on the write, so
+   * the token must already be minted for the new gateway — and a failed
+   * connect leaves the previous selection in place.
    *
    * Unlike {@link AuthActions.initSession}, which is the best-effort boot
    * probe and swallows failures, this rethrows so the caller can surface the
@@ -485,14 +498,17 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
    * stays on the plain primitive so app launch never spawns daemon processes.
    */
   connectLocalAssistant: async (assistantId: string) => {
-    setSelectedAssistantId(assistantId);
-    await primeLocalGatewayConnectionWithRepair();
+    const target = getLocalAssistants().find(
+      (a) => a.assistantId === assistantId,
+    );
+    await primeLocalGatewayConnectionWithRepair(target);
+    await setSelectedAssistant(assistantId);
     set(authenticatedLocalUser());
     probePlatformSessionIfReachable(set);
   },
 
   connectPlatformAssistant: async (assistantId: string) => {
-    setSelectedAssistantId(assistantId);
+    await setSelectedAssistant(assistantId);
     const result = await getSession();
     if (!result.ok || !result.data.user) {
       throw new Error("Platform authentication required");
@@ -555,15 +571,18 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
 
   logout: async () => {
     if (isGatewayAuthMode()) {
-      clearSelectedAssistant();
+      // Clear lifecycle state BEFORE `sessionStatus` leaves `authenticated`
+      // so the assistant sync hooks don't observe a stale assistant id in
+      // their first re-render, and BEFORE the selection clear so the
+      // lifecycle's selection subscription (guarded on `loading`) doesn't
+      // resurrect an active state mid-logout. The `respondToInputs`
+      // not-authenticated branch is the safety net for token-expiry-style
+      // flips.
+      lifecycleService.resetForLogout();
+      await setSelectedAssistant(null);
       clearGatewayToken();
       clearOrganization();
       clearUserScopedStorage();
-      // Clear lifecycle state BEFORE `sessionStatus` leaves `authenticated`
-      // so the assistant sync hooks don't observe a stale assistant id in
-      // their first re-render. The `respondToInputs` not-authenticated
-      // branch is the safety net for token-expiry-style flips.
-      lifecycleService.resetForLogout();
       set(sessionEnded());
       broadcastAuthChange();
       return;
@@ -582,6 +601,10 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       clearOrganization();
       clearUserScopedStorage();
       lifecycleService.resetForLogout();
+      // Clear the selection slice too — `clearUserScopedStorage` already
+      // removed the persisted key, and a surviving slice would resolve the
+      // previous user's assistant after re-login.
+      await setSelectedAssistant(null);
       set(sessionEnded());
       broadcastAuthChange();
     }

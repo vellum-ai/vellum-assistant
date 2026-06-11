@@ -28,6 +28,14 @@ interface CallRailProps {
    * local `open` state.
    */
   onSelect?: () => void;
+  /**
+   * Conversation-wide call numbers keyed by log id. Provided in
+   * message-scoped mode so each row keeps its position from the start
+   * of the conversation (e.g. "Call 12") instead of renumbering the
+   * scoped subset from 1. Rows without an entry fall back to the
+   * subset-relative number.
+   */
+  callNumbers?: ReadonlyMap<string, number>;
 }
 
 /**
@@ -42,6 +50,7 @@ export function CallRail({
   selectedLogId,
   buildCallHref,
   onSelect,
+  callNumbers,
 }: CallRailProps): ReactNode {
   if (!logs.length) {
     return (
@@ -68,7 +77,9 @@ export function CallRail({
         <CallRow
           key={entry.id}
           entry={entry}
-          callNumber={logs.length - displayIndex}
+          callNumber={
+            callNumbers?.get(entry.id) ?? logs.length - displayIndex
+          }
           isSelected={entry.id === selectedLogId}
           isLatest={displayIndex === 0}
           href={buildCallHref(entry.id)}

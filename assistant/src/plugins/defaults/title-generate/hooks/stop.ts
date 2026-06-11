@@ -50,26 +50,21 @@ function countUserTurns(messages: ReadonlyArray<Message>): number {
 }
 
 const stop: PluginHookFn<StopContext> = async (ctx) => {
-  // Re-title only at a genuine successful turn end. An error stop (a provider
-  // rejection) produced no new topic to re-title from, and a `"continue"`
-  // decision means an earlier hook is re-querying the model (e.g. an
-  // empty-response nudge or an ordering-repair retry), so defer to the
-  // eventual terminal stop.
-  if (ctx.error) return;
-  if (ctx.decision !== "stop") return;
+  // Re-title only at a genuine successful turn end (the model returned a reply
+  // with no tool calls). Any other terminal — a provider rejection, abort, or
+  // an output-limit cutoff — produced no new topic to re-title from.
+  if (ctx.exitReason !== "no_tool_calls") return;
 
   if (getConfig().conversations.skipAutoRetitling) return;
 
   if (countUserTurns(ctx.messages) !== SECOND_PASS_USER_TURN) return;
 
   const { conversationId } = ctx;
-  // Deferred to a later macrotask so the just-completed turn lands first. The
-  // hook fires at the stop boundary, before the loop appends the turn's
-  // assistant reply to history and emits `message_complete` (which persists
-  // it). The service regenerates from the most recent stored messages, so it
-  // must run after the reply is persisted to reflect it. The service is itself
-  // fire-and-forget and re-checks replaceability, owning provider resolution,
-  // persistence, and the resulting broadcast.
+  // Deferred to a later macrotask so the just-completed turn's persistence
+  // settles first. The service regenerates from the most recent stored
+  // messages, so it must run after the reply is persisted to reflect it. The
+  // service is itself fire-and-forget and re-checks replaceability, owning
+  // provider resolution, persistence, and the resulting broadcast.
   setTimeout(() => {
     queueRegenerateConversationTitle({ conversationId });
   }, 0);

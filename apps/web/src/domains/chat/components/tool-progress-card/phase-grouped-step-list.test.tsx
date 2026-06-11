@@ -34,7 +34,7 @@ function bash(
 ): ToolCallCardStep {
   return {
     kind: "tool",
-    title: "Working (bash)",
+    title: "Working",
     info: command,
     activity: "",
     iconName: "code",
@@ -70,7 +70,7 @@ describe("PhaseGroupedStepList — phase grouping", () => {
     expect(pills.length).toBe(2);
   });
 
-  test("Thinking → Working (bash) → Thinking produces 3 distinct phase sections", () => {
+  test("Thinking → Working → Thinking produces 3 distinct phase sections", () => {
     const steps: ToolCallCardStep[] = [
       thinking("First reasoning"),
       bash("ls -la", "completed", "1s", "tc-bash-1"),
@@ -80,9 +80,7 @@ describe("PhaseGroupedStepList — phase grouping", () => {
     const sections = getAllByTestId("phase-section");
     expect(sections.length).toBe(3);
     expect(sections[0]!.getAttribute("data-phase-label")).toBe("Thinking");
-    expect(sections[1]!.getAttribute("data-phase-label")).toBe(
-      "Working (bash)",
-    );
+    expect(sections[1]!.getAttribute("data-phase-label")).toBe("Working");
     expect(sections[2]!.getAttribute("data-phase-label")).toBe("Thinking");
   });
 });

@@ -1,12 +1,7 @@
 import {
     Brain,
-    Calendar,
-    ChevronDown,
-    ChevronRight,
     Clock,
-    ExternalLink,
     Hash,
-    Layers,
     LayoutGrid,
     Pin,
     Rocket,
@@ -14,7 +9,7 @@ import {
     SquarePen,
     X,
 } from "lucide-react";
-import { useCallback, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { useCallback, type ReactNode } from "react";
 
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
@@ -26,15 +21,10 @@ import {
     type ConversationMenuItemsProps,
 } from "@/domains/chat/components/conversation-actions-menu";
 import { GroupActionsMenu, renderGroupMenuItems } from "@/domains/chat/components/group-actions-menu";
-import { BackgroundSubGroups, ScheduledSubGroups } from "@/domains/chat/components/sub-group-accordion";
 import { ThreadPinToggle } from "@/domains/chat/components/thread-pin-toggle";
 import { SIDEBAR_CONVERSATION_LIMIT, useSidebarState, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
-import {
-    formatBackgroundSubGroupLabel,
-    groupBackgroundConversationsBySource,
-} from "@/domains/chat/utils/background-sub-groups";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
-import { buildMoveToGroupTargets, isConversationPinned } from "@/domains/chat/utils/group-conversations";
+import { isConversationPinned } from "@/domains/chat/utils/group-conversations";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import type { Conversation } from "@/types/conversation-types";
 import { canMarkRead, canMarkUnread } from "@/utils/conversation-predicates";
@@ -63,17 +53,6 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onOpenApp?: (appId: string) => void;
   activeAppId?: string;
   onStartNewConversation?: () => void;
-  onNewConversationInNewWindow?: () => void;
-  /**
-   * Returns a freshly-minted URL for a brand-new conversation. When provided
-   * alongside `onStartNewConversation`, the "New conversation" affordance
-   * renders as a link so the browser's native open-in-new-tab / new-window
-   * gestures work; a plain left click still starts the conversation in place.
-   *
-   * A *generator* (not a static string) so every gesture gets a distinct draft
-   * id — opening several tabs in a row must not land them on one shared draft.
-   */
-  getNewConversationHref?: () => string;
   footerAction?: ReactNode;
   onClose?: () => void;
 
@@ -83,8 +62,6 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onUnarchiveConversation?: (conversation: Conversation) => void;
   onMarkConversationUnread?: (conversation: Conversation) => void;
   onMarkConversationRead?: (conversation: Conversation) => void;
-  onMoveToGroup?: (conversation: Conversation, groupId: string) => void;
-  onRemoveFromGroup?: (conversation: Conversation) => void;
   onRenameGroup?: (groupId: string) => void;
   onDeleteGroup?: (groupId: string) => void;
   onMarkAllReadInGroup?: (conversations: Conversation[]) => void;
@@ -128,8 +105,6 @@ function SearchButton({ onClose }: { onClose?: () => void }) {
  *     • thread …       — recent conversations inline
  *     • …
  *     • Show more/less — page through recent conversations
- *     • Scheduled      — collapsible category
- *     • Background     — collapsible category (includes Reflections sub-group)
  *     • Slack ▾        — collapsible category when Slack conversations exist
  *   Footer
  *     • ───────────────
@@ -152,8 +127,6 @@ export function AssistantSideMenu({
   onOpenApp,
   activeAppId,
   onStartNewConversation,
-  onNewConversationInNewWindow,
-  getNewConversationHref,
   footerAction,
   onPinConversation,
   onRenameConversation,
@@ -162,8 +135,6 @@ export function AssistantSideMenu({
   onMarkConversationUnread,
   onMarkConversationRead,
   conversationGroups,
-  onMoveToGroup,
-  onRemoveFromGroup,
   onRenameGroup,
   onDeleteGroup,
   onMarkAllReadInGroup,
@@ -210,8 +181,6 @@ export function AssistantSideMenu({
     conversation: Conversation,
   ): ConversationMenuItemsProps => {
     const isChannel = isChannelConversation(conversation);
-    const inCustomGroup =
-      !!conversation.groupId && !conversation.groupId.startsWith("system:");
     return {
       isPinned: isConversationPinned(conversation),
       isArchived: conversation.archivedAt != null,
@@ -237,18 +206,6 @@ export function AssistantSideMenu({
           ? () => onMarkConversationUnread(conversation)
           : undefined,
       isMarkUnreadDisabled: !canMarkUnread(conversation),
-      moveToGroups:
-        sidebar.conversationGroupsEnabled && onMoveToGroup
-          ? buildMoveToGroupTargets(conversation, conversationGroups)
-          : undefined,
-      onMoveToGroup:
-        sidebar.conversationGroupsEnabled && onMoveToGroup
-          ? (groupId) => onMoveToGroup(conversation, groupId)
-          : undefined,
-      onRemoveFromGroup:
-        sidebar.conversationGroupsEnabled && onRemoveFromGroup && inCustomGroup
-          ? () => onRemoveFromGroup(conversation)
-          : undefined,
       onAnalyze:
         onAnalyze && conversation.conversationId != null && !isChannel
           ? () => onAnalyze(conversation)
@@ -312,112 +269,28 @@ export function AssistantSideMenu({
     });
   };
 
-  // --- Shared sub-component props ---
-
-  const subGroupProps = {
-    activeConversationId,
-    attentionConversationIds,
-    onSelectConversation: useCallback(
-      (key: string) => { onSelectConversation(key); onClose?.(); },
-      [onSelectConversation, onClose],
-    ),
-    renderActions: renderThreadActions,
-    renderPinToggle: renderThreadPinToggle,
-    renderRow: renderThreadRow,
-  };
-
   const selectAndClose = useCallback(
     (key: string) => { onSelectConversation(key); onClose?.(); },
     [onSelectConversation, onClose],
   );
 
   // --- Header actions ---
-  //
-  // Rendered as a link (when a href generator is supplied) so the browser's
-  // native open-in-new-tab / new-window gestures work on the pencil. A fresh
-  // draft id is minted on every pointer-down and context-menu so sequential
-  // new-tab opens never share one draft. A plain left click is intercepted to
-  // start the conversation in place; modified / non-primary clicks fall
-  // through to the browser and follow the href.
+  // A plain icon button that starts a new conversation on click.
 
-  const [newConversationHref, setNewConversationHref] = useState<
-    string | undefined
-  >(() => getNewConversationHref?.());
-
-  const refreshNewConversationHref = useCallback(() => {
-    if (getNewConversationHref) {
-      setNewConversationHref(getNewConversationHref());
-    }
-  }, [getNewConversationHref]);
-
-  const handleNewConversationClick = useCallback(
-    (event: MouseEvent<HTMLAnchorElement>) => {
-      if (
-        event.button !== 0 ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.shiftKey ||
-        event.altKey
-      ) {
-        return;
-      }
-      event.preventDefault();
-      onStartNewConversation?.();
-      onClose?.();
-    },
-    [onStartNewConversation, onClose],
-  );
-
-  let newConversationButton: ReactNode = null;
-  if (onStartNewConversation && newConversationHref != null) {
-    newConversationButton = (
-      <Button
-        asChild
-        variant="ghost"
-        size="compact"
-        iconOnly={<SquarePen />}
-        aria-label="New conversation"
-        tooltip="New conversation"
-        tooltipSide="right"
-      >
-        <a
-          href={newConversationHref}
-          onClick={handleNewConversationClick}
-          onPointerDown={refreshNewConversationHref}
-          onContextMenu={refreshNewConversationHref}
-        />
-      </Button>
-    );
-  } else if (onStartNewConversation) {
-    newConversationButton = (
-      <Button
-        variant="ghost"
-        size="compact"
-        iconOnly={<SquarePen />}
-        aria-label="New conversation"
-        tooltip="New conversation"
-        tooltipSide="right"
-        onClick={() => {
-          onStartNewConversation();
-          onClose?.();
-        }}
-      />
-    );
-  }
-
-  const headerActions = newConversationButton && onNewConversationInNewWindow ? (
-    <ContextMenu.Root>
-      <ContextMenu.Trigger>{newConversationButton}</ContextMenu.Trigger>
-      <ContextMenu.Content>
-        <ContextMenu.Item
-          leftIcon={<ExternalLink size={14} />}
-          onSelect={onNewConversationInNewWindow}
-        >
-          New Conversation in New Window
-        </ContextMenu.Item>
-      </ContextMenu.Content>
-    </ContextMenu.Root>
-  ) : newConversationButton;
+  const headerActions = onStartNewConversation ? (
+    <Button
+      variant="ghost"
+      size="compact"
+      iconOnly={<SquarePen />}
+      aria-label="New conversation"
+      tooltip="New conversation"
+      tooltipSide="right"
+      onClick={() => {
+        onStartNewConversation();
+        onClose?.();
+      }}
+    />
+  ) : null;
 
   // --- Flat conversation list renderer ---
 
@@ -573,36 +446,6 @@ export function AssistantSideMenu({
             >
               {(close) => renderCollapsedGroupContent("Slack", sidebar.slack.all, close)}
             </CollapsedGroupIcon>
-            <CollapsedGroupIcon
-              icon={Calendar}
-              label="Scheduled"
-              onOpenChange={(open) => {
-                if (open) {
-                  sidebar.activateScheduled();
-                }
-              }}
-              indicatorState={getGroupIndicatorState(sidebar.scheduled, processingConversationIds, attentionConversationIds)}
-            >
-              {(close) =>
-                renderCollapsedGroupContent(
-                  "Scheduled",
-                  sidebar.scheduled,
-                  close,
-                  <CollapsedGroupEmptyState loading={sidebar.scheduledLoading} />,
-                )
-              }
-            </CollapsedGroupIcon>
-            <CollapsedBackgroundGroup
-              conversations={sidebar.background}
-              loading={sidebar.backgroundLoading}
-              onReveal={sidebar.activateBackground}
-              activeConversationId={activeConversationId}
-              onSelectConversation={selectAndClose}
-              renderActions={renderThreadActions}
-              renderPinToggle={renderThreadPinToggle}
-              processingConversationIds={processingConversationIds}
-              attentionConversationIds={attentionConversationIds}
-            />
           </div>
         ) : (
           <>
@@ -650,32 +493,6 @@ export function AssistantSideMenu({
                     )}
                   </CollapsibleNavSection.Section>
                 ) : null}
-
-                <CollapsibleNavSection.Section
-                  value="scheduled"
-                  icon={Calendar}
-                  label="Scheduled"
-                  contextMenuContent={buildGroupContextMenu("Scheduled", sidebar.scheduled)}
-                >
-                  <ScheduledSubGroups
-                    subGroups={sidebar.scheduledSubGroups}
-                    loading={sidebar.scheduledLoading}
-                    {...subGroupProps}
-                  />
-                </CollapsibleNavSection.Section>
-
-                <CollapsibleNavSection.Section
-                  value="background"
-                  icon={Layers}
-                  label="Background"
-                  contextMenuContent={buildGroupContextMenu("Background", sidebar.background)}
-                >
-                  <BackgroundSubGroups
-                    subGroups={sidebar.backgroundSubGroups}
-                    loading={sidebar.backgroundLoading}
-                    {...subGroupProps}
-                  />
-                </CollapsibleNavSection.Section>
               </CollapsibleNavSection.Root>
 
               {sidebar.conversationGroupsEnabled && sidebar.customGroups.length > 0 ? (
@@ -748,151 +565,5 @@ export function AssistantSideMenu({
         </SideMenu.Footer>
       ) : null}
     </SideMenu>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Collapsed-rail lazy-section placeholder
-// ---------------------------------------------------------------------------
-
-/**
- * Placeholder shown inside a collapsed-rail flyout for the Background and
- * Scheduled sections, which are openable before their lazy fetch resolves.
- */
-function CollapsedGroupEmptyState({ loading }: { loading: boolean }) {
-  return (
-    <div className="px-4 py-2 text-body-small-default text-[var(--content-tertiary)]">
-      {loading ? "Loading…" : "No conversations"}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Collapsed background group — extracted so it can own sub-group expand state
-// ---------------------------------------------------------------------------
-
-interface CollapsedBackgroundGroupProps {
-  conversations: Conversation[];
-  /** True while the lazy background fetch is in flight after a reveal. */
-  loading?: boolean;
-  /** Called when the flyout opens, to enable the lazy background fetch. */
-  onReveal?: () => void;
-  activeConversationId?: string;
-  onSelectConversation: (conversationId: string) => void;
-  renderActions: (conversation: Conversation) => ReactNode;
-  renderPinToggle: (conversation: Conversation) => ReactNode;
-  processingConversationIds?: Set<string>;
-  attentionConversationIds?: Set<string>;
-}
-
-function CollapsedBackgroundGroup({
-  conversations,
-  loading = false,
-  onReveal,
-  activeConversationId,
-  onSelectConversation,
-  renderActions,
-  renderPinToggle,
-  processingConversationIds,
-  attentionConversationIds,
-}: CollapsedBackgroundGroupProps) {
-  const subGroups = useMemo(() => groupBackgroundConversationsBySource(conversations), [conversations]);
-  const [manualExpandedKeys, setManualExpandedKeys] = useState<Set<string>>(new Set());
-
-  const attentionExpandedKeys = useMemo(() => {
-    if (!attentionConversationIds || attentionConversationIds.size === 0) return new Set<string>();
-    const keys = new Set<string>();
-    for (const group of subGroups) {
-      if (group.key.startsWith("__single__:")) continue;
-      if (group.conversations.some(c => attentionConversationIds.has(c.conversationId))) {
-        keys.add(group.key);
-      }
-    }
-    return keys;
-  }, [attentionConversationIds, subGroups]);
-
-  const expandedKeys = useMemo(() => {
-    if (attentionExpandedKeys.size === 0) return manualExpandedKeys;
-    const merged = new Set(manualExpandedKeys);
-    for (const k of attentionExpandedKeys) merged.add(k);
-    return merged;
-  }, [manualExpandedKeys, attentionExpandedKeys]);
-
-  const toggleGroup = (key: string) => {
-    setManualExpandedKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
-  };
-
-  return (
-    <CollapsedGroupIcon
-      icon={Layers}
-      label="Background"
-      onOpenChange={(open) => {
-        if (open) {
-          onReveal?.();
-        }
-      }}
-      indicatorState={getGroupIndicatorState(conversations, processingConversationIds, attentionConversationIds)}
-    >
-      {(closePopover) => (
-        <div className="pb-1">
-          <div className="flex items-center justify-between px-4 py-1">
-            <span className="text-body-small-default text-[var(--content-tertiary)]">Background</span>
-          </div>
-          <div className="px-2">
-            {conversations.length === 0 ? (
-              <CollapsedGroupEmptyState loading={loading} />
-            ) : null}
-            {subGroups.map((group) => {
-              const isSingle = group.key.startsWith("__single__:");
-              if (isSingle) {
-                const c = group.conversations[0];
-                if (!c) return null;
-                return (
-                  <PanelItem
-                    key={c.conversationId}
-                    leadingSlot={renderPinToggle(c)}
-                    label={c.title ?? "Untitled"}
-                    active={c.conversationId === activeConversationId}
-                    onSelect={() => { closePopover(); onSelectConversation(c.conversationId); }}
-                    trailingAction={renderActions(c)}
-                  />
-                );
-              }
-
-              const isExpanded = expandedKeys.has(group.key);
-              return (
-                <div key={group.key}>
-                  <PanelItem
-                    icon={isExpanded ? ChevronDown : ChevronRight}
-                    label={formatBackgroundSubGroupLabel(group.key)}
-                    onSelect={() => toggleGroup(group.key)}
-                  />
-                  {isExpanded
-                    ? group.conversations.map((c) => (
-                        <PanelItem
-                          key={c.conversationId}
-                          leadingSlot={renderPinToggle(c)}
-                          label={c.title ?? "Untitled"}
-                          active={c.conversationId === activeConversationId}
-                          onSelect={() => { closePopover(); onSelectConversation(c.conversationId); }}
-                          trailingAction={renderActions(c)}
-                        />
-                      ))
-                    : null}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </CollapsedGroupIcon>
   );
 }

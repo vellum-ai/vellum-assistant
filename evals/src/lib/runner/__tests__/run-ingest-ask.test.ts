@@ -92,6 +92,17 @@ interface FakeAgentOptions {
    * ingest drain's quiet window.
    */
   ingestEventDelayMs?: number;
+  /**
+   * Usage records the egress jail's `readUsageRecords()` returns — the
+   * assistant's observed model traffic. Omit to leave the capability
+   * unimplemented (the runner then surfaces an empty `recordedUsage`).
+   */
+  usageRecords?: Array<Record<string, unknown>>;
+  /**
+   * When true, `readUsageRecords()` records the shutdown count at call time
+   * so a test can assert it ran *before* the agent was retired.
+   */
+  trackUsageReadOrder?: boolean;
 }
 
 interface FakeAgentHarness {
@@ -101,6 +112,12 @@ interface FakeAgentHarness {
   writes: () => WorkspaceFileWrite[];
   sends: () => string[];
   confirms: () => ConfirmationDecision[];
+  /**
+   * Shutdown count observed at the moment `readUsageRecords()` was called,
+   * or `undefined` if it was never called. `0` proves the usage read
+   * happened before the agent was retired.
+   */
+  shutdownCountAtUsageRead: () => number | undefined;
 }
 
 /**
@@ -114,6 +131,7 @@ interface FakeAgentHarness {
 function makeFakeAgent(opts: FakeAgentOptions = {}): FakeAgentHarness {
   let hatched = false;
   let shutdowns = 0;
+  let shutdownCountAtUsageRead: number | undefined;
   const writes: WorkspaceFileWrite[] = [];
   const sends: string[] = [];
   const confirms: ConfirmationDecision[] = [];
@@ -193,6 +211,14 @@ function makeFakeAgent(opts: FakeAgentOptions = {}): FakeAgentHarness {
       confirms.push(input);
     };
   }
+  if (opts.usageRecords) {
+    agent.readUsageRecords = async () => {
+      if (opts.trackUsageReadOrder) {
+        shutdownCountAtUsageRead = shutdowns;
+      }
+      return opts.usageRecords!.map((record) => ({ ...record }));
+    };
+  }
 
   return {
     agent,
@@ -201,6 +227,7 @@ function makeFakeAgent(opts: FakeAgentOptions = {}): FakeAgentHarness {
     writes: () => writes.slice(),
     sends: () => sends.slice(),
     confirms: () => confirms.slice(),
+    shutdownCountAtUsageRead: () => shutdownCountAtUsageRead,
   };
 }
 
@@ -244,9 +271,52 @@ describe("runIngestAsk — happy path", () => {
       result.questionConversationKey,
     );
     expect(result.hypothesis).toBe("March 14, 2025");
+    expect(result.questionAnswered).toBe(true);
     expect(result.ingestEvents.length).toBe(2);
     expect(result.questionEvents.length).toBe(2);
     expect(result.ingestSentinelSeen).toBe(true);
+    expect(harness.shutdownCount()).toBe(1);
+    // An adapter without the egress-jail capability surfaces no usage.
+    expect(result.recordedUsage).toEqual([]);
+  });
+
+  test("surfaces the egress jail's usage records, read before the agent is retired", async () => {
+    // GIVEN an agent whose egress jail observed two model calls
+    const records = [
+      {
+        provider: "anthropic",
+        model: "claude",
+        input_tokens: 100,
+        output_tokens: 20,
+      },
+      {
+        provider: "anthropic",
+        model: "claude",
+        input_tokens: 5,
+        output_tokens: 300,
+      },
+    ];
+    const harness = makeFakeAgent({
+      responses: [[textEvent("ack"), readyEvent()], [textEvent("answer")]],
+      usageRecords: records,
+      trackUsageReadOrder: true,
+    });
+    nextAgent = harness.agent;
+
+    // WHEN the two-conversation run completes
+    const result = await runIngestAsk({
+      profile: profileFor("p-fake"),
+      runId: "r-usage",
+      inputs: [],
+      ingestMessage: "ingest",
+      questionMessage: "question",
+      quietMs: 25,
+    });
+
+    // THEN the recorded usage is surfaced verbatim for the caller to price
+    expect(result.recordedUsage).toEqual(records);
+    // AND it was read while the agent (and its sidecar) was still alive
+    expect(harness.shutdownCountAtUsageRead()).toBe(0);
     expect(harness.shutdownCount()).toBe(1);
   });
 
@@ -573,11 +643,11 @@ describe("runIngestAsk — event-stream failures", () => {
     expect(harness.shutdownCount()).toBe(1);
   });
 
-  test("throws when the question turn emits only non-text events, carrying both event streams for debugging", async () => {
+  test("returns an unanswered result (not an error) when the question turn emits only non-text events", async () => {
     // GIVEN an ingest turn that completes on the sentinel
     // AND a question turn that produces events but no gradable text
-    // (e.g. conversation B did on-demand retrieval but never composed an
-    // answer before the drain ended)
+    // (e.g. conversation B did on-demand retrieval / extended thinking but
+    // never composed an answer before its time budget elapsed)
     const harness = makeFakeAgent({
       responses: [
         [textEvent("ack"), readyEvent()],
@@ -587,22 +657,24 @@ describe("runIngestAsk — event-stream failures", () => {
     nextAgent = harness.agent;
 
     // WHEN the run executes
-    const err = await runIngestAsk({
+    const result = await runIngestAsk({
       profile: profileFor("p-toolonly"),
       runId: "r-7",
       inputs: [],
       ingestMessage: "ingest",
       questionMessage: "ask",
       quietMs: 25,
-    }).catch((e: unknown) => e);
+    });
 
-    // THEN it fails loudly because there is no hypothesis to judge
-    expect(err).toBeInstanceOf(IngestAskError);
-    expect((err as Error).message).toMatch(/no assistant text/);
-    // AND it carries both the ingest- and question-turn events so the
-    // caller can persist them and inspect what conversation B did
-    expect((err as IngestAskError).ingestEvents.length).toBe(2);
-    expect((err as IngestAskError).questionEvents.length).toBe(1);
+    // THEN it does NOT throw — "too slow to answer" is a gradable outcome,
+    // so the run returns normally with an empty hypothesis flagged as
+    // unanswered, leaving the caller to score it a completed miss.
+    expect(result.questionAnswered).toBe(false);
+    expect(result.hypothesis).toBe("");
+    // AND it still carries both turns' events so the caller can persist
+    // them and inspect what conversation B did
+    expect(result.ingestEvents.length).toBe(2);
+    expect(result.questionEvents.length).toBe(1);
     expect(harness.shutdownCount()).toBe(1);
   });
 });

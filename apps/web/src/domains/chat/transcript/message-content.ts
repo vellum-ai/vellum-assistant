@@ -65,10 +65,9 @@ function hasToolCallId(
  * newlines, timing widened to the earliest start / latest completion), matching
  * macOS. A `text` or `surface` block closes the open
  * activity group and passes through unchanged as its own group; the render
- * body reads the client-narrowed `Surface` (placement, orphaned binding) from
- * `message.surfaces` by the block's `surface.surfaceId`. `attachment` blocks
- * are skipped — attachments render in their own region from
- * `message.attachments`. Pure — no React/DOM.
+ * body reads the surface straight off the block's `surface`, narrowed to the
+ * display `Surface` at render. `attachment` blocks are skipped — attachments
+ * render in their own region from `message.attachments`. Pure — no React/DOM.
  */
 export function groupContentBlocks(
   blocks: ConversationContentBlock[],

@@ -15,7 +15,7 @@ import {
 } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
+import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { clearQueueStatus } from "@/domains/chat/utils/stream-updaters/shared";
 import { useTurnStore } from "@/domains/chat/turn-store";
@@ -130,7 +130,7 @@ export function useMessageQueue({
     if (!tail) {
       return;
     }
-    useComposerStore.getState().setInput(segmentsToPlainText(tail.textSegments));
+    useComposerStore.getState().setInput(messagePlainText(tail));
     handleCancelQueuedMessage(tail.id);
   }, [queuedMessages, handleCancelQueuedMessage]);
 

@@ -20,7 +20,7 @@ import { isElectron } from "@/runtime/is-electron";
 import { openPopoutWindow } from "@/runtime/popout-window";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
-import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
+import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -199,7 +199,7 @@ export function useConversationSecondaryActions({
       parts.push(`# ${activeConversation.title}`);
     }
     for (const msg of useChatSessionStore.getState().messages) {
-      const text = segmentsToPlainText(msg.textSegments);
+      const text = messagePlainText(msg);
       if (!text.trim()) continue;
       const sender = msg.role === "user" ? "You" : name;
       parts.push(`### ${sender}\n${text}`);

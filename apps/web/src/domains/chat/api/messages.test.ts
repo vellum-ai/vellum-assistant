@@ -366,6 +366,7 @@ describe("getChatHistory", () => {
               "Slack reply",
               "[File attachment] file.pdf, type=application/pdf",
             ],
+            contentOrder: ["text:0", "text:1"],
             slackMessage,
             timestamp: "2026-05-15T12:34:56.000Z",
           },

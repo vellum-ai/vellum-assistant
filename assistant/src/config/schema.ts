@@ -27,6 +27,7 @@ import {
   WhatsAppConfigSchema,
 } from "./schemas/channels.js";
 import { CompactionConfigSchema } from "./schemas/compaction.js";
+import { CompactionLogsConfigSchema } from "./schemas/compaction-logs.js";
 import { ConversationsConfigSchema } from "./schemas/conversations.js";
 import { FilingConfigSchema } from "./schemas/filing.js";
 import { HeartbeatConfigSchema } from "./schemas/heartbeat.js";
@@ -107,6 +108,7 @@ export const AssistantConfigSchema = z
     compaction: CompactionConfigSchema.default(
       CompactionConfigSchema.parse({}),
     ),
+    compactionLogs: CompactionLogsConfigSchema,
     twilio: TwilioConfigSchema.default(TwilioConfigSchema.parse({})),
     calls: CallsConfigSchema.default(CallsConfigSchema.parse({})),
     whatsapp: WhatsAppConfigSchema.default(WhatsAppConfigSchema.parse({})),

@@ -643,6 +643,7 @@ function pluginDetails(overrides: Partial<PluginDetails> = {}): PluginDetails {
     },
     readme: overrides.readme ?? null,
     ref: overrides.ref ?? "main",
+    artifact: overrides.artifact ?? null,
   };
 }
 

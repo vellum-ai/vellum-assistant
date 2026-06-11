@@ -63,6 +63,10 @@ import {
   persistWakeTailMessage,
   scopeWakeAllowedTools,
 } from "../daemon/wake-conversation-ops.js";
+import {
+  recordCompactionEndBestEffort,
+  recordCompactionStartBestEffort,
+} from "../memory/compaction-log-store-clickhouse.js";
 import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
 import {
   buildProviderErrorResponsePayload,
@@ -598,6 +602,15 @@ export async function wakeAgentForOpportunity(
       }
     };
     const onEvent = (event: AgentEvent): void => {
+      // Compaction logging is observability, not turn state, so it writes
+      // immediately even while buffering — a compaction during a silent
+      // (never-goes-live) wake still happened and should be recorded.
+      if (event.type === "context_compacting") {
+        recordCompactionStartBestEffort(conversationId, event);
+      }
+      if (event.type === "compaction_completed") {
+        recordCompactionEndBestEffort(conversationId, event);
+      }
       // Replicates the recordRequestLog side-effect in `handleUsage` because
       // wakes own their own onEvent and never reach `dispatchAgentEvent`.
       // Defer persistence while buffering — see `pendingLogs` above.
