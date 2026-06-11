@@ -174,12 +174,11 @@ export interface GroupedSchedules {
   pastOneTime: Schedule[];
 }
 
+// A one-shot with a future nextRunAt is upcoming even when lastRunAt is set:
+// a failed attempt with retries left keeps lastRunAt while the backend
+// schedules the retry in the future.
 function isPastOneTime(schedule: Schedule, now: number): boolean {
-  return (
-    schedule.lastRunAt != null ||
-    schedule.nextRunAt == null ||
-    schedule.nextRunAt <= now
-  );
+  return schedule.nextRunAt == null || schedule.nextRunAt <= now;
 }
 
 export function groupSchedules(

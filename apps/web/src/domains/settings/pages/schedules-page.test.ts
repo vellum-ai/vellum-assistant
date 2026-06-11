@@ -243,6 +243,21 @@ describe("groupSchedules", () => {
     expect(grouped.pastOneTime.map((s) => s.id)).toEqual(["p1", "p2"]);
   });
 
+  test("a failed one-shot awaiting retry stays upcoming", () => {
+    const retrying = schedule({
+      id: "retry-1",
+      isOneShot: true,
+      lastRunAt: now - 60_000,
+      lastStatus: "error",
+      nextRunAt: now + 60_000,
+    });
+
+    const grouped = groupSchedules([retrying], now);
+
+    expect(grouped.upcomingOneTime.map((s) => s.id)).toEqual(["retry-1"]);
+    expect(grouped.pastOneTime).toEqual([]);
+  });
+
   test("orders upcoming one-shots soonest first", () => {
     const later = schedule({
       id: "later",
