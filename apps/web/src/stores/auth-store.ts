@@ -267,24 +267,32 @@ function probePlatformSession(
         // The whole sequence (org fetch, list, host replace) is bounded
         // to 3s so a hanging call can't block the probe from settling —
         // the middleware's 5s timeout would loop indefinitely otherwise.
-        // `!isStale()` keeps a superseded probe from committing an
-        // out-of-date lockfile.
+        // The race does not cancel the inner branch, so the guard also
+        // checks `timedOut`: once the probe settles without the sync, a
+        // late commit must not land after routing decisions were made on
+        // the un-synced lockfile. `!isStale()` likewise keeps a
+        // superseded probe from committing an out-of-date lockfile.
         if (isLocalMode()) {
+          let timedOut = false;
+          const syncIsCurrent = (): boolean => !timedOut && !isStale();
           try {
             await Promise.race([
               (async () => {
                 await useOrganizationStore.getState().fetchOrganizations();
                 const apiAssistants = await listAssistants();
-                if (!isStale() && apiAssistants.ok) {
+                if (syncIsCurrent() && apiAssistants.ok) {
                   await syncPlatformAssistantsToLockfile(
                     apiAssistants.data,
                     useOrganizationStore.getState().currentOrganizationId ?? undefined,
-                    () => !isStale(),
+                    syncIsCurrent,
                   );
                 }
               })(),
               new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error("sync timeout")), 3_000),
+                setTimeout(() => {
+                  timedOut = true;
+                  reject(new Error("sync timeout"));
+                }, 3_000),
               ),
             ]);
           } catch {
