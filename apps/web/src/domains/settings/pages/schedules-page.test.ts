@@ -536,9 +536,9 @@ describe("SystemTaskRow", () => {
 
     expect(screen.queryByRole("button", { name: /Run now/i })).toBeNull();
     expect(screen.getByLabelText("enabled")).toBeTruthy();
-    expect(screen.getByText("Cost")).toBeTruthy();
+    expect(screen.getByText("Cost (7d)")).toBeTruthy();
     expect(screen.getByText("$0.42")).toBeTruthy();
-    expect(screen.getByText("Runs")).toBeTruthy();
+    expect(screen.getByText("Runs (7d)")).toBeTruthy();
     expect(screen.getByText("2 runs")).toBeTruthy();
   });
 });

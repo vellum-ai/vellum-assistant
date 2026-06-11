@@ -41,10 +41,10 @@ export function ScheduleUsageStats({
     return (
       <div
         aria-label="Loading schedule usage"
-        className="flex w-[136px] shrink-0 items-center justify-end gap-3"
+        className="flex w-[156px] shrink-0 items-center justify-end gap-3"
       >
-        <span className="h-8 w-14 animate-pulse rounded bg-[var(--surface-muted)]" />
-        <span className="h-8 w-14 animate-pulse rounded bg-[var(--surface-muted)]" />
+        <span className="h-8 w-16 animate-pulse rounded bg-[var(--surface-muted)]" />
+        <span className="h-8 w-16 animate-pulse rounded bg-[var(--surface-muted)]" />
       </div>
     );
   }
@@ -58,16 +58,16 @@ export function ScheduleUsageStats({
     : formatScheduleRunCount(usage.summary.runCount);
 
   return (
-    <div className="flex w-[136px] shrink-0 items-center justify-end gap-3 text-right">
+    <div className="flex w-[156px] shrink-0 items-center justify-end gap-3 text-right">
       {onOpenUsage ? (
         <button
           type="button"
           onClick={onOpenUsage}
           aria-label={`View usage for ${scheduleName}`}
-          className="min-w-[54px] cursor-pointer rounded px-1 py-0.5 text-right transition-colors hover:bg-[var(--surface-hover)]"
+          className="min-w-[64px] cursor-pointer rounded px-1 py-0.5 text-right transition-colors hover:bg-[var(--surface-hover)]"
         >
           <span className="block text-label-small-default text-[var(--content-tertiary)]">
-            Cost
+            Cost (7d)
           </span>
           <span className="block text-body-small-default text-[var(--content-default)]">
             {cost}
@@ -76,10 +76,10 @@ export function ScheduleUsageStats({
       ) : (
         <span
           aria-label={`Cost for ${scheduleName} in the last 7 days: ${cost}`}
-          className="block min-w-[54px] px-1 py-0.5"
+          className="block min-w-[64px] px-1 py-0.5"
         >
           <span className="block text-label-small-default text-[var(--content-tertiary)]">
-            Cost
+            Cost (7d)
           </span>
           <span className="block text-body-small-default text-[var(--content-default)]">
             {cost}
@@ -88,10 +88,10 @@ export function ScheduleUsageStats({
       )}
       <span
         aria-label={`Runs for ${scheduleName} in the last 7 days: ${runs}`}
-        className="block min-w-[54px] px-1 py-0.5"
+        className="block min-w-[64px] px-1 py-0.5"
       >
         <span className="block text-label-small-default text-[var(--content-tertiary)]">
-          Runs
+          Runs (7d)
         </span>
         <span className="block text-body-small-default text-[var(--content-default)]">
           {runs}
