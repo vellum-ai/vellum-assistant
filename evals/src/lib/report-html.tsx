@@ -11,6 +11,7 @@ import type {
 } from "./metrics";
 import type {
   DockerArtifactFile,
+  ReportProfileInSession,
   ReportRunDetail,
   ReportSessionDetail,
   ReportSessionSummary,
@@ -189,6 +190,12 @@ h1 { font-size: clamp(34px, 5vw, 64px); line-height: .95; margin: 10px 0; letter
 .run-heading { font-size: 32px; margin: 0 0 6px; letter-spacing: -.04em; }
 .run-heading-meta { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; color: var(--muted); font-size: 13px; margin-bottom: 22px; }
 .run-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+.profile-info { margin: 0; display: grid; gap: 14px; padding: 18px 20px; border: 1px solid var(--border); border-radius: 18px; background: rgba(255,255,255,.04); }
+.profile-info > div { display: grid; grid-template-columns: 120px 1fr; gap: 16px; align-items: start; }
+.profile-info dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; margin: 0; }
+.profile-info dd { margin: 0; }
+.profile-setup { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.profile-setup code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 .cli-command { margin: 0 0 22px; padding: 14px 18px; border: 1px solid var(--border); border-radius: 14px; background: rgba(0,0,0,.32); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 1.5; color: #dbeafe; word-break: break-all; }
 .cli-command-label { display: block; font-family: inherit; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .14em; margin-bottom: 6px; font-weight: 800; }
 .cli-command code { font-family: inherit; }
@@ -543,6 +550,7 @@ function SessionPage({ session }: { session: ReportSessionDetail }) {
             <ProfileAggregateCard
               key={aggregate.profileId}
               aggregate={aggregate}
+              href={`/sessions/${encodeURIComponent(session.sessionId)}/profiles/${encodeURIComponent(aggregate.profileId)}`}
             />
           ))}
         </div>
@@ -743,6 +751,173 @@ function TestInSessionPage({ test }: { test: ReportTestInSession }) {
           test.
         </p>
         <MetricSummaryTable profiles={test.profiles} />
+      </section>
+    </>
+  );
+}
+
+function setupCommands(
+  setup: NonNullable<ReportProfileInSession["info"]>["setup"],
+): string[] {
+  if (setup === undefined) return [];
+  return Array.isArray(setup) ? setup : [setup];
+}
+
+function ProfileInfoPanel({
+  profileId,
+  info,
+}: {
+  profileId: string;
+  info?: ReportProfileInSession["info"];
+}) {
+  const commands = setupCommands(info?.setup);
+  return (
+    <dl className="profile-info">
+      <div>
+        <dt>Profile</dt>
+        <dd>{profileId}</dd>
+      </div>
+      <div>
+        <dt>Species</dt>
+        <dd>{info?.species ?? "—"}</dd>
+      </div>
+      {info?.version ? (
+        <div>
+          <dt>Version</dt>
+          <dd>{info.version}</dd>
+        </div>
+      ) : null}
+      <div>
+        <dt>Description</dt>
+        <dd>{info?.description ?? "No description in this profile's manifest."}</dd>
+      </div>
+      <div>
+        <dt>Setup</dt>
+        <dd>
+          {commands.length === 0 ? (
+            "None — bare profile."
+          ) : (
+            <ul className="profile-setup">
+              {commands.map((command, index) => (
+                <li key={index}>
+                  <code>{command}</code>
+                </li>
+              ))}
+            </ul>
+          )}
+        </dd>
+      </div>
+    </dl>
+  );
+}
+
+function ProfileTestRow({
+  sessionId,
+  profileId,
+  entry,
+}: {
+  sessionId: string;
+  profileId: string;
+  entry: ReportProfileInSession["tests"][number];
+}) {
+  const url = `/sessions/${encodeURIComponent(sessionId)}/tests/${encodeURIComponent(entry.testId)}/profiles/${encodeURIComponent(profileId)}`;
+  return (
+    <tr className="linked">
+      <td>
+        <a href={url} className="row-link">
+          <strong>{entry.testId}</strong>
+        </a>
+      </td>
+      <td>
+        <a href={url} className="row-link">
+          <StatusBadge status={entry.status} />
+        </a>
+      </td>
+      <td>
+        <a
+          href={url}
+          className={`row-link score ${scoreClass(entry.scoreTotal)}`}
+        >
+          {formatAggregateScore(entry.scoreTotal)}
+        </a>
+      </td>
+      <td>
+        <a href={url} className="row-link muted">
+          {entry.metricCount}
+        </a>
+      </td>
+      <td>
+        <a href={url} className="row-link muted">
+          {entry.transcriptTurns}
+        </a>
+      </td>
+      <td>
+        <a href={url} className="row-link muted">
+          {formatCost(entry.totalCostUsd)}
+        </a>
+      </td>
+    </tr>
+  );
+}
+
+function ProfileInSessionPage({
+  profile,
+}: {
+  profile: ReportProfileInSession;
+}) {
+  const sessionUrl = `/sessions/${encodeURIComponent(profile.sessionId)}`;
+  return (
+    <>
+      <Crumbs
+        trail={[
+          { href: "/", label: "All runs" },
+          { href: sessionUrl, label: profile.sessionLabel ?? profile.sessionId },
+          { label: profile.profileId },
+        ]}
+      />
+      <h1 className="run-heading">{profile.profileId}</h1>
+      <div className="run-heading-meta">
+        <span className={`score ${scoreClass(profile.scoreTotal)}`}>
+          {formatAggregateScore(profile.scoreTotal)} overall
+        </span>
+        <span>
+          {profile.tests.length} test{profile.tests.length === 1 ? "" : "s"}
+        </span>
+      </div>
+
+      <section className="section">
+        <h2>Profile</h2>
+        <ProfileInfoPanel profileId={profile.profileId} info={profile.info} />
+      </section>
+
+      <section className="section">
+        <h2>Test scores</h2>
+        <p className="section-subtle">
+          How this profile scored on every test in the run. Click a test to
+          open its transcript and logs.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Test</th>
+              <th>Status</th>
+              <th>Score</th>
+              <th>Metrics</th>
+              <th>Turns</th>
+              <th>Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            {profile.tests.map((entry) => (
+              <ProfileTestRow
+                key={entry.testId}
+                sessionId={profile.sessionId}
+                profileId={profile.profileId}
+                entry={entry}
+              />
+            ))}
+          </tbody>
+        </table>
       </section>
     </>
   );
@@ -1252,6 +1427,7 @@ function NotFoundPage({ message }: { message: string }) {
 export type ReportPageInput =
   | { kind: "index"; sessions: ReportSessionSummary[] }
   | { kind: "session"; session: ReportSessionDetail }
+  | { kind: "profile"; profile: ReportProfileInSession }
   | { kind: "test"; test: ReportTestInSession }
   | { kind: "execution"; run: ReportRunDetail }
   | { kind: "not-found"; message: string };
@@ -1262,6 +1438,8 @@ function pageTitle(input: ReportPageInput): string {
       return "Vellum Evals Report Card";
     case "session":
       return `Run · ${sessionTitle(input.session)}`;
+    case "profile":
+      return `Profile · ${input.profile.profileId}`;
     case "test":
       return `Test · ${input.test.testId}`;
     case "execution":
@@ -1283,6 +1461,8 @@ function PageBody({
       return <IndexPage sessions={input.sessions} readOnly={readOnly} />;
     case "session":
       return <SessionPage session={input.session} />;
+    case "profile":
+      return <ProfileInSessionPage profile={input.profile} />;
     case "test":
       return <TestInSessionPage test={input.test} />;
     case "execution":
