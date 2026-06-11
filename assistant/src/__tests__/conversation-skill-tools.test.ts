@@ -521,7 +521,9 @@ describe("projectSkillTools", () => {
       previouslyActiveSkillIds: sessionState,
     });
     expect(result1.toolDefinitions).toEqual([]);
-    expect(sessionState.has("deploy")).toBe(false);
+    // Tracked as a manifest-less activation — no tools registered yet.
+    expect(sessionState.has("deploy")).toBe(true);
+    expect(mockRegisteredTools.has("deploy")).toBe(false);
 
     // Turn 2: manifest now available
     mockManifests = { deploy: makeManifest(["deploy_run"]) };
@@ -548,11 +550,12 @@ describe("projectSkillTools", () => {
     expect(sessionState.has("deploy")).toBe(true);
     expect(mockSkillRefCount.get("deploy")).toBe(1);
 
-    // Turn 2: manifest transiently fails — skill should be unregistered
+    // Turn 2: manifest transiently fails — tools should be unregistered
+    // (the skill stays tracked as a manifest-less activation)
     mockManifests = {};
     mockUnregisteredSkillIds = [];
     projectSkillTools(history, { previouslyActiveSkillIds: sessionState });
-    expect(sessionState.has("deploy")).toBe(false);
+    expect(sessionState.has("deploy")).toBe(true);
     expect(mockUnregisteredSkillIds).toContain("deploy");
     // Ref count should be 0 (properly decremented)
     expect(mockSkillRefCount.has("deploy")).toBe(false);
@@ -985,6 +988,115 @@ describe("skill_loaded telemetry recording", () => {
     // Tool projection behavior is unchanged when recording fails
     expect(result.allowedToolNames.has("notes_add")).toBe(true);
     expect(sessionState.has("notes")).toBe(true);
+  });
+
+  test("instruction-only bundled skill (no TOOLS.json) records exactly one event", () => {
+    mockCatalog = [makeSkill("guides", undefined, "bundled")];
+    // No manifest registered for "guides" — instruction-only skill.
+    mockCachedCatalog = [{ id: "guides", updatedAt: "2026-02-03T04:05:06Z" }];
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="guides" />'),
+    ];
+    projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: makeTelemetry(),
+    });
+
+    expect(recordedSkillLoadedEvents).toHaveLength(1);
+    expect(recordedSkillLoadedEvents[0]).toEqual({
+      conversationId: "conv-xyz",
+      skillName: "guides",
+      skillUpdatedAt: "2026-02-03T04:05:06Z",
+      provider: "test-provider",
+      model: "test-model",
+      inferenceProfile: "balanced",
+      inferenceProfileSource: "active",
+    });
+
+    // Still active next turn — no re-record.
+    projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: makeTelemetry(),
+    });
+    expect(recordedSkillLoadedEvents).toHaveLength(1);
+  });
+
+  test("instruction-only managed skill with vellum origin records exactly one event", () => {
+    mockCatalog = [makeSkill("catalog-skill")];
+    // No manifest — mirrors installSkillLocally output for catalog skills.
+    mockInstallMetas = {
+      "catalog-skill": {
+        origin: "vellum",
+        installedAt: "2026-01-01T00:00:00Z",
+      },
+    };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="catalog-skill" />'),
+    ];
+    projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: makeTelemetry(),
+    });
+    projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: makeTelemetry(),
+    });
+
+    expect(recordedSkillLoadedEvents).toHaveLength(1);
+    expect(recordedSkillLoadedEvents[0].skillName).toBe("catalog-skill");
+  });
+
+  test("instruction-only non-Vellum skills never record", () => {
+    mockCatalog = [
+      makeSkill("local-notes", undefined, "workspace"),
+      makeSkill("homemade"),
+    ];
+    // No manifests for either skill.
+    mockInstallMetas = {
+      homemade: { origin: "custom", installedAt: "2026-01-01T00:00:00Z" },
+    };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="local-notes" />'),
+      ...skillLoadMessages('<loaded_skill id="homemade" />'),
+    ];
+    projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: makeTelemetry(),
+    });
+
+    expect(recordedSkillLoadedEvents).toHaveLength(0);
+  });
+
+  test("instruction-only skill re-records after deactivation and reactivation, without touching the registry", () => {
+    mockCatalog = [makeSkill("guides", undefined, "bundled")];
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="guides" />'),
+    ];
+    projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: makeTelemetry(),
+    });
+    expect(recordedSkillLoadedEvents).toHaveLength(1);
+
+    // Deactivated: marker gone. No tools were ever registered for it, so the
+    // registry must not be touched (refcounts belong to other conversations).
+    mockUnregisteredSkillIds = [];
+    projectSkillTools([], {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: makeTelemetry(),
+    });
+    expect(mockUnregisteredSkillIds).not.toContain("guides");
+
+    // Reactivated: a fresh activation is a new load.
+    projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: makeTelemetry(),
+    });
+    expect(recordedSkillLoadedEvents).toHaveLength(2);
   });
 
   test("absent telemetry context disables recording entirely", () => {
@@ -2306,6 +2418,27 @@ describe("resetSkillToolProjection", () => {
 
     expect(mockUnregisteredSkillIds).toContain("deploy");
     expect(mockUnregisteredSkillIds).toContain("oncall");
+    expect(trackedIds.size).toBe(0);
+  });
+
+  test("manifest-less tracked skills are cleared without touching the registry", () => {
+    mockCatalog = [makeSkill("deploy"), makeSkill("guides")];
+    // Only deploy has tools; guides is instruction-only.
+    mockManifests = { deploy: makeManifest(["deploy_run"]) };
+
+    const trackedIds = new Map<string, string>();
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+      ...skillLoadMessages('<loaded_skill id="guides" />'),
+    ];
+    projectSkillTools(history, { previouslyActiveSkillIds: trackedIds });
+    expect(trackedIds.size).toBe(2);
+
+    mockUnregisteredSkillIds = [];
+    resetSkillToolProjection(trackedIds);
+
+    expect(mockUnregisteredSkillIds).toContain("deploy");
+    expect(mockUnregisteredSkillIds).not.toContain("guides");
     expect(trackedIds.size).toBe(0);
   });
 
