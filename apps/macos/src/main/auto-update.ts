@@ -2,6 +2,8 @@ import { autoUpdater } from "electron-updater";
 import { app, BrowserWindow } from "electron";
 import { z } from "zod";
 
+import type { UpdateState, UpdateStatus } from "@vellumai/ipc-contract";
+
 import { handle } from "./ipc";
 import log from "./logger";
 
@@ -14,20 +16,7 @@ const ENVIRONMENT: string =
 
 const BUCKET_ENV = ENVIRONMENT === "production" ? "prod" : ENVIRONMENT;
 
-type UpdateStatus =
-  | "idle"
-  | "checking"
-  | "available"
-  | "downloading"
-  | "downloaded"
-  | "error";
-
-interface UpdateState {
-  status: UpdateStatus;
-  version?: string;
-  progress?: { percent: number; transferred: number; total: number };
-  error?: string;
-}
+export type { UpdateState, UpdateStatus };
 
 let currentState: UpdateState = { status: "idle" };
 
