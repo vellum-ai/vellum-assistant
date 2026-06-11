@@ -179,7 +179,7 @@ async function sendToClaude(
   model?: string,
   onProgress?: (msg: string) => void,
 ): Promise<ReduceResult> {
-  const provider = await getConfiguredProvider("mainAgent");
+  const provider = await getConfiguredProvider("mediaReduce");
   if (!provider) {
     throw new Error("No LLM provider available. Please configure an API key.");
   }
@@ -201,7 +201,6 @@ async function sendToClaude(
       config: model ? { model } : {},
       signal,
     });
-    cleanup();
 
     const answer = extractAllText(response);
 
