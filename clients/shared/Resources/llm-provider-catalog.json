@@ -1311,6 +1311,18 @@
       "defaultModel": "MiniMax-M2.7",
       "models": [
         {
+          "id": "MiniMax-M3",
+          "displayName": "MiniMax M3",
+          "contextWindowTokens": 1000000,
+          "maxOutputTokens": 512000,
+          "defaultContextWindowTokens": 200000,
+          "longContextMode": "native-model",
+          "supportsThinking": true,
+          "supportsCaching": true,
+          "supportsVision": true,
+          "supportsToolUse": true
+        },
+        {
           "id": "MiniMax-M2.7",
           "displayName": "MiniMax M2.7",
           "contextWindowTokens": 200000,
