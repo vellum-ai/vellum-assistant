@@ -289,24 +289,17 @@ function seedToolInvocation(spec: {
       riskLevel: "low",
       durationMs: spec.durationMs ?? 12,
       createdAt: spec.createdAt,
-      argBytes: spec.argBytes ?? null,
-      resultBytes: spec.resultBytes ?? null,
+      // Post-migration writer paths always compute byte sizes (legacy
+      // pre-migration rows are the only null-argBytes rows), so the seed
+      // defaults to non-null. Pass an explicit null to seed a legacy row.
+      argBytes: spec.argBytes !== undefined ? spec.argBytes : 2,
+      resultBytes: spec.resultBytes !== undefined ? spec.resultBytes : 9,
       provider: spec.provider ?? null,
       model: spec.model ?? null,
       inferenceProfile: spec.inferenceProfile ?? null,
       inferenceProfileSource: spec.inferenceProfileSource ?? null,
     })
     .run();
-}
-
-// The tool_executed watermark initializes to `Date.now()` when its checkpoint
-// is absent (see the reporter's no-backfill guard), which would exclude
-// fixture rows with past timestamps. Tests that ship seeded tool invocations
-// pin the checkpoint to "0" so the fixtures are in range.
-function pinToolExecutedWatermarkToZero(): void {
-  mockGetMemoryCheckpoint.mockImplementation((key) =>
-    key === "telemetry:tool_executed:last_reported_at" ? "0" : null,
-  );
 }
 
 const originalFetch = globalThis.fetch;
@@ -1420,7 +1413,6 @@ describe("UsageTelemetryReporter", () => {
 
   test("tool_executed events project decision to status and never carry raw args/results", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
-    pinToolExecutedWatermarkToZero();
     seedToolInvocation({
       id: "ti-ok",
       createdAt: 1700000001000,
@@ -1434,7 +1426,7 @@ describe("UsageTelemetryReporter", () => {
       inferenceProfile: "balanced",
       inferenceProfileSource: "active",
     });
-    // Errored invocation from before migration 278 — sizes and attribution
+    // Errored invocation without LLM attribution — the attribution columns
     // are null and must pass through as null.
     seedToolInvocation({
       id: "ti-err",
@@ -1442,6 +1434,8 @@ describe("UsageTelemetryReporter", () => {
       toolName: "web_search",
       decision: "error",
       durationMs: 7,
+      argBytes: 17,
+      resultBytes: 33,
     });
     // Permission-denied rows are filtered in the store and must never ship.
     seedToolInvocation({
@@ -1491,8 +1485,8 @@ describe("UsageTelemetryReporter", () => {
       tool_name: "web_search",
       status: "errored",
       duration_ms: 7,
-      arg_bytes: null,
-      result_bytes: null,
+      arg_bytes: 17,
+      result_bytes: 33,
       provider: null,
       model: null,
       inference_profile: null,
@@ -1503,7 +1497,6 @@ describe("UsageTelemetryReporter", () => {
 
   test("tool_executed watermark advances to the last reported row on success", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
-    pinToolExecutedWatermarkToZero();
     seedToolInvocation({ id: "ti-w1", createdAt: 1700000001000 });
     seedToolInvocation({ id: "ti-w2", createdAt: 1700000002000 });
     mockFetch.mockImplementation(() =>
@@ -1528,30 +1521,86 @@ describe("UsageTelemetryReporter", () => {
     expect(idCalls[idCalls.length - 1][1]).toBe("ti-w2");
   });
 
-  test("absent tool_executed checkpoint initializes to now — historical rows are not backfilled", async () => {
+  test("tool_executed resumes from a stored watermark — reported rows are not re-shipped", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
-    // Default mock: every checkpoint is absent (first run after upgrade).
-    // The tool_invocations table holds a pre-upgrade row; it was already
-    // shipped under the since-reverted tool_execution type and must NOT be
-    // re-shipped as tool_executed.
-    seedToolInvocation({ id: "ti-historical", createdAt: 1700000001000 });
-    const before = Date.now();
+    seedToolInvocation({ id: "ti-r1", createdAt: 1700000001000 });
+    seedToolInvocation({ id: "ti-r2", createdAt: 1700000002000 });
+    // A previous flush already reported ti-r1.
+    mockGetMemoryCheckpoint.mockImplementation((key) => {
+      if (key === "telemetry:tool_executed:last_reported_at") {
+        return String(1700000001000);
+      }
+      if (key === "telemetry:tool_executed:last_reported_id") return "ti-r1";
+      return null;
+    });
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
 
     const reporter = new UsageTelemetryReporter();
     await reporter.flush();
 
-    // Nothing to report — the historical row is behind the now-watermark.
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["ti-r2"]);
+  });
 
-    // The initialized watermark is persisted immediately so a later failed
-    // POST can't re-initialize to an even later "now" and skip rows.
+  test("legacy pre-migration rows (null arg_bytes) are never shipped", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    // Default mock: every checkpoint is absent (first run after upgrade),
+    // so the watermark is 0 and the query scans the whole table. The
+    // tool_invocations table holds a pre-upgrade row; it was already
+    // shipped under the since-reverted tool_execution type, lacks the
+    // migration-278 telemetry columns, and must NOT be re-shipped as
+    // tool_executed.
+    seedToolInvocation({
+      id: "ti-historical",
+      createdAt: 1700000001000,
+      argBytes: null,
+      resultBytes: null,
+    });
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    // Nothing to report — the legacy row is excluded at the query level.
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  test("rows recorded before the first flush are shipped (no now-initialized watermark)", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    // Regression coverage for the review finding: the reporter delays its
+    // first flush, so a tool used right after install/upgrade is recorded
+    // BEFORE any tool_executed checkpoint exists. A watermark initialized
+    // to Date.now() would silently drop it; the legacy-row discriminator
+    // (null arg_bytes) plus the standard 0 default must ship it.
+    seedToolInvocation({ id: "ti-pre-first-flush", createdAt: 1700000001000 });
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    expect(body.events[0]).toMatchObject({
+      type: "tool_executed",
+      daemon_event_id: "ti-pre-first-flush",
+      recorded_at: 1700000001000,
+    });
+
+    // The watermark advances to the shipped row, so the next flush resumes
+    // after it instead of re-shipping.
     const watermarkCalls = mockSetMemoryCheckpoint.mock.calls.filter(
       (c) => c[0] === "telemetry:tool_executed:last_reported_at",
     );
     expect(watermarkCalls.length).toBe(1);
-    const initialized = Number(watermarkCalls[0][1]);
-    expect(initialized).toBeGreaterThanOrEqual(before);
-    expect(initialized).toBeLessThanOrEqual(Date.now());
+    expect(watermarkCalls[0][1]).toBe(String(1700000001000));
   });
 
   // -------------------------------------------------------------------------

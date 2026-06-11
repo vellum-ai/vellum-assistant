@@ -203,24 +203,17 @@ export class UsageTelemetryReporter {
         undefined;
 
       // Read tool-executed watermark (compound cursor: createdAt + id).
-      // Unlike the other types, an ABSENT checkpoint initializes to NOW, not
-      // 0: `tool_invocations` is a pre-existing audit table whose historical
-      // rows were already shipped as the (since-reverted) `tool_execution`
-      // event type and predate the arg_bytes/result_bytes/attribution
-      // columns. Backfilling them as `tool_executed` would double-count with
-      // null attribution. Persist the initialized watermark immediately so a
-      // failed POST can't re-initialize to a later "now" and skip rows.
-      let toolExecutedWatermarkRaw = getMemoryCheckpoint(
-        CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK,
+      // The standard 0 default is safe even though `tool_invocations` is a
+      // pre-existing audit table: legacy rows — already shipped under the
+      // since-reverted `tool_execution` event type and lacking the
+      // arg_bytes/result_bytes/attribution columns — are excluded at the
+      // query level via the null `arg_bytes` discriminator (see
+      // queryUnreportedToolExecutedEvents), so they are never backfilled.
+      // Rows recorded after migration 278 but before the first flush ARE
+      // picked up, which a now-initialized watermark would have dropped.
+      const toolExecutedWatermark = Number(
+        getMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK) ?? "0",
       );
-      if (toolExecutedWatermarkRaw === null) {
-        toolExecutedWatermarkRaw = String(Date.now());
-        setMemoryCheckpoint(
-          CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK,
-          toolExecutedWatermarkRaw,
-        );
-      }
-      const toolExecutedWatermark = Number(toolExecutedWatermarkRaw);
       const toolExecutedWatermarkId =
         getMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK_ID) ??
         undefined;
