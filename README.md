@@ -10,18 +10,24 @@
 </p>
 
 <p align="center"><b>A personal AI assistant that evolves with you.</b><br>
-It learns how you work, remembers what matters, and acts before you ask. Yours to name, shape, and extend.</p>
+8 different types of memory (episodic, semantic, procedural, emotional, prospective, behavioral, narrative, shared) make it truly yours. It learns how you work, remembers what matters, and takes action across your apps.</p>
 
 ---
 
 ## What it does
 
-| Area            | Summary                                                                                                                                                                                                                                                                                                                                                               |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Memory**      | The assistant extracts structured memory items (identity, preferences, projects, events) from conversations, with source attribution and dedup. Retrieval is hybrid dense + sparse, and each memory type has its own staleness window. Memory is isolated per user and per channel. Embeddings run locally by default. |
-| **Identity**    | Behavior lives in SOUL.md. During onboarding the assistant observes how you communicate and writes its own personality files. It keeps a per-user journal of reflections and uses NOW.md as a scratchpad for current focus and active threads.                                                                 |
-| **Proactivity** | Every hour the assistant re-reads its notes, looks for anything unfinished or due soon, and messages you if something needs attention. Notifications go to the right channel and won't interrupt an active conversation.                                                                          |
-| **Security**    | Actor identity (guardian, trusted, unknown) is resolved once and enforced everywhere; unknown actors can't read memory, trigger tools, or escalate. Credentials live in a separate process and never reach the model. Every tool call runs in a sandbox. The default is to deny.                                                                         |
+If you've built Personal AI on OpenClaw, Hermes Agent, or Claude Code, you know the gap between a working prototype and a production system. Vellum closes it, MIT-licensed.
+
+| Area                          | Summary |
+| ----------------------------- | --- |
+| **Memory**                    | Eight types (episodic, semantic, procedural, emotional, prospective, behavioral, narrative, shared), each with its own staleness window, hybrid dense + sparse retrieval, and per-user and per-channel isolation. Structured items (identity, preferences, projects, events) extracted from conversations with source attribution and dedup. Embeddings run locally by default. Not a SQLite + markdown file you maintain yourself. |
+| **Identity**                  | Behavior lives in SOUL.md. During onboarding the assistant observes how you communicate and writes its own personality files. It keeps a per-user journal of reflections and uses NOW.md as a scratchpad for current focus and active threads. |
+| **Proactivity**               | Every hour the assistant re-reads its notes, looks for anything unfinished or due soon, and messages you if something needs attention. Notifications go to the right channel and won't interrupt an active conversation. |
+| **Security**                  | Actor identity (guardian, trusted, unknown) is resolved once and enforced everywhere; unknown actors can't read memory, trigger tools, or escalate. Credentials live in a separate process and never reach the model. Every tool call runs in a sandbox. The default is to deny. |
+| **Native channels**           | macOS, iOS, Web, Voice, Email, Telegram, Slack, Twilio. One assistant, one memory, every channel. |
+| **Managed OAuth**             | Slack, Notion, Google, HubSpot, Linear, Discord, Twitter, Telegram, Twilio. No hand-rolled token refresh. |
+| **Cloud or self-hosted**      | Managed runtime on Vellum Platform, or self-hosted. Same codebase, same data model. |
+| **Open source under MIT**     | 25K+ commits, 121+ releases, public roadmap. |
 
 ---
 
@@ -143,7 +149,7 @@ We welcome contributions from everyone.
 
 ## License
 
-MIT — see [License](https://github.com/vellum-ai/vellum-assistant?tab=MIT-1-ov-file). Integration logos from [Simple Icons](https://github.com/simple-icons/simple-icons), licensed [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/).
+MIT. See [License](https://github.com/vellum-ai/vellum-assistant?tab=MIT-1-ov-file). Integration logos from [Simple Icons](https://github.com/simple-icons/simple-icons), licensed [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/).
 
 Vellum Assistant is open-source software built by [Vellum AI](https://vellum.ai), a for-profit company. We also offer a managed product, the [Vellum Platform](https://vellum.ai/platform), which sustains the business. Free to use and modify under MIT, and we're committed to keeping it that way.
 
