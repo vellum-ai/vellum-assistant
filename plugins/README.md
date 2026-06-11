@@ -327,8 +327,11 @@ outcome: keep the finalized reply, or surface the rejection). Setting it to
 iteration should send: a finalized-reply hook appends a follow-up turn (e.g. a
 nudge `user` message), a rejection-recovery hook replaces the array with a
 repaired one. The decision is honored only at **actionable outcomes** — a
-no-tool reply or a `mainAgent` rejection — and is ignored on tool-bearing turns
-(the loop already runs the tools) and non-`mainAgent` call sites.
+no-tool reply or a provider rejection — and is ignored on tool-bearing turns
+(the loop already runs the tools). The loop does **not** gate the decision on
+call site, so a hook that should only retry the user-facing turn must self-gate
+on `ctx.callSite` (above) to avoid re-querying background, subagent, or
+compaction calls.
 
 The loop owns the retry budget: a hook may request `continue` every iteration,
 but the loop stops once its retry cap is spent, so a continuing hook cannot loop
