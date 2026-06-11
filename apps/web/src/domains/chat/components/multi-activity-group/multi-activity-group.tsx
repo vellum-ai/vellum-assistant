@@ -6,7 +6,7 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { Typography } from "@vellumai/design-library";
 
 import { ToolCallChip } from "@/domains/chat/components/tool-call-chip/tool-call-chip";
-import { WebSearchProgressCard } from "@/domains/chat/components/web-search/web-search-progress-card";
+import { SingleActivity } from "@/domains/chat/components/single-activity/single-activity";
 import {
   WebSearchErrorRow,
   WebSearchStepRow,
@@ -22,7 +22,6 @@ import {
 } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
 import { useViewerStore } from "@/stores/viewer-store";
 import {
-  WEB_TOOL_NAMES,
   toolDetailPayloadFromToolCall,
   type ToolCallCardData,
   type ToolCallCardItem,
@@ -204,10 +203,9 @@ function expandedHeaderLabel(
  *
  * Special cases short-circuit before the shell:
  *
- * - a LONE purely-web group (exactly one `web_search` / `web_fetch` call) →
- *   render the inline, expand-in-place `SingleActivity variant="web"` link via
- *   the repurposed {@link WebSearchProgressCard} adapter. Grouped (2+) or mixed
- *   web groups fall through to the unified shell.
+ * - a LONE `web_search` call → render the inline, expand-in-place
+ *   `SingleActivity variant="web"` link. Lone `web_fetch`, grouped (2+)
+ *   web, and mixed groups fall through to the unified shell.
  * - any tool call in this group carries a `pendingConfirmation` → render the
  *   inline confirmation UI via {@link ToolCallChip} so the approve/deny path
  *   is preserved bit-for-bit from the legacy card.
@@ -258,12 +256,10 @@ export function MultiActivityGroup(props: MultiActivityGroupProps) {
     return null;
   }
 
-  // A LONE purely-web group (exactly one web tool call) renders as the inline,
-  // expand-in-place `SingleActivity variant="web"` link via the repurposed
-  // `WebSearchProgressCard` adapter. Grouped (2+) purely-web and mixed groups
-  // fall through to the unified shell below, which renders web_search /
-  // web_search_error steps via `ExpandedStep` → `WebSearchStepRow`.
-  if (isPurelyWebGroup(toolCalls) && toolCalls.length === 1) {
+  // A LONE web_search call renders as the inline, expand-in-place
+  // `SingleActivity variant="web"` link. Lone web_fetch, grouped (2+) web, and
+  // mixed groups fall through to the unified shell below.
+  if (toolCalls.length === 1 && toolCalls[0]!.name === "web_search") {
     return (
       <LoneWebSearch
         toolCalls={toolCalls}
@@ -285,32 +281,13 @@ export function MultiActivityGroup(props: MultiActivityGroupProps) {
 }
 
 /**
- * True when every tool call in the group is a web tool (`web_search` /
- * `web_fetch`). Mirrors the legacy purely-web predicate that gated the web
- * progress card before the unified card consolidated the two paths.
- */
-function isPurelyWebGroup(toolCalls: ChatMessageToolCall[]): boolean {
-  if (toolCalls.length === 0) return false;
-  return toolCalls.every((tc) => WEB_TOOL_NAMES.has(tc.name));
-}
-
-/**
- * Renders a LONE purely-web group (exactly one web tool call) as the inline,
- * expand-in-place `SingleActivity variant="web"` link via the repurposed
- * `WebSearchProgressCard` adapter.
+ * Renders a LONE web_search call as the inline, expand-in-place
+ * `SingleActivity variant="web"` link.
  *
- * State precedence (highest first):
- *   1. `"loading"` — the call still has `status === "running"`. A denied
- *      confirmation can race ahead of the error `tool_result`, so the link
- *      stays in `"loading"` until the tool actually exits.
- *   2. `"error"` — the unified state is `"error"` or `"denied"` (denied is
- *      collapsed into the error tone, matching the unified shell's chrome for
- *      grouped/mixed web).
- *   3. `"complete"` — the call reached a terminal status without failure.
- *
- * By construction the lone call yields exactly one step, which is one of the
- * web kinds (`web_search` / `web_search_error`) — the `tool` variant only
- * appears for non-web tools.
+ * Extracts the web step from `cardData.steps` via type-safe narrowing
+ * (never an unsafe `as` cast). When no web step is available yet (the
+ * brief loading window before metadata arrives), `step` is `null` and the
+ * expanded body renders empty while the header communicates loading state.
  */
 function LoneWebSearch({
   toolCalls,
@@ -329,17 +306,22 @@ function LoneWebSearch({
     : cardData.state === "error" || cardData.state === "denied"
       ? "error"
       : "complete";
+  const webStep =
+    cardData.steps.find(
+      (
+        s,
+      ): s is Extract<
+        ToolCallCardStep,
+        { kind: "web_search" | "web_search_error" }
+      > => s.kind === "web_search" || s.kind === "web_search_error",
+    ) ?? null;
   return (
-    <WebSearchProgressCard
+    <SingleActivity
+      variant="web"
       info={cardData.currentStepInfo}
       carouselItems={cardData.carouselItems}
       state={state}
-      step={
-        cardData.steps[0] as Extract<
-          ToolCallCardStep,
-          { kind: "web_search" | "web_search_error" }
-        >
-      }
+      step={webStep}
       expanded={expanded}
       onExpandChange={onExpandChange}
     />
@@ -659,7 +641,7 @@ function UnknownCommandNudge({
  * Render a single step inside the expanded body of a phase section. The
  * `web_search` and `web_search_error` variants delegate to the shared
  * `WebSearchStepRow` / `WebSearchErrorRow` primitives so the visual language
- * matches the dedicated `WebSearchProgressCard`; all other variants fall
+ * matches the lone-web inline link; all other variants fall
  * through to {@link DefaultStepPill} which matches Figma `5010-103135`.
  */
 function ExpandedStep({ step }: { step: ToolCallCardStep }) {

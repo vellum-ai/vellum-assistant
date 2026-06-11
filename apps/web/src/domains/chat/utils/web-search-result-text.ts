@@ -6,7 +6,7 @@
  * — the daemon doesn't persist `activityMetadata` per its v1 scope, so
  * after a page reload only the legacy `result: string` text dump survives.
  * Parsing it lets us reconstruct minimal `{ title, url, domain }` chips for
- * the WebSearchProgressCard's step row instead of rendering "0 links".
+ * the web-search step row instead of rendering "0 links".
  *
  * Format coverage:
  *   - **Anthropic-native** (most common — see
@@ -146,8 +146,8 @@ export function parseWebSearchResultText(
       title: pair.title,
       url: pair.url,
       domain,
-      // No faviconUrl — the WebSearchProgressCard's FaviconChip falls back
-      // to a monogram derived from the domain when this is omitted.
+      // No faviconUrl — the ToolStepPill falls back to a monogram derived
+      // from the domain when this is omitted.
     };
   });
 }

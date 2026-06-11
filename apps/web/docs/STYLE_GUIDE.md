@@ -253,6 +253,26 @@ type MainView = (typeof MAIN_VIEWS)[number];
 
 Reference: [TypeScript — const assertions](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-3-4.html#const-assertions)
 
+### No `as` on discriminated unions
+
+Never use `as` to narrow a [discriminated union](https://www.typescriptlang.org/docs/handbook/2/narrowing.html#discriminated-unions). Use control flow narrowing (`if`/`switch`) or [type predicates](https://www.typescriptlang.org/docs/handbook/2/narrowing.html#using-type-predicates) (`Array.find` with `is`). `as` bypasses exhaustiveness checks and hides runtime type mismatches — adding a new union variant won't produce a compile error at consumption sites that used `as`.
+
+```ts
+// Bad — bypasses exhaustiveness checking
+const step = cardData.steps[0] as Extract<ToolCallCardStep, { kind: "web_search" }>;
+
+// Good — compiler enforces handling of every variant
+if (step.kind === "web_search") { /* step is narrowed */ }
+
+// Good — type predicate for array operations
+const webStep = steps.find(
+  (s): s is Extract<ToolCallCardStep, { kind: "web_search" }> =>
+    s.kind === "web_search",
+);
+```
+
+Reference: [TypeScript — Type Assertions](https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#type-assertions), [TypeScript — Discriminated Unions](https://www.typescriptlang.org/docs/handbook/2/narrowing.html#discriminated-unions)
+
 ---
 
 ## Components

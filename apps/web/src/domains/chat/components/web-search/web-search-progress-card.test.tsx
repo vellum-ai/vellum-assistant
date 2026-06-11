@@ -1,22 +1,20 @@
 /**
- * Tests for `WebSearchProgressCard` — the lone-web adapter.
+ * Tests for `SingleActivity variant="web"` — the inline lone-web link.
  *
- * The boxed progress card was repurposed in PR 4 into a thin wrapper around
- * `SingleActivity variant="web"` (the inline "Web Search | <carousel>" link
- * that expands in place). This suite verifies the wrapper threads its props
- * into that inline link:
+ * Verifies the inline "Web Search | <info/carousel>" link:
  *  - renders the `inline-web-link` "Web Search | <info/carousel>"
  *  - collapsed hides the favicon result row
  *  - `expanded` reveals the `WebSearchStepRow` favicons
  *  - a `web_search_error` step renders the error row
  *  - state drives the leading indicator / negative tone
+ *  - null step (loading) renders expanded body empty without crashing
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
-import { WebSearchProgressCard } from "@/domains/chat/components/web-search/web-search-progress-card";
+import { SingleActivity } from "@/domains/chat/components/single-activity/single-activity";
 import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
 import type { WebSearchResultItem } from "@/assistant/web-activity-types";
 
@@ -53,10 +51,11 @@ const ERROR_STEP: Extract<ToolCallCardStep, { kind: "web_search_error" }> = {
   errorMessage: "Provider returned max_uses_exceeded.",
 };
 
-describe("WebSearchProgressCard — inline lone-web link", () => {
+describe("SingleActivity variant='web' — inline lone-web link", () => {
   test("renders the inline 'Web Search | <info>' link", () => {
     const { getByTestId, getByText } = render(
-      <WebSearchProgressCard
+      <SingleActivity
+        variant="web"
         info="Result 2"
         carouselItems={[]}
         state="complete"
@@ -72,7 +71,8 @@ describe("WebSearchProgressCard — inline lone-web link", () => {
 
   test("collapsed hides the favicon result row", () => {
     const { queryByText } = render(
-      <WebSearchProgressCard
+      <SingleActivity
+        variant="web"
         info="Result 2"
         carouselItems={[]}
         state="complete"
@@ -88,7 +88,8 @@ describe("WebSearchProgressCard — inline lone-web link", () => {
 
   test("expanded reveals the WebSearchStepRow favicons", () => {
     const { getByText } = render(
-      <WebSearchProgressCard
+      <SingleActivity
+        variant="web"
         info="latest result"
         carouselItems={[]}
         state="complete"
@@ -106,7 +107,8 @@ describe("WebSearchProgressCard — inline lone-web link", () => {
   test("clicking the link toggles via onExpandChange", () => {
     let next: boolean | undefined;
     const { getByTestId } = render(
-      <WebSearchProgressCard
+      <SingleActivity
+        variant="web"
         info="Result 2"
         carouselItems={[]}
         state="complete"
@@ -123,7 +125,8 @@ describe("WebSearchProgressCard — inline lone-web link", () => {
 
   test("loading state renders the three-dot indicator", () => {
     const { getByTestId } = render(
-      <WebSearchProgressCard
+      <SingleActivity
+        variant="web"
         info="my query"
         carouselItems={[]}
         state="loading"
@@ -137,7 +140,8 @@ describe("WebSearchProgressCard — inline lone-web link", () => {
 
   test("a web_search_error step renders the error row when expanded", () => {
     const { getByTestId, getByText } = render(
-      <WebSearchProgressCard
+      <SingleActivity
+        variant="web"
         info=""
         carouselItems={[]}
         state="error"
@@ -152,7 +156,8 @@ describe("WebSearchProgressCard — inline lone-web link", () => {
 
   test("error state applies the negative tone to the inline link", () => {
     const { getByTestId } = render(
-      <WebSearchProgressCard
+      <SingleActivity
+        variant="web"
         info=""
         carouselItems={[]}
         state="error"
@@ -164,5 +169,23 @@ describe("WebSearchProgressCard — inline lone-web link", () => {
     expect(getByTestId("inline-web-link").className).toContain(
       "text-[var(--system-negative-strong)]",
     );
+  });
+
+  test("null step (loading) renders expanded body empty without crashing", () => {
+    const { getByTestId, queryByText } = render(
+      <SingleActivity
+        variant="web"
+        info=""
+        carouselItems={[]}
+        state="loading"
+        step={null}
+        expanded
+        onExpandChange={() => {}}
+      />,
+    );
+    // The inline link still renders (the header is visible regardless of step).
+    expect(getByTestId("inline-web-link")).toBeTruthy();
+    // But the expanded body is empty — no crash, no result text.
+    expect(queryByText("Result 1")).toBeNull();
   });
 });
