@@ -98,32 +98,45 @@ const storeStyleAnalysisTool = {
   },
 } satisfies ToolDefinition;
 
+const StylePatternItemSchema = z.object({
+  aspect: z.string(),
+  summary: z.string(),
+  importance: z.number(),
+  examples: z.array(z.string()).optional(),
+});
+
+const ContactObservationItemSchema = z.object({
+  name: z.string(),
+  email: z.string(),
+  tone_note: z.string(),
+});
+
 /**
- * Validates the `store_style_analysis` tool input. Mirrors the JSON Schema
- * above and the hand-rolled type guards this replaced: `style_patterns` is
- * required; `aspect`/`summary`/`importance` are required per pattern with
- * `examples` optional; `contact_observations` is optional. `aspect` stays a
- * free `string` (the wire tool schema constrains the enum, and the prior cast
+ * Validates the `store_style_analysis` tool input. `aspect` stays a free
+ * `string` (the wire tool schema constrains the enum, and the prior cast
  * never validated it) so a stray aspect value doesn't drop the whole result.
+ *
+ * Both arrays are validated per item, dropping malformed entries instead of
+ * failing the parse: the pre-helper cast processed each array independently,
+ * so one imperfect ancillary `contact_observations` entry must not discard
+ * the primary `style_patterns` output.
  */
-const StoreStyleAnalysisSchema = z.object({
-  style_patterns: z.array(
-    z.object({
-      aspect: z.string(),
-      summary: z.string(),
-      importance: z.number(),
-      examples: z.array(z.string()).optional(),
+export const StoreStyleAnalysisSchema = z.object({
+  style_patterns: z.array(z.unknown()).transform((arr) =>
+    arr.flatMap((item) => {
+      const parsed = StylePatternItemSchema.safeParse(item);
+      return parsed.success ? [parsed.data] : [];
     }),
   ),
   contact_observations: z
-    .array(
-      z.object({
-        name: z.string(),
-        email: z.string(),
-        tone_note: z.string(),
+    .array(z.unknown())
+    .optional()
+    .transform((arr) =>
+      (arr ?? []).flatMap((item) => {
+        const parsed = ContactObservationItemSchema.safeParse(item);
+        return parsed.success ? [parsed.data] : [];
       }),
-    )
-    .optional(),
+    ),
 });
 
 /**
@@ -189,13 +202,12 @@ export async function extractStylePatterns(
     examples: p.examples,
   }));
 
-  const contactObservations: ContactObservation[] = (
-    result.contact_observations ?? []
-  ).map((c) => ({
-    name: c.name,
-    email: c.email,
-    toneNote: c.tone_note,
-  }));
+  const contactObservations: ContactObservation[] =
+    result.contact_observations.map((c) => ({
+      name: c.name,
+      email: c.email,
+      toneNote: c.tone_note,
+    }));
 
   return { stylePatterns, contactObservations };
 }
