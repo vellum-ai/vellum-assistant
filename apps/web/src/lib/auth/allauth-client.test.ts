@@ -1,6 +1,3 @@
-/**
- * @jest-environment happy-dom
- */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 // Capture the `client` path param each allauth SDK call receives.
