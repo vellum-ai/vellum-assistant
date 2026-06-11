@@ -736,6 +736,8 @@ build_binaries() {
     rm -rf "$SCRIPT_DIR/daemon-bin/node_modules"
     rm -rf "$SCRIPT_DIR/daemon-bin/bundled-skills"
     cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" "$SCRIPT_DIR/daemon-bin/bundled-skills"
+    rm -rf "$SCRIPT_DIR/daemon-bin/preloaded-apps"
+    cp -R "$ASSISTANT_SRC_DIR/src/config/preloaded-apps" "$SCRIPT_DIR/daemon-bin/preloaded-apps"
     rm -rf "$SCRIPT_DIR/daemon-bin/first-party-skills"
     rsync -a \
         --exclude='node_modules/' \
@@ -1249,6 +1251,14 @@ if [ -d "$ASSISTANT_SRC_DIR/src/config/bundled-skills" ]; then
     cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" "$SCRIPT_DIR/daemon-bin/bundled-skills"
 fi
 
+# Always refresh preloaded app templates from source (same reasoning: template
+# assets aren't tracked by the daemon binary staleness check)
+if [ -d "$ASSISTANT_SRC_DIR/src/config/preloaded-apps" ]; then
+    mkdir -p "$SCRIPT_DIR/daemon-bin"
+    rm -rf "$SCRIPT_DIR/daemon-bin/preloaded-apps"
+    cp -R "$ASSISTANT_SRC_DIR/src/config/preloaded-apps" "$SCRIPT_DIR/daemon-bin/preloaded-apps"
+fi
+
 # Always refresh first-party catalog skills from the repo-level skills/ dir
 # so the daemon can install catalog entries without a running platform.
 if [ -d "$SKILLS_SRC_DIR" ] && [ -f "$SKILLS_SRC_DIR/catalog.json" ]; then
@@ -1492,6 +1502,13 @@ fi
 if [ -d "$SCRIPT_DIR/daemon-bin/bundled-skills" ]; then
     rm -rf "$RESOURCES_DIR/bundled-skills"
     cp -R "$SCRIPT_DIR/daemon-bin/bundled-skills" "$RESOURCES_DIR/bundled-skills"
+fi
+
+# Always refresh preloaded app templates in app bundle (resolved via
+# resolveBundledDir → Contents/Resources/preloaded-apps by the daemon seeder)
+if [ -d "$SCRIPT_DIR/daemon-bin/preloaded-apps" ]; then
+    rm -rf "$RESOURCES_DIR/preloaded-apps"
+    cp -R "$SCRIPT_DIR/daemon-bin/preloaded-apps" "$RESOURCES_DIR/preloaded-apps"
 fi
 
 # Always refresh first-party catalog skills in the app bundle.
