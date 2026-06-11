@@ -153,12 +153,16 @@ mock.module("../memory/onboarding-events-store.js", () => ({
 // Production import (after mocks)
 // ---------------------------------------------------------------------------
 
+import {
+  seedToolInvocation as seedToolInvocationRow,
+  TOOL_INVOCATION_PII_SENTINEL as TOOL_PII_SENTINEL,
+  type ToolInvocationSeedSpec,
+} from "../__tests__/test-support/tool-invocation-seed.js";
 import { recordAuthFallbackCounts } from "../memory/auth-fallback-events-store.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
   authFallbackEvents,
-  conversations,
   skillLoadedEvents,
   toolInvocations,
 } from "../memory/schema.js";
@@ -247,59 +251,10 @@ function makeOnboardingEvent(
 
 const TOOL_CONVERSATION_ID = "conv-reporter-tool-executed";
 
-/**
- * Sentinel embedded in the seeded raw input/result payloads. Asserted to
- * never appear on the wire — raw tool args/outputs must never leave the
- * device.
- */
-const TOOL_PII_SENTINEL = "must never leave the device";
-
-function seedToolInvocation(spec: {
-  id: string;
-  createdAt: number;
-  toolName?: string;
-  decision?: string;
-  durationMs?: number;
-  argBytes?: number | null;
-  resultBytes?: number | null;
-  provider?: string | null;
-  model?: string | null;
-  inferenceProfile?: string | null;
-  inferenceProfileSource?: string | null;
-}): void {
-  const db = getDb();
-  // tool_invocations has an enforced FK to conversations.
-  db.insert(conversations)
-    .values({
-      id: TOOL_CONVERSATION_ID,
-      title: "test",
-      createdAt: 1000,
-      updatedAt: 1000,
-    })
-    .onConflictDoNothing()
-    .run();
-  db.insert(toolInvocations)
-    .values({
-      id: spec.id,
-      conversationId: TOOL_CONVERSATION_ID,
-      toolName: spec.toolName ?? "calendar_list_events",
-      input: `{"secret":"raw tool args — ${TOOL_PII_SENTINEL}"}`,
-      result: `{"secret":"raw tool output — ${TOOL_PII_SENTINEL}"}`,
-      decision: spec.decision ?? "allow",
-      riskLevel: "low",
-      durationMs: spec.durationMs ?? 12,
-      createdAt: spec.createdAt,
-      // Post-migration writer paths always compute byte sizes (legacy
-      // pre-migration rows are the only null-argBytes rows), so the seed
-      // defaults to non-null. Pass an explicit null to seed a legacy row.
-      argBytes: spec.argBytes !== undefined ? spec.argBytes : 2,
-      resultBytes: spec.resultBytes !== undefined ? spec.resultBytes : 9,
-      provider: spec.provider ?? null,
-      model: spec.model ?? null,
-      inferenceProfile: spec.inferenceProfile ?? null,
-      inferenceProfileSource: spec.inferenceProfileSource ?? null,
-    })
-    .run();
+function seedToolInvocation(
+  spec: Omit<ToolInvocationSeedSpec, "conversationId">,
+): void {
+  seedToolInvocationRow({ ...spec, conversationId: TOOL_CONVERSATION_ID });
 }
 
 /**
@@ -1573,12 +1528,8 @@ describe("UsageTelemetryReporter", () => {
 
   test("legacy pre-migration rows (null arg_bytes) are never shipped", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
-    // Default mock: every checkpoint is absent (first run after upgrade),
-    // so the watermark is 0 and the query scans the whole table. The
-    // tool_invocations table holds a pre-upgrade row; it was already
-    // shipped under the since-reverted tool_execution type, lacks the
-    // migration-278 telemetry columns, and must NOT be re-shipped as
-    // tool_executed.
+    // No checkpoints (zero watermark, whole-table scan): a legacy null-
+    // arg_bytes row must still not be re-shipped as tool_executed.
     seedToolInvocation({
       id: "ti-historical",
       createdAt: 1700000001000,

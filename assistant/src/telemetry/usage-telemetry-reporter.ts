@@ -225,12 +225,8 @@ export class UsageTelemetryReporter {
       // Read tool-executed watermark (compound cursor: createdAt + id).
       // An absent checkpoint was initialized to construction time (see the
       // constructor), guarding opt-out windows; the 0 fallback here is a
-      // defensive default matching the other event types. Legacy rows —
-      // already shipped under the since-reverted `tool_execution` event type
-      // and lacking the arg_bytes/result_bytes/attribution columns — are
-      // excluded at the query level via the null `arg_bytes` discriminator
-      // (see queryUnreportedToolExecutedEvents), so they are never
-      // backfilled.
+      // defensive default matching the other event types. Legacy rows are
+      // excluded at the query level (see queryUnreportedToolExecutedEvents).
       const toolExecutedWatermark = Number(
         getMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK) ?? "0",
       );

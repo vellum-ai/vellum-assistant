@@ -22,10 +22,11 @@ import { sandboxPolicy } from "./shared/filesystem/path-policy.js";
 import { MAX_FILE_SIZE_BYTES } from "./shared/filesystem/size-guard.js";
 import { ToolApprovalHandler } from "./tool-approval-handler.js";
 import { resolveToolInvocationAlias } from "./tool-name-aliases.js";
-import type {
-  ToolContext,
-  ToolExecutionResult,
-  ToolLifecycleEvent,
+import {
+  stringifyToolInput,
+  type ToolContext,
+  type ToolExecutionResult,
+  type ToolLifecycleEvent,
 } from "./types.js";
 
 const log = getLogger("tool-executor");
@@ -493,13 +494,20 @@ function emitLifecycleEvent(
     input: sanitizeToolInput(event.toolName, event.input),
   };
 
-  // Stamp model attribution centrally so every executed/error event carries
-  // it — including the pre-execution gate failures (aborted, disk pressure,
-  // unknown/inactive tool) emitted from checkPreExecutionGates(), whose
-  // emission sites don't have to remember to copy it.
+  // Stamp telemetry fields centrally so every executed/error event carries
+  // them — including the pre-execution gate failures (aborted, disk
+  // pressure, unknown/inactive tool) emitted from checkPreExecutionGates(),
+  // whose emission sites don't have to remember to copy them. This is the
+  // sole writer of both fields.
   if (sanitizedEvent.type === "executed" || sanitizedEvent.type === "error") {
-    sanitizedEvent.attribution =
-      sanitizedEvent.attribution ?? context.attribution ?? null;
+    sanitizedEvent.attribution = context.attribution ?? null;
+    // Sized from the RAW pre-sanitization input — redaction changes the
+    // serialized length, and telemetry must report the true payload size.
+    // Only the size leaves the device, never the payload.
+    sanitizedEvent.inputBytes = Buffer.byteLength(
+      stringifyToolInput(event.input),
+      "utf8",
+    );
   }
 
   try {

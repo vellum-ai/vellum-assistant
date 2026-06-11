@@ -250,13 +250,19 @@ export interface AuthFallbackTelemetryEvent extends TelemetryEventBase {
  * Tool-executed event — one per tool invocation. Carries NO tool
  * args/inputs or result contents (customer PII per ToS) — payload sizes
  * and metadata only; no raw error messages. Identity/attribution come
- * from the upload envelope per the per-event-wins contract. Distinct
- * from the `tool_execution` permission-audit event, which it
- * complements, not replaces.
+ * from the upload envelope per the per-event-wins contract. Not to be
+ * confused with the since-reverted `tool_execution` permission-audit
+ * event, which no longer exists on the wire.
  */
 export interface ToolExecutedTelemetryEvent extends ModelTelemetryEventBase {
   type: "tool_executed";
   tool_name: string;
+  /**
+   * `"errored"` means the invocation failed at the execution layer — a
+   * thrown error / infra failure (audit decision `"error"`). A tool that
+   * runs to completion but returns an `isError` result payload still
+   * counts as `"fulfilled"`: it executed.
+   */
   status: "fulfilled" | "errored";
   duration_ms: number;
   /** Serialized tool-argument size in bytes. Null when unknown. */

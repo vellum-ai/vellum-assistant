@@ -652,6 +652,73 @@ describe("ToolExecutor lifecycle events", () => {
     expect(errorEvent.attribution).toEqual(testAttribution);
   });
 
+  // ── raw input byte sizing tests ───────────────────────────
+
+  test("stamps inputBytes from the raw input even when sanitization redacts fields", async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    const rawInput = { path: "README.md", token: "t-1" };
+    const rawSize = Buffer.byteLength(JSON.stringify(rawInput), "utf8");
+
+    await executor.execute("file_read", rawInput, makeContext(events));
+
+    const executed = events.find((event) => event.type === "executed");
+    if (executed?.type !== "executed")
+      throw new Error("Expected executed event");
+    // The event input is sanitized, but the size reflects the raw payload.
+    expect(executed.input.token).toBe("<redacted />");
+    expect(executed.inputBytes).toBe(rawSize);
+    expect(executed.inputBytes).not.toBe(
+      Buffer.byteLength(JSON.stringify(executed.input), "utf8"),
+    );
+  });
+
+  test("stamps inputBytes from the raw input on error events", async () => {
+    toolThrow = new Error("boom");
+
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    const rawInput = { path: "README.md", api_key: "k-1" };
+
+    await executor.execute("file_read", rawInput, makeContext(events));
+
+    const errorEvent = events.find((event) => event.type === "error");
+    if (errorEvent?.type !== "error") throw new Error("Expected error event");
+    expect(errorEvent.input.api_key).toBe("<redacted />");
+    expect(errorEvent.inputBytes).toBe(
+      Buffer.byteLength(JSON.stringify(rawInput), "utf8"),
+    );
+  });
+
+  test("audit listener records arg_bytes equal to the raw serialized input size", async () => {
+    // End-to-end: executor sanitization must not shrink the recorded
+    // arg_bytes — the audit row sizes the raw pre-redaction input.
+    const { createToolAuditListener } =
+      await import("../events/tool-audit-listener.js");
+    const records: Array<{ argBytes?: number | null; input: string }> = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    const rawInput = { path: "README.md", token: "t-1" };
+
+    await executor.execute("file_read", rawInput, {
+      workingDir: "/tmp/project",
+      conversationId: "conversation-1",
+      trustClass: "guardian" as const,
+      onToolLifecycleEvent: createToolAuditListener((record) =>
+        records.push(record),
+      ),
+    });
+
+    expect(records).toHaveLength(1);
+    expect(records[0].argBytes).toBe(
+      Buffer.byteLength(JSON.stringify(rawInput), "utf8"),
+    );
+    // The stored input column is still the redacted payload.
+    expect(records[0].input).not.toContain("t-1");
+  });
+
   test("skill tool with sandbox execution_target resolves to sandbox executionTarget", async () => {
     const events: ToolLifecycleEvent[] = [];
     const executor = new ToolExecutor(makePrompter());
