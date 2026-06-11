@@ -418,6 +418,22 @@
       "label": "Self-intro first message",
       "description": "On the first conversation, send a natural self-introduction (e.g. \"Hi Vela, I'm alex. Nice to meet you.\") on the user's behalf and route it through real LLM inference, instead of serving the canned first greeting. Names come from the onboarding context; falls back to the canned greeting when no name is known. Exposed to clients so pre-hatch onboarding can compute the source-of-truth initial message, and to the assistant so older clients can still be gated server-side. See assistant/src/daemon/first-greeting.ts (buildSelfIntroMessage).",
       "defaultEnabled": false
+    },
+    {
+      "id": "recall-gate-shadow",
+      "scope": "assistant",
+      "key": "recall-gate-shadow",
+      "label": "Recall-decision gate (shadow mode)",
+      "description": "Run the recall-decision gate on every turn and log the skip/retrieve decision, but always proceed with retrieval. Collects counterfactual data to validate rules before enabling live mode.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "recall-gate-live",
+      "scope": "assistant",
+      "key": "recall-gate-live",
+      "label": "Recall-decision gate (live mode)",
+      "description": "Run the recall-decision gate and act on its decision — skip retrieval when the gate says SKIP. Only enable after shadow data validates the rules.",
+      "defaultEnabled": false
     }
   ]
 }
