@@ -345,6 +345,22 @@ async function identifyDuplicateGroups(
       },
       signal,
     });
+  } catch (err) {
+    // Graceful degradation: this function's contract is "best-effort dupe scan
+    // — return [] on any failure" (see the no-provider early return above).
+    // A timeout (AbortError) or transient provider error must NOT propagate,
+    // because the only caller (`consolidatePartition`) has no try/catch around
+    // this call — a throw here would abandon the whole partition (losing the
+    // singleton fidelity/narrative pass too). Treat as "no dupes found".
+    log.warn(
+      {
+        callSite: "memoryConsolidation",
+        aborted: signal.aborted,
+        err: err instanceof Error ? err.message : String(err),
+      },
+      "Duplicate-scan LLM call failed (timeout or error); treating as no dupes",
+    );
+    return [];
   } finally {
     cleanup();
   }
@@ -536,6 +552,21 @@ async function consolidateChunk(
         signal,
       },
     );
+  } catch (err) {
+    // Required-job semantics: this chunk MUST surface as a failed/retryable
+    // job (it already throws BackendUnavailableError on no-provider above, and
+    // `runConsolidation` wraps each partition so the partition is dropped, not
+    // the whole job). A bare timeout aborts with a DOMException AbortError,
+    // which `classifyError` (memory/job-utils.ts) would otherwise treat as
+    // fatal → no retry. Translate the abort into BackendUnavailableError so the
+    // existing handler defers/retries it like any other transient backend
+    // outage. Non-abort errors keep their own classification.
+    if (signal.aborted) {
+      throw new BackendUnavailableError(
+        "Consolidation chunk LLM call timed out",
+      );
+    }
+    throw err;
   } finally {
     cleanup();
   }

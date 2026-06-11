@@ -1092,6 +1092,19 @@ export async function runGraphExtraction(
       },
       signal,
     });
+  } catch (err) {
+    // Required-job semantics: extraction already throws BackendUnavailableError
+    // on no-provider above, and `graphExtractJob` re-throws so the worker can
+    // observe the failure. A bare timeout aborts with a DOMException AbortError
+    // that `classifyError` (memory/job-utils.ts) would treat as fatal → no
+    // retry. Translate the abort into BackendUnavailableError so the worker
+    // defers/retries it like any other transient backend outage; bootstrap's
+    // per-conversation catch already tolerates the throw. Non-abort errors keep
+    // their own classification.
+    if (signal.aborted) {
+      throw new BackendUnavailableError("Graph extraction LLM call timed out");
+    }
+    throw err;
   } finally {
     cleanup();
   }
