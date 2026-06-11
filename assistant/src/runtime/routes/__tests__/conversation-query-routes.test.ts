@@ -888,7 +888,15 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       });
     });
 
-    test("PUT { label: null } stores the null sentinel and clears the user label", async () => {
+    test("PUT { label: null } removes a stored label override and reverts to the default label", async () => {
+      // The seeded fixture entry's "Balanced" label is a seed default, so
+      // the no-override baseline resolves to the template default — there is
+      // no stale custom label for a null sentinel to mask.
+      const before = (await getConfigRoute.handler({})) as {
+        llm: { profiles: Record<string, Record<string, unknown>> };
+      };
+      const defaultLabel = before.llm.profiles.balanced.label;
+
       await replaceProfileRoute.handler({
         pathParams: { name: "balanced" },
         body: { label: "My Balanced" },
@@ -899,21 +907,17 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       });
 
       expect(result).toEqual({ ok: true });
-      const savedLlm = savedRawConfig?.llm as Record<
-        string,
-        Record<string, Record<string, unknown>>
-      >;
-      expect(savedLlm.profileOverrides.balanced).toEqual({ label: null });
+      // The cleared label was the entry's only key, so the entry (and the
+      // then-empty map) is pruned rather than left holding `label: null`.
+      const savedLlm = savedRawConfig?.llm as Record<string, unknown>;
+      expect(savedLlm.profileOverrides).toBeUndefined();
 
-      // Effective view: the null sentinel masks both the previous override
-      // and the stale materialized label ("Balanced" on the seeded fixture
-      // entry), so the user-visible custom label is gone. Per the loader's
-      // null-as-cleared semantics the merged entry carries `label: null`;
-      // clients fall back to their default presentation for the profile.
+      // Effective view: back to the template default, not a null label
+      // (which clients would render as the raw profile key).
       const got = (await getConfigRoute.handler({})) as {
         llm: { profiles: Record<string, Record<string, unknown>> };
       };
-      expect(got.llm.profiles.balanced.label).toBeNull();
+      expect(got.llm.profiles.balanced.label).toBe(defaultLabel);
     });
 
     test("macOS-style PUT { label, status: null } persists only the label when no status override exists", async () => {

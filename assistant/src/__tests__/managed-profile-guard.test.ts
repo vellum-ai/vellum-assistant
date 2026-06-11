@@ -152,8 +152,10 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
   // merge layer needs it to mask a stale label/status still carried by a
   // transition-state materialized entry, and otherwise just removes any
   // stored override key (for `status`, an absent and an "active" baseline
-  // are both already equivalent to cleared). An absent key leaves the
-  // existing override key untouched.
+  // are both already equivalent to cleared; for `label`, a baseline equal
+  // to the template/seed default means the clear falls back to the default
+  // label instead of storing a sentinel that would render as the raw
+  // profile key). An absent key leaves the existing override key untouched.
   // -------------------------------------------------------------------------
 
   test("PUT { label: 'X' } lands in profileOverrides, leaving llm.profiles untouched", async () => {
@@ -174,7 +176,7 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     });
   });
 
-  test("PUT { label: null } stores the null sentinel in profileOverrides", async () => {
+  test("PUT { label: null } stores the null sentinel when a stale materialized label needs masking", async () => {
     savedRaw = null;
     rawConfig = {
       llm: {
@@ -182,11 +184,11 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
           balanced: {
             provider: "anthropic",
             model: "claude-sonnet",
-            label: "My Custom Name",
+            label: "My Old Name",
             source: "managed",
           },
         },
-        profileOverrides: { balanced: { label: "My Custom Name" } },
+        profileOverrides: { balanced: { label: "My Old Name" } },
       },
     };
     const result = await replaceRoute.handler({
@@ -198,13 +200,55 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     // Key present with null — masks the stale materialized label at merge
     // time instead of letting it resurface.
     expect(saved.llm.profileOverrides.balanced).toEqual({ label: null });
+    const effective = structuredClone(saved);
+    applyBuiltinProfiles(effective);
+    expect(
+      (effective as Record<string, any>).llm.profiles.balanced.label,
+    ).toBeNull();
     // The materialized entry's fields are untouched by the PUT.
     expect(saved.llm.profiles.balanced).toEqual({
       provider: "anthropic",
       model: "claude-sonnet",
-      label: "My Custom Name",
+      label: "My Old Name",
       source: "managed",
     });
+  });
+
+  test("PUT { label: null } with a stored custom label and a clean config deletes the override", async () => {
+    // Post-migration shape: no materialized built-in entry, just a stored
+    // rename. There is nothing for the null sentinel to mask, so the clear
+    // removes the stored key — the effective label reverts to the template
+    // default instead of going null (which clients render as the raw key).
+    savedRaw = null;
+    rawConfig = {
+      llm: { profileOverrides: { balanced: { label: "Mine" } } },
+    };
+    const result = await replaceRoute.handler({
+      pathParams: { name: "balanced" },
+      body: { label: null },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides).toBeUndefined();
+    const effective = structuredClone(saved) as Record<string, any>;
+    applyBuiltinProfiles(effective);
+    const pristine: Record<string, any> = {};
+    applyBuiltinProfiles(pristine);
+    expect(effective.llm.profiles.balanced.label).toBe(
+      pristine.llm.profiles.balanced.label,
+    );
+    expect(typeof effective.llm.profiles.balanced.label).toBe("string");
+  });
+
+  test("PUT { label: null } with no stored override and a clean config creates no override", async () => {
+    savedRaw = null;
+    const result = await replaceRoute.handler({
+      pathParams: { name: "balanced" },
+      body: { label: null },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    expect(saved.llm.profileOverrides).toBeUndefined();
   });
 
   test("PUT { status: null } removes the stored status key, leaving other override keys untouched", async () => {
@@ -249,12 +293,10 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     });
     expect(result).toEqual({ ok: true });
     const saved = savedRaw as unknown as Record<string, any>;
-    // label null masks the template default, so it persists as the
-    // sentinel; status null against an absent baseline just removes the
-    // stored "disabled" key.
-    expect(saved.llm.profileOverrides["cost-optimized"]).toEqual({
-      label: null,
-    });
+    // Both clears resolve against a baseline with nothing to mask (template
+    // default label, active-by-absence status), so both stored keys are
+    // removed and the hollowed-out entry and map are pruned.
+    expect(saved.llm.profileOverrides).toBeUndefined();
   });
 
   test("PUT { label: null, status: 'disabled' } mixes clear + set in one call", async () => {
@@ -270,8 +312,9 @@ describe("PUT /v1/config/llm/profiles/:name — managed profile guard", () => {
     });
     expect(result).toEqual({ ok: true });
     const saved = savedRaw as unknown as Record<string, any>;
+    // The label clear removes the stored "Custom Label" key (the baseline is
+    // the template default — nothing to mask), while the status set persists.
     expect(saved.llm.profileOverrides.balanced).toEqual({
-      label: null,
       status: "disabled",
     });
   });

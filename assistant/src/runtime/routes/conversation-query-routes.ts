@@ -112,7 +112,10 @@ type LlmContextRouteResult = Omit<LlmContextNormalizationResult, "summary"> & {
   summary?: LlmContextSummaryResponse;
 };
 
-import { MANAGED_PROFILE_NAMES } from "../../config/builtin-inference-profiles.js";
+import {
+  isSeedDefaultBuiltinLabel,
+  MANAGED_PROFILE_NAMES,
+} from "../../config/builtin-inference-profiles.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 
 const RESERVED_PROFILE_NAMES = new Set([
@@ -1405,7 +1408,10 @@ async function handleReplaceInferenceProfile({
  *   stores the null sentinel ("explicitly cleared" — it masks any stale
  *   label/status still carried by a transition-state materialized entry at
  *   merge time) whenever the no-override resolution isn't already equivalent
- *   to the cleared state (for `status`, absent and "active" both are — see
+ *   to the cleared state. For `status`, absent and "active" baselines both
+ *   are; for `label`, a baseline equal to the template/seed default is — the
+ *   clear then just removes the stored key so the effective label falls back
+ *   to the default instead of going `null` (see
  *   `isRedundantBuiltinOverride`).
  * - An absent key leaves the existing override key untouched.
  * - An entry (or the whole map) left with no keys is deleted.
@@ -1432,7 +1438,7 @@ function writeBuiltinProfileOverride(
       next[key] = existing[key];
     }
     if (!(key in fragment)) continue;
-    if (isRedundantBuiltinOverride(key, fragment[key], baseline)) {
+    if (isRedundantBuiltinOverride(name, key, fragment[key], baseline)) {
       delete next[key];
     } else {
       next[key] = fragment[key];
@@ -1456,12 +1462,29 @@ function writeBuiltinProfileOverride(
  * later release would never reach the user.
  */
 function isRedundantBuiltinOverride(
+  name: string,
   key: "label" | "status",
   value: unknown,
   baseline: Record<string, unknown> | null,
 ): boolean {
   const resolved = baseline?.[key];
   if (value === resolved) return true;
+  if (key === "label") {
+    // A cleared label (`null`) means "back to the default name". When the
+    // baseline label is a seed default (the lift filters seed-default labels
+    // from materialized entries, so this means no stale custom label exists),
+    // there is nothing for the sentinel to mask: storing `null` would only
+    // make the effective label `null` and clients would render the raw
+    // profile key. The clear is redundant — the stored key is removed and
+    // the resolve-time default supplies the label. When the baseline carries
+    // a genuine stale custom label (transition state), `null` is NOT
+    // redundant — storing it masks the lift.
+    return (
+      value === null &&
+      typeof resolved === "string" &&
+      isSeedDefaultBuiltinLabel(name, resolved)
+    );
+  }
   // `status` has no template default — absence means active — so writing
   // "active" over an absent default is equally redundant. The explicit-clear
   // sentinel `null` also resolves to active behavior at merge time, so it is
@@ -1470,7 +1493,6 @@ function isRedundantBuiltinOverride(
   // resolves a real lifted status (e.g. a transition-state materialized
   // "disabled" entry), `null` is NOT redundant — storing it masks the lift.
   return (
-    key === "status" &&
     (value === "active" || value === null) &&
     (resolved === undefined || resolved === "active")
   );
