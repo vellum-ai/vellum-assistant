@@ -11,16 +11,18 @@ type IpcCall = {
 
 let ipcCalls: IpcCall[] = [];
 let ipcResult: unknown = { rules: [] };
+let ipcError: Error | undefined;
 
-const ipcCallMock = mock(
+const ipcCallPersistentMock = mock(
   async (method: string, params?: Record<string, unknown>) => {
     ipcCalls.push({ method, params });
+    if (ipcError) throw ipcError;
     return ipcResult;
   },
 );
 
 mock.module("../gateway-client.js", () => ({
-  ipcCall: ipcCallMock,
+  ipcCallPersistent: ipcCallPersistentMock,
 }));
 
 import { ROUTES as trustRuleRoutes } from "../../runtime/routes/trust-rules-routes.js";
@@ -35,7 +37,8 @@ describe("trustRuleRoutes", () => {
   beforeEach(() => {
     ipcCalls = [];
     ipcResult = { rules: [] };
-    ipcCallMock.mockClear();
+    ipcError = undefined;
+    ipcCallPersistentMock.mockClear();
   });
 
   describe("trust_rules_list", () => {
@@ -102,12 +105,12 @@ describe("trustRuleRoutes", () => {
   });
 
   describe("error path", () => {
-    test("undefined IPC response surfaces gateway IPC failure", async () => {
-      ipcResult = undefined;
+    test("gateway IPC error is propagated", async () => {
+      ipcError = new Error("Gateway IPC call timed out");
 
       const route = findRoute("trust_rules_list");
       await expect(route.handler({ body: {} })).rejects.toThrow(
-        "Gateway IPC request failed",
+        "Gateway IPC call timed out",
       );
     });
   });

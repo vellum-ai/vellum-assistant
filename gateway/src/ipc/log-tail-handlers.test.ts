@@ -2,42 +2,34 @@
  * Tests for gateway log-tail IPC routes.
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { GatewayConfig } from "../config.js";
 
-mock.module("../logger.js", () => {
-  const noop = () => {};
-  const noopLogger = {
-    info: noop,
-    warn: noop,
-    error: noop,
-    debug: noop,
-    trace: noop,
-    fatal: noop,
-    child: () => noopLogger,
-  };
-  return {
-    getLogger: () => noopLogger,
-    initLogger: noop,
-    LOG_FILE_PATTERN: /^gateway-(\d{4}-\d{2}-\d{2})\.log$/,
-    LOG_FILE_JSON_PATTERN: /^gateway-(\d{4}-\d{2}-\d{2})\.jsonl$/,
-  };
-});
+const tailResult = {
+  lines: [{ msg: "warn msg", level: 40 }],
+  truncated: false,
+};
+
+const tailGatewayLogsMock = mock(
+  (
+    _config: GatewayConfig,
+    _params?: Record<string, unknown>,
+  ): typeof tailResult => tailResult,
+);
+
+mock.module("../http/routes/log-tail.js", () => ({
+  tailGatewayLogs: tailGatewayLogsMock,
+}));
 
 const { createLogTailRoutes } = await import("./log-tail-handlers.js");
 
-let tmpDir: string | undefined;
-
-function makeConfig(dir: string | undefined): GatewayConfig {
+function makeConfig(): GatewayConfig {
   return {
     assistantRuntimeBaseUrl: "http://localhost:7821",
     defaultAssistantId: undefined,
     gatewayInternalBaseUrl: "http://127.0.0.1:7830",
-    logFile: { dir, retentionDays: 30 },
+    logFile: { dir: undefined, retentionDays: 30 },
     maxAttachmentBytes: {
       telegram: 20 * 1024 * 1024,
       slack: 100 * 1024 * 1024,
@@ -58,20 +50,13 @@ function makeConfig(dir: string | undefined): GatewayConfig {
   } as GatewayConfig;
 }
 
-function makeLogLine(level: number, msg: string): string {
-  return JSON.stringify({ level, msg, time: Date.now() });
-}
-
-afterEach(() => {
-  if (tmpDir) {
-    rmSync(tmpDir, { recursive: true, force: true });
-    tmpDir = undefined;
-  }
+beforeEach(() => {
+  tailGatewayLogsMock.mockClear();
 });
 
 describe("createLogTailRoutes", () => {
   test("registers gateway_logs_tail with optional params", () => {
-    const route = createLogTailRoutes(makeConfig(undefined))[0];
+    const route = createLogTailRoutes(makeConfig())[0];
 
     expect(route.method).toBe("gateway_logs_tail");
     expect(route.schema?.safeParse(undefined).success).toBe(true);
@@ -79,26 +64,15 @@ describe("createLogTailRoutes", () => {
   });
 
   test("tails gateway logs through the IPC handler", () => {
-    tmpDir = mkdtempSync(join(tmpdir(), "gw-ipc-log-tail-test-"));
-    writeFileSync(
-      join(tmpDir, "gateway-2026-05-04.jsonl"),
-      [
-        makeLogLine(30, "info msg"),
-        makeLogLine(40, "warn msg"),
-        makeLogLine(50, "error msg"),
-      ].join("\n"),
-    );
+    const config = makeConfig();
+    const route = createLogTailRoutes(config)[0];
+    const result = route.handler({ n: 2, level: "warn", module: "mcp" });
 
-    const route = createLogTailRoutes(makeConfig(tmpDir))[0];
-    const result = route.handler({ n: 2, level: "warn" }) as {
-      lines: Array<{ msg: string }>;
-      truncated: boolean;
-    };
-
-    expect(result.truncated).toBe(false);
-    expect(result.lines.map((line) => line.msg)).toEqual([
-      "warn msg",
-      "error msg",
-    ]);
+    expect(result).toBe(tailResult);
+    expect(tailGatewayLogsMock).toHaveBeenCalledWith(config, {
+      n: 2,
+      level: "warn",
+      module: "mcp",
+    });
   });
 });

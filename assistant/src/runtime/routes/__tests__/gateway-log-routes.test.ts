@@ -13,16 +13,18 @@ type IpcCall = {
 
 let ipcCalls: IpcCall[] = [];
 let ipcResult: unknown = { lines: [], truncated: false };
+let ipcError: Error | undefined;
 
-const ipcCallMock = mock(
+const ipcCallPersistentMock = mock(
   async (method: string, params?: Record<string, unknown>) => {
     ipcCalls.push({ method, params });
+    if (ipcError) throw ipcError;
     return ipcResult;
   },
 );
 
 mock.module("../../../ipc/gateway-client.js", () => ({
-  ipcCall: ipcCallMock,
+  ipcCallPersistent: ipcCallPersistentMock,
 }));
 
 import { ROUTES } from "../gateway-log-routes.js";
@@ -35,7 +37,8 @@ describe("gateway_logs_tail route", () => {
   beforeEach(() => {
     ipcCalls = [];
     ipcResult = { lines: [], truncated: false };
-    ipcCallMock.mockClear();
+    ipcError = undefined;
+    ipcCallPersistentMock.mockClear();
   });
 
   test("route is registered with correct operationId, method, and endpoint", () => {
@@ -85,11 +88,11 @@ describe("gateway_logs_tail route", () => {
     ]);
   });
 
-  test("throws when gateway IPC returns undefined", async () => {
-    ipcResult = undefined;
+  test("propagates gateway IPC errors", async () => {
+    ipcError = new Error("Gateway IPC socket disconnected");
 
     await expect(gatewayLogsTailRoute.handler({ body: {} })).rejects.toThrow(
-      "Gateway IPC request failed",
+      "Gateway IPC socket disconnected",
     );
   });
 

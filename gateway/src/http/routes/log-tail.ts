@@ -1,6 +1,11 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  GATEWAY_LOG_LEVEL_NAMES,
+  type GatewayLogLevelName,
+} from "@vellumai/gateway-client/gateway-ipc-contracts";
+
 import type { GatewayConfig } from "../../config.js";
 import {
   getLogger,
@@ -10,17 +15,7 @@ import {
 
 const log = getLogger("log-tail");
 
-export const LEVEL_NAMES = [
-  "trace",
-  "debug",
-  "info",
-  "warn",
-  "error",
-  "fatal",
-] as const;
-export type LevelName = (typeof LEVEL_NAMES)[number];
-
-const LEVEL_MAP: Record<LevelName, number> = {
+const LEVEL_MAP: Record<GatewayLogLevelName, number> = {
   trace: 10,
   debug: 20,
   info: 30,
@@ -38,7 +33,7 @@ const TAIL_PATTERNS = [LOG_FILE_JSON_PATTERN, LOG_FILE_PATTERN] as const;
 
 export interface TailGatewayLogsParams {
   n?: number;
-  level?: LevelName;
+  level?: GatewayLogLevelName;
   module?: string;
 }
 
@@ -47,8 +42,8 @@ export interface TailGatewayLogsResult {
   truncated: boolean;
 }
 
-function isLevelName(value: string): value is LevelName {
-  return (LEVEL_NAMES as readonly string[]).includes(value);
+function isLevelName(value: string): value is GatewayLogLevelName {
+  return (GATEWAY_LOG_LEVEL_NAMES as readonly string[]).includes(value);
 }
 
 export function tailGatewayLogs(

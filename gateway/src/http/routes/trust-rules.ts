@@ -64,6 +64,7 @@ export interface TrustRulesListParams {
 }
 
 export function listTrustRules(params: TrustRulesListParams = {}) {
+  // Construct per call so DB resets use the current gateway DB connection.
   const store = new TrustRuleStore();
   const userRelevantOnly = !params.includeAll && params.origin === undefined;
 
