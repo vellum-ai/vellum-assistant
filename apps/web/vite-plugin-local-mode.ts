@@ -475,7 +475,15 @@ function gatewayProxyMiddleware(
     };
 
     const proxyReq = http.request(proxyOptions, (proxyRes) => {
-      res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
+      // Drop the upstream's `transfer-encoding` before re-emitting: Node's http
+      // server sets its own when we pipe the streamed body, so copying the
+      // gateway's `chunked` too yields a duplicate ("too many transfer
+      // encodings"). A strict downstream proxy (the `vel up` Caddy edge)
+      // rejects that with 502 — fatal for the SSE `/events` stream, whose
+      // failure drives a client reconnect + full-refetch loop.
+      const headers = { ...proxyRes.headers };
+      delete headers["transfer-encoding"];
+      res.writeHead(proxyRes.statusCode ?? 502, headers);
       proxyRes.pipe(res);
     });
 
