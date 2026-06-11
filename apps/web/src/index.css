@@ -33,10 +33,10 @@ body {
   --text-label-small-default-weight: 400;
 }
 
-/* Electron prechat onboarding typography — predates the app-wide
- * `.electron-type` override and is intentionally kept separate: the prechat
- * funnel pins `bodyMediumDefault` at 500 (Swift `bodyMediumEmphasised`) for
- * vibe-card titles, with section headers / row labels opting down to 400 via
+/* Electron prechat onboarding typography — intentionally kept separate from
+ * the app-wide `.electron-type` override: the prechat funnel pins
+ * `bodyMediumDefault` at 500 (Swift `bodyMediumEmphasised`) for vibe-card
+ * titles, with section headers / row labels opting down to 400 via
  * `.prechat-md-regular`. The remaining vars repeat the app-wide values so the
  * funnel renders identically even if it ever mounts without `.electron-type`
  * on the root. */

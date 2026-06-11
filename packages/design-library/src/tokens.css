@@ -684,10 +684,10 @@
   to { height: 0; }
 }
 .collapsible-content[data-state="open"] {
-  animation: collapsible-slide-down var(--anim-fast, 150ms) var(--anim-spring, cubic-bezier(0.16, 1, 0.3, 1));
+  animation: collapsible-slide-down var(--anim-fast) var(--anim-spring);
 }
 .collapsible-content[data-state="closed"] {
-  animation: collapsible-slide-up var(--anim-fast, 150ms) var(--anim-spring, cubic-bezier(0.16, 1, 0.3, 1));
+  animation: collapsible-slide-up var(--anim-fast) var(--anim-spring);
 }
 
 

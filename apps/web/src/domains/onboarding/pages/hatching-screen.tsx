@@ -99,10 +99,6 @@ export function HatchingScreen() {
   const [searchParams] = useSearchParams();
   const hostingParam = searchParams.get("hosting");
   const failParam = searchParams.get("fail");
-  // On Electron the compact window mirrors the Swift HatchingStepView layout:
-  // the title is pinned 84px from the window top (`pt-21`, the shared step
-  // title position, clearing the traffic lights / WindowDragRegion), and the
-  // creature centers in the leftover space. Web/iOS keep the centered layout.
   const electron = isElectron();
   const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
   const sessionStatus = useAuthStore.use.sessionStatus();
@@ -564,7 +560,7 @@ export function HatchingScreen() {
       <OnboardingLayout>
         <div
           role="alert"
-          className={`mx-auto flex w-full max-w-xl flex-col items-center px-6 ${electron ? "min-h-full pt-21 pb-28 electron-prechat-type" : "min-h-screen justify-center pb-40"} text-center text-[var(--content-default)]`}
+          className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-28 electron-prechat-type" : "min-h-screen justify-center px-6 pb-40"} text-center text-[var(--content-default)]`}
         >
           <h1 className={electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}>
             Something went wrong
@@ -645,14 +641,12 @@ export function HatchingScreen() {
       {/* Electron mirrors the Swift HatchingStepView layout: title pinned
           84px from the window top (the shared step-title position), the
           creature centered in the leftover space via auto margins (Swift's
-          Spacer pair), and the progress section near the bottom. Web/iOS
-          keep the centered layout. */}
-      {/* The electron bottom padding (pb-28) keeps the progress section clear
-          of the fixed CreatureFooter art, matching the Swift layout where the
-          progress bar sits above the in-flow footer characters. The 200px bar
-          cap and 10px label mirror HatchingStepView.swift (widthCap(200),
-          VFont.labelSmall). */}
-      <div className={`mx-auto flex w-full max-w-xl flex-col items-center px-6 ${electron ? "min-h-full pt-21 pb-28 electron-prechat-type" : "min-h-screen justify-center pb-40"} text-center text-[var(--content-default)]`}>
+          Spacer pair), and the progress section near the bottom — pb-28
+          keeps it clear of the fixed CreatureFooter art, which Swift renders
+          in-flow below the progress bar. The 200px bar cap and 10px label
+          mirror HatchingStepView.swift (widthCap(200), VFont.labelSmall).
+          Web/iOS keep the centered layout. */}
+      <div className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-28 electron-prechat-type" : "min-h-screen justify-center px-6 pb-40"} text-center text-[var(--content-default)]`}>
         <h1 className={electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}>
           {phase === "ready" ? "Your assistant is ready!" : "Waking up…"}
         </h1>

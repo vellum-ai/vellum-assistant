@@ -5,9 +5,9 @@ import { useNavigate, useSearchParams } from "react-router";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { setPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
-import { isElectron } from "@/runtime/is-electron";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
+import { isElectron } from "@/runtime/is-electron";
 import { useHasPlatformSession } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -261,7 +261,9 @@ function HostingCard({
             electron ? "border-[1.5px]" : "border-2"
           } ${
             selected
-              ? `border-[var(--primary-base)] ${electron ? "bg-[var(--primary-base)]" : ""}`
+              ? electron
+                ? "border-[var(--primary-base)] bg-[var(--primary-base)]"
+                : "border-[var(--primary-base)]"
               : "border-[var(--border-element)]"
           }`}
         >

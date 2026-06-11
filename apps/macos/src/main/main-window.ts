@@ -181,9 +181,8 @@ const createMainWindow = (): BrowserWindow => {
   // carries its own minimum (`minWidth`/`minHeight`): the compact onboarding
   // flow can't be dragged below its 440×660 content, and the main app can't
   // be dragged below 800×600 (mirroring the Swift client's `contentMinSize`).
-  // The persisted flag
-  // lets a relaunch *during* onboarding rebuild the small window directly
-  // (no flash); the absent-flag default is `false` (open large) so we
+  // The persisted flag lets a relaunch *during* onboarding rebuild the small
+  // window directly (no flash); the absent-flag default is `false` (open large) so we
   // never cramp the `/account/*` screens that render outside RootLayout —
   // a brand-new user entering onboarding briefly sees large then the
   // renderer's `setOnboarding` reconcile shrinks it.
