@@ -2,33 +2,44 @@
  * Tests for gateway trust-rule IPC routes.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
-import { TrustRuleStore } from "../db/trust-rule-store.js";
-import { clearFeatureFlagStoreCache } from "../feature-flag-store.js";
-import {
-  initTrustRuleCache,
-  resetTrustRuleCache,
-} from "../risk/trust-rule-cache.js";
+type ListTrustRulesParams = {
+  origin?: string;
+  tool?: string;
+  includeAll?: boolean;
+  includeDeleted?: boolean;
+};
+
+const listResult = {
+  rules: [
+    {
+      id: "rule-123",
+      tool: "bash",
+      pattern: "echo hello",
+      risk: "low",
+      description: "Allow echo hello",
+      origin: "user_defined",
+      userModified: false,
+      deleted: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+  ],
+};
+
+const listTrustRulesMock = mock(
+  (_params?: ListTrustRulesParams): typeof listResult => listResult,
+);
+
+mock.module("../http/routes/trust-rules.js", () => ({
+  listTrustRules: listTrustRulesMock,
+}));
+
 import { trustRulesRoutes } from "./trust-rules-handlers.js";
-import "../__tests__/test-preload.js";
 
-let store: TrustRuleStore;
-
-beforeEach(async () => {
-  resetGatewayDb();
-  resetTrustRuleCache();
-  clearFeatureFlagStoreCache();
-  await initGatewayDb();
-  initTrustRuleCache();
-  store = new TrustRuleStore();
-});
-
-afterEach(() => {
-  resetTrustRuleCache();
-  clearFeatureFlagStoreCache();
-  resetGatewayDb();
+beforeEach(() => {
+  listTrustRulesMock.mockClear();
 });
 
 describe("trustRulesRoutes", () => {
@@ -42,39 +53,20 @@ describe("trustRulesRoutes", () => {
     );
   });
 
-  test("lists user-relevant rules through the IPC handler", () => {
-    store.create({
-      tool: "bash",
-      pattern: "echo hello",
-      risk: "low",
-      description: "Allow echo hello",
-    });
-
+  test("lists trust rules through the IPC handler without writing test data", () => {
     const result = trustRulesRoutes[0].handler({
       tool: "bash",
       origin: "user_defined",
-    }) as {
-      rules: Array<{ tool: string; pattern: string; origin: string }>;
-    };
+      include_all: true,
+      include_deleted: true,
+    });
 
-    expect(
-      result.rules.some(
-        (rule) =>
-          rule.tool === "bash" &&
-          rule.pattern === "echo hello" &&
-          rule.origin === "user_defined",
-      ),
-    ).toBe(true);
-    expect(result.rules.every((rule) => rule.tool === "bash")).toBe(true);
-    expect(result.rules.every((rule) => rule.origin === "user_defined")).toBe(
-      true,
-    );
-    expect(
-      result.rules.find((rule) => rule.pattern === "echo hello"),
-    ).toMatchObject({
-      tool: "bash",
-      pattern: "echo hello",
+    expect(result).toBe(listResult);
+    expect(listTrustRulesMock).toHaveBeenCalledWith({
       origin: "user_defined",
+      tool: "bash",
+      includeAll: true,
+      includeDeleted: true,
     });
   });
 });
