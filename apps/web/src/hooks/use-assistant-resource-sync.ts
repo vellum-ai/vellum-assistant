@@ -10,13 +10,17 @@
  * reconnect — the client may have missed `sync_changed` events during the
  * transport gap.
  *
+ * Focus-based refetching (tab visible, Capacitor foregrounding) is NOT
+ * handled here — it's configured globally via TQ's `focusManager` in
+ * `lib/query-focus-manager.ts`, which covers every query automatically.
+ *
  * All operations are stateless one-liner invalidations with no
  * debouncing or per-row patching.
  *
  * More complex sync domains (conversations, feature flags) own their
  * own hooks:
- * - `domains/conversations/use-conversation-sync.ts`
- * - `lib/feature-flags/use-feature-flag-bus-sync.ts`
+ * - `hooks/use-conversation-sync.ts`
+ * - `hooks/use-feature-flag-bus-sync.ts`
  *
  * References:
  * - EVENT_BUS.md — bus subscription contract
@@ -44,10 +48,10 @@ import { SYNC_TAGS } from "@/lib/sync/types";
  * Subscribes to assistant-resource sync events via the event bus.
  *
  * Two bus channels:
- * - `sse.event` — routes `sync_changed` tags and discrete event types
- *   into TanStack Query cache invalidations.
+ * - `sse.event` — routes `sync_changed` tags (with self-echo
+ *   suppression) and discrete event types into TQ cache invalidations
  * - `sse.opened` — on reconnect (non-fresh), invalidates all cached
- *   assistant resources to catch events missed during the transport gap.
+ *   assistant resources to catch events missed during the transport gap
  */
 export function useAssistantResourceSync(
   assistantId: string | null,
