@@ -230,7 +230,9 @@ declare -a SAFE_LINE_PATTERNS=(
     # Kubernetes / Docker stateful-set env spec entries declaring a secret
     # resource reference (e.g. `{ kind: "secret", name: "TOKEN", secret: "keyName" }`).
     # The `secret` field is the k8s secret object name, not an actual credential.
-    "kind:[[:space:]]*['\"]secret['\"]"
+    # Must match the full `kind: "secret" ... secret: "refName"` span so the
+    # strip-and-recheck pass doesn't leave a partial match.
+    "kind:[[:space:]]*['\"]secret['\"].*secret:[[:space:]]*['\"][a-zA-Z][a-zA-Z0-9]*['\"]"
 )
 
 matches_safe_line_pattern() {
