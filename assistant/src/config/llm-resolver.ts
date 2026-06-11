@@ -20,7 +20,8 @@ import {
  *   2. `llm.profiles[llm.activeProfile]` (workspace-wide active profile)
  *   3. `llm.profiles[opts.overrideProfile]` (per-call ad-hoc override)
  *   4. `llm.profiles[site.profile]` fields (call-site's named profile)
- *   5. `llm.callSites[callSite]` fields (call-site override)
+ *   5. `CALL_SITE_DEFAULTS[callSite]` shipped tuning (see below)
+ *   6. `llm.callSites[callSite]` fields (call-site override)
  *
  * For `mainAgent`, the selected active/conversation profile is the direct
  * user intent for the chat loop, so profile layers intentionally sit above
@@ -28,9 +29,27 @@ import {
  * settings:
  *   1. `llm.default`
  *   2. `llm.profiles[site.profile]`
- *   3. `llm.callSites.mainAgent`
- *   4. `llm.profiles[llm.activeProfile]`
- *   5. `llm.profiles[opts.overrideProfile]`
+ *   3. `CALL_SITE_DEFAULTS.mainAgent` shipped tuning (none — see below)
+ *   4. `llm.callSites.mainAgent`
+ *   5. `llm.profiles[llm.activeProfile]`
+ *   6. `llm.profiles[opts.overrideProfile]`
+ *
+ * Shipped tuning base layer (layer 5 above): `CALL_SITE_DEFAULTS[callSite]`
+ * carries the shipped per-site config (e.g. `replySuggestion`'s 60-token cap).
+ * When `llm.callSites[callSite]` is ABSENT, that default supplies the whole
+ * call-site fragment via `effectiveDefault` (which owns the profile-stripping /
+ * `custom-*` fallback rules — unchanged). When `llm.callSites[callSite]` is
+ * PRESENT, the shipped default's **tuning fields only** (everything except
+ * `profile`) are deep-merged UNDERNEATH the persisted fragment so a partial
+ * persisted entry (a migration-seeded `{ model, effort, thinking }` with no
+ * `maxTokens`, or a UI-created `{ model }` override) inherits shipped tuning it
+ * doesn't itself set instead of shadowing it. The persisted fragment wins
+ * per-field; the shipped default's `profile` is never pulled in on this path,
+ * so profile selection stays governed by the persisted entry's own `profile`
+ * (absent for every migration-seeded entry). `mainAgent`'s shipped entry is
+ * `{ profile: "balanced" }` (no tuning), so this base contributes nothing for
+ * `mainAgent` and its precedence ordering is unchanged. See
+ * `mergeShippedTuningUnderPersisted`.
  *
  * Nested objects (`thinking`, `contextWindow`, and
  * `contextWindow.overflowRecovery`) are deep-merged so partial overrides at
@@ -93,9 +112,11 @@ export function resolveCallSiteConfig(
     llm,
     opts,
   );
+  const persisted = llm.callSites?.[callSite];
   const site =
-    llm.callSites?.[callSite] ??
-    effectiveDefault(callSite, llm, opts.overrideProfile != null);
+    persisted != null
+      ? mergeShippedTuningUnderPersisted(callSite, persisted)
+      : effectiveDefault(callSite, llm, opts.overrideProfile != null);
 
   if (callSite === "mainAgent") {
     appendCallSiteLayers(layers, callSite, llm, site, opts, biasRef);
@@ -265,6 +286,51 @@ function effectiveDefault(
     return Object.keys(rest).length > 0 ? rest : undefined;
   }
   return dflt;
+}
+
+/**
+ * Layer the shipped `CALL_SITE_DEFAULTS` tuning for a call site UNDERNEATH the
+ * user's persisted `llm.callSites[id]` fragment, so a partial persisted entry
+ * (e.g. a migration-seeded `{ model, effort, thinking }` with no `maxTokens`,
+ * or a UI-created `{ model }` override) inherits the shipped tuning it doesn't
+ * itself specify instead of shadowing it wholesale. The persisted fragment
+ * wins per-field.
+ *
+ * Only the shipped default's **config tuning** fields participate — its
+ * `profile` reference is deliberately stripped. Profile selection for a call
+ * site that has a persisted entry stays governed by that entry's own `profile`
+ * (which may be absent, as every migration-seeded entry is). Pulling in the
+ * shipped default's profile here would silently start applying a named profile
+ * to installs whose persisted fragment never had one, changing resolution
+ * beyond the tuning restoration this is meant to do. The shipped default's
+ * profile is consulted only via `effectiveDefault` on the no-persisted-entry
+ * path, where the documented profile-stripping / `custom-*` fallback rules
+ * already live and remain unchanged.
+ *
+ * Nested `thinking` / `contextWindow` are deep-merged so a persisted leaf
+ * (e.g. `thinking: { enabled: false }`) merges into — rather than replaces —
+ * the shipped nested object. `mainAgent` is unaffected by per-field tuning
+ * merge: its `CALL_SITE_DEFAULTS` entry is `{ profile: "balanced" }` (no
+ * tuning fields), so the shipped base contributes nothing and the persisted
+ * entry passes through verbatim — preserving the documented mainAgent
+ * precedence ordering.
+ */
+function mergeShippedTuningUnderPersisted(
+  callSite: LLMCallSite,
+  persisted: z.infer<typeof LLMSchema>["callSites"][LLMCallSite] & object,
+): z.infer<typeof LLMSchema>["callSites"][LLMCallSite] {
+  const dflt = CALL_SITE_DEFAULTS[callSite];
+  if (dflt == null) return persisted;
+  const { profile: _profile, ...shippedTuning } = dflt;
+  if (Object.keys(shippedTuning).length === 0) return persisted;
+  // Deep-merge so nested `thinking`/`contextWindow` leaves combine rather than
+  // wholesale-replace; the persisted fragment is the rightmost source so its
+  // fields win. The result is a fresh object — `deepMerge` clones — so neither
+  // `CALL_SITE_DEFAULTS` nor the persisted config is mutated.
+  return deepMerge(
+    shippedTuning as Mergeable,
+    persisted as Mergeable,
+  ) as z.infer<typeof LLMSchema>["callSites"][LLMCallSite];
 }
 
 function withImpliedProviderForKnownModel(source: Mergeable): Mergeable {

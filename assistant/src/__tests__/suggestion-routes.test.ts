@@ -566,23 +566,63 @@ describe("GET /v1/suggestion", () => {
     expect(options?.config?.callSite).toBe("replySuggestion");
   });
 
-  test("replySuggestion defaults disable thinking + zero effort to avoid Anthropic temp/thinking 400", () => {
+  test("replySuggestion defaults disable thinking to avoid Anthropic temp/thinking 400", () => {
     // Regression guard: the `replySuggestion` call site uses `temperature: 0.7`
     // for response variety. Anthropic 400s on `temperature` ≠ 1 whenever
     // thinking is enabled or in adaptive mode, so any user profile that
     // resolves thinking-enabled (Opus 4.x at `effort: high|xhigh`, etc.) would
     // fail unless the call site opts out of thinking.
     //
-    // M4 moved these knobs out of the inline `sendMessage` config and into the
-    // `replySuggestion` CALL_SITE_DEFAULTS entry, so this guard now asserts on
-    // the source of truth. Their flow to the wire (and the temp/thinking
-    // conflict backstop) is covered by retry-callsite.test.ts. A 60-token reply
-    // chip gains nothing from extended thinking anyway.
+    // M4 moved maxTokens/temperature/thinking out of the inline `sendMessage`
+    // config and into the `replySuggestion` CALL_SITE_DEFAULTS entry, so this
+    // guard asserts on the source of truth for those. Their flow to the wire
+    // (and the temp/thinking conflict backstop) is covered by
+    // retry-callsite.test.ts. A 60-token reply chip gains nothing from
+    // extended thinking anyway.
+    //
+    // `effort` is intentionally ABSENT from the default: it stays inline at the
+    // call site (`effort: "none"`) as a per-request operational invariant that
+    // must unconditionally win over the migration-072-seeded `effort: "low"`
+    // persisted fragment — see the "sends effort: none inline" test below and
+    // the comment in call-site-defaults.ts.
     const replySuggestion = CALL_SITE_DEFAULTS.replySuggestion;
     expect(replySuggestion.maxTokens).toBe(60);
     expect(replySuggestion.temperature).toBe(0.7);
-    expect(replySuggestion.effort).toBe("none");
+    expect(replySuggestion.effort).toBeUndefined();
     expect(replySuggestion.thinking?.enabled).toBe(false);
+  });
+
+  test("sends effort: none inline so it unconditionally wins over persisted fragments", async () => {
+    // `effort: "none"` is a per-request operational invariant (not user
+    // tuning): it must override any `llm.callSites.replySuggestion` fragment,
+    // including migration 072's seeded `effort: "low"`. Keeping it inline (vs
+    // in CALL_SITE_DEFAULTS) preserves the pre-M4 wire value of `none` on
+    // existing installs, since inline config wins over the resolved per-field
+    // merge in RetryProvider.
+    const provider = makeMockProvider("Quick reply");
+    mockGetConfiguredProvider.mockImplementation(async () => provider);
+    mockGetConversationByKey.mockImplementation(() => ({
+      conversationId: "conv-test",
+    }));
+    mockGetMessages.mockImplementation(() => [
+      {
+        id: "msg-asst-effort",
+        conversationId: "conv-test",
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: "Hello!" }]),
+        createdAt: Date.now(),
+        metadata: null,
+      },
+    ]);
+
+    const args = makeArgs({ conversationKey: "test-key" });
+    const deps = makeDeps();
+    await handleGetSuggestion(args, deps);
+
+    expect(provider.sendMessage).toHaveBeenCalledTimes(1);
+    const callArgs = provider.sendMessage.mock.calls[0] as unknown[];
+    const options = callArgs[1] as { config?: { effort?: string } } | undefined;
+    expect(options?.config?.effort).toBe("none");
   });
 
   test("does not send an assistant-role prefill message", async () => {

@@ -2262,21 +2262,31 @@ async function generateLlmSuggestion(
   // early-termination hint; the parser below handles both tagged and
   // untagged responses so untagged "casual answer" replies still work.
   //
-  // max_tokens (60), temperature, `effort: none`, and thinking-disabled live
-  // in the `replySuggestion` call-site defaults (see call-site-defaults.ts) so
-  // the call works on any user profile — including thinking-enabled profiles
+  // max_tokens (60), temperature, and thinking-disabled live in the
+  // `replySuggestion` call-site defaults (see call-site-defaults.ts) so the
+  // call works on any user profile — including thinking-enabled profiles
   // (Opus 4.x at `effort: high|xhigh`, etc.) where Anthropic 400s on
   // `temperature` ≠ 1 when thinking is enabled or in adaptive mode.
+  //
+  // `effort: "none"` stays INLINE (a genuine per-request operational
+  // invariant, like `stop_sequences`): it is not user-tunable and must
+  // unconditionally win over any persisted `llm.callSites.replySuggestion`
+  // fragment. Migration 072 seeds that fragment with `effort: "low"`, which
+  // pre-M4 was shadowed by this inline `none`; keeping it inline preserves the
+  // pre-M4 wire value exactly (a CALL_SITE_DEFAULTS `effort` would be overridden
+  // by the seeded `low` under the per-field merge in `resolveCallSiteConfig`).
   const response = await provider.sendMessage(
     [{ role: "user", content: [{ type: "text", text: userPrompt }] }],
     {
       tools: [],
       // no tools
       systemPrompt,
-      // `stop_sequences` is a genuine per-request hint, not call-site tuning.
+      // `stop_sequences` + `effort` are genuine per-request hints, not
+      // call-site tuning (see comment above).
       config: {
         callSite: "replySuggestion",
         stop_sequences: ["</reply>"],
+        effort: "none",
       },
     },
   );

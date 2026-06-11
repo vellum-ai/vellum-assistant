@@ -80,10 +80,17 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     profile: "cost-optimized",
     maxTokens: 60,
     temperature: 0.7,
-    // `effort: none` + thinking-disabled keep the 60-token reply chip working
-    // on any user profile — `temperature` ≠ 1 requires thinking disabled
-    // (Anthropic 400s otherwise), and a short chip gains nothing from thinking.
-    effort: "none",
+    // thinking-disabled keeps the 60-token reply chip working on any user
+    // profile — `temperature` ≠ 1 requires thinking disabled (Anthropic 400s
+    // otherwise), and a short chip gains nothing from thinking.
+    //
+    // `effort` is intentionally NOT set here: the call site (suggestion route
+    // in conversation-routes.ts) sets `effort: "none"` inline as a per-request
+    // operational invariant that must unconditionally win over the migration-
+    // 072-seeded `effort: "low"` persisted fragment. A default `effort` here
+    // would be overridden by that seeded `low` under the per-field merge in
+    // `resolveCallSiteConfig` (shipped tuning sits UNDER the persisted entry),
+    // diverging from the pre-M4 wire value of `none`.
     thinking: { enabled: false },
   },
   guardianQuestionCopy: {
