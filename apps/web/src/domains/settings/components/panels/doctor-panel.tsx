@@ -24,13 +24,14 @@ import {
   selectLatestHistorySession,
 } from "@/domains/settings/components/panels/doctor-history";
 import { useDoctorPanelStore } from "@/domains/settings/components/panels/doctor-panel-store";
-import { useDoctorSSE } from "@/domains/settings/components/panels/use-doctor-sse";
 import {
-  assistantsDoctorSessionsCreate,
-  assistantsDoctorSessionsDestroy,
-  assistantsDoctorSessionsMessagesCreate,
-  assistantsMaintenanceModeExitCreate,
-} from "@/generated/api/sdk.gen";
+  cleanupServerSession,
+  endSession,
+  resetToIdle,
+  sendMessage,
+  startSession,
+} from "@/domains/settings/components/panels/doctor-session-actions";
+import { useDoctorSSE } from "@/domains/settings/components/panels/use-doctor-sse";
 import {
   assistantsDoctorHistoryListOptions,
   assistantsDoctorHistoryRetrieveOptions,
@@ -40,36 +41,13 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { isPointerCoarse } from "@/utils/pointer";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Fire-and-forget server-side cleanup for a doctor session. */
-function cleanupServerSession(assistantId: string, sessionId: string): void {
-  assistantsDoctorSessionsDestroy({
-    path: { assistant_id: assistantId, session_id: sessionId },
-    throwOnError: false,
-  }).catch(() => {});
-  assistantsMaintenanceModeExitCreate({
-    path: { assistant_id: assistantId },
-    throwOnError: false,
-  }).catch(() => {});
+// Stable wrapper so sendMessage can be passed as a callback prop.
+function useSendMessage(assistantId: string) {
+  return useCallback(
+    (content: string) => sendMessage(assistantId, content),
+    [assistantId],
+  );
 }
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const DOCTOR_GREETING =
-  "Hi! I'm the Doctor. State the nature of the issue you're experiencing with your assistant and I'll help diagnose and fix it.";
-
-const APPROVAL_RESPONSES = new Set([
-  "approve",
-  "approve all exec",
-  "approve all future exec commands",
-  "approve_all_exec",
-  "deny",
-]);
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -126,120 +104,7 @@ export function DoctorPanel() {
   // ---------------------------------------------------------------------------
 
   const { connectSSE, abort } = useDoctorSSE();
-
-  // ---------------------------------------------------------------------------
-  // Session actions (replaces useDoctorSession hook)
-  // ---------------------------------------------------------------------------
-
-  const startSession = useCallback(async () => {
-    if (!assistantId) return;
-    const store = useDoctorPanelStore.getState();
-    store.setStarting(true);
-    try {
-      const { data, error, response } = await assistantsDoctorSessionsCreate({
-        path: { assistant_id: assistantId },
-        throwOnError: false,
-      });
-
-      if (!response?.ok || error || !data) {
-        if (response?.status === 429) {
-          store.appendEntry({
-            kind: "error",
-            content:
-              "You've used all of your available Doctor sessions for this month. Please try again next month.",
-          });
-          return;
-        }
-        store.appendEntry({
-          kind: "error",
-          content: `Failed to start session: ${response?.statusText ?? "unknown error"}`,
-        });
-        return;
-      }
-
-      const sessId = data.session_id;
-      store.setSelectedHistorySessionId(null);
-      store.setAppliedHistorySessionId(null);
-      store.setSessionId(sessId);
-      store.setSessionStatus("active");
-      store.setEntries([
-        { kind: "assistant", content: DOCTOR_GREETING, id: "greeting", timestamp: Date.now() },
-      ]);
-      connectSSE(assistantId, sessId);
-    } catch (err) {
-      captureError(err, { context: "start_doctor_session" });
-      useDoctorPanelStore.getState().appendEntry({
-        kind: "error",
-        content: "Failed to start doctor session",
-      });
-    } finally {
-      useDoctorPanelStore.getState().setStarting(false);
-    }
-  }, [assistantId, connectSSE]);
-
-  const endSession = useCallback(async () => {
-    const store = useDoctorPanelStore.getState();
-    store.setEnding(true);
-    try {
-      abort();
-      if (store.sessionId && assistantId) {
-        cleanupServerSession(assistantId, store.sessionId);
-      }
-      useDoctorPanelStore.getState().teardown();
-    } finally {
-      useDoctorPanelStore.getState().setEnding(false);
-    }
-  }, [assistantId, abort]);
-
-  const resetToIdle = useCallback(async () => {
-    const store = useDoctorPanelStore.getState();
-    abort();
-    if (store.sessionId && assistantId) {
-      cleanupServerSession(assistantId, store.sessionId);
-    }
-    useDoctorPanelStore.getState().resetForNewSession();
-  }, [assistantId, abort]);
-
-  const sendMessage = useCallback(
-    async (content: string) => {
-      const store = useDoctorPanelStore.getState();
-      if (!store.sessionId || !assistantId || !content.trim()) return;
-      store.setSending(true);
-
-      const text = content.trim();
-      store.appendEntry({ kind: "user", content: text });
-      store.setInputValue("");
-
-      if (APPROVAL_RESPONSES.has(text.toLowerCase())) {
-        store.setPendingApproval(false);
-      }
-
-      try {
-        const { error, response } = await assistantsDoctorSessionsMessagesCreate({
-          path: { assistant_id: assistantId, session_id: store.sessionId },
-          body: { content: text },
-          throwOnError: false,
-        });
-        if (!response?.ok || error) {
-          useDoctorPanelStore.getState().appendEntry({
-            kind: "error",
-            content: `Failed to send message: ${response?.statusText ?? "unknown error"}`,
-          });
-        } else {
-          useDoctorPanelStore.getState().setThinking(true);
-        }
-      } catch (err) {
-        captureError(err, { context: "send_doctor_message" });
-        useDoctorPanelStore.getState().appendEntry({
-          kind: "error",
-          content: "Failed to send message",
-        });
-      } finally {
-        useDoctorPanelStore.getState().setSending(false);
-      }
-    },
-    [assistantId],
-  );
+  const handleSendMessage = useSendMessage(assistantId);
 
   // ---------------------------------------------------------------------------
   // Persisted history queries
@@ -421,7 +286,7 @@ export function DoctorPanel() {
         {isSessionActive && (
           <button
             type="button"
-            onClick={endSession}
+            onClick={() => endSession(assistantId, abort)}
             disabled={ending}
             className="flex cursor-pointer items-center gap-1.5 rounded border border-[var(--system-negative-strong)] px-3 py-1.5 text-body-small-default text-[var(--system-negative-strong)] transition-colors hover:bg-[var(--system-negative-weak)] disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -464,7 +329,7 @@ export function DoctorPanel() {
           </div>
           <button
             type="button"
-            onClick={startSession}
+            onClick={() => startSession(assistantId, connectSSE)}
             disabled={starting}
             className="flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--primary-base)] px-5 py-2.5 text-body-medium-default text-[var(--content-inset)] transition-colors hover:bg-[var(--primary-hover)] disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -500,7 +365,7 @@ export function DoctorPanel() {
                       <div key={entry.id} className="max-w-[90%]">
                         <ApprovalBlock
                           entry={entry}
-                          onRespond={sendMessage}
+                          onRespond={handleSendMessage}
                           disabled={!pendingApproval || sending}
                         />
                       </div>
@@ -512,7 +377,7 @@ export function DoctorPanel() {
                           entry={entry}
                           onRespond={(response) => {
                             useDoctorPanelStore.getState().setPendingBackup(false);
-                            sendMessage(response);
+                            handleSendMessage(response);
                           }}
                           disabled={!pendingBackup || sending}
                         />
@@ -562,7 +427,7 @@ export function DoctorPanel() {
               onSubmit={(e) => {
                 e.preventDefault();
                 if (inputValue.trim() && !sending) {
-                  sendMessage(inputValue);
+                  handleSendMessage(inputValue);
                   if (inputRef.current) {
                     inputRef.current.style.height = "auto";
                   }
@@ -584,7 +449,7 @@ export function DoctorPanel() {
                   if (isPointerCoarse()) return;
                   e.preventDefault();
                   if (inputValue.trim() && !sending) {
-                    sendMessage(inputValue);
+                    handleSendMessage(inputValue);
                     if (inputRef.current) {
                       inputRef.current.style.height = "auto";
                     }
@@ -618,7 +483,7 @@ export function DoctorPanel() {
             <div className="flex shrink-0 items-center justify-center gap-3 py-2">
               <button
                 type="button"
-                onClick={resetToIdle}
+                onClick={() => resetToIdle(assistantId, abort)}
                 className="flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--primary-base)] px-4 py-2 text-body-medium-default text-[var(--content-inset)] transition-colors hover:bg-[var(--primary-hover)]"
               >
                 <Play className="h-4 w-4" />
