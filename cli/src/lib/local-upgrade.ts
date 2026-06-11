@@ -11,6 +11,7 @@ import {
   broadcastUpgradeEvent,
   buildCompleteEvent,
   buildStartingEvent,
+  fetchCurrentVersion,
   waitForReady,
 } from "./upgrade-lifecycle.js";
 import { compareVersions } from "./version-compat.js";
@@ -46,6 +47,36 @@ export function resolveLocalUpgradeTarget(
       `The only way to change versions is to change the CLI itself — run \`vellum upgrade --latest\` ` +
       `to update the CLI and restart the assistant on it.`,
   };
+}
+
+/**
+ * Decide whether a local restart onto `tag` is a downgrade relative to the
+ * currently running runtime. Mirrors the Docker upgrade guard: an unknown or
+ * unparseable current version proceeds (with a warning when unknown); only a
+ * strictly older target is rejected.
+ */
+export function checkLocalVersionDirection(
+  tag: string,
+  currentVersion: string | undefined,
+): { ok: true; warning?: string } | { ok: false; reason: string } {
+  if (!currentVersion) {
+    return {
+      ok: true,
+      warning:
+        "Could not determine current version from health endpoint — skipping version-direction check.",
+    };
+  }
+  const cmp = compareVersions(tag, currentVersion);
+  if (cmp !== null && cmp < 0) {
+    return {
+      ok: false,
+      reason:
+        `The local assistant is running ${currentVersion}, which is newer than this CLI's ` +
+        `embedded runtime (${tag}). Restarting it now would downgrade the assistant onto an ` +
+        `older runtime. Update the CLI instead — run \`vellum upgrade --latest\` — and retry.`,
+    };
+  }
+  return { ok: true };
 }
 
 /**
@@ -88,11 +119,26 @@ export async function upgradeLocal(
     process.exit(1);
   }
 
+  const probeUrl = resolveLocalProbeUrl(entry);
+
+  // Refuse downgrades BEFORE stopping anything — the running runtime may be
+  // newer than this CLI (e.g. upgraded independently).
+  const direction = checkLocalVersionDirection(
+    tag,
+    await fetchCurrentVersion(probeUrl),
+  );
+  if (!direction.ok) {
+    console.error(`Error: ${direction.reason}`);
+    emitCliError("VERSION_DIRECTION", direction.reason);
+    process.exit(1);
+  }
+  if (direction.warning) {
+    console.warn(`⚠️  ${direction.warning}\n`);
+  }
+
   console.log(
     `🔄 Restarting local assistant '${entry.assistantId}' on ${tag}...\n`,
   );
-
-  const probeUrl = resolveLocalProbeUrl(entry);
 
   // Pre-upgrade backup before anything is stopped (best-effort, mirrors the
   // Docker upgrade path — the restarted runtime may run migrations).

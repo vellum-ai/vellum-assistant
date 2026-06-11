@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  checkLocalVersionDirection,
   resolveLocalProbeUrl,
   resolveLocalUpgradeTarget,
 } from "../local-upgrade.js";
@@ -43,6 +44,45 @@ describe("resolveLocalUpgradeTarget", () => {
     if (!result.ok) {
       expect(result.reason).toContain("--latest");
     }
+  });
+});
+
+describe("checkLocalVersionDirection", () => {
+  test("downgrade (running runtime newer than CLI) is rejected", () => {
+    const result = checkLocalVersionDirection("v0.8.10", "v0.9.0");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("v0.9.0");
+      expect(result.reason).toContain("v0.8.10");
+      expect(result.reason).toContain("vellum upgrade --latest");
+      expect(result.reason).not.toContain("rollback");
+    }
+  });
+
+  test("equal versions are allowed", () => {
+    expect(checkLocalVersionDirection("v0.8.10", "v0.8.10")).toEqual({
+      ok: true,
+    });
+  });
+
+  test("newer target is allowed", () => {
+    expect(checkLocalVersionDirection("v0.9.0", "v0.8.10")).toEqual({
+      ok: true,
+    });
+  });
+
+  test("unknown current version proceeds with a warning (Docker parity)", () => {
+    const result = checkLocalVersionDirection("v0.8.10", undefined);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.warning).toContain("skipping version-direction check");
+    }
+  });
+
+  test("unparseable current version proceeds without warning (Docker parity)", () => {
+    expect(checkLocalVersionDirection("v0.8.10", "not-a-version")).toEqual({
+      ok: true,
+    });
   });
 });
 
