@@ -9,6 +9,10 @@ let connectivityStateMock: "online" | "device-offline" | "backend-unreachable" =
 let isElectronMock = false;
 let activeAssistantIdMock: string | null = "assistant-123";
 let operationalStatusAssistantIdMock: string | null = null;
+let assistantStateMock:
+  | { kind: "loading" }
+  | { kind: "active"; isLocal: boolean; maintenanceMode?: { enabled: boolean } } =
+  { kind: "loading" };
 let requestedOperationalStatusAssistantId: string | null | undefined;
 let operationalStatusQueryMock: {
   data: { state: string } | null | undefined;
@@ -71,6 +75,7 @@ mock.module("@/assistant/operational-status", () => ({
 mock.module("@/assistant/lifecycle-store", () => ({
   useAssistantLifecycleStore: {
     use: {
+      assistantState: () => assistantStateMock,
       operationalStatusAssistantId: () => operationalStatusAssistantIdMock,
     },
   },
@@ -117,6 +122,7 @@ beforeEach(() => {
   isElectronMock = false;
   activeAssistantIdMock = "assistant-123";
   operationalStatusAssistantIdMock = null;
+  assistantStateMock = { kind: "loading" };
   requestedOperationalStatusAssistantId = undefined;
   operationalStatusQueryMock = {
     data: null,
@@ -195,6 +201,20 @@ describe("StatusBanner", () => {
     expect(maintenanceHtml).toContain("Assistant is in maintenance mode");
     expect(maintenanceHtml).toContain('data-tone="info"');
     expect(maintenanceHtml).toContain("Resume Assistant");
+  });
+
+  test("renders maintenance mode from lifecycle state when operational status is absent", () => {
+    assistantStateMock = {
+      kind: "active",
+      isLocal: false,
+      maintenanceMode: { enabled: true },
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(html).toContain("Assistant is in maintenance mode");
+    expect(html).toContain('data-tone="info"');
+    expect(html).toContain("Resume Assistant");
   });
 
   test("renders status query failures as error banners", () => {

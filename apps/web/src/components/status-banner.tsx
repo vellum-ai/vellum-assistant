@@ -50,6 +50,14 @@ const OPERATIONAL_STATUS_TITLES: Record<AssistantOperationalState, string> = {
   retiring: "Assistant is retiring",
 };
 
+function maintenanceModeBannerConfig(): BannerConfig {
+  return {
+    tone: "info",
+    title: OPERATIONAL_STATUS_TITLES.maintenance_mode,
+    icon: <Wrench className="h-4 w-4" aria-hidden="true" />,
+  };
+}
+
 function operationalStatusBannerConfig(
   status: AssistantOperationalStatus | null | undefined,
 ): BannerConfig | null {
@@ -70,11 +78,7 @@ function operationalStatusBannerConfig(
         icon: <Moon className="h-4 w-4" aria-hidden="true" />,
       };
     case "maintenance_mode":
-      return {
-        tone: "info",
-        title: OPERATIONAL_STATUS_TITLES[status.state],
-        icon: <Wrench className="h-4 w-4" aria-hidden="true" />,
-      };
+      return maintenanceModeBannerConfig();
     default:
       return {
         tone: "warning",
@@ -113,6 +117,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
   const connectivityState = useConnectivityState();
   const nativeConnected = useNetworkStatus();
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const assistantState = useAssistantLifecycleStore.use.assistantState();
   const operationalStatusAssistantId =
     useAssistantLifecycleStore.use.operationalStatusAssistantId();
   const assistantId = operationalStatusAssistantId ?? activeAssistantId;
@@ -187,15 +192,27 @@ function useAssistantBannerConfig(): BannerConfig | null {
     };
   }
 
-  if (operationalStatusIsError) {
+  const lifecycleMaintenanceModeActive =
+    assistantState.kind === "active" &&
+    assistantState.maintenanceMode?.enabled === true;
+  const shouldUseLifecycleMaintenanceMode =
+    lifecycleMaintenanceModeActive &&
+    (!operationalStatus || isHealthyOperationalStatus(operationalStatus));
+
+  if (operationalStatusIsError && !shouldUseLifecycleMaintenanceMode) {
     return {
       tone: "error",
       title: "Assistant status is unavailable",
     };
   }
 
-  const operationalBanner = operationalStatusBannerConfig(operationalStatus);
-  if (operationalStatus?.state !== "maintenance_mode" || !operationalBanner) {
+  const operationalBanner = shouldUseLifecycleMaintenanceMode
+    ? maintenanceModeBannerConfig()
+    : operationalStatusBannerConfig(operationalStatus);
+  const isMaintenanceModeBanner =
+    operationalStatus?.state === "maintenance_mode" ||
+    shouldUseLifecycleMaintenanceMode;
+  if (!isMaintenanceModeBanner || !operationalBanner) {
     return operationalBanner;
   }
 
