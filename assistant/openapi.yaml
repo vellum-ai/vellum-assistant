@@ -11356,6 +11356,53 @@ paths:
                   - success
                   - ran
                 additionalProperties: false
+  /v1/gateway/logs/tail:
+    get:
+      operationId: gateway_logs_tail_get
+      summary: Tail gateway log entries
+      description: Return the last N structured log entries from the gateway log files.
+      tags:
+        - gateway-logs
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lines:
+                    type: array
+                    items:
+                      type: object
+                      propertyNames:
+                        type: string
+                      additionalProperties: {}
+                  truncated:
+                    type: boolean
+                required:
+                  - lines
+                  - truncated
+                additionalProperties: false
+      parameters:
+        - name: n
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Number of lines to return (1–1000, default: 10)"
+        - name: level
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Minimum pino level name (default: info)"
+        - name: module
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter to exact pino module name
   /v1/groups:
     get:
       operationId: groups_get
@@ -25741,6 +25788,87 @@ paths:
           required: true
           schema:
             type: string
+  /v1/trust-rules:
+    get:
+      operationId: trustrules_get
+      summary: List trust rules
+      description: List trust rules, optionally filtered by tool, origin, or include_all.
+      tags:
+        - trust-rules
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rules:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        tool:
+                          type: string
+                        pattern:
+                          type: string
+                        risk:
+                          type: string
+                          enum:
+                            - low
+                            - medium
+                            - high
+                        description:
+                          type: string
+                        origin:
+                          type: string
+                          enum:
+                            - default
+                            - user_defined
+                        userModified:
+                          type: boolean
+                        deleted:
+                          type: boolean
+                        createdAt:
+                          type: string
+                        updatedAt:
+                          type: string
+                      required:
+                        - id
+                        - tool
+                        - pattern
+                        - risk
+                        - description
+                        - origin
+                        - userModified
+                        - deleted
+                        - createdAt
+                        - updatedAt
+                      additionalProperties: false
+                required:
+                  - rules
+                additionalProperties: false
+      parameters:
+        - name: tool
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by tool name
+        - name: origin
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by origin
+        - name: include_all
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Include unmodified defaults
   /v1/trust-rules/suggest:
     post:
       operationId: trustrules_suggest_post
