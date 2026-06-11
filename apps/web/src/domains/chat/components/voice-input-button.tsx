@@ -180,6 +180,18 @@ export function errorCodeForReason(reason: SttFailureReason): string {
   }
 }
 
+function shouldUseNativeFallbackTranscript(
+  reason: SttFailureReason | null,
+): boolean {
+  return (
+    reason === null ||
+    reason === "config-missing" ||
+    reason === "network" ||
+    reason === "unavailable" ||
+    reason === "timeout"
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Session breadcrumbs
 // ---------------------------------------------------------------------------
@@ -709,7 +721,11 @@ export const VoiceInputButton = forwardRef<
           daemonFailure = "unknown";
         }
 
-        if (!text && fallbackText) {
+        if (
+          !text &&
+          fallbackText &&
+          shouldUseNativeFallbackTranscript(daemonFailure)
+        ) {
           text = fallbackText;
         }
 

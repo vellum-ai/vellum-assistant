@@ -168,9 +168,16 @@ function resetSessionMocks() {
   useVoiceRecordingStore.getState().reset();
 }
 
-async function startSession(onTranscript: (text: string) => Promise<void>) {
+async function startSession(
+  onTranscript: (text: string) => Promise<void>,
+  options: { onError?: (error: string | null) => void } = {},
+) {
   render(
-    <VoiceInputButton assistantId="assistant-1" onTranscript={onTranscript} />,
+    <VoiceInputButton
+      assistantId="assistant-1"
+      onError={options.onError}
+      onTranscript={onTranscript}
+    />,
   );
   fireEvent.click(screen.getByRole("button", { name: "Start voice input" }));
   // The stop affordance appearing proves the recording render committed and
@@ -299,5 +306,35 @@ describe("VoiceInputButton — session breadcrumb", () => {
     expect(postSttTranscribeSpy).toHaveBeenCalledTimes(1);
     expect(stopNativePartials).toHaveBeenCalledTimes(1);
     expect(lastBreadcrumb().data.outcome).toBe("completed");
+  });
+
+  test("does not hide actionable STT configuration errors behind native text", async () => {
+    postSttTranscribeImpl = async () => ({
+      status: "error" as const,
+      reason: "auth-failed" as const,
+    });
+    const stopNativePartials = mock(() => {});
+    startNativeDictationPartialsImpl = async (onPartial) => {
+      onPartial("native transcript");
+      return stopNativePartials;
+    };
+
+    const onTranscript = mock(async (_text: string) => {});
+    const onError = mock((_error: string | null) => {});
+    await startSession(onTranscript, { onError });
+
+    await waitFor(() => {
+      expect(useVoiceRecordingStore.getState().interimTranscript).toBe(
+        "native transcript",
+      );
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(onError).toHaveBeenCalledWith("stt-auth-failed");
+    });
+    expect(onTranscript).not.toHaveBeenCalled();
+    expect(stopNativePartials).toHaveBeenCalledTimes(1);
+    expect(lastBreadcrumb().data.outcome).toBe("error");
   });
 });
