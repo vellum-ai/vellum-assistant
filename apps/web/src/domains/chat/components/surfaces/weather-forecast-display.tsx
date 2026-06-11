@@ -1,5 +1,5 @@
 import { Droplets, Wind } from "lucide-react";
-import { type ReactNode, useCallback, useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 
 import type {
   WeatherForecastData,
@@ -13,8 +13,6 @@ import {
   getHourlyTemp,
   getPrecip,
   getWeatherIcon,
-  kmhToMph,
-  mphToKmh,
   parseWeatherData,
 } from "@/domains/chat/components/surfaces/weather-utils";
 
@@ -73,7 +71,7 @@ function HeroSection({
   useFahrenheit: boolean;
   onToggle: (f: boolean) => void;
 }) {
-  const locationName = typeof data.location === "string" ? data.location : data.location.name;
+  const locationName = data.location;
   const currentTempStr = displayTemp(data.currentTemp, sourceIsFahrenheit, useFahrenheit);
   const feelsLikeStr = displayTemp(data.feelsLike, sourceIsFahrenheit, useFahrenheit);
   const unitSymbol = useFahrenheit ? "F" : "C";
@@ -83,14 +81,10 @@ function HeroSection({
   const todayHighStr = today ? getDayHigh(today, sourceIsFahrenheit, useFahrenheit) : null;
   const todayLowStr = today ? getDayLow(today, sourceIsFahrenheit, useFahrenheit) : null;
 
-  // Wind speed conversion
+  // Wind: display raw value as-is (daemon doesn't specify wind units independently)
   let windStr: string | null = null;
   if (data.windSpeed !== undefined) {
-    const windUnit = useFahrenheit ? "mph" : "km/h";
-    let speed = data.windSpeed;
-    if (sourceIsFahrenheit && !useFahrenheit) speed = mphToKmh(data.windSpeed);
-    if (!sourceIsFahrenheit && useFahrenheit) speed = kmhToMph(data.windSpeed);
-    windStr = `${Math.round(speed)} ${windUnit}`;
+    windStr = `${Math.round(data.windSpeed)} mph`;
     if (data.windDirection) windStr = `${data.windDirection} ${windStr}`;
   }
 
@@ -316,10 +310,6 @@ export function WeatherForecastDisplay({
   const [userUnit, setUserUnit] = useState<boolean | null>(null);
   const useFahrenheit = userUnit ?? sourceIsFahrenheit;
 
-  const handleToggle = useCallback((value: boolean) => {
-    setUserUnit(value);
-  }, []);
-
   if (!data || (data.currentTemp === undefined && !data.forecast?.length)) return fallback ?? null;
 
   return (
@@ -328,7 +318,7 @@ export function WeatherForecastDisplay({
         data={data}
         sourceIsFahrenheit={sourceIsFahrenheit}
         useFahrenheit={useFahrenheit}
-        onToggle={handleToggle}
+        onToggle={setUserUnit}
       />
 
       {data.hourly && data.hourly.length > 0 && (

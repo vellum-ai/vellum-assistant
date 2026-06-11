@@ -1,10 +1,10 @@
 /**
- * Pure utility functions for the weather forecast surface. No React dependency.
+ * Pure utility functions for the weather forecast surface.
  *
  * Responsibilities:
  * - Icon mapping (SF Symbol / condition string → Lucide icon + color class)
  * - Defensive data parsing (raw daemon payload → typed `WeatherForecastData`)
- * - Temperature/unit conversion (F↔C, mph↔km/h, display formatting)
+ * - Temperature/unit conversion (F↔C, display formatting)
  *
  * The raw Tailwind colors in the icon maps (`text-orange-500`, `text-blue-400`,
  * etc.) are intentionally NOT semantic tokens — they represent real-world weather
@@ -34,7 +34,6 @@ export interface WeatherHourlyItem {
   time: string;
   icon: string;
   temp?: number;
-  temperature?: number;
   tempC?: number;
 }
 
@@ -48,12 +47,11 @@ export interface WeatherForecastItem {
   lowC?: number;
   highC?: number;
   precip?: number;
-  precipitationProbability?: number;
   condition?: string;
 }
 
 export interface WeatherForecastData {
-  location: string | { name: string };
+  location: string;
   currentTemp?: number;
   feelsLike?: number;
   condition?: string;
@@ -164,14 +162,14 @@ function parseWind(val: unknown): { speed?: number; direction?: string } {
 }
 
 export function parseWeatherData(raw: Record<string, unknown>): WeatherForecastData | null {
-  // Location (required)
-  let location: string | { name: string } | undefined;
+  // Location (required) — normalize to string during parsing
+  let location: string | undefined;
   if (typeof raw.location === "string") {
     location = raw.location;
   } else {
     const locObj = rec(raw.location);
     if (locObj && typeof locObj.name === "string") {
-      location = { name: locObj.name };
+      location = locObj.name;
     }
   }
   if (!location) return null;
@@ -198,8 +196,7 @@ export function parseWeatherData(raw: Record<string, unknown>): WeatherForecastD
       id: str(h.id) ?? String(i),
       time: str(h.time) ?? "",
       icon: str(h.icon) ?? str(h.condition) ?? "cloud.fill",
-      temp: num(h.temp),
-      temperature: num(h.temperature),
+      temp: num(h.tempC) ?? num(h.temp) ?? num(h.temperature),
       tempC: num(h.tempC),
     }));
 
@@ -220,7 +217,6 @@ export function parseWeatherData(raw: Record<string, unknown>): WeatherForecastD
       lowC: num(d.lowC),
       highC: num(d.highC),
       precip: num(d.precip) ?? num(d.precipitation) ?? num(d.precipitationProbability),
-      precipitationProbability: num(d.precipitationProbability) ?? num(d.precipitation) ?? num(d.precip),
       condition: str(d.condition),
     }));
 
@@ -262,19 +258,10 @@ export function displayTemp(
   return `${Math.round(result)}`;
 }
 
-export function mphToKmh(mph: number): number {
-  return mph * 1.60934;
-}
-
-export function kmhToMph(kmh: number): number {
-  return kmh / 1.60934;
-}
-
 export function getHourlyTemp(item: WeatherHourlyItem, sourceIsFahrenheit: boolean, useFahrenheit: boolean): string | null {
   if (item.tempC !== undefined) return displayTemp(item.tempC, false, useFahrenheit);
-  const raw = item.temp ?? item.temperature;
-  if (raw === undefined) return null;
-  return displayTemp(raw, sourceIsFahrenheit, useFahrenheit);
+  if (item.temp === undefined) return null;
+  return displayTemp(item.temp, sourceIsFahrenheit, useFahrenheit);
 }
 
 export function getDayLow(item: WeatherForecastItem, sourceIsFahrenheit: boolean, useFahrenheit: boolean): string | null {
@@ -288,5 +275,5 @@ export function getDayHigh(item: WeatherForecastItem, sourceIsFahrenheit: boolea
 }
 
 export function getPrecip(item: WeatherForecastItem): number | undefined {
-  return item.precip ?? item.precipitationProbability;
+  return item.precip;
 }
