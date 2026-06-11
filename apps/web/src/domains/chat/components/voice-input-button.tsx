@@ -738,19 +738,34 @@ export const VoiceInputButton = forwardRef<
       transcribeAbortRef.current = abortCtrl;
 
       void (async () => {
+        // Whole-recording native transcription starts concurrently with
+        // batch STT: it's local and takes a few seconds, while an offline
+        // batch attempt burns its full provider timeout before failing —
+        // sequencing them stacked into ~30s of "Processing".
+        const blobTextPromise: Promise<string | null> = audioBlob
+          ? transcribeNativeAudioBlob(audioBlob)
+          : Promise.resolve(null);
+
         let text = "";
         let daemonFailure: SttFailureReason | null = null;
         try {
           if (audioBlob && assistantId) {
-            const result = await postSttTranscribe(
-              audioBlob,
-              assistantId,
-              abortCtrl.signal,
-            );
-            if (result.status === "ok") {
-              text = result.text.trim();
+            if (typeof navigator !== "undefined" && navigator.onLine === false) {
+              // Provably offline — don't burn the provider timeout to learn
+              // what we already know.
+              console.info("dictation: skipping batch STT (offline)");
+              daemonFailure = "network";
             } else {
-              daemonFailure = result.reason;
+              const result = await postSttTranscribe(
+                audioBlob,
+                assistantId,
+                abortCtrl.signal,
+              );
+              if (result.status === "ok") {
+                text = result.text.trim();
+              } else {
+                daemonFailure = result.reason;
+              }
             }
           }
         } catch (err) {
@@ -780,8 +795,8 @@ export const VoiceInputButton = forwardRef<
         // in plain browsers — inside Electron the API ships without a
         // speech service, so it stays empty.
         let blobText = "";
-        if (!text && audioBlob) {
-          blobText = (await transcribeNativeAudioBlob(audioBlob)) ?? "";
+        if (!text) {
+          blobText = (await blobTextPromise) ?? "";
         }
 
         // Character counts only — transcript content must never be logged.

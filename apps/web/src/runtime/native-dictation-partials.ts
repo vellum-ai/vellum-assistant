@@ -127,7 +127,7 @@ async function startAudioPump(
   }
 }
 
-const TRANSCRIBED_TIMEOUT_MS = 12000;
+const TRANSCRIBED_TIMEOUT_MS = 8000;
 
 /**
  * One-shot Apple Speech recognition of a complete recording — the offline
@@ -150,7 +150,11 @@ export async function transcribeNativeAudioBlob(
   try {
     pcm = await decodeBlobTo16kMonoInt16(blob);
   } catch (err) {
-    console.warn("dictation: blob decode for native transcribe failed", err);
+    // Sub-second recordings can yield a header-only container that no
+    // decoder (nor the STT provider) accepts.
+    const detail =
+      err instanceof DOMException ? `${err.name}: ${err.message}` : err;
+    console.warn("dictation: blob decode for native transcribe failed", detail);
     return null;
   }
   if (pcm.byteLength === 0) return null;
@@ -220,8 +224,10 @@ async function decodeBlobTo16kMonoInt16(blob: Blob): Promise<ArrayBuffer> {
 export type StopNativeDictationPartials = () => Promise<string | null>;
 
 // The helper finalizes ~immediately on-device and self-times-out at 5s;
-// this guards against a dead helper.
-const FINALIZED_TIMEOUT_MS = 6000;
+// this guards against a dead helper. Kept tight: while it pends, the
+// finalized subscription lingers and a next session's events would be
+// double-handled.
+const FINALIZED_TIMEOUT_MS = 4000;
 
 /**
  * Start native dictation partials, delivering cumulative transcription text
@@ -299,6 +305,9 @@ export async function startNativeDictationPartials(
   return () => {
     if (stopPromise) return stopPromise;
     stopPump?.();
+    // No more partials are wanted once stopping — drop that listener now
+    // so a quick next session can't double-deliver into this one.
+    unsubscribe();
     dictation.setPartials(false).catch(() => {
       // Helper may have exited; nothing to stop.
     });
