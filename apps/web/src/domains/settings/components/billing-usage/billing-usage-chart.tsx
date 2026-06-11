@@ -170,19 +170,6 @@ export function BillingUsageChart({
     [metric],
   );
 
-  const formatAxisTick = useCallback(
-    (v: number) => {
-      if (metric === "spend") {
-        if (isMobile && v >= 1) return `$${Math.round(v).toLocaleString("en-US")}`;
-        if (v === 0) return "$0";
-        const digits = v < 0.01 ? 4 : v < 1 ? 2 : 0;
-        return `$${v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
-      }
-      return v.toLocaleString("en-US");
-    },
-    [metric, isMobile],
-  );
-
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
 
   const yAxisWidth = isMobile ? MOBILE_Y_AXIS_WIDTH : 56;
@@ -207,6 +194,20 @@ export function BillingUsageChart({
     [stackTotals, isIntegerMetric],
   );
   const yTicks = useMemo(() => generateTicks(yMax, Y_TICK_COUNT), [yMax]);
+
+  const formatAxisTick = useCallback(
+    (v: number) => {
+      if (metric === "spend") {
+        if (v === 0) return "$0";
+        if (isMobile && v >= 1) return `$${Math.round(v).toLocaleString("en-US")}`;
+        const step = yMax / Y_TICK_COUNT;
+        const digits = step > 0 ? Math.max(0, Math.ceil(-Math.log10(step))) : 2;
+        return `$${v.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+      }
+      return v.toLocaleString("en-US");
+    },
+    [metric, isMobile, yMax],
+  );
   const yScale = useMemo(
     () => linearScale([0, yMax], [plotTop + plotHeight, plotTop]),
     [yMax, plotTop, plotHeight],
