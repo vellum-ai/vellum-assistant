@@ -11,29 +11,13 @@ export type TooltipRowItem = {
 
 export function TooltipRow({ item }: { item: TooltipRowItem }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "2px 0",
-        fontSize: 13,
-        color: "#f6f5f4",
-      }}
-    >
+    <div className="flex items-center gap-2 py-0.5 text-[13px] text-[#f6f5f4]">
       <span
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: "50%",
-          backgroundColor: item.color,
-          flexShrink: 0,
-        }}
+        className="h-2 w-2 shrink-0 rounded-full"
+        style={{ backgroundColor: item.color }}
       />
       <span>{item.label}</span>
-      <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums" }}>
-        {item.value}
-      </span>
+      <span className="ml-auto tabular-nums">{item.value}</span>
     </div>
   );
 }
@@ -41,12 +25,12 @@ export function TooltipRow({ item }: { item: TooltipRowItem }) {
 export type TooltipPayloadEntry = {
   dataKey: string;
   value: number;
-  payload?: { __hoveredKey?: string };
 };
 
 interface StackedBarTooltipProps {
   active?: boolean;
   payload?: TooltipPayloadEntry[];
+  hoveredKey?: string;
   label?: string;
   labelMap: Record<string, string>;
   colorMap: Record<string, string>;
@@ -58,6 +42,7 @@ interface StackedBarTooltipProps {
 export function StackedBarTooltip({
   active,
   payload,
+  hoveredKey,
   label,
   labelMap,
   colorMap,
@@ -66,9 +51,6 @@ export function StackedBarTooltip({
   formatLabel,
 }: StackedBarTooltipProps) {
   if (!active || !payload?.length) return null;
-
-  const hoveredKey = payload.find((p) => p.payload?.__hoveredKey)?.payload
-    ?.__hoveredKey as string | undefined;
 
   const items: TooltipRowItem[] = payload
     .filter((p) => p.value != null && p.dataKey != null)
@@ -95,23 +77,14 @@ export function StackedBarTooltip({
 
   return (
     <div style={CHART_TOOLTIP_STYLE}>
-      <div
-        style={{
-          color: "#a9b2bb",
-          fontSize: 12,
-          fontWeight: 500,
-          marginBottom: 6,
-        }}
-      >
+      <div className="mb-1.5 text-xs font-medium text-[#a9b2bb]">
         {(formatLabel ?? formatDateLabel)(String(label))}
       </div>
       {hovered && (
         <>
           <TooltipRow item={hovered} />
           {rest.length > 0 && (
-            <div
-              style={{ borderTop: "1px solid #3a3f47", margin: "6px 0" }}
-            />
+            <div className="my-1.5 border-t border-[#3a3f47]" />
           )}
         </>
       )}
@@ -119,20 +92,7 @@ export function StackedBarTooltip({
         <TooltipRow key={item.key} item={item} />
       ))}
       {showTotal && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "2px 0",
-            fontSize: 13,
-            color: "#f6f5f4",
-            fontWeight: 600,
-            borderTop: "1px solid rgba(255,255,255,0.15)",
-            paddingTop: 6,
-            marginTop: 4,
-          }}
-        >
+        <div className="mt-1 flex items-center gap-2 border-t border-white/15 pt-1.5 text-[13px] font-semibold text-[#f6f5f4]">
           <span>Total: {formatValue(total)}</span>
         </div>
       )}

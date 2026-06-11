@@ -17,6 +17,14 @@ import { StackedBarTooltip } from "@/components/charts/stacked-bar-tooltip";
 import type { UsageBucket } from "@/generated/api/types.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 
+import {
+  generateTicks,
+  linearScale,
+  niceMax,
+  pickXTickIndices,
+  topRoundedRect,
+} from "./chart-scale-utils";
+
 export type ChartMetric = "spend" | "events";
 
 const MOBILE_Y_AXIS_WIDTH = 40;
@@ -67,75 +75,6 @@ function transformSeries(buckets: UsageBucket[], metric: ChartMetric) {
 }
 
 // ---------------------------------------------------------------------------
-// Scale helpers
-// ---------------------------------------------------------------------------
-
-function linearScale(
-  domain: [number, number],
-  range: [number, number],
-): (v: number) => number {
-  const [d0, d1] = domain;
-  const [r0, r1] = range;
-  const span = d1 - d0 || 1;
-  return (v: number) => r0 + ((v - d0) / span) * (r1 - r0);
-}
-
-function niceMax(values: number[]): number {
-  const raw = Math.max(0, ...values);
-  if (raw === 0) return 1;
-  const magnitude = 10 ** Math.floor(Math.log10(raw));
-  return Math.ceil(raw / magnitude) * magnitude;
-}
-
-function generateTicks(max: number, count: number): number[] {
-  if (max === 0) return [0];
-  const step = max / count;
-  const ticks: number[] = [];
-  for (let i = 0; i <= count; i++) {
-    ticks.push(step * i);
-  }
-  return ticks;
-}
-
-/** SVG path for a rect with only the top-left and top-right corners rounded. */
-function topRoundedRect(
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number,
-): string {
-  const clampedR = Math.min(r, w / 2, h / 2);
-  return [
-    `M${x},${y + clampedR}`,
-    `A${clampedR},${clampedR} 0 0 1 ${x + clampedR},${y}`,
-    `H${x + w - clampedR}`,
-    `A${clampedR},${clampedR} 0 0 1 ${x + w},${y + clampedR}`,
-    `V${y + h}`,
-    `H${x}`,
-    `Z`,
-  ].join("");
-}
-
-/** Pick evenly-spaced X label indices that avoid overlap on narrow viewports. */
-function pickXTickIndices(
-  total: number,
-  isMobile: boolean,
-): number[] {
-  if (total <= 0) return [];
-  if (isMobile) {
-    if (total <= 3) return Array.from({ length: total }, (_, i) => i);
-    return [0, Math.floor(total / 2), total - 1];
-  }
-  const maxTicks = Math.min(total, 12);
-  const step = Math.max(1, Math.ceil(total / maxTicks));
-  const indices: number[] = [];
-  for (let i = 0; i < total; i += step) indices.push(i);
-  if (indices[indices.length - 1] !== total - 1) indices.push(total - 1);
-  return indices;
-}
-
-// ---------------------------------------------------------------------------
 // Tooltip state
 // ---------------------------------------------------------------------------
 
@@ -182,16 +121,20 @@ const CHART_HEIGHT = 350;
 const MARGIN = { top: 8, right: 4, bottom: 32, left: 0 };
 const BAR_GAP_RATIO = 0.2;
 const Y_TICK_COUNT = 5;
+const TOOLTIP_OFFSET = 12;
+const ESTIMATED_TOOLTIP_WIDTH = 200;
+
+interface BillingUsageChartProps {
+  buckets: UsageBucket[];
+  metric: ChartMetric;
+  onBarClick?: (groupKey: string) => void;
+}
 
 export function BillingUsageChart({
   buckets,
   metric,
   onBarClick,
-}: {
-  buckets: UsageBucket[];
-  metric: ChartMetric;
-  onBarClick?: (groupKey: string) => void;
-}) {
+}: BillingUsageChartProps) {
   const isMobile = useIsMobile();
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -245,13 +188,11 @@ export function BillingUsageChart({
   const yAxisWidth = isMobile ? MOBILE_Y_AXIS_WIDTH : 56;
   const axisTick = isMobile ? MOBILE_AXIS_TICK : CHART_AXIS_TICK;
 
-  // Chart area dimensions
   const plotLeft = MARGIN.left + yAxisWidth;
   const plotWidth = Math.max(0, width - plotLeft - MARGIN.right);
   const plotTop = MARGIN.top;
   const plotHeight = CHART_HEIGHT - MARGIN.top - MARGIN.bottom;
 
-  // Stacked totals for Y domain
   const stackTotals = useMemo(
     () =>
       data.map((d) =>
@@ -260,14 +201,17 @@ export function BillingUsageChart({
     [data, stackKeys],
   );
 
-  const yMax = useMemo(() => niceMax(stackTotals), [stackTotals]);
+  const isIntegerMetric = metric === "events";
+  const yMax = useMemo(
+    () => niceMax(stackTotals, { integerOnly: isIntegerMetric, tickCount: Y_TICK_COUNT }),
+    [stackTotals, isIntegerMetric],
+  );
   const yTicks = useMemo(() => generateTicks(yMax, Y_TICK_COUNT), [yMax]);
   const yScale = useMemo(
     () => linearScale([0, yMax], [plotTop + plotHeight, plotTop]),
     [yMax, plotTop, plotHeight],
   );
 
-  // Band scale for X
   const barCount = data.length;
   const bandWidth = barCount > 0 ? plotWidth / barCount : 0;
   const barWidth = bandWidth * (1 - BAR_GAP_RATIO);
@@ -286,7 +230,6 @@ export function BillingUsageChart({
     );
   }
 
-  // Build stacked bar segments
   const bars = data.map((d, di) => {
     const x = plotLeft + di * bandWidth + barPadding;
     let cumY = 0;
@@ -323,27 +266,30 @@ export function BillingUsageChart({
     if (onBarClick) onBarClick(key);
   };
 
-  // Tooltip payload (mimics recharts shape for StackedBarTooltip reuse)
   const tooltipPayload = tooltip
     ? stackKeys
         .filter((k) => (Number(data[tooltip.datumIndex]?.[k]) || 0) > 0)
         .map((k) => ({
           dataKey: k,
           value: Number(data[tooltip.datumIndex]?.[k]) || 0,
-          payload: tooltip.hoveredKey
-            ? { __hoveredKey: tooltip.hoveredKey }
-            : {},
         }))
     : [];
 
-  // Constrain tooltip within container bounds
+  // Clamp tooltip so it stays within the container on both edges
+  const tooltipLeft = tooltip
+    ? Math.min(
+        tooltip.x + TOOLTIP_OFFSET,
+        width - ESTIMATED_TOOLTIP_WIDTH,
+      )
+    : 0;
+
   const tooltipStyle: React.CSSProperties = {
-    position: "absolute" as const,
-    pointerEvents: "none" as const,
+    position: "absolute",
+    pointerEvents: "none",
     zIndex: 1,
     maxWidth: "calc(100vw - 32px)",
-    left: tooltip ? tooltip.x + 12 : 0,
-    top: tooltip ? tooltip.y - 12 : 0,
+    left: tooltipLeft,
+    top: tooltip ? tooltip.y - TOOLTIP_OFFSET : 0,
     transform: "translateY(-100%)",
     visibility: tooltip ? "visible" : "hidden",
   };
@@ -472,6 +418,7 @@ export function BillingUsageChart({
               <StackedBarTooltip
                 active={!!tooltip}
                 payload={tooltipPayload}
+                hoveredKey={tooltip?.hoveredKey ?? undefined}
                 label={tooltip ? String(data[tooltip.datumIndex]?.date) : ""}
                 labelMap={labelMap}
                 colorMap={colorMap}
