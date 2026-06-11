@@ -7,7 +7,7 @@ import type {
   ToolLifecycleEvent,
   ToolLifecycleEventHandler,
 } from "../tools/types.js";
-import type { UsageAttributionSnapshot } from "../usage/attribution.js";
+import { toAttributionColumns } from "../usage/attribution.js";
 import { getLogger } from "../util/logger.js";
 
 const RESULT_PREVIEW_LIMIT = 1000;
@@ -56,7 +56,7 @@ function toInvocationRecord(
         // query time would undercount. Only the sizes leave the device.
         argBytes: Buffer.byteLength(input, "utf8"),
         resultBytes: Buffer.byteLength(event.result.content, "utf8"),
-        ...toAttributionFields(event.attribution),
+        ...toAttributionColumns(event.attribution),
       };
     }
     case "error": {
@@ -73,7 +73,7 @@ function toInvocationRecord(
         durationMs: event.durationMs,
         argBytes: Buffer.byteLength(input, "utf8"),
         resultBytes: Buffer.byteLength(result, "utf8"),
-        ...toAttributionFields(event.attribution),
+        ...toAttributionColumns(event.attribution),
       };
     }
     case "permission_denied":
@@ -93,25 +93,6 @@ function toInvocationRecord(
     case "permission_prompt":
       return null;
   }
-}
-
-/**
- * Maps an attribution snapshot to the tool_invocations telemetry columns —
- * the same mapping `llm_usage` reporting uses (`appliedProfile` →
- * inference_profile, `profileSource` → inference_profile_source).
- */
-function toAttributionFields(
-  attribution: UsageAttributionSnapshot | null | undefined,
-): Pick<
-  ToolInvocationRecord,
-  "provider" | "model" | "inferenceProfile" | "inferenceProfileSource"
-> {
-  return {
-    provider: attribution?.resolvedProvider ?? null,
-    model: attribution?.resolvedModel ?? null,
-    inferenceProfile: attribution?.appliedProfile ?? null,
-    inferenceProfileSource: attribution?.profileSource ?? null,
-  };
 }
 
 function stringifyInput(input: Record<string, unknown>): string {
