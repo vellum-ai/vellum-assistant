@@ -3,6 +3,7 @@ import {
   recordToolInvocation,
   type ToolInvocationRecord,
 } from "../memory/tool-usage-store.js";
+import { redactJsonStringLeaves } from "../security/redact-json.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import {
   stringifyToolInput,
@@ -50,7 +51,7 @@ function toInvocationRecord(
         // Inputs can carry secrets the model typed verbatim (e.g.
         // `export OPENAI_API_KEY=...` in a bash command) — redact before
         // the row reaches the audit store, like results below.
-        input: redactSecrets(rawInput),
+        input: redactToolInput(event.input, rawInput),
         result: redactSecrets(event.result.content).slice(
           0,
           RESULT_PREVIEW_LIMIT,
@@ -77,7 +78,7 @@ function toInvocationRecord(
       return {
         conversationId: event.conversationId,
         toolName: event.toolName,
-        input: redactSecrets(rawInput),
+        input: redactToolInput(event.input, rawInput),
         result,
         decision: "error",
         riskLevel: event.riskLevel,
@@ -95,7 +96,7 @@ function toInvocationRecord(
       return {
         conversationId: event.conversationId,
         toolName: event.toolName,
-        input: redactSecrets(stringifyToolInput(event.input)),
+        input: redactToolInput(event.input, stringifyToolInput(event.input)),
         result: formatDeniedResult(event.reason),
         decision: "denied",
         riskLevel: event.riskLevel,
@@ -105,6 +106,33 @@ function toInvocationRecord(
     case "start":
     case "permission_prompt":
       return null;
+  }
+}
+
+/**
+ * Redact secrets from a tool input while keeping the stored audit string
+ * parseable JSON. The redaction marker (`<redacted type="..." />`) contains
+ * double quotes, so redacting the serialized string would corrupt it —
+ * instead, walk the input's string leaves BEFORE stringification so the
+ * marker lands inside a JSON string value (with its quotes escaped).
+ *
+ * `rawInput` is the canonical pre-redaction serialization (also used for
+ * the `argBytes` telemetry fallback — byte sizes must reflect the full
+ * payload before truncation and redaction). It is returned untouched when
+ * nothing matched, keeping benign inputs byte-identical, and is redacted as
+ * plain text if the input can't be walked or re-serialized (e.g. cyclic
+ * structures).
+ */
+function redactToolInput(
+  input: Record<string, unknown>,
+  rawInput: string,
+): string {
+  try {
+    const { value, changed } = redactJsonStringLeaves(input);
+    if (!changed) return rawInput;
+    return JSON.stringify(value);
+  } catch {
+    return redactSecrets(rawInput);
   }
 }
 
