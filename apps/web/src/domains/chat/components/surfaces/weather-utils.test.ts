@@ -44,7 +44,6 @@ describe("getWeatherIcon", () => {
     expect(getWeatherIcon("snowflake").className).toBe("text-blue-300");
   });
 });
-
 // ---------------------------------------------------------------------------
 // parseWeatherData
 // ---------------------------------------------------------------------------
@@ -318,4 +317,3 @@ describe("getDayHigh", () => {
     expect(getDayHigh(item, true, true)).toBe("75");
   });
 });
-

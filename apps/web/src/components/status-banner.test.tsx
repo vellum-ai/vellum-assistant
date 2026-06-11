@@ -12,7 +12,7 @@ let operationalStatusAssistantIdMock: string | null = null;
 let assistantStateMock:
   | { kind: "loading" }
   | { kind: "active"; isLocal: boolean; maintenanceMode?: { enabled: boolean } } =
-  { kind: "loading" };
+  { kind: "active", isLocal: false };
 let requestedOperationalStatusAssistantId: string | null | undefined;
 let operationalStatusQueryMock: {
   data: { state: string } | null | undefined;
@@ -43,6 +43,12 @@ mock.module("@/runtime/is-electron", () => ({
 
 mock.module("@/runtime/connectivity", () => ({
   retryConnectivity: () => {},
+}));
+
+mock.module("react-router", () => ({
+  Link: (props: { to: string; children: ReactNode }) => (
+    <a href={props.to}>{props.children}</a>
+  ),
 }));
 
 mock.module("@/generated/api/sdk.gen", () => ({
@@ -114,7 +120,6 @@ beforeAll(async () => {
   ({ StatusBanner } = await import("@/components/status-banner"));
 });
 
-
 beforeEach(() => {
   isNativePlatformMock = false;
   connectedMock = true;
@@ -122,7 +127,7 @@ beforeEach(() => {
   isElectronMock = false;
   activeAssistantIdMock = "assistant-123";
   operationalStatusAssistantIdMock = null;
-  assistantStateMock = { kind: "loading" };
+  assistantStateMock = { kind: "active", isLocal: false };
   requestedOperationalStatusAssistantId = undefined;
   operationalStatusQueryMock = {
     data: null,
@@ -168,7 +173,28 @@ describe("StatusBanner", () => {
     expect(requestedOperationalStatusAssistantId).toBe("assistant-operation");
   });
 
-  test("renders operational error states with error tone", () => {
+  test("renders operational error states with error tone and Doctor action for platform assistants", () => {
+    for (const [state, title] of [
+      ["crash_loop", "Assistant is crash looping"],
+      ["unreachable", "Assistant is unreachable"],
+      ["not_found", "Assistant was not found"],
+    ] as const) {
+      operationalStatusQueryMock = {
+        data: { state },
+        isError: false,
+      };
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      expect(html).toContain(title);
+      expect(html).toContain('data-tone="error"');
+      expect(html).toContain("Go to Doctor");
+      expect(html).toContain("/assistant/settings/debug?tab=doctor");
+    }
+  });
+
+  test("does not render Doctor action for local assistant operational errors", () => {
+    assistantStateMock = { kind: "active", isLocal: true };
     operationalStatusQueryMock = {
       data: { state: "crash_loop" },
       isError: false,
@@ -177,7 +203,22 @@ describe("StatusBanner", () => {
     const html = renderToStaticMarkup(<StatusBanner />);
 
     expect(html).toContain("Assistant is crash looping");
-    expect(html).toContain('data-tone="error"');
+    expect(html).not.toContain("Go to Doctor");
+  });
+
+  test("does not render Doctor action for lifecycle operation errors that do not target the active assistant", () => {
+    activeAssistantIdMock = "assistant-active";
+    operationalStatusAssistantIdMock = "assistant-operation";
+    operationalStatusQueryMock = {
+      data: { state: "crash_loop" },
+      isError: false,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(requestedOperationalStatusAssistantId).toBe("assistant-operation");
+    expect(html).toContain("Assistant is crash looping");
+    expect(html).not.toContain("Go to Doctor");
   });
 
   test("renders quiet operational states with lower-severity tones", () => {
@@ -227,6 +268,20 @@ describe("StatusBanner", () => {
 
     expect(html).toContain("Assistant status is unavailable");
     expect(html).toContain('data-tone="error"');
+    expect(html).toContain("Go to Doctor");
+  });
+
+  test("does not render Doctor action for local assistant status query failures", () => {
+    assistantStateMock = { kind: "active", isLocal: true };
+    operationalStatusQueryMock = {
+      data: null,
+      isError: true,
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(html).toContain("Assistant status is unavailable");
+    expect(html).not.toContain("Go to Doctor");
   });
 
   describe("Capacitor iOS", () => {

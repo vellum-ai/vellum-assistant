@@ -122,4 +122,3 @@ export function assistantIdentityIntroQueryKey(
 ) {
   return [ASSISTANT_IDENTITY_INTRO_QUERY_KEY, assistantId ?? ""] as const;
 }
-
