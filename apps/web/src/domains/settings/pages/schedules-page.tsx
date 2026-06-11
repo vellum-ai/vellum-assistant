@@ -17,7 +17,6 @@ import {
   consolidationSubtitle,
   heartbeatSubtitle,
   scheduleUsageSummaryQueryOptions,
-  shouldShowSystemTaskToggles,
   sortSchedules,
   SYSTEM_TASK_URL_IDS,
   systemTaskKindFromUrlId,
@@ -26,7 +25,6 @@ import {
 } from "@/domains/settings/utils/schedule-formatters";
 import { captureError } from "@/lib/sentry/capture-error";
 import { assistantSchedulesQueryKey } from "@/lib/sync/query-tags";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { routes } from "@/utils/routes";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import { Button } from "@vellumai/design-library/components/button";
@@ -87,14 +85,6 @@ export function SchedulesPage() {
   const navigate = useNavigate();
   const { scheduleId } = useParams<{ scheduleId?: string }>();
   const tz = useEffectiveTimezone();
-  const assistantFlagsHydrated =
-    useAssistantFeatureFlagStore.use.hasHydrated();
-  const systemScheduleToggles =
-    useAssistantFeatureFlagStore.use.systemScheduleToggles();
-  const showSystemTaskToggles = shouldShowSystemTaskToggles(
-    assistantFlagsHydrated,
-    systemScheduleToggles,
-  );
   const assistantId = useActiveAssistantId();
 
   // -------------------------------------------------------------------------
@@ -404,7 +394,6 @@ export function SchedulesPage() {
         onSelectConsolidation={() =>
           navigateToSchedule(SYSTEM_TASK_URL_IDS.consolidation)
         }
-        showSystemTaskToggles={showSystemTaskToggles}
         onToggleHeartbeat={(enabled) =>
           void systemTasks.handleToggle("heartbeat", enabled)
         }
