@@ -1114,6 +1114,7 @@ async function upgradeFinalize(
  */
 async function resolveLatestAndMaybeSelfUpdate(
   name: string | null,
+  flags: { noWait: boolean; force: boolean },
 ): Promise<string> {
   console.log("🔍 Fetching latest stable release...");
   const latestVersion = await fetchLatestStableVersion();
@@ -1156,10 +1157,13 @@ async function resolveLatestAndMaybeSelfUpdate(
     console.log(`✅ CLI updated to ${latestTag}\n`);
 
     // Re-exec with the updated CLI. Pass --version instead of --latest
-    // to avoid re-fetching and to prevent infinite re-exec loops.
+    // to avoid re-fetching and to prevent infinite re-exec loops; forward
+    // the other flags so the re-exec keeps the requested semantics.
     const reexecArgs = ["upgrade"];
     if (name) reexecArgs.push(name);
     reexecArgs.push("--version", latestTag);
+    if (flags.noWait) reexecArgs.push("--no-wait");
+    if (flags.force) reexecArgs.push("--force");
 
     console.log(`🚀 Re-running upgrade with updated CLI...\n`);
     const reexecResult = spawnSync("vellum", reexecArgs, {
@@ -1195,7 +1199,10 @@ export async function upgrade(): Promise<void> {
   // as the explicit target for the rest of the upgrade flow.
   let effectiveVersion = version;
   if (latest) {
-    const latestTag = await resolveLatestAndMaybeSelfUpdate(name);
+    const latestTag = await resolveLatestAndMaybeSelfUpdate(name, {
+      noWait,
+      force,
+    });
     effectiveVersion = latestTag;
   }
 

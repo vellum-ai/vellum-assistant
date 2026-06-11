@@ -108,19 +108,20 @@ export function evaluateUpgradePoll(
       : "pending";
   }
 
-  // Target unknown: rely on the in-progress lock releasing...
-  if (sawInProgress && inProgress === false) return "complete";
-
-  // ...or, when upgrade-status is unavailable (older platform), on the
-  // observed version changing from its pre-upgrade value.
+  // Target unknown: a version change from the pre-upgrade value is
+  // definitive on its own — the upgrade can finish before the first poll,
+  // leaving in_progress false without sawInProgress ever being set.
   if (
-    inProgress === null &&
     observedVersion &&
     initialVersion &&
     !versionsEqual(observedVersion, initialVersion)
   ) {
     return "complete";
   }
+
+  // Otherwise rely on the in-progress lock releasing (e.g. when the
+  // pre-upgrade version was unknown).
+  if (sawInProgress && inProgress === false) return "complete";
 
   return "pending";
 }

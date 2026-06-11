@@ -175,6 +175,20 @@ describe("evaluateUpgradePoll", () => {
     ).toBe("complete");
   });
 
+  test("unknown target completes on version change even when the lock was never observed", () => {
+    // Upgrade finished before the first poll: in_progress already false,
+    // sawInProgress never set — the version change alone must complete.
+    expect(
+      evaluateUpgradePoll({
+        targetVersion: null,
+        initialVersion: "0.6.0",
+        observedVersion: "0.7.0",
+        inProgress: false,
+        sawInProgress: false,
+      }),
+    ).toBe("complete");
+  });
+
   test("unknown target without upgrade-status pends while the version is unchanged", () => {
     expect(
       evaluateUpgradePoll({
