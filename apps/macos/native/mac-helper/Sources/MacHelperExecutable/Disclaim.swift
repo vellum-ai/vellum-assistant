@@ -21,6 +21,14 @@ import Foundation
 ///
 /// Returns true when the current process is already running disclaimed.
 func ensureDisclaimedResponsibility() -> Bool {
+    // Spawner opt-out: in dev the Electron shell sets this so TCC
+    // attributes privacy access to the stable Electron.app identity (whose
+    // dev Info.plist carries the usage strings) instead of this ad-hoc
+    // binary, whose CDHash — and therefore TCC grants — churn on every
+    // rebuild. Packaged builds never set it.
+    if ProcessInfo.processInfo.environment["VELLUM_HELPER_NO_DISCLAIM"] == "1" {
+        return false
+    }
     let marker = "VELLUM_HELPER_DISCLAIMED"
     if ProcessInfo.processInfo.environment[marker] == "1" {
         return true

@@ -83,7 +83,10 @@ export interface VellumBridge {
       setPartials(
         enable: boolean,
         deviceName?: string,
+        pushAudio?: boolean,
       ): Promise<DictationPartialsResult>;
+      /** Fire-and-forget 16 kHz mono Int16 LE PCM for push-mode partials. */
+      pushAudioChunk?(chunk: ArrayBuffer): void;
       onPartial(callback: (event: DictationPartialEvent) => void): () => void;
     };
   };

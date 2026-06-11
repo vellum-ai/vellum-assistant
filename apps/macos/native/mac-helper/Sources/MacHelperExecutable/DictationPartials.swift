@@ -40,6 +40,13 @@ final class DictationPartialsSession: @unchecked Sendable {
     private var stopped = false
     private let requireOnDevice: Bool
     private let inputDeviceName: String?
+    // Non-nil → push mode: the renderer streams Int16 mono PCM at this rate
+    // via `append(pcm:)` and the helper opens NO audio device. Required when
+    // the renderer records the same mic: a second capture client on one
+    // device either reads silence or kills the first client's stream
+    // (observed both ways on Studio Display Microphone).
+    private let pushSampleRate: Double?
+    private var pushFormat: AVAudioFormat?
     private let emit: (String) -> Void
     private let onError: (Error) -> Void
 
@@ -55,11 +62,13 @@ final class DictationPartialsSession: @unchecked Sendable {
     init(
         requireOnDevice: Bool,
         inputDeviceName: String?,
+        pushSampleRate: Double? = nil,
         emit: @escaping (String) -> Void,
         onError: @escaping (Error) -> Void
     ) {
         self.requireOnDevice = requireOnDevice
         self.inputDeviceName = inputDeviceName
+        self.pushSampleRate = pushSampleRate
         self.emit = emit
         self.onError = onError
     }
@@ -90,26 +99,41 @@ final class DictationPartialsSession: @unchecked Sendable {
             request.requiresOnDeviceRecognition = true
         }
 
-        let input = audioEngine.inputNode
-        selectInputDevice(on: input)
-        let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else {
-            throw DictationPartialsError.noInputDevice
-        }
-
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self, request] buffer, _ in
-            request.append(buffer)
-            if let self, !self.heardAudio, Self.hasSignal(buffer) {
-                self.heardAudio = true
+        if let rate = pushSampleRate {
+            guard
+                let format = AVAudioFormat(
+                    commonFormat: .pcmFormatInt16,
+                    sampleRate: rate,
+                    channels: 1,
+                    interleaved: true
+                )
+            else {
+                throw DictationPartialsError.noInputDevice
             }
-        }
+            pushFormat = format
+            tappedDevice = "renderer stream (pushed PCM @\(Int(rate))Hz)"
+        } else {
+            let input = audioEngine.inputNode
+            selectInputDevice(on: input)
+            let format = input.outputFormat(forBus: 0)
+            guard format.sampleRate > 0, format.channelCount > 0 else {
+                throw DictationPartialsError.noInputDevice
+            }
 
-        do {
-            audioEngine.prepare()
-            try audioEngine.start()
-        } catch {
-            input.removeTap(onBus: 0)
-            throw error
+            input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self, request] buffer, _ in
+                request.append(buffer)
+                if let self, !self.heardAudio, Self.hasSignal(buffer) {
+                    self.heardAudio = true
+                }
+            }
+
+            do {
+                audioEngine.prepare()
+                try audioEngine.start()
+            } catch {
+                input.removeTap(onBus: 0)
+                throw error
+            }
         }
 
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
@@ -126,11 +150,37 @@ final class DictationPartialsSession: @unchecked Sendable {
     func stop() {
         guard !stopped else { return }
         stopped = true
-        audioEngine.inputNode.removeTap(onBus: 0)
-        audioEngine.stop()
+        if pushSampleRate == nil {
+            audioEngine.inputNode.removeTap(onBus: 0)
+            audioEngine.stop()
+        }
         request.endAudio()
         task?.cancel()
         task = nil
+    }
+
+    /// Push-mode input: append a chunk of Int16 mono LE PCM at
+    /// `pushSampleRate` from the renderer's capture pipeline.
+    func append(pcm data: Data) {
+        guard !stopped, let format = pushFormat else { return }
+        let frameCount = AVAudioFrameCount(data.count / 2)
+        guard
+            frameCount > 0,
+            let buffer = AVAudioPCMBuffer(
+                pcmFormat: format, frameCapacity: frameCount
+            )
+        else { return }
+        buffer.frameLength = frameCount
+        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+            guard let src = raw.baseAddress,
+                  let dst = buffer.int16ChannelData?[0]
+            else { return }
+            memcpy(dst, src, Int(frameCount) * 2)
+        }
+        if !heardAudio, Self.hasSignal(int16: buffer) {
+            heardAudio = true
+        }
+        request.append(buffer)
     }
 
     private static func hasSignal(_ buffer: AVAudioPCMBuffer) -> Bool {
@@ -142,6 +192,20 @@ final class DictationPartialsSession: @unchecked Sendable {
         var index = 0
         while index < count {
             if abs(samples[index]) > 0.002 { return true }
+            index += 16
+        }
+        return false
+    }
+
+    private static func hasSignal(int16 buffer: AVAudioPCMBuffer) -> Bool {
+        guard let data = buffer.int16ChannelData, buffer.frameLength > 0 else {
+            return false
+        }
+        let samples = data[0]
+        let count = Int(buffer.frameLength)
+        var index = 0
+        while index < count {
+            if abs(Int(samples[index])) > 66 { return true }
             index += 16
         }
         return false

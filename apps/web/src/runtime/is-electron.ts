@@ -117,7 +117,9 @@ declare global {
           setPartials(
             enable: boolean,
             deviceName?: string,
+            pushAudio?: boolean,
           ): Promise<DictationPartialsResult>;
+          pushAudioChunk?(chunk: ArrayBuffer): void;
           onPartial(
             callback: (event: DictationPartialEvent) => void,
           ): () => void;

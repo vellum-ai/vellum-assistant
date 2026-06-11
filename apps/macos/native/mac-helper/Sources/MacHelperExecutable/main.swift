@@ -71,6 +71,14 @@ final class MacHelper: @unchecked Sendable {
     // taps this same device so the native recognizer hears what the
     // MediaRecorder hears, not whatever the system default happens to be.
     private var dictationDeviceName: String?
+    // Non-nil → the renderer pushes its own PCM via dictation.appendAudio
+    // and the helper opens no device at all (a second capture client on the
+    // renderer's device reads silence or kills the renderer's stream).
+    private var dictationPushRate: Double?
+    // PCM that arrived while the session was still authorizing — flushed
+    // into the session on start so the first words aren't eaten. Capped at
+    // ~10s (100 × 100ms chunks).
+    private var pendingPushAudio: [Data] = []
     // Whether the current dictation session has produced any partial or
     // error callback — read by the on-device watchdog on the main queue.
     private var dictationSawActivity = false
@@ -112,8 +120,31 @@ final class MacHelper: @unchecked Sendable {
             }
             return self.setDictationPartials(
                 enable: enable,
-                deviceName: object["deviceName"] as? String
+                deviceName: object["deviceName"] as? String,
+                pushAudio: object["pushAudio"] as? Bool ?? false,
+                sampleRate: object["sampleRate"] as? Double ?? 16000
             )
+        }
+        router.register("dictation.appendAudio") { [weak self] params in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            guard
+                let object = params as? [String: Any],
+                let base64 = object["audio"] as? String,
+                let data = Data(base64Encoded: base64)
+            else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "dictation.appendAudio requires base64 audio"
+                )
+            }
+            if let session = self.dictationSession {
+                session.append(pcm: data)
+            } else if self.dictationPushRate != nil,
+                      self.pendingPushAudio.count < 100 {
+                self.pendingPushAudio.append(data)
+            }
+            return ["ok": true]
         }
         return router
     }()
@@ -190,35 +221,47 @@ final class MacHelper: @unchecked Sendable {
     /// notifications). The renderer enables this for the dictation overlay
     /// whenever daemon streaming STT is unreachable.
     private func setDictationPartials(
-        enable: Bool, deviceName: String? = nil
+        enable: Bool,
+        deviceName: String? = nil,
+        pushAudio: Bool = false,
+        sampleRate: Double = 16000
     ) -> [String: Any] {
         dictationGeneration += 1
         dictationSession?.stop()
         dictationSession = nil
         dictationDeviceName = deviceName
+        dictationPushRate = pushAudio ? sampleRate : nil
+        pendingPushAudio.removeAll()
 
         guard enable else {
             return ["enabled": false]
         }
 
+        // Push mode receives PCM from the renderer — it opens no device, so
+        // microphone permission is irrelevant; only speech recognition is.
+        let needMic = !pushAudio
         let speechStatus = SFSpeechRecognizer.authorizationStatus()
         let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
 
-        if speechStatus == .authorized, micStatus == .authorized {
+        if speechStatus == .authorized, !needMic || micStatus == .authorized {
             return startDictationSession()
         }
         if speechStatus == .denied || speechStatus == .restricted {
             return ["enabled": false, "reason": "speech-recognition-denied"]
         }
-        if micStatus == .denied || micStatus == .restricted {
+        if needMic, micStatus == .denied || micStatus == .restricted {
             return ["enabled": false, "reason": "microphone-denied"]
         }
 
         // A privacy request from a process whose TCC-responsible ancestor
-        // lacks the usage strings is a SIGABRT, not a denial. Only prompt
-        // when this process runs disclaimed (its own embedded Info.plist is
-        // the one TCC consults); otherwise degrade to no partials.
-        guard isDisclaimed else {
+        // lacks the usage strings is a SIGABRT, not a denial. Prompt when
+        // this process runs disclaimed (its own embedded Info.plist is the
+        // one TCC consults) or when the spawner explicitly vouched for the
+        // host's usage strings via VELLUM_HELPER_NO_DISCLAIM (dev Electron,
+        // whose Info.plist is patched); otherwise degrade to no partials.
+        let hostVouched =
+            ProcessInfo.processInfo.environment["VELLUM_HELPER_NO_DISCLAIM"] == "1"
+        guard isDisclaimed || hostVouched else {
             return ["enabled": false, "reason": "permissions-not-promptable"]
         }
 
@@ -240,6 +283,19 @@ final class MacHelper: @unchecked Sendable {
                 )
                 return
             }
+            let startAuthorized: @Sendable () -> Void = {
+                DispatchQueue.main.async {
+                    guard
+                        let self,
+                        generation == self.dictationGeneration
+                    else { return }
+                    _ = self.startDictationSession()
+                }
+            }
+            guard needMic else {
+                startAuthorized()
+                return
+            }
             Self.requestMicIfNeeded { [weak self] micGranted in
                 guard micGranted else {
                     self?.writeNotification(
@@ -252,13 +308,7 @@ final class MacHelper: @unchecked Sendable {
                     )
                     return
                 }
-                DispatchQueue.main.async {
-                    guard
-                        let self,
-                        generation == self.dictationGeneration
-                    else { return }
-                    _ = self.startDictationSession()
-                }
+                startAuthorized()
             }
         }
         return ["enabled": true, "authorizing": true]
@@ -294,6 +344,7 @@ final class MacHelper: @unchecked Sendable {
         let session = DictationPartialsSession(
             requireOnDevice: requireOnDevice,
             inputDeviceName: dictationDeviceName,
+            pushSampleRate: dictationPushRate,
             emit: { [weak self] text in
                 DispatchQueue.main.async {
                     guard let self, generation == self.dictationGeneration else {
@@ -336,6 +387,12 @@ final class MacHelper: @unchecked Sendable {
         do {
             try session.start()
             dictationSession = session
+            if !pendingPushAudio.isEmpty {
+                for chunk in pendingPushAudio {
+                    session.append(pcm: chunk)
+                }
+                pendingPushAudio.removeAll()
+            }
             if requireOnDevice {
                 scheduleOnDeviceWatchdog(generation: generation)
             }

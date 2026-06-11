@@ -158,12 +158,17 @@ const bridge: VellumBridge = {
       setPartials: (
         enable: boolean,
         deviceName?: string,
+        pushAudio?: boolean,
       ): Promise<DictationPartialsResult> =>
         ipcRenderer.invoke(
           "vellum:helper:dictation:setPartials",
           enable,
           deviceName,
+          pushAudio,
         ) as Promise<DictationPartialsResult>,
+      pushAudioChunk: (chunk: ArrayBuffer): void => {
+        ipcRenderer.send("vellum:helper:dictation:audio", chunk);
+      },
       onPartial: (callback) => {
         const handler = (
           _event: IpcRendererEvent,

@@ -385,27 +385,26 @@ export const VoiceInputButton = forwardRef<
       );
       return;
     }
-    // The helper taps the same physical device the recording stream
-    // captures — its default tap is the system-default input, which on a
-    // docked Mac can be a dormant built-in mic. Chromium may decorate USB
-    // labels with a trailing "(vid:pid)" that CoreAudio names lack.
-    const deviceName = streamRef.current
-      ?.getAudioTracks()[0]
-      ?.label.replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)$/i, "");
     let partialCount = 0;
-    void startNativeDictationPartials((text) => {
-      partialCount += 1;
-      if (partialCount === 1 || partialCount % 25 === 0) {
-        // Count/length only — transcript content must never be logged.
-        console.info(
-          `dictation: native partial #${partialCount} chars=${text.length}`,
-        );
-      }
-      nativePartialsTextRef.current = text;
-      if (!dictationStreamRef.current?.isLive()) {
-        publishInterim(text);
-      }
-    }, deviceName || undefined).then((stop) => {
+    void startNativeDictationPartials(
+      (text) => {
+        partialCount += 1;
+        if (partialCount === 1 || partialCount % 25 === 0) {
+          // Count/length only — transcript content must never be logged.
+          console.info(
+            `dictation: native partial #${partialCount} chars=${text.length}`,
+          );
+        }
+        nativePartialsTextRef.current = text;
+        if (!dictationStreamRef.current?.isLive()) {
+          publishInterim(text);
+        }
+      },
+      // Feed the helper the recording stream's own PCM — it must not open
+      // the device itself (a second capture client on the same device reads
+      // silence or kills this recording's stream).
+      { stream: streamRef.current ?? undefined },
+    ).then((stop) => {
       // The unavailable case logs its reason in native-dictation-partials.
       if (!stop) return;
       console.info("dictation: native partials running");
@@ -636,6 +635,14 @@ export const VoiceInputButton = forwardRef<
     }
 
     streamRef.current = stream;
+    for (const track of stream.getAudioTracks?.() ?? []) {
+      track.onended = () => {
+        // Not a user stop: the OS revoked the capture (device unplugged,
+        // exclusive-claim contention). MediaRecorder will fire onstop on
+        // its own; this line is the field-debuggable distinction.
+        console.warn("dictation: audio track ended unexpectedly");
+      };
+    }
     onStreamReadyRef.current?.(stream);
 
     let recorder: MediaRecorder;

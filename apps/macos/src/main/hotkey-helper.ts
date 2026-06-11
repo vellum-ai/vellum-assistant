@@ -1,4 +1,4 @@
-import { BrowserWindow, app, type WebContents } from "electron";
+import { BrowserWindow, app, ipcMain, type WebContents } from "electron";
 import path from "node:path";
 import { z } from "zod";
 
@@ -84,6 +84,14 @@ const makeClient = (): MacHelperClient =>
     resolveExecutablePath: getMacHelperPath,
     logger: log,
     platform: getPlatform(),
+    // Dev: skip the helper's TCC disclaim so privacy prompts attribute to
+    // the stable Electron.app identity (whose dev Info.plist carries the
+    // mic/speech usage strings) instead of the ad-hoc-signed helper, whose
+    // CDHash — and therefore TCC grants — change on every rebuild.
+    // Packaged builds keep the disclaim: properly signed, stable identity.
+    ...(app.isPackaged
+      ? {}
+      : { spawnEnv: { VELLUM_HELPER_NO_DISCLAIM: "1" } }),
     ...supervisorOptionsForTesting,
   });
 
@@ -124,15 +132,23 @@ interface HotkeyOwner {
 // session's host. Partial notifications route only there.
 let dictationPartialsOwner: WebContents | null = null;
 
+// The renderer's push pipeline downsamples to 16 kHz mono Int16 (the
+// pcm-downsample worklet contract).
+const DICTATION_PUSH_SAMPLE_RATE = 16000;
+
 const setDictationPartials = async (
   webContents: WebContents,
   enable: boolean,
   deviceName?: string,
+  pushAudio?: boolean,
 ): Promise<DictationPartialsResult> => {
   try {
     const result = await client.call("dictation.setPartials", {
       enable,
       ...(deviceName ? { deviceName } : {}),
+      ...(pushAudio
+        ? { pushAudio: true, sampleRate: DICTATION_PUSH_SAMPLE_RATE }
+        : {}),
     });
     const parsed = DICTATION_RESULT_SCHEMA.safeParse(result);
     if (!parsed.success) {
@@ -443,10 +459,26 @@ export const installHotkeyHelper = (): void => {
 
   handle(
     "vellum:helper:dictation:setPartials",
-    z.tuple([z.boolean(), z.string().optional()]),
-    ([enable, deviceName], event) =>
-      setDictationPartials(event.sender, enable, deviceName),
+    z.tuple([z.boolean(), z.string().optional(), z.boolean().optional()]),
+    ([enable, deviceName, pushAudio], event) =>
+      setDictationPartials(event.sender, enable, deviceName, pushAudio),
   );
+
+  // High-frequency fire-and-forget PCM from the partials owner — plain
+  // `on`, not `handle`: a round-trip per ~100ms chunk buys nothing.
+  ipcMain.on("vellum:helper:dictation:audio", (event, chunk: unknown) => {
+    if (event.sender !== dictationPartialsOwner) return;
+    let buf: Buffer | null = null;
+    if (Buffer.isBuffer(chunk)) buf = chunk;
+    else if (chunk instanceof Uint8Array) buf = Buffer.from(chunk);
+    else if (chunk instanceof ArrayBuffer) buf = Buffer.from(new Uint8Array(chunk));
+    if (!buf || buf.length === 0) return;
+    void client
+      .call("dictation.appendAudio", { audio: buf.toString("base64") })
+      .catch(() => {
+        // Helper restarting mid-session — chunks are best-effort.
+      });
+  });
 
   app.on("before-quit", () => {
     client.shutdown({
@@ -458,6 +490,7 @@ export const installHotkeyHelper = (): void => {
 
 export const __resetForTesting = (): void => {
   installed = false;
+  ipcMain.removeAllListeners("vellum:helper:dictation:audio");
   platformForTesting = null;
   supervisorOptionsForTesting = {};
   helperRegistered = false;

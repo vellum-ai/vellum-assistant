@@ -304,7 +304,11 @@ describe("VoiceInputButton — native partials fallback", () => {
     expect(lastBreadcrumb().data.outcome).toBe("completed");
   });
 
-  test("successful batch STT takes priority over native partials text", async () => {
+  // TEST MODE (matches voice-input-button.tsx finalize): the native Apple
+  // Speech transcript currently wins over batch STT while the native path is
+  // field-verified. Restore the batch-first expectation ("hello world") when
+  // the finalize order flips back.
+  test("native partials text takes priority over batch STT (test mode)", async () => {
     nativePartialsImpl = async (onPartial) => {
       onPartial("offline transcript");
       return () => {};
@@ -316,7 +320,7 @@ describe("VoiceInputButton — native partials fallback", () => {
     fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
 
     await waitFor(() => {
-      expect(onTranscript).toHaveBeenCalledWith("hello world");
+      expect(onTranscript).toHaveBeenCalledWith("offline transcript");
     });
   });
 
