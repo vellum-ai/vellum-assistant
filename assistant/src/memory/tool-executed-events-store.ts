@@ -44,8 +44,8 @@ export interface UnreportedToolExecutedEvent {
  *   excluded by the decision filter), making `arg_bytes IS NOT NULL` a
  *   reliable legacy-row discriminator. It only guards pre-migration rows —
  *   rows recorded while telemetry is opted out are guarded separately by
- *   the reporter's construction-time watermark initialization (see
- *   usage-telemetry-reporter.ts).
+ *   the reporter's opt-out flush branch, which advances watermarks without
+ *   sending (see usage-telemetry-reporter.ts).
  *
  * Reporting is best-effort: `rotateToolInvocations` purges by `created_at`
  * alone, so rows older than `auditLog.retentionDays` may rotate away before
