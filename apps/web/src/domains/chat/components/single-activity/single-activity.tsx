@@ -125,7 +125,7 @@ export function SingleActivity(props: SingleActivityProps) {
     const isError = state === "error";
     const ExpandChevron = expanded ? ChevronUp : ChevronDown;
     return (
-      <div className="flex flex-col">
+      <div className="flex flex-col items-start">
         <button
           type="button"
           data-testid="inline-web-link"
