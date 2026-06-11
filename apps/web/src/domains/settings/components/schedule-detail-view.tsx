@@ -284,6 +284,14 @@ export function ScheduleDetailView({
               onUpdated={onUpdated}
             />
           )}
+          {schedule.cadenceDescription ? (
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-[var(--content-secondary)]">Cadence</span>
+              <span className="min-w-0 text-right">
+                {schedule.cadenceDescription}
+              </span>
+            </div>
+          ) : null}
           <div className="flex items-center justify-between">
             <span className="text-[var(--content-secondary)]">Status</span>
             <span>{schedule.enabled ? "Enabled" : "Disabled"}</span>
