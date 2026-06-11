@@ -372,7 +372,12 @@ export function UsageTab({ assistantId }: UsageTabProps) {
     return buildSelectedScheduleLegendItems(schedulesQuery.data, scheduleId);
   }, [effectiveGroupBy, scheduleId, schedulesQuery.data]);
   const selectedGroupLegendItems = useMemo(() => {
-    if (!selectedGroupKey || !seriesGroupBy || effectiveGroupBy === "schedule") {
+    if (
+      !selectedGroupKey ||
+      !seriesGroupBy ||
+      effectiveGroupBy === "schedule" ||
+      effectiveGroupBy !== groupBy
+    ) {
       return undefined;
     }
 
@@ -385,6 +390,7 @@ export function UsageTab({ assistantId }: UsageTabProps) {
   }, [
     decoratedSeriesBuckets,
     effectiveGroupBy,
+    groupBy,
     selectedGroupKey,
     seriesGroupBy,
     usageGroupMetadata,

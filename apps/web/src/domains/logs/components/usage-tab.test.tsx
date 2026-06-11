@@ -35,12 +35,17 @@ const fetchUsageTotalsMock = mock(
     unpricedEventCount: 0,
   }),
 );
+let taskGroupingUnsupported = false;
 const fetchUsageBreakdownMock = mock(
   async (
     _assistantId: string,
     params: { groupBy?: string; scheduleId?: string },
   ): Promise<UsageBreakdownResponse> => {
     if (params.groupBy === "task") {
+      if (taskGroupingUnsupported) {
+        throw new UsageRequestError(400, "Unsupported groupBy");
+      }
+
       return {
         breakdown: [
           {
@@ -58,6 +63,34 @@ const fetchUsageBreakdownMock = mock(
             group: "mainAgent",
             groupId: "mainAgent",
             groupKey: "mainAgent",
+            totalInputTokens: 40,
+            totalOutputTokens: 20,
+            totalCacheCreationTokens: 0,
+            totalCacheReadTokens: 0,
+            totalEstimatedCostUsd: 0.01,
+            eventCount: 1,
+          },
+        ],
+      };
+    }
+    if (params.groupBy === "model") {
+      return {
+        breakdown: [
+          {
+            group: "gpt-5.4-mini",
+            groupId: "gpt-5.4-mini",
+            groupKey: "gpt-5.4-mini",
+            totalInputTokens: 120,
+            totalOutputTokens: 80,
+            totalCacheCreationTokens: 0,
+            totalCacheReadTokens: 0,
+            totalEstimatedCostUsd: 0.03,
+            eventCount: 2,
+          },
+          {
+            group: "gpt-5.4",
+            groupId: "gpt-5.4",
+            groupKey: "gpt-5.4",
             totalInputTokens: 40,
             totalOutputTokens: 20,
             totalCacheCreationTokens: 0,
@@ -117,6 +150,39 @@ const fetchUsageSeriesMock = mock(
               [usageSeriesKeyForGroupValue("mainAgent", "task")]: {
                 group: "mainAgent",
                 groupKey: "mainAgent",
+                totalInputTokens: 40,
+                totalOutputTokens: 20,
+                totalEstimatedCostUsd: 0.01,
+                eventCount: 1,
+              },
+            },
+          },
+        ],
+      };
+    }
+    if (params.groupBy === "model") {
+      return {
+        buckets: [
+          {
+            bucketId: "2026-06-01",
+            date: "2026-06-01",
+            displayLabel: "Jun 1",
+            totalInputTokens: 160,
+            totalOutputTokens: 100,
+            totalEstimatedCostUsd: 0.04,
+            eventCount: 3,
+            groups: {
+              [usageSeriesKeyForGroupValue("gpt-5.4-mini", "model")]: {
+                group: "gpt-5.4-mini",
+                groupKey: "gpt-5.4-mini",
+                totalInputTokens: 120,
+                totalOutputTokens: 80,
+                totalEstimatedCostUsd: 0.03,
+                eventCount: 2,
+              },
+              [usageSeriesKeyForGroupValue("gpt-5.4", "model")]: {
+                group: "gpt-5.4",
+                groupKey: "gpt-5.4",
                 totalInputTokens: 40,
                 totalOutputTokens: 20,
                 totalEstimatedCostUsd: 0.01,
@@ -226,6 +292,7 @@ const { UsageTab } = await import("./usage-tab");
 afterEach(() => {
   cleanup();
   schedulesResponse = [...defaultSchedules];
+  taskGroupingUnsupported = false;
   fetchSchedulesMock.mockClear();
   fetchUsageTotalsMock.mockClear();
   fetchUsageBreakdownMock.mockClear();
@@ -354,5 +421,42 @@ describe("UsageTab", () => {
       "active",
       "inactive",
     ]);
+  });
+
+  test("ignores a selected task when task usage falls back to model grouping", async () => {
+    taskGroupingUnsupported = true;
+    const { container } = renderUsageTab(
+      "/assistant/logs/usage?range=7d&groupBy=task&selectedGroup=heartbeatAgent",
+    );
+
+    await waitFor(() =>
+      expect(
+        fetchUsageSeriesMock.mock.calls.some(
+          (call) => call[1]?.groupBy === "model",
+        ),
+      ).toBe(true),
+    );
+
+    expect(screen.getByText("Daily Trend by Model")).toBeTruthy();
+    expect(fetchUsageBreakdownMock.mock.calls[0]?.[1]?.groupBy).toBe("task");
+    expect(fetchUsageBreakdownMock.mock.calls[1]?.[1]?.groupBy).toBe("model");
+
+    const legendItems = readLegendItems(container);
+    expect(legendItems.map((item) => item.label.textContent)).toEqual([
+      "gpt-5.4-mini",
+      "gpt-5.4",
+    ]);
+    expect(legendItems.map((item) => item.state)).toEqual([
+      "active",
+      "active",
+    ]);
+    expect(
+      container.querySelector(
+        `[data-usage-series-segment="${usageSeriesKeyForGroupValue(
+          "heartbeatAgent",
+          "model",
+        )}"]`,
+      ),
+    ).toBeNull();
   });
 });
