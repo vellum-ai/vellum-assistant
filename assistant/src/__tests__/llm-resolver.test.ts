@@ -956,6 +956,42 @@ describe("resolvesLikeMainAgent (compactionAgent)", () => {
       (resolved as Record<string, unknown>).resolvesLikeMainAgent,
     ).toBeUndefined();
   });
+
+  // `filingCompaction` (the daily PKB compaction background job) is NOT flagged
+  // `resolvesLikeMainAgent`: it has no prefix-cache requirement, so it must
+  // resolve its own balanced default and must NOT float the workspace
+  // `activeProfile` above that default the way `compactionAgent`/`mainAgent` do.
+  // These tests pin that distinction so a future flag flip on the wrong site is
+  // caught — the PKB job sharing `compactionAgent`'s ID was exactly the bug M7
+  // introduced and this split fixes.
+  describe("filingCompaction does NOT resolve like mainAgent", () => {
+    test("default config: resolves the balanced profile", () => {
+      const llm = LLMSchema.parse(baseConfig);
+      const resolved = resolveCallSiteConfig("filingCompaction", llm);
+      expect(resolved.provider).toBe("openai");
+      expect(resolved.model).toBe("gpt-5.4");
+    });
+
+    test("activeProfile set: filingCompaction stays on its balanced default while compactionAgent floats", () => {
+      // `pinned` is the workspace-wide active profile. The conversation-history
+      // compactor follows it (mainAgent-like float); the PKB job ignores it and
+      // keeps its shipped balanced default.
+      const llm = LLMSchema.parse({ ...baseConfig, activeProfile: "pinned" });
+
+      const filing = resolveCallSiteConfig("filingCompaction", llm);
+      expect(filing.provider).toBe("openai");
+      expect(filing.model).toBe("gpt-5.4");
+
+      const compaction = resolveCallSiteConfig("compactionAgent", llm);
+      expect(compaction.provider).toBe("gemini");
+      expect(compaction.model).toBe("gemini-2.5-pro");
+
+      // The two sites diverge precisely because only one is mainAgent-like.
+      expect(filing.model).not.toBe(compaction.model);
+      // And compactionAgent stays byte-identical to mainAgent under the float.
+      expect(compaction).toEqual(resolveCallSiteConfig("mainAgent", llm));
+    });
+  });
 });
 
 describe("mix profiles", () => {

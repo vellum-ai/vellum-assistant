@@ -64,6 +64,13 @@ const CATALOG_RECORD: CatalogRecord = {
       "Files memories and updates the knowledge base after conversations.",
     domain: "agentLoop",
   },
+  filingCompaction: {
+    id: "filingCompaction",
+    displayName: "Filing Compaction",
+    description:
+      "Daily background job that compacts the personal knowledge base (PKB).",
+    domain: "agentLoop",
+  },
   compactionAgent: {
     id: "compactionAgent",
     displayName: "Compaction Agent",

@@ -382,7 +382,12 @@ export class FilingService {
       jobName: "compaction",
       systemHint: "Knowledge base compaction",
       prompt: COMPACTION_PROMPT_TEMPLATE,
-      callSite: "compactionAgent",
+      // PKB compaction has its own call site — NOT the conversation-history
+      // `compactionAgent` (which is `resolvesLikeMainAgent` and would make this
+      // background job silently follow the user's chat model). This job has no
+      // prefix-cache requirement; `filingCompaction` resolves the balanced
+      // profile, matching its pre-M7 resolution.
+      callSite: "filingCompaction",
     });
   }
 

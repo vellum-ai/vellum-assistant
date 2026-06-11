@@ -26,9 +26,12 @@ type CallSiteDefaultConfig = {
 export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   mainAgent: { profile: "balanced" },
   subagentSpawn: { profile: "balanced" },
-  // Resolves exactly like `mainAgent` (active/override profiles float above any
-  // static override) so the compaction call inherits the agent's chat-model
-  // selection and keeps the prefix cache warm — see `resolvesLikeMainAgent`.
+  // Conversation-history compactor only (`context/compactor.ts`). Resolves
+  // exactly like `mainAgent` (active/override profiles float above any static
+  // override) so the compaction call inherits the agent's chat-model selection
+  // and keeps the prefix cache warm — see `resolvesLikeMainAgent`. The daily PKB
+  // filing-compaction background job is a DIFFERENT action with no cache
+  // requirement: it has its own `filingCompaction` site (balanced, no float).
   compactionAgent: { profile: "balanced", resolvesLikeMainAgent: true },
   analyzeConversation: { profile: "balanced" },
   patternScan: { profile: "balanced" },
@@ -59,6 +62,13 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   },
 
   filingAgent: { profile: "cost-optimized" },
+  // Daily PKB filing-compaction background job (`filing/filing-service.ts`).
+  // Distinct from the conversation-history `compactionAgent`: no prefix-cache
+  // requirement, so it does NOT follow the user's chat-model selection. Keep
+  // this at `{ profile: "balanced" }` to preserve its pre-M7 resolution exactly
+  // (it shared `compactionAgent`'s `{ profile: "balanced" }` default before that
+  // site became `resolvesLikeMainAgent`).
+  filingCompaction: { profile: "balanced" },
   memoryExtraction: { profile: "cost-optimized" },
   // Rerank/dedup passes (retriever.ts) need deterministic output and no
   // extended thinking; `temperature: 0` requires thinking disabled because
