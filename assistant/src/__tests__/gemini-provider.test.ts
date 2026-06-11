@@ -82,10 +82,20 @@ mock.module("@google/genai", () => ({
     MEDIUM: "MEDIUM",
     HIGH: "HIGH",
   },
+  FunctionCallingConfigMode: {
+    MODE_UNSPECIFIED: "MODE_UNSPECIFIED",
+    AUTO: "AUTO",
+    ANY: "ANY",
+    NONE: "NONE",
+    VALIDATED: "VALIDATED",
+  },
 }));
 
 // Import after mocking
-import { GeminiProvider } from "../providers/gemini/client.js";
+import {
+  GeminiProvider,
+  mapNeutralToolChoiceToGemini,
+} from "../providers/gemini/client.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1557,5 +1567,103 @@ describe("GeminiProvider", () => {
       name: "file_read",
       input: { path: "/tmp/test" },
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// tool_choice → functionCallingConfig mapping
+// ---------------------------------------------------------------------------
+
+describe("GeminiProvider — tool_choice → functionCallingConfig", () => {
+  let provider: GeminiProvider;
+
+  const oneTool: ToolDefinition[] = [
+    {
+      name: "store_style_analysis",
+      description: "Store the analysis",
+      input_schema: { type: "object", properties: {} },
+    },
+  ];
+
+  beforeEach(() => {
+    provider = new GeminiProvider("test-api-key", "gemini-3-flash-preview");
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+    lastStreamParams = null;
+  });
+
+  test("forced tool → ANY mode with allowedFunctionNames", async () => {
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      {
+        tools: oneTool,
+        config: { tool_choice: { type: "tool", name: "store_style_analysis" } },
+      },
+    );
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    expect(config.toolConfig).toEqual({
+      functionCallingConfig: {
+        mode: "ANY",
+        allowedFunctionNames: ["store_style_analysis"],
+      },
+    });
+  });
+
+  test("maps auto/any/none onto functionCallingConfig.mode", async () => {
+    const cases: Array<[{ type: string }, string]> = [
+      [{ type: "auto" }, "AUTO"],
+      [{ type: "any" }, "ANY"],
+      [{ type: "none" }, "NONE"],
+    ];
+    for (const [tc, mode] of cases) {
+      lastStreamParams = null;
+      fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+      await provider.sendMessage(
+        [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+        { tools: oneTool, config: { tool_choice: tc } },
+      );
+      const config = lastStreamParams!.config as Record<string, unknown>;
+      expect(config.toolConfig).toEqual({
+        functionCallingConfig: { mode },
+      });
+    }
+  });
+
+  test("omits toolConfig when no tool_choice is set", async () => {
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      { tools: oneTool },
+    );
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    expect(config.toolConfig).toBeUndefined();
+  });
+
+  test("does not set toolConfig when no tools are declared", async () => {
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      { config: { tool_choice: { type: "any" } } },
+    );
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    expect(config.toolConfig).toBeUndefined();
+  });
+
+  test("mapNeutralToolChoiceToGemini translates the neutral union", () => {
+    // The mocked enum mirrors the SDK's string values, so compare against the
+    // mode strings the mapper emits at runtime (cast through `string` since the
+    // enum's literal type isn't structurally assignable to a bare string).
+    const mode = (tc: unknown): string | undefined =>
+      mapNeutralToolChoiceToGemini(tc)?.mode as string | undefined;
+    expect(mode({ type: "auto" })).toBe("AUTO");
+    expect(mode({ type: "any" })).toBe("ANY");
+    expect(mode({ type: "none" })).toBe("NONE");
+    const forced = mapNeutralToolChoiceToGemini({
+      type: "tool",
+      name: "do_thing",
+    });
+    expect(forced?.mode as string | undefined).toBe("ANY");
+    expect(forced?.allowedFunctionNames).toEqual(["do_thing"]);
+    // Unrecognized / malformed → undefined (request omits toolConfig).
+    expect(mapNeutralToolChoiceToGemini({ type: "tool" })).toBeUndefined();
+    expect(mapNeutralToolChoiceToGemini({ type: "bogus" })).toBeUndefined();
+    expect(mapNeutralToolChoiceToGemini(undefined)).toBeUndefined();
   });
 });

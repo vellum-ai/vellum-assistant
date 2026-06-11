@@ -106,7 +106,10 @@ mock.module("@anthropic-ai/sdk", () => ({
 }));
 
 // Import after mocking
-import { AnthropicProvider } from "../providers/anthropic/client.js";
+import {
+  AnthropicProvider,
+  mapNeutralToolChoiceToAnthropic,
+} from "../providers/anthropic/client.js";
 import {
   isPlaceholderSentinelText,
   PLACEHOLDER_BLOCKS_OMITTED,
@@ -2926,5 +2929,84 @@ describe("AnthropicProvider — thinking block send-time filtering", () => {
     expect(signatures).not.toContain("sig-old");
     expect(signatures).toContain("sig-step1");
     expect(signatures).toContain("sig-step2");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// tool_choice mapping onto the Anthropic wire request
+// ---------------------------------------------------------------------------
+
+describe("AnthropicProvider — tool_choice wire mapping", () => {
+  let provider: AnthropicProvider;
+
+  beforeEach(() => {
+    lastStreamParams = null;
+    scriptedStream = null;
+    provider = new AnthropicProvider("sk-ant-test", "claude-sonnet-4-6");
+  });
+
+  const oneTool: ToolDefinition[] = [
+    {
+      name: "store_style_analysis",
+      description: "Store the analysis",
+      input_schema: { type: "object", properties: {} },
+    },
+  ];
+
+  test("forces a specific tool: { type: 'tool', name } reaches the wire", async () => {
+    await provider.sendMessage([userMsg("Hi")], {
+      tools: oneTool,
+      config: { tool_choice: { type: "tool", name: "store_style_analysis" } },
+    });
+    expect(lastStreamParams!.tool_choice).toEqual({
+      type: "tool",
+      name: "store_style_analysis",
+    });
+  });
+
+  test("maps { type: 'auto' | 'any' | 'none' } onto the wire", async () => {
+    for (const type of ["auto", "any", "none"] as const) {
+      lastStreamParams = null;
+      await provider.sendMessage([userMsg("Hi")], {
+        tools: oneTool,
+        config: { tool_choice: { type } },
+      });
+      expect(lastStreamParams!.tool_choice).toEqual({ type });
+    }
+  });
+
+  test("omits tool_choice when config carries none", async () => {
+    await provider.sendMessage([userMsg("Hi")], { tools: oneTool });
+    expect(lastStreamParams!.tool_choice).toBeUndefined();
+  });
+
+  test("drops an unrecognized tool_choice shape (no leak onto the wire)", async () => {
+    await provider.sendMessage([userMsg("Hi")], {
+      tools: oneTool,
+      // A malformed `tool` choice (missing `name`) and a bogus type must not
+      // pass through verbatim — the explicit mapper rejects both.
+      config: { tool_choice: { type: "tool" } },
+    });
+    expect(lastStreamParams!.tool_choice).toBeUndefined();
+  });
+
+  test("mapNeutralToolChoiceToAnthropic translates the neutral union", () => {
+    expect(mapNeutralToolChoiceToAnthropic({ type: "auto" })).toEqual({
+      type: "auto",
+    });
+    expect(mapNeutralToolChoiceToAnthropic({ type: "any" })).toEqual({
+      type: "any",
+    });
+    expect(mapNeutralToolChoiceToAnthropic({ type: "none" })).toEqual({
+      type: "none",
+    });
+    expect(
+      mapNeutralToolChoiceToAnthropic({ type: "tool", name: "do_thing" }),
+    ).toEqual({ type: "tool", name: "do_thing" });
+    // Unrecognized / malformed shapes → undefined (request omits tool_choice).
+    expect(mapNeutralToolChoiceToAnthropic({ type: "tool" })).toBeUndefined();
+    expect(mapNeutralToolChoiceToAnthropic({ type: "bogus" })).toBeUndefined();
+    expect(mapNeutralToolChoiceToAnthropic(undefined)).toBeUndefined();
+    expect(mapNeutralToolChoiceToAnthropic("nope")).toBeUndefined();
   });
 });

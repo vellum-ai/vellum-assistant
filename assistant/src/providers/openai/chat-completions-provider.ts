@@ -242,7 +242,9 @@ export function clampReasoningEffort(
  * config into the OpenAI chat-completions wire format. Callers express
  * `tool_choice` once in the Anthropic union — `{ type: "auto" | "any" | "none"
  * | "tool", name? }` — and each provider maps it to its own dialect (the
- * Anthropic client forwards the union verbatim). For OpenAI-compatible APIs:
+ * Anthropic and Gemini clients map it via their own helpers — see
+ * `mapNeutralToolChoiceToAnthropic` / `mapNeutralToolChoiceToGemini`). For
+ * OpenAI-compatible APIs:
  *   - `{ type: "auto" }`        -> `"auto"`
  *   - `{ type: "any" }`         -> `"required"`
  *   - `{ type: "none" }`        -> `"none"`

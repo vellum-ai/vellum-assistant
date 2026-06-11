@@ -1,5 +1,10 @@
 import type * as genai from "@google/genai";
-import { ApiError, GoogleGenAI, ThinkingLevel } from "@google/genai";
+import {
+  ApiError,
+  FunctionCallingConfigMode,
+  GoogleGenAI,
+  ThinkingLevel,
+} from "@google/genai";
 
 import {
   THINKING_LEVELS,
@@ -40,6 +45,45 @@ const GEMINI_3_UNSIGNED_TOOL_CALL_THOUGHT_SIGNATURE =
 
 function isGemini3Model(model: string): boolean {
   return model.startsWith("gemini-3") || model.startsWith("models/gemini-3");
+}
+
+/**
+ * Translate the neutral (Anthropic-shaped) `tool_choice` carried on the call
+ * config into Gemini's `functionCallingConfig`. Callers express `tool_choice`
+ * once in the Anthropic union — `{ type: "auto" | "any" | "none" | "tool",
+ * name? }` — and each provider maps it to its own dialect:
+ *   - `{ type: "auto" }`        -> `{ mode: AUTO }`
+ *   - `{ type: "any" }`         -> `{ mode: ANY }`
+ *   - `{ type: "none" }`        -> `{ mode: NONE }`
+ *   - `{ type: "tool", name }`  -> `{ mode: ANY, allowedFunctionNames: [name] }`
+ * `allowedFunctionNames` is only meaningful in `ANY` mode (per the SDK), so a
+ * single forced tool constrains the model to `ANY` over just that name.
+ *
+ * Returns `undefined` for an absent/unrecognized value so the request omits
+ * `toolConfig` and falls back to Gemini's default (AUTO) behavior.
+ */
+export function mapNeutralToolChoiceToGemini(
+  toolChoice: unknown,
+): genai.FunctionCallingConfig | undefined {
+  if (toolChoice == null || typeof toolChoice !== "object") return undefined;
+  const tc = toolChoice as { type?: unknown; name?: unknown };
+  switch (tc.type) {
+    case "auto":
+      return { mode: FunctionCallingConfigMode.AUTO };
+    case "any":
+      return { mode: FunctionCallingConfigMode.ANY };
+    case "none":
+      return { mode: FunctionCallingConfigMode.NONE };
+    case "tool":
+      return typeof tc.name === "string"
+        ? {
+            mode: FunctionCallingConfigMode.ANY,
+            allowedFunctionNames: [tc.name],
+          }
+        : undefined;
+    default:
+      return undefined;
+  }
 }
 
 const THINKING_LEVEL_BY_NAME: Record<ThinkingLevelName, ThinkingLevel> = {
@@ -332,6 +376,17 @@ export class GeminiProvider implements Provider {
             })),
           },
         ];
+        // Map the neutral `tool_choice` onto Gemini's `functionCallingConfig`.
+        // Without this, callers that force a tool (e.g. one-shot tool calls)
+        // get only soft guidance from the system prompt and the model can
+        // return free text or the wrong function call. Only set when tools are
+        // present — `functionCallingConfig` is meaningless without declarations.
+        const functionCallingConfig = mapNeutralToolChoiceToGemini(
+          configObj?.tool_choice,
+        );
+        if (functionCallingConfig) {
+          geminiConfig.toolConfig = { functionCallingConfig };
+        }
       }
 
       const { signal: timeoutSignal, cleanup: cleanupTimeout } =
