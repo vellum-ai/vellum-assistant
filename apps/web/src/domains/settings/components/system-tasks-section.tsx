@@ -190,17 +190,15 @@ export function SystemTasksSection({
               enabled={consolidationConfig.enabled}
               helperText={
                 consolidationConfig.enabled
-                  ? "Consolidation is part of Memory. Disable Memory to stop it."
+                  ? undefined
                   : "Memory is off, so consolidation is paused."
               }
               nextRunAt={consolidationConfig.nextRunAt}
               lastRunAt={consolidationConfig.lastRunAt}
               usage={consolidationUsage}
               showToggle={false}
-              statusLabel={
-                consolidationConfig.enabled ? "Managed by Memory" : "Paused"
-              }
-              statusTone={consolidationConfig.enabled ? "neutral" : "warning"}
+              statusLabel={consolidationConfig.enabled ? undefined : "Paused"}
+              statusTone="warning"
               onClick={onSelectConsolidation}
             />
           ) : null}

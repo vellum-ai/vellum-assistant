@@ -259,6 +259,10 @@ describe("SystemTaskDetailView", () => {
       expect(document.body.textContent).toContain("$0.12"),
     );
     expect(screen.getByRole("button", { name: /Run now/i })).toBeTruthy();
+    expect(document.body.textContent).toContain("On · Managed by Memory");
+    expect(document.body.textContent).not.toContain(
+      "Memory is off, so consolidation is paused.",
+    );
     expect(document.body.textContent).not.toContain(
       "Run history is not available",
     );
@@ -299,12 +303,15 @@ describe("SystemTaskDetailView", () => {
       "Memory is off, so consolidation is paused.",
     );
     expect(
-      (screen.getByRole("button", { name: "Paused" }) as HTMLButtonElement)
+      (screen.getByRole("button", { name: /Run now/i }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
+    expect(
+      screen.queryByRole("button", { name: /Memory settings/i }),
+    ).toBeNull();
 
     fireEvent.click(
-      screen.getByRole("button", { name: /Memory settings/i }),
+      screen.getByRole("button", { name: /Turn on Memory/i }),
     );
 
     expect(memorySettingsClicks).toBe(1);
@@ -698,8 +705,11 @@ describe("system task toggles", () => {
     expect(screen.queryByLabelText("Toggle Consolidation")).toBeNull();
     expect(toggleCalls).toEqual([]);
     expect(screen.queryByRole("button", { name: /run now/i })).toBeNull();
-    expect(screen.getByText("Managed by Memory")).toBeTruthy();
-    expect(document.body.textContent).toContain(
+    // Enabled consolidation reads like any other healthy system row: a status
+    // dot, no management tag or helper copy (the detail page explains it).
+    expect(screen.getByLabelText("enabled")).toBeTruthy();
+    expect(screen.queryByText("Managed by Memory")).toBeNull();
+    expect(document.body.textContent).not.toContain(
       "Consolidation is part of Memory.",
     );
   });

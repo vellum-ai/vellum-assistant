@@ -41,8 +41,16 @@ export function SystemTaskDetailView({
   onRunNow,
   onOpenMemorySettings,
 }: SystemTaskDetailViewProps) {
-  const isConsolidationPaused = kind === "consolidation" && !enabled;
+  const isConsolidation = kind === "consolidation";
+  const isConsolidationPaused = isConsolidation && !enabled;
   const runNowDisabled = isRunning || isConsolidationPaused;
+  const statusValue = isConsolidation
+    ? enabled
+      ? "On · Managed by Memory"
+      : "Paused"
+    : enabled
+      ? "Enabled"
+      : "Disabled";
 
   const { data: runs, isLoading } = useQuery({
     queryKey: ["system-task-runs", assistantId, kind],
@@ -70,7 +78,7 @@ export function SystemTaskDetailView({
         accessory={
           <div className="flex items-center gap-2">
             <Tag tone="neutral">system</Tag>
-            {kind === "consolidation" && onOpenMemorySettings ? (
+            {isConsolidation && enabled && onOpenMemorySettings ? (
               <Button
                 variant="outlined"
                 size="compact"
@@ -93,11 +101,7 @@ export function SystemTaskDetailView({
               onClick={onRunNow}
               disabled={runNowDisabled}
             >
-              {isRunning
-                ? "Running…"
-                : isConsolidationPaused
-                  ? "Paused"
-                  : "Run now"}
+              {isRunning ? "Running…" : "Run now"}
             </Button>
           </div>
         }
@@ -105,7 +109,7 @@ export function SystemTaskDetailView({
         <div className="space-y-2 text-body-medium-lighter">
           <div className="flex items-center justify-between">
             <span className="text-[var(--content-secondary)]">Status</span>
-            <span>{enabled ? "Enabled" : "Disabled"}</span>
+            <span>{statusValue}</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-[var(--content-secondary)]">Next run</span>
@@ -116,11 +120,24 @@ export function SystemTaskDetailView({
             <span>{formatTimestamp(lastRunAt)}</span>
           </div>
         </div>
-        {kind === "consolidation" ? (
-          <Notice tone={enabled ? "info" : "warning"} className="mt-4">
-            {enabled
-              ? "Consolidation is managed by Memory. To turn off consolidation, disable Memory as a whole."
-              : "Memory is off, so consolidation is paused. Turn Memory back on to resume consolidation."}
+        {isConsolidationPaused ? (
+          <Notice
+            tone="warning"
+            className="mt-4"
+            actions={
+              onOpenMemorySettings ? (
+                <Button
+                  variant="outlined"
+                  size="compact"
+                  onClick={onOpenMemorySettings}
+                >
+                  Turn on Memory
+                </Button>
+              ) : undefined
+            }
+          >
+            Memory is off, so consolidation is paused. Turn Memory back on to
+            resume consolidation.
           </Notice>
         ) : null}
       </DetailCard>
