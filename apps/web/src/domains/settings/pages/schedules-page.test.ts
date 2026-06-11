@@ -79,7 +79,7 @@ const { RecentRunsCard } = await import(
 const { ScheduleRow } = await import(
   "@/domains/settings/components/schedule-row"
 );
-const { SystemTaskRow } = await import(
+const { SystemTaskRow, SystemTasksSection } = await import(
   "@/domains/settings/components/system-tasks-section"
 );
 const { SystemTaskDetailView } = await import(
@@ -268,6 +268,46 @@ describe("SystemTaskDetailView", () => {
     expect(navigateCalls).toEqual([
       routes.conversation("conv-consolidation-1"),
     ]);
+  });
+
+  test("routes consolidation control through Memory settings", async () => {
+    let memorySettingsClicks = 0;
+
+    renderWithQueryClient(
+      createElement(SystemTaskDetailView, {
+        kind: "consolidation",
+        assistantId: "assistant-1",
+        name: "Memory consolidation",
+        subtitle: "Summarizes old context",
+        enabled: false,
+        nextRunAt: null,
+        lastRunAt: null,
+        isRunning: false,
+        onBack: () => {},
+        onRunNow: () => {},
+        onOpenMemorySettings: () => {
+          memorySettingsClicks += 1;
+        },
+      }),
+    );
+
+    await waitFor(() =>
+      expect(fetchConsolidationRunsMock.mock.calls).toEqual([["assistant-1"]]),
+    );
+
+    expect(document.body.textContent).toContain(
+      "Memory is off, so consolidation is paused.",
+    );
+    expect(
+      (screen.getByRole("button", { name: "Paused" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Memory settings/i }),
+    );
+
+    expect(memorySettingsClicks).toBe(1);
   });
 });
 
@@ -627,28 +667,40 @@ describe("system task toggles", () => {
     expect(screen.queryByRole("button", { name: /run now/i })).toBeNull();
   });
 
-  test("toggling a system task pauses automatic runs without restoring Run now", () => {
+  test("consolidation never renders an automatic-run toggle", () => {
     const toggleCalls: boolean[] = [];
 
     render(
-      createElement(SystemTaskRow, {
-        name: "Consolidation",
-        subtitle: "Every 4 hr",
-        enabled: true,
-        nextRunAt: null,
-        lastRunAt: null,
-        usage: readySystemTaskUsage,
-        showToggle: true,
-        onClick: () => {},
-        onToggle: (enabled: boolean) => {
+      createElement(SystemTasksSection, {
+        heartbeatConfig: undefined,
+        consolidationConfig: {
+          available: true,
+          enabled: true,
+          intervalMs: 4 * 60 * 60_000,
+          nextRunAt: null,
+          lastRunAt: null,
+          success: true,
+        },
+        heartbeatUsage: readySystemTaskUsage,
+        consolidationUsage: readySystemTaskUsage,
+        isLoading: false,
+        hasError: false,
+        onRetry: () => {},
+        onSelectHeartbeat: () => {},
+        onSelectConsolidation: () => {},
+        showSystemTaskToggles: true,
+        onToggleHeartbeat: (enabled: boolean) => {
           toggleCalls.push(enabled);
         },
       }),
     );
 
-    fireEvent.click(screen.getByLabelText("Toggle Consolidation"));
-
-    expect(toggleCalls).toEqual([false]);
+    expect(screen.queryByLabelText("Toggle Consolidation")).toBeNull();
+    expect(toggleCalls).toEqual([]);
     expect(screen.queryByRole("button", { name: /run now/i })).toBeNull();
+    expect(screen.getByText("Managed by Memory")).toBeTruthy();
+    expect(document.body.textContent).toContain(
+      "Consolidation is part of Memory.",
+    );
   });
 });

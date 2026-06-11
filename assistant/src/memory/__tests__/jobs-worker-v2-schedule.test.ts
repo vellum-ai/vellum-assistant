@@ -72,20 +72,12 @@ const CONSOLIDATE_CHECKPOINT_KEY = "memory_v2_consolidate_last_run";
 
 function buildConfig(overrides: {
   v2Enabled?: boolean;
-  consolidationEnabled?: boolean;
   intervalHours?: number;
   maxBufferLines?: number | null;
 }) {
   const partial = applyNestedDefaults({});
   if (overrides.v2Enabled !== undefined) {
     partial.memory.v2.enabled = overrides.v2Enabled;
-  }
-  if (overrides.consolidationEnabled !== undefined) {
-    (
-      partial.memory.v2 as typeof partial.memory.v2 & {
-        consolidation_enabled?: boolean;
-      }
-    ).consolidation_enabled = overrides.consolidationEnabled;
   }
   if (overrides.intervalHours !== undefined) {
     partial.memory.v2.consolidation_interval_hours = overrides.intervalHours;
@@ -255,27 +247,6 @@ describe("maybeEnqueueGraphMaintenanceJobs — memory v2 consolidation", () => {
     expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
   });
 
-  test("automatic consolidation off suppresses the v2 schedule without re-enabling v1 maintenance", () => {
-    const config = buildConfig({
-      v2Enabled: true,
-      consolidationEnabled: false,
-      intervalHours: 1,
-    });
-
-    deleteMemoryCheckpoint("graph_maintenance:decay:last_run");
-    deleteMemoryCheckpoint("graph_maintenance:consolidate:last_run");
-    deleteMemoryCheckpoint("graph_maintenance:pattern_scan:last_run");
-    deleteMemoryCheckpoint("graph_maintenance:narrative:last_run");
-    deleteMemoryCheckpoint(CONSOLIDATE_CHECKPOINT_KEY);
-
-    maybeEnqueueGraphMaintenanceJobs(config, Date.now());
-
-    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
-    expect(countPendingJobs("graph_decay")).toBe(0);
-    expect(countPendingJobs("graph_consolidate")).toBe(0);
-    expect(countPendingJobs("graph_pattern_scan")).toBe(0);
-    expect(countPendingJobs("graph_narrative_refine")).toBe(0);
-  });
 });
 
 describe("maybeEnqueueGraphMaintenanceJobs — buffer-size trigger", () => {
@@ -415,20 +386,6 @@ describe("maybeEnqueueGraphMaintenanceJobs — buffer-size trigger", () => {
     expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
   });
 
-  test("size trigger inert when automatic consolidation is disabled", () => {
-    const config = buildConfig({
-      v2Enabled: true,
-      consolidationEnabled: false,
-      intervalHours: 1,
-      maxBufferLines: 1,
-    });
-
-    writeBuffer(100);
-
-    maybeEnqueueGraphMaintenanceJobs(config, Date.now());
-
-    expect(countPendingJobs("memory_v2_consolidate")).toBe(0);
-  });
 });
 
 describe("maybeEnqueueGraphMaintenanceJobs — min buffer lines noop", () => {

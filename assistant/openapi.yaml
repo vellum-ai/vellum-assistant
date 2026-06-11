@@ -4539,55 +4539,6 @@ paths:
                   - lastRunAt
                   - success
                 additionalProperties: false
-    put:
-      operationId: consolidation_config_put
-      summary: Update consolidation config
-      description: Update the memory v2 consolidation schedule configuration.
-      tags:
-        - consolidation
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  available:
-                    type: boolean
-                  enabled:
-                    type: boolean
-                  intervalMs:
-                    type: number
-                  nextRunAt:
-                    anyOf:
-                      - type: number
-                      - type: "null"
-                  lastRunAt:
-                    anyOf:
-                      - type: number
-                      - type: "null"
-                  success:
-                    type: boolean
-                required:
-                  - available
-                  - enabled
-                  - intervalMs
-                  - nextRunAt
-                  - lastRunAt
-                  - success
-                additionalProperties: false
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                enabled:
-                  description: Enable or disable automatic consolidation
-                  type: boolean
-              additionalProperties: false
   /v1/consolidation/run-now:
     post:
       operationId: consolidation_runnow_post
@@ -11182,6 +11133,14 @@ paths:
                     required:
                       - connected
                     additionalProperties: false
+                  capabilities:
+                    type: object
+                    properties:
+                      memoryOptOut:
+                        type: boolean
+                    required:
+                      - memoryOptOut
+                    additionalProperties: false
                   profiler:
                     type: object
                     properties:
@@ -11266,6 +11225,7 @@ paths:
                   - cpu
                   - migrations
                   - ces
+                  - capabilities
                 additionalProperties: false
   /v1/healthz:
     get:
@@ -11350,6 +11310,14 @@ paths:
                     required:
                       - connected
                     additionalProperties: false
+                  capabilities:
+                    type: object
+                    properties:
+                      memoryOptOut:
+                        type: boolean
+                    required:
+                      - memoryOptOut
+                    additionalProperties: false
                   profiler:
                     type: object
                     properties:
@@ -11434,6 +11402,7 @@ paths:
                   - cpu
                   - migrations
                   - ces
+                  - capabilities
                 additionalProperties: false
   /v1/heartbeat/checklist:
     get:

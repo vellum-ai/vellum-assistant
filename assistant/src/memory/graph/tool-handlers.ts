@@ -40,6 +40,9 @@ export function handleRemember(
   if (!input.content || input.content.trim().length === 0) {
     return { success: false, message: "content is required" };
   }
+  if (config.memory.enabled === false) {
+    return { success: false, message: "Memory is disabled." };
+  }
 
   const workspaceDir = getWorkspaceDir();
   const now = new Date();
