@@ -279,6 +279,37 @@ describe("AgentLoop result-time spooling", () => {
     }
   });
 
+  test("spools the raw output even when it exceeds the post-tool-use truncation budget", async () => {
+    // maxInputTokens of 10k gives the default truncate plugin a 12k-char
+    // budget (0.3 share × 4 chars/token). The spool must run before that
+    // hook, so the file holds all 20k chars of raw output rather than the
+    // hook's tail-dropped copy — otherwise the omitted tail is unrecoverable.
+    const HUGE = "z".repeat(20_000);
+    const { provider } = createMockProvider([
+      toolUseResponse("tu_1", "fetch_transcript", {}),
+      textResponse("Done."),
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      config: { maxInputTokens: 10_000 },
+      tools: dummyTools,
+      toolExecutor: async () => ({ content: HUGE, isError: false }),
+      resolveConversationDir: () => convDir,
+    });
+
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    const filePath = getToolResultFilePath(convDir, "tu_1");
+    expect(readFileSync(filePath, "utf-8")).toBe(HUGE);
+  });
+
   test("without resolveConversationDir the full content is sent and post-turn handles it", async () => {
     const { provider, calls } = createMockProvider([
       toolUseResponse("tu_1", "fetch_transcript", {}),

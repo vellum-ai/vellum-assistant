@@ -1753,11 +1753,39 @@ export class AgentLoop {
           }),
         );
 
+        // Spool oversized results to `.tool-results/` and swap the inline
+        // copy for the post-turn pass's stub now — on the raw blocks, before
+        // the post-tool-use hooks, event emission, and history append. Running
+        // ahead of the hooks means the spooled file holds the tool's full
+        // output rather than the truncate plugin's tail-dropped copy, and the
+        // hooks then see the stub. Stubbing before the first send keeps the
+        // provider-bound history strictly append-only (rewriting an earlier
+        // message between calls would invalidate the prompt-cache prefix on
+        // every iteration).
+        if (conversationDir) {
+          const toolNameByUseId = new Map(
+            toolUseBlocks.map((tu) => [tu.id, tu.name]),
+          );
+          try {
+            spoolAndStubOversizedToolResults(rawResultBlocks, {
+              conversationDir,
+              toolNameById: (id) => toolNameByUseId.get(id),
+            });
+          } catch (err) {
+            rlog.warn(
+              { err, turn: toolUseTurns },
+              "Spooling oversized tool results to disk failed (non-fatal)",
+            );
+          }
+        }
+
         // Run the `post-tool-use` hook once per tool result, after the tool
         // returns and before the result joins the provider-bound history.
         // The default tool-result-truncate plugin tail-drops oversized output
-        // to fit the context window; user hooks can swap in a smarter strategy
-        // (e.g. a summariser) or observe results for side effects.
+        // to fit the context window (spool-stubbed results are already tiny;
+        // spool-exempt ones still rely on it); user hooks can swap in a
+        // smarter strategy (e.g. a summariser) or observe results for side
+        // effects.
         const contextWindowTokens =
           resolveContextWindow?.().maxInputTokens ??
           this.config.maxInputTokens ??
@@ -1785,29 +1813,6 @@ export class AgentLoop {
               type: "text",
               text: finalCtx.additionalContext,
             });
-          }
-        }
-
-        // Spool oversized results to `.tool-results/` and swap the inline
-        // copy for the post-turn pass's stub now — before the results are
-        // emitted or join history — so the full content is on disk for the
-        // model to read back within this turn while the provider-bound
-        // history stays append-only (rewriting an earlier message between
-        // calls would invalidate the prompt-cache prefix on every iteration).
-        if (conversationDir) {
-          const toolNameByUseId = new Map(
-            toolUseBlocks.map((tu) => [tu.id, tu.name]),
-          );
-          try {
-            spoolAndStubOversizedToolResults(resultBlocks, {
-              conversationDir,
-              toolNameById: (id) => toolNameByUseId.get(id),
-            });
-          } catch (err) {
-            rlog.warn(
-              { err, turn: toolUseTurns },
-              "Spooling oversized tool results to disk failed (non-fatal)",
-            );
           }
         }
 
