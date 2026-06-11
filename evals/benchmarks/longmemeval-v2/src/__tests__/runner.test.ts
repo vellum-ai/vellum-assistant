@@ -327,6 +327,45 @@ describe("runLongMemEvalV2Unit", () => {
     expect(result.metrics[0]!.score).toBe(0);
   });
 
+  test("marks status=completed and scores 0 when the question turn produces no answer in time", async () => {
+    // GIVEN an ingest turn that completes on the sentinel
+    // AND a question turn that emits only non-text events (retrieval /
+    // thinking) and never composes an answer before its time budget elapses
+    const runId = `lme-v2-runner-noanswer-${Date.now()}`;
+    runIdsToCleanup.push(runId);
+    const harness = makeFakeAgent([
+      [textEvent("Ready.")],
+      [{ message: { type: "tool_use_start", toolName: "lookup" } }],
+    ]);
+    nextAgent = harness.agent;
+
+    // WHEN the unit runs
+    const result = await runLongMemEvalV2Unit({
+      profile: profileFor("p1"),
+      item: makeItem(),
+      trajectoryReader: trajectoryReader(),
+      runId,
+      questionMaxMs: 200,
+      quietMs: 50,
+    });
+
+    // THEN the run is a completed miss, not an errored/failed run: it scores
+    // 0 and counts in the denominator, with a time-based reason and no judge
+    // function attribution (the judge never ran).
+    expect(result.metrics[0]!.score).toBe(0);
+    expect(result.metrics[0]!.reason).toMatch(/within the question turn's/);
+    expect(result.metrics[0]!.reason).toMatch(/time budget/);
+    expect(
+      (result.metrics[0]!.metadata as Record<string, unknown>)["function"],
+    ).toBe("no-answer");
+
+    const meta = JSON.parse(
+      await readFile(runArtifacts(runId).metadataPath, "utf8"),
+    );
+    expect(meta.status).toBe("completed");
+    expect(meta.error).toBeUndefined();
+  });
+
   test("marks status=failed when the ingest turn produces no events", async () => {
     const runId = `lme-v2-runner-fail-${Date.now()}`;
     runIdsToCleanup.push(runId);

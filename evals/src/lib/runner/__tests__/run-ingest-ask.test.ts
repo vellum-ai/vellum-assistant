@@ -244,6 +244,7 @@ describe("runIngestAsk — happy path", () => {
       result.questionConversationKey,
     );
     expect(result.hypothesis).toBe("March 14, 2025");
+    expect(result.questionAnswered).toBe(true);
     expect(result.ingestEvents.length).toBe(2);
     expect(result.questionEvents.length).toBe(2);
     expect(result.ingestSentinelSeen).toBe(true);
@@ -573,11 +574,11 @@ describe("runIngestAsk — event-stream failures", () => {
     expect(harness.shutdownCount()).toBe(1);
   });
 
-  test("throws when the question turn emits only non-text events, carrying both event streams for debugging", async () => {
+  test("returns an unanswered result (not an error) when the question turn emits only non-text events", async () => {
     // GIVEN an ingest turn that completes on the sentinel
     // AND a question turn that produces events but no gradable text
-    // (e.g. conversation B did on-demand retrieval but never composed an
-    // answer before the drain ended)
+    // (e.g. conversation B did on-demand retrieval / extended thinking but
+    // never composed an answer before its time budget elapsed)
     const harness = makeFakeAgent({
       responses: [
         [textEvent("ack"), readyEvent()],
@@ -587,22 +588,24 @@ describe("runIngestAsk — event-stream failures", () => {
     nextAgent = harness.agent;
 
     // WHEN the run executes
-    const err = await runIngestAsk({
+    const result = await runIngestAsk({
       profile: profileFor("p-toolonly"),
       runId: "r-7",
       inputs: [],
       ingestMessage: "ingest",
       questionMessage: "ask",
       quietMs: 25,
-    }).catch((e: unknown) => e);
+    });
 
-    // THEN it fails loudly because there is no hypothesis to judge
-    expect(err).toBeInstanceOf(IngestAskError);
-    expect((err as Error).message).toMatch(/no assistant text/);
-    // AND it carries both the ingest- and question-turn events so the
-    // caller can persist them and inspect what conversation B did
-    expect((err as IngestAskError).ingestEvents.length).toBe(2);
-    expect((err as IngestAskError).questionEvents.length).toBe(1);
+    // THEN it does NOT throw — "too slow to answer" is a gradable outcome,
+    // so the run returns normally with an empty hypothesis flagged as
+    // unanswered, leaving the caller to score it a completed miss.
+    expect(result.questionAnswered).toBe(false);
+    expect(result.hypothesis).toBe("");
+    // AND it still carries both turns' events so the caller can persist
+    // them and inspect what conversation B did
+    expect(result.ingestEvents.length).toBe(2);
+    expect(result.questionEvents.length).toBe(1);
     expect(harness.shutdownCount()).toBe(1);
   });
 });
