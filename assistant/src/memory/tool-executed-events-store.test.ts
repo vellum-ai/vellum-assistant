@@ -8,70 +8,24 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+import {
+  seedToolInvocation,
+  TOOL_INVOCATION_PII_SENTINEL as PII_SENTINEL,
+  type ToolInvocationSeedSpec,
+} from "../__tests__/test-support/tool-invocation-seed.js";
 import { getDb } from "./db-connection.js";
 import { initializeDb } from "./db-init.js";
-import { conversations, toolInvocations } from "./schema.js";
+import { toolInvocations } from "./schema.js";
 import { queryUnreportedToolExecutedEvents } from "./tool-executed-events-store.js";
 
 initializeDb();
 
 const CONVERSATION_ID = "conv-tool-executed-store-test";
 
-/**
- * Sentinel embedded in the seeded raw input/result payloads. Asserted to
- * never appear in any projection — raw tool args/outputs must never leave
- * the device.
- */
-const PII_SENTINEL = "must never leave the device";
-
-interface SeedSpec {
-  id: string;
-  createdAt: number;
-  toolName?: string;
-  decision?: string;
-  durationMs?: number;
-  argBytes?: number | null;
-  resultBytes?: number | null;
-  provider?: string | null;
-  model?: string | null;
-  inferenceProfile?: string | null;
-  inferenceProfileSource?: string | null;
-}
-
-function insertInvocation(spec: SeedSpec): void {
-  const db = getDb();
-  // tool_invocations has an enforced FK to conversations.
-  db.insert(conversations)
-    .values({
-      id: CONVERSATION_ID,
-      title: "test",
-      createdAt: 1000,
-      updatedAt: 1000,
-    })
-    .onConflictDoNothing()
-    .run();
-  db.insert(toolInvocations)
-    .values({
-      id: spec.id,
-      conversationId: CONVERSATION_ID,
-      toolName: spec.toolName ?? "calendar_list_events",
-      input: `{"secret":"raw tool args — ${PII_SENTINEL}"}`,
-      result: `{"secret":"raw tool output — ${PII_SENTINEL}"}`,
-      decision: spec.decision ?? "allow",
-      riskLevel: "low",
-      durationMs: spec.durationMs ?? 12,
-      createdAt: spec.createdAt,
-      // Post-migration writer paths always compute byte sizes (legacy
-      // pre-migration rows are the only null-argBytes rows), so the seed
-      // defaults to non-null. Pass an explicit null to seed a legacy row.
-      argBytes: spec.argBytes !== undefined ? spec.argBytes : 2,
-      resultBytes: spec.resultBytes !== undefined ? spec.resultBytes : 9,
-      provider: spec.provider ?? null,
-      model: spec.model ?? null,
-      inferenceProfile: spec.inferenceProfile ?? null,
-      inferenceProfileSource: spec.inferenceProfileSource ?? null,
-    })
-    .run();
+function insertInvocation(
+  spec: Omit<ToolInvocationSeedSpec, "conversationId">,
+): void {
+  seedToolInvocation({ ...spec, conversationId: CONVERSATION_ID });
 }
 
 describe("tool-executed-events-store", () => {
@@ -134,9 +88,8 @@ describe("tool-executed-events-store", () => {
   });
 
   test("excludes legacy pre-migration rows (null arg_bytes)", () => {
-    // Pre-migration-278 rows were already shipped under the since-reverted
-    // tool_execution event type — they must never be projected, even from
-    // a zero watermark.
+    // Already shipped under the reverted tool_execution type — never
+    // projected, even from a zero watermark.
     insertInvocation({
       id: "ti-legacy",
       createdAt: 1000,

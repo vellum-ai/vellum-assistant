@@ -1,10 +1,10 @@
 import type { ApprovalRequired } from "@vellumai/service-contracts/credential-rpc";
 import type {
   DiffInfo,
-  ErrorCategory,
   ExecutionTarget,
   ProxyApprovalCallback,
   SensitiveOutputBinding,
+  ToolExecutionErrorEvent as ContractsToolExecutionErrorEvent,
   ToolExecutionStartEvent,
   ToolPermissionDeniedEvent,
   ToolPermissionPromptEvent,
@@ -44,8 +44,7 @@ export function isDiskPressureCleanupToolName(name: string): boolean {
 // Pure re-exports below cover types the contracts package could declare
 // without any assistant-side references. The remaining interfaces (`Tool`,
 // `ToolContext`, `ToolExecutionResult`, `ToolExecutedEvent`,
-// `ToolExecutionErrorEvent`, `ToolLifecycleEvent`,
-// `ToolLifecycleEventHandler`, `ProxyToolResolver`)
+// `ToolLifecycleEvent`, `ToolLifecycleEventHandler`, `ProxyToolResolver`)
 // reference daemon-internal types (CES client, host-proxy classes,
 // `ContentBlock`, `ApprovalRequired`, `TrustClass`, `InterfaceId`,
 // `SecretPromptResult`, `UsageAttributionSnapshot`) that can't move into a
@@ -55,6 +54,9 @@ export function isDiskPressureCleanupToolName(name: string): boolean {
 // concrete types. The two sides are structurally independent — no
 // inheritance, no intersection — which avoids TypeScript's contravariance
 // mismatches on lifecycle-event handlers.
+// `ToolExecutionErrorEvent` is the exception: its contracts fields are all
+// concrete, so the assistant overlay simply extends it with the
+// daemon-internal telemetry fields.
 // ---------------------------------------------------------------------------
 
 export type {
@@ -189,39 +191,31 @@ export interface ToolExecutedEvent {
    * resolution failed or no attribution was available.
    */
   attribution?: UsageAttributionSnapshot | null;
+  /**
+   * Serialized byte size of the RAW tool input, stamped by the executor
+   * before sensitive-field sanitization rewrites `input`. Only the size
+   * leaves the device, never the payload.
+   */
+  inputBytes?: number | null;
 }
 
 /**
- * `ToolExecutionErrorEvent` is redeclared here (rather than re-exported from
- * the contracts package) so it can carry the assistant-side `attribution`
- * snapshot, which references the daemon-internal `UsageAttributionSnapshot`
- * type. All other fields mirror the contracts declaration.
+ * Extends the contracts declaration with the assistant-side telemetry
+ * fields stamped centrally by the executor's `emitLifecycleEvent`.
  */
-export interface ToolExecutionErrorEvent {
-  type: "error";
-  toolName: string;
-  input: Record<string, unknown>;
-  workingDir: string;
-  conversationId: string;
-  requestId?: string;
-  executionTarget?: ExecutionTarget;
-  riskLevel: string;
-  /** ID of the trust rule that matched this invocation (if any). */
-  matchedTrustRuleId?: string;
-  decision: string;
-  durationMs: number;
-  errorMessage: string;
-  isExpected: boolean;
-  /** Classifies the error for downstream consumers (audit, alerting, monitoring). */
-  errorCategory: ErrorCategory;
-  errorName?: string;
-  errorStack?: string;
+export interface ToolExecutionErrorEvent extends ContractsToolExecutionErrorEvent {
   /**
    * Model attribution snapshot for the conversation at invocation time.
    * Copied from {@link ToolContext.attribution} by the executor; `null` when
    * resolution failed or no attribution was available.
    */
   attribution?: UsageAttributionSnapshot | null;
+  /**
+   * Serialized byte size of the RAW tool input, stamped by the executor
+   * before sensitive-field sanitization rewrites `input`. Only the size
+   * leaves the device, never the payload.
+   */
+  inputBytes?: number | null;
 }
 
 export type ToolLifecycleEvent =
@@ -234,6 +228,20 @@ export type ToolLifecycleEvent =
 export type ToolLifecycleEventHandler = (
   event: ToolLifecycleEvent,
 ) => void | Promise<void>;
+
+/**
+ * Canonical serialization used for tool-input byte sizing. Shared by the
+ * executor (raw pre-sanitization sizing) and the audit listener (stored
+ * `input` column + fallback sizing) so the two always measure the same
+ * serialization.
+ */
+export function stringifyToolInput(input: Record<string, unknown>): string {
+  try {
+    return JSON.stringify(input);
+  } catch {
+    return "[unserializable-input]";
+  }
+}
 
 export interface ToolContext {
   /** Identifier of the conversation this tool invocation belongs to. */

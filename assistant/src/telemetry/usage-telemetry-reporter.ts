@@ -203,14 +203,9 @@ export class UsageTelemetryReporter {
         undefined;
 
       // Read tool-executed watermark (compound cursor: createdAt + id).
-      // The standard 0 default is safe even though `tool_invocations` is a
-      // pre-existing audit table: legacy rows — already shipped under the
-      // since-reverted `tool_execution` event type and lacking the
-      // arg_bytes/result_bytes/attribution columns — are excluded at the
-      // query level via the null `arg_bytes` discriminator (see
-      // queryUnreportedToolExecutedEvents), so they are never backfilled.
-      // Rows recorded after migration 278 but before the first flush ARE
-      // picked up, which a now-initialized watermark would have dropped.
+      // The 0 default is safe despite the pre-existing audit table: legacy
+      // rows are excluded at the query level (see
+      // queryUnreportedToolExecutedEvents).
       const toolExecutedWatermark = Number(
         getMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK) ?? "0",
       );
