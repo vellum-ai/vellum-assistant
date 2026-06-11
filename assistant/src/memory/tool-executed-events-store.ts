@@ -42,8 +42,10 @@ export interface UnreportedToolExecutedEvent {
  *   size/attribution columns. Every post-migration writer path computes a
  *   non-null `arg_bytes` (the only null writer, "permission_denied", is
  *   excluded by the decision filter), making `arg_bytes IS NOT NULL` a
- *   reliable legacy-row discriminator — which lets the reporter keep the
- *   standard 0 watermark default without dropping pre-first-flush rows.
+ *   reliable legacy-row discriminator. It only guards pre-migration rows —
+ *   rows recorded while telemetry is opted out are guarded separately by
+ *   the reporter's construction-time watermark initialization (see
+ *   usage-telemetry-reporter.ts).
  *
  * Reporting is best-effort: `rotateToolInvocations` purges by `created_at`
  * alone, so rows older than `auditLog.retentionDays` may rotate away before

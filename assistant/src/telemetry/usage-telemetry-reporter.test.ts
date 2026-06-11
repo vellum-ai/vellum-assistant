@@ -257,6 +257,25 @@ function seedToolInvocation(
   seedToolInvocationRow({ ...spec, conversationId: TOOL_CONVERSATION_ID });
 }
 
+/**
+ * Replace the default null-returning checkpoint mocks with a Map-backed
+ * implementation so values persisted by the reporter (e.g. the
+ * construction-time tool_executed watermark init) are visible to later
+ * reads within the same test.
+ */
+function useStatefulCheckpoints(
+  seed: Record<string, string> = {},
+): Map<string, string> {
+  const checkpoints = new Map(Object.entries(seed));
+  mockGetMemoryCheckpoint.mockImplementation(
+    (key) => checkpoints.get(key) ?? null,
+  );
+  mockSetMemoryCheckpoint.mockImplementation((key, value) => {
+    checkpoints.set(key, value);
+  });
+  return checkpoints;
+}
+
 const originalFetch = globalThis.fetch;
 let mockFetch: ReturnType<typeof mock>;
 
@@ -982,6 +1001,9 @@ describe("UsageTelemetryReporter", () => {
     );
 
     const reporter = new UsageTelemetryReporter();
+    // Construction initializes the absent tool_executed watermark; clear that
+    // call so the count below covers only the flush's advancement.
+    mockSetMemoryCheckpoint.mockClear();
     await reporter.flush();
 
     // No HTTP call should have been made
@@ -1522,13 +1544,21 @@ describe("UsageTelemetryReporter", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  test("rows recorded before the first flush are shipped (no now-initialized watermark)", async () => {
+  test("rows recorded after construction but before the first flush are shipped", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
-    // A row recorded before any tool_executed checkpoint exists must ship —
-    // a now-initialized watermark would silently drop it.
-    seedToolInvocation({ id: "ti-pre-first-flush", createdAt: 1700000001000 });
+    // Regression coverage for the review finding: the reporter delays its
+    // first flush by 30s+, so a tool used right after daemon startup is
+    // recorded before any flush has run. The construction-time watermark
+    // init must not drop it — only rows from before construction (the
+    // opt-out window) stay behind the watermark.
+    const checkpoints = useStatefulCheckpoints();
 
     const reporter = new UsageTelemetryReporter();
+    const rowCreatedAt =
+      Number(checkpoints.get("telemetry:tool_executed:last_reported_at")) +
+      1000;
+    seedToolInvocation({ id: "ti-pre-first-flush", createdAt: rowCreatedAt });
+
     await reporter.flush();
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -1539,16 +1569,82 @@ describe("UsageTelemetryReporter", () => {
     expect(body.events[0]).toMatchObject({
       type: "tool_executed",
       daemon_event_id: "ti-pre-first-flush",
-      recorded_at: 1700000001000,
+      recorded_at: rowCreatedAt,
     });
 
     // The watermark advances to the shipped row, so the next flush resumes
     // after it instead of re-shipping.
-    const watermarkCalls = mockSetMemoryCheckpoint.mock.calls.filter(
-      (c) => c[0] === "telemetry:tool_executed:last_reported_at",
+    expect(checkpoints.get("telemetry:tool_executed:last_reported_at")).toBe(
+      String(rowCreatedAt),
     );
-    expect(watermarkCalls.length).toBe(1);
-    expect(watermarkCalls[0][1]).toBe(String(1700000001000));
+  });
+
+  test("absent tool_executed checkpoint is initialized at construction — opt-out-window rows never ship", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const checkpoints = useStatefulCheckpoints();
+
+    // Rows accumulated while telemetry was opted out: the reporter is never
+    // constructed then, but the always-on audit listener keeps writing.
+    seedToolInvocation({
+      id: "ti-opt-out-window",
+      createdAt: Date.now() - 60_000,
+    });
+
+    const reporter = new UsageTelemetryReporter();
+
+    // The checkpoint is persisted immediately at construction so a crash
+    // before the first flush can't re-initialize later.
+    const initialized = checkpoints.get(
+      "telemetry:tool_executed:last_reported_at",
+    );
+    expect(initialized).toBeDefined();
+
+    // A tool that runs after construction ships normally.
+    seedToolInvocation({
+      id: "ti-post-construction",
+      createdAt: Number(initialized) + 1000,
+    });
+
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["ti-post-construction"]);
+  });
+
+  test("existing tool_executed checkpoint is respected — construction does not re-initialize", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const checkpoints = useStatefulCheckpoints({
+      "telemetry:tool_executed:last_reported_at": String(1700000001000),
+      "telemetry:tool_executed:last_reported_id": "ti-already-reported",
+    });
+
+    seedToolInvocation({
+      id: "ti-already-reported",
+      createdAt: 1700000001000,
+    });
+    // Legitimate backlog past the stored watermark — a re-initialization to
+    // Date.now() at construction would silently drop it.
+    seedToolInvocation({ id: "ti-backlog", createdAt: 1700000002000 });
+
+    const reporter = new UsageTelemetryReporter();
+    expect(checkpoints.get("telemetry:tool_executed:last_reported_at")).toBe(
+      String(1700000001000),
+    );
+
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["ti-backlog"]);
   });
 
   // -------------------------------------------------------------------------

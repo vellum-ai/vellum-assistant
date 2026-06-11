@@ -8,6 +8,20 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+let collectUsageData = true;
+
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({
+    ui: {},
+    model: "test",
+    provider: "test",
+    memory: { enabled: false },
+    rateLimit: { maxRequestsPerMinute: 0 },
+    secretDetection: { enabled: false },
+    collectUsageData,
+  }),
+}));
+
 import { getDb } from "./db-connection.js";
 import { initializeDb } from "./db-init.js";
 import { skillLoadedEvents } from "./schema.js";
@@ -28,7 +42,14 @@ function insertEvent(
 
 describe("skill-loaded-events-store", () => {
   beforeEach(() => {
+    collectUsageData = true;
     getDb().delete(skillLoadedEvents).run();
+  });
+
+  test("honors the collectUsageData opt-out (records nothing)", () => {
+    collectUsageData = false;
+    recordSkillLoadedEvent({ skillName: "web-research" });
+    expect(queryUnreportedSkillLoadedEvents(0, undefined, 10)).toHaveLength(0);
   });
 
   test("record + query round-trips all fields", () => {

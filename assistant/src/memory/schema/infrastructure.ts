@@ -308,9 +308,8 @@ export const activationSessions = sqliteTable("activation_sessions", {
 });
 
 // One row per `skill_loaded` telemetry event, emitted when a Vellum-produced
-// skill is activated in a conversation. Metadata only — never skill output or
-// conversation content. Flushed to the platform telemetry endpoint by the
-// usage telemetry reporter via a compound (created_at, id) watermark cursor.
+// skill is activated in a conversation — see skill-loaded-events-store.ts for
+// the data contract. Flushed by the usage telemetry reporter.
 export const skillLoadedEvents = sqliteTable(
   "skill_loaded_events",
   {
