@@ -703,7 +703,9 @@ export async function getSkill(
     return { skill: detail };
   }
 
-  // vellum or custom origin — base fields only
+  // vellum or custom origin — base fields plus owner attribution. Plugin-
+  // resident skills are mapped to the vellum origin, so `owner` is how their
+  // `{ kind: "plugin", id }` provenance is surfaced on the detail response.
   const detail: SkillDetailResponse = {
     id: slim.id,
     name: slim.name,
@@ -714,6 +716,7 @@ export async function getSkill(
     origin: slim.origin,
     status: slim.status,
     category: slim.category,
+    owner: slim.owner,
   };
   return { skill: detail };
 }

@@ -86,7 +86,7 @@ const slimSkillSchema = z.discriminatedUnion("origin", [
 ]);
 
 const skillDetailSchema = z.discriminatedUnion("origin", [
-  z.object({ ...slimSkillBase, origin: z.literal("vellum") }),
+  z.object({ ...slimSkillBaseWithOwner, origin: z.literal("vellum") }),
   z.object({
     ...slimSkillBase,
     origin: z.literal("clawhub"),
@@ -132,7 +132,7 @@ const skillDetailSchema = z.discriminatedUnion("origin", [
     installs: z.number(),
     audit: z.record(z.string(), partnerAuditSchema).optional(),
   }),
-  z.object({ ...slimSkillBase, origin: z.literal("custom") }),
+  z.object({ ...slimSkillBaseWithOwner, origin: z.literal("custom") }),
 ]);
 
 // ---------------------------------------------------------------------------

@@ -175,6 +175,13 @@ interface SkillDetailBase {
 
 interface VellumSkillDetail extends SkillDetailBase {
   origin: "vellum";
+  /**
+   * Extension that ships this skill, reusing the tool registry's
+   * {@link OwnerInfo} model. Set for plugin-resident skills as
+   * `{ kind: "plugin", id: <plugin dir name> }` — plugin skills are mapped to
+   * the `vellum` origin, so this is where their attribution is preserved.
+   */
+  owner?: OwnerInfo;
 }
 
 interface ClawhubSkillDetail extends SkillDetailBase {
@@ -209,6 +216,8 @@ interface SkillsshSkillDetail extends SkillDetailBase {
 
 interface CustomSkillDetail extends SkillDetailBase {
   origin: "custom";
+  /** See {@link VellumSkillDetail.owner}. */
+  owner?: OwnerInfo;
 }
 
 export type SkillDetailResponse =
