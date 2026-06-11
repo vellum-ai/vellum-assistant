@@ -1332,9 +1332,11 @@ export async function hatchDocker(
       extraAssistantEnv.VELLUM_DISABLE_PLATFORM =
         flagEnvVars.VELLUM_DISABLE_PLATFORM;
     }
+    const hostDeviceId = getOrCreateHostDeviceId();
+    extraAssistantEnv.VELLUM_DEVICE_ID = hostDeviceId;
     const extraGatewayEnv = {
       ...flagEnvVars,
-      VELLUM_DEVICE_ID: getOrCreateHostDeviceId(),
+      VELLUM_DEVICE_ID: hostDeviceId,
     };
     await startContainers(
       {
