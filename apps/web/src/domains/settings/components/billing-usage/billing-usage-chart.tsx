@@ -225,15 +225,9 @@ export function BillingUsageChart({
     [barCount, isMobile],
   );
 
-  if (stackKeys.length === 0) {
-    return (
-      <div className="flex h-[350px] items-center justify-center text-body-medium-lighter text-[var(--content-faint)]">
-        No usage data for this period
-      </div>
-    );
-  }
+  const isEmpty = stackKeys.length === 0;
 
-  const bars = data.map((d, di) => {
+  const bars = isEmpty ? [] : data.map((d, di) => {
     const x = plotLeft + di * bandWidth + barPadding;
     let cumY = 0;
     const segments = stackKeys.map((key, ki) => {
@@ -295,7 +289,11 @@ export function BillingUsageChart({
   return (
     <div onMouseDown={(e) => e.preventDefault()}>
       <div ref={containerRef} className="relative w-full" style={{ height: CHART_HEIGHT }}>
-        {width > 0 && (
+        {isEmpty ? (
+          <div className="flex h-full items-center justify-center text-body-medium-lighter text-[var(--content-faint)]">
+            No usage data for this period
+          </div>
+        ) : width > 0 ? (
           <>
             <svg
               width={width}
@@ -423,9 +421,9 @@ export function BillingUsageChart({
               />
             </div>
           </>
-        )}
+        ) : null}
       </div>
-      <ChartLegend stackKeys={stackKeys} labelMap={labelMap} />
+      {!isEmpty && <ChartLegend stackKeys={stackKeys} labelMap={labelMap} />}
     </div>
   );
 }
