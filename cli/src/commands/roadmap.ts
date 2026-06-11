@@ -1,4 +1,5 @@
 import { readPlatformToken, getWebUrl } from "../lib/platform-client.js";
+import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
 
 function printUsage(): void {
   console.log("Usage: vellum roadmap <subcommand>");
@@ -88,7 +89,7 @@ async function apiFetch(
   if (options.token) headers["X-Session-Token"] = options.token;
   if (options.body) headers["Content-Type"] = "application/json";
 
-  return fetch(url, {
+  return loopbackSafeFetch(url, {
     method: options.method ?? "GET",
     headers,
     body: options.body ? JSON.stringify(options.body) : undefined,

@@ -67,6 +67,7 @@ export {
   ASSISTANT_INTERNAL_PORT,
   GATEWAY_INTERNAL_PORT,
 } from "./environments/paths.js";
+import { loopbackSafeFetch } from "./loopback-fetch.js";
 
 /** Max time to wait for the assistant container to emit the readiness sentinel. */
 export const DOCKER_READY_TIMEOUT_MS = 5 * 60 * 1000;
@@ -1530,7 +1531,7 @@ async function waitForGatewayAndLease(opts: {
 
   while (Date.now() - start < DOCKER_READY_TIMEOUT_MS) {
     try {
-      const resp = await fetch(readyUrl, {
+      const resp = await loopbackSafeFetch(readyUrl, {
         signal: AbortSignal.timeout(5000),
       });
       if (resp.ok) {

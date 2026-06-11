@@ -24,6 +24,7 @@ import {
 
 import { getConfigDir } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
+import { loopbackSafeFetch } from "./loopback-fetch.js";
 
 const DEVICE_ID_SALT = "vellum-assistant-host-id";
 
@@ -346,7 +347,7 @@ export async function refreshGuardianToken(
 
     const tokenData = current ?? before;
 
-    const response = await fetch(`${gatewayUrl}/v1/guardian/refresh`, {
+    const response = await loopbackSafeFetch(`${gatewayUrl}/v1/guardian/refresh`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -406,7 +407,7 @@ export async function leaseGuardianToken(
   if (bootstrapSecret) {
     headers["x-bootstrap-secret"] = bootstrapSecret;
   }
-  const response = await fetch(`${gatewayUrl}/v1/guardian/init`, {
+  const response = await loopbackSafeFetch(`${gatewayUrl}/v1/guardian/init`, {
     method: "POST",
     headers,
     body: JSON.stringify({ platform: "cli", deviceId }),

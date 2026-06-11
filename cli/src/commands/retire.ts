@@ -36,6 +36,7 @@ import {
   resetLogFile,
   writeToLogFile,
 } from "../lib/xdg-log.js";
+import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
 
 export { retireLocal };
 
@@ -96,7 +97,7 @@ async function retireVellum(
 
   const platformUrl = runtimeUrl || getPlatformUrl();
   const url = `${platformUrl}/v1/assistants/${encodeURIComponent(assistantId)}/retire/`;
-  const response = await fetch(url, {
+  const response = await loopbackSafeFetch(url, {
     method: "DELETE",
     headers: await authHeaders(token, runtimeUrl),
   });

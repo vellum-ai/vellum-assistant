@@ -26,6 +26,7 @@ import {
 } from "../lib/client-identity.js";
 import { GATEWAY_PORT } from "../lib/constants.js";
 import { getLocalLanIPv4 } from "../lib/local.js";
+import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
 
 function isLoopbackHost(url: string): boolean {
   try {
@@ -154,7 +155,7 @@ export async function pair(): Promise<void> {
 
   let response: Response;
   try {
-    response = await fetch(`${mintUrl}/v1/pair`, {
+    response = await loopbackSafeFetch(`${mintUrl}/v1/pair`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

@@ -56,6 +56,7 @@ import {
   readPlatformToken,
 } from "../lib/platform-client";
 import { tuiLog } from "../lib/tui-log";
+import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
 
 const SUPPORTED_INTERFACES = ["cli", "web"] as const;
 type SupportedInterface = (typeof SUPPORTED_INTERFACES)[number];
@@ -619,7 +620,7 @@ async function handleLocalEndpoints(
 
     try {
       const hasBody = req.method !== "GET" && req.method !== "HEAD";
-      const proxyRes = await fetch(targetUrl, {
+      const proxyRes = await loopbackSafeFetch(targetUrl, {
         method: req.method,
         headers,
         body: hasBody ? req.body : undefined,
@@ -760,7 +761,7 @@ async function runWebInterface(
         try {
           const hasBody = req.method !== "GET" && req.method !== "HEAD";
           const body = hasBody ? await req.arrayBuffer() : undefined;
-          const proxyRes = await fetch(target.toString(), {
+          const proxyRes = await loopbackSafeFetch(target.toString(), {
             method: req.method,
             headers,
             body,

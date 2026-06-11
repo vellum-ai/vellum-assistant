@@ -47,6 +47,7 @@ import {
   waitForReady,
 } from "../lib/upgrade-lifecycle.js";
 import { compareVersions } from "../lib/version-compat.js";
+import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
 
 interface UpgradeArgs {
   name: string | null;
@@ -230,7 +231,7 @@ async function upgradeDocker(
     lastWorkspaceMigrationId?: string;
   } = {};
   try {
-    const healthResp = await fetch(
+    const healthResp = await loopbackSafeFetch(
       `${entry.runtimeUrl}/healthz?include=migrations`,
       {
         signal: AbortSignal.timeout(5000),
@@ -695,7 +696,7 @@ async function upgradePlatform(
     body.version = version;
   }
 
-  const response = await fetch(url, {
+  const response = await loopbackSafeFetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
