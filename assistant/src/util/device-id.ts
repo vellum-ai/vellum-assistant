@@ -7,9 +7,8 @@
  *
  * Path resolution:
  *   - All modes: the `VELLUM_DEVICE_ID` env var takes precedence when set
- *     (injected by the CLI for containerized deployments, where the
- *     container fs cannot persist device.json across recreation). The
- *     value is never written to device.json.
+ *     and is never written to device.json (see getDeviceIdOverride in
+ *     config/env-registry.ts).
  *   - Containerized (IS_CONTAINERIZED=true): `/home/assistant/.vellum/device.json`
  *     — the assistant user's persistent home dir, kept off the shared data
  *     volume. Not affected by VELLUM_ENVIRONMENT because the container fs
@@ -73,7 +72,7 @@ function resolveDeviceIdPaths(): { dir: string; file: string } {
  *
  * Resolution order:
  *   1. Cached in-memory value (populated on first call)
- *   2. `VELLUM_DEVICE_ID` env var (never persisted to device.json)
+ *   2. `VELLUM_DEVICE_ID` env var (CLI-injected; see env-registry)
  *   3. `deviceId` field from device.json
  *   4. Generate a new UUID, persist it to device.json, and return it
  *
