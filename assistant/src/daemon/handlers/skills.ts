@@ -317,8 +317,7 @@ function deriveKind(
   // Plugin-resident skills are framework-provided like bundled skills —
   // expose them under the same "bundled" kind so the UI doesn't invent a
   // new category that existing clients don't know how to render. Attribution
-  // to the owning plugin rides on the separate `pluginName` field, derived
-  // from the skill's `owner` descriptor.
+  // to the owning plugin rides on the separate `owner` descriptor.
   if (source === "plugin") return "bundled";
   return "installed"; // managed, workspace, extra
 }
@@ -361,7 +360,7 @@ function toSlimSkillResponse(
     kind,
     status,
     category,
-    pluginName: summary.owner?.kind === "plugin" ? summary.owner.id : undefined,
+    owner: summary.owner,
   } as const;
 
   switch (origin) {
@@ -715,7 +714,6 @@ export async function getSkill(
     origin: slim.origin,
     status: slim.status,
     category: slim.category,
-    pluginName: slim.pluginName,
   };
   return { skill: detail };
 }

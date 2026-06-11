@@ -1,6 +1,7 @@
 // Skill management types.
 
 import type { PartnerAudit } from "../../skills/skillssh-audit-types.js";
+import type { OwnerInfo } from "../../tools/types.js";
 
 // Re-export so consumers can access the audit types from this module.
 export type { PartnerAudit } from "../../skills/skillssh-audit-types.js";
@@ -91,8 +92,13 @@ interface SlimSkillBase {
   kind: "bundled" | "installed" | "catalog";
   status: "enabled" | "disabled" | "available";
   category: string;
-  /** Name of the installed plugin shipping this skill, when plugin-resident. */
-  pluginName?: string;
+  /**
+   * Extension that ships this skill, reusing the tool registry's
+   * {@link OwnerInfo} model. Set for plugin-resident skills as
+   * `{ kind: "plugin", id: <plugin dir name> }` so clients can attribute
+   * them to the owning plugin instead of collapsing to their `kind`/`origin`.
+   */
+  owner?: OwnerInfo;
 }
 
 interface VellumSlimSkill extends SlimSkillBase {
@@ -165,8 +171,6 @@ interface SkillDetailBase {
   kind: "bundled" | "installed" | "catalog";
   status: "enabled" | "disabled" | "available";
   category: string;
-  /** Name of the installed plugin shipping this skill, when plugin-resident. */
-  pluginName?: string;
 }
 
 interface VellumSkillDetail extends SkillDetailBase {
