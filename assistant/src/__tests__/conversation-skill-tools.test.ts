@@ -36,6 +36,8 @@ let mockCachedCatalog: Array<{ id: string; updatedAt?: string }> = [];
 let recordedSkillLoadedEvents: SkillLoadedEventRecord[] = [];
 /** When true, recordSkillLoadedEvent throws (simulates a store failure). */
 let mockRecordSkillLoadedFailure = false;
+/** Skill IDs for which registerSkillTools throws (simulates a different-owner tool name collision). */
+let mockRegisterFailures: Set<string> = new Set();
 
 // ---------------------------------------------------------------------------
 // Mocks — must be set up before importing the module under test
@@ -128,6 +130,9 @@ mock.module("../tools/registry.js", () => ({
   // skillId comes from the caller (conversation-skill-tools) and is the
   // sole source of truth for ownership.
   registerSkillTools: (skillId: string, tools: Tool[]) => {
+    if (mockRegisterFailures.has(skillId)) {
+      throw new Error(`Mock: tool name collision for skill "${skillId}"`);
+    }
     const existing = mockRegisteredTools.get(skillId) ?? [];
     existing.push(...tools);
     mockRegisteredTools.set(skillId, existing);
@@ -342,6 +347,7 @@ describe("projectSkillTools", () => {
     mockSkillRefCount = new Map();
     mockVersionHashes = {};
     mockVersionHashErrors = new Set();
+    mockRegisterFailures = new Set();
     sessionState = new Map<string, string>();
   });
 
@@ -573,6 +579,34 @@ describe("projectSkillTools", () => {
     expect(mockSkillRefCount.get("deploy")).toBe(1);
   });
 
+  test("registration failure is contained and the skill is retried on the next turn", () => {
+    mockCatalog = [makeSkill("deploy")];
+    mockManifests = { deploy: makeManifest(["deploy_run"]) };
+    mockRegisterFailures = new Set(["deploy"]);
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+    ];
+
+    // Turn 1: registerSkillTools throws — projection continues without the
+    // skill, leaves it untracked, and never touches unregisterSkillTools.
+    const result1 = projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+    });
+    expect(result1.allowedToolNames.size).toBe(0);
+    expect(sessionState.has("deploy")).toBe(false);
+    expect(mockUnregisteredSkillIds).toEqual([]);
+
+    // Turn 2: registration recovers — registered with a balanced refcount.
+    mockRegisterFailures = new Set();
+    const result2 = projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+    });
+    expect(result2.allowedToolNames.has("deploy_run")).toBe(true);
+    expect(sessionState.has("deploy")).toBe(true);
+    expect(mockSkillRefCount.get("deploy")).toBe(1);
+  });
+
   test("skill version hash change triggers unregister and re-register", () => {
     mockCatalog = [makeSkill("deploy")];
     mockManifests = { deploy: makeManifest(["deploy_run"]) };
@@ -785,6 +819,7 @@ describe("skill_loaded telemetry recording", () => {
     mockCachedCatalog = [];
     recordedSkillLoadedEvents = [];
     mockRecordSkillLoadedFailure = false;
+    mockRegisterFailures = new Set();
     sessionState = new Map<string, string>();
   });
 
@@ -931,6 +966,57 @@ describe("skill_loaded telemetry recording", () => {
     expect(recordedSkillLoadedEvents).toHaveLength(2);
   });
 
+  test("registration that throws on turn 1 and succeeds on turn 2 records exactly one row total", () => {
+    mockCatalog = [makeSkill("notes", undefined, "bundled")];
+    mockManifests = { notes: makeManifest(["notes_add"]) };
+    mockRegisterFailures = new Set(["notes"]);
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="notes" />'),
+    ];
+
+    // Turn 1: registration throws — no row, no tracking, registry untouched.
+    const result1 = projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: makeTelemetry(),
+    });
+    expect(recordedSkillLoadedEvents).toHaveLength(0);
+    expect(result1.allowedToolNames.size).toBe(0);
+    expect(sessionState.has("notes")).toBe(false);
+    expect(mockUnregisteredSkillIds).toEqual([]);
+
+    // Turn 2: registration succeeds — the load is recorded exactly once.
+    mockRegisterFailures = new Set();
+    const result2 = projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: makeTelemetry(),
+    });
+    expect(recordedSkillLoadedEvents).toHaveLength(1);
+    expect(recordedSkillLoadedEvents[0].skillName).toBe("notes");
+    expect(result2.allowedToolNames.has("notes_add")).toBe(true);
+    expect(mockSkillRefCount.get("notes")).toBe(1);
+  });
+
+  test("persistently failing registration never duplicates skill_loaded rows across turns", () => {
+    mockCatalog = [makeSkill("notes", undefined, "bundled")];
+    mockManifests = { notes: makeManifest(["notes_add"]) };
+    mockRegisterFailures = new Set(["notes"]);
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="notes" />'),
+    ];
+
+    for (let turn = 1; turn <= 3; turn++) {
+      projectSkillTools(history, {
+        previouslyActiveSkillIds: sessionState,
+        telemetry: makeTelemetry(),
+      });
+    }
+
+    expect(recordedSkillLoadedEvents).toHaveLength(0);
+    expect(mockUnregisteredSkillIds).toEqual([]);
+  });
+
   test("catalog miss yields undefined skillUpdatedAt (persisted as null)", () => {
     mockCatalog = [makeSkill("notes", undefined, "bundled")];
     mockManifests = { notes: makeManifest(["notes_add"]) };
@@ -965,10 +1051,10 @@ describe("skill_loaded telemetry recording", () => {
       conversationId: "conv-xyz",
       skillName: "notes",
       skillUpdatedAt: undefined,
-      provider: undefined,
-      model: undefined,
-      inferenceProfile: undefined,
-      inferenceProfileSource: undefined,
+      provider: null,
+      model: null,
+      inferenceProfile: null,
+      inferenceProfileSource: null,
     });
   });
 
