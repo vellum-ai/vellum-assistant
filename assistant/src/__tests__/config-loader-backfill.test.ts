@@ -1320,6 +1320,103 @@ describe("seedInferenceProfiles BYOK-mode built-in profile handling", () => {
     expect(config.llm.profiles.balanced?.label).toBe("Balanced");
   });
 
+  test("explicit overlay profileOverrides label null survives a first-hatch merge and masks a stale materialized label", () => {
+    // First-hatch shape: the on-disk config has no `profileOverrides` subtree
+    // yet, only a pre-migration materialized `balanced` entry carrying a
+    // custom label. The overlay's explicit `label: null` is the clear
+    // sentinel — it must persist through the merge (not be stripped as a
+    // null leaf) so it masks the stale label at resolve time.
+    writeConfig({
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            model: "old-model-from-previous-release",
+            provider_connection: "anthropic-managed",
+            label: "Stale Custom Label",
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: { provider: "anthropic" },
+            profileOverrides: {
+              balanced: { label: null },
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    // The null sentinel persisted; the BYOK hatch disable joins it.
+    expect(raw.llm.profileOverrides.balanced).toEqual({
+      label: null,
+      status: "disabled",
+    });
+
+    const config = loadConfig();
+    expect(config.llm.profiles.balanced?.label).toBeNull();
+  });
+
+  test("explicit overlay profileOverrides status null survives a first-hatch merge and masks a stale materialized status", () => {
+    writeConfig({
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            model: "old-model-from-previous-release",
+            provider_connection: "anthropic-managed",
+            status: "disabled",
+          },
+        },
+        activeProfile: "balanced",
+      },
+    });
+
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            default: { provider: "anthropic" },
+            profileOverrides: {
+              balanced: { status: null },
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+
+    mergeDefaultConfigAndSeedInferenceProfiles();
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    // The seeder's hatch disable never clobbers an existing status key, so
+    // the explicit null clear is what lands on disk.
+    expect(raw.llm.profileOverrides.balanced).toEqual({ status: null });
+
+    const config = loadConfig();
+    expect(config.llm.profiles.balanced?.status).toBeNull();
+  });
+
   test("hatch overlay activeProfile naming a built-in with dropped provider routing remaps to the matching custom profile", () => {
     // Pre-PR semantics let a hatch overlay back `balanced` with openai; that
     // representation no longer exists. The hatch collected an openai BYOK

@@ -711,6 +711,63 @@ export function deepMergeOverwrite(
   }
 }
 
+/**
+ * Apply a detached `llm.profileOverrides` fragment to a raw config object
+ * with key-presence semantics that preserve explicit nulls:
+ *
+ * - a `null` fragment clears the whole map;
+ * - a `null` entry clears that profile's stored entry;
+ * - an entry object assigns each carried key onto the stored entry —
+ *   explicit field nulls included, persisting the clear sentinel exactly as
+ *   the dedicated PUT profile route stores it.
+ *
+ * In the override store `null` IS data: a stored `label`/`status` null is
+ * the "explicitly cleared" sentinel that masks a stale value still carried
+ * by a transition-state materialized entry. `deepMergeOverwrite` instead
+ * treats `null` as a deletion sentinel and strips null leaves from any
+ * subtree assigned to a missing target key, which would silently drop the
+ * sentinel whenever the target config holds no `llm.profileOverrides` yet —
+ * so callers (`handlePatchConfig` in conversation-query-routes,
+ * `mergeDefaultWorkspaceConfig`) detach the fragment from the incoming
+ * body/overlay and route it through here instead of the generic merge.
+ *
+ * Performs no per-field validation; callers sanitize where the source is
+ * untrusted (the PATCH route runs `sanitizeProfileOverridesMap` first).
+ */
+export function applyProfileOverridesPatch(
+  raw: Record<string, unknown>,
+  fragment: unknown,
+): void {
+  if (fragment === undefined) return;
+  if (fragment === null) {
+    const llm = readPlainObject(raw.llm);
+    if (llm) delete llm.profileOverrides;
+    return;
+  }
+  const map = readPlainObject(fragment);
+  if (!map) return;
+  for (const [name, entry] of Object.entries(map)) {
+    if (entry === null) {
+      const llm = readPlainObject(raw.llm);
+      const overrides = llm ? readPlainObject(llm.profileOverrides) : null;
+      if (overrides) delete overrides[name];
+      continue;
+    }
+    const entryObj = readPlainObject(entry);
+    if (!entryObj || Object.keys(entryObj).length === 0) continue;
+    const overrides = ensurePlainObjectAt(
+      ensurePlainObjectAt(raw, "llm"),
+      "profileOverrides",
+    );
+    const existing = readPlainObject(overrides[name]);
+    if (existing) {
+      Object.assign(existing, entryObj);
+    } else {
+      overrides[name] = { ...entryObj };
+    }
+  }
+}
+
 export type DefaultWorkspaceConfigMergeResult = {
   hadOverlay: boolean;
   providedLlmProfileNames: Set<string>;
@@ -969,7 +1026,22 @@ export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult
     }
   }
 
+  // Detach the overlay's `llm.profileOverrides` fragment (explicit author
+  // entries plus fields lifted from legacy built-in fragments above) so it
+  // bypasses `deepMergeOverwrite`: in the override store `null` IS data, but
+  // the generic merge strips null leaves from any subtree assigned to a
+  // missing target key — on a first hatch with no `profileOverrides` on disk
+  // yet, an explicit `label`/`status` clear sentinel would silently vanish.
+  // `applyProfileOverridesPatch` re-applies the fragment with key-presence,
+  // null-preserving semantics after the merge.
+  let overlayProfileOverrides: unknown;
+  if (llmDefaults && "profileOverrides" in llmDefaults) {
+    overlayProfileOverrides = llmDefaults.profileOverrides;
+    delete llmDefaults.profileOverrides;
+  }
+
   deepMergeOverwrite(existing, defaults as Record<string, unknown>);
+  applyProfileOverridesPatch(existing, overlayProfileOverrides);
 
   const dir = dirname(configPath);
   if (!existsSync(dir)) {

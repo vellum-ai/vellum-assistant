@@ -23,6 +23,7 @@ import { z } from "zod";
 import { LlmContextResponseSchema } from "../../api/responses/llm-context-response.js";
 import {
   applyBuiltinProfiles,
+  applyProfileOverridesPatch,
   deepMergeOverwrite,
   fillContextDefaultsForMissingKeys,
   getConfig,
@@ -802,55 +803,6 @@ function takeProfileOverridesPatch(body: Record<string, unknown>): unknown {
   const fragment = llm.profileOverrides;
   delete llm.profileOverrides;
   return fragment;
-}
-
-/**
- * Apply a detached `llm.profileOverrides` PATCH fragment (see
- * `takeProfileOverridesPatch`) to the raw config with key-presence semantics
- * that preserve explicit nulls:
- *
- * - a `null` fragment clears the whole map;
- * - a `null` entry clears that profile's stored entry;
- * - an entry object assigns each carried key onto the stored entry —
- *   explicit field nulls included, persisting the clear sentinel exactly as
- *   the dedicated PUT profile route stores it.
- *
- * The fragment has already been sanitized (`sanitizeProfileOverridesMap`
- * plus the built-in `llm.profiles` lift), so entries are `null` or objects
- * holding only legal label/status values.
- */
-function applyProfileOverridesPatch(
-  raw: Record<string, unknown>,
-  fragment: unknown,
-): void {
-  if (fragment === undefined) return;
-  if (fragment === null) {
-    const llm = asMutablePlainObject(raw.llm);
-    if (llm) delete llm.profileOverrides;
-    return;
-  }
-  const map = asMutablePlainObject(fragment);
-  if (!map) return;
-  for (const [name, entry] of Object.entries(map)) {
-    if (entry === null) {
-      const llm = asMutablePlainObject(raw.llm);
-      const overrides = llm ? asMutablePlainObject(llm.profileOverrides) : null;
-      if (overrides) delete overrides[name];
-      continue;
-    }
-    const entryObj = asMutablePlainObject(entry);
-    if (!entryObj || Object.keys(entryObj).length === 0) continue;
-    const overrides = ensureObjectAt(
-      ensureObjectAt(raw, "llm"),
-      "profileOverrides",
-    );
-    const existing = asMutablePlainObject(overrides[name]);
-    if (existing) {
-      Object.assign(existing, entryObj);
-    } else {
-      overrides[name] = { ...entryObj };
-    }
-  }
 }
 
 /**
