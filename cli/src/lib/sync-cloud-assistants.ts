@@ -128,17 +128,18 @@ export async function syncCloudAssistants(
     const existing = existingCloudById.get(pa.id);
     const assistantName = pa.name.trim();
     const nameFields = assistantName ? { name: assistantName } : {};
+    // undefined when the platform reports no release — written through on
+    // update so a stale cached version is cleared, not preserved.
     const version =
       pa.current_release_version != null
         ? normalizeVersion(pa.current_release_version)
         : undefined;
-    const versionFields = version ? { version } : {};
     if (!existing) {
       log?.(`Adding ${pa.name || pa.id} to lockfile`);
       saveAssistantEntry({
         assistantId: pa.id,
         ...nameFields,
-        ...versionFields,
+        ...(version && { version }),
         runtimeUrl: getPlatformUrl(),
         cloud: "vellum",
         species: "vellum",
@@ -147,13 +148,13 @@ export async function syncCloudAssistants(
       added++;
     } else if (
       (assistantName && existing.name !== assistantName) ||
-      (version && existing.version !== version)
+      existing.version !== version
     ) {
       log?.(`Updating ${pa.id} from platform`);
       saveAssistantEntry({
         ...existing,
         ...nameFields,
-        ...versionFields,
+        version,
       });
       updated++;
     }
