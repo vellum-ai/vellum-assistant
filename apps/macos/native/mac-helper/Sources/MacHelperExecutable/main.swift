@@ -254,14 +254,14 @@ final class MacHelper: @unchecked Sendable {
         }
 
         // A privacy request from a process whose TCC-responsible ancestor
-        // lacks the usage strings is a SIGABRT, not a denial. Prompt when
-        // this process runs disclaimed (its own embedded Info.plist is the
-        // one TCC consults) or when the spawner explicitly vouched for the
-        // host's usage strings via VELLUM_HELPER_NO_DISCLAIM (dev Electron,
-        // whose Info.plist is patched); otherwise degrade to no partials.
-        let hostVouched =
-            ProcessInfo.processInfo.environment["VELLUM_HELPER_NO_DISCLAIM"] == "1"
-        guard isDisclaimed || hostVouched else {
+        // lacks the usage strings is a SIGABRT, not a denial. Only prompt
+        // when this process runs disclaimed (its own embedded Info.plist is
+        // the one TCC consults); otherwise degrade to no partials. Do NOT
+        // try to skip the disclaim in dev and ride the Electron identity:
+        // when the shell runs from a terminal, the responsible process is
+        // the TERMINAL, not Electron — observed as an instant SIGABRT on
+        // the first speech-authorization request.
+        guard isDisclaimed else {
             return ["enabled": false, "reason": "permissions-not-promptable"]
         }
 

@@ -84,14 +84,6 @@ const makeClient = (): MacHelperClient =>
     resolveExecutablePath: getMacHelperPath,
     logger: log,
     platform: getPlatform(),
-    // Dev: skip the helper's TCC disclaim so privacy prompts attribute to
-    // the stable Electron.app identity (whose dev Info.plist carries the
-    // mic/speech usage strings) instead of the ad-hoc-signed helper, whose
-    // CDHash — and therefore TCC grants — change on every rebuild.
-    // Packaged builds keep the disclaim: properly signed, stable identity.
-    ...(app.isPackaged
-      ? {}
-      : { spawnEnv: { VELLUM_HELPER_NO_DISCLAIM: "1" } }),
     ...supervisorOptionsForTesting,
   });
 
