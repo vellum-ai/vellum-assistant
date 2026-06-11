@@ -25,7 +25,7 @@ import { createToolAuditListener } from "../events/tool-audit-listener.js";
 import type { ToolLifecycleEvent } from "../tools/types.js";
 import { getDb } from "./db-connection.js";
 import { initializeDb } from "./db-init.js";
-import { toolInvocations } from "./schema.js";
+import { conversations, toolInvocations } from "./schema.js";
 import { queryUnreportedToolExecutedEvents } from "./tool-executed-events-store.js";
 
 initializeDb();
@@ -35,7 +35,10 @@ const CONVERSATION_ID = "conv-tool-executed-store-test";
 function insertInvocation(
   spec: Omit<ToolInvocationSeedSpec, "conversationId">,
 ): void {
-  seedToolInvocation({ ...spec, conversationId: CONVERSATION_ID });
+  seedToolInvocation(
+    { db: getDb(), conversations, toolInvocations },
+    { ...spec, conversationId: CONVERSATION_ID },
+  );
 }
 
 describe("tool-executed-events-store", () => {

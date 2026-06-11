@@ -163,6 +163,7 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
   authFallbackEvents,
+  conversations,
   skillLoadedEvents,
   toolInvocations,
 } from "../memory/schema.js";
@@ -254,7 +255,10 @@ const TOOL_CONVERSATION_ID = "conv-reporter-tool-executed";
 function seedToolInvocation(
   spec: Omit<ToolInvocationSeedSpec, "conversationId">,
 ): void {
-  seedToolInvocationRow({ ...spec, conversationId: TOOL_CONVERSATION_ID });
+  seedToolInvocationRow(
+    { db: getDb(), conversations, toolInvocations },
+    { ...spec, conversationId: TOOL_CONVERSATION_ID },
+  );
 }
 
 /**
