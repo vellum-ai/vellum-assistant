@@ -19,6 +19,7 @@ async function seedRun(opts: {
   sessionId: string;
   sessionLabel?: string;
   profileId: string;
+  profileManifest?: { species: "vellum"; description?: string };
   testId: string;
   score: number;
 }): Promise<string> {
@@ -30,6 +31,7 @@ async function seedRun(opts: {
     sessionId: opts.sessionId,
     sessionLabel: opts.sessionLabel,
     profileId: opts.profileId,
+    profileManifest: opts.profileManifest,
     testId: opts.testId,
     status: "completed",
     startedAt: "2026-05-15T12:00:00.000Z",
@@ -50,6 +52,7 @@ describe("rewriteReportLinks", () => {
       `<a href="/sessions/sess-1">Run</a>`,
       `<a href="/sessions/sess-1/tests/t1">Test</a>`,
       `<a href="/sessions/sess-1/tests/t1/profiles/p1">Exec</a>`,
+      `<a href="/sessions/sess-1/profiles/p1">Profile</a>`,
       `<a href="/api/runs/run-9/files/subprocess-hatch.log">raw</a>`,
     ].join("\n");
 
@@ -60,6 +63,7 @@ describe("rewriteReportLinks", () => {
     expect(out).toContain(`href="index.html"`);
     expect(out).toContain(`href="test--t1.html"`);
     expect(out).toContain(`href="exec--t1--p1.html"`);
+    expect(out).toContain(`href="profile--p1.html"`);
     expect(out).toContain(`href="files/run-9--subprocess-hatch.log"`);
     // AND no absolute server route survives
     expect(out).not.toContain(`href="/`);
@@ -97,6 +101,10 @@ describe("buildRunBundle", () => {
       sessionId,
       sessionLabel: "smoke",
       profileId: "p1",
+      profileManifest: {
+        species: "vellum",
+        description: "The bare baseline profile.",
+      },
       testId: "t1",
       score: 1,
     });
@@ -124,6 +132,15 @@ describe("buildRunBundle", () => {
     expect(byPath.has("exec--t1--p1.html")).toBe(true);
     expect(byPath.has("exec--t1--p2.html")).toBe(true);
     expect(byPath.has("metadata.json")).toBe(true);
+    // AND a per-profile drill-down page per profile in the session
+    expect(byPath.has("profile--p1.html")).toBe(true);
+    expect(byPath.has("profile--p2.html")).toBe(true);
+    // AND the profile page carries the manifest description in its info panel
+    expect(byPath.get("profile--p1.html") ?? "").toContain(
+      "The bare baseline profile.",
+    );
+    // AND the session page links its profile cards to those pages
+    expect(byPath.get("index.html") ?? "").toContain(`href="profile--p1.html"`);
     // AND the raw subprocess log is carried so its "raw" link resolves
     expect(byPath.has(`files/${p2RunId}--subprocess-hatch.log`)).toBe(true);
 

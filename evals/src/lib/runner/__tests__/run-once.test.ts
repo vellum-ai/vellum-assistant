@@ -355,7 +355,7 @@ function throwingHatchAgent(input: AgentHatchInput): {
 function fakeProfile(id: string): Profile {
   return {
     id,
-    manifest: { species: "vellum" },
+    manifest: { species: "vellum", description: `desc for ${id}` },
     workspaceDir: `/tmp/${id}`,
   };
 }
@@ -428,6 +428,13 @@ describe("runEvalOnce — hatch failure metadata", () => {
     expect(metadata?.status).toBe("failed");
     expect(metadata?.completedAt).toBeDefined();
     expect(metadata?.error ?? "").toContain("simulated post-hatch failure");
+    // The manifest snapshot is known at run start, so a run that fails
+    // must still carry it — the profile page and exported bundles render
+    // species/description/setup even when every run of a profile failed.
+    expect(metadata?.profileManifest).toEqual({
+      species: "vellum",
+      description: "desc for p-fake",
+    });
 
     // Finally block ran → shutdown was called even on the throw path.
     // This is the second leg of the bug fix: without it, hatch failures

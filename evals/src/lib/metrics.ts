@@ -9,6 +9,7 @@ import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AgentEvent, AgentMessage } from "./adapter";
+import type { ProfileManifest } from "./profile";
 import type { EvalProgressEvent } from "./runner/progress";
 import type { TestDef } from "./test-def";
 import type { TranscriptTurn } from "./transcript";
@@ -133,6 +134,14 @@ export interface RunMetadata {
    */
   cliArgv?: string[];
   profileId: string;
+  /**
+   * Snapshot of the profile's `manifest.json` (species, description,
+   * version, setup) taken at run time. Persisted so the report's
+   * per-profile info panel survives in an exported bundle, where the
+   * `profiles/` directory the manifest was read from is no longer on disk.
+   * Optional because legacy run.json files predate the field.
+   */
+  profileManifest?: ProfileManifest;
   testId: string;
   status: "running" | "completed" | "failed" | "abandoned" | "unknown";
   startedAt?: string;
