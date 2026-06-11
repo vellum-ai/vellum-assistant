@@ -82,11 +82,9 @@ export function TranscriptMessageBody({
   const userBubbleClass = `max-w-[80%] rounded-lg bg-[var(--surface-lift)] px-4 py-3 text-[var(--content-default)] flex flex-col gap-2 ${
     isSlackMessage ? "sm:max-w-[420px]" : ""
   }`;
-  // `text-chat` (16px/400/24px line-height) mirrors the macOS client's
-  // VFont.chat, which renders both user and assistant message bodies.
   const segmentClass = isUser
-    ? "break-words text-chat"
-    : `break-words text-chat ${textBubbleClass}`;
+    ? "break-words text-[15px]"
+    : `break-words text-[15px] ${textBubbleClass}`;
 
   const forkMessageId = message.id;
   const forkHandler = forkMessageId && onForkConversation

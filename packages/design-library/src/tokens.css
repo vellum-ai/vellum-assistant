@@ -229,11 +229,8 @@
 
   /* Layout: shared max-width for the chat surface (transcript + composer +
    * panel surfaces). The chat column is centered and clamped to this width
-   * while the surrounding scroll container remains full-bleed.
-   * 808px mirrors the Swift client's chat column (chatBubbleMaxWidth 760 +
-   * 2 × 24 gutters — SpacingTokens.swift), so with the standard `sm:px-6`
-   * gutters the content width is exactly 760px on both clients. */
-  --chat-max-width: 808px;
+   * while the surrounding scroll container remains full-bleed. */
+  --chat-max-width: 800px;
 
   /* Motion tokens — mirror the Swift client's VAnimation presets
    * (AnimationTokens.swift): snappy 0.12s easeOut · fast 0.15s easeOut ·
