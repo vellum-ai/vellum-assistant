@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { useIsIOSWeb } from "@/runtime/platform-detection";
@@ -154,10 +154,10 @@ export function PreChatFlow() {
   const canOfferGoogleStep = platformFunnelAvailable;
   const canOfferPriorAssistants = platformFunnelAvailable;
 
-  const navigateToChatAfterLifecycleRefresh = useCallback(async () => {
+  const navigateToChatAfterLifecycleRefresh = async () => {
     await lifecycleService.checkAssistant();
     void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
-  }, [navigate]);
+  };
 
   function emitWebFunnelStep(
     step: (typeof ONBOARDING_FUNNEL_STEPS)[keyof typeof ONBOARDING_FUNNEL_STEPS],

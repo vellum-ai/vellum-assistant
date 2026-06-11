@@ -1,30 +1,20 @@
 /**
  * Consent readiness gate for the pre-chat onboarding flow.
  *
- * Snapshots the user's ToS + AI-data consent status when auth settles,
- * re-checks when the active user changes (logout → login), and
- * navigates away when consent is missing (web only — native handles
- * consent in the downstream privacy screen). Returns a boolean the
- * caller uses to suppress rendering until consent is resolved.
+ * Derives consent from localStorage reads (ToS + AI-data consent) and
+ * redirects when auth or consent is missing. Returns a boolean the
+ * caller uses to suppress rendering until ready.
  */
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useNavigate } from "react-router";
 
 import { readAiDataConsent, readTosAccepted } from "@/domains/onboarding/prefs";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import {
-  useAuthStore,
   useIsAuthenticated,
   useIsSessionInitializing,
 } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
-
-type ConsentDecision = "pending" | "ok" | "missing";
-
-interface ConsentSnapshot {
-  userId: string | null;
-  decision: ConsentDecision;
-}
 
 /**
  * Gate the pre-chat flow on auth + consent readiness.
@@ -32,35 +22,21 @@ interface ConsentSnapshot {
  * Side-effects: redirects to login when unauthenticated, to the privacy
  * screen when consent is missing (web only).
  *
- * @returns `true` when consent checks have settled and the flow may render.
+ * @returns `true` when auth has settled, user is authenticated, and
+ *   consent is satisfied (or native, which defers consent to the
+ *   downstream privacy screen).
  */
 export function usePreChatConsentGate(): boolean {
   const navigate = useNavigate();
-  const user = useAuthStore.use.user();
-  const userId = user?.id ?? null;
   const isAuthenticated = useIsAuthenticated();
   const isAuthInitializing = useIsSessionInitializing();
   const isNative = useIsNativePlatform();
 
-  const [consent, setConsent] = useState<ConsentSnapshot>(() => {
-    if (isAuthInitializing || !isAuthenticated) {
-      return { userId, decision: "pending" };
-    }
-    return {
-      userId,
-      decision: readTosAccepted() && readAiDataConsent() ? "ok" : "missing",
-    };
-  });
-
-  // Re-check consent when the active user changes or auth settles.
-  useEffect(() => {
-    if (isAuthInitializing || !isAuthenticated) return;
-    if (consent.userId === userId && consent.decision !== "pending") return;
-    setConsent({
-      userId,
-      decision: readTosAccepted() && readAiDataConsent() ? "ok" : "missing",
-    });
-  }, [consent, isAuthInitializing, isAuthenticated, userId]);
+  // Consent is derived directly from localStorage — no React state needed.
+  // These reads are synchronous and sub-millisecond; the values only change
+  // on a different page (privacy screen), so the component remounts with
+  // fresh values after consent is granted.
+  const consentOk = readTosAccepted() && readAiDataConsent();
 
   // Redirect when auth or consent is missing.
   useEffect(() => {
@@ -69,15 +45,11 @@ export function usePreChatConsentGate(): boolean {
       void navigate(routes.account.login, { replace: true });
       return;
     }
-    if (consent.decision === "missing" && !isNative) {
+    if (!consentOk && !isNative) {
       void navigate(routes.onboarding.privacy, { replace: true });
     }
-  }, [consent.decision, isAuthInitializing, isAuthenticated, isNative, navigate]);
+  }, [isAuthInitializing, isAuthenticated, consentOk, isNative, navigate]);
 
-  // Auth must be settled and user authenticated before the flow renders —
-  // without this, native (where isNative short-circuits consent) would render
-  // with userId === null during auth initialization or after logout.
   if (isAuthInitializing || !isAuthenticated) return false;
-
-  return isNative || consent.decision === "ok";
+  return isNative || consentOk;
 }
