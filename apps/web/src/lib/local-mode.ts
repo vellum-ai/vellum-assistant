@@ -7,6 +7,7 @@ import {
   clearGatewayToken,
   ensureGatewayToken,
   getGatewayToken,
+  getLocalTokenUrl,
 } from "@/lib/auth/gateway-session";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { useLockfileStore } from "@/stores/lockfile-store";
@@ -351,10 +352,14 @@ export async function primeLocalGatewayConnection(
   target?: LockfileAssistant,
 ): Promise<void> {
   const assistant = target ?? getSelectedAssistant();
+  const tokenUrl = getLocalTokenUrl(assistant);
+  if (!tokenUrl) return;
+  const guardianToken = assistant
+    ? await fetchGuardianTokenHost(assistant.assistantId)
+    : undefined;
+  await ensureGatewayToken(tokenUrl, guardianToken);
   const localGateway = getLocalGatewayUrl(assistant);
-  if (!assistant || !localGateway) return;
-  const guardianToken = await fetchGuardianTokenHost(assistant.assistantId);
-  await ensureGatewayToken(`${localGateway}/auth/token`, guardianToken);
+  if (!localGateway) return;
   setSelfHostedConnection({
     url: `${window.location.origin}${localGateway}`,
     token: getGatewayToken(),
