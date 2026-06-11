@@ -15,8 +15,8 @@ export function findVellumOnPath(
   pathEnv: string = process.env.PATH ?? "",
 ): string | null {
   for (const dir of pathEnv.split(":")) {
-    if (dir === "") continue;
-    const candidate = path.join(dir, "vellum");
+    // POSIX execvp treats an empty PATH entry as the current directory.
+    const candidate = path.join(dir === "" ? process.cwd() : dir, "vellum");
     try {
       accessSync(candidate, constants.X_OK);
       return candidate;

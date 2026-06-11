@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -29,12 +29,17 @@ const WRAPPER_SCRIPT = [
   "",
 ].join("\n");
 
-const BUN_SHIM = '#!/bin/sh\nexec bun "/Users/test/.bun/install/global/node_modules/vellum/dist/index.js" "$@"\n';
+const BUN_SHIM =
+  '#!/bin/sh\nexec bun "/Users/test/.bun/install/global/node_modules/vellum/dist/index.js" "$@"\n';
 
 const tempDirs: string[] = [];
 
 function makeBinDir(opts?: { content?: string; mode?: number }): string {
-  const dir = mkdtempSync(path.join(tmpdir(), "install-channel-test-"));
+  // realpath so paths derived from process.cwd() (which resolves symlinks,
+  // e.g. macOS /var -> /private/var) compare equal.
+  const dir = realpathSync(
+    mkdtempSync(path.join(tmpdir(), "install-channel-test-")),
+  );
   tempDirs.push(dir);
   if (opts !== undefined) {
     writeFileSync(path.join(dir, "vellum"), opts.content ?? BUN_SHIM, {
@@ -42,6 +47,16 @@ function makeBinDir(opts?: { content?: string; mode?: number }): string {
     });
   }
   return dir;
+}
+
+function withCwd<T>(dir: string, fn: () => T): T {
+  const previous = process.cwd();
+  process.chdir(dir);
+  try {
+    return fn();
+  } finally {
+    process.chdir(previous);
+  }
 }
 
 afterEach(() => {
@@ -52,7 +67,10 @@ afterEach(() => {
 
 describe("findVellumOnPath", () => {
   test("returns null for an empty PATH", () => {
-    expect(findVellumOnPath("")).toBeNull();
+    const emptyCwd = makeBinDir();
+    withCwd(emptyCwd, () => {
+      expect(findVellumOnPath("")).toBeNull();
+    });
   });
 
   test("returns null when no entry contains vellum", () => {
@@ -68,9 +86,22 @@ describe("findVellumOnPath", () => {
     );
   });
 
-  test("skips empty PATH entries", () => {
+  test("treats an empty PATH entry as the cwd (execvp semantics)", () => {
+    const cwdWithVellum = makeBinDir({ content: BUN_SHIM });
+    const laterDir = makeBinDir({ content: WRAPPER_SCRIPT });
+    withCwd(cwdWithVellum, () => {
+      expect(findVellumOnPath(`:${laterDir}`)).toBe(
+        path.join(cwdWithVellum, "vellum"),
+      );
+    });
+  });
+
+  test("falls through empty PATH entries when the cwd has no vellum", () => {
+    const emptyCwd = makeBinDir();
     const dir = makeBinDir({ content: BUN_SHIM });
-    expect(findVellumOnPath(`::${dir}:`)).toBe(path.join(dir, "vellum"));
+    withCwd(emptyCwd, () => {
+      expect(findVellumOnPath(`::${dir}:`)).toBe(path.join(dir, "vellum"));
+    });
   });
 
   test("skips a non-executable vellum in favor of a later executable one", () => {
@@ -100,12 +131,21 @@ describe("detectInstallChannel", () => {
   });
 
   test("returns none for an empty PATH", () => {
-    expect(detectInstallChannel("")).toEqual({ channel: "none", binPath: null });
+    const emptyCwd = makeBinDir();
+    withCwd(emptyCwd, () => {
+      expect(detectInstallChannel("")).toEqual({
+        channel: "none",
+        binPath: null,
+      });
+    });
   });
 
   test("returns none when no vellum exists anywhere on PATH", () => {
     const dir = makeBinDir();
-    expect(detectInstallChannel(dir)).toEqual({ channel: "none", binPath: null });
+    expect(detectInstallChannel(dir)).toEqual({
+      channel: "none",
+      binPath: null,
+    });
   });
 
   test("classifies based on the first match when two dirs have vellum", () => {
