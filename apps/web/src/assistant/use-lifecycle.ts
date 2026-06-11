@@ -19,7 +19,7 @@ import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantQuery } from "@/assistant/queries";
 import { resolveSelectedAssistantId } from "@/assistant/selection";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
-import { isLocalMode } from "@/lib/local-mode";
+import { getLocalAssistants, isLocalMode } from "@/lib/local-mode";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { isAuthenticated, type SessionStatus } from "@/stores/session-status";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -62,20 +62,22 @@ export function useAssistantLifecycle({
   const multiAssistantEnabled =
     useClientFeatureFlagStore.use.multiPlatformAssistant();
   useResolvedAssistantsStore.use.selectedPlatformAssistantByOrg();
-  const assistants = useResolvedAssistantsStore.use.assistants();
+  // Subscribe so the hook re-renders (and the lockfile-local check below
+  // re-evaluates) when the resolved list / lockfile change.
+  useResolvedAssistantsStore.use.assistants();
   const resolvedSelectionId =
     multiAssistantEnabled && !isGatewayAuthMode() && currentOrganizationId
       ? resolveSelectedAssistantId(currentOrganizationId)
       : null;
-  // Only a platform-hosted id belongs on the platform retrieve path: a local
-  // selection (or a lockfile-active id pointing at a local assistant) would 404
-  // against the platform endpoint. Unknown ids — which after resolution can only
-  // come from the per-org platform cache — pass through for the 404 net.
-  const resolvedEntry = resolvedSelectionId
-    ? assistants.find((a) => a.id === resolvedSelectionId)
-    : undefined;
+  // Keep only lockfile-only LOCAL assistants off the platform retrieve path:
+  // they're gateway-based, never registered on the platform, so getAssistant(id)
+  // 404s. Managed AND platform self-hosted (API `is_local`) assistants ARE valid
+  // there — the lifecycle's projectSelfHosted handles the self-hosted response —
+  // and unknown ids (only ever the per-org platform cache) pass through for the
+  // 404 net.
   const selectedPlatformAssistantId =
-    resolvedSelectionId && (resolvedEntry?.isPlatformHosted ?? true)
+    resolvedSelectionId &&
+    !getLocalAssistants().some((a) => a.assistantId === resolvedSelectionId)
       ? resolvedSelectionId
       : null;
 
