@@ -18,7 +18,7 @@ let mockIsGatewayAuth = false;
 let mockIsLocalMode = false;
 let mockPlatformAssistants: unknown[] = [];
 let mockPrimeError: Error | null = null;
-const setSelectedAssistantMock = mock((_id: string | null) => {});
+const setSelectedAssistantMock = mock(async (_id: string | null) => {});
 const setFromApiMock = mock((_assistants: unknown) => {});
 const primeLocalGatewayConnectionMock = mock(async () => {
   if (mockPrimeError) throw mockPrimeError;
@@ -145,10 +145,16 @@ mock.module("@/lib/auth/session-cleanup", () => ({
 mock.module("@/stores/resolved-assistants-store", () => ({
   useResolvedAssistantsStore: {
     getState: () => ({
-      setSelectedAssistant: setSelectedAssistantMock,
       setFromApi: setFromApiMock,
     }),
   },
+}));
+
+// Auth-store writes the selection through the public wrapper, not the store
+// action — mock the wrapper module so the real one (and its local-mode deps)
+// never loads.
+mock.module("@/assistant/selection", () => ({
+  setSelectedAssistant: setSelectedAssistantMock,
 }));
 
 mock.module("@/stores/organization-store", () => ({
@@ -388,6 +394,41 @@ describe("session cleanup on logout", () => {
     expect(lifecycleResetForLogoutMock).toHaveBeenCalledTimes(1);
     expect(statusAtResetTime).toBe("authenticated");
     expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+  });
+
+  // The lifecycle reset must run BEFORE the selection clear in both branches:
+  // the lifecycle's selection subscription skips writes while the state is
+  // `loading`, so this order is what prevents the clear from resurrecting an
+  // active state mid-logout.
+  test("gateway logout resets the lifecycle before clearing the selection", async () => {
+    mockIsGatewayAuth = true;
+    useAuthStore.setState({ sessionStatus: "authenticated" });
+    const order: string[] = [];
+    lifecycleResetForLogoutMock.mockImplementationOnce(() => {
+      order.push("reset");
+    });
+    setSelectedAssistantMock.mockImplementationOnce(async (id) => {
+      order.push(`clear:${String(id)}`);
+    });
+
+    await useAuthStore.getState().logout();
+
+    expect(order).toEqual(["reset", "clear:null"]);
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+  });
+
+  test("non-gateway logout clears the selection slice after the lifecycle reset", async () => {
+    const order: string[] = [];
+    lifecycleResetForLogoutMock.mockImplementationOnce(() => {
+      order.push("reset");
+    });
+    setSelectedAssistantMock.mockImplementationOnce(async (id) => {
+      order.push(`clear:${String(id)}`);
+    });
+
+    await useAuthStore.getState().logout();
+
+    expect(order).toEqual(["reset", "clear:null"]);
   });
 });
 
