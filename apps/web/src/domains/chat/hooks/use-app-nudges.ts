@@ -170,19 +170,26 @@ export function useAppNudges(
     ensureGitHubFirstSeenAt();
   }, []);
 
-  // Track user messages sent (cumulative, conversation-aware)
+  // Track user messages sent (cumulative, conversation-aware).
+  // Uses clientMessageId (stable correlation nonce) as the primary key so
+  // the same send isn't double-counted when the optimistic client-UUID id
+  // is swapped to the server-assigned messageId on user_message_echo.
   const trackedConversationIdRef = useRef<string | null>(null);
-  const seenUserMsgIdsRef = useRef<Set<string>>(new Set());
+  const seenUserMsgKeysRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    if (readGitHubUserMessagesSeen() >= GITHUB_MIN_USER_MESSAGES) return;
+    if (readGitHubUserMessagesSeen() >= GITHUB_MIN_USER_MESSAGES) {
+      return;
+    }
 
     // On conversation switch or first observation: snapshot existing messages
     if (activeConversationId !== trackedConversationIdRef.current) {
       trackedConversationIdRef.current = activeConversationId;
-      seenUserMsgIdsRef.current = new Set<string>();
+      seenUserMsgKeysRef.current = new Set<string>();
       for (const m of messages) {
-        if (m.role === "user") seenUserMsgIdsRef.current.add(m.id);
+        if (m.role === "user") {
+          seenUserMsgKeysRef.current.add(m.clientMessageId ?? m.id);
+        }
       }
       return;
     }
@@ -190,8 +197,12 @@ export function useAppNudges(
     // Count newly-sent user messages
     let newCount = 0;
     for (const m of messages) {
-      if (m.role === "user" && !seenUserMsgIdsRef.current.has(m.id)) {
-        seenUserMsgIdsRef.current.add(m.id);
+      if (m.role !== "user") {
+        continue;
+      }
+      const key = m.clientMessageId ?? m.id;
+      if (!seenUserMsgKeysRef.current.has(key)) {
+        seenUserMsgKeysRef.current.add(key);
         newCount++;
       }
     }
