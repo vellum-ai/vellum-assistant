@@ -432,6 +432,27 @@ function readSanitizedConfig(): Record<string, unknown> | undefined {
       config.twilio = twilio;
     }
 
+    if (config.acp && typeof config.acp === "object") {
+      const acp = config.acp as Record<string, unknown>;
+      if (acp.agents && typeof acp.agents === "object") {
+        const agents = acp.agents as Record<string, unknown>;
+        for (const name of Object.keys(agents)) {
+          const agent = agents[name];
+          if (agent && typeof agent === "object") {
+            const a = agent as Record<string, unknown>;
+            if (a.env && typeof a.env === "object") {
+              // Agent env is an arbitrary user-supplied map (often API keys);
+              // redact every value and keep only the key names.
+              const env = a.env as Record<string, unknown>;
+              a.env = Object.fromEntries(
+                Object.keys(env).map((k) => [k, redactStringValue(env[k])]),
+              );
+            }
+          }
+        }
+      }
+    }
+
     if (config.mcp && typeof config.mcp === "object") {
       const mcp = config.mcp as Record<string, unknown>;
       if (mcp.servers && typeof mcp.servers === "object") {

@@ -98,10 +98,25 @@ async function extractArchive(res: Response): Promise<string> {
 // Seed test data
 // ---------------------------------------------------------------------------
 
-// config.json at workspace root — needed for config-snapshot test
+// config.json at workspace root — needed for config-snapshot tests. The
+// acp.agents env values are obviously-synthetic secrets that must be redacted
+// from the exported snapshot.
+const SYNTHETIC_ACP_API_KEY = "sk-proj-synthetic-test-key-000000";
 writeFileSync(
   join(testWorkspaceDir, "config.json"),
-  JSON.stringify({ provider: "anthropic" }),
+  JSON.stringify({
+    provider: "anthropic",
+    acp: {
+      agents: {
+        codex: {
+          env: {
+            OPENAI_API_KEY: SYNTHETIC_ACP_API_KEY,
+            PATH: "/data/.bun/bin",
+          },
+        },
+      },
+    },
+  }),
 );
 
 // Conversation directories — used for workspace allowlist tests
@@ -197,6 +212,26 @@ describe("POST /v1/export — tar.gz archive", () => {
       );
       const parsed = JSON.parse(configContent);
       expect(parsed.provider).toBe("anthropic");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("config-snapshot.json redacts acp.agents env values", async () => {
+    const res = await callExport();
+    const dir = await extractArchive(res);
+    try {
+      const configContent = readFileSync(
+        join(dir, "config-snapshot.json"),
+        "utf-8",
+      );
+      const parsed = JSON.parse(configContent);
+      const env = parsed.acp.agents.codex.env as Record<string, string>;
+      expect(Object.keys(env).sort()).toEqual(["OPENAI_API_KEY", "PATH"]);
+      for (const value of Object.values(env)) {
+        expect(value).toBe("(set)");
+      }
+      expect(configContent).not.toContain(SYNTHETIC_ACP_API_KEY);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
