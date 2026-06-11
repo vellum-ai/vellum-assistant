@@ -167,17 +167,16 @@ describe("selection reconcile on hydration", () => {
   it("does NOT clear a cross-org selection on the org-scoped API list", () => {
     // setFromApi reflects only the active org's assistants; a selection for a
     // different org must survive (it's filtered on read, never deleted here).
+    const apiEntry = {
+      id: "asst-active-org",
+      name: "Active",
+      created: "2026-01-01T00:00:00Z",
+      is_local: false,
+    } as Parameters<
+      ReturnType<typeof useResolvedAssistantsStore.getState>["upsertFromApi"]
+    >[0];
     useResolvedAssistantsStore.getState().setSelectedAssistant("asst-other-org");
-    useResolvedAssistantsStore.getState().setFromApi([
-      {
-        id: "asst-active-org",
-        name: "Active",
-        created: "2026-01-01T00:00:00Z",
-        is_local: false,
-      } as Parameters<
-        ReturnType<typeof useResolvedAssistantsStore.getState>["setFromApi"]
-      >[0],
-    ]);
+    useResolvedAssistantsStore.getState().setFromApi([apiEntry]);
     expect(useResolvedAssistantsStore.getState().selectedAssistantId).toBe(
       "asst-other-org",
     );
