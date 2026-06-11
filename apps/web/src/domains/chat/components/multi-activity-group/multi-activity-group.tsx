@@ -6,10 +6,7 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { Typography } from "@vellumai/design-library";
 
 import { ToolCallChip } from "@/domains/chat/components/tool-call-chip/tool-call-chip";
-import {
-  WebSearchProgressCard,
-  type StepDescriptor,
-} from "@/domains/chat/components/web-search/web-search-progress-card";
+import { SingleActivity } from "@/domains/chat/components/single-activity/single-activity";
 import {
   WebSearchErrorRow,
   WebSearchStepRow,
@@ -25,7 +22,6 @@ import {
 } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
 import { useViewerStore } from "@/stores/viewer-store";
 import {
-  WEB_TOOL_NAMES,
   toolDetailPayloadFromToolCall,
   type ToolCallCardData,
   type ToolCallCardItem,
@@ -207,6 +203,9 @@ function expandedHeaderLabel(
  *
  * Special cases short-circuit before the shell:
  *
+ * - a LONE `web_search` call → render the inline, expand-in-place
+ *   `SingleActivity variant="web"` link. Lone `web_fetch`, grouped (2+)
+ *   web, and mixed groups fall through to the unified shell.
  * - any tool call in this group carries a `pendingConfirmation` → render the
  *   inline confirmation UI via {@link ToolCallChip} so the approve/deny path
  *   is preserved bit-for-bit from the legacy card.
@@ -257,12 +256,12 @@ export function MultiActivityGroup(props: MultiActivityGroupProps) {
     return null;
   }
 
-  // Purely-web groups continue to flow through `WebSearchProgressCard` for
-  // its mature rendering (carousel header, error chips). Mixed / non-web
-  // groups fall through to the unified shell below.
-  if (isPurelyWebGroup(toolCalls)) {
+  // A LONE web_search call renders as the inline, expand-in-place
+  // `SingleActivity variant="web"` link. Lone web_fetch, grouped (2+) web, and
+  // mixed groups fall through to the unified shell below.
+  if (toolCalls.length === 1 && toolCalls[0]!.name === "web_search") {
     return (
-      <WebSearchView
+      <LoneWebSearch
         toolCalls={toolCalls}
         cardData={cardData}
         expanded={expanded.value}
@@ -282,31 +281,15 @@ export function MultiActivityGroup(props: MultiActivityGroupProps) {
 }
 
 /**
- * True when every tool call in the group is a web tool (`web_search` /
- * `web_fetch`). Mirrors the legacy purely-web predicate that gated the web
- * progress card before the unified card consolidated the two paths.
- */
-function isPurelyWebGroup(toolCalls: ChatMessageToolCall[]): boolean {
-  if (toolCalls.length === 0) return false;
-  return toolCalls.every((tc) => WEB_TOOL_NAMES.has(tc.name));
-}
-
-/**
- * Renders the web-search variant by narrowing the unified card data to the
- * legacy `WebSearchProgressCard` props.
+ * Renders a LONE web_search call as the inline, expand-in-place
+ * `SingleActivity variant="web"` link.
  *
- * State precedence (highest first):
- *   1. `"loading"` — any tool call still has `status === "running"`. A denied
- *      confirmation can race ahead of the error `tool_result`, so the legacy
- *      card has to stay in `"loading"` until the tool actually exits.
- *   2. unified `state === "error"` or `"denied"` — bubble the failed chrome
- *      up so a purely-web group that ends with a tool error reads as failed
- *      (consistent with mixed / non-web groups that already render through
- *      the unified shell's error icon).
- *   3. `"complete"` — every tool call reached a terminal status without
- *      failure.
+ * Extracts the web step from `cardData.steps` via type-safe narrowing
+ * (never an unsafe `as` cast). When no web step is available yet (the
+ * brief loading window before metadata arrives), `step` is `null` and the
+ * expanded body renders empty while the header communicates loading state.
  */
-function WebSearchView({
+function LoneWebSearch({
   toolCalls,
   cardData,
   expanded,
@@ -317,36 +300,38 @@ function WebSearchView({
   expanded: boolean;
   onExpandChange: (next: boolean) => void;
 }) {
+  const running = toolCalls.some((tc) => isToolCallRunning(tc));
+  const state = running
+    ? "loading"
+    : cardData.state === "error" || cardData.state === "denied"
+      ? "error"
+      : "complete";
+  const webStep =
+    cardData.steps.find(
+      (
+        s,
+      ): s is Extract<
+        ToolCallCardStep,
+        { kind: "web_search" | "web_search_error" }
+      > => s.kind === "web_search" || s.kind === "web_search_error",
+    ) ?? null;
   return (
-    <WebSearchProgressCard
-      currentStepTitle={cardData.currentStepTitle}
-      currentStepInfo={cardData.currentStepInfo}
-      stepCount={cardData.stepCount}
-      // Every step in a purely-web group is one of the legacy three kinds
-      // by construction — the `tool` variant only appears for non-web
-      // tools, which this branch filters out.
-      steps={cardData.steps as StepDescriptor[]}
-      state={deriveWebShellState(toolCalls, cardData.state)}
+    <SingleActivity
+      variant="web"
+      info={cardData.currentStepInfo}
       carouselItems={cardData.carouselItems}
+      state={state}
+      step={webStep}
       expanded={expanded}
       onExpandChange={onExpandChange}
     />
   );
 }
 
-function deriveWebShellState(
-  toolCalls: ChatMessageToolCall[],
-  unifiedState: ToolCallCardData["state"],
-): ToolProgressCardState {
-  if (toolCalls.some((tc) => isToolCallRunning(tc))) return "loading";
-  if (unifiedState === "error" || unifiedState === "denied") return unifiedState;
-  return "complete";
-}
-
 /**
  * Render the unified shell for a non-web tool-call group. Wraps
  * `ToolProgressCardShell` with a `PhaseGroupedStepList` body that groups
- * contiguous same-phase steps (`Working (bash)`, `Using a skill`, etc.)
+ * contiguous same-phase steps (`Working`, `Using a skill`, etc.)
  * under a single phase header. Mixed groups carry `web_search` /
  * `web_search_error` / `thinking` (the latter from web tools, e.g.
  * `web_fetch` "Reading …") alongside the `tool` variant emitted by
@@ -390,19 +375,17 @@ function UnifiedMultiActivityGroup({
   const toolCallById = new Map(toolCalls.map((tc) => [tc.id, tc]));
 
   // The header shows the stable overall-status summary ("Working for 8s" /
-  // "Worked for 8s" / "Failed") rather than the live per-step carousel in two
-  // cases:
-  //   - While the run is in flight: the only changing part is the ticking
-  //     duration — no step carousel, no truncated step text. The expanded
-  //     timeline's latest step carries the live loading indicator instead, so
-  //     the header needn't echo it (and a stable animation key below keeps the
-  //     number updating in place rather than re-sliding every second).
-  //   - When expanded: the full timeline is visible below, so echoing the
-  //     latest step in the header would be pure repetition.
-  // Otherwise (collapsed + terminal) the header carousels the latest step so a
-  // compact history card still summarises what ran.
+  // "Worked for 8s" / "Failed") rather than the live per-step carousel ONLY
+  // when expanded: the full timeline is visible below, so echoing the latest
+  // step in the header would be pure repetition.
+  //
+  // A collapsed card — whether still running or terminal — carousels the
+  // latest step (`currentStepTitle | currentStepInfo`) so a compact card
+  // summarises what's running / what ran. A collapsed running card keeps its
+  // three-dot indicator (see `hideStatusIndicator` below) and now pairs it
+  // with the live title + info.
   const isLoading = shellState === "loading";
-  const showSummaryHeader = isLoading || expanded;
+  const showSummaryHeader = expanded;
   const headerTitle = showSummaryHeader
     ? expandedHeaderLabel(
         shellState,
@@ -444,11 +427,12 @@ function UnifiedMultiActivityGroup({
 
   return (
     <ToolProgressCardShell
-      // The unified (non-web) activity card renders bare — its header status
-      // icon + phase headers flow inline on the chat background like the lone
-      // `SingleActivity` link, with a ghost hover on the
-      // header row instead of the boxed card chrome. The purely-web path
-      // (`WebSearchView`) and the subagent inline card stay boxed.
+      // The unified activity card (grouped/mixed, including grouped web)
+      // renders bare — its header status icon + phase headers flow inline on
+      // the chat background like the lone `SingleActivity` link, with a ghost
+      // hover on the header row instead of the boxed card chrome. The lone-web
+      // path renders the inline `SingleActivity` link; the subagent inline
+      // card stays boxed.
       bare
       state={shellState}
       currentStepTitle={headerTitle}
@@ -657,7 +641,7 @@ function UnknownCommandNudge({
  * Render a single step inside the expanded body of a phase section. The
  * `web_search` and `web_search_error` variants delegate to the shared
  * `WebSearchStepRow` / `WebSearchErrorRow` primitives so the visual language
- * matches the dedicated `WebSearchProgressCard`; all other variants fall
+ * matches the lone-web inline link; all other variants fall
  * through to {@link DefaultStepPill} which matches Figma `5010-103135`.
  */
 function ExpandedStep({ step }: { step: ToolCallCardStep }) {

@@ -13,7 +13,7 @@
  * Sites not exercised here (`aborted_via_error`) require deeper provider
  * fakery and are best covered by integration tests.
  */
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type { PostCompactContext } from "@vellumai/plugin-api";
 
@@ -31,7 +31,10 @@ import {
   disposeContextWindowManager,
   getContextWindowManager,
 } from "../plugins/defaults/compaction/manager-store.js";
-import { registerPlugin } from "../plugins/registry.js";
+import {
+  registerPlugin,
+  resetPluginRegistryForTests,
+} from "../plugins/registry.js";
 import type {
   Message,
   Provider,
@@ -49,7 +52,7 @@ import type {
 let postCompactImpl:
   | ((input: PostCompactContext) => Promise<Message[]>)
   | null = null;
-registerPlugin({
+const testPostCompactPlugin = {
   manifest: { name: "test-post-compact", version: "0.0.0" },
   hooks: {
     [HOOKS.POST_COMPACT]: async (input: PostCompactContext): Promise<void> => {
@@ -58,7 +61,7 @@ registerPlugin({
         : input.history;
     },
   },
-});
+};
 
 // ---------------------------------------------------------------------------
 // Helpers (mirrored from agent-loop.test.ts so this file is self-contained)
@@ -169,6 +172,14 @@ function countExitEvents(events: AgentEvent[]): number {
 // ---------------------------------------------------------------------------
 
 describe("AgentLoop exit-reason instrumentation", () => {
+  // Reset the plugin registry to a known state so ambient registrations from
+  // other test files (e.g. the default plugins) cannot leak into the
+  // post-compact hook chain these tests drive.
+  beforeEach(() => {
+    resetPluginRegistryForTests();
+    registerPlugin(testPostCompactPlugin);
+  });
+
   afterEach(() => {
     disposeContextWindowManager("test-conversation");
   });
@@ -227,6 +238,41 @@ describe("AgentLoop exit-reason instrumentation", () => {
     expect(events[events.length - 1].type).toBe("agent_loop_exit");
   });
 
+  test("emits agent_loop_exit even when a stop hook throws", async () => {
+    // A third-party teardown hook that rejects must not suppress the terminal
+    // exit: the loop isolates the stop chain, logs the failure, and still emits
+    // `agent_loop_exit` exactly once with the real reason.
+    registerPlugin({
+      manifest: { name: "throwing-stop", version: "0.0.0" },
+      hooks: {
+        [HOOKS.STOP]: async (): Promise<void> => {
+          throw new Error("teardown boom");
+        },
+      },
+    });
+
+    const { provider } = createMockProvider([textResponse("Hi there!")]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system prompt",
+      conversationId: "test-conversation",
+    });
+
+    const events: AgentEvent[] = [];
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: (e) => {
+        events.push(e);
+      },
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    expect(countExitEvents(events)).toBe(1);
+    expect(lastExitEvent(events)?.reason).toBe("no_tool_calls");
+    expect(events[events.length - 1].type).toBe("agent_loop_exit");
+  });
+
   test("emits continuation surface event and exits on max_tokens", async () => {
     const { provider } = createMockProvider([
       maxTokensResponse("Partial answer"),
@@ -247,9 +293,14 @@ describe("AgentLoop exit-reason instrumentation", () => {
       trust: { sourceChannel: "vellum", trustClass: "unknown" },
     });
 
+    // The mock provider returns its content without streaming any text_delta
+    // live, so the loop surfaces the truncated reply once via a synthetic
+    // text_delta before stopping (a real provider streams the text live, where
+    // this emit is a no-op).
     expect(events.map((e) => e.type)).toEqual([
       "llm_call_started",
       "usage",
+      "text_delta",
       "max_tokens_reached",
       "message_complete",
       "agent_loop_exit",

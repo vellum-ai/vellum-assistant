@@ -216,6 +216,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "media/image-credentials.ts", // shared image-gen credential resolver (provider API key lookup)
       "memory/embedding-backend.ts", // embedding backend API key lookup
       "memory/llm-request-log-source-clickhouse.ts", // ClickHouse read source — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped mirror reads
+      "memory/compaction-log-writer-clickhouse.ts", // ClickHouse compaction log writer — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped event writes
       "daemon/providers-setup.ts", // provider initialization API key lookup
       "workspace/migrations/006-services-config.ts", // services config migration reads provider API keys
       "workspace/migrations/018-rekey-compound-credential-keys.ts", // re-key compound credential storage keys
@@ -242,6 +243,10 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "cli/commands/oauth/connect.ts", // CLI OAuth connect stored-secret verification
       "runtime/routes/chatgpt-subscription-auth-routes.ts", // ChatGPT subscription OAuth token storage
       "runtime/routes/identity-routes.ts", // health/readyz endpoint checks CES connectivity via getCesClient
+      "tools/credential-execution/run-authenticated-command.ts", // resolves the CES RPC client via getCesClient
+      "tools/credential-execution/make-authenticated-request.ts", // resolves the CES RPC client via getCesClient
+      "tools/credential-execution/manage-secure-command-tool.ts", // resolves the CES RPC client via getCesClient
+      "tools/executor.ts", // CES approval bridge resolves the CES RPC client via getCesClient
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));

@@ -2,11 +2,12 @@ import { Check, Cloud, Laptop } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { selectPlatformAssistant } from "@/assistant/select-platform-assistant";
+import { resolveSelectedAssistantId } from "@/assistant/selection";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { formatRelativeDate } from "@/utils/format-date";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
+import { useOrganizationStore } from "@/stores/organization-store";
 import {
   useResolvedAssistantsStore,
   type ResolvedAssistant,
@@ -28,8 +29,11 @@ export function SelectAssistantScreen() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const fromLogin = searchParams.get("fromLogin") === "1";
+  const fromSettings = searchParams.get("fromSettings") === "1";
   const hasPlatformSession = useHasPlatformSession();
   const assistants = useResolvedAssistantsStore.use.assistants();
+  const currentOrganizationId =
+    useOrganizationStore.use.currentOrganizationId();
   const {
     loading: loginLoading,
     error: loginError,
@@ -50,12 +54,14 @@ export function SelectAssistantScreen() {
   const [autoSkipping, setAutoSkipping] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Default selection to first accessible assistant
+  // Default selection: the app's known selected assistant when accessible,
+  // else the first accessible assistant.
   useEffect(() => {
-    if (selected == null && accessibleAssistants.length > 0) {
-      setSelected(accessibleAssistants[0].id);
-    }
-  }, [selected, accessibleAssistants]);
+    if (selected != null || accessibleAssistants.length === 0) return;
+    const resolved = resolveSelectedAssistantId(currentOrganizationId);
+    const match = accessibleAssistants.find((a) => a.id === resolved);
+    setSelected(match?.id ?? accessibleAssistants[0].id);
+  }, [selected, accessibleAssistants, currentOrganizationId]);
 
   const handleConnect = async (assistant: ResolvedAssistant) => {
     setConnecting(true);
@@ -64,7 +70,6 @@ export function SelectAssistantScreen() {
       if (assistant.isLocal) {
         await useAuthStore.getState().connectLocalAssistant(assistant.id);
       } else {
-        await selectPlatformAssistant(assistant.id);
         await useAuthStore.getState().connectPlatformAssistant(assistant.id);
       }
       void navigate(routes.assistant, { replace: true });
@@ -75,10 +80,11 @@ export function SelectAssistantScreen() {
   };
 
   // Auto-skip when there's exactly one assistant and it's accessible.
-  // Don't skip when the user just logged in — let them see the now-enabled option.
+  // Don't skip when the user just logged in or navigated here deliberately
+  // from settings — let them see the chooser.
   // Reactive to assistants so it fires when the store populates after mount.
   useEffect(() => {
-    if (fromLogin) return;
+    if (fromLogin || fromSettings) return;
     if (connecting || autoSkipping) return;
     if (assistants.length === 0) return;
     if (assistants.length === 1 && accessibleAssistants.length === 1) {

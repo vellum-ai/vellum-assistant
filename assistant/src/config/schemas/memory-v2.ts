@@ -194,14 +194,6 @@ export const MemoryV2ConfigSchema = z
       .describe(
         "Hours between scheduled consolidation runs that synthesize buffered memories into concept pages",
       ),
-    consolidation_enabled: z
-      .boolean({
-        error: "memory.v2.consolidation_enabled must be a boolean",
-      })
-      .default(true)
-      .describe(
-        "Whether automatic scheduled consolidation runs are enabled. Manual run-now requests remain available while memory.v2.enabled is true.",
-      ),
     consolidation_max_buffer_lines: z
       .number({
         error: "memory.v2.consolidation_max_buffer_lines must be a number",

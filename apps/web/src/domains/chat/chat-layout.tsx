@@ -35,7 +35,6 @@ import {
     navigateToConversation,
     navigateToNewConversation,
 } from "@/domains/chat/utils/conversation-navigation";
-import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { haptic } from "@/utils/haptics";
 
 import {
@@ -43,6 +42,8 @@ import {
     useConversationListQuery,
 } from "@/hooks/conversation-queries";
 import { openCommandPaletteWindow } from "@/runtime/command-palette-window";
+import { isElectron } from "@/runtime/is-electron";
+import { useIsNativePlatform } from "@/runtime/native-auth";
 import { openPopoutWindow } from "@/runtime/popout-window";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -193,6 +194,7 @@ export function ChatLayout() {
   const topBarRightSlot = useChatLayoutSlotsStore.use.topBarRightSlot();
   const authUser = useAuthStore.use.user();
   const showLlmInspector = canUseLlmInspector(authUser);
+  const isNative = useIsNativePlatform();
 
   // --- Assistant identity from store (written by ChatPage) ---
   const assistantName = useAssistantIdentityStore.use.name();
@@ -313,21 +315,12 @@ export function ChatLayout() {
     [navigate],
   );
 
-  // A fresh draft URL per call so the sidebar pencil can render as a link and
-  // each open-in-new-tab gesture lands on its own draft conversation.
-  const getNewConversationHref = useCallback(
-    () => routes.conversation(createDraftConversationId()),
-    [],
-  );
-
   const {
     handleArchiveConversation,
     handleUnarchiveConversation,
     handleMarkConversationUnread,
     handleMarkConversationRead,
     handleTogglePinConversation,
-    handleMoveToGroup,
-    handleRemoveFromGroup,
     handleRenameConversation,
     handleMarkAllReadInGroup,
     handleArchiveAllInGroup,
@@ -349,7 +342,6 @@ export function ChatLayout() {
     <ChatConversationHeader
       assistantId={assistantId}
       activeConversation={activeConversation}
-      conversationGroups={conversationGroups}
       headerSupplements={headerSupplements}
       showLlmInspector={showLlmInspector}
       onArchive={handleArchiveConversation}
@@ -357,8 +349,6 @@ export function ChatLayout() {
       onMarkUnread={handleMarkConversationUnread}
       onMarkRead={handleMarkConversationRead}
       onPinToggle={handleTogglePinConversation}
-      onMoveToGroup={handleMoveToGroup}
-      onRemoveFromGroup={handleRemoveFromGroup}
       onRename={handleRenameConversation}
     />
   ) : null);
@@ -538,6 +528,17 @@ export function ChatLayout() {
     [navigate],
   );
 
+  const handleOpenInNewWindow = useCallback(
+    (conversation: Conversation) => {
+      if (isElectron()) {
+        void openPopoutWindow(conversation.conversationId);
+      } else {
+        window.open(routes.conversation(conversation.conversationId), "_blank");
+      }
+    },
+    [],
+  );
+
   const renderSideMenu = (args: SideMenuRenderArgs): ReactNode => (
     <AssistantSideMenu
       assistantId={assistantId ?? ""}
@@ -553,7 +554,6 @@ export function ChatLayout() {
       attentionConversationIds={attentionConversationIds}
       onSelectConversation={handleSelectConversation}
       onStartNewConversation={startNewConversation}
-      getNewConversationHref={getNewConversationHref}
       isIntelligenceActive={isIdentityActive}
       onOpenIntelligence={handleOpenIdentity}
       isLibraryActive={isLibraryActive}
@@ -566,12 +566,11 @@ export function ChatLayout() {
       onUnarchiveConversation={handleUnarchiveConversation}
       onMarkConversationUnread={handleMarkConversationUnread}
       onMarkConversationRead={handleMarkConversationRead}
-      onMoveToGroup={handleMoveToGroup}
-      onRemoveFromGroup={handleRemoveFromGroup}
       onRenameGroup={handleRenameGroup}
       onDeleteGroup={handleDeleteGroup}
       onMarkAllReadInGroup={handleMarkAllReadInGroup}
       onArchiveAllInGroup={handleArchiveAllInGroup}
+      onOpenInNewWindow={isNative ? undefined : handleOpenInNewWindow}
       onInspect={showLlmInspector ? handleInspectConversation : undefined}
       footerAction={
         <PreferencesMenu

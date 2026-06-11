@@ -9,10 +9,15 @@ let connectivityStateMock: "online" | "device-offline" | "backend-unreachable" =
 let isElectronMock = false;
 let activeAssistantIdMock: string | null = "assistant-123";
 let operationalStatusAssistantIdMock: string | null = null;
+let assistantStateMock:
+  | { kind: "loading" }
+  | { kind: "active"; isLocal: boolean; maintenanceMode?: { enabled: boolean } } =
+  { kind: "loading" };
 let requestedOperationalStatusAssistantId: string | null | undefined;
 let operationalStatusQueryMock: {
   data: { state: string } | null | undefined;
   isError: boolean;
+  refetch?: () => void;
 } = {
   data: null,
   isError: false,
@@ -41,12 +46,30 @@ mock.module("@/runtime/connectivity", () => ({
   retryConnectivity: () => {},
 }));
 
+mock.module("@/generated/api/sdk.gen", () => ({
+  assistantsMaintenanceModeExitCreate: () =>
+    Promise.resolve({ response: new Response(null, { status: 204 }) }),
+}));
+
+mock.module("@/assistant/lifecycle-service", () => ({
+  lifecycleService: {
+    checkAssistant: () => Promise.resolve(),
+  },
+}));
+
+mock.module("@/lib/sentry/capture-error", () => ({
+  captureError: () => {},
+}));
+
 mock.module("@/assistant/operational-status", () => ({
   isHealthyOperationalStatus: (status: { state?: string } | null | undefined) =>
     status?.state === "active",
   useAssistantOperationalStatus: (assistantId: string | null) => {
     requestedOperationalStatusAssistantId = assistantId;
-    return operationalStatusQueryMock;
+    return {
+      ...operationalStatusQueryMock,
+      refetch: operationalStatusQueryMock.refetch ?? (() => {}),
+    };
   },
 }));
 
@@ -57,6 +80,7 @@ mock.module("@/assistant/local-health", () => ({
 mock.module("@/assistant/lifecycle-store", () => ({
   useAssistantLifecycleStore: {
     use: {
+      assistantState: () => assistantStateMock,
       operationalStatusAssistantId: () => operationalStatusAssistantIdMock,
     },
   },
@@ -86,7 +110,7 @@ mock.module("@vellumai/design-library/components/notice", () => ({
 }));
 
 mock.module("@vellumai/design-library/components/button", () => ({
-  Button: (props: { children: string }) => (
+  Button: (props: { children: ReactNode }) => (
     <button data-testid="button">{props.children}</button>
   ),
 }));
@@ -103,6 +127,7 @@ beforeEach(() => {
   isElectronMock = false;
   activeAssistantIdMock = "assistant-123";
   operationalStatusAssistantIdMock = null;
+  assistantStateMock = { kind: "loading" };
   requestedOperationalStatusAssistantId = undefined;
   operationalStatusQueryMock = {
     data: null,
@@ -181,6 +206,21 @@ describe("StatusBanner", () => {
 
     expect(maintenanceHtml).toContain("Assistant is in maintenance mode");
     expect(maintenanceHtml).toContain('data-tone="info"');
+    expect(maintenanceHtml).toContain("Resume Assistant");
+  });
+
+  test("renders maintenance mode from lifecycle state when operational status is absent", () => {
+    assistantStateMock = {
+      kind: "active",
+      isLocal: false,
+      maintenanceMode: { enabled: true },
+    };
+
+    const html = renderToStaticMarkup(<StatusBanner />);
+
+    expect(html).toContain("Assistant is in maintenance mode");
+    expect(html).toContain('data-tone="info"');
+    expect(html).toContain("Resume Assistant");
   });
 
   test("renders status query failures as error banners", () => {

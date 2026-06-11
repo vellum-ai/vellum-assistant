@@ -9,86 +9,13 @@
 import type {
   ConversationContentBlock,
   ConversationMessageToolCall,
+  ConversationSurfaceBlock,
+  ConversationTextBlock,
+  ConversationThinkingBlock,
 } from "@vellumai/assistant-api";
 
-type ConversationThinkingBlock = Extract<
-  ConversationContentBlock,
-  { type: "thinking" }
->;
-type ConversationTextBlock = Extract<
-  ConversationContentBlock,
-  { type: "text" }
->;
-type ConversationSurfaceBlock = Extract<
-  ConversationContentBlock,
-  { type: "surface" }
->;
-
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
-
-/**
- * One item inside an `activity` run for the merged activity-summary grouping.
- * A `thinking` item carries the contentOrder ids of a contiguous reasoning
- * run; a `tool` item carries a single tool-call/contentOrder id.
- */
-export type ActivityRunItem =
-  | { kind: "thinking"; ids: string[] }
-  | { kind: "tool"; id: string };
-
-/**
- * Grouped content shape for the merged activity-summary render branch. Adjacent
- * thinking + tool entries merge into one `activity` group (broken only by a
- * `text` or `surface` entry); `text`/`surface` pass through individually.
- */
-export type MergedContentGroup =
-  | { type: "text"; id: string }
-  | { type: "surface"; id: string }
-  | { type: "activity"; items: ActivityRunItem[] };
-
-/**
- * Group `message.contentOrder` into merged activity runs for the
- * activity-summary (flag-ON) render path. A contiguous run of `thinking` +
- * `toolCall`/`tool` entries collapses into a single `activity` group whose
- * `items` preserve interleaved order; consecutive `thinking` entries merge
- * into one thinking item's `ids`. A `text` or `surface` entry closes the open
- * activity group and passes through as its own group. Pure — no React/DOM.
- */
-export function groupMessageActivityRuns(
-  message: DisplayMessage,
-): MergedContentGroup[] {
-  const groups: MergedContentGroup[] = [];
-  let current: { type: "activity"; items: ActivityRunItem[] } | null = null;
-
-  for (const entry of message.contentOrder ?? []) {
-    if (entry.type === "thinking") {
-      if (!current) {
-        current = { type: "activity", items: [] };
-        groups.push(current);
-      }
-      const lastItem = current.items[current.items.length - 1];
-      if (lastItem?.kind === "thinking") {
-        lastItem.ids.push(entry.id);
-      } else {
-        current.items.push({ kind: "thinking", ids: [entry.id] });
-      }
-    } else if (entry.type === "toolCall" || entry.type === "tool") {
-      if (!current) {
-        current = { type: "activity", items: [] };
-        groups.push(current);
-      }
-      current.items.push({ kind: "tool", id: entry.id });
-    } else if (entry.type === "text") {
-      current = null;
-      groups.push({ type: "text", id: entry.id });
-    } else if (entry.type === "surface") {
-      current = null;
-      groups.push({ type: "surface", id: entry.id });
-    }
-  }
-
-  return groups;
-}
+import type { Surface } from "@/domains/chat/types/types";
 
 /**
  * One item inside a blocks-driven `activity` run, reusing the server block
@@ -110,8 +37,7 @@ export type ContentBlockActivityItem =
  * `surface` block); `text` and `surface` reuse the server block as-is. The
  * `activity` wrapper is the only shape with no wire analog — collapsing a run
  * of blocks into one card is a render concern. Pure — no React/DOM; the blocks
- * embed their referents, so unlike `groupMessageActivityRuns` this needs no
- * positional resolvers.
+ * embed their referents, so there are no positional resolvers.
  */
 export type ContentBlockGroup =
   | ConversationTextBlock
@@ -133,18 +59,15 @@ function hasToolCallId(
 
 /**
  * Group a message's unified `contentBlocks` into merged activity runs for the
- * blocks-driven (flag-ON) render path — the block-native counterpart to
- * `groupMessageActivityRuns`. A contiguous run of `thinking` + `tool_use`
+ * render path. A contiguous run of `thinking` + `tool_use`
  * blocks collapses into one `activity` group whose `items` preserve interleaved
  * order; consecutive `thinking` blocks merge into one item (text joined with
  * newlines, timing widened to the earliest start / latest completion), matching
- * macOS and the legacy walk. A `text` or `surface` block closes the open
+ * macOS. A `text` or `surface` block closes the open
  * activity group and passes through unchanged as its own group; the render
- * body reads the client-narrowed `Surface` (placement, orphaned binding) from
- * `message.surfaces` by the block's `surface.surfaceId`, exactly as the legacy
- * walk does. `attachment` blocks are skipped — attachments render in their own
- * region from `message.attachments`, mirroring the positional walk. Pure — no
- * React/DOM.
+ * body reads the surface straight off the block's `surface`, narrowed to the
+ * display `Surface` at render. `attachment` blocks are skipped — attachments
+ * render in their own region from `message.attachments`. Pure — no React/DOM.
  */
 export function groupContentBlocks(
   blocks: ConversationContentBlock[],
@@ -209,100 +132,6 @@ export function groupContentBlocks(
   }
 
   return groups;
-}
-
-/**
- * Resolve a tool call from a contentOrder id — find by `id`, else parse-int the
- * id into a positional index of `message.toolCalls`.
- */
-export function resolveToolCall(
-  message: DisplayMessage,
-  id: string,
-): ChatMessageToolCall | undefined {
-  const tc = message.toolCalls?.find((t) => t.id === id);
-  if (tc) {
-    return tc;
-  }
-  const idx = parseInt(id, 10);
-  if (!isNaN(idx) && message.toolCalls && idx < message.toolCalls.length) {
-    return message.toolCalls[idx];
-  }
-  return undefined;
-}
-
-/**
- * Join the reasoning segments referenced by a run of `thinking` contentOrder
- * ids into a single markdown string (mirrors macOS, which joins adjacent
- * reasoning indices with newlines).
- *
- * Resolves each `thinking:i` contentOrder id to its reasoning text, preferring
- * the unified `contentBlocks` projection and falling back to the positional
- * `thinkingSegments` per index. Thinking blocks are built in lockstep with
- * `thinkingSegments`, so the i-th thinking block carries the same text as
- * `thinkingSegments[i]`. The per-index fallback covers rows that have no
- * `contentBlocks` projection yet — older daemons that never emit blocks and
- * in-flight streaming rows whose blocks have not been built.
- */
-export function resolveThinkingContent(
-  message: DisplayMessage,
-  ids: string[],
-): string {
-  const thinkingBlocks = message.contentBlocks?.filter(
-    (b): b is Extract<ConversationContentBlock, { type: "thinking" }> =>
-      b.type === "thinking",
-  );
-  return ids
-    .map((id) => {
-      const idx = parseInt(id, 10);
-      if (isNaN(idx)) {
-        return undefined;
-      }
-      return thinkingBlocks?.[idx]?.thinking ?? message.thinkingSegments?.[idx];
-    })
-    .filter((s): s is string => Boolean(s))
-    .join("\n");
-}
-
-/** Earliest start and latest completion (epoch ms) across a run of thinking blocks. */
-export interface ThinkingTiming {
-  startedAt?: number;
-  completedAt?: number;
-}
-
-/**
- * Resolve the timing of a run of `thinking` contentOrder ids: the earliest
- * `startedAt` and latest `completedAt` across the referenced thinking blocks.
- * Rows without `contentBlocks` resolve to empty timing, and the UI then hides
- * the duration exactly as a tool call with no `startedAt` does.
- */
-export function resolveThinkingTiming(
-  message: DisplayMessage,
-  ids: string[],
-): ThinkingTiming {
-  const thinkingBlocks = message.contentBlocks?.filter(
-    (b): b is Extract<ConversationContentBlock, { type: "thinking" }> =>
-      b.type === "thinking",
-  );
-  if (!thinkingBlocks) return {};
-  let startedAt: number | undefined;
-  let completedAt: number | undefined;
-  for (const id of ids) {
-    const idx = parseInt(id, 10);
-    if (isNaN(idx)) continue;
-    const block = thinkingBlocks[idx];
-    if (!block) continue;
-    if (block.startedAt != null) {
-      startedAt =
-        startedAt == null ? block.startedAt : Math.min(startedAt, block.startedAt);
-    }
-    if (block.completedAt != null) {
-      completedAt =
-        completedAt == null
-          ? block.completedAt
-          : Math.max(completedAt, block.completedAt);
-    }
-  }
-  return { startedAt, completedAt };
 }
 
 /**

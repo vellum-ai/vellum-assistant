@@ -22,7 +22,10 @@ let latestVoiceInputProps: VoiceInputButtonProps | null = null;
 let nextTextInsertionStatus: TextInsertionStatus = "unavailable";
 const insertedTexts: string[] = [];
 let nextDictationResult: { mode: "dictation"; text: string } | null = null;
-const toastErrorMock = mock((_message: string) => undefined);
+type ToastErrorOptions = { id?: string };
+const toastErrorMock = mock(
+  (_message: string, _options?: ToastErrorOptions) => undefined,
+);
 
 mock.module("@/domains/chat/components/voice-input-button", () => ({
   VoiceInputButton: forwardRef<unknown, VoiceInputButtonProps>((props, _ref) => {
@@ -71,6 +74,7 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 }));
 
 const { GlobalPushToTalkBridge } = await import("./global-push-to-talk-bridge");
+const { formatVoiceError } = await import("@/domains/chat/utils/chat");
 const { useComposerStore } = await import("@/domains/chat/composer-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
 const { useViewerStore } = await import("@/stores/viewer-store");
@@ -122,7 +126,29 @@ describe("GlobalPushToTalkBridge", () => {
 
     expect(insertedTexts).toEqual(["fallback text"]);
     expect(useComposerStore.getState().input).toBe("fallback text");
-    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      formatVoiceError("dictation-paste-blocked"),
+      { id: "voice-error:dictation-paste-blocked" },
+    );
   });
 
+  test("uses stable toast IDs for repeated voice errors", () => {
+    const voiceInput = renderBridge();
+
+    act(() => {
+      voiceInput.onError("stt-not-configured");
+      voiceInput.onError("stt-not-configured");
+    });
+
+    expect(toastErrorMock.mock.calls).toEqual([
+      [
+        formatVoiceError("stt-not-configured"),
+        { id: "voice-error:stt-not-configured" },
+      ],
+      [
+        formatVoiceError("stt-not-configured"),
+        { id: "voice-error:stt-not-configured" },
+      ],
+    ]);
+  });
 });

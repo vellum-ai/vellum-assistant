@@ -1,5 +1,5 @@
 import { CloudOff, LoaderCircle, Moon, WifiOff, Wrench } from "lucide-react";
-import { type ReactNode } from "react";
+import { type ReactNode, useCallback, useState } from "react";
 import { Button } from "@vellumai/design-library/components/button";
 import {
   Notice,
@@ -16,9 +16,12 @@ import {
   type AssistantOperationalStatus,
   useAssistantOperationalStatus,
 } from "@/assistant/operational-status";
+import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
 import { useConnectivityState } from "@/hooks/use-connectivity-state";
 import { useNetworkStatus } from "@/hooks/use-network-status";
+import { captureError } from "@/lib/sentry/capture-error";
 import { retryConnectivity } from "@/runtime/connectivity";
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
@@ -28,6 +31,7 @@ import { cn } from "@/utils/misc";
 interface BannerConfig {
   title: ReactNode;
   tone: NoticeTone;
+  children?: ReactNode;
   icon?: ReactNode;
   actions?: ReactNode;
 }
@@ -50,6 +54,14 @@ const OPERATIONAL_STATUS_TITLES: Record<AssistantOperationalState, string> = {
   retiring: "Assistant is retiring",
 };
 
+function maintenanceModeBannerConfig(): BannerConfig {
+  return {
+    tone: "info",
+    title: OPERATIONAL_STATUS_TITLES.maintenance_mode,
+    icon: <Wrench className="h-4 w-4" aria-hidden="true" />,
+  };
+}
+
 function operationalStatusBannerConfig(
   status: AssistantOperationalStatus | null | undefined,
 ): BannerConfig | null {
@@ -70,11 +82,7 @@ function operationalStatusBannerConfig(
         icon: <Moon className="h-4 w-4" aria-hidden="true" />,
       };
     case "maintenance_mode":
-      return {
-        tone: "info",
-        title: OPERATIONAL_STATUS_TITLES[status.state],
-        icon: <Wrench className="h-4 w-4" aria-hidden="true" />,
-      };
+      return maintenanceModeBannerConfig();
     default:
       return {
         tone: "warning",
@@ -119,7 +127,9 @@ function BannerNotice({
         title={banner.title}
         icon={banner.icon}
         actions={banner.actions}
-      />
+      >
+        {banner.children}
+      </Notice>
     </div>
   );
 }
@@ -130,6 +140,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
   const connectivityState = useConnectivityState();
   const nativeConnected = useNetworkStatus();
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const assistantState = useAssistantLifecycleStore.use.assistantState();
   const operationalStatusAssistantId =
     useAssistantLifecycleStore.use.operationalStatusAssistantId();
   const assistantId = operationalStatusAssistantId ?? activeAssistantId;
@@ -138,6 +149,46 @@ function useAssistantBannerConfig(): BannerConfig | null {
   // platform's operational status never polls and the lifecycle
   // service's healthz heartbeat is the only signal.
   const localHealth = useLocalAssistantHealth();
+  const {
+    data: operationalStatus,
+    isError: operationalStatusIsError,
+    refetch: refetchOperationalStatus,
+  } = statusQuery;
+  const [isExitingMaintenanceMode, setIsExitingMaintenanceMode] =
+    useState(false);
+  const [maintenanceModeExitError, setMaintenanceModeExitError] = useState<
+    string | null
+  >(null);
+
+  const handleExitMaintenanceMode = useCallback(async () => {
+    if (!assistantId || isExitingMaintenanceMode) return;
+
+    setIsExitingMaintenanceMode(true);
+    setMaintenanceModeExitError(null);
+
+    try {
+      const { response } = await assistantsMaintenanceModeExitCreate({
+        path: { assistant_id: assistantId },
+        throwOnError: false,
+      });
+
+      if (!response?.ok) {
+        throw new Error("Exit maintenance mode returned non-ok response");
+      }
+
+      await Promise.allSettled([
+        refetchOperationalStatus(),
+        lifecycleService.checkAssistant(),
+      ]);
+    } catch (err) {
+      captureError(err, { context: "exit_maintenance_mode_status_banner" });
+      setMaintenanceModeExitError(
+        "Failed to exit maintenance mode. Please try again.",
+      );
+    } finally {
+      setIsExitingMaintenanceMode(false);
+    }
+  }, [assistantId, isExitingMaintenanceMode, refetchOperationalStatus]);
 
   if (electron && connectivityState === "device-offline") {
     return {
@@ -173,14 +224,52 @@ function useAssistantBannerConfig(): BannerConfig | null {
     return localHealthBanner;
   }
 
-  if (statusQuery.isError) {
+  const lifecycleMaintenanceModeActive =
+    assistantState.kind === "active" &&
+    assistantState.maintenanceMode?.enabled === true;
+  const shouldUseLifecycleMaintenanceMode =
+    lifecycleMaintenanceModeActive &&
+    (!operationalStatus || isHealthyOperationalStatus(operationalStatus));
+
+  if (operationalStatusIsError && !shouldUseLifecycleMaintenanceMode) {
     return {
       tone: "error",
       title: "Assistant status is unavailable",
     };
   }
 
-  return operationalStatusBannerConfig(statusQuery.data);
+  const operationalBanner = shouldUseLifecycleMaintenanceMode
+    ? maintenanceModeBannerConfig()
+    : operationalStatusBannerConfig(operationalStatus);
+  const isMaintenanceModeBanner =
+    operationalStatus?.state === "maintenance_mode" ||
+    shouldUseLifecycleMaintenanceMode;
+  if (!isMaintenanceModeBanner || !operationalBanner) {
+    return operationalBanner;
+  }
+
+  return {
+    ...operationalBanner,
+    tone: maintenanceModeExitError ? "error" : operationalBanner.tone,
+    children: maintenanceModeExitError,
+    actions: assistantId ? (
+      <Button
+        variant="outlined"
+        size="compact"
+        leftIcon={
+          isExitingMaintenanceMode ? (
+            <LoaderCircle className="animate-spin" aria-hidden="true" />
+          ) : undefined
+        }
+        disabled={isExitingMaintenanceMode}
+        onClick={() => {
+          void handleExitMaintenanceMode();
+        }}
+      >
+        Resume Assistant
+      </Button>
+    ) : undefined,
+  };
 }
 
 export function StatusBanner({ className }: { className?: string }) {

@@ -3,7 +3,7 @@ import { ArrowUp, Pencil, X } from "lucide-react";
 import { useCallback, useMemo, type ReactNode } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
+import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import { Button } from "@vellumai/design-library";
 
 // ---------------------------------------------------------------------------
@@ -43,8 +43,8 @@ function QueuedMessageRow({
   onEdit,
 }: QueuedMessageRowProps) {
   const preview = useMemo(
-    () => segmentsToPlainText(message.textSegments),
-    [message.textSegments],
+    () => messagePlainText(message),
+    [message],
   );
   return (
     <div className="flex items-center gap-1.5 rounded-md py-0.5 md:gap-2 md:px-2 md:py-1.5">

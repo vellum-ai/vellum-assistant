@@ -19,14 +19,24 @@ export interface WebsiteCarouselItem {
 
 export interface WebsiteCarouselProps {
   items: WebsiteCarouselItem[];
-  /** Time between transitions in ms. Defaults to 2500ms. */
-  intervalMs?: number;
+  /**
+   * Minimum time each site is shown before advancing toward the latest, in ms.
+   * Defaults to 500.
+   */
+  minDwellMs?: number;
 }
 
 /**
- * Top-down rotating ticker that cycles through `items`, sliding each new entry
- * in from above and the previous one out the bottom. Used by the collapsed
- * "Searching the web" header to show the websites currently being searched.
+ * Top-down ticker that walks toward the latest searched site, sliding each new
+ * entry in from above and the previous one out the bottom. Used by the
+ * collapsed "Searching the web" header to show the websites being searched.
+ *
+ * The parent appends a new item as each site is searched, so the most recent
+ * result is always the last entry. Rather than round-robining stale results,
+ * the carousel advances `currentIndex` forward one step at a time toward
+ * `items.length - 1` and then holds there. Every step is gated by a
+ * `setTimeout(…, minDwellMs)` so each intermediate site is shown for at least
+ * `minDwellMs` and rapid bursts of new results don't flash by.
  *
  * Mirrors the motion vocabulary used by `surfaces/card-surface.tsx`
  * (`InProgressDetail`) — `AnimatePresence` with `mode="popLayout"`, a per-entry
@@ -37,26 +47,32 @@ export interface WebsiteCarouselProps {
  *
  * Edge cases:
  * - 0 items → renders nothing.
- * - 1 item → renders that single chip statically, never schedules an interval.
+ * - 1 item → renders that single chip statically, never schedules a timer.
  */
 export function WebsiteCarousel({
   items,
-  intervalMs = 2500,
+  minDwellMs = 500,
 }: WebsiteCarouselProps) {
   const reduce = useReducedMotion();
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // Schedule the interval only when there's something to rotate through. A
-  // single-item carousel is intentionally static — no timer churn. The
-  // modulo guards against `items.length` shrinking out from under us between
-  // ticks (e.g. when the parent updates the list mid-rotation).
+  // The display target is always the latest item. Clamp to 0 so an empty list
+  // yields a non-negative target.
+  const target = Math.max(items.length - 1, 0);
+
+  // Walk `currentIndex` toward the latest item one step at a time, each step
+  // gated by `minDwellMs` so every intermediate site stays visible long enough.
+  // When the parent appends a newer result `target` grows, this effect re-runs,
+  // and the walk resumes — always converging on (and then holding) the most
+  // recently searched site. Once caught up we hold and schedule nothing.
   useEffect(() => {
-    if (items.length <= 1) return;
-    const id = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % items.length);
-    }, intervalMs);
-    return () => clearInterval(id);
-  }, [items.length, intervalMs]);
+    if (currentIndex >= target) return;
+    const id = setTimeout(
+      () => setCurrentIndex((i) => Math.min(i + 1, target)),
+      minDwellMs,
+    );
+    return () => clearTimeout(id);
+  }, [currentIndex, target, minDwellMs]);
 
   if (items.length === 0) return null;
 
@@ -67,7 +83,7 @@ export function WebsiteCarousel({
   const animate = reduce ? { opacity: 1 } : { y: 0, opacity: 1 };
   const exit = reduce ? { opacity: 0 } : { y: 28, opacity: 0 };
 
-  // Single-item branch: no AnimatePresence, no interval — render the chip
+  // Single-item branch: no AnimatePresence, no timer — render the chip
   // directly so the wrapper still has the same height for layout stability.
   if (items.length === 1) {
     const item = items[0]!;
@@ -84,7 +100,8 @@ export function WebsiteCarousel({
     );
   }
 
-  const safeIndex = currentIndex % items.length;
+  // Clamp to the latest item so a shrinking list can't index out of bounds.
+  const safeIndex = Math.min(currentIndex, target);
   const current = items[safeIndex]!;
   // Compose a stable per-cycle key from domain/title plus the index so back-to-
   // back duplicates still trigger the slide animation.

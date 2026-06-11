@@ -5,10 +5,11 @@
  *  - Non-web tool groups (bash, read, MCP, etc.) render via the shared
  *    `ToolProgressCardShell` with `useToolCallCardData`-derived header text
  *    and step pill.
- *  - Web-only groups continue to render through `WebSearchProgressCard` for
- *    regression parity.
- *  - Mixed groups (web + non-web) render through the unified shell with one
- *    step per tool call in the expanded body.
+ *  - A LONE purely-web group (one web tool call) renders the inline,
+ *    expand-in-place `SingleActivity variant="web"` link.
+ *  - A GROUPED (2+) purely-web group and mixed groups (web + non-web) render
+ *    through the unified shell with one step per tool call in the expanded
+ *    body.
  *  - A pending confirmation in the group short-circuits to the inline
  *    approve/deny UI rather than the progress-card chrome.
  *  - A `subagent_spawn`-only group renders `null` (PR 8 wires the inline
@@ -102,11 +103,10 @@ describe("MultiActivityGroup — non-web tool group", () => {
     const { getByRole, getByText, getByTestId, queryByTestId, queryByText } = renderCard(toolCalls);
     // The unified card mounts the shared shell wrapper.
     expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
-    // The redundant "Working (bash)" label is suppressed in the collapsed
-    // header; the `command` input is promoted to the header's primary slot.
-    // The expanded body is hidden by default, so only the header content is
-    // present on mount.
-    expect(queryByText("Working (bash)")).toBeNull();
+    // The collapsed header carousels the live step: the tool's "Working"
+    // title paired with the `command` input. The expanded body is hidden by
+    // default, so only the header content is present on mount.
+    expect(getByText("Working")).toBeTruthy();
     expect(getByText("git status")).toBeTruthy();
     expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
     expect(queryByTestId("tool-step-pill")).toBeNull();
@@ -115,7 +115,7 @@ describe("MultiActivityGroup — non-web tool group", () => {
     expect(queryByText("1 step")).toBeNull();
   });
 
-  test("shows a stable 'Working' summary header while streaming, not the step command", () => {
+  test("carousels the live step in the collapsed header while streaming", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
@@ -124,13 +124,12 @@ describe("MultiActivityGroup — non-web tool group", () => {
         input: { command: "git status" },
       }),
     ];
-    const { getByText, queryByText, queryByTestId } = renderCard(toolCalls);
-    // While the run is in flight the header is a single status summary — it
-    // does NOT carousel the live step (no "git status", no "Working (bash)").
-    // The latest step's loading indicator lives in the expanded timeline.
+    const { getByText, queryByTestId } = renderCard(toolCalls);
+    // While the run is in flight the collapsed header carousels the live
+    // step: the "Working" title paired with the running command. The
+    // three-dot indicator (verified elsewhere) pairs with this live text.
     expect(getByText("Working")).toBeTruthy();
-    expect(queryByText("git status")).toBeNull();
-    expect(queryByText("Working (bash)")).toBeNull();
+    expect(getByText("git status")).toBeTruthy();
     // Collapsed by default: no step rows on mount.
     expect(queryByTestId("tool-step-pill")).toBeNull();
   });
@@ -268,8 +267,8 @@ describe("MultiActivityGroup — tool step pill", () => {
   });
 });
 
-describe("MultiActivityGroup — web tool group regression", () => {
-  test("web_search-only groups still render through WebSearchProgressCard", () => {
+describe("MultiActivityGroup — lone web tool group", () => {
+  test("a LONE web_search renders the inline web link, not a boxed/unified card", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
@@ -279,13 +278,16 @@ describe("MultiActivityGroup — web tool group regression", () => {
       }),
     ];
     const { getByTestId, queryByTestId } = renderCard(toolCalls);
-    expect(getByTestId("web-search-progress-card")).toBeTruthy();
-    // Unified shell is NOT used for purely-web groups — they continue to
-    // flow through the dedicated web-search card.
+    // A lone purely-web group renders the inline, expand-in-place link.
+    expect(getByTestId("inline-web-link")).toBeTruthy();
+    // It is NOT the boxed web-search card nor the unified shell.
+    expect(queryByTestId("web-search-progress-card")).toBeNull();
     expect(queryByTestId("tool-progress-card-shell")).toBeNull();
   });
+});
 
-  test("web_search-only groups honor autoExpand through the shared shell", () => {
+describe("MultiActivityGroup — grouped web tool group", () => {
+  test("a GROUPED (2+) purely-web group renders the unified shell", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
@@ -293,22 +295,18 @@ describe("MultiActivityGroup — web tool group regression", () => {
         status: "running",
         input: { query: "tigers" },
       }),
+      makeToolCall({
+        id: "tc-2",
+        name: "web_search",
+        status: "running",
+        input: { query: "lions" },
+      }),
     ];
-    const { getByRole, rerender } = render(
-      <MultiActivityGroup
-        toolCalls={toolCalls}
-        autoExpand
-      />,
-    );
-    expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
-
-    rerender(
-      <MultiActivityGroup
-        toolCalls={toolCalls}
-        autoExpand={false}
-      />,
-    );
-    expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
+    const { getByTestId, queryByTestId } = renderCard(toolCalls);
+    // Grouped purely-web flows through the unified bare activity card.
+    expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
+    // The inline lone-web link is only for the single-call case.
+    expect(queryByTestId("inline-web-link")).toBeNull();
   });
 });
 
@@ -374,7 +372,7 @@ describe("MultiActivityGroup — subagent_spawn filtering", () => {
     ];
     const { container, queryByTestId } = renderCard(toolCalls);
     expect(queryByTestId("tool-progress-card-shell")).toBeNull();
-    expect(queryByTestId("web-search-progress-card")).toBeNull();
+    expect(queryByTestId("inline-web-link")).toBeNull();
     // No DOM produced at all.
     expect(container.firstChild).toBeNull();
   });
@@ -739,25 +737,40 @@ describe("MultiActivityGroup — expansion derived from state", () => {
   });
 });
 
-describe("MultiActivityGroup — web group error chrome", () => {
-  test("a purely-web group with an errored tool call renders the shell's error icon", () => {
-    // Previously the `WebSearchView` recomputed state from raw status only,
-    // so an errored web_search rendered the green check (loading → complete)
-    // while non-web groups got the red AlertCircle. Now the unified state
-    // bubbles up so the icon matches.
+describe("MultiActivityGroup — lone web group error chrome", () => {
+  test("a LONE errored web_search renders the inline link in its error state", () => {
+    // An errored web_search now renders the inline lone-web link with the
+    // negative tone (the unified `error`/`denied` state collapses into the
+    // link's `error` state).
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
         name: "web_search",
         status: "error",
         input: { query: "tigers" },
+        activityMetadata: {
+          webSearch: {
+            query: "tigers",
+            provider: "anthropic-native",
+            resultCount: 0,
+            durationMs: 200,
+            results: [],
+            errorMessage: "Provider returned max_uses_exceeded.",
+          },
+        },
       }),
     ];
-    const { getByTestId } = renderCard(toolCalls);
-    const indicator = getByTestId("web-search-status-indicator");
-    // lucide `AlertCircle` renders as an <svg>.
-    expect(indicator.tagName.toLowerCase()).toBe("svg");
-    expect(indicator.getAttribute("data-state")).toBe("error");
+    // Expand so the error row is in the DOM.
+    useChatSessionStore.setState({ expandedCardIds: new Map([["tc-1", true]]) });
+    const { getByTestId, getAllByText } = renderCard(toolCalls);
+    const link = getByTestId("inline-web-link");
+    expect(link.className).toContain("text-[var(--system-negative-strong)]");
+    // The error row renders the provider's failure message (the same copy also
+    // backs the header info slot, so it appears more than once).
+    expect(getByTestId("web-search-error-chip")).toBeTruthy();
+    expect(
+      getAllByText("Provider returned max_uses_exceeded.").length,
+    ).toBeGreaterThan(0);
   });
 });
 
@@ -765,8 +778,8 @@ describe("MultiActivityGroup — mixed group web_search_error rendering", () => 
   test("renders an ErrorChip (not the default pill) for a web_search_error step in a mixed group", () => {
     // The unified card's `ExpandedStep` previously fell through to
     // `DefaultStepPill` for `web_search_error`, dropping the dedicated
-    // error chip the web-search card shows. A mixed group exercises that
-    // path since purely-web groups go through `WebSearchProgressCard`.
+    // error chip. A mixed group exercises the unified-shell path (a lone
+    // purely-web group renders the inline link instead).
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
@@ -866,9 +879,9 @@ describe("MultiActivityGroup — header reflects the latest step", () => {
       { kind: "toolCall", toolCall: toolCalls[0]! },
     ];
     const { getByText, queryByText } = renderCard(toolCalls, { items });
-    // Bash label suppressed in the collapsed header; command promoted to the
-    // primary slot.
-    expect(queryByText("Working (bash)")).toBeNull();
+    // The collapsed header carousels the live step: the "Working" title
+    // paired with the command.
+    expect(getByText("Working")).toBeTruthy();
     expect(getByText("echo hi")).toBeTruthy();
     // The leading thinking text is NOT promoted into the header (it's a body
     // step only).

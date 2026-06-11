@@ -13,6 +13,7 @@ import {
 } from "../channels/types.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
+import type { LLMCallSite } from "../config/schemas/llm.js";
 import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
@@ -20,7 +21,7 @@ import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
-import { getMcpToolDefinitions, getToolOwner } from "../tools/registry.js";
+import { getMcpToolDefinitions } from "../tools/registry.js";
 import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
@@ -34,6 +35,10 @@ import {
   type ToolExecutionResult,
   type ToolLifecycleEventHandler,
 } from "../tools/types.js";
+import {
+  resolveUsageAttribution,
+  type UsageAttributionSnapshot,
+} from "../usage/attribution.js";
 import { getLogger } from "../util/logger.js";
 import {
   projectSkillTools,
@@ -58,6 +63,45 @@ import {
 } from "./switch-inference-profile-tool.js";
 import type { ToolSetupContext } from "./tool-setup-types.js";
 export type { ToolSetupContext } from "./tool-setup-types.js";
+
+// ── resolveConversationAttribution ───────────────────────────────────
+
+/**
+ * Resolve the model attribution snapshot for the conversation at invocation
+ * time (provider/model/profile that issued the current turn). Mirrors how
+ * the agent-loop usage path builds its `UsageAttributionInput` — the
+ * current turn's call site (`runAgentLoopImpl` sets `ctx.currentCallSite`
+ * from `options.callSite`, defaulting to `mainAgent`) plus the
+ * conversation's per-turn override profile — so `profileSource` resolves
+ * to `call_site`/`conversation`/`active`/`default` exactly as `llm_usage`
+ * records do for the same turn (non-main turns like voice `callAgent` or
+ * `filingAgent` attribute their own call-site config, not the main
+ * agent's). The conversation id is threaded as the mix selection seed so
+ * mix-profile arms match what the dispatch path actually ran.
+ *
+ * Returns `null` on any failure: attribution is telemetry-only and must
+ * never break tool execution (or skill loads, which reuse this helper).
+ */
+export function resolveConversationAttribution(
+  ctx: Pick<
+    ToolSetupContext,
+    "conversationId" | "currentCallSite" | "currentTurnOverrideProfile"
+  >,
+): UsageAttributionSnapshot | null {
+  try {
+    return resolveUsageAttribution({
+      callSite: ctx.currentCallSite ?? "mainAgent",
+      overrideProfile: ctx.currentTurnOverrideProfile ?? null,
+      selectionSeed: ctx.conversationId,
+    });
+  } catch (err) {
+    log.debug(
+      { err, conversationId: ctx.conversationId },
+      "Failed to resolve conversation attribution for telemetry (non-fatal)",
+    );
+    return null;
+  }
+}
 
 // ── createToolExecutor ───────────────────────────────────────────────
 
@@ -128,9 +172,9 @@ export function createToolExecutor(
       diskPressureCleanupModeActive: ctx.diskPressureCleanupModeActive,
       toolUseId,
       isPlatformHosted: getIsPlatform(),
-      cesClient: ctx.cesClient,
       transportInterface: ctx.transportInterface,
       overrideProfile: ctx.currentTurnOverrideProfile,
+      attribution: resolveConversationAttribution(ctx),
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => {
         // Tool context's sendToClient uses a loose { type: string; [key: string]: unknown }
@@ -236,14 +280,6 @@ export function createToolExecutor(
         };
       }
 
-      // Attribute the invocation to the skill that owns the dispatched tool
-      // so lifecycle events (and the tool_invocations audit row) carry the
-      // triggering skill id.
-      const owner = getToolOwner(toolName);
-      if (owner?.kind === "skill") {
-        toolContext.skillId = owner.id;
-      }
-
       const result = await executor.execute(toolName, toolInput, toolContext);
       if (toolContext.approvedViaPrompt) {
         ctx.approvedViaPromptThisTurn = true;
@@ -340,6 +376,17 @@ export interface SkillProjectionContext {
   readonly transportInterface?: InterfaceId;
   /** Per-turn override profile, read by the switch_inference_profile tool injection. */
   currentTurnOverrideProfile?: string;
+  /**
+   * Conversation id for `skill_loaded` telemetry. Absent (e.g. minimal test
+   * contexts) disables telemetry recording in the skill projection.
+   */
+  readonly conversationId?: string;
+  /**
+   * The LLM call site driving the current turn (see
+   * {@link ToolSetupContext.currentCallSite}) — read per turn so skill_loaded
+   * telemetry attributes the provider/model/profile the turn actually ran on.
+   */
+  currentCallSite?: LLMCallSite;
 }
 
 // ── Conditional tool sets ────────────────────────────────────────────
@@ -450,6 +497,13 @@ export function isToolActiveForContext(
     !isDiskPressureCleanupToolName(name)
   ) {
     return false;
+  }
+  if (name === "remember") {
+    try {
+      return getConfig().memory?.enabled !== false;
+    } catch {
+      return true;
+    }
   }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
     if (
@@ -606,6 +660,19 @@ export function createResolveToolsCallback(
       preactivatedSkillIds: effectivePreactivated,
       previouslyActiveSkillIds: ctx.skillProjectionState,
       cache: ctx.skillProjectionCache,
+      // skill_loaded telemetry context — resolved per turn so attribution
+      // reflects the call site/profile the current turn actually runs on.
+      telemetry:
+        ctx.conversationId !== undefined
+          ? {
+              conversationId: ctx.conversationId,
+              attribution: resolveConversationAttribution({
+                conversationId: ctx.conversationId,
+                currentCallSite: ctx.currentCallSite,
+                currentTurnOverrideProfile: ctx.currentTurnOverrideProfile,
+              }),
+            }
+          : undefined,
     });
     const turnAllowed = new Set(allBaseDefs.map((d) => d.name));
     for (const name of projection.allowedToolNames) {

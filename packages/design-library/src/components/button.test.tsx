@@ -117,6 +117,18 @@ describe("Button rendering", () => {
     expect(html).toContain("p-0");
   });
 
+  test("iconOnly sizes the svg with a fixed dimension, never size-full", () => {
+    // `size-full` would let the icon fill whatever element it lands in; if the
+    // `asChild`/Slot path collapses the icon span onto the button box the icon
+    // would balloon to the button size. A fixed `[&_svg]:size-*` prevents that.
+    const html = renderToStaticMarkup(
+      <Button size="compact" iconOnly={<svg />} aria-label="a" />,
+    );
+    // `renderToStaticMarkup` HTML-escapes `&` to `&amp;` in attribute values.
+    expect(html).toContain("[&amp;_svg]:size-3.5");
+    expect(html).not.toContain("[&amp;_svg]:size-full");
+  });
+
   test("tintColor sets the --vbtn-fg custom property inline", () => {
     const html = renderToStaticMarkup(
       <Button tintColor="rebeccapurple">Tinted</Button>,

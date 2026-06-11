@@ -6,6 +6,7 @@ metadata:
   emoji: "📅"
   vellum:
     display-name: "Schedule"
+    category: "productivity"
     activation-hints:
       - "User wants to set a reminder for a future time (e.g. 'remind me at 9am tomorrow', 'remind me to take meds at 8pm')"
       - "User wants to schedule a recurring task or automation (e.g. 'every weekday at 9am', 'every Monday at noon')"

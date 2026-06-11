@@ -6,6 +6,7 @@ metadata:
   emoji: "✍️"
   vellum:
     display-name: "Document Writer"
+    category: "content"
     activation-hints:
       - "User asks to write, draft, or compose an article, blog post, essay, report, story, or any long-form content — always create it in the document editor, not as a chat reply"
       - "User wants written content they will iterate on, review, or export — use the editor instead of inline markdown"

@@ -7,7 +7,12 @@ import {
   saveAssistantEntry,
 } from "../lib/assistant-config.js";
 import { dockerResourceNames, wakeContainers } from "../lib/docker.js";
-import { seedGuardianTokenFromSiblingEnv } from "../lib/guardian-token.js";
+import {
+  leaseGuardianToken,
+  loadGuardianToken,
+  resetGuardianBootstrap,
+  seedGuardianTokenFromSiblingEnv,
+} from "../lib/guardian-token.js";
 import { resolveProcessState, stopProcessByPidFile } from "../lib/process";
 import {
   generateLocalSigningKey,
@@ -37,11 +42,23 @@ export async function wake(): Promise<void> {
     console.log(
       "  --foreground   Run assistant in foreground with logs printed to terminal",
     );
+    console.log(
+      "  --repair-guardian  Re-provision the guardian token if missing (resets the\n" +
+        "                     gateway bootstrap and re-leases — REVOKES other device-bound\n" +
+        "                     tokens, so only use deliberately, never from auto-repair)",
+    );
     process.exit(0);
   }
 
   const watch = args.includes("--watch");
   const foreground = args.includes("--foreground");
+  // Re-leasing the guardian token calls guardian/init, which revokes every
+  // other device-bound token (other tabs, other local clients on this machine).
+  // Gate it behind an explicit flag so the automatic connect-repair path
+  // (`runWake` spawns `wake <id>` with no flags) can never revoke a live session
+  // — it only ever restarts + sibling-seeds. A genuine spent-bootstrap brick is
+  // recovered deliberately via `vellum wake <id> --repair-guardian`.
+  const repairGuardian = args.includes("--repair-guardian");
   const nameArg = args.find((a) => !a.startsWith("-"));
   const entry = resolveTargetAssistant(nameArg);
 
@@ -219,6 +236,37 @@ export async function wake(): Promise<void> {
   // and strictly additive.
   if (seedGuardianTokenFromSiblingEnv(entry.assistantId)) {
     console.log("   Seeded guardian token from sibling environment.");
+  }
+
+  // Last-resort recovery (explicit `--repair-guardian` only): if no guardian
+  // token exists for this env even after sibling seeding, re-provision one. The
+  // single-use bootstrap secret may already be spent — a prior connect can
+  // lease a token that's then lost, or the gateway marks the secret consumed
+  // before the client persists it — which otherwise bricks connect into a
+  // 401 → auth-rate-limit → 429 cascade with no path back short of retire+hatch.
+  // Reset the gateway's bootstrap lock+consumed state (loopback-only, authorized
+  // by the lockfile secret — mirrors the macOS client's forceReBootstrap), then
+  // re-lease. Gated behind the flag because the re-lease revokes other
+  // device-bound tokens; it must never run from the automatic repair path.
+  if (repairGuardian && !loadGuardianToken(entry.assistantId)) {
+    const loopbackUrl = `http://127.0.0.1:${resources.gatewayPort}`;
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await resetGuardianBootstrap(loopbackUrl, bootstrapSecret);
+        await leaseGuardianToken(loopbackUrl, entry.assistantId, bootstrapSecret);
+        console.log("   Re-provisioned guardian token.");
+        break;
+      } catch (err) {
+        if (attempt < maxAttempts) {
+          await new Promise((r) => setTimeout(r, 2000 * 2 ** (attempt - 1)));
+        } else {
+          console.warn(
+            `   Guardian token re-provision failed after ${maxAttempts} attempts: ${err}`,
+          );
+        }
+      }
+    }
   }
 
   // Auto-start ngrok if webhook integrations (e.g. Telegram) are configured.

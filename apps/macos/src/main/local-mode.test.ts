@@ -166,7 +166,7 @@ describe("vellum:localMode:hatch handler", () => {
       cliInstallerState.bundledBunPath,
       ["run", cliInstallerState.cliBinPath, "hatch", "openclaw"],
     ]);
-    expect(ensureCliInstalledMock).not.toHaveBeenCalled();
+    expect(ensureCliInstalledMock).toHaveBeenCalledTimes(1);
   });
 
   test("packaged: triggers install when CLI not found, then uses installed path", async () => {

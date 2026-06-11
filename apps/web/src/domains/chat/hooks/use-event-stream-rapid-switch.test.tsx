@@ -49,8 +49,6 @@ function renderEventStreamWithCapture(
         reachabilityProbe: () => {},
         reachabilityPhase: "ready",
         reachabilityReset: () => {},
-        dispatchReconnect: async () => undefined,
-        cancelScheduledRefetch: () => {},
       });
     },
     { initialProps: { key: initialKey } },

@@ -113,7 +113,9 @@ mock.module(
       }
       const { content, isStreaming = false } = props;
       // No-ops once settled with empty content (mirrors the real link).
-      if (!content && !isStreaming) return null;
+      if (!content && !isStreaming) {
+        return null;
+      }
       return (
         <div data-testid="thought-process-link">
           {isStreaming ? "Thinking" : "Thought process"}
@@ -123,13 +125,46 @@ mock.module(
   }),
 );
 
+import type { ConversationContentBlock } from "@vellumai/assistant-api";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
-import { TranscriptMessageContent } from "@/domains/chat/transcript/transcript-message-content";
 
-import { textBody } from "@/domains/chat/utils/message-test-helpers";
 const noop = () => {};
+
+// `TranscriptMessageBody` renders a row's body by walking its unified
+// `contentBlocks` projection — the sole source of truth. Each block embeds its
+// own referent (text, reasoning, tool call, surface ref), so these fixtures
+// carry only `contentBlocks` plus the referent arrays the blocks point into
+// (`toolCalls`/`surfaces`/`attachments`); the legacy positional arrays
+// (`contentOrder`/`textSegments`/`thinkingSegments`) play no part in rendering.
+
+/** A single text block. */
+function textBlock(text: string): ConversationContentBlock {
+  return { type: "text", text };
+}
+
+/** A reasoning block carrying its text and optional run timing. */
+function thinkingBlock(
+  thinking: string,
+  timing: { startedAt?: number; completedAt?: number } = {},
+): ConversationContentBlock {
+  return { type: "thinking", thinking, ...timing };
+}
+
+/** A tool-use block embedding its client tool call. */
+function toolUseBlock(toolCall: ChatMessageToolCall): ConversationContentBlock {
+  return { type: "tool_use", toolCall };
+}
+
+/**
+ * A surface block embedding its surface. The block stream drives ordering and
+ * presence, and the render reads the surface straight off the block.
+ */
+function surfaceBlock(surfaceId: string): ConversationContentBlock {
+  return { type: "surface", surface: { surfaceId } as never };
+}
 
 afterAll(() => {
   mock.restore();
@@ -158,43 +193,63 @@ function renderMessage(
 }
 
 describe("TranscriptMessageBody", () => {
-  test("enables hard line breaks for assistant messages (JARVIS-1007)", () => {
-    const html = renderMessage({
-      id: "m1",
-      role: "assistant",
-      ...textBody("line one\nline two"),
-      timestamp: 1_000,
-    });
+  test("renders assistant text straight from a text block with hard line breaks", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-text",
+          role: "assistant",
+          contentBlocks: [textBlock("line one\nline two")],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
 
-    expect(html).toContain('data-hard-line-breaks="true"');
+    const markdown = container.querySelector("[data-testid='markdown']");
+    expect(markdown).not.toBeNull();
+    expect(markdown!.textContent).toBe("line one\nline two");
+    // Hard line breaks stay enabled for assistant prose (JARVIS-1007).
+    expect(markdown!.getAttribute("data-hard-line-breaks")).toBe("true");
   });
 
-  test("enables hard line breaks for user messages too", () => {
-    const html = renderMessage({
-      id: "m1",
-      role: "user",
-      ...textBody("line one\nline two"),
-      timestamp: 1_000,
-    });
+  test("renders user text from a text block inside the user bubble with hard line breaks", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m-user-text",
+          role: "user",
+          contentBlocks: [textBlock("line one\nline two")],
+          timestamp: 1_000,
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
 
-    expect(html).toContain('data-hard-line-breaks="true"');
+    const markdown = container.querySelector("[data-testid='markdown']");
+    expect(markdown).not.toBeNull();
+    expect(markdown!.textContent).toBe("line one\nline two");
+    expect(markdown!.getAttribute("data-hard-line-breaks")).toBe("true");
+    // The text run is wrapped in the surface-lift user bubble.
+    expect(
+      container.querySelector(".bg-\\[var\\(--surface-lift\\)\\]"),
+    ).not.toBeNull();
   });
 
   test("uses the latest tool completion as the message activity timestamp", () => {
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-1",
+      name: "bash",
+      input: {},
+      startedAt: 1_500,
+      completedAt: 2_000,
+    };
     const html = renderMessage({
       id: "m1",
       role: "assistant",
-      ...textBody(""),
+      contentBlocks: [toolUseBlock(toolCall)],
+      toolCalls: [toolCall],
       timestamp: 1_000,
-      toolCalls: [
-        {
-          id: "tc-1",
-          name: "bash",
-          input: {},
-          startedAt: 1_500,
-          completedAt: 2_000,
-        },
-      ],
     });
 
     expect(html).toContain("title=");
@@ -202,19 +257,18 @@ describe("TranscriptMessageBody", () => {
   });
 
   test("falls back to the tool start time for active tool-only messages", () => {
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-1",
+      name: "bash",
+      input: {},
+      startedAt: 1_500,
+    };
     const html = renderMessage({
       id: "m1",
       role: "assistant",
-      ...textBody(""),
+      contentBlocks: [toolUseBlock(toolCall)],
+      toolCalls: [toolCall],
       timestamp: 1_000,
-      toolCalls: [
-        {
-          id: "tc-1",
-          name: "bash",
-          input: {},
-          startedAt: 1_500,
-        },
-      ],
     });
 
     expect(html).toContain("title=");
@@ -226,7 +280,7 @@ describe("TranscriptMessageBody", () => {
       {
         id: "m1",
         role: "assistant",
-        ...textBody("hello from Slack"),
+        contentBlocks: [textBlock("hello from Slack")],
         slackMessage: {
           channelId: "C123",
           channelTs: "1710000000.000300",
@@ -248,7 +302,7 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "slack-1",
           role: "assistant",
-          ...textBody("Slack context"),
+          contentBlocks: [textBlock("Slack context")],
           slackMessage: {
             channelId: "C123",
             channelTs: "1710000000.000300",
@@ -293,7 +347,7 @@ describe("TranscriptMessageBody", () => {
           message={{
             id: "slack-1",
             role: "assistant",
-            ...textBody("Slack context"),
+            contentBlocks: [textBlock("Slack context")],
             slackMessage: {
               channelId: "C123",
               channelTs: "1710000000.000300",
@@ -331,7 +385,7 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "local-1",
           role: "assistant",
-          ...textBody("hello"),
+          contentBlocks: [textBlock("hello")],
         }}
         onSurfaceAction={noop}
         onInspectMessage={(messageId) => inspectedIds.push(messageId)}
@@ -349,7 +403,7 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "message-1",
           role: "user",
-          ...textBody("hello"),
+          contentBlocks: [textBlock("hello")],
         }}
         onSurfaceAction={noop}
         onInspectMessage={(messageId) => inspectedIds.push(messageId)}
@@ -360,240 +414,297 @@ describe("TranscriptMessageBody", () => {
     expect(inspectedIds).toEqual(["message-1"]);
   });
 
-  test("renders the latest interleaved tool-call group collapsed while a tool is running", () => {
-    const { getByTestId } = render(
+  test("merges a contiguous thinking + tool_use run into one activity card", () => {
+    const { container } = render(
       <TranscriptMessageBody
         message={{
-          id: "m1",
+          id: "b-activity",
           role: "assistant",
-          thinkingSegments: ["reasoning"],
-          contentOrder: [
-            { type: "thinking", id: "0" },
-            { type: "tool", id: "tc-1" },
+          contentBlocks: [
+            thinkingBlock("why I called the tool"),
+            toolUseBlock({ id: "tc-a", name: "bash", input: {}, completedAt: 1 }),
+            textBlock("the answer"),
           ],
-          toolCalls: [
-            {
-              id: "tc-1",
-              name: "bash",
-              input: {},
-            },
-          ],
+          timestamp: 1_000,
         }}
         onSurfaceAction={noop}
       />,
     );
 
-    // Activity cards are collapsed by default — a running tool no longer forces
-    // the group open; the user opens it to see the live timeline.
+    const card = container.querySelector("[data-testid='tool-progress-card']");
+    expect(card).not.toBeNull();
+    expect(card!.getAttribute("data-item-kinds")).toBe("thinking,toolCall");
+    expect(card!.getAttribute("data-item-thinking")).toBe(
+      "why I called the tool",
+    );
+    expect(card!.getAttribute("data-item-tool-ids")).toBe("tc-a");
+
+    const markdowns = container.querySelectorAll("[data-testid='markdown']");
     expect(
-      getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
-    ).toBe("false");
+      Array.from(markdowns).some((m) => m.textContent === "the answer"),
+    ).toBe(true);
   });
 
-  test("does not auto-expand a latest interleaved tool-call group whose tools have all completed", () => {
-    const { getByTestId } = render(
-      <TranscriptMessageBody
-        message={{
-          id: "m1",
-          role: "assistant",
-          ...textBody(""),
-          thinkingSegments: ["reasoning"],
-          contentOrder: [
-            { type: "thinking", id: "0" },
-            { type: "tool", id: "tc-1" },
-          ],
-          toolCalls: [
-            {
-              id: "tc-1",
-              name: "bash",
-              input: {},
-              completedAt: 1,
-            },
-          ],
-        }}
-        onSurfaceAction={noop}
-      />,
+  test("merges contiguous thinking + tool runs into one card per run", () => {
+    // [thinking, tool, thinking, text, tool, thinking] → two activity runs
+    // (split by the text), each one merged card, plus the text between them.
+    const message: DisplayMessage = {
+      id: "m-merged",
+      role: "assistant",
+      contentBlocks: [
+        thinkingBlock("reason A"),
+        toolUseBlock({ id: "tc-a", name: "bash", input: {}, completedAt: 1 }),
+        thinkingBlock("reason B"),
+        textBlock("the middle answer"),
+        toolUseBlock({ id: "tc-b", name: "bash", input: {}, completedAt: 1 }),
+        thinkingBlock("reason C"),
+      ],
+      timestamp: 1_000,
+    };
+
+    const { container } = render(
+      <TranscriptMessageBody message={message} onSurfaceAction={noop} />,
     );
 
+    // Exactly two merged tool cards (one per run).
+    const cards = container.querySelectorAll(
+      "[data-testid='tool-progress-card']",
+    );
+    expect(cards.length).toBe(2);
+
+    // The first card's ordered body is thinking → tool → thinking, carrying
+    // both reasoning texts and the tool step.
+    const first = cards[0]!;
+    expect(first.getAttribute("data-item-kinds")).toBe(
+      "thinking,toolCall,thinking",
+    );
+    expect(first.getAttribute("data-item-thinking")).toBe("reason A|reason B");
+    expect(first.getAttribute("data-item-tool-ids")).toBe("tc-a");
+
+    // The second card carries the trailing tool + thinking run.
+    const second = cards[1]!;
+    expect(second.getAttribute("data-item-kinds")).toBe("toolCall,thinking");
+    expect(second.getAttribute("data-item-tool-ids")).toBe("tc-b");
+
+    // The text between the two runs renders.
+    const markdowns = container.querySelectorAll("[data-testid='markdown']");
     expect(
-      getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
-    ).toBe("false");
+      Array.from(markdowns).some((m) => m.textContent === "the middle answer"),
+    ).toBe(true);
   });
 
-  test("renders a streaming message's last tool-call group collapsed", () => {
-    const { getByTestId } = render(
+  test("renders a lone bash tool_use as the inline chip, not a card", () => {
+    const { container } = render(
       <TranscriptMessageBody
         message={{
-          id: "m1",
+          id: "b-lone-tool",
           role: "assistant",
-          thinkingSegments: ["reasoning"],
-          contentOrder: [
-            { type: "thinking", id: "0" },
-            { type: "tool", id: "tc-1" },
-          ],
-          toolCalls: [
-            {
-              id: "tc-1",
+          contentBlocks: [
+            toolUseBlock({
+              id: "tc-lone",
               name: "bash",
               input: {},
               completedAt: 1,
-            },
+            }),
           ],
+          timestamp: 1_000,
         }}
         onSurfaceAction={noop}
-        isStreaming
       />,
     );
 
-    // Streaming no longer forces the trailing group open — collapsed by default.
+    const chip = container.querySelector("[data-testid='inline-tool-link']");
+    expect(chip).not.toBeNull();
+    expect(chip!.getAttribute("data-tool-call-id")).toBe("tc-lone");
     expect(
-      getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
-    ).toBe("false");
+      container.querySelector("[data-testid='tool-progress-card']"),
+    ).toBeNull();
   });
 
-  test("renders every tool-call group of a streaming message collapsed", () => {
-    const { getAllByTestId } = render(
+  test("a tool + thinking run still renders the boxed activity card", () => {
+    // A run with more than one card item (tool + thinking) is NOT a lone tool,
+    // so it stays the boxed card rather than collapsing to the inline chip.
+    const { container } = render(
       <TranscriptMessageBody
         message={{
-          id: "m1",
+          id: "m-tool-thinking",
           role: "assistant",
-          contentOrder: [
-            { type: "thinking", id: "0" },
-            { type: "tool", id: "tc-1" },
-            { type: "text", id: "0" },
-            { type: "thinking", id: "1" },
-            { type: "tool", id: "tc-2" },
+          contentBlocks: [
+            toolUseBlock({ id: "tc-mix", name: "bash", input: {}, completedAt: 1 }),
+            thinkingBlock("reasoning about the tool"),
+            textBlock("done"),
           ],
-          textSegments: ["Next I will check logs."],
-          thinkingSegments: ["reason A", "reason B"],
-          toolCalls: [
-            {
-              id: "tc-1",
-              name: "bash",
-              input: {},
-              completedAt: 1,
-            },
-            {
-              id: "tc-2",
-              name: "bash",
-              input: {},
-              completedAt: 1,
-            },
-          ],
+          timestamp: 1_000,
         }}
         onSurfaceAction={noop}
-        isStreaming
       />,
     );
 
     expect(
-      getAllByTestId("tool-progress-card").map((el) =>
-        el.getAttribute("data-auto-expand"),
-      ),
-    ).toEqual(["false", "false"]);
+      container.querySelector("[data-testid='tool-progress-card']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-testid='inline-tool-link']"),
+    ).toBeNull();
   });
 
-  test("collapses a streaming message's tool-call group once answer text streams in below it", () => {
-    const { getByTestId } = render(
+  test("renders a pure-thinking run as an inline SingleActivity, not a card", () => {
+    const { container } = render(
       <TranscriptMessageBody
         message={{
-          id: "m1",
+          id: "b-thinking",
           role: "assistant",
-          contentOrder: [
-            { type: "thinking", id: "0" },
-            { type: "tool", id: "tc-1" },
-            { type: "text", id: "0" },
-          ],
-          textSegments: ["Here is what I found."],
-          thinkingSegments: ["reasoning"],
-          toolCalls: [
-            {
-              id: "tc-1",
-              name: "bash",
-              input: {},
-              completedAt: 1,
-            },
-          ],
+          contentBlocks: [thinkingBlock("just reasoning")],
+          timestamp: 1_000,
         }}
         onSurfaceAction={noop}
-        isStreaming
       />,
     );
 
     expect(
-      getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
-    ).toBe("false");
+      container.querySelector("[data-testid='thought-process-link']"),
+    ).not.toBeNull();
+    expect(container.textContent).toContain("Thought process");
+    expect(
+      container.querySelector("[data-testid='tool-progress-card']"),
+    ).toBeNull();
   });
 
-  test("collapses an interleaved tool-call group once response text follows", () => {
-    const { getByTestId } = render(
+  test("a pure-thinking run renders inline while a later lone tool renders as a chip", () => {
+    // The first run before the text is pure thinking; a lone bash tool follows
+    // the text and must render as the compact inline chip, not a boxed card.
+    const { container } = render(
       <TranscriptMessageBody
         message={{
-          id: "m1",
+          id: "m-pure-thinking",
           role: "assistant",
-          contentOrder: [
-            { type: "thinking", id: "0" },
-            { type: "tool", id: "tc-1" },
-            { type: "text", id: "0" },
+          contentBlocks: [
+            thinkingBlock("just reasoning"),
+            textBlock("answer"),
+            toolUseBlock({ id: "tc-a", name: "bash", input: {}, completedAt: 1 }),
           ],
-          textSegments: ["Done."],
-          thinkingSegments: ["reasoning"],
-          toolCalls: [
-            {
-              id: "tc-1",
-              name: "bash",
-              input: {},
-              completedAt: 1,
-            },
-          ],
+          timestamp: 1_000,
         }}
         onSurfaceAction={noop}
       />,
     );
 
     expect(
-      getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
-    ).toBe("false");
+      container.querySelector("[data-testid='thought-process-link']"),
+    ).not.toBeNull();
+    expect(container.textContent).toContain("Thought process");
+    expect(
+      container.querySelectorAll("[data-testid='tool-progress-card']").length,
+    ).toBe(0);
+    expect(
+      container.querySelectorAll("[data-testid='inline-tool-link']").length,
+    ).toBe(1);
   });
 
-  test("renders multiple interleaved tool-call groups collapsed", () => {
-    const { getAllByTestId } = render(
+  test("renders a 'Thought process' link for completed reasoning followed by text", () => {
+    // GIVEN a persisted assistant turn whose reasoning precedes its answer,
+    // with no interleaved tool call
+    // WHEN it is rendered as a settled row
+    const html = renderMessage({
+      id: "m-think",
+      role: "assistant",
+      contentBlocks: [thinkingBlock("chain of thought"), textBlock("the answer")],
+      timestamp: 1_000,
+    });
+
+    // THEN the reasoning renders as a completed SingleActivity, not a
+    // perpetually-streaming "Thinking" link
+    expect(html).toContain("Thought process");
+    expect(html).not.toContain("Thinking");
+  });
+
+  test("labels trailing reasoning as 'Thinking' while the row is live", () => {
+    // GIVEN an assistant row mid-reasoning: a thinking block is the last
+    // content with no text or tool output after it yet
+    // WHEN it is rendered as the in-flight turn (isStreaming)
+    const html = renderMessage(
+      {
+        id: "m-think-live",
+        role: "assistant",
+        contentBlocks: [thinkingBlock("reasoning in progress")],
+        timestamp: 1_000,
+      },
+      { isStreaming: true },
+    );
+
+    // THEN the link reads as still-streaming ("Thinking"), not the settled
+    // "Thought process".
+    expect(html).toContain("Thinking");
+    expect(html).not.toContain("Thought process");
+  });
+
+  test("labels trailing reasoning of a completed turn as 'Thought process'", () => {
+    // GIVEN a persisted/completed assistant turn that ends in reasoning with
+    // nothing after it
+    // WHEN it is rendered as a settled row (not streaming)
+    const html = renderMessage({
+      id: "m-think-done",
+      role: "assistant",
+      contentBlocks: [thinkingBlock("reasoning that finished")],
+      timestamp: 1_000,
+    });
+
+    // THEN the trailing link reads as finished, not perpetually streaming
+    expect(html).toContain("Thought process");
+    expect(html).not.toContain("Thinking");
+  });
+
+  test("renders a surface straight off its content block", () => {
+    const { container } = render(
       <TranscriptMessageBody
         message={{
-          id: "m1",
+          id: "b-surface",
           role: "assistant",
-          contentOrder: [
-            { type: "thinking", id: "0" },
-            { type: "tool", id: "tc-1" },
-            { type: "text", id: "0" },
-            { type: "thinking", id: "1" },
-            { type: "tool", id: "tc-2" },
-          ],
-          textSegments: ["Next I will check logs."],
-          thinkingSegments: ["reason A", "reason B"],
-          toolCalls: [
-            {
-              id: "tc-1",
-              name: "bash",
-              input: {},
-              completedAt: 1,
-            },
-            {
-              id: "tc-2",
-              name: "bash",
-              input: {},
-            },
-          ],
+          contentBlocks: [surfaceBlock("s-1")],
+          timestamp: 1_000,
         }}
         onSurfaceAction={noop}
       />,
     );
 
+    const surface = container.querySelector("[data-testid='surface']");
+    expect(surface).not.toBeNull();
+    expect(surface!.getAttribute("data-surface-id")).toBe("s-1");
+  });
+
+  test("a task-progress surface renders inline after the merged activity card", () => {
+    const message: DisplayMessage = {
+      id: "m-activity-inline",
+      role: "assistant",
+      contentBlocks: [
+        thinkingBlock("reasoning"),
+        toolUseBlock({ id: "tc-1", name: "bash", input: {}, completedAt: 1 }),
+        { type: "surface", surface: taskProgressSurface("tps-1") },
+        textBlock("all done"),
+      ],
+      timestamp: 1_000,
+    };
+
+    const { container } = render(
+      <TranscriptMessageBody message={message} onSurfaceAction={noop} />,
+    );
+
+    // No legacy summary card.
     expect(
-      getAllByTestId("tool-progress-card").map((el) =>
-        el.getAttribute("data-auto-expand"),
-      ),
-    ).toEqual(["false", "false"]);
+      container.querySelector("[data-testid='turn-activity-header']"),
+    ).toBeNull();
+    // The task-progress surface renders exactly once, in its inline position
+    // AFTER the merged activity card.
+    const surfaces = container.querySelectorAll(
+      "[data-testid='surface'][data-surface-id='tps-1']",
+    );
+    expect(surfaces.length).toBe(1);
+    const card = container.querySelector("[data-testid='tool-progress-card']");
+    expect(card).not.toBeNull();
+    expect(
+      card!.compareDocumentPosition(surfaces[0]!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   test("renders user text and an image attachment inside a single bubble", () => {
@@ -602,7 +713,7 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "u1",
           role: "user",
-          ...textBody("look at this"),
+          contentBlocks: [textBlock("look at this")],
           attachments: [
             {
               id: "att-1",
@@ -633,7 +744,7 @@ describe("TranscriptMessageBody", () => {
     expect(img).not.toBeNull();
     expect(img?.getAttribute("src")).toBe("blob:preview");
 
-    // The legacy separate strip is not rendered for user messages.
+    // The separate assistant strip is not rendered for user messages.
     expect(container.querySelector("[data-testid='attachments']")).toBeNull();
   });
 
@@ -643,7 +754,7 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "u2",
           role: "user",
-          ...textBody(""),
+          contentBlocks: [],
           attachments: [
             {
               id: "att-1",
@@ -674,7 +785,7 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "a1",
           role: "assistant",
-          ...textBody("here you go"),
+          contentBlocks: [textBlock("here you go")],
           attachments: [
             {
               id: "att-1",
@@ -689,7 +800,7 @@ describe("TranscriptMessageBody", () => {
       />,
     );
 
-    // Assistant path unchanged: separate strip still renders, no surface-lift bubble.
+    // Assistant path: separate strip renders, no surface-lift bubble.
     expect(container.querySelector("[data-testid='attachments']")).not.toBeNull();
     expect(
       container.querySelector("[class*='bg-[var(--surface-lift)]']"),
@@ -702,12 +813,7 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "u3",
           role: "user",
-          contentOrder: [
-            { type: "text", id: "0" },
-            { type: "surface", id: "s-1" },
-          ],
-          textSegments: ["do this"],
-          surfaces: [{ surfaceId: "s-1" } as never],
+          contentBlocks: [textBlock("do this"), surfaceBlock("s-1")],
         }}
         onSurfaceAction={noop}
       />,
@@ -727,18 +833,13 @@ describe("TranscriptMessageBody", () => {
     expect(bubble!.contains(surface)).toBe(false);
   });
 
-  test("preserves contentOrder for a [surface, text] user message (surface before text, outside the bubble)", () => {
+  test("preserves block order for a [surface, text] user message (surface before text, outside the bubble)", () => {
     const { container } = render(
       <TranscriptMessageBody
         message={{
           id: "u-order-1",
           role: "user",
-          contentOrder: [
-            { type: "surface", id: "s-1" },
-            { type: "text", id: "0" },
-          ],
-          textSegments: ["after surface"],
-          surfaces: [{ surfaceId: "s-1" } as never],
+          contentBlocks: [surfaceBlock("s-1"), textBlock("after surface")],
         }}
         onSurfaceAction={noop}
       />,
@@ -749,7 +850,7 @@ describe("TranscriptMessageBody", () => {
     expect(surface).not.toBeNull();
     expect(markdown?.textContent).toBe("after surface");
 
-    // DOM order matches contentOrder: surface appears before the text.
+    // DOM order matches block order: surface appears before the text.
     expect(
       surface!.compareDocumentPosition(markdown!) &
         Node.DOCUMENT_POSITION_FOLLOWING,
@@ -764,28 +865,16 @@ describe("TranscriptMessageBody", () => {
     expect(bubble!.contains(markdown)).toBe(true);
   });
 
-  test("preserves contentOrder for an interleaved [text, tool, text] user message (tool between text, outside bubbles)", () => {
+  test("preserves block order for an interleaved [text, tool, text] user message (tool between text, outside bubbles)", () => {
     const { container } = render(
       <TranscriptMessageBody
         message={{
           id: "u-order-2",
           role: "user",
-          contentOrder: [
-            { type: "text", id: "0" },
-            { type: "toolCall", id: "tc-1" },
-            { type: "text", id: "1" },
-          ],
-          textSegments: [
-            "before tool",
-            "after tool",
-          ],
-          toolCalls: [
-            {
-              id: "tc-1",
-              name: "bash",
-              input: {},
-              completedAt: 1,
-            },
+          contentBlocks: [
+            textBlock("before tool"),
+            toolUseBlock({ id: "tc-1", name: "bash", input: {}, completedAt: 1 }),
+            textBlock("after tool"),
           ],
         }}
         onSurfaceAction={noop}
@@ -793,8 +882,7 @@ describe("TranscriptMessageBody", () => {
     );
 
     const markdowns = container.querySelectorAll("[data-testid='markdown']");
-    // A lone non-web tool renders as the compact inline chip in the redesign,
-    // not a boxed card.
+    // A lone non-web tool renders as the compact inline chip, not a boxed card.
     const toolChip = container.querySelector(
       "[data-testid='inline-tool-link']",
     );
@@ -803,7 +891,7 @@ describe("TranscriptMessageBody", () => {
     expect(markdowns[1]!.textContent).toBe("after tool");
     expect(toolChip).not.toBeNull();
 
-    // DOM order matches contentOrder: text → tool → text.
+    // DOM order matches block order: text → tool → text.
     expect(
       markdowns[0]!.compareDocumentPosition(toolChip!) &
         Node.DOCUMENT_POSITION_FOLLOWING,
@@ -813,9 +901,8 @@ describe("TranscriptMessageBody", () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
 
-    // The tool chip is never wrapped inside a surface-lift text bubble — in the
-    // interleaved branch the text runs render inline and the chip sits between
-    // them rather than inside any bubble.
+    // The tool chip is never wrapped inside a surface-lift text bubble — the
+    // text runs render inline and the chip sits between them.
     const bubbles = container.querySelectorAll(
       "[class*='bg-[var(--surface-lift)]']",
     );
@@ -830,15 +917,8 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "u4",
           role: "user",
-          ...textBody(""),
-          contentOrder: [{ type: "toolCall", id: "tc-1" }],
-          toolCalls: [
-            {
-              id: "tc-1",
-              name: "bash",
-              input: {},
-              completedAt: 1,
-            },
+          contentBlocks: [
+            toolUseBlock({ id: "tc-1", name: "bash", input: {}, completedAt: 1 }),
           ],
         }}
         onSurfaceAction={noop}
@@ -855,532 +935,18 @@ describe("TranscriptMessageBody", () => {
       container.querySelector("[data-testid='inline-tool-link']"),
     ).not.toBeNull();
   });
-
-  test("renders legacy tool-only messages collapsed whether or not a tool is running", () => {
-    const { getByTestId, rerender } = render(
-      <TranscriptMessageBody
-        message={{
-          id: "m1",
-          role: "assistant",
-          ...textBody(""),
-          toolCalls: [
-            {
-              id: "tc-1",
-              name: "bash",
-              input: {},
-            },
-          ],
-        }}
-        onSurfaceAction={noop}
-      />,
-    );
-    // Collapsed by default even while the tool runs.
-    expect(
-      getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
-    ).toBe("false");
-
-    rerender(
-      <TranscriptMessageBody
-        message={{
-          id: "m1",
-          role: "assistant",
-          ...textBody("Done."),
-          toolCalls: [
-            {
-              id: "tc-1",
-              name: "bash",
-              input: {},
-              completedAt: 1,
-            },
-          ],
-        }}
-        onSurfaceAction={noop}
-      />,
-    );
-    expect(
-      getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
-    ).toBe("false");
-  });
-
-  test("renders a 'Thought process' link for completed reasoning followed by text", () => {
-    // GIVEN a persisted assistant message whose reasoning precedes its answer
-    // WHEN it is rendered (legacy path — no interleaved tool calls)
-    const html = renderMessage({
-      id: "m-think",
-      role: "assistant",
-      textSegments: ["the answer"],
-      thinkingSegments: ["chain of thought"],
-      contentOrder: [
-        { type: "thinking", id: "0" },
-        { type: "text", id: "0" },
-      ],
-      timestamp: 1_000,
-    });
-
-    // THEN the reasoning renders as a completed SingleActivity
-    expect(html).toContain("Thought process");
-    expect(html).not.toContain("Thinking");
-  });
-
-  test("labels trailing reasoning as 'Thinking' while the row is live", () => {
-    // GIVEN an assistant row mid-reasoning: a thinking run is the last
-    // content entry with no text or tool output after it yet
-    // WHEN it is rendered as the in-flight turn (isStreaming)
-    const html = renderMessage(
-      {
-        id: "m-think-live",
-        role: "assistant",
-        textSegments: [],
-        thinkingSegments: ["reasoning in progress"],
-        contentOrder: [{ type: "thinking", id: "0" }],
-        timestamp: 1_000,
-      },
-      { isStreaming: true },
-    );
-
-    // THEN the link reads as still-streaming ("Thinking" + the dot loader),
-    // not the settled "Thought process".
-    expect(html).toContain("Thinking");
-    expect(html).not.toContain("Thought process");
-  });
-
-  test("labels trailing reasoning of a completed turn as 'Thought process'", () => {
-    // GIVEN a persisted/completed assistant turn that ends in reasoning with
-    // nothing after it (e.g. a reasoning-only or truncated turn restored from
-    // history, or after message_complete / cancellation)
-    // WHEN it is rendered as a settled row (not streaming)
-    const html = renderMessage({
-      id: "m-think-done",
-      role: "assistant",
-      textSegments: [],
-      thinkingSegments: ["reasoning that finished"],
-      contentOrder: [{ type: "thinking", id: "0" }],
-      timestamp: 1_000,
-    });
-
-    // THEN the trailing link reads as finished, not perpetually streaming
-    expect(html).toContain("Thought process");
-    expect(html).not.toContain("Thinking");
-  });
-
-  test("merges interleaved thinking + tool into one activity card", () => {
-    // GIVEN an assistant message that reasons, calls a tool, then answers
-    // WHEN it is rendered (interleaved path — contentOrder carries a tool)
-    const { container } = render(
-      <TranscriptMessageBody
-        message={{
-          id: "m-think-interleaved",
-          role: "assistant",
-          textSegments: ["done"],
-          thinkingSegments: ["why I called the tool"],
-          contentOrder: [
-            { type: "thinking", id: "0" },
-            { type: "toolCall", id: "0" },
-            { type: "text", id: "0" },
-          ],
-          toolCalls: [
-            { id: "tc-1", name: "bash", input: {}, completedAt: 1 },
-          ],
-          timestamp: 1_000,
-        }}
-        onSurfaceAction={noop}
-      />,
-    );
-
-    // THEN the thinking + tool merge into a single boxed activity card whose
-    // ordered body carries both the reasoning and the tool step.
-    const card = container.querySelector("[data-testid='tool-progress-card']");
-    expect(card).not.toBeNull();
-    expect(card!.getAttribute("data-item-kinds")).toBe("thinking,toolCall");
-    expect(card!.getAttribute("data-item-thinking")).toBe(
-      "why I called the tool",
-    );
-  });
-
-
-  // ---------------------------------------------------------------------------
-  // Merged activity-run rendering (always-on)
-  // ---------------------------------------------------------------------------
-
-  /** A task-progress surface fixture, as produced by a `task_progress` card. */
-  function taskProgressSurface(surfaceId: string): Surface {
-    return {
-      surfaceId,
-      surfaceType: "card",
-      data: {
-        template: "task_progress",
-        templateData: {
-          steps: [{ id: "s1", label: "Do the thing", status: "completed" }],
-        },
-      },
-    };
-  }
-
-  test("merges contiguous thinking + tool runs into one card per run", () => {
-    // contentOrder [thinking, tool, thinking, text, tool, thinking] →
-    // two activity runs (before/after the text), each one merged card, plus
-    // the text between them.
-    const message: DisplayMessage = {
-      id: "m-merged",
-      role: "assistant",
-      textSegments: ["the middle answer"],
-      thinkingSegments: ["reason A", "reason B", "reason C"],
-      contentOrder: [
-        { type: "thinking", id: "0" },
-        { type: "toolCall", id: "0" },
-        { type: "thinking", id: "1" },
-        { type: "text", id: "0" },
-        { type: "toolCall", id: "1" },
-        { type: "thinking", id: "2" },
-      ],
-      toolCalls: [
-        { id: "tc-a", name: "bash", input: {}, completedAt: 1 },
-        { id: "tc-b", name: "bash", input: {}, completedAt: 1 },
-      ],
-      timestamp: 1_000,
-    };
-
-    const { container } = render(
-      <TranscriptMessageBody
-        message={message}
-        onSurfaceAction={noop}
-      />,
-    );
-
-    // Exactly two merged tool cards (one per run).
-    const cards = container.querySelectorAll(
-      "[data-testid='tool-progress-card']",
-    );
-    expect(cards.length).toBe(2);
-
-    // The first card's ordered body is thinking → tool → thinking, carrying
-    // both reasoning texts and the tool step.
-    const first = cards[0]!;
-    expect(first.getAttribute("data-item-kinds")).toBe(
-      "thinking,toolCall,thinking",
-    );
-    expect(first.getAttribute("data-item-thinking")).toBe("reason A|reason B");
-    expect(first.getAttribute("data-item-tool-ids")).toBe("tc-a");
-
-    // The second card carries the trailing tool + thinking run.
-    const second = cards[1]!;
-    expect(second.getAttribute("data-item-kinds")).toBe("toolCall,thinking");
-    expect(second.getAttribute("data-item-tool-ids")).toBe("tc-b");
-
-    // The text between the two runs renders.
-    const markdowns = container.querySelectorAll("[data-testid='markdown']");
-    expect(
-      Array.from(markdowns).some((m) => m.textContent === "the middle answer"),
-    ).toBe(true);
-
-    // No legacy summary card and no scroll anchors remain.
-    expect(
-      container.querySelector("[data-testid='turn-activity-header']"),
-    ).toBeNull();
-    expect(container.querySelector("[data-activity-anchor]")).toBeNull();
-  });
-
-  test("a pure-thinking run renders an inline SingleActivity, not a tool card", () => {
-    // contentOrder carries a tool elsewhere so the interleaved branch is taken,
-    // but the FIRST run before the text is pure thinking.
-    const message: DisplayMessage = {
-      id: "m-pure-thinking",
-      role: "assistant",
-      textSegments: ["answer"],
-      thinkingSegments: ["just reasoning"],
-      contentOrder: [
-        { type: "thinking", id: "0" },
-        { type: "text", id: "0" },
-        { type: "toolCall", id: "0" },
-      ],
-      toolCalls: [
-        { id: "tc-a", name: "bash", input: {}, completedAt: 1 },
-      ],
-      timestamp: 1_000,
-    };
-
-    const { container } = render(
-      <TranscriptMessageBody
-        message={message}
-        onSurfaceAction={noop}
-      />,
-    );
-
-    // The pure-thinking run renders as the inline `SingleActivity`
-    // ("Thought process"). The trailing lone bash tool run renders as the
-    // compact inline chip, NOT a boxed tool card.
-    expect(
-      container.querySelector("[data-testid='thought-process-link']"),
-    ).not.toBeNull();
-    expect(container.textContent).toContain("Thought process");
-    expect(
-      container.querySelectorAll("[data-testid='tool-progress-card']").length,
-    ).toBe(0);
-    expect(
-      container.querySelectorAll("[data-testid='inline-tool-link']").length,
-    ).toBe(1);
-  });
-
-  test("a task-progress surface renders inline (not hoisted, not suppressed)", () => {
-    const message: DisplayMessage = {
-      id: "m-activity-inline",
-      role: "assistant",
-      textSegments: ["all done"],
-      thinkingSegments: ["reasoning"],
-      contentOrder: [
-        { type: "thinking", id: "0" },
-        { type: "toolCall", id: "0" },
-        { type: "surface", id: "tps-1" },
-        { type: "text", id: "0" },
-      ],
-      toolCalls: [
-        { id: "tc-1", name: "bash", input: {}, completedAt: 1 },
-      ],
-      surfaces: [taskProgressSurface("tps-1")],
-      timestamp: 1_000,
-    };
-
-    const { container } = render(
-      <TranscriptMessageBody
-        message={message}
-        onSurfaceAction={noop}
-      />,
-    );
-
-    // No summary card.
-    expect(
-      container.querySelector("[data-testid='turn-activity-header']"),
-    ).toBeNull();
-    // The task-progress surface renders exactly once, in its inline position
-    // AFTER the merged activity card.
-    const surfaces = container.querySelectorAll(
-      "[data-testid='surface'][data-surface-id='tps-1']",
-    );
-    expect(surfaces.length).toBe(1);
-    const card = container.querySelector("[data-testid='tool-progress-card']");
-    expect(card).not.toBeNull();
-    expect(
-      card!.compareDocumentPosition(surfaces[0]!) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-  });
-
-  test("a lone single bash tool run renders the inline chip, not a card", () => {
-    const message: DisplayMessage = {
-      id: "m-lone-tool",
-      role: "assistant",
-      textSegments: ["done"],
-      contentOrder: [
-        { type: "toolCall", id: "0" },
-        { type: "text", id: "0" },
-      ],
-      toolCalls: [
-        { id: "tc-lone", name: "bash", input: {}, completedAt: 1 },
-      ],
-      timestamp: 1_000,
-    };
-
-    const { container } = render(
-      <TranscriptMessageBody
-        message={message}
-        onSurfaceAction={noop}
-      />,
-    );
-
-    const chip = container.querySelector("[data-testid='inline-tool-link']");
-    expect(chip).not.toBeNull();
-    expect(chip!.getAttribute("data-tool-call-id")).toBe("tc-lone");
-    expect(
-      container.querySelector("[data-testid='tool-progress-card']"),
-    ).toBeNull();
-  });
-
-  test("a tool + thinking run still renders the boxed activity card", () => {
-    const message: DisplayMessage = {
-      id: "m-tool-thinking",
-      role: "assistant",
-      textSegments: ["done"],
-      thinkingSegments: ["reasoning about the tool"],
-      contentOrder: [
-        { type: "toolCall", id: "0" },
-        { type: "thinking", id: "0" },
-        { type: "text", id: "0" },
-      ],
-      toolCalls: [
-        { id: "tc-mix", name: "bash", input: {}, completedAt: 1 },
-      ],
-      timestamp: 1_000,
-    };
-
-    const { container } = render(
-      <TranscriptMessageBody
-        message={message}
-        onSurfaceAction={noop}
-      />,
-    );
-
-    // A run with more than one card item (tool + thinking) is NOT a lone tool,
-    // so it stays the boxed card.
-    expect(
-      container.querySelector("[data-testid='tool-progress-card']"),
-    ).not.toBeNull();
-    expect(
-      container.querySelector("[data-testid='inline-tool-link']"),
-    ).toBeNull();
-  });
 });
 
-// ---------------------------------------------------------------------------
-// Blocks-driven render tree (flag ON)
-// ---------------------------------------------------------------------------
-//
-// `TranscriptMessageContent` renders from `contentBlocks` alone — no positional
-// `contentOrder`/`textSegments`/`toolCalls` arrays. These rows deliberately omit
-// the positional fields to prove the blocks walk is the sole source of truth,
-// and reuse the same leaf-component mocks so the assertions mirror the
-// positional suite's.
-describe("TranscriptMessageContent — contentBlocks render tree", () => {
-  test("renders assistant text straight from a text block", () => {
-    const { container } = render(
-      <TranscriptMessageContent
-        message={{
-          id: "b-text",
-          role: "assistant",
-          contentBlocks: [{ type: "text", text: "hello\nworld" }],
-          timestamp: 1_000,
-        }}
-        onSurfaceAction={noop}
-      />,
-    );
-
-    const markdown = container.querySelector("[data-testid='markdown']");
-    expect(markdown).not.toBeNull();
-    expect(markdown!.textContent).toBe("hello\nworld");
-    expect(markdown!.getAttribute("data-hard-line-breaks")).toBe("true");
-  });
-
-  test("merges a contiguous thinking + tool_use run into one activity card", () => {
-    const { container } = render(
-      <TranscriptMessageContent
-        message={{
-          id: "b-activity",
-          role: "assistant",
-          contentBlocks: [
-            { type: "thinking", thinking: "why I called the tool" },
-            {
-              type: "tool_use",
-              toolCall: { id: "tc-a", name: "bash", input: {}, completedAt: 1 },
-            },
-            { type: "text", text: "the answer" },
-          ],
-          timestamp: 1_000,
-        }}
-        onSurfaceAction={noop}
-      />,
-    );
-
-    const card = container.querySelector("[data-testid='tool-progress-card']");
-    expect(card).not.toBeNull();
-    expect(card!.getAttribute("data-item-kinds")).toBe("thinking,toolCall");
-    expect(card!.getAttribute("data-item-thinking")).toBe(
-      "why I called the tool",
-    );
-    expect(card!.getAttribute("data-item-tool-ids")).toBe("tc-a");
-
-    const markdowns = container.querySelectorAll("[data-testid='markdown']");
-    expect(
-      Array.from(markdowns).some((m) => m.textContent === "the answer"),
-    ).toBe(true);
-  });
-
-  test("renders a lone bash tool_use as the inline chip, not a card", () => {
-    const { container } = render(
-      <TranscriptMessageContent
-        message={{
-          id: "b-lone-tool",
-          role: "assistant",
-          contentBlocks: [
-            {
-              type: "tool_use",
-              toolCall: { id: "tc-a", name: "bash", input: {}, completedAt: 1 },
-            },
-          ],
-          timestamp: 1_000,
-        }}
-        onSurfaceAction={noop}
-      />,
-    );
-
-    expect(
-      container.querySelector("[data-testid='inline-tool-link']"),
-    ).not.toBeNull();
-    expect(
-      container.querySelector("[data-testid='tool-progress-card']"),
-    ).toBeNull();
-  });
-
-  test("renders a pure-thinking run as an inline SingleActivity, not a card", () => {
-    const { container } = render(
-      <TranscriptMessageContent
-        message={{
-          id: "b-thinking",
-          role: "assistant",
-          contentBlocks: [{ type: "thinking", thinking: "just reasoning" }],
-          timestamp: 1_000,
-        }}
-        onSurfaceAction={noop}
-      />,
-    );
-
-    expect(
-      container.querySelector("[data-testid='thought-process-link']"),
-    ).not.toBeNull();
-    expect(container.textContent).toContain("Thought process");
-    expect(
-      container.querySelector("[data-testid='tool-progress-card']"),
-    ).toBeNull();
-  });
-
-  test("resolves a surface block against message.surfaces by id", () => {
-    const { container } = render(
-      <TranscriptMessageContent
-        message={{
-          id: "b-surface",
-          role: "assistant",
-          contentBlocks: [
-            { type: "surface", surface: { surfaceId: "s-1" } as never },
-          ],
-          surfaces: [{ surfaceId: "s-1" } as never],
-          timestamp: 1_000,
-        }}
-        onSurfaceAction={noop}
-      />,
-    );
-
-    const surface = container.querySelector("[data-testid='surface']");
-    expect(surface).not.toBeNull();
-    expect(surface!.getAttribute("data-surface-id")).toBe("s-1");
-  });
-
-  test("renders user text from a text block inside the user bubble", () => {
-    const { container } = render(
-      <TranscriptMessageContent
-        message={{
-          id: "b-user",
-          role: "user",
-          contentBlocks: [{ type: "text", text: "do this" }],
-          timestamp: 1_000,
-        }}
-        onSurfaceAction={noop}
-      />,
-    );
-
-    const markdown = container.querySelector("[data-testid='markdown']");
-    expect(markdown).not.toBeNull();
-    expect(markdown!.textContent).toBe("do this");
-    // The text run is wrapped in the surface-lift user bubble.
-    expect(
-      container.querySelector(".bg-\\[var\\(--surface-lift\\)\\]"),
-    ).not.toBeNull();
-  });
-});
+/** A task-progress surface fixture, as produced by a `task_progress` card. */
+function taskProgressSurface(surfaceId: string): Surface {
+  return {
+    surfaceId,
+    surfaceType: "card",
+    data: {
+      template: "task_progress",
+      templateData: {
+        steps: [{ id: "s1", label: "Do the thing", status: "completed" }],
+      },
+    },
+  };
+}

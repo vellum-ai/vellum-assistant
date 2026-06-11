@@ -155,8 +155,8 @@ export function applyToolResult(
     riskDirectoryScopeOptions?: DirectoryScopeOption[];
     /**
      * Structured activity metadata from the tool_result event. Persisted on
-     * the tool call so the new `WebSearchProgressCard` can keep rendering
-     * after the active turn ends and `liveWebActivity` is cleared.
+     * the tool call so web-search steps can keep rendering after the active
+     * turn ends and `liveWebActivity` is cleared.
      */
     activityMetadata?: ToolActivityMetadata;
     /**

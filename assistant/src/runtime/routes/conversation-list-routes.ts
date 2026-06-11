@@ -1,10 +1,11 @@
 /**
  * Route handlers for conversation listing, detail, and seen/unread state.
  *
- * GET    /v1/conversations          — paginated conversation list
- * POST   /v1/conversations/seen     — record a seen signal
- * POST   /v1/conversations/unread   — mark a conversation unread
- * GET    /v1/conversations/:id      — conversation detail
+ * GET    /v1/conversations              — paginated conversation list
+ * POST   /v1/conversations/seen         — record a seen signal (single)
+ * POST   /v1/conversations/seen/bulk    — record seen signals (batch)
+ * POST   /v1/conversations/unread       — mark a conversation unread
+ * GET    /v1/conversations/:id          — conversation detail
  */
 
 import { z } from "zod";
@@ -37,7 +38,10 @@ import {
   buildConversationDetailResponse,
   serializeConversationSummary,
 } from "../services/conversation-serializer.js";
-import { publishConversationListAndMetadataChanged } from "../sync/resource-sync-events.js";
+import {
+  publishConversationListAndMetadataChanged,
+  publishConversationListChanged,
+} from "../sync/resource-sync-events.js";
 import {
   BadRequestError,
   InternalError,
@@ -73,6 +77,7 @@ const assistantAttentionSchema = z.object({
       "macos_notification_view",
       "macos_conversation_opened",
       "ios_conversation_opened",
+      "web_bulk_mark_read",
       "telegram_inbound_message",
       "telegram_callback",
       "slack_inbound_message",
@@ -133,6 +138,12 @@ export const conversationSummarySchema = z.object({
   groupId: z.string().nullable(),
   forkParent: forkParentSchema.optional(),
   archivedAt: z.number().optional(),
+  /**
+   * Epoch-ms timestamp set when a background/scheduled conversation was
+   * explicitly promoted ("surfaced") into the Recents sidebar grouping via
+   * `POST /v1/conversations/:id/surface`. Absent when not surfaced.
+   */
+  surfacedAt: z.number().optional(),
   inferenceProfile: z.string().optional(),
   /**
    * True when the agent loop is currently mid-turn for this conversation.
@@ -312,6 +323,55 @@ function handleRecordSeen({ body = {}, headers }: RouteHandlerArgs) {
   }
 }
 
+function handleRecordSeenBulk({ body = {}, headers }: RouteHandlerArgs) {
+  const rawIds = body.conversationIds as string[] | undefined;
+  if (!Array.isArray(rawIds) || rawIds.length === 0) {
+    throw new BadRequestError("conversationIds must be a non-empty array");
+  }
+
+  const originClientId = headers?.["x-vellum-client-id"]?.trim() || undefined;
+  const changedIds: string[] = [];
+
+  for (const rawId of rawIds) {
+    try {
+      const conversationId = resolveOrThrow(rawId);
+      const priorState = getAttentionStateByConversationIds([
+        conversationId,
+      ]).get(conversationId);
+      const wasUnseen =
+        priorState != null &&
+        priorState.latestAssistantMessageAt != null &&
+        (priorState.lastSeenAssistantMessageAt == null ||
+          priorState.lastSeenAssistantMessageAt <
+            priorState.latestAssistantMessageAt);
+
+      recordConversationSeenSignal({
+        conversationId,
+        sourceChannel: "vellum",
+        signalType: "web_bulk_mark_read",
+        confidence: "explicit",
+        source: "http-api",
+      });
+
+      if (wasUnseen) {
+        changedIds.push(conversationId);
+      }
+    } catch (err) {
+      log.error(
+        { err, conversationId: rawId },
+        "POST /v1/conversations/seen/bulk: failed for conversation",
+      );
+      // Best-effort: continue with remaining conversations.
+    }
+  }
+
+  if (changedIds.length > 0) {
+    publishConversationListChanged("seen_changed", originClientId);
+  }
+
+  return { ok: true, updated: changedIds.length };
+}
+
 function handleMarkUnread({ body = {}, headers }: RouteHandlerArgs) {
   const rawConversationId = body.conversationId as string | undefined;
   if (!rawConversationId) {
@@ -419,6 +479,24 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseBody: z.object({ ok: z.boolean() }),
     handler: handleRecordSeen,
+  },
+  {
+    operationId: "recordConversationSeenBulk",
+    endpoint: "conversations/seen/bulk",
+    method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Bulk mark conversations as seen",
+    description:
+      "Mark multiple conversations as seen in one request. Emits a single sync invalidation for the entire batch instead of per-conversation events.",
+    tags: ["conversations"],
+    requestBody: z.object({
+      conversationIds: z.array(z.string()).min(1),
+    }),
+    responseBody: z.object({ ok: z.boolean(), updated: z.number() }),
+    handler: handleRecordSeenBulk,
   },
   {
     operationId: "markConversationUnread",

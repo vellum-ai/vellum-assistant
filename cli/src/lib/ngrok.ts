@@ -11,6 +11,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { GATEWAY_PORT } from "./constants";
+import { loopbackSafeFetch } from "./loopback-fetch.js";
 
 function getDefaultWorkspaceDir(): string {
   return (
@@ -78,7 +79,7 @@ export function getNgrokVersion(): string | null {
  */
 async function queryNgrokTunnels(): Promise<NgrokTunnel[] | null> {
   try {
-    const res = await fetch(NGROK_API_URL, {
+    const res = await loopbackSafeFetch(NGROK_API_URL, {
       signal: AbortSignal.timeout(2_000),
     });
     if (!res.ok) return null;

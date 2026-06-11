@@ -10,7 +10,7 @@ interface ResolveBootstrappedConversationIdArgs {
   defaultConversationId: string;
   conversations: Pick<
     Conversation,
-    "conversationId" | "conversationType" | "groupId"
+    "conversationId" | "conversationType" | "groupId" | "surfacedAt"
   >[];
 }
 
@@ -26,7 +26,7 @@ export function createDraftConversationId(): string {
 function isStoredConversationSelectable(
   conversations: Pick<
     Conversation,
-    "conversationId" | "conversationType" | "groupId"
+    "conversationId" | "conversationType" | "groupId" | "surfacedAt"
   >[],
   key: string,
 ): boolean {
@@ -34,6 +34,10 @@ function isStoredConversationSelectable(
     (item) => item.conversationId === key,
   );
   if (!conversation) return false;
+  // Surfaced conversations (`surfacedAt != null`) render in Recents even
+  // when their underlying type is background/scheduled, so restoring them
+  // on reload is expected — the user can see and select them in the sidebar.
+  if (conversation.surfacedAt != null) return true;
   return (
     conversation.conversationType !== "background" &&
     conversation.conversationType !== "scheduled" &&

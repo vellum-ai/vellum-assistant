@@ -143,29 +143,31 @@ mock.module("../memory/onboarding-events-store.js", () => ({
   queryUnreportedOnboardingEvents: mockQueryUnreportedOnboardingEvents,
 }));
 
-// The auth-fallback and tool-execution stores are intentionally NOT mocked —
-// they have their own DB-backed tests, and Bun's `mock.module` is
-// process-global, so mocking them here would leak into those tests when files
-// share an invocation. We seed the real DB instead so every auth-fallback /
-// tool-execution test stays order-independent.
+// The auth-fallback, tool-executed, and skill-loaded stores are intentionally
+// NOT mocked — they have their own DB-backed tests, and Bun's `mock.module`
+// is process-global, so mocking them here would leak into those tests when
+// files share an invocation. We seed the real DB instead so every test stays
+// order-independent.
 
 // ---------------------------------------------------------------------------
 // Production import (after mocks)
 // ---------------------------------------------------------------------------
 
 import {
-  seedToolInvocation,
-  type SeedToolInvocationSpec,
-  TOOL_INVOCATION_PII_SENTINEL,
-} from "../memory/__tests__/tool-invocation-test-helpers.js";
+  seedToolInvocation as seedToolInvocationRow,
+  TOOL_INVOCATION_PII_SENTINEL as TOOL_PII_SENTINEL,
+  type ToolInvocationSeedSpec,
+} from "../__tests__/test-support/tool-invocation-seed.js";
 import { recordAuthFallbackCounts } from "../memory/auth-fallback-events-store.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import {
   authFallbackEvents,
   conversations,
+  skillLoadedEvents,
   toolInvocations,
 } from "../memory/schema.js";
+import { recordSkillLoadedEvent } from "../memory/skill-loaded-events-store.js";
 import type { UsageEvent } from "../usage/types.js";
 import {
   ACTIVATION_FUNNEL_VERSION,
@@ -248,15 +250,34 @@ function makeOnboardingEvent(
   };
 }
 
-const TOOL_EXEC_CONVERSATION_ID = "conv-tool-exec-reporter-test";
+const TOOL_CONVERSATION_ID = "conv-reporter-tool-executed";
 
-function insertInvocation(
-  spec: Omit<SeedToolInvocationSpec, "conversationId">,
+function seedToolInvocation(
+  spec: Omit<ToolInvocationSeedSpec, "conversationId">,
 ): void {
-  seedToolInvocation(
+  seedToolInvocationRow(
     { db: getDb(), conversations, toolInvocations },
-    { ...spec, conversationId: TOOL_EXEC_CONVERSATION_ID },
+    { ...spec, conversationId: TOOL_CONVERSATION_ID },
   );
+}
+
+/**
+ * Replace the default null-returning checkpoint mocks with a Map-backed
+ * implementation so values persisted by the reporter (e.g. the
+ * construction-time tool_executed watermark init) are visible to later
+ * reads within the same test.
+ */
+function useStatefulCheckpoints(
+  seed: Record<string, string> = {},
+): Map<string, string> {
+  const checkpoints = new Map(Object.entries(seed));
+  mockGetMemoryCheckpoint.mockImplementation(
+    (key) => checkpoints.get(key) ?? null,
+  );
+  mockSetMemoryCheckpoint.mockImplementation((key, value) => {
+    checkpoints.set(key, value);
+  });
+  return checkpoints;
 }
 
 const originalFetch = globalThis.fetch;
@@ -280,6 +301,7 @@ beforeEach(() => {
   mockQueryUnreportedOnboardingEvents.mockReturnValue([]);
   getDb().delete(authFallbackEvents).run();
   getDb().delete(toolInvocations).run();
+  getDb().delete(skillLoadedEvents).run();
   mockPlatformClient = null;
   mockGetPlatformBaseUrl.mockReset();
   mockGetDeviceId.mockReset();
@@ -978,29 +1000,43 @@ describe("UsageTelemetryReporter", () => {
     mockCollectUsageData = false;
     const events = [makeUsageEvent()];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
-    insertInvocation({ id: "ti-opt-out", createdAt: 1700000000000 });
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
     );
 
     const reporter = new UsageTelemetryReporter();
+    // Construction initializes the absent tool_executed watermark; clear that
+    // call so the count below covers only the flush's advancement.
+    mockSetMemoryCheckpoint.mockClear();
     await reporter.flush();
 
     // No HTTP call should have been made
     expect(mockFetch).not.toHaveBeenCalled();
 
-    // All 6 timestamp watermarks should have been advanced (IDs left untouched
-    // so the compound-cursor branch stays active)
-    expect(mockSetMemoryCheckpoint).toHaveBeenCalledTimes(6);
+    // All 7 timestamp watermarks should have been advanced, and all 7 ID
+    // watermarks pinned to the high-sorting sentinel (a truthy value keeps
+    // the compound-cursor branch active while closing its same-millisecond
+    // arm against opt-out rows).
+    expect(mockSetMemoryCheckpoint).toHaveBeenCalledTimes(14);
 
     const calls = mockSetMemoryCheckpoint.mock.calls;
     const keys = calls.map((c) => c[0]);
-    expect(keys).toContain("telemetry:usage:last_reported_at");
-    expect(keys).toContain("telemetry:turns:last_reported_at");
-    expect(keys).toContain("telemetry:lifecycle:last_reported_at");
-    expect(keys).toContain("telemetry:onboarding:last_reported_at");
-    expect(keys).toContain("telemetry:auth_fallback:last_reported_at");
-    expect(keys).toContain("telemetry:tool_execution:last_reported_at");
+    const eventTypes = [
+      "usage",
+      "turns",
+      "lifecycle",
+      "onboarding",
+      "auth_fallback",
+      "tool_executed",
+      "skill_loaded",
+    ];
+    for (const eventType of eventTypes) {
+      expect(keys).toContain(`telemetry:${eventType}:last_reported_at`);
+      const idCall = calls.find(
+        (c) => c[0] === `telemetry:${eventType}:last_reported_id`,
+      );
+      expect(idCall?.[1]).toBe("ffffffff-ffff-ffff-ffff-ffffffffffff");
+    }
   });
 
   test("events sent normally after re-enabling collectUsageData", async () => {
@@ -1247,116 +1283,6 @@ describe("UsageTelemetryReporter", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Tool-execution events
-  // -------------------------------------------------------------------------
-
-  test("tool_invocations rows flush as tool_execution events with mapped fields and no raw input/result", async () => {
-    mockQueryUnreportedUsageEvents.mockReturnValue([]);
-    insertInvocation({
-      id: "ti-flush-direct",
-      createdAt: 1700000900000,
-      toolName: "calendar_list_events",
-      decision: "denied",
-      riskLevel: "high",
-      durationMs: 137,
-    });
-    insertInvocation({
-      id: "ti-flush-skill",
-      createdAt: 1700000950000,
-      toolName: "task_create",
-      skillId: "tasks-skill",
-    });
-    mockFetch.mockImplementation(() =>
-      Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
-    );
-
-    const reporter = new UsageTelemetryReporter();
-    await reporter.flush();
-
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    const body = JSON.parse(
-      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
-    );
-    expect(body.events.length).toBe(2);
-
-    const direct = body.events.find(
-      (e: { daemon_event_id: string }) =>
-        e.daemon_event_id === "ti-flush-direct",
-    );
-    expect(direct).toMatchObject({
-      type: "tool_execution",
-      daemon_event_id: "ti-flush-direct",
-      recorded_at: 1700000900000,
-      tool_name: "calendar_list_events",
-      // Direct (non-skill) tool call — skill_id stays null on the wire.
-      skill_id: null,
-      decision: "denied",
-      risk_level: "high",
-      duration_ms: 137,
-      conversation_id: TOOL_EXEC_CONVERSATION_ID,
-      assistant_version: "1.2.3-test",
-    });
-
-    const skillRouted = body.events.find(
-      (e: { daemon_event_id: string }) =>
-        e.daemon_event_id === "ti-flush-skill",
-    );
-    expect(skillRouted).toMatchObject({
-      type: "tool_execution",
-      tool_name: "task_create",
-      skill_id: "tasks-skill",
-    });
-
-    // The raw tool args/outputs persisted in the audit rows are potentially
-    // PII and must NEVER appear anywhere in the payload.
-    expect(JSON.stringify(body)).not.toContain(TOOL_INVOCATION_PII_SENTINEL);
-    expect(direct.input).toBeUndefined();
-    expect(direct.result).toBeUndefined();
-  });
-
-  test("tool_execution watermark advances to the last reported row on success", async () => {
-    mockQueryUnreportedUsageEvents.mockReturnValue([]);
-    insertInvocation({ id: "ti-wm-1", createdAt: 1700001000000 });
-    insertInvocation({ id: "ti-wm-2", createdAt: 1700001001000 });
-    mockFetch.mockImplementation(() =>
-      Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
-    );
-
-    const reporter = new UsageTelemetryReporter();
-    await reporter.flush();
-
-    const watermarkCalls = mockSetMemoryCheckpoint.mock.calls.filter(
-      (c) => c[0] === "telemetry:tool_execution:last_reported_at",
-    );
-    expect(watermarkCalls.length).toBeGreaterThanOrEqual(1);
-    expect(watermarkCalls[watermarkCalls.length - 1][1]).toBe(
-      String(1700001001000),
-    );
-
-    const idCalls = mockSetMemoryCheckpoint.mock.calls.filter(
-      (c) => c[0] === "telemetry:tool_execution:last_reported_id",
-    );
-    expect(idCalls.length).toBeGreaterThanOrEqual(1);
-    expect(idCalls[idCalls.length - 1][1]).toBe("ti-wm-2");
-  });
-
-  test("tool_execution watermark stays on failed upload", async () => {
-    mockQueryUnreportedUsageEvents.mockReturnValue([]);
-    insertInvocation({ id: "ti-fail-1", createdAt: 1700001100000 });
-    mockFetch.mockImplementation(() =>
-      Promise.resolve(new Response("error", { status: 500 })),
-    );
-
-    const reporter = new UsageTelemetryReporter();
-    await reporter.flush();
-
-    const watermarkCalls = mockSetMemoryCheckpoint.mock.calls.filter((c) =>
-      c[0].startsWith("telemetry:tool_execution:"),
-    );
-    expect(watermarkCalls.length).toBe(0);
-  });
-
-  // -------------------------------------------------------------------------
   // Onboarding / activation funnel events
   // -------------------------------------------------------------------------
 
@@ -1471,5 +1397,474 @@ describe("UsageTelemetryReporter", () => {
     expect(e.step_index).toBeUndefined();
     expect(e.completed_at).toBeUndefined();
     expect(e.funnel_version).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // Tool-executed events
+  // -------------------------------------------------------------------------
+
+  test("tool_executed events project decision to status and never carry raw args/results", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    seedToolInvocation({
+      id: "ti-ok",
+      createdAt: 1700000001000,
+      toolName: "calendar_list_events",
+      decision: "allow",
+      durationMs: 12,
+      argBytes: 42,
+      resultBytes: 9001,
+      provider: "anthropic",
+      model: "model-a",
+      inferenceProfile: "balanced",
+      inferenceProfileSource: "active",
+    });
+    // Errored invocation without LLM attribution — the attribution columns
+    // are null and must pass through as null.
+    seedToolInvocation({
+      id: "ti-err",
+      createdAt: 1700000002000,
+      toolName: "web_search",
+      decision: "error",
+      durationMs: 7,
+      argBytes: 17,
+      resultBytes: 33,
+    });
+    // Permission-denied rows are filtered in the store and must never ship.
+    seedToolInvocation({
+      id: "ti-denied",
+      createdAt: 1700000003000,
+      decision: "denied",
+    });
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const rawBody = (mockFetch.mock.calls[0] as [string, RequestInit])[1]
+      .body as string;
+    // ToS/PII contract: raw tool args/outputs never leave the device.
+    expect(rawBody).not.toContain(TOOL_PII_SENTINEL);
+
+    const body = JSON.parse(rawBody);
+    expect(body.events.length).toBe(2);
+
+    const byId: Record<string, Record<string, unknown>> = {};
+    for (const e of body.events as Array<{ daemon_event_id: string }>) {
+      byId[e.daemon_event_id] = e;
+    }
+
+    expect(byId["ti-ok"]).toEqual({
+      type: "tool_executed",
+      daemon_event_id: "ti-ok",
+      recorded_at: 1700000001000,
+      tool_name: "calendar_list_events",
+      status: "fulfilled",
+      duration_ms: 12,
+      arg_bytes: 42,
+      result_bytes: 9001,
+      conversation_id: TOOL_CONVERSATION_ID,
+      provider: "anthropic",
+      model: "model-a",
+      inference_profile: "balanced",
+      inference_profile_source: "active",
+      assistant_version: "1.2.3-test",
+    });
+    expect(byId["ti-err"]).toMatchObject({
+      type: "tool_executed",
+      tool_name: "web_search",
+      status: "errored",
+      duration_ms: 7,
+      arg_bytes: 17,
+      result_bytes: 33,
+      provider: null,
+      model: null,
+      inference_profile: null,
+      inference_profile_source: null,
+    });
+    expect(byId["ti-denied"]).toBeUndefined();
+  });
+
+  test("tool_executed watermark advances to the last reported row on success", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    seedToolInvocation({ id: "ti-w1", createdAt: 1700000001000 });
+    seedToolInvocation({ id: "ti-w2", createdAt: 1700000002000 });
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    const watermarkCalls = mockSetMemoryCheckpoint.mock.calls.filter(
+      (c) => c[0] === "telemetry:tool_executed:last_reported_at",
+    );
+    expect(watermarkCalls.length).toBeGreaterThanOrEqual(1);
+    expect(watermarkCalls[watermarkCalls.length - 1][1]).toBe(
+      String(1700000002000),
+    );
+
+    const idCalls = mockSetMemoryCheckpoint.mock.calls.filter(
+      (c) => c[0] === "telemetry:tool_executed:last_reported_id",
+    );
+    expect(idCalls.length).toBeGreaterThanOrEqual(1);
+    expect(idCalls[idCalls.length - 1][1]).toBe("ti-w2");
+  });
+
+  test("tool_executed resumes from a stored watermark — reported rows are not re-shipped", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    seedToolInvocation({ id: "ti-r1", createdAt: 1700000001000 });
+    seedToolInvocation({ id: "ti-r2", createdAt: 1700000002000 });
+    // A previous flush already reported ti-r1.
+    mockGetMemoryCheckpoint.mockImplementation((key) => {
+      if (key === "telemetry:tool_executed:last_reported_at") {
+        return String(1700000001000);
+      }
+      if (key === "telemetry:tool_executed:last_reported_id") return "ti-r1";
+      return null;
+    });
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["ti-r2"]);
+  });
+
+  test("rows recorded after construction but before the first flush are shipped", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    // Regression coverage for the review finding: the reporter delays its
+    // first flush by 30s+, so a tool used right after daemon startup is
+    // recorded before any flush has run. The construction-time watermark
+    // init must not drop it — only rows from before construction (rows
+    // predating the reporter) stay behind the watermark.
+    const checkpoints = useStatefulCheckpoints();
+
+    const reporter = new UsageTelemetryReporter();
+    const rowCreatedAt =
+      Number(checkpoints.get("telemetry:tool_executed:last_reported_at")) +
+      1000;
+    seedToolInvocation({ id: "ti-pre-first-flush", createdAt: rowCreatedAt });
+
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(1);
+    expect(body.events[0]).toMatchObject({
+      type: "tool_executed",
+      daemon_event_id: "ti-pre-first-flush",
+      recorded_at: rowCreatedAt,
+    });
+
+    // The watermark advances to the shipped row, so the next flush resumes
+    // after it instead of re-shipping.
+    expect(checkpoints.get("telemetry:tool_executed:last_reported_at")).toBe(
+      String(rowCreatedAt),
+    );
+  });
+
+  test("absent tool_executed checkpoint is initialized at construction — rows predating the reporter never ship", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const checkpoints = useStatefulCheckpoints();
+
+    // Rows accumulated before any flush ever advanced the watermark — e.g.
+    // an opt-out period under an older build that gated reporter
+    // construction on collectUsageData while the always-on audit listener
+    // kept writing.
+    seedToolInvocation({
+      id: "ti-opt-out-window",
+      createdAt: Date.now() - 60_000,
+    });
+
+    const reporter = new UsageTelemetryReporter();
+
+    // The checkpoint is persisted immediately at construction so a crash
+    // before the first flush can't re-initialize later.
+    const initialized = checkpoints.get(
+      "telemetry:tool_executed:last_reported_at",
+    );
+    expect(initialized).toBeDefined();
+
+    // A tool that runs after construction ships normally.
+    seedToolInvocation({
+      id: "ti-post-construction",
+      createdAt: Number(initialized) + 1000,
+    });
+
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["ti-post-construction"]);
+  });
+
+  test("existing tool_executed checkpoint is respected — construction does not re-initialize", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const checkpoints = useStatefulCheckpoints({
+      "telemetry:tool_executed:last_reported_at": String(1700000001000),
+      "telemetry:tool_executed:last_reported_id": "ti-already-reported",
+    });
+
+    seedToolInvocation({
+      id: "ti-already-reported",
+      createdAt: 1700000001000,
+    });
+    // Legitimate backlog past the stored watermark — a re-initialization to
+    // Date.now() at construction would silently drop it. Rows past the
+    // watermark are always legitimately shippable: opted-out sessions keep
+    // the watermark advancing via the opt-out flush branch (the reporter
+    // runs even when collection is disabled), so the backlog can only hold
+    // opted-in rows.
+    seedToolInvocation({ id: "ti-backlog", createdAt: 1700000002000 });
+
+    const reporter = new UsageTelemetryReporter();
+    expect(checkpoints.get("telemetry:tool_executed:last_reported_at")).toBe(
+      String(1700000001000),
+    );
+
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["ti-backlog"]);
+  });
+
+  test("opt-out window never ships across restarts — opted-out flushes keep the watermark ahead of audit rows", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    // A previous opted-in session shipped through this watermark.
+    const checkpoints = useStatefulCheckpoints({
+      "telemetry:tool_executed:last_reported_at": String(1700000001000),
+      "telemetry:tool_executed:last_reported_id": "ti-shipped-opted-in",
+    });
+
+    // Session 1: the user opted out and restarted. The daemon still
+    // constructs and runs the reporter; the always-on audit listener keeps
+    // writing rows. Every opted-out flush (5-minute cycle plus the final
+    // flush in stop()) advances the watermark past them without sending.
+    mockCollectUsageData = false;
+    const optOutRowCreatedAt = Date.now() - 5_000;
+    seedToolInvocation({
+      id: "ti-opt-out-window",
+      createdAt: optOutRowCreatedAt,
+    });
+    const optedOutReporter = new UsageTelemetryReporter();
+    await optedOutReporter.stop(); // shutdown path: runs the final flush
+    expect(mockFetch).not.toHaveBeenCalled();
+    const advanced = Number(
+      checkpoints.get("telemetry:tool_executed:last_reported_at"),
+    );
+    expect(advanced).toBeGreaterThan(optOutRowCreatedAt);
+
+    // Session 2: the user opts back in and restarts. Only rows recorded
+    // after the opt-out epoch ship — the opt-out-window row never does.
+    mockCollectUsageData = true;
+    seedToolInvocation({ id: "ti-after-opt-in", createdAt: advanced + 1000 });
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["ti-after-opt-in"]);
+  });
+
+  test("opt-out row written in the same millisecond as the opt-out flush never ships after re-opt-in", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    // A previous opted-in session left a low-sorting ID watermark behind.
+    const checkpoints = useStatefulCheckpoints({
+      "telemetry:tool_executed:last_reported_at": String(1700000001000),
+      "telemetry:tool_executed:last_reported_id":
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    });
+
+    // Opted-out flush: advances the timestamp watermark to Date.now() and
+    // must also pin the ID watermark to the high-sorting sentinel.
+    mockCollectUsageData = false;
+    const optedOutReporter = new UsageTelemetryReporter();
+    await optedOutReporter.flush();
+    expect(mockFetch).not.toHaveBeenCalled();
+    const watermark = Number(
+      checkpoints.get("telemetry:tool_executed:last_reported_at"),
+    );
+
+    // An audit row written in the SAME millisecond as the opt-out flush's
+    // Date.now(), with a UUID sorting above the stale pre-opt-out ID
+    // watermark. With only the timestamp watermark advanced, the compound
+    // cursor's `createdAt == watermark AND id > afterId` arm would match it.
+    seedToolInvocation({
+      id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      createdAt: watermark,
+    });
+
+    // Re-opt-in: only rows strictly after the opt-out epoch ship.
+    mockCollectUsageData = true;
+    seedToolInvocation({ id: "ti-after-opt-in", createdAt: watermark + 1000 });
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["ti-after-opt-in"]);
+  });
+
+  test("checkpoint store failure during construction is non-fatal — degraded-DB daemons still start", () => {
+    // initializeDb() failures are tolerated at daemon startup (degraded
+    // mode), so the constructor's checkpoint init must never throw out of
+    // the constructor and abort the daemon.
+    mockGetMemoryCheckpoint.mockImplementation(() => {
+      throw new Error("database disk image is malformed");
+    });
+    expect(() => new UsageTelemetryReporter()).not.toThrow();
+
+    // The write path failing is equally non-fatal.
+    mockGetMemoryCheckpoint.mockImplementation(() => null);
+    mockSetMemoryCheckpoint.mockImplementation(() => {
+      throw new Error("database disk image is malformed");
+    });
+    expect(() => new UsageTelemetryReporter()).not.toThrow();
+  });
+
+  // -------------------------------------------------------------------------
+  // Skill-loaded events
+  // -------------------------------------------------------------------------
+
+  test("skill_loaded events ship metadata with attribution and null passthrough", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    recordSkillLoadedEvent({
+      conversationId: "conv-skill",
+      skillName: "web-research",
+      skillUpdatedAt: "2026-06-01T00:00:00.000Z",
+      provider: "anthropic",
+      model: "model-a",
+      inferenceProfile: "balanced",
+      inferenceProfileSource: "active",
+    });
+    // Minimal record — optional fields persist as null and ship as null.
+    recordSkillLoadedEvent({ skillName: "tasks" });
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events.length).toBe(2);
+
+    const byName: Record<string, Record<string, unknown>> = {};
+    for (const e of body.events as Array<{ skill_name: string }>) {
+      byName[e.skill_name] = e;
+    }
+
+    expect(byName["web-research"]).toMatchObject({
+      type: "skill_loaded",
+      skill_name: "web-research",
+      skill_updated_at: "2026-06-01T00:00:00.000Z",
+      conversation_id: "conv-skill",
+      provider: "anthropic",
+      model: "model-a",
+      inference_profile: "balanced",
+      inference_profile_source: "active",
+      assistant_version: "1.2.3-test",
+    });
+    expect(typeof byName["web-research"].daemon_event_id).toBe("string");
+    expect(typeof byName["web-research"].recorded_at).toBe("number");
+    expect(byName["tasks"]).toMatchObject({
+      type: "skill_loaded",
+      skill_name: "tasks",
+      skill_updated_at: null,
+      conversation_id: null,
+      provider: null,
+      model: null,
+      inference_profile: null,
+      inference_profile_source: null,
+    });
+  });
+
+  test("skill_loaded watermark advances to the last reported row on success", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    recordSkillLoadedEvent({ skillName: "web-research" });
+    recordSkillLoadedEvent({ skillName: "tasks" });
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
+    );
+
+    // The last row by the reporter's (createdAt, id) cursor order is the one
+    // whose watermark should be persisted after a successful upload.
+    const rows = getDb()
+      .select()
+      .from(skillLoadedEvents)
+      .orderBy(skillLoadedEvents.createdAt, skillLoadedEvents.id)
+      .all();
+    const lastRow = rows[rows.length - 1];
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    const watermarkCalls = mockSetMemoryCheckpoint.mock.calls.filter(
+      (c) => c[0] === "telemetry:skill_loaded:last_reported_at",
+    );
+    expect(watermarkCalls.length).toBeGreaterThanOrEqual(1);
+    expect(watermarkCalls[watermarkCalls.length - 1][1]).toBe(
+      String(lastRow.createdAt),
+    );
+
+    const idCalls = mockSetMemoryCheckpoint.mock.calls.filter(
+      (c) => c[0] === "telemetry:skill_loaded:last_reported_id",
+    );
+    expect(idCalls.length).toBeGreaterThanOrEqual(1);
+    expect(idCalls[idCalls.length - 1][1]).toBe(lastRow.id);
+  });
+
+  test("batch recursion when skill_loaded returns a full batch, capped at 10", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    // Exactly BATCH_SIZE rows; the mocked checkpoints never persist, so each
+    // recursion re-reads the same full batch until the cap.
+    const fullBatch = Array.from({ length: 500 }, (_, i) => ({
+      id: `sle-batch-${String(i).padStart(3, "0")}`,
+      createdAt: 1700000000000 + i,
+      skillName: "web-research",
+    }));
+    getDb().insert(skillLoadedEvents).values(fullBatch).run();
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":500}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    // MAX_CONSECUTIVE_BATCHES = 10
+    expect(mockFetch).toHaveBeenCalledTimes(10);
   });
 });

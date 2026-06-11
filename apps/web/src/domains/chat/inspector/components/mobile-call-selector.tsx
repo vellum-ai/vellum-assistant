@@ -10,6 +10,13 @@ interface MobileCallSelectorProps {
   logs: LLMRequestLogEntry[];
   selectedLogId: string | undefined;
   buildCallHref: (logId: string) => string;
+  /**
+   * Conversation-wide call numbers keyed by log id (message-scoped
+   * mode only). See `CallRail` for the numbering contract.
+   */
+  callNumbers?: ReadonlyMap<string, number>;
+  /** Total calls in the whole conversation; pairs with `callNumbers`. */
+  conversationCallCount?: number;
 }
 
 /**
@@ -29,17 +36,29 @@ export function MobileCallSelector({
   logs,
   selectedLogId,
   buildCallHref,
+  callNumbers,
+  conversationCallCount,
 }: MobileCallSelectorProps): ReactNode {
   const [open, setOpen] = useState(false);
 
-  const total = logs.length;
   // Identify the selected call's chronological position so the trigger
   // can show "Call N of M" — the same numbering the rail uses. `logs`
-  // is ordered oldest-first; `callNumber = index + 1`.
+  // is ordered oldest-first; `callNumber = index + 1`. When
+  // conversation-wide numbers are available (message-scoped mode), both
+  // N and M use the whole-conversation numbering instead.
+  const globalNumber = selectedLogId
+    ? callNumbers?.get(selectedLogId)
+    : undefined;
+  const useGlobal = globalNumber != null && conversationCallCount != null;
+  const total = useGlobal ? conversationCallCount : logs.length;
   const selectedIndex = selectedLogId
     ? logs.findIndex((l) => l.id === selectedLogId)
     : -1;
-  const callNumber = selectedIndex >= 0 ? selectedIndex + 1 : null;
+  const callNumber = useGlobal
+    ? globalNumber
+    : selectedIndex >= 0
+      ? selectedIndex + 1
+      : null;
 
   const triggerLabel =
     callNumber != null
@@ -82,6 +101,7 @@ export function MobileCallSelector({
             selectedLogId={selectedLogId}
             buildCallHref={buildCallHref}
             onSelect={() => setOpen(false)}
+            callNumbers={callNumbers}
           />
         </BottomSheet.Body>
       </BottomSheet.Content>

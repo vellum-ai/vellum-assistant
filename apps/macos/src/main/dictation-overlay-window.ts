@@ -1,6 +1,11 @@
 import { BrowserWindow, screen } from "electron";
 import { z } from "zod";
 
+import type {
+  DictationOverlayMessage,
+  DictationOverlayState,
+} from "@vellumai/ipc-contract";
+
 import { createFloatingWindow, getFloatingWindow } from "./floating-window";
 import { handle, on } from "./ipc";
 
@@ -44,17 +49,7 @@ export const DONE_HIDE_MS = 800;
 /** How long error states stay up — mirrors the recording store's 3 s. */
 export const ERROR_HIDE_MS = 3000;
 
-/** States the overlay renderer can display. */
-export type DictationOverlayState =
-  | { kind: "recording"; transcription: string; audioLevel?: number }
-  | { kind: "processing" }
-  | { kind: "done" }
-  | { kind: "error"; message: string };
-
-/** Renderer → main messages: a displayable state or an explicit dismiss. */
-export type DictationOverlayMessage =
-  | DictationOverlayState
-  | { kind: "dismiss" };
+export type { DictationOverlayMessage, DictationOverlayState };
 
 const dictationOverlayMessageSchema = z.discriminatedUnion("kind", [
   z.object({
