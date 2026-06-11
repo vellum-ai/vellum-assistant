@@ -45,11 +45,6 @@ export interface NativeDictationPartialsOptions {
   stream?: MediaStream;
 }
 
-/**
- * Build the AudioWorklet pump that feeds the recording stream's PCM to the
- * helper. Returns a teardown function, or `null` when the audio graph
- * can't be constructed (missing AudioWorklet, context failure).
- */
 // One warm AudioContext (+ compiled worklet) shared across sessions:
 // constructing and resuming a context plus addModule costs ~1s, which on a
 // 1-2s dictation discards most of the utterance (the stream source only
@@ -71,6 +66,11 @@ async function ensurePumpContext(): Promise<AudioContext> {
   return warmContext;
 }
 
+/**
+ * Build the AudioWorklet pump that feeds the recording stream's PCM to the
+ * helper. Returns a teardown function, or `null` when the audio graph
+ * can't be constructed (missing AudioWorklet, context failure).
+ */
 async function startAudioPump(
   stream: MediaStream,
   push: (chunk: ArrayBuffer) => void,
@@ -319,7 +319,8 @@ export async function startNativeDictationPartials(
           setTimeout(() => resolve(null), FINALIZED_TIMEOUT_MS);
         });
       }
-      teardownSubscriptions();
+      // The partial listener was already dropped at stop-entry.
+      unsubscribeFinal?.();
       if (text !== null) {
         // Length only — transcript content must never be logged.
         console.info(`dictation: native finalized chars=${text.length}`);

@@ -58,6 +58,21 @@ export type {
 const notImplemented = (name: string) => (): Promise<never> =>
   Promise.reject(new Error(`window.vellum.${name} is not implemented yet`));
 
+const subscribeDictationEvent =
+  (channel: string) =>
+  (callback: (event: DictationPartialEvent) => void): (() => void) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      payload: DictationPartialEvent,
+    ) => {
+      callback(payload);
+    };
+    ipcRenderer.on(channel, handler);
+    return () => {
+      ipcRenderer.off(channel, handler);
+    };
+  };
+
 const bridge: VellumBridge = {
   platform: "electron",
   app: {
@@ -175,30 +190,10 @@ const bridge: VellumBridge = {
       pushAudioChunk: (chunk: ArrayBuffer): void => {
         ipcRenderer.send("vellum:helper:dictation:audio", chunk);
       },
-      onPartial: (callback) => {
-        const handler = (
-          _event: IpcRendererEvent,
-          payload: DictationPartialEvent,
-        ) => {
-          callback(payload);
-        };
-        ipcRenderer.on("vellum:helper:dictation:partial", handler);
-        return () => {
-          ipcRenderer.off("vellum:helper:dictation:partial", handler);
-        };
-      },
-      onFinalized: (callback) => {
-        const handler = (
-          _event: IpcRendererEvent,
-          payload: DictationPartialEvent,
-        ) => {
-          callback(payload);
-        };
-        ipcRenderer.on("vellum:helper:dictation:finalized", handler);
-        return () => {
-          ipcRenderer.off("vellum:helper:dictation:finalized", handler);
-        };
-      },
+      onPartial: subscribeDictationEvent("vellum:helper:dictation:partial"),
+      onFinalized: subscribeDictationEvent(
+        "vellum:helper:dictation:finalized",
+      ),
       transcribe: (
         audio: ArrayBuffer,
       ): Promise<{ ok: boolean; reason?: string }> =>
@@ -206,18 +201,9 @@ const bridge: VellumBridge = {
           "vellum:helper:dictation:transcribe",
           audio,
         ) as Promise<{ ok: boolean; reason?: string }>,
-      onTranscribed: (callback) => {
-        const handler = (
-          _event: IpcRendererEvent,
-          payload: DictationPartialEvent,
-        ) => {
-          callback(payload);
-        };
-        ipcRenderer.on("vellum:helper:dictation:transcribed", handler);
-        return () => {
-          ipcRenderer.off("vellum:helper:dictation:transcribed", handler);
-        };
-      },
+      onTranscribed: subscribeDictationEvent(
+        "vellum:helper:dictation:transcribed",
+      ),
     },
   },
   permissions: {

@@ -73,6 +73,11 @@ const DICTATION_ERROR_SCHEMA = z.object({
   willRetryServer: z.boolean(),
 });
 
+const DICTATION_TRANSCRIBE_RESULT_SCHEMA = z.object({
+  ok: z.boolean(),
+  reason: z.string().optional(),
+});
+
 const DICTATION_RESULT_SCHEMA = z.object({
   enabled: z.boolean(),
   reason: z.string().optional(),
@@ -322,6 +327,13 @@ let audioChunkCount = 0;
 // nulled by the disable call.
 let dictationFinalOwner: WebContents | null = null;
 
+const toAudioBuffer = (chunk: unknown): Buffer | null => {
+  if (Buffer.isBuffer(chunk)) return chunk;
+  if (chunk instanceof Uint8Array) return Buffer.from(chunk);
+  if (chunk instanceof ArrayBuffer) return Buffer.from(new Uint8Array(chunk));
+  return null;
+};
+
 const dictationEventTarget = (): WebContents | null => {
   if (dictationPartialsOwner && !dictationPartialsOwner.isDestroyed()) {
     return dictationPartialsOwner;
@@ -345,26 +357,17 @@ const sendDictationPartialToOwner = (event: DictationPartialEvent): void => {
   owner.send("vellum:helper:dictation:partial", event);
 };
 
-const sendDictationTranscribedToOwner = (
+const sendDictationTextEventToOwner = (
+  kind: "finalized" | "transcribed",
   event: DictationPartialEvent,
 ): void => {
   const owner = dictationEventTarget();
   // Length only — transcript content must never be logged.
   log.info(
-    `[mac-helper] dictation transcribed chars=${event.text.length} → ${owner ? `wc=${owner.id}` : "DROPPED (no owner)"}`,
+    `[mac-helper] dictation ${kind} chars=${event.text.length} → ${owner ? `wc=${owner.id}` : "DROPPED (no owner)"}`,
   );
   if (!owner) return;
-  owner.send("vellum:helper:dictation:transcribed", event);
-};
-
-const sendDictationFinalizedToOwner = (event: DictationPartialEvent): void => {
-  const owner = dictationEventTarget();
-  // Length only — transcript content must never be logged.
-  log.info(
-    `[mac-helper] dictation finalized chars=${event.text.length} → ${owner ? `wc=${owner.id}` : "DROPPED (no owner)"}`,
-  );
-  if (!owner) return;
-  owner.send("vellum:helper:dictation:finalized", event);
+  owner.send(`vellum:helper:dictation:${kind}`, event);
 };
 
 const hotkeyOwners = new Map<number, HotkeyOwner>();
@@ -604,14 +607,14 @@ export const installHotkeyHelper = (): void => {
     "dictation.finalized",
     DICTATION_PARTIAL_SCHEMA,
     (event) => {
-      sendDictationFinalizedToOwner(event);
+      sendDictationTextEventToOwner("finalized", event);
     },
   );
   unsubscribeDictationTranscribed = client.onNotification(
     "dictation.transcribed",
     DICTATION_PARTIAL_SCHEMA,
     (event) => {
-      sendDictationTranscribedToOwner(event);
+      sendDictationTextEventToOwner("transcribed", event);
     },
   );
   unsubscribeDictationError = client.onNotification(
@@ -659,10 +662,7 @@ export const installHotkeyHelper = (): void => {
       }
       return;
     }
-    let buf: Buffer | null = null;
-    if (Buffer.isBuffer(chunk)) buf = chunk;
-    else if (chunk instanceof Uint8Array) buf = Buffer.from(chunk);
-    else if (chunk instanceof ArrayBuffer) buf = Buffer.from(new Uint8Array(chunk));
+    const buf = toAudioBuffer(chunk);
     if (!buf || buf.length === 0) return;
     audioChunkCount += 1;
     if (audioChunkCount === 1 || audioChunkCount % 50 === 0) {
@@ -682,11 +682,7 @@ export const installHotkeyHelper = (): void => {
     "vellum:helper:dictation:transcribe",
     z.tuple([z.unknown()]),
     async ([audio], event): Promise<{ ok: boolean; reason?: string }> => {
-      let buf: Buffer | null = null;
-      if (Buffer.isBuffer(audio)) buf = audio;
-      else if (audio instanceof Uint8Array) buf = Buffer.from(audio);
-      else if (audio instanceof ArrayBuffer)
-        buf = Buffer.from(new Uint8Array(audio));
+      const buf = toAudioBuffer(audio);
       if (!buf || buf.length === 0) {
         return { ok: false, reason: "empty audio" };
       }
@@ -697,9 +693,7 @@ export const installHotkeyHelper = (): void => {
           audio: buf.toString("base64"),
           sampleRate: DICTATION_PUSH_SAMPLE_RATE,
         });
-        const parsed = z
-          .object({ ok: z.boolean(), reason: z.string().optional() })
-          .safeParse(result);
+        const parsed = DICTATION_TRANSCRIBE_RESULT_SCHEMA.safeParse(result);
         if (!parsed.success) {
           return { ok: false, reason: "invalid transcribe result" };
         }

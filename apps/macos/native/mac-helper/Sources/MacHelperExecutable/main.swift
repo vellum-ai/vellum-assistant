@@ -291,9 +291,8 @@ final class MacHelper: @unchecked Sendable {
         dictationPushRate = pushAudio ? sampleRate : nil
         pendingPushAudio.removeAll()
 
-        // Headless test hook — the scripted recognizer touches no privacy
-        // API, so skip authorization entirely. Never set by the app.
-        if ProcessInfo.processInfo.environment["VELLUM_HELPER_FAKE_RECOGNITION"] == "1" {
+        // Headless test hook — skip authorization entirely.
+        if DictationPartialsSession.fakeRecognition {
             return startDictationSession()
         }
 
@@ -404,10 +403,8 @@ final class MacHelper: @unchecked Sendable {
     private func transcribeOnce(
         pcm data: Data, sampleRate: Double
     ) -> [String: Any] {
-        let fakeRecognition =
-            ProcessInfo.processInfo.environment["VELLUM_HELPER_FAKE_RECOGNITION"] == "1"
         guard
-            fakeRecognition
+            DictationPartialsSession.fakeRecognition
                 || SFSpeechRecognizer.authorizationStatus() == .authorized
         else {
             return ["ok": false, "reason": "speech-recognition-not-authorized"]

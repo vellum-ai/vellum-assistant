@@ -60,8 +60,10 @@ final class DictationPartialsSession: @unchecked Sendable {
     private var didFinal = false
     private var latestText = ""
 
-    // See the test-hook comment in start().
-    private static let fakeRecognition =
+    // See the test-hook comment in start(). Read by MacHelper's
+    // authorization gates too — the scripted recognizer touches no
+    // privacy API, so they are skipped wholesale.
+    static let fakeRecognition =
         ProcessInfo.processInfo.environment["VELLUM_HELPER_FAKE_RECOGNITION"] == "1"
     private var fakeAppendedFrames: AVAudioFrameCount = 0
 
