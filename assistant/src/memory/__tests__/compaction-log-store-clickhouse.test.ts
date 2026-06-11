@@ -55,7 +55,7 @@ const startEvent: CompactionStartEvent = {
 };
 
 const result: ContextWindowResult = {
-  messages: [],
+  messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
   compacted: true,
   previousEstimatedInputTokens: 900,
   estimatedInputTokens: 300,
@@ -80,8 +80,7 @@ const endEvent: CompactionEndEvent = {
   trigger: "budget",
   startedAt: 1000,
   finishedAt: 1500,
-  result,
-  messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+  ...result,
 };
 
 describe("ClickHouseCompactionLogStore", () => {
@@ -135,7 +134,7 @@ describe("ClickHouseCompactionLogStore", () => {
     expect(row.phase).toBe("end");
     expect(row.finished_at).toBe(1500);
     expect(row.duration_ms).toBe(500);
-    expect(row.basis_message_count).toBe(1);
+    expect(row.result_message_count).toBe(1);
     expect(row.compacted).toBe(1);
     expect(row.previous_estimated_input_tokens).toBe(900);
     expect(row.estimated_input_tokens).toBe(300);
@@ -159,14 +158,11 @@ describe("ClickHouseCompactionLogStore", () => {
 
     await writer.writeEnd("conv-1", {
       ...endEvent,
-      result: {
-        ...result,
-        compacted: false,
-        summaryFailed: true,
-        preservedTailMessages: undefined,
-        reason: undefined,
-        exhausted: true,
-      },
+      compacted: false,
+      summaryFailed: true,
+      preservedTailMessages: undefined,
+      reason: undefined,
+      exhausted: true,
     });
 
     const row = JSON.parse(requests[1]!.body) as Record<string, unknown>;
@@ -218,7 +214,7 @@ describe("ClickHouseCompactionLogStore", () => {
 
     await writer.writeEnd("conv-1", {
       ...endEvent,
-      result: { ...result, summaryText: "x".repeat(10_000) },
+      summaryText: "x".repeat(10_000),
     });
 
     const row = JSON.parse(requests[1]!.body) as Record<string, unknown>;
@@ -240,7 +236,7 @@ function startRow(overrides: Record<string, unknown> = {}) {
     finished_at: 0,
     duration_ms: -1,
     pre_message_count: 12,
-    basis_message_count: -1,
+    result_message_count: -1,
     compacted: 0,
     previous_estimated_input_tokens: -1,
     estimated_input_tokens: -1,
@@ -269,7 +265,7 @@ function endRow(overrides: Record<string, unknown> = {}) {
     finished_at: 1500,
     duration_ms: 500,
     pre_message_count: -1,
-    basis_message_count: 4,
+    result_message_count: 4,
     compacted: 1,
     previous_estimated_input_tokens: 900,
     estimated_input_tokens: 300,
@@ -356,7 +352,7 @@ describe("ClickHouseCompactionLogStore — getEventsBetween", () => {
     // Start-phase field comes from the start row even though the end
     // row carries the -1 sentinel for it.
     expect(event.preMessageCount).toBe(12);
-    expect(event.basisMessageCount).toBe(4);
+    expect(event.resultMessageCount).toBe(4);
     expect(event.compacted).toBe(true);
     expect(event.summaryInputTokens).toBe(880);
     expect(event.summaryOutputTokens).toBe(120);

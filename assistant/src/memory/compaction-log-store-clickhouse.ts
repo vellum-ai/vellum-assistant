@@ -10,8 +10,9 @@
  *
  * The table is event-sourced rather than upserted: a `start` row records
  * that an attempt began (so attempts that never complete — pipeline throw,
- * turn abort — are still visible), and an `end` row carries the full
- * `ContextWindowResult`. Consumers pair rows by `compaction_id`.
+ * turn abort — are still visible), and an `end` row carries the
+ * `ContextWindowResult` fields unnested on the event. Consumers pair rows
+ * by `compaction_id`.
  *
  * The store also serves reads: the compaction-trail route pairs the rows
  * back into per-attempt events via `getEventsBetween`.
@@ -61,7 +62,7 @@ interface CompactionLogRow {
   finished_at: number;
   duration_ms: number;
   pre_message_count: number;
-  basis_message_count: number;
+  result_message_count: number;
   compacted: number;
   previous_estimated_input_tokens: number;
   estimated_input_tokens: number;
@@ -104,7 +105,7 @@ export interface CompactionLogEvent {
   finishedAt: number | null;
   durationMs: number | null;
   preMessageCount: number | null;
-  basisMessageCount: number | null;
+  resultMessageCount: number | null;
   compacted: boolean | null;
   previousEstimatedInputTokens: number | null;
   estimatedInputTokens: number | null;
@@ -182,32 +183,31 @@ export class ClickHouseCompactionLogStore {
     conversationId: string,
     event: CompactionEndEvent,
   ): Promise<void> {
-    const r = event.result;
     await this.insert({
       ...emptyRow(await this.assistantId(), conversationId, event),
       phase: "end",
       finished_at: event.finishedAt,
       duration_ms: event.finishedAt - event.startedAt,
-      basis_message_count: event.messages.length,
-      compacted: r.compacted ? 1 : 0,
-      previous_estimated_input_tokens: r.previousEstimatedInputTokens,
-      estimated_input_tokens: r.estimatedInputTokens,
-      max_input_tokens: r.maxInputTokens,
-      threshold_tokens: r.thresholdTokens,
-      compacted_messages: r.compactedMessages,
-      compacted_persisted_messages: r.compactedPersistedMessages,
-      preserved_tail_messages: r.preservedTailMessages ?? -1,
-      summary_calls: r.summaryCalls,
-      summary_input_tokens: r.summaryInputTokens,
-      summary_output_tokens: r.summaryOutputTokens,
-      summary_model: r.summaryModel,
+      result_message_count: event.messages.length,
+      compacted: event.compacted ? 1 : 0,
+      previous_estimated_input_tokens: event.previousEstimatedInputTokens,
+      estimated_input_tokens: event.estimatedInputTokens,
+      max_input_tokens: event.maxInputTokens,
+      threshold_tokens: event.thresholdTokens,
+      compacted_messages: event.compactedMessages,
+      compacted_persisted_messages: event.compactedPersistedMessages,
+      preserved_tail_messages: event.preservedTailMessages ?? -1,
+      summary_calls: event.summaryCalls,
+      summary_input_tokens: event.summaryInputTokens,
+      summary_output_tokens: event.summaryOutputTokens,
+      summary_model: event.summaryModel,
       summary_failed:
-        r.summaryFailed === undefined ? -1 : r.summaryFailed ? 1 : 0,
-      reason: r.reason ?? "",
-      exhausted: r.exhausted ? 1 : 0,
-      injection_mode: r.injectionMode ?? "",
-      auto_compress_applied: r.autoCompressApplied ? 1 : 0,
-      summary_text: r.summaryText.slice(0, SUMMARY_TEXT_MAX_CHARS),
+        event.summaryFailed === undefined ? -1 : event.summaryFailed ? 1 : 0,
+      reason: event.reason ?? "",
+      exhausted: event.exhausted ? 1 : 0,
+      injection_mode: event.injectionMode ?? "",
+      auto_compress_applied: event.autoCompressApplied ? 1 : 0,
+      summary_text: event.summaryText.slice(0, SUMMARY_TEXT_MAX_CHARS),
     });
   }
 
@@ -246,7 +246,7 @@ export class ClickHouseCompactionLogStore {
         toUnixTimestamp64Milli(finished_at) AS finished_at,
         duration_ms,
         pre_message_count,
-        basis_message_count,
+        result_message_count,
         compacted,
         previous_estimated_input_tokens,
         estimated_input_tokens,
@@ -309,7 +309,7 @@ export class ClickHouseCompactionLogStore {
           finished_at DateTime64(3),
           duration_ms Int64,
           pre_message_count Int64,
-          basis_message_count Int64,
+          result_message_count Int64,
           compacted UInt8,
           previous_estimated_input_tokens Int64,
           estimated_input_tokens Int64,
@@ -451,7 +451,7 @@ function emptyRow(
     finished_at: 0,
     duration_ms: -1,
     pre_message_count: -1,
-    basis_message_count: -1,
+    result_message_count: -1,
     compacted: 0,
     previous_estimated_input_tokens: -1,
     estimated_input_tokens: -1,
@@ -519,7 +519,7 @@ function pairRowsIntoEvents(
       finishedAt: end ? num(end.finished_at) : null,
       durationMs: end ? countOrNull(end.duration_ms) : null,
       preMessageCount: start ? countOrNull(start.pre_message_count) : null,
-      basisMessageCount: end ? countOrNull(end.basis_message_count) : null,
+      resultMessageCount: end ? countOrNull(end.result_message_count) : null,
       compacted: end ? num(end.compacted) === 1 : null,
       previousEstimatedInputTokens: end
         ? countOrNull(end.previous_estimated_input_tokens)

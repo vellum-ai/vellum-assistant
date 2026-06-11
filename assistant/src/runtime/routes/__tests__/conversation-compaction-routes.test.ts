@@ -176,7 +176,7 @@ function fakeCompactionLogEvent(
     finishedAt: 3500,
     durationMs: 500,
     preMessageCount: 12,
-    basisMessageCount: 4,
+    resultMessageCount: 4,
     compacted: true,
     previousEstimatedInputTokens: 900,
     estimatedInputTokens: 300,
