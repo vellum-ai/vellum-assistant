@@ -116,6 +116,21 @@ function StepIcon({ status }: { status: string | undefined }) {
 // Task progress template
 // ---------------------------------------------------------------------------
 
+/**
+ * The counter-style task_progress fallback only makes sense when the template
+ * data actually carries usable `{ completed, total }` counters. Malformed
+ * template data — e.g. a model emitting `steps` as an object instead of an
+ * array, which fails `isTaskProgressSurface` — must not fall through to a
+ * meaningless "0 / 0 tasks · 0%" bar; the card degrades to its plain body
+ * instead. `completed` may be absent (treated as 0 by the bar), `total` must
+ * coerce to a finite positive number.
+ */
+function hasUsableProgressCounters(templateData: Record<string, unknown>): boolean {
+  const completed = Number(templateData.completed ?? 0);
+  const total = Number(templateData.total ?? NaN);
+  return Number.isFinite(completed) && Number.isFinite(total) && total > 0;
+}
+
 function TaskProgressBar({ templateData }: { templateData: Record<string, unknown> }) {
   const completed = Number(templateData.completed ?? 0);
   const total = Number(templateData.total ?? 0);
@@ -193,7 +208,10 @@ function TaskStepList({
 export function CardSurface({ surface, onAction }: CardSurfaceProps) {
   const data = surface.data as unknown as CardSurfaceData;
   const isWeather = data.template === "weather_forecast" && data.templateData;
-  const isTaskProgress = data.template === "task_progress" && data.templateData;
+  const isTaskProgress =
+    data.template === "task_progress" &&
+    !!data.templateData &&
+    hasUsableProgressCounters(data.templateData);
   // Shared predicate so this render-detection and the activity-summary
   // hoist-detection in transcript-message-body cannot drift.
   const hasSteps = isTaskProgressSurface(surface);
