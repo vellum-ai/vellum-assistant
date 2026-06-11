@@ -54,6 +54,13 @@ async function startAudioPump(
 ): Promise<(() => void) | null> {
   try {
     const context = createAudioContext();
+    // Contexts constructed outside a user gesture start suspended and the
+    // worklet never receives a render quantum — resume explicitly (this
+    // runs after getUserMedia awaits, so the click's gesture window is
+    // gone).
+    if (context.state !== "running") {
+      await context.resume();
+    }
     await context.audioWorklet.addModule(WORKLET_MODULE_URL);
     const source = context.createMediaStreamSource(stream);
     const worklet = new AudioWorkletNode(context, WORKLET_PROCESSOR_NAME, {
@@ -64,6 +71,7 @@ async function startAudioPump(
 
     let pending: Int16Array[] = [];
     let pendingSamples = 0;
+    let sentChunks = 0;
     worklet.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
       const chunk = new Int16Array(event.data);
       if (chunk.length === 0) return;
@@ -78,9 +86,19 @@ async function startAudioPump(
       }
       pending = [];
       pendingSamples = 0;
+      sentChunks += 1;
+      if (sentChunks === 1 || sentChunks % 50 === 0) {
+        // Byte counts only — never audio content.
+        console.info(
+          `dictation: pushed audio chunk #${sentChunks} (${merged.byteLength} bytes, context=${context.state})`,
+        );
+      }
       push(merged.buffer);
     };
     source.connect(worklet);
+    console.info(
+      `dictation: audio pump started (context=${context.state})`,
+    );
 
     return () => {
       worklet.port.onmessage = null;

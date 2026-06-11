@@ -157,7 +157,10 @@ const setDictationPartials = async (
     }
     const previousOwner = dictationPartialsOwner;
     dictationPartialsOwner = enable ? webContents : null;
-    if (enable) forwardedPartialCount = 0;
+    if (enable) {
+      forwardedPartialCount = 0;
+      audioChunkCount = 0;
+    }
     const replaced =
       previousOwner && previousOwner !== webContents && !previousOwner.isDestroyed()
         ? ` (replaced wc=${previousOwner.id})`
@@ -176,6 +179,7 @@ const setDictationPartials = async (
 };
 
 let forwardedPartialCount = 0;
+let audioChunkCount = 0;
 
 const sendDictationPartialToOwner = (event: DictationPartialEvent): void => {
   forwardedPartialCount += 1;
@@ -459,12 +463,27 @@ export const installHotkeyHelper = (): void => {
   // High-frequency fire-and-forget PCM from the partials owner — plain
   // `on`, not `handle`: a round-trip per ~100ms chunk buys nothing.
   ipcMain.on("vellum:helper:dictation:audio", (event, chunk: unknown) => {
-    if (event.sender !== dictationPartialsOwner) return;
+    if (event.sender !== dictationPartialsOwner) {
+      audioChunkCount += 1;
+      if (audioChunkCount === 1 || audioChunkCount % 50 === 0) {
+        log.warn(
+          `[mac-helper] dictation audio chunk #${audioChunkCount} DROPPED (sender wc=${event.sender.id} is not the partials owner)`,
+        );
+      }
+      return;
+    }
     let buf: Buffer | null = null;
     if (Buffer.isBuffer(chunk)) buf = chunk;
     else if (chunk instanceof Uint8Array) buf = Buffer.from(chunk);
     else if (chunk instanceof ArrayBuffer) buf = Buffer.from(new Uint8Array(chunk));
     if (!buf || buf.length === 0) return;
+    audioChunkCount += 1;
+    if (audioChunkCount === 1 || audioChunkCount % 50 === 0) {
+      // Byte counts only — never audio content.
+      log.info(
+        `[mac-helper] dictation audio chunk #${audioChunkCount} → helper (${buf.length} bytes)`,
+      );
+    }
     void client
       .call("dictation.appendAudio", { audio: buf.toString("base64") })
       .catch(() => {
