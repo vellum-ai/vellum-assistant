@@ -103,12 +103,7 @@ const buttonVariants = cva(
         ].join(" "),
       },
       size: {
-        // `font-medium` pins regular button labels at 500 (the macOS client's
-        // `bodyMediumEmphasised`) even where the Electron app-wide override
-        // lightens the body-medium token to 400 (`.electron-type`). Compact
-        // buttons inherit the label token — macOS compact buttons use the
-        // 400-weight `labelDefault` there.
-        regular: "h-8 px-2.5 text-body-medium-default font-medium rounded-md",
+        regular: "h-8 px-2.5 text-body-medium-default rounded-md",
         compact: "h-6 px-2 text-label-medium-default rounded-md",
       },
       iconOnly: {
