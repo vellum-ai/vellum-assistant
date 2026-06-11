@@ -1,6 +1,14 @@
 import { BrowserWindow, Notification } from "electron";
 import { z } from "zod";
 
+import {
+  NOTIFICATION_CATEGORIES,
+  type NotificationCategory,
+  type NotificationActionEvent,
+  type ShowNotificationPayload,
+  showNotificationPayloadSchema,
+} from "@vellumai/ipc-contract";
+
 import { handle } from "./ipc";
 import { ensureVisible } from "./main-window";
 import log from "./logger";
@@ -44,18 +52,7 @@ import log from "./logger";
  * The four categories mirror the Swift app's
  * `UNNotificationCategory` registrations.
  */
-export type NotificationCategory =
-  | "activityComplete"
-  | "toolConfirmation"
-  | "voiceResponseComplete"
-  | "notificationIntent";
-
-export const NOTIFICATION_CATEGORIES = [
-  "activityComplete",
-  "toolConfirmation",
-  "voiceResponseComplete",
-  "notificationIntent",
-] as const;
+export { NOTIFICATION_CATEGORIES, type NotificationCategory };
 
 interface CategoryAction {
   type: "button";
@@ -99,46 +96,15 @@ const CATEGORY_COOLDOWN_MS: Record<NotificationCategory, number> = {
 // IPC payload schemas
 // ---------------------------------------------------------------------------
 
-const showPayloadSchema = z.tuple([
-  z.object({
-    category: z.enum(NOTIFICATION_CATEGORIES),
-    title: z.string(),
-    body: z.string(),
-    /** Daemon delivery id — used as dedup key and passed back on action. */
-    deliveryId: z.string().optional(),
-    /** Conversation or resource id for deep-link routing. */
-    conversationId: z.string().optional(),
-    /** Tool call id for approve/reject routing. */
-    toolCallId: z.string().optional(),
-    /** Arbitrary deep-link metadata forwarded back to renderer on action. */
-    deepLinkMetadata: z.record(z.string(), z.unknown()).optional(),
-  }),
-]);
+export type { ShowNotificationPayload };
 
-export type ShowNotificationPayload = z.infer<typeof showPayloadSchema>[0];
+const showPayloadSchema = z.tuple([showNotificationPayloadSchema]);
 
 // ---------------------------------------------------------------------------
 // Notification action event (main → renderer)
 // ---------------------------------------------------------------------------
 
-export interface NotificationActionEvent {
-  /** Which interaction triggered this event. */
-  kind: "click" | "action";
-  /** The category of the originating notification. */
-  category: NotificationCategory;
-  /** Zero-based index of the action button pressed (`kind === "action"`). */
-  actionIndex?: number;
-  /** Text label of the action button pressed. */
-  actionText?: string;
-  /** Daemon delivery id from the original notification. */
-  deliveryId?: string;
-  /** Conversation id for deep-link routing. */
-  conversationId?: string;
-  /** Tool call id for approve/reject routing. */
-  toolCallId?: string;
-  /** Deep-link metadata forwarded from the original notification. */
-  deepLinkMetadata?: Record<string, unknown>;
-}
+export type { NotificationActionEvent };
 
 // ---------------------------------------------------------------------------
 // Dedup / cooldown
