@@ -124,7 +124,6 @@ export const WithClickHandler: Story = {
     buckets: makeBuckets(7, TYPICAL_SOURCES),
     metric: "spend",
     onBarClick: (groupKey: string) => {
-      // eslint-disable-next-line no-console
       console.log("Bar clicked:", groupKey);
     },
   },
