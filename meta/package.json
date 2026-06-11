@@ -12,7 +12,8 @@
   },
   "files": [
     "bin",
-    "Dockerfile"
+    "Dockerfile",
+    "npm-shrinkwrap.json"
   ],
   "dependencies": {
     "@vellumai/assistant": "0.8.10",
@@ -25,7 +26,7 @@
     "drizzle-orm": "0.45.2",
     "lodash": "4.18.1",
     "path-to-regexp": "8.4.2",
-    "@esbuild-kit/esm-loader": "npm:tsx@^4.21.0",
+    "@esbuild-kit/esm-loader": "npm:tsx@4.22.4",
     "node-domexception": "npm:@profoundlogic/node-domexception@1.0.2"
   },
   "devDependencies": {
