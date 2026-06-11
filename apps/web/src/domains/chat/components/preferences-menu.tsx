@@ -4,7 +4,6 @@ import {
     ChevronDown,
     ChevronUp,
     Gift,
-    LogOut,
     MessageSquareText,
     Settings as SettingsIcon,
     Shield,
@@ -29,14 +28,8 @@ import {
     useActiveAssistantIsPlatformHosted,
     usePlatformGate,
 } from "@/hooks/use-platform-gate";
-import { handleLogout } from "@/lib/auth/handle-logout";
-import { isLocalMode } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
-import {
-    useAuthStore,
-    useHasPlatformSession,
-    useIsAuthenticated,
-} from "@/stores/auth-store";
+import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
 import { openUrl } from "@/runtime/browser";
 import { adminUrl, routes } from "@/utils/routes";
 
@@ -163,8 +156,6 @@ function PreferencesMenuContent({
   const billingPlatformGate = usePlatformGate({ platformHostedOnly: true });
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
   const isOrgReady = useIsOrgReady();
-  const hasPlatformSession = useHasPlatformSession();
-  const showLogout = !isLocalMode() || hasPlatformSession;
   const showBillingRows =
     billingPlatformGate === "full" && isPlatformHosted && isOrgReady;
   const { data: billingSummary } = useQuery({
@@ -203,15 +194,6 @@ function PreferencesMenuContent({
       ) : null}
 
       <PanelItem
-        icon={SettingsIcon}
-        label="Settings"
-        onSelect={() => {
-          onClose();
-          navigate(routes.settings.root);
-        }}
-      />
-
-      <PanelItem
         icon={ChartColumn}
         label="Usage"
         onSelect={() => {
@@ -242,16 +224,19 @@ function PreferencesMenuContent({
         />
       ) : null}
 
-      {showLogout ? (
-        <PanelItem
-          icon={LogOut}
-          label="Log Out"
-          onSelect={async () => {
-            await handleLogout(navigate);
-            onClose();
-          }}
-        />
-      ) : null}
+      {/*
+        Settings is intentionally last: the popover anchors side="top", so
+        the final item sits closest to the Preferences trigger. Item-level
+        ordering can't be asserted by the SSR test harness (open={false}).
+      */}
+      <PanelItem
+        icon={SettingsIcon}
+        label="Settings"
+        onSelect={() => {
+          onClose();
+          navigate(routes.settings.root);
+        }}
+      />
     </>
   );
 }
