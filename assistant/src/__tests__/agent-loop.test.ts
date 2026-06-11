@@ -6,6 +6,7 @@ import type {
   CheckpointInfo,
 } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
+import type { StopContext } from "../plugin-api/types.js";
 import { REFUSAL_FALLBACK_TEXT } from "../plugins/defaults/empty-response/hooks/post-model-call.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import { registerPlugin } from "../plugins/registry.js";
@@ -590,6 +591,60 @@ describe("AgentLoop", () => {
     const exitEvents = events.filter((e) => e.type === "agent_loop_exit");
     expect(exitEvents).toHaveLength(1);
     expect(exitEvents[0]).toMatchObject({ reason: "no_tool_calls" });
+  });
+
+  test("fires the stop teardown chain on a checkpoint handoff without emitting agent_loop_exit", async () => {
+    // A handoff pauses this run so the orchestrator can drain a queued message,
+    // then re-enters with a fresh run. It still ends *this* turn, so the
+    // terminal `stop` chain must fire — that is what runs per-turn teardown
+    // (e.g. clearing the recovery bounds the post-model-call hooks set) before
+    // the queued message is processed. But `agent_loop_exit` must NOT be
+    // emitted, because the handoff is a control transfer, not a terminal exit.
+
+    // GIVEN a stop hook recording every exit reason it observes, and a provider
+    // whose first reply requests a tool so the loop reaches a checkpoint
+    const stopReasons: string[] = [];
+    registerPlugin({
+      manifest: { name: "recording-stop", version: "0.0.1" },
+      hooks: {
+        stop: async (ctx: StopContext) => {
+          stopReasons.push(ctx.exitReason);
+        },
+      },
+    });
+    const { provider } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
+      textResponse("never reached"),
+    ]);
+    const toolExecutor = async () => ({ content: "ok", isError: false });
+    const loop = new AgentLoop({
+      provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: dummyTools,
+      toolExecutor,
+    });
+    const events: AgentEvent[] = [];
+
+    // AND a checkpoint callback that hands off at the first opportunity
+    const onCheckpoint = (_info: CheckpointInfo): CheckpointDecision =>
+      "handoff";
+
+    // WHEN the loop runs and yields control at the checkpoint
+    const { exitReason } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collectEvents(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+      onCheckpoint,
+    });
+
+    // THEN the terminal stop chain fired exactly once with the handoff reason
+    // (teardown ran), the run reported the handoff, and no agent_loop_exit was
+    // emitted
+    expect(stopReasons).toEqual(["checkpoint_handoff"]);
+    expect(exitReason).toBe("handoff");
+    expect(events.filter((e) => e.type === "agent_loop_exit")).toHaveLength(0);
   });
 
   // 6. Abort signal — verify the loop respects AbortSignal

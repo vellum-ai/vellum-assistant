@@ -374,16 +374,18 @@ export type AgentLoopExitReason =
 /**
  * Context passed to the `stop` hook — the loop's definitive terminal hook.
  *
- * It fires exactly once, after the loop has committed to ending the turn and
- * will not run another iteration. Unlike `post-model-call` (which owns the
- * model-call-outcome retry decision), `stop` cannot continue the loop: by the
- * time it runs the turn's outcome is settled. That guarantee makes it the home
- * for teardown — a hook can release per-turn resources or clear per-turn state
- * knowing nothing will re-enter the loop this turn.
+ * It fires exactly once per run, after the loop has committed to ending and
+ * will not run another iteration this run. Unlike `post-model-call` (which owns
+ * the model-call-outcome retry decision), `stop` cannot continue the loop: by
+ * the time it runs the turn's outcome is settled. That guarantee makes it the
+ * home for teardown — a hook can release per-turn resources or clear per-turn
+ * state knowing nothing will re-enter the loop this run.
  *
  * It fires on every terminal exit: a no-tool reply, a max-tokens stop, a
  * yield-to-user, an exhausted context-overflow recovery, a user abort, or an
- * unhandled error. {@link exitReason} reports which one and {@link error}
+ * unhandled error. It also fires on a `checkpoint_handoff`, which ends the run
+ * for teardown purposes even though the orchestrator resumes the conversation
+ * in a fresh run. {@link exitReason} reports which one and {@link error}
  * carries the rejection when the turn ended on one, so a hook that should act
  * only on a particular ending guards on {@link exitReason}.
  *
@@ -405,10 +407,11 @@ export interface StopContext {
    */
   readonly error?: Error;
   /**
-   * Which terminal state the turn reached. Always one of the reasons the loop
-   * emits directly; the orchestrator-only reasons (`checkpoint_handoff`,
-   * `aborted_after_checkpoint`) are control transfers that re-enter the loop
-   * and so never reach this hook.
+   * Which terminal state the turn reached. A `checkpoint_handoff` fires this
+   * hook for teardown — the run pauses so the orchestrator can drain a queued
+   * message — but is not emitted as an `agent_loop_exit`, since the
+   * conversation resumes in a fresh run. `aborted_after_checkpoint` is a
+   * control transfer that re-enters the loop and so never reaches this hook.
    */
   readonly exitReason: AgentLoopExitReason;
   /**

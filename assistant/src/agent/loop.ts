@@ -846,12 +846,17 @@ export class AgentLoop {
     // Single chokepoint for ending the turn. Runs the definitive terminal
     // `stop` hook chain exactly once — by the time it fires the loop has
     // committed to ending, so teardown hooks can clear per-turn state with the
-    // guarantee that nothing will re-enter the loop this turn — then emits the
-    // matching `agent_loop_exit` event. The first reason stamped wins: a break
-    // site that stamps a specific reason before unwinding into the catch
-    // handler keeps that reason instead of the generic "error", and the guard
-    // also defends against accidental double-invocation if a new terminal break
-    // site is added.
+    // guarantee that nothing will re-enter the loop this turn. The first reason
+    // stamped wins: a break site that stamps a specific reason before unwinding
+    // into the catch handler keeps that reason instead of the generic "error",
+    // and the guard also defends against accidental double-invocation if a new
+    // terminal break site is added.
+    //
+    // `emitExit` controls whether the matching `agent_loop_exit` observability
+    // event fires. Real terminal exits emit it; a `checkpoint_handoff` runs the
+    // teardown chain (so per-turn state like recovery bounds is cleared before
+    // the queued message drains) but does not emit, because the orchestrator
+    // owns the handoff signal and the conversation resumes in a fresh run.
     //
     // A throwing `stop` hook must not suppress the terminal exit: the chain is
     // isolated so a failing teardown hook (e.g. a third-party plugin) is logged
@@ -860,9 +865,9 @@ export class AgentLoop {
     // (the guard is already set) and the turn's terminal observability event
     // would be dropped.
     let turnStopped = false;
-    const stopTurn = async (
+    const runTerminalStop = async (
       reason: AgentLoopExitReason,
-      error?: Error,
+      { emitExit, error }: { emitExit: boolean; error?: Error },
     ): Promise<void> => {
       if (turnStopped) return;
       turnStopped = true;
@@ -878,11 +883,17 @@ export class AgentLoop {
       } catch (stopHookError) {
         rlog.error(
           { err: stopHookError, exitReason: reason },
-          "stop hook threw during terminal teardown; emitting agent_loop_exit anyway",
+          "stop hook threw during terminal teardown; continuing",
         );
       }
-      await onEvent({ type: "agent_loop_exit", reason });
+      if (emitExit) {
+        await onEvent({ type: "agent_loop_exit", reason });
+      }
     };
+    const stopTurn = (
+      reason: AgentLoopExitReason,
+      error?: Error,
+    ): Promise<void> => runTerminalStop(reason, { emitExit: true, error });
 
     while (true) {
       if (signal?.aborted) {
@@ -1766,6 +1777,13 @@ export class AgentLoop {
             history,
           });
           if (decision !== "continue") {
+            // A handoff pauses this run so the orchestrator can drain a queued
+            // message, then re-enters with a fresh run. It still ends *this*
+            // turn, so fire the terminal `stop` chain to run teardown (clearing
+            // per-turn state such as recovery bounds before the queued message
+            // is processed) — but without emitting `agent_loop_exit`, since the
+            // orchestrator owns the handoff signal and the conversation resumes.
+            await runTerminalStop("checkpoint_handoff", { emitExit: false });
             exitReason = decision;
             break;
           }
