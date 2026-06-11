@@ -50,6 +50,9 @@
     "@vellumai/slack-text",
     "@vellumai/twilio-client"
   ],
+  "overrides": {
+    "shell-quote": "1.8.4"
+  },
   "devDependencies": {
     "@types/bun": "1.3.9",
     "eslint": "10.0.0",
