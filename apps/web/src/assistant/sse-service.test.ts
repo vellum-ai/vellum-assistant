@@ -132,6 +132,9 @@ describe("sseService.attach — connection lifecycle", () => {
 
   test("publishes sse.opened with cause=watchdog when stream reconnects after a watchdog stall", () => {
     sseService.attach("asst-1");
+    // The stream must have genuinely established first — a reconnect only
+    // reconciles when there was a live connection to recover.
+    activeOnStreamOpen!();
     publishSpy.mockClear();
 
     activeOnReconnect!("watchdog");
@@ -140,6 +143,22 @@ describe("sseService.attach — connection lifecycle", () => {
       assistantId: "asst-1",
       cause: "watchdog",
     });
+  });
+
+  test("does NOT publish sse.opened on reconnect when the stream never established (502 loop)", () => {
+    sseService.attach("asst-1");
+    publishSpy.mockClear();
+
+    // Stream never opened (onStreamOpen never fired), then the transport
+    // retries. Firing sse.opened here would trigger a full reconcile/refetch
+    // with nothing to recover — the source of the request storm.
+    activeOnReconnect!("error");
+    activeOnReconnect!("error");
+
+    const openedCalls = publishSpy.mock.calls.filter(
+      ([name]) => name === "sse.opened",
+    );
+    expect(openedCalls).toHaveLength(0);
   });
 
   test("publishes sse.closed on transport error", () => {
