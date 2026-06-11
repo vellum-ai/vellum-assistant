@@ -257,7 +257,7 @@ export function GeneralPage() {
           isAcknowledging={diskPressure.isAcknowledging}
           acknowledgeError={diskPressure.acknowledgeError?.message ?? null}
           onAcknowledge={() => void diskPressure.acknowledge()}
-          onReviewWorkspaceData={() => void navigate(routes.workspace)}
+          onReviewWorkspaceData={() => void navigate(`${routes.workspace}?sort=size`)}
           onUpgradeStorage={
             infraGate === "full"
               ? () => void navigate(`${routes.settings.billing}?adjust_plan=1`)
