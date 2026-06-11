@@ -171,7 +171,7 @@ export function listUsageEvents(options?: { limit?: number }): UsageEvent[] {
  * Lives next to the query that produces it so the shape stays in lockstep
  * with the SELECT; broader `UsageEvent` consumers stay untouched.
  */
-export interface UnreportedUsageEvent extends UsageEvent {
+export interface UnreportedUsageEvent extends Omit<UsageEvent, "llmCallCount"> {
   /**
    * Type of the parent conversation (`"standard"` / `"background"` /
    * `"scheduled"`). Null when the LLM call has no `conversationId`
@@ -190,6 +190,13 @@ export interface UnreportedUsageEvent extends UsageEvent {
    * agent starts).
    */
   turnIndex: number | null;
+  /**
+   * Number of provider API calls aggregated into this row. The main agent
+   * loop persists one row per turn with `llm_call_count` set to the number
+   * of calls in the loop; auxiliary call sites persist 1. Null for rows
+   * persisted before migration `200-usage-llm-call-count`.
+   */
+  llmCallCount: number | null;
 }
 
 export function queryUnreportedUsageEvents(
@@ -230,6 +237,7 @@ export function queryUnreportedUsageEvents(
       estimatedCostUsd: llmUsageEvents.estimatedCostUsd,
       pricingStatus: llmUsageEvents.pricingStatus,
       assistantVersion: llmUsageEvents.assistantVersion,
+      llmCallCount: llmUsageEvents.llmCallCount,
       conversationType: conversations.conversationType,
       // Null when conversationId is null (no parent conversation).
       // Otherwise the count of eligible user turns up to and including
@@ -270,6 +278,7 @@ export function queryUnreportedUsageEvents(
     .all();
   return rows.map((row) => ({
     ...rowToUsageEvent(row),
+    llmCallCount: row.llmCallCount,
     conversationType: row.conversationType,
     // SQLite returns COUNT(*) as 0 when no rows match; the CASE in the
     // subquery already collapses the no-conversation case to NULL.
