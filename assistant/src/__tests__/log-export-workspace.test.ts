@@ -551,12 +551,7 @@ describe("POST /v1/export — manifest truncatedSections", () => {
         createdAt: now + i,
       }),
     );
-    // Chunked inserts keep each statement under SQLite's bind-variable limit.
-    for (let i = 0; i < rows.length; i += 500) {
-      db.insert(llmRequestLogs)
-        .values(rows.slice(i, i + 500))
-        .run();
-    }
+    db.insert(llmRequestLogs).values(rows).run();
 
     const manifest = await readManifest({ full: true });
     expect(manifest.truncatedSections).toEqual(["llm-request-logs"]);
