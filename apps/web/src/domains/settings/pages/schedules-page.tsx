@@ -163,6 +163,9 @@ export function SchedulesPage() {
 
   const selectedSystemTask = systemTaskKindFromUrlId(scheduleId);
   const [createOpen, setCreateOpen] = useState(false);
+  // Mount-time snapshot (impure calls are not allowed during render); the
+  // upcoming/past one-shot boundary doesn't need to move while the page is up.
+  const [now] = useState(() => Date.now());
 
   const selectedSchedule = useMemo(
     () =>
@@ -354,7 +357,7 @@ export function SchedulesPage() {
   const scheduleList = schedules ?? [];
   const { recurring, upcomingOneTime, pastOneTime } = groupSchedules(
     scheduleList,
-    Date.now(),
+    now,
   );
   const hasActiveSchedules =
     recurring.length > 0 || upcomingOneTime.length > 0;
