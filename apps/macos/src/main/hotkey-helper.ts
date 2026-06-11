@@ -46,6 +46,12 @@ const DICTATION_PARTIAL_SCHEMA = z.object({
   text: z.string(),
 });
 
+const DICTATION_ERROR_SCHEMA = z.object({
+  message: z.string(),
+  onDevice: z.boolean(),
+  willRetryServer: z.boolean(),
+});
+
 const DICTATION_RESULT_SCHEMA = z.object({
   enabled: z.boolean(),
   reason: z.string().optional(),
@@ -360,6 +366,7 @@ let installed = false;
 let unsubscribeHotkeyEvents: (() => void) | null = null;
 let unsubscribeHelperState: (() => void) | null = null;
 let unsubscribeDictationPartials: (() => void) | null = null;
+let unsubscribeDictationError: (() => void) | null = null;
 
 export const installHotkeyHelper = (): void => {
   if (installed) return;
@@ -377,6 +384,17 @@ export const installHotkeyHelper = (): void => {
     DICTATION_PARTIAL_SCHEMA,
     (event) => {
       sendDictationPartialToOwner(event);
+    },
+  );
+  unsubscribeDictationError = client.onNotification(
+    "dictation.error",
+    DICTATION_ERROR_SCHEMA,
+    (event) => {
+      // Field-debuggable trace for recognition dying mid-session (the
+      // helper retries on the server path when the on-device pin fails).
+      log.warn(
+        `[mac-helper] dictation recognition error (onDevice=${event.onDevice}, retryServer=${event.willRetryServer}): ${event.message}`,
+      );
     },
   );
   unsubscribeHelperState = client.onState(handleHelperState);
@@ -423,6 +441,8 @@ export const __resetForTesting = (): void => {
   unsubscribeHelperState = null;
   unsubscribeDictationPartials?.();
   unsubscribeDictationPartials = null;
+  unsubscribeDictationError?.();
+  unsubscribeDictationError = null;
   dictationPartialsOwner = null;
   for (const owner of hotkeyOwners.values()) owner.cleanup();
   hotkeyOwners.clear();

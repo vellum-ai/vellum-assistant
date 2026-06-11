@@ -36,10 +36,18 @@ final class DictationPartialsSession: @unchecked Sendable {
     private let request = SFSpeechAudioBufferRecognitionRequest()
     private var task: SFSpeechRecognitionTask?
     private var stopped = false
+    private let requireOnDevice: Bool
     private let emit: (String) -> Void
+    private let onError: (Error) -> Void
 
-    init(emit: @escaping (String) -> Void) {
+    init(
+        requireOnDevice: Bool,
+        emit: @escaping (String) -> Void,
+        onError: @escaping (Error) -> Void
+    ) {
+        self.requireOnDevice = requireOnDevice
         self.emit = emit
+        self.onError = onError
     }
 
     func start() throws {
@@ -57,7 +65,14 @@ final class DictationPartialsSession: @unchecked Sendable {
         // transcript working offline. Locales without an on-device model
         // stay on Apple's server path — forcing the flag there would fail
         // recognition outright instead of degrading.
-        if recognizer.supportsOnDeviceRecognition {
+        //
+        // `supportsOnDeviceRecognition` is a capability claim, not an
+        // enablement check: with macOS Dictation switched off the pinned
+        // task dies at runtime (kLSRErrorDomain 201 "Siri and Dictation
+        // are disabled"). The owner watches `onError` for that and retries
+        // once with `requireOnDevice: false` so the server path still
+        // serves online sessions.
+        if requireOnDevice, recognizer.supportsOnDeviceRecognition {
             request.requiresOnDeviceRecognition = true
         }
 
@@ -79,8 +94,13 @@ final class DictationPartialsSession: @unchecked Sendable {
             throw error
         }
 
-        task = recognizer.recognitionTask(with: request) { [weak self] result, _ in
-            guard let self, !self.stopped, let result else { return }
+        task = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            guard let self, !self.stopped else { return }
+            if let error {
+                self.onError(error)
+                return
+            }
+            guard let result else { return }
             self.emit(result.bestTranscription.formattedString)
         }
     }

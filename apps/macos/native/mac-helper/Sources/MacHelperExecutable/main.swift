@@ -253,13 +253,42 @@ final class MacHelper: @unchecked Sendable {
         }
     }
 
-    private func startDictationSession() -> [String: Any] {
-        let session = DictationPartialsSession { [weak self] text in
-            self?.writeNotification(
-                method: "dictation.partial",
-                params: ["text": text]
-            )
-        }
+    private func startDictationSession(requireOnDevice: Bool = true) -> [String: Any] {
+        let generation = dictationGeneration
+        let session = DictationPartialsSession(
+            requireOnDevice: requireOnDevice,
+            emit: { [weak self] text in
+                self?.writeNotification(
+                    method: "dictation.partial",
+                    params: ["text": text]
+                )
+            },
+            onError: { [weak self] error in
+                // Recognition died mid-session — e.g. kLSRErrorDomain 201
+                // ("Siri and Dictation are disabled") when the on-device pin
+                // is set but macOS Dictation isn't enabled. This used to be
+                // swallowed, leaving the session looking alive while emitting
+                // nothing. Surface it, and retry once on the server path so
+                // online sessions still get partials.
+                DispatchQueue.main.async {
+                    guard let self, generation == self.dictationGeneration else {
+                        return
+                    }
+                    self.writeNotification(
+                        method: "dictation.error",
+                        params: [
+                            "message": error.localizedDescription,
+                            "onDevice": requireOnDevice,
+                            "willRetryServer": requireOnDevice,
+                        ]
+                    )
+                    guard requireOnDevice else { return }
+                    self.dictationSession?.stop()
+                    self.dictationSession = nil
+                    _ = self.startDictationSession(requireOnDevice: false)
+                }
+            }
+        )
         do {
             try session.start()
             dictationSession = session
