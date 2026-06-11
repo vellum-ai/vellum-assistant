@@ -119,19 +119,26 @@ describe("identity intro cache", () => {
 
     setCachedIntro(["Hello!"]);
 
-    const fortyNineHoursAgo = String(Date.now() - 49 * 60 * 60 * 1000);
-    checkpointStore.set("identity:intro:cached_at", fortyNineHoursAgo);
+    const fourHoursAndOneMinuteAgo = String(
+      Date.now() - (4 * 60 + 1) * 60 * 1000,
+    );
+    checkpointStore.set("identity:intro:cached_at", fourHoursAndOneMinuteAgo);
 
     expect(getCachedIntro()).toBeNull();
   });
 
-  test("returns cached greetings when within TTL (47 hours ago)", () => {
+  test("returns cached greetings when within TTL (3 hours 59 minutes ago)", () => {
     workspaceFiles["IDENTITY.md"] = "- **Name:** Atlas";
 
     setCachedIntro(["Hello!"]);
 
-    const fortySevenHoursAgo = String(Date.now() - 47 * 60 * 60 * 1000);
-    checkpointStore.set("identity:intro:cached_at", fortySevenHoursAgo);
+    const threeHoursAndFiftyNineMinutesAgo = String(
+      Date.now() - (3 * 60 + 59) * 60 * 1000,
+    );
+    checkpointStore.set(
+      "identity:intro:cached_at",
+      threeHoursAndFiftyNineMinutesAgo,
+    );
 
     const cached = getCachedIntro();
     expect(cached).not.toBeNull();

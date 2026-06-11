@@ -8,7 +8,7 @@
 
 import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mocks — must be defined before importing the module under test
@@ -22,7 +22,11 @@ mock.module("../util/logger.js", () => ({
 }));
 
 const mockGetConversationByKey = mock(
-  (_key: string): { conversationId: string } | null => ({
+  (
+    _key: string,
+  ): {
+    conversationId: string;
+  } | null => ({
     conversationId: "conv-test-123",
   }),
 );
@@ -78,13 +82,6 @@ mock.module("../runtime/routes/identity-intro-cache.js", () => ({
   getCachedIntro: () => null,
   readWorkspaceIdentityIntro: () => null,
   setCachedIntro: () => {},
-}));
-
-const assistantFeatureFlags: Record<string, boolean> = {};
-
-mock.module("../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: (key: string) =>
-    assistantFeatureFlags[key] ?? false,
 }));
 
 // Mock getOrCreateConversation from conversation-store so the handler
@@ -185,12 +182,6 @@ function makeMockSession(
 
 const route = ROUTES.find((r) => r.endpoint === "btw" && r.method === "POST");
 if (!route) throw new Error("btw route not found in ROUTES");
-
-beforeEach(() => {
-  for (const key of Object.keys(assistantFeatureFlags)) {
-    delete assistantFeatureFlags[key];
-  }
-});
 
 async function callHandler(
   body: Record<string, unknown>,
@@ -339,25 +330,7 @@ describe("POST /v1/btw", () => {
     expect(options!.config!.modelIntent).toBeUndefined();
   });
 
-  test("greeting requests return static fallback when the dynamic greetings flag is off", async () => {
-    mockGetOrCreateConversation.mockClear();
-
-    const { result } = await callHandler({
-      conversationKey: "greeting",
-      content: "Generate a greeting",
-    });
-    const text = await readStream(result as ReadableStream<Uint8Array>);
-
-    expect(text).toContain(
-      `event: btw_text_delta\ndata: {"text":"What are we working on?"}`,
-    );
-    expect(text).toContain("event: btw_complete\ndata: {}");
-    expect(mockGetOrCreateConversation).not.toHaveBeenCalled();
-  });
-
-  test("greeting requests pass callSite: 'emptyStateGreeting' when the dynamic greetings flag is on", async () => {
-    assistantFeatureFlags["empty-state-dynamic-greetings"] = true;
-
+  test("greeting requests pass callSite: 'emptyStateGreeting'", async () => {
     const provider = makeMockProvider();
     const session = makeMockSession(provider);
     mockGetOrCreateConversation.mockImplementationOnce(async () => session);
