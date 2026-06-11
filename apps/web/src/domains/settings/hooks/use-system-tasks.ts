@@ -8,7 +8,6 @@ import {
   fetchHeartbeatRuns,
   runConsolidationNow,
   runHeartbeatNow,
-  updateConsolidationConfig,
   updateHeartbeatConfig,
 } from "@/domains/settings/api/schedules";
 import {
@@ -220,13 +219,12 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
   const handleToggle = useCallback(
     async (kind: SystemTaskKind, enabled: boolean) => {
       if (!assistantId) return;
-      const updateFn =
-        kind === "heartbeat" ? updateHeartbeatConfig : updateConsolidationConfig;
+      if (kind !== "heartbeat") return;
       const queryKey = [`${kind}-config`, assistantId];
-      const label = kind === "heartbeat" ? "Heartbeat" : "Consolidation";
+      const label = "Heartbeat";
 
       try {
-        const updated = await updateFn(assistantId, { enabled });
+        const updated = await updateHeartbeatConfig(assistantId, { enabled });
         queryClient.setQueryData(queryKey, updated);
         toast.success(enabled ? `${label} enabled.` : `${label} disabled.`);
       } catch (error) {

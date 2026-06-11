@@ -96,6 +96,46 @@ describe("resolveBootstrappedConversationId", () => {
     ).toBe("asst-1");
   });
 
+  test("resumes a stored surfaced background conversation on cold load", () => {
+    expect(
+      resolveBootstrappedConversationId({
+        queryParamKey: null,
+        currentConversationId: null,
+        currentAssistantId: null,
+        nextAssistantId: "asst-1",
+        storedConversationId: "surfaced-bg",
+        defaultConversationId: "new-latest",
+        conversations: [
+          {
+            conversationId: "surfaced-bg",
+            conversationType: "background",
+            surfacedAt: 1704067200000,
+          },
+        ],
+      }),
+    ).toBe("surfaced-bg");
+  });
+
+  test("resumes a stored surfaced legacy-grouped conversation on cold load", () => {
+    expect(
+      resolveBootstrappedConversationId({
+        queryParamKey: null,
+        currentConversationId: null,
+        currentAssistantId: null,
+        nextAssistantId: "asst-1",
+        storedConversationId: "surfaced-sched",
+        defaultConversationId: "new-latest",
+        conversations: [
+          {
+            conversationId: "surfaced-sched",
+            groupId: "system:scheduled",
+            surfacedAt: 1704067200000,
+          },
+        ],
+      }),
+    ).toBe("surfaced-sched");
+  });
+
   test("ignores a stored conversation that is no longer in the list", () => {
     expect(
       resolveBootstrappedConversationId({

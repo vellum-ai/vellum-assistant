@@ -58,6 +58,7 @@ let injectionMockActive = false;
 
 let liveEnabled = false;
 let shadowEnabled = false;
+let memoryEnabled = true;
 let spotlightConfig = { n: 6, windowTurns: 2 };
 /** `null` disables the prune valve (the default for tests not exercising it —
  *  `runPruneValve` bails when the config block is absent). */
@@ -125,6 +126,7 @@ mock.module("../../../../config/loader.js", () => ({
     injectionMockActive
       ? {
           memory: {
+            enabled: memoryEnabled,
             v3: {
               spotlight: spotlightConfig,
               prune: pruneConfig ?? undefined,
@@ -299,6 +301,7 @@ beforeEach(async () => {
   injectionMockActive = true;
   liveEnabled = false;
   shadowEnabled = false;
+  memoryEnabled = true;
   spotlightConfig = { n: 6, windowTurns: 2 };
   pruneConfig = null;
   turnResults = new Map();
@@ -317,6 +320,17 @@ afterAll(async () => {
 // ─── frozen net-new cards ───────────────────────────────────────────────────
 
 describe("memoryV3Injector — frozen net-new cards", () => {
+  test("global memory disabled → both injectors produce null without orchestration", async () => {
+    liveEnabled = true;
+    memoryEnabled = false;
+    turnResults.set(0, result(["page-a"]));
+
+    expect(await produceCardsWithoutCommit("conv-1", 0)).toBeNull();
+    expect(await produceSpotlight("conv-1", 0)).toBeNull();
+    expect(observeTurnSpy).not.toHaveBeenCalled();
+    expect(getActiveSlugs("conv-1")).toEqual(new Set());
+  });
+
   test("turn 1 renders cards; turn 2 re-selecting the same pages renders ZERO new cards", async () => {
     liveEnabled = true;
     turnResults.set(0, result(["page-a", "page-b"]));

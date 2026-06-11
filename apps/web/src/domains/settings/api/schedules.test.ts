@@ -80,7 +80,6 @@ const heartbeatRows: HeartbeatRunsGetResponse["runs"] = [
 let usageSummaryCalls: UsageSummaryCall[] = [];
 let consolidationRunsCalls: ConsolidationRunsCall[] = [];
 let heartbeatRunsCalls: HeartbeatRunsCall[] = [];
-let consolidationConfigPutCalls: ConfigUpdateCall[] = [];
 let heartbeatConfigPutCalls: ConfigUpdateCall[] = [];
 let responseOk = true;
 let responseStatus = 200;
@@ -99,23 +98,6 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     heartbeatRunsCalls.push(opts);
     return Promise.resolve({
       data: responseOk ? { runs: heartbeatRows } : undefined,
-      error: undefined,
-      response: { ok: responseOk, status: responseStatus },
-    });
-  },
-  consolidationConfigPut: (opts: ConfigUpdateCall) => {
-    consolidationConfigPutCalls.push(opts);
-    return Promise.resolve({
-      data: responseOk
-        ? {
-            available: true,
-            enabled: opts.body.enabled,
-            intervalMs: 4 * 60 * 60_000,
-            nextRunAt: opts.body.enabled ? 1_761_792_000_000 : null,
-            lastRunAt: null,
-            success: true,
-          }
-        : undefined,
       error: undefined,
       response: { ok: responseOk, status: responseStatus },
     });
@@ -154,7 +136,6 @@ const {
   fetchConsolidationRuns,
   fetchHeartbeatRuns,
   fetchScheduleUsageSummary,
-  updateConsolidationConfig,
   updateHeartbeatConfig,
 } = await import("./schedules");
 
@@ -162,7 +143,6 @@ afterEach(() => {
   usageSummaryCalls = [];
   consolidationRunsCalls = [];
   heartbeatRunsCalls = [];
-  consolidationConfigPutCalls = [];
   heartbeatConfigPutCalls = [];
   responseOk = true;
   responseStatus = 200;
@@ -273,19 +253,4 @@ describe("system task config updates", () => {
     ]);
   });
 
-  test("updates consolidation enabled through the daemon config endpoint", async () => {
-    const result = await updateConsolidationConfig("assistant-1", {
-      enabled: false,
-    });
-
-    expect(result.enabled).toBe(false);
-    expect(result.available).toBe(true);
-    expect(consolidationConfigPutCalls).toEqual([
-      {
-        path: { assistant_id: "assistant-1" },
-        body: { enabled: false },
-        throwOnError: false,
-      },
-    ]);
-  });
 });

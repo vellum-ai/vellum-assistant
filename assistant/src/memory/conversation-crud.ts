@@ -264,6 +264,7 @@ export interface ConversationRow {
   scheduleJobId: string | null;
   lastMessageAt: number | null;
   archivedAt: number | null;
+  surfacedAt: number | null;
   inferenceProfile: string | null;
   inferenceProfileSessionId: string | null;
   inferenceProfileExpiresAt: number | null;
@@ -298,6 +299,7 @@ export const parseConversation = createRowMapper<
   scheduleJobId: "scheduleJobId",
   lastMessageAt: "lastMessageAt",
   archivedAt: "archivedAt",
+  surfacedAt: "surfacedAt",
   inferenceProfile: "inferenceProfile",
   inferenceProfileSessionId: "inferenceProfileSessionId",
   inferenceProfileExpiresAt: "inferenceProfileExpiresAt",
@@ -1860,6 +1862,36 @@ export function unarchiveConversation(id: string): boolean {
 }
 
 /**
+ * Set or clear the `surfaced_at` promotion marker for a conversation.
+ *
+ * A non-null `surfaced_at` promotes a background/scheduled conversation
+ * into the default ("standard") conversation listing so clients show it in
+ * the Recents sidebar grouping. Promotion is always explicit — callers are
+ * product flows that decide a background run deserves foreground visibility
+ * (e.g. the user sent a follow-up message in it). Nothing sets this
+ * automatically.
+ *
+ * Returns `null` when the conversation does not exist; otherwise the new
+ * `surfacedAt` value (`number` when surfacing, `null` when clearing).
+ */
+export function setConversationSurfaced(
+  id: string,
+  surfaced: boolean,
+): { surfacedAt: number | null } | null {
+  const conv = getConversation(id);
+  if (!conv) return null;
+  const now = Date.now();
+  const surfacedAt = surfaced ? now : null;
+  rawRun(
+    "UPDATE conversations SET surfaced_at = ?, updated_at = ? WHERE id = ?",
+    surfacedAt,
+    now,
+    id,
+  );
+  return { surfacedAt };
+}
+
+/**
  * Set or clear the inference profile override for a conversation.
  * Pass `null` to clear the override and fall back to the workspace
  * `llm.activeProfile` resolution.
@@ -2581,8 +2613,18 @@ export function batchSetDisplayOrders(
         ) {
           safeGroupId = "system:all";
         }
+        // Moving a conversation into the Scheduled/Background system groups
+        // is an explicit demotion out of Recents, so clear any `surfaced_at`
+        // promotion in the same write — otherwise the surfaced marker would
+        // keep the row in the standard listing and the move would appear to
+        // do nothing.
+        const clearsSurfaced =
+          safeGroupId === "system:background" ||
+          safeGroupId === "system:scheduled";
         rawRun(
-          "UPDATE conversations SET display_order = ?, is_pinned = ?, group_id = ? WHERE id = ?",
+          `UPDATE conversations SET display_order = ?, is_pinned = ?, group_id = ?${
+            clearsSurfaced ? ", surfaced_at = NULL" : ""
+          } WHERE id = ?`,
           update.displayOrder,
           safeGroupId === "system:pinned" ? 1 : 0,
           safeGroupId,

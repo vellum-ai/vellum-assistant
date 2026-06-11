@@ -498,6 +498,13 @@ export function isToolActiveForContext(
   ) {
     return false;
   }
+  if (name === "remember") {
+    try {
+      return getConfig().memory?.enabled !== false;
+    } catch {
+      return true;
+    }
+  }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
     if (
       ctx.channelCapabilities?.channel === "slack" &&
