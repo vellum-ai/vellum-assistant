@@ -123,17 +123,20 @@ export interface TickObservation {
   cacheReadInputTokens: number;
 }
 
+const num = (v: unknown): number =>
+  typeof v === "number" && Number.isFinite(v) ? v : 0;
+
+/**
+ * Extract token fields from a usage record. Handles both camelCase
+ * (daemon SSE `usage_update` events, where fields live directly on
+ * `event.message`) and snake_case (egress-proxy recorded usage).
+ */
 function extractUsageFields(record: Record<string, unknown>): {
   inputTokens: number;
   outputTokens: number;
   cacheCreationInputTokens: number;
   cacheReadInputTokens: number;
-  isCompaction: boolean;
 } {
-  const num = (v: unknown): number =>
-    typeof v === "number" && Number.isFinite(v) ? v : 0;
-  const callSite =
-    typeof record["call_site"] === "string" ? record["call_site"] : "";
   return {
     inputTokens: num(record["input_tokens"] ?? record["inputTokens"]),
     outputTokens: num(record["output_tokens"] ?? record["outputTokens"]),
@@ -144,14 +147,22 @@ function extractUsageFields(record: Record<string, unknown>): {
     cacheReadInputTokens: num(
       record["cache_read_input_tokens"] ?? record["cacheReadInputTokens"],
     ),
-    isCompaction:
-      callSite === "compactionAgent" ||
-      callSite === "mainAgent" ||
-      (typeof record["model"] === "string" &&
-        typeof record["call_site"] === "undefined"),
   };
 }
 
+/**
+ * Observe per-tick metrics from agent events.
+ *
+ * Usage data arrives in two shapes depending on the source:
+ * 1. **Daemon SSE (`usage_update`):** fields live directly on
+ *    `event.message` (camelCase: `inputTokens`, `outputTokens`, …).
+ * 2. **Egress-proxy recorded usage (wrapped):** a nested
+ *    `event.message.usage` object (snake_case or camelCase).
+ *
+ * Compaction is detected via `context_compacting` events emitted by
+ * the agent loop when compaction starts — not inferred from usage
+ * call sites (which aren't on the SSE wire).
+ */
 function observeTick(
   tickNumber: number,
   phase: "seed" | "observe",
@@ -164,15 +175,36 @@ function observeTick(
   let cacheReadInputTokens = 0;
 
   for (const event of events) {
-    const usage = event.message.usage;
-    if (!usage || typeof usage !== "object" || Array.isArray(usage)) continue;
-    const record = usage as Record<string, unknown>;
-    const fields = extractUsageFields(record);
-    inputTokens += fields.inputTokens;
-    outputTokens += fields.outputTokens;
-    cacheCreationInputTokens += fields.cacheCreationInputTokens;
-    cacheReadInputTokens += fields.cacheReadInputTokens;
-    if (fields.isCompaction) compactionEvents++;
+    const msg = event.message;
+
+    // Count each compaction pass once via the start event.
+    // `context_compacting` fires when the pipeline begins;
+    // `compaction_completed` is the paired end event.
+    if (msg.type === "context_compacting") {
+      compactionEvents++;
+      continue;
+    }
+    if (msg.type === "compaction_completed") continue;
+
+    // Path 1: daemon SSE `usage_update` — fields on msg directly
+    if (msg.type === "usage_update") {
+      const fields = extractUsageFields(msg as Record<string, unknown>);
+      inputTokens += fields.inputTokens;
+      outputTokens += fields.outputTokens;
+      cacheCreationInputTokens += fields.cacheCreationInputTokens;
+      cacheReadInputTokens += fields.cacheReadInputTokens;
+      continue;
+    }
+
+    // Path 2: wrapped usage (egress-proxy records or synthetic events)
+    const usage = msg.usage;
+    if (usage && typeof usage === "object" && !Array.isArray(usage)) {
+      const fields = extractUsageFields(usage as Record<string, unknown>);
+      inputTokens += fields.inputTokens;
+      outputTokens += fields.outputTokens;
+      cacheCreationInputTokens += fields.cacheCreationInputTokens;
+      cacheReadInputTokens += fields.cacheReadInputTokens;
+    }
   }
 
   return {
