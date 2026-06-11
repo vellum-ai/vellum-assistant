@@ -1,13 +1,13 @@
-// AUTO-GENERATED FILE. Do not edit by hand.
+// Hand-maintained mirror of the LLM provider/model catalog for the web app.
 //
-// Source:    web/src/lib/generated/llm-provider-catalog.json
-//            (vendored from vellum-ai/vellum-assistant meta/llm-provider-catalog.json)
-// Generator: web/scripts/sync-llm-model-catalog.ts
-// Run:       bun run sync:llm-model-catalog
+// Source of truth: assistant/src/providers/model-catalog.ts, which
+// generates meta/llm-provider-catalog.json via
+//   cd assistant && bun run sync:llm-catalog
+// This file mirrors the subset the web UI needs (no ollama, no
+// pricing/vision/caching fields).
 //
-// To change a model or provider, update the upstream catalog in the
-// vellum-assistant repo first, then refresh the vendored JSON here and
-// re-run the generator.
+// Parity is enforced by llm-model-catalog.test.ts: update the daemon
+// catalog first, run the sync, then mirror the change here.
 
 export interface LlmCatalogModel {
   id: string;
@@ -148,6 +148,14 @@ export const MODELS_BY_PROVIDER = {
   ],
   gemini: [
     {
+      id: "gemini-3.5-flash",
+      displayName: "Gemini 3.5 Flash",
+      contextWindowTokens: 1_048_576,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 65_536,
+      supportsThinking: true,
+    },
+    {
       id: "gemini-3.1-pro-preview",
       displayName: "Gemini 3.1 Pro Preview",
       contextWindowTokens: 1_048_576,
@@ -215,6 +223,14 @@ export const MODELS_BY_PROVIDER = {
     },
   ],
   fireworks: [
+    {
+      id: "accounts/fireworks/models/kimi-k2p6",
+      displayName: "Kimi K2.6",
+      contextWindowTokens: 262_144,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 32_768,
+      supportsThinking: true,
+    },
     {
       id: "accounts/fireworks/models/kimi-k2p5",
       displayName: "Kimi K2.5",
@@ -320,6 +336,14 @@ export const MODELS_BY_PROVIDER = {
       id: "x-ai/grok-4.20-beta",
       displayName: "Grok 4.20 Beta",
       contextWindowTokens: 256_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 16_000,
+      supportsThinking: true,
+    },
+    {
+      id: "x-ai/grok-4.3",
+      displayName: "Grok 4.3",
+      contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 16_000,
       supportsThinking: true,
@@ -520,6 +544,13 @@ export const MODELS_BY_PROVIDER = {
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 5_000,
     },
+    {
+      id: "openrouter/owl-alpha",
+      displayName: "Owl Alpha",
+      contextWindowTokens: 1_048_576,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 262_144,
+    },
   ],
   minimax: [
     {
@@ -546,7 +577,7 @@ export const MODELS_BY_PROVIDER = {
 export type LlmProviderId = keyof typeof MODELS_BY_PROVIDER;
 
 export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
-  anthropic: "claude-sonnet-4-6",
+  anthropic: "claude-opus-4-8",
   openai: "gpt-5.5",
   gemini: "gemini-2.5-flash",
   fireworks: "accounts/fireworks/models/kimi-k2p5",
