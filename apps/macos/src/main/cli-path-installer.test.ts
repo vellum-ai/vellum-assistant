@@ -37,6 +37,8 @@ mock.module("node:os", () => ({
 
 // Track fs calls so tests can assert on them.
 let readFileSyncResult: string | Error | null = null;
+// Drives isCliInstalled() (existsSync on the CLI bin path) → runtimeReady.
+let cliBinExists = false;
 // "auto" mirrors readFileSync presence; "exists" forces a present entry
 // (e.g. a dangling symlink whose readFileSync still throws ENOENT).
 let lstatSyncBehavior: "auto" | "exists" = "auto";
@@ -60,7 +62,7 @@ mock.module("node:fs", () => ({
   statSync: () => ({ isFile: () => true }),
   constants: { X_OK: 1 },
   copyFileSync: () => {},
-  existsSync: () => false,
+  existsSync: () => cliBinExists,
   readdirSync: () => [],
   // Used by cli-path-installer.
   chmodSync: (p: string, mode: number) => {
@@ -134,6 +136,7 @@ const locatorPath = `${userDataPath}/cli/locator.sh`;
 
 afterEach(() => {
   readFileSyncResult = null;
+  cliBinExists = false;
   lstatSyncBehavior = "auto";
   for (const key of Object.keys(realpathMap)) delete realpathMap[key];
   mkdirSyncCalls.length = 0;
@@ -346,6 +349,7 @@ describe("getCliPathInstallState", () => {
     expect(await getCliPathInstallState()).toEqual({
       kind: "installed",
       inPath: false,
+      runtimeReady: false,
     });
     expect(findExecutablesCalls).toEqual([["vellum", shellPathValue]]);
   });
@@ -358,6 +362,7 @@ describe("getCliPathInstallState", () => {
     expect(await getCliPathInstallState()).toEqual({
       kind: "installed",
       inPath: true,
+      runtimeReady: false,
     });
   });
 
@@ -370,6 +375,7 @@ describe("getCliPathInstallState", () => {
       kind: "shadowed",
       shadowedBy: "/opt/homebrew/bin/vellum",
       inPath: true,
+      runtimeReady: false,
     });
   });
 
@@ -382,6 +388,7 @@ describe("getCliPathInstallState", () => {
       kind: "shadowed",
       shadowedBy: "/opt/homebrew/bin/vellum",
       inPath: false,
+      runtimeReady: false,
     });
   });
 
@@ -395,6 +402,7 @@ describe("getCliPathInstallState", () => {
     expect(await getCliPathInstallState()).toEqual({
       kind: "installed",
       inPath: true,
+      runtimeReady: false,
     });
   });
 
@@ -408,6 +416,7 @@ describe("getCliPathInstallState", () => {
       kind: "shadowed",
       shadowedBy: "/opt/homebrew/bin/vellum",
       inPath: true,
+      runtimeReady: false,
     });
   });
 
@@ -419,6 +428,7 @@ describe("getCliPathInstallState", () => {
     expect(await getCliPathInstallState()).toEqual({
       kind: "installed",
       inPath: true,
+      runtimeReady: false,
     });
   });
 
@@ -430,6 +440,34 @@ describe("getCliPathInstallState", () => {
     expect(await getCliPathInstallState()).toEqual({
       kind: "installed",
       inPath: true,
+      runtimeReady: false,
+    });
+  });
+
+  test("reports runtimeReady true when the CLI runtime is provisioned", async () => {
+    readFileSyncResult = buildWrapperScript();
+    cliBinExists = true;
+    shellPathValue = `${wrapperDir}:/usr/bin:/bin`;
+    shellPathHits = [wrapperPath];
+
+    expect(await getCliPathInstallState()).toEqual({
+      kind: "installed",
+      inPath: true,
+      runtimeReady: true,
+    });
+  });
+
+  test("shadowed also carries runtimeReady when the runtime is provisioned", async () => {
+    readFileSyncResult = buildWrapperScript();
+    cliBinExists = true;
+    shellPathValue = `/opt/homebrew/bin:${wrapperDir}`;
+    shellPathHits = ["/opt/homebrew/bin/vellum", wrapperPath];
+
+    expect(await getCliPathInstallState()).toEqual({
+      kind: "shadowed",
+      shadowedBy: "/opt/homebrew/bin/vellum",
+      inPath: true,
+      runtimeReady: true,
     });
   });
 
@@ -441,6 +479,7 @@ describe("getCliPathInstallState", () => {
     expect(await getCliPathInstallState()).toEqual({
       kind: "installed",
       inPath: false,
+      runtimeReady: false,
     });
     expect(findExecutablesCalls).toHaveLength(0);
   });

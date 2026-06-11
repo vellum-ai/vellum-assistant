@@ -140,6 +140,7 @@ const setStateAndRefresh = async (state: CliPathInstallState) => {
 };
 
 const INSTALL_LABEL = "Install vellum Command…";
+const REPAIR_LABEL = "Repair vellum Command…";
 const UNINSTALL_LABEL = "Uninstall vellum Command";
 const SHADOWED_LABEL = "⚠ vellum is shadowed by another install";
 
@@ -195,10 +196,52 @@ describe("CLI path menu items", () => {
   });
 
   test("shows Uninstall when installed, without the shadowed indicator", async () => {
-    await setStateAndRefresh({ kind: "installed", inPath: true });
+    await setStateAndRefresh({ kind: "installed", inPath: true, runtimeReady: true });
     expect(appMenuLabels()).toContain(UNINSTALL_LABEL);
     expect(appMenuLabels()).not.toContain(INSTALL_LABEL);
+    expect(appMenuLabels()).not.toContain(REPAIR_LABEL);
     expect(appMenuLabels()).not.toContain(SHADOWED_LABEL);
+  });
+
+  test("shows Repair alongside Uninstall when the runtime is missing", async () => {
+    await setStateAndRefresh({
+      kind: "installed",
+      inPath: true,
+      runtimeReady: false,
+    });
+    expect(appMenuLabels()).toContain(REPAIR_LABEL);
+    expect(appMenuLabels()).toContain(UNINSTALL_LABEL);
+    expect(appMenuLabels()).not.toContain(INSTALL_LABEL);
+  });
+
+  test("shows Repair when shadowed with a missing runtime", async () => {
+    await setStateAndRefresh({
+      kind: "shadowed",
+      shadowedBy: "/usr/local/bin/vellum",
+      inPath: true,
+      runtimeReady: false,
+    });
+    expect(appMenuLabels()).toContain(REPAIR_LABEL);
+    expect(appMenuLabels()).toContain(UNINSTALL_LABEL);
+  });
+
+  test("clicking Repair runs the install flow, then Repair disappears once the runtime is ready", async () => {
+    await setStateAndRefresh({
+      kind: "installed",
+      inPath: true,
+      runtimeReady: false,
+    });
+    getCliPathInstallStateMock.mockResolvedValue({
+      kind: "installed",
+      inPath: true,
+      runtimeReady: true,
+    });
+
+    await appMenuItem(REPAIR_LABEL)?.click?.();
+
+    expect(runInstallCliCommandFlowMock).toHaveBeenCalledTimes(1);
+    expect(appMenuLabels()).not.toContain(REPAIR_LABEL);
+    expect(appMenuLabels()).toContain(UNINSTALL_LABEL);
   });
 
   test("shows Uninstall plus a disabled shadowed indicator when shadowed", async () => {
@@ -206,6 +249,7 @@ describe("CLI path menu items", () => {
       kind: "shadowed",
       shadowedBy: "/usr/local/bin/vellum",
       inPath: true,
+      runtimeReady: true,
     });
     expect(appMenuLabels()).toContain(UNINSTALL_LABEL);
     expect(appMenuLabels()).not.toContain(INSTALL_LABEL);
@@ -219,7 +263,7 @@ describe("CLI path menu items", () => {
 
     getCliPathInstallStateMock.mockImplementation(async () => {
       callOrder.push("detect");
-      return { kind: "installed", inPath: true };
+      return { kind: "installed", inPath: true, runtimeReady: true };
     });
     await appMenuItem(INSTALL_LABEL)?.click?.();
 
@@ -233,7 +277,7 @@ describe("CLI path menu items", () => {
   });
 
   test("clicking Uninstall runs the flow, then refreshes state and rebuilds", async () => {
-    await setStateAndRefresh({ kind: "installed", inPath: true });
+    await setStateAndRefresh({ kind: "installed", inPath: true, runtimeReady: true });
     getCliPathInstallStateMock.mockClear();
     const buildsBefore = buildFromTemplateMock.mock.calls.length;
 
@@ -285,7 +329,7 @@ describe("app submenu separators", () => {
     );
 
   test("no adjacent separators when CLI items are present", async () => {
-    await setStateAndRefresh({ kind: "installed", inPath: true });
+    await setStateAndRefresh({ kind: "installed", inPath: true, runtimeReady: true });
     expect(hasAdjacentSeparators(appSubmenu())).toBe(false);
   });
 
@@ -307,7 +351,7 @@ describe("CLI path menu items in unpackaged builds", () => {
   });
 
   test("hides Uninstall even when a prior detection found an install", async () => {
-    await setStateAndRefresh({ kind: "installed", inPath: true });
+    await setStateAndRefresh({ kind: "installed", inPath: true, runtimeReady: true });
     expect(appMenuLabels()).toContain(UNINSTALL_LABEL);
 
     electronApp.isPackaged = false;
