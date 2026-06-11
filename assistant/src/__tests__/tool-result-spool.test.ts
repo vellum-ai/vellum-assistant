@@ -9,8 +9,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { AgentLoop } from "../agent/loop.js";
 import type { AgentEvent } from "../agent/loop.js";
+import { AgentLoop } from "../agent/loop.js";
 import {
   getToolResultFilePath,
   postTurnTruncateToolResults,
