@@ -143,6 +143,20 @@ export interface IngestAskResult {
   /** Raw events captured during conversation B's drain. */
   questionEvents: AgentEvent[];
   /**
+   * Token-usage records observed by the egress jail's recording sidecar
+   * across *both* conversations — the assistant's real model traffic, parsed
+   * from provider responses rather than from anything the assistant chose to
+   * emit. This is the un-spoofable basis for the run's assistant-side cost;
+   * callers should price these (plus their own judge usage) rather than
+   * trusting `ingestEvents`/`questionEvents`. Empty when the adapter exposes
+   * no `readUsageRecords()` capability or the sidecar wrote nothing.
+   *
+   * Captured *before* the agent is retired in the `finally` below — the
+   * sidecar is torn down with the agent, so a post-return read would race
+   * the cleanup.
+   */
+  recordedUsage: Array<Record<string, unknown>>;
+  /**
    * Whether the ingest turn ended on the completion sentinel (vs. being
    * cut short). Always `true` on a successful return — a missing sentinel
    * throws before this result is produced — but surfaced for callers that
@@ -383,6 +397,10 @@ export async function runIngestAsk(
     // rather than throwing and excluding the run.
     const hypothesis = joinAssistantText(questionEvents);
 
+    // Read the egress jail's observed usage while the agent (and its
+    // recording sidecar) is still alive — the `finally` retires both.
+    const recordedUsage = (await agent.readUsageRecords?.()) ?? [];
+
     return {
       runId: input.runId,
       profileId: input.profile.id,
@@ -392,6 +410,7 @@ export async function runIngestAsk(
       questionAnswered: hypothesis.trim() !== "",
       ingestEvents,
       questionEvents,
+      recordedUsage,
       ingestSentinelSeen,
     };
   } finally {
