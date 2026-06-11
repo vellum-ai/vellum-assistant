@@ -28,6 +28,26 @@ function connectionModelsToCatalog(models: ConnectionModel[] | null | undefined)
   }));
 }
 
+/**
+ * Copy for the Model field's empty states, keyed by the `modelEmptyState`
+ * discriminator. The "no-provider" hint is `null` because the hint only
+ * renders once a provider is selected.
+ */
+const MODEL_EMPTY_STATE_COPY = {
+  "no-provider": {
+    placeholder: "Select a provider first",
+    hint: null,
+  },
+  "configure-connection": {
+    placeholder: "Configure models on connection",
+    hint: "No models available. Configure models on the provider connection first.",
+  },
+  "unknown-to-catalog": {
+    placeholder: "No models available",
+    hint: "No models are available for this provider in this app version. Update the app, or use an OpenAI-compatible connection to enter a custom model.",
+  },
+} as const;
+
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
@@ -167,6 +187,20 @@ export function ProfileEditorProviderSection({
     availableConnectionsForProvider,
   ]);
 
+  // Single discriminator for the Model field's empty states — the dropdown
+  // placeholder and the hint below both derive from it so the two can't
+  // drift apart.
+  const modelEmptyState = !provider
+    ? "no-provider"
+    : availableModels.length === 0
+      ? provider === OPENAI_COMPATIBLE_PROVIDER
+        ? "configure-connection"
+        : "unknown-to-catalog"
+      : null;
+  const modelEmptyStateCopy = modelEmptyState
+    ? MODEL_EMPTY_STATE_COPY[modelEmptyState]
+    : null;
+
   // Auto-clear model when it's no longer in the available list (e.g. after
   // switching connections for openai-compatible providers).
   useEffect(() => {
@@ -288,13 +322,7 @@ export function ProfileEditorProviderSection({
           options={[
             {
               value: "",
-              label: !provider
-                ? "Select a provider first"
-                : availableModels.length === 0
-                  ? provider === OPENAI_COMPATIBLE_PROVIDER
-                    ? "Configure models on connection"
-                    : "No models available"
-                  : "Select a model",
+              label: modelEmptyStateCopy?.placeholder ?? "Select a model",
             },
             ...availableModels.map((m) => ({
               value: m.id,
@@ -308,11 +336,7 @@ export function ProfileEditorProviderSection({
             as="p"
             className="text-(--system-negative-strong)"
           >
-            {availableModels.length === 0
-              ? provider === OPENAI_COMPATIBLE_PROVIDER
-                ? "No models available. Configure models on the provider connection first."
-                : "No models are available for this provider in this app version. Update the app, or use an OpenAI-compatible connection to enter a custom model."
-              : "Select a model."}
+            {modelEmptyStateCopy?.hint ?? "Select a model."}
           </Typography>
         ) : null}
       </div>
