@@ -88,8 +88,7 @@
   ],
   "overrides": {
     "lodash": "4.18.1",
-    "path-to-regexp": "8.4.2",
-    "shell-quote": "1.8.4"
+    "path-to-regexp": "8.4.2"
   },
   "optionalDependencies": {
     "@resvg/resvg-js-darwin-arm64": "2.6.2",
@@ -101,7 +100,7 @@
     "@types/node": "25.5.0",
     "@types/semver": "7.5.8",
     "@types/uuid": "10.0.0",
-    "drizzle-kit": "0.30.6",
+    "drizzle-kit": "0.31.10",
     "eslint": "10.0.3",
     "eslint-plugin-simple-import-sort": "12.1.1",
     "fast-check": "4.6.0",

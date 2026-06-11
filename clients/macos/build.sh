@@ -458,7 +458,10 @@ BUN_BUNDLE_CACHE_DIR="$SCRIPT_DIR/.bun-bundle-cache/${BUN_VERSION}"
 # bundles and extracts it at runtime, but macOS rejects the dlopen because the
 # extracted binary's Team ID differs from the main process.  Externalising it
 # lets the lazy wrapper in avatar/resvg-lazy.ts handle the missing module.
-BUN_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*" --external "@resvg/resvg-js" --external "@resvg/resvg-js-darwin-arm64" --external "@resvg/resvg-js-darwin-x64")
+# react-devtools-core is an optional peer dep of Ink, only loaded when
+# process.env.DEV is truthy.  Ink's try/catch handles the missing module
+# gracefully, so there is no need to bundle it into the compiled binary.
+BUN_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*" --external "@resvg/resvg-js" --external "@resvg/resvg-js-darwin-arm64" --external "@resvg/resvg-js-darwin-x64" --external react-devtools-core)
 
 # ---------------------------------------------------------------------------
 # build_bun_binary — compile a TypeScript project to a native binary via Bun.
