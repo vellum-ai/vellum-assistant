@@ -16,6 +16,7 @@ import { AssistantUpgrades } from "@/domains/settings/components/assistant-upgra
 import { DeleteAccountSection } from "@/domains/settings/components/delete-account-section";
 import { IOSAppCard } from "@/domains/settings/components/ios-app-card";
 import { LaunchAtLoginCard } from "@/domains/settings/components/launch-at-login-card";
+import { LogOutSection } from "@/domains/settings/components/logout-section";
 import { MediaEmbedsCard } from "@/domains/settings/components/media-embeds-card";
 import { PreviewReleaseChannel } from "@/domains/settings/components/preview-release-channel";
 import { ResizeCard } from "@/domains/settings/components/resize-card";
@@ -382,6 +383,8 @@ export function GeneralPage() {
           </Notice>
         </DetailCard>
       )}
+
+      <LogOutSection />
 
       <DeleteAccountSection />
     </div>
