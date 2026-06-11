@@ -172,6 +172,15 @@ Examples:
                 { fetch: globalThis.fetch.bind(globalThis) },
               );
 
+              if (opts.json) {
+                process.stdout.write(
+                  JSON.stringify(inspection, null, 2) + "\n",
+                );
+                return;
+              }
+
+              // Logged after the JSON early-return: the CLI logger writes
+              // info to stdout, which would otherwise corrupt --json output.
               log.info(
                 {
                   name: inspection.name,
@@ -180,13 +189,6 @@ Examples:
                 },
                 "plugin inspect",
               );
-
-              if (opts.json) {
-                process.stdout.write(
-                  JSON.stringify(inspection, null, 2) + "\n",
-                );
-                return;
-              }
 
               for (const line of formatInspection(inspection)) {
                 console.log(line);
@@ -222,9 +224,13 @@ Examples:
               { fetch: globalThis.fetch.bind(globalThis) },
             );
 
-            // Log on every success path — JSON output, empty results, and
-            // populated tables alike — so observability doesn't depend on
-            // which formatting branch the caller landed in.
+            if (opts.json) {
+              process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+              return;
+            }
+
+            // Logged after the JSON early-return: the CLI logger writes info
+            // to stdout, which would otherwise corrupt --json output.
             log.info(
               {
                 query: result.query,
@@ -233,11 +239,6 @@ Examples:
               },
               "external plugin search",
             );
-
-            if (opts.json) {
-              process.stdout.write(JSON.stringify(result, null, 2) + "\n");
-              return;
-            }
 
             if (result.matches.length === 0) {
               console.log(`No plugins matched "${result.query}".`);
