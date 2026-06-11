@@ -496,10 +496,11 @@ export type PostModelCallDecision = "continue" | "stop";
  *   early.
  *
  * The retry decision is honored only at actionable outcomes — a no-tool reply
- * or a `mainAgent` rejection — and is ignored on tool-bearing turns (the loop
- * already runs the tools) and non-`mainAgent` call sites. Runs for every
- * finalized message regardless of call site; hooks MUST self-gate on
- * {@link callSite} / {@link conversationId}. Mutate in place or return a new
+ * or a provider rejection — and is ignored on tool-bearing turns (the loop
+ * already runs the tools). The loop does not gate the decision on call site, so
+ * a hook that should only retry the user-facing turn MUST self-gate on
+ * {@link callSite} / {@link conversationId} to avoid re-querying background,
+ * subagent, or compaction calls. Mutate in place or return a new
  * context; throwing is contained by the loop (the original content is kept and
  * the outcome is treated as `"stop"`). Multiple plugins' hooks chain in
  * registration order — each sees the previous hook's `decision` and mutations.
