@@ -389,6 +389,45 @@ export class SlackSocketModeClient {
     return false;
   }
 
+  /**
+   * Tracking-eligibility check for the bot's own thread replies (the
+   * Socket Mode echo of a proactive chat.postMessage). The echo is never
+   * forwarded — this only decides whether the thread is armed in
+   * `slack_active_threads`.
+   *
+   * The echo's author is the bot user, which never matches a human
+   * `actor_id` route, so resolving routing by the event's sender would
+   * reject every echo in actor-routed workspaces. Instead the thread is
+   * eligible when the channel could route an inbound human message:
+   *
+   *   - a channel-scoped route applies — a `conversation_id` entry for
+   *     the channel, or the `default` unmapped policy — regardless of
+   *     sender; or
+   *   - the workspace routes by actor (at least one Slack-shaped
+   *     `actor_id` entry). Per-actor routing is not channel-scoped, so
+   *     any thread the bot posts into may receive replies from routed
+   *     humans.
+   *
+   * Arming a thread never loosens forwarding: thread replies admitted by
+   * the active-thread filter still re-resolve routing with the human
+   * sender at normalize time, and unrouted senders are dropped there.
+   */
+  private shouldTrackBotOwnThreadReply(channel: string): boolean {
+    // Empty actor ID: matches channel-scoped routes (conversation_id or
+    // default policy) only, never an actor_id entry.
+    const channelRouting = resolveAssistant(
+      this.config.gatewayConfig,
+      channel,
+      "",
+    );
+    if (!isRejection(channelRouting)) return true;
+    // routingEntries is shared across channels (Slack, Telegram, …);
+    // only Slack-shaped actor keys make Slack channels eligible.
+    return this.config.gatewayConfig.routingEntries.some(
+      (entry) => entry.type === "actor_id" && isSlackUserId(entry.key),
+    );
+  }
+
   private async connect(): Promise<void> {
     if (!this.running) return;
     if (this.connecting) return;
@@ -672,8 +711,10 @@ export class SlackSocketModeClient {
     //      conversations.history excludes thread replies, so an @-mention
     //      that lands during a Socket Mode reconnect gap in an untracked
     //      thread is otherwise unrecoverable (JARVIS-1086).
-    // Mirrors the app_mention tracking below: only routed events arm a
-    // thread, so unrouted channels don't accumulate active-thread state.
+    // Like the app_mention tracking below, only routable channels arm a
+    // thread, so channels that route to no assistant don't accumulate
+    // active-thread state — see shouldTrackBotOwnThreadReply for why the
+    // eligibility check cannot resolve by the echo's author (the bot).
     const isBotOwnThreadReply =
       event.type === "message" &&
       !isMessageChanged &&
@@ -682,12 +723,10 @@ export class SlackSocketModeClient {
       channelEvent.user === this.config.botUserId &&
       !!channelEvent.thread_ts;
     if (isBotOwnThreadReply) {
-      const routing = resolveAssistant(
-        this.config.gatewayConfig,
-        channelEvent.channel,
-        channelEvent.user ?? "",
-      );
-      if (!isRejection(routing) && channelEvent.channel) {
+      if (
+        channelEvent.channel &&
+        this.shouldTrackBotOwnThreadReply(channelEvent.channel)
+      ) {
         this.store.trackThread(
           channelEvent.thread_ts!,
           channelEvent.channel,
@@ -1529,6 +1568,18 @@ function toSlackTs(ms: number): string {
  */
 function isSlackConversationId(id: string): boolean {
   return /^[CDG][A-Z0-9]+$/.test(id);
+}
+
+/**
+ * True if `id` looks like a Slack user ID: uppercase-alphanumeric,
+ * prefixed with `U` or `W` (Enterprise Grid) — see
+ * https://api.slack.com/changelog/2016-08-11-user-id-format-changes.
+ * Used to distinguish Slack `actor_id` routing entries from other
+ * channels' actor keys (Telegram numeric IDs, phone numbers, …) in the
+ * shared routingEntries list.
+ */
+function isSlackUserId(id: string): boolean {
+  return /^[UW][A-Z0-9]+$/.test(id);
 }
 
 /**

@@ -699,6 +699,153 @@ describe("SlackSocketModeClient thread tracking", () => {
     }
   });
 
+  test("tracks the bot's first thread reply in actor-routed workspaces, so later replies are admitted (JARVIS-1086)", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    // Workspace routes by actor, not by channel: no conversation_id entry
+    // exists for any channel, and unmappedPolicy stays "reject". The key
+    // must look like a real Slack user ID (uppercase, U-prefixed) — that's
+    // how the tracking check tells Slack actor routes apart from other
+    // channels' actor keys in the shared routingEntries list.
+    client.config.gatewayConfig.routingEntries = [
+      { type: "actor_id", key: "UHUMAN01", assistantId: "ast-actor" },
+    ];
+    const threadTs = "1700000001.000100";
+
+    try {
+      await resolveSlackUser("UHUMAN01", "xoxb-test");
+
+      // The bot's own thread reply echoes back. Its author is the BOT user,
+      // which never matches a human actor_id route — the echo must still arm
+      // the thread because routed humans can reply here.
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-bot-actor-routed-reply",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-bot-actor-routed-reply",
+            event: {
+              type: "message",
+              user: "UBOT",
+              text: "proactive update for <@U-human>",
+              ts: "1700000001.000200",
+              channel: "C-actor-routed",
+              channel_type: "channel",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      // Tracking-only: the echo itself is never forwarded.
+      expect(emitted).toHaveLength(0);
+      expect(store.hasThread(threadTs)).toBe(true);
+
+      // A routed human's follow-up (no @-mention) is now admitted and
+      // resolves through their actor_id route at normalize time.
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-actor-routed-followup",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-actor-routed-followup",
+            event: {
+              type: "message",
+              user: "UHUMAN01",
+              text: "following up in the assistant-initiated thread",
+              ts: "1700000001.000300",
+              channel: "C-actor-routed",
+              channel_type: "channel",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0].event.source.updateId).toBe("Ev-actor-routed-followup");
+      expect(emitted[0].threadTs).toBe(threadTs);
+      expect(emitted[0].routing).toEqual({
+        assistantId: "ast-actor",
+        routeSource: "actor_id",
+      });
+
+      // An unrouted human's reply in the armed thread is still dropped at
+      // normalize time — arming the thread must not loosen forwarding.
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-unrouted-actor-followup",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-unrouted-actor-followup",
+            event: {
+              type: "message",
+              user: "USTRANGER9",
+              text: "reply from a user with no actor route",
+              ts: "1700000001.000400",
+              channel: "C-actor-routed",
+              channel_type: "channel",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(1);
+    } finally {
+      rawDb.close();
+    }
+  });
+
+  test("does not track bot replies when the only actor routes belong to other channels (non-Slack keys)", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    // routingEntries is shared across channels; a Telegram-style numeric
+    // actor key must not make Slack channels eligible for thread tracking.
+    client.config.gatewayConfig.routingEntries = [
+      { type: "actor_id", key: "123456789", assistantId: "ast-telegram" },
+    ];
+    const threadTs = "1700000001.000500";
+
+    try {
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-bot-nonslack-actor-reply",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-bot-nonslack-actor-reply",
+            event: {
+              type: "message",
+              user: "UBOT",
+              text: "bot reply with only non-Slack actor routes configured",
+              ts: "1700000001.000600",
+              channel: "C-unrouted",
+              channel_type: "channel",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(0);
+      expect(store.hasThread(threadTs)).toBe(false);
+    } finally {
+      rawDb.close();
+    }
+  });
+
   test("does not track bot replies in unrouted channels", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];
