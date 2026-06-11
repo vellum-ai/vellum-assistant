@@ -696,6 +696,24 @@ describe("computeToolCallCardData — regression vs. legacy web-search hook", ()
     expect(data.currentStepTitle).toBe("Searching the web");
     expect(data.currentStepInfo).toBe("Searching tigers");
   });
+
+  test("emits a thinking placeholder for an in-flight web_fetch with no metadata", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        name: "web_fetch",
+        status: "running",
+        input: { url: "https://example.com" },
+      }),
+    ];
+    const data = computeToolCallCardData(toolCalls, {});
+    expect(data.steps[0]).toEqual({
+      kind: "thinking",
+      durationLabel: "",
+      text: "Reading…",
+    });
+    expect(data.state).toBe("loading");
+  });
 });
 
 describe("computeToolCallCardData — mixed web + non-web groups", () => {

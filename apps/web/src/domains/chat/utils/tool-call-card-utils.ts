@@ -234,7 +234,7 @@ function buildWebFetchStep(
   };
 }
 
-function buildPlaceholderStep(): ToolCallCardStep {
+function buildWebSearchPlaceholderStep(): ToolCallCardStep {
   return {
     kind: "web_search",
     title: "Searching the web",
@@ -242,6 +242,10 @@ function buildPlaceholderStep(): ToolCallCardStep {
     linkCount: 0,
     results: [],
   };
+}
+
+function buildWebFetchPlaceholderStep(): ToolCallCardStep {
+  return { kind: "thinking", durationLabel: "", text: "Reading…" };
 }
 
 function buildWebSearchStepFromResultText(
@@ -719,7 +723,9 @@ function buildStepForToolCall(
     return buildWebFetchStep(metadata.webFetch);
   }
   if (!terminal) {
-    return buildPlaceholderStep();
+    return tc.name === "web_search"
+      ? buildWebSearchPlaceholderStep()
+      : buildWebFetchPlaceholderStep();
   }
   if (tc.name === "web_search" && typeof tc.result === "string") {
     return buildWebSearchStepFromResultText(tc.result) ?? buildEmptyWebSearchStep();
