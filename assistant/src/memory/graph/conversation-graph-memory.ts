@@ -186,16 +186,6 @@ export class ConversationGraphMemory {
     }
   }
 
-  /**
-   * Fetch the most recent conversation summaries (excluding the current
-   * conversation, which won't have one yet at context-load time).
-   *
-   * Prioritizes user conversations (conversationType != "background"),
-   * allowing at most 1 background conversation summary so the retrieval
-   * signal is mostly from direct interactions.
-   *
-   * Returns up to 3 summary texts, most recent first.
-   */
   private extractLastAssistantText(messages: Message[]): string {
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i]!;
@@ -212,6 +202,16 @@ export class ConversationGraphMemory {
     return "";
   }
 
+  /**
+   * Fetch the most recent conversation summaries (excluding the current
+   * conversation, which won't have one yet at context-load time).
+   *
+   * Prioritizes user conversations (conversationType != "background"),
+   * allowing at most 1 background conversation summary so the retrieval
+   * signal is mostly from direct interactions.
+   *
+   * Returns up to 3 summary texts, most recent first.
+   */
   private fetchRecentSummaries(): string[] {
     try {
       const db = getDb();
