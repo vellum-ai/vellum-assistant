@@ -1,12 +1,13 @@
 /**
- * Imperative session actions for the doctor panel.
+ * TanStack Query mutation hooks for doctor session lifecycle.
  *
- * Plain async functions that read/write the doctor panel Zustand store
- * directly. Extracted from `doctor-panel.tsx` to keep the component a
- * thin render shell. Each function receives only the React-lifecycle-bound
- * dependencies it can't obtain from the module-level store (assistantId,
- * connectSSE, abort).
+ * Each hook wraps a generated HeyAPI SDK call and handles Zustand store
+ * side-effects in `onSuccess` / `onError` callbacks. Loading state
+ * (`isPending`) comes from the mutation itself — no manual
+ * `setSending` / `setStarting` / `setEnding` toggles needed.
  */
+
+import { useMutation } from "@tanstack/react-query";
 
 import { useDoctorPanelStore } from "@/domains/settings/components/panels/doctor-panel-store";
 import {
@@ -16,6 +17,7 @@ import {
   assistantsMaintenanceModeExitCreate,
 } from "@/generated/api/sdk.gen";
 import { captureError } from "@/lib/sentry/capture-error";
+import { extractErrorMessage } from "@/utils/api-errors";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -41,132 +43,132 @@ export function cleanupServerSession(assistantId: string, sessionId: string): vo
   assistantsDoctorSessionsDestroy({
     path: { assistant_id: assistantId, session_id: sessionId },
     throwOnError: false,
-  }).catch(() => {});
+  }).catch((err) => captureError(err, { context: "doctor_cleanup_destroy" }));
   assistantsMaintenanceModeExitCreate({
     path: { assistant_id: assistantId },
     throwOnError: false,
-  }).catch(() => {});
+  }).catch((err) => captureError(err, { context: "doctor_cleanup_maintenance_exit" }));
+}
+
+/** Reset to idle for "New Session" — abort SSE, cleanup, and clear local state. */
+export function resetToIdle(assistantId: string, abort: () => void): void {
+  abort();
+  const store = useDoctorPanelStore.getState();
+  if (store.sessionId && assistantId) {
+    cleanupServerSession(assistantId, store.sessionId);
+  }
+  store.resetForNewSession();
 }
 
 // ---------------------------------------------------------------------------
-// Session actions
+// Mutation hooks
 // ---------------------------------------------------------------------------
 
-export async function startSession(
+export function useStartSession(
   assistantId: string,
   connectSSE: (assistantId: string, sessionId: string) => void,
-): Promise<void> {
-  if (!assistantId) return;
-  const store = useDoctorPanelStore.getState();
-  store.setStarting(true);
-  try {
-    const { data, error, response } = await assistantsDoctorSessionsCreate({
-      path: { assistant_id: assistantId },
-      throwOnError: false,
-    });
-
-    if (!response?.ok || error || !data) {
-      if (response?.status === 429) {
-        store.appendEntry({
+) {
+  return useMutation({
+    mutationFn: async () => {
+      const { data, error, response } = await assistantsDoctorSessionsCreate({
+        path: { assistant_id: assistantId },
+        throwOnError: false,
+      });
+      if (!response?.ok || error || !data) {
+        throw { error, status: response?.status, statusText: response?.statusText };
+      }
+      return data;
+    },
+    onSuccess(data) {
+      const store = useDoctorPanelStore.getState();
+      store.setSelectedHistorySessionId(null);
+      store.setAppliedHistorySessionId(null);
+      store.setSessionId(data.session_id);
+      store.setSessionStatus("active");
+      store.setEntries([
+        { kind: "assistant", content: DOCTOR_GREETING, id: "greeting", timestamp: Date.now() },
+      ]);
+      connectSSE(assistantId, data.session_id);
+    },
+    onError(error: unknown) {
+      const err = error as { status?: number; error?: unknown; statusText?: string };
+      if (err.status === 429) {
+        useDoctorPanelStore.getState().appendEntry({
           kind: "error",
           content:
             "You've used all of your available Doctor sessions for this month. Please try again next month.",
         });
         return;
       }
-      store.appendEntry({
-        kind: "error",
-        content: `Failed to start session: ${response?.statusText ?? "unknown error"}`,
-      });
-      return;
-    }
-
-    const sessId = data.session_id;
-    store.setSelectedHistorySessionId(null);
-    store.setAppliedHistorySessionId(null);
-    store.setSessionId(sessId);
-    store.setSessionStatus("active");
-    store.setEntries([
-      { kind: "assistant", content: DOCTOR_GREETING, id: "greeting", timestamp: Date.now() },
-    ]);
-    connectSSE(assistantId, sessId);
-  } catch (err) {
-    captureError(err, { context: "start_doctor_session" });
-    useDoctorPanelStore.getState().appendEntry({
-      kind: "error",
-      content: "Failed to start doctor session",
-    });
-  } finally {
-    useDoctorPanelStore.getState().setStarting(false);
-  }
-}
-
-export async function endSession(
-  assistantId: string,
-  abort: () => void,
-): Promise<void> {
-  const store = useDoctorPanelStore.getState();
-  store.setEnding(true);
-  try {
-    abort();
-    if (store.sessionId && assistantId) {
-      cleanupServerSession(assistantId, store.sessionId);
-    }
-    useDoctorPanelStore.getState().teardown();
-  } finally {
-    useDoctorPanelStore.getState().setEnding(false);
-  }
-}
-
-export async function resetToIdle(
-  assistantId: string,
-  abort: () => void,
-): Promise<void> {
-  const store = useDoctorPanelStore.getState();
-  abort();
-  if (store.sessionId && assistantId) {
-    cleanupServerSession(assistantId, store.sessionId);
-  }
-  useDoctorPanelStore.getState().resetForNewSession();
-}
-
-export async function sendMessage(
-  assistantId: string,
-  content: string,
-): Promise<void> {
-  const store = useDoctorPanelStore.getState();
-  if (!store.sessionId || !assistantId || !content.trim()) return;
-  store.setSending(true);
-
-  const text = content.trim();
-  store.appendEntry({ kind: "user", content: text });
-  store.setInputValue("");
-
-  if (APPROVAL_RESPONSES.has(text.toLowerCase())) {
-    store.setPendingApproval(false);
-  }
-
-  try {
-    const { error, response } = await assistantsDoctorSessionsMessagesCreate({
-      path: { assistant_id: assistantId, session_id: store.sessionId },
-      body: { content: text },
-      throwOnError: false,
-    });
-    if (!response?.ok || error) {
+      captureError(error, { context: "start_doctor_session" });
+      const message = extractErrorMessage(
+        err.error,
+        undefined,
+        "Failed to start doctor session",
+      );
       useDoctorPanelStore.getState().appendEntry({
         kind: "error",
-        content: `Failed to send message: ${response?.statusText ?? "unknown error"}`,
+        content: message,
       });
-    } else {
+    },
+  });
+}
+
+export function useEndSession(
+  assistantId: string,
+  abort: () => void,
+) {
+  return useMutation({
+    mutationFn: async () => {
+      abort();
+      const store = useDoctorPanelStore.getState();
+      if (store.sessionId && assistantId) {
+        cleanupServerSession(assistantId, store.sessionId);
+      }
+      store.teardown();
+    },
+  });
+}
+
+export function useSendMessage(assistantId: string) {
+  const sessionId = useDoctorPanelStore.use.sessionId();
+
+  return useMutation({
+    mutationFn: async (content: string) => {
+      if (!sessionId) throw new Error("No active session");
+      const { error, response } = await assistantsDoctorSessionsMessagesCreate({
+        path: { assistant_id: assistantId, session_id: sessionId },
+        body: { content },
+        throwOnError: false,
+      });
+      if (!response?.ok || error) {
+        throw { error, status: response?.status, statusText: response?.statusText };
+      }
+    },
+    onMutate(content: string) {
+      const store = useDoctorPanelStore.getState();
+      store.appendEntry({ kind: "user", content });
+      store.setInputValue("");
+
+      if (APPROVAL_RESPONSES.has(content.toLowerCase())) {
+        store.setPendingApproval(false);
+      }
+    },
+    onSuccess() {
       useDoctorPanelStore.getState().setThinking(true);
-    }
-  } catch (err) {
-    captureError(err, { context: "send_doctor_message" });
-    useDoctorPanelStore.getState().appendEntry({
-      kind: "error",
-      content: "Failed to send message",
-    });
-  } finally {
-    useDoctorPanelStore.getState().setSending(false);
-  }
+    },
+    onError(error: unknown) {
+      captureError(error, { context: "send_doctor_message" });
+      const err = error as { error?: unknown; statusText?: string };
+      const message = extractErrorMessage(
+        err.error,
+        undefined,
+        "Failed to send message",
+      );
+      useDoctorPanelStore.getState().appendEntry({
+        kind: "error",
+        content: message,
+      });
+    },
+  });
 }

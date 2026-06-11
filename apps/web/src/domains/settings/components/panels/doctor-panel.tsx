@@ -1,5 +1,5 @@
 import { ArrowUp, Loader2, Play, Square } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
@@ -26,10 +26,10 @@ import {
 import { useDoctorPanelStore } from "@/domains/settings/components/panels/doctor-panel-store";
 import {
   cleanupServerSession,
-  endSession,
   resetToIdle,
-  sendMessage,
-  startSession,
+  useEndSession,
+  useSendMessage,
+  useStartSession,
 } from "@/domains/settings/components/panels/doctor-session-actions";
 import { useDoctorSSE } from "@/domains/settings/components/panels/use-doctor-sse";
 import {
@@ -40,14 +40,6 @@ import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { isPointerCoarse } from "@/utils/pointer";
-
-// Stable wrapper so sendMessage can be passed as a callback prop.
-function useSendMessage(assistantId: string) {
-  return useCallback(
-    (content: string) => sendMessage(assistantId, content),
-    [assistantId],
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -68,9 +60,6 @@ export function DoctorPanel() {
   const selectedHistorySessionId = useDoctorPanelStore.use.selectedHistorySessionId();
   const appliedHistorySessionId = useDoctorPanelStore.use.appliedHistorySessionId();
   const historyAutoLoadAttempted = useDoctorPanelStore.use.historyAutoLoadAttempted();
-  const sending = useDoctorPanelStore.use.sending();
-  const starting = useDoctorPanelStore.use.starting();
-  const ending = useDoctorPanelStore.use.ending();
 
   // Local UI state (not shared with hooks)
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -104,7 +93,24 @@ export function DoctorPanel() {
   // ---------------------------------------------------------------------------
 
   const { connectSSE, abort } = useDoctorSSE();
-  const handleSendMessage = useSendMessage(assistantId);
+
+  // ---------------------------------------------------------------------------
+  // Mutation hooks (loading state via .isPending, no manual booleans)
+  // ---------------------------------------------------------------------------
+
+  const startMutation = useStartSession(assistantId, connectSSE);
+  const endMutation = useEndSession(assistantId, abort);
+  const sendMutation = useSendMessage(assistantId);
+
+  const sending = sendMutation.isPending;
+  const starting = startMutation.isPending;
+  const ending = endMutation.isPending;
+
+  const handleSend = (content: string) => {
+    const text = content.trim();
+    if (!text || !sessionId) return;
+    sendMutation.mutate(text);
+  };
 
   // ---------------------------------------------------------------------------
   // Persisted history queries
@@ -286,7 +292,7 @@ export function DoctorPanel() {
         {isSessionActive && (
           <button
             type="button"
-            onClick={() => endSession(assistantId, abort)}
+            onClick={() => endMutation.mutate()}
             disabled={ending}
             className="flex cursor-pointer items-center gap-1.5 rounded border border-[var(--system-negative-strong)] px-3 py-1.5 text-body-small-default text-[var(--system-negative-strong)] transition-colors hover:bg-[var(--system-negative-weak)] disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -329,7 +335,7 @@ export function DoctorPanel() {
           </div>
           <button
             type="button"
-            onClick={() => startSession(assistantId, connectSSE)}
+            onClick={() => startMutation.mutate()}
             disabled={starting}
             className="flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--primary-base)] px-5 py-2.5 text-body-medium-default text-[var(--content-inset)] transition-colors hover:bg-[var(--primary-hover)] disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -365,7 +371,7 @@ export function DoctorPanel() {
                       <div key={entry.id} className="max-w-[90%]">
                         <ApprovalBlock
                           entry={entry}
-                          onRespond={handleSendMessage}
+                          onRespond={handleSend}
                           disabled={!pendingApproval || sending}
                         />
                       </div>
@@ -377,7 +383,7 @@ export function DoctorPanel() {
                           entry={entry}
                           onRespond={(response) => {
                             useDoctorPanelStore.getState().setPendingBackup(false);
-                            handleSendMessage(response);
+                            handleSend(response);
                           }}
                           disabled={!pendingBackup || sending}
                         />
@@ -427,7 +433,7 @@ export function DoctorPanel() {
               onSubmit={(e) => {
                 e.preventDefault();
                 if (inputValue.trim() && !sending) {
-                  handleSendMessage(inputValue);
+                  handleSend(inputValue);
                   if (inputRef.current) {
                     inputRef.current.style.height = "auto";
                   }
@@ -449,7 +455,7 @@ export function DoctorPanel() {
                   if (isPointerCoarse()) return;
                   e.preventDefault();
                   if (inputValue.trim() && !sending) {
-                    handleSendMessage(inputValue);
+                    handleSend(inputValue);
                     if (inputRef.current) {
                       inputRef.current.style.height = "auto";
                     }

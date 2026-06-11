@@ -38,9 +38,6 @@ export interface DoctorPanelState {
   selectedHistorySessionId: string | null;
   appliedHistorySessionId: string | null;
   historyAutoLoadAttempted: boolean;
-  sending: boolean;
-  starting: boolean;
-  ending: boolean;
 
   /** ID of the entry currently being streamed into (message_delta). */
   streamingEntryId: string | null;
@@ -79,9 +76,7 @@ export interface DoctorPanelActions {
   setSelectedHistorySessionId: (id: string | null) => void;
   setAppliedHistorySessionId: (id: string | null) => void;
   setHistoryAutoLoadAttempted: (v: boolean) => void;
-  setSending: (v: boolean) => void;
-  setStarting: (v: boolean) => void;
-  setEnding: (v: boolean) => void;
+
   setStreamingEntryId: (id: string | null) => void;
   setEntries: (entries: ChatEntry[]) => void;
 }
@@ -124,9 +119,6 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
   selectedHistorySessionId: null,
   appliedHistorySessionId: null,
   historyAutoLoadAttempted: false,
-  sending: false,
-  starting: false,
-  ending: false,
   streamingEntryId: null,
   entryCounter: 0,
   lastAssistantId: null,
@@ -157,9 +149,6 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
       pendingBackup: false,
       thinking: false,
       streamingEntryId: null,
-      sending: false,
-      starting: false,
-      ending: false,
     });
   },
 
@@ -175,9 +164,6 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
       selectedHistorySessionId: null,
       appliedHistorySessionId: null,
       historyAutoLoadAttempted: false,
-      sending: false,
-      starting: false,
-      ending: false,
       streamingEntryId: null,
       entryCounter: 0,
     });
@@ -196,9 +182,6 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
       appliedHistorySessionId: null,
       // historyAutoLoadAttempted intentionally NOT reset — prevents
       // re-triggering history auto-load after "New Session".
-      sending: false,
-      starting: false,
-      ending: false,
       streamingEntryId: null,
       entryCounter: 0,
     });
@@ -213,9 +196,6 @@ const useDoctorPanelStoreBase = create<DoctorPanelStore>()((set, get) => ({
   setSelectedHistorySessionId: (id) => set({ selectedHistorySessionId: id }),
   setAppliedHistorySessionId: (id) => set({ appliedHistorySessionId: id }),
   setHistoryAutoLoadAttempted: (v) => set({ historyAutoLoadAttempted: v }),
-  setSending: (v) => set({ sending: v }),
-  setStarting: (v) => set({ starting: v }),
-  setEnding: (v) => set({ ending: v }),
   setStreamingEntryId: (id) => set({ streamingEntryId: id }),
   setEntries: (entries) => set({ entries }),
 }));
