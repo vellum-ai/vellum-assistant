@@ -26,6 +26,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { getClientId } from "@/lib/telemetry/client-identity";
 import {
   assistantDaemonConfigQueryKey,
   assistantIdentityQueryKey,
@@ -60,6 +61,7 @@ export function useAssistantResourceSync(
 
     switch (event.type) {
       case "sync_changed":
+        if (event.originClientId && event.originClientId === getClientId()) return;
         for (const tag of event.tags) {
           switch (tag) {
             case SYNC_TAGS.assistantAvatar:
