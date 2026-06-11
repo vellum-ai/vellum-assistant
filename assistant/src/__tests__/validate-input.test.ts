@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { validateInputAgainstSchema } from "../skills/validate-input.js";
+import {
+  coerceStringBooleans,
+  validateInputAgainstSchema,
+} from "../skills/validate-input.js";
 
 // ---------------------------------------------------------------------------
 // required
@@ -352,6 +355,97 @@ describe("validateInputAgainstSchema — permissive paths", () => {
     expect(() =>
       validateInputAgainstSchema("t", { field: "x" }, schema),
     ).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// string-boolean coercion (pre-validation pass)
+// ---------------------------------------------------------------------------
+
+describe("coerceStringBooleans", () => {
+  const schema = {
+    type: "object",
+    properties: {
+      auto_open: { type: "boolean" },
+      name: { type: "string" },
+      flags: { type: ["boolean", "null"] },
+    },
+  };
+
+  test.each([
+    ["false", false],
+    ["true", true],
+    ["False", false],
+    ["TRUE", true],
+    [" true ", true],
+  ] as const)("coerces %p to %p for boolean-typed properties", (raw, want) => {
+    const result = coerceStringBooleans({ auto_open: raw }, schema);
+    expect(result.auto_open).toBe(want);
+  });
+
+  test("coerced input passes validation and preserves intent", () => {
+    const coerced = coerceStringBooleans(
+      { auto_open: "false", name: "x" },
+      schema,
+    );
+    expect(validateInputAgainstSchema("app_create", coerced, schema)).toEqual({
+      ok: true,
+    });
+    expect(coerced.auto_open).toBe(false);
+  });
+
+  test("leaves non-coercible strings alone (validation still rejects)", () => {
+    const input = { auto_open: "yes" };
+    const result = coerceStringBooleans(input, schema);
+    expect(result).toBe(input);
+    const validation = validateInputAgainstSchema("app_create", result, schema);
+    expect(validation.ok).toBe(false);
+  });
+
+  test("does not touch string-typed or union-typed properties", () => {
+    const input = { name: "true", flags: "false" };
+    const result = coerceStringBooleans(input, schema);
+    expect(result).toBe(input);
+    expect(result.name).toBe("true");
+    expect(result.flags).toBe("false");
+  });
+
+  test("does not touch real booleans or other types", () => {
+    const input = { auto_open: true };
+    expect(coerceStringBooleans(input, schema)).toBe(input);
+    const inputNum = { auto_open: 1 };
+    expect(coerceStringBooleans(inputNum, schema)).toBe(inputNum);
+  });
+
+  test("returns the same object when there is nothing to coerce", () => {
+    const input = { name: "x" };
+    expect(coerceStringBooleans(input, schema)).toBe(input);
+    expect(coerceStringBooleans(input, undefined)).toBe(input);
+    expect(coerceStringBooleans(input, { type: "object" })).toBe(input);
+  });
+
+  test("returns a new object and never mutates the original input", () => {
+    const input = { auto_open: "false", name: "x" };
+    const snapshot = JSON.parse(JSON.stringify(input));
+    const result = coerceStringBooleans(input, schema);
+    expect(result).not.toBe(input);
+    expect(input).toEqual(snapshot);
+    expect(result.name).toBe("x");
+  });
+});
+
+describe("validateInputAgainstSchema — boolean string error message", () => {
+  test("points at the JSON boolean form when a string is passed", () => {
+    const result = validateInputAgainstSchema(
+      "app_create",
+      { auto_open: "yes" },
+      { type: "object", properties: { auto_open: { type: "boolean" } } },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors).toContain(
+      "auto_open must be a boolean — pass true or false as a JSON boolean, not a string",
+    );
   });
 });
 
