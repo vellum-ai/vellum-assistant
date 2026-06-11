@@ -57,10 +57,12 @@ const MAX_LOG_PAYLOAD_BYTES = 10 * 1024 * 1024;
  * fails closed by replacing the whole file with an omission note. Bounding
  * at the source keeps the most recent (and most useful) rows instead,
  * mirroring the `auditLimit` pattern: order by createdAt desc, newest rows
- * first. Truncated sections are logged and surfaced in the export log line.
+ * first. Truncated sections are logged and surfaced in both the export log
+ * line and `export-manifest.json` (`truncatedSections`), so a capped bundle
+ * is distinguishable from a complete one.
  */
 const MAX_EXPORT_MESSAGE_ROWS = 10_000;
-const MAX_EXPORT_LLM_REQUEST_LOG_ROWS = 2_000;
+export const MAX_EXPORT_LLM_REQUEST_LOG_ROWS = 2_000;
 const MAX_EXPORT_LLM_USAGE_EVENT_ROWS = 10_000;
 
 interface ExportRequestBody {
@@ -117,7 +119,8 @@ async function handleExport({
     );
 
     // --- Conversation data tables ---
-    // Sections truncated by a row cap, surfaced in the export log line.
+    // Sections truncated by a row cap, surfaced in the export log line and
+    // the export manifest.
     const truncatedSections: string[] = [];
     /**
      * Keep the newest `limit` rows of a section dump. Callers fetch
@@ -380,6 +383,7 @@ async function handleExport({
       commitSha: COMMIT_SHA,
       ...(startTime !== undefined ? { startTime } : {}),
       ...(endTime !== undefined ? { endTime } : {}),
+      ...(truncatedSections.length > 0 ? { truncatedSections } : {}),
       exportedAt: new Date().toISOString(),
     };
     writeFileSync(

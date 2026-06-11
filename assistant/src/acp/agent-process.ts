@@ -186,7 +186,10 @@ export class AcpAgentProcess {
     return this.authMethods.find((method) => {
       if (!isEnvVarMethod(method)) return false;
 
-      const requiredVars = method.vars.filter((v) => !v.optional);
+      // `vars` is required by the SDK type, but agent responses aren't
+      // runtime-validated — tolerate an out-of-spec agent omitting it so the
+      // caller gets the friendly auth error instead of a TypeError.
+      const requiredVars = (method.vars ?? []).filter((v) => !v.optional);
       if (requiredVars.length === 0) return false;
 
       return requiredVars.every((v) => {
@@ -252,11 +255,15 @@ export class AcpAgentProcess {
 
     return this.authMethods
       .map((method) => {
-        if (isEnvVarMethod(method)) {
-          const varNames = method.vars.map((v) => v.name).join(", ");
-          return `"${method.name}" (env var ${varNames})`;
-        }
-        return `"${method.name}" (${method.id})`;
+        // `vars ?? []`: tolerate out-of-spec agents omitting the field —
+        // this renders inside the friendly auth error, which must not
+        // itself throw a TypeError.
+        const varNames = isEnvVarMethod(method)
+          ? (method.vars ?? []).map((v) => v.name).join(", ")
+          : "";
+        return varNames
+          ? `"${method.name}" (env var ${varNames})`
+          : `"${method.name}" (${method.id})`;
       })
       .join(", ");
   }
@@ -266,8 +273,6 @@ export class AcpAgentProcess {
    * Returns the session ID.
    */
   async createSession(cwd: string): Promise<string> {
-    this.requireConnection();
-
     log.info({ agentId: this.agentId, cwd }, "Creating ACP session");
 
     const result: NewSessionResponse = await this.withAuthRetry(() =>
@@ -286,8 +291,6 @@ export class AcpAgentProcess {
    * VellumAcpClientHandler.beginReplaySuppression).
    */
   async loadSession(sessionId: string, cwd: string): Promise<void> {
-    this.requireConnection();
-
     log.info({ agentId: this.agentId, sessionId, cwd }, "Loading ACP session");
 
     await this.withAuthRetry(() =>
@@ -303,8 +306,6 @@ export class AcpAgentProcess {
    * (see supportsSessionResume).
    */
   async resumeSession(sessionId: string, cwd: string): Promise<void> {
-    this.requireConnection();
-
     log.info({ agentId: this.agentId, sessionId, cwd }, "Resuming ACP session");
 
     await this.withAuthRetry(() =>
