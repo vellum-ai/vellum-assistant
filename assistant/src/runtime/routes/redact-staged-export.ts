@@ -10,15 +10,18 @@
  * belt: a pattern-based `redactSecrets()` pass over staged files immediately
  * before the tar.gz is created.
  *
- * Coverage: every staged file with an allowlisted text extension
- * (`REDACTABLE_EXTENSIONS`), plus any other staged file that sniffs as text
- * (no NUL byte in its first 8 KiB) — e.g. conversation `attachments/` with
- * arbitrary user extensions (`.env`, `.csv`, extensionless). Files that
- * sniff as binary are left untouched. Serialized-JSON formats (`.json`,
- * `.jsonl`) are redacted via a parse → redact-string-leaves → re-stringify
- * path so the quoted redaction marker cannot corrupt them. Files above the
- * size cap are NOT shipped unswept: their content is replaced with a short
- * omission note (fail closed).
+ * Coverage: every staged file that sniffs as text (no NUL byte in its first
+ * 8 KiB) is swept; files that sniff as binary are left untouched. That
+ * single check covers everything the export stages as text today —
+ * `audit-data.json`, `messages.json`, `config-snapshot.json`, daemon `.log`
+ * files, `conversation-filtered.jsonl`, workspace copies
+ * (`conversations/**\/messages.jsonl`, `.tool-results/*.txt`) — plus
+ * conversation `attachments/` with arbitrary user extensions (`.env`,
+ * `.csv`, extensionless). Serialized-JSON formats (`.json`, `.jsonl`) are
+ * redacted via a parse → redact-string-leaves → re-stringify path so the
+ * quoted redaction marker cannot corrupt them. Files above the size cap are
+ * NOT shipped unswept: their content is replaced with a short omission note
+ * (fail closed).
  */
 
 import type { Dirent } from "node:fs";
@@ -40,28 +43,12 @@ import { getLogger } from "../../util/logger.js";
 const log = getLogger("redact-staged-export");
 
 /**
- * Extensions always eligible for the sweep, no sniffing needed. Covers
- * everything the export stages as text today: `audit-data.json`,
- * `messages.json`, `config-snapshot.json`, daemon `.log` files,
- * `conversation-filtered.jsonl`, and the workspace copies
- * (`conversations/**\/messages.jsonl`, `.tool-results/*.txt`). Files with
- * other extensions are still swept when they sniff as text (see module doc).
- */
-const REDACTABLE_EXTENSIONS = new Set([
-  ".json",
-  ".jsonl",
-  ".txt",
-  ".log",
-  ".md",
-]);
-
-/**
  * Files larger than this are not read into memory — the sweep reads each
- * file fully to redact it. Today's largest staged file is ~1–3 MB, so 32 MiB
- * leaves ample headroom. Oversized sweep-eligible files fail closed: their
- * content is replaced with `OVERSIZED_FILE_NOTE` so legacy plaintext secrets
- * can never ship unswept (e.g. an unbounded `messages.json` on `full: true`
- * exports).
+ * file fully to redact it. Every staged section is bounded at the source
+ * (row-capped DB dumps, the daemon-log payload cap, workspace copy caps), so
+ * staged files sit well below this. Oversized sweep-eligible files fail
+ * closed: their content is replaced with `OVERSIZED_FILE_NOTE` so legacy
+ * plaintext secrets can never ship unswept.
  */
 export const MAX_SWEEP_FILE_BYTES = 32 * 1024 * 1024;
 
@@ -71,8 +58,8 @@ export const OVERSIZED_FILE_NOTE = `[content omitted from export: file exceeded 
 } MiB secret-redaction cap]\n`;
 
 /**
- * Bytes read from the head of a non-allowlisted-extension file to classify
- * it as text (sweep it) or binary (leave it untouched).
+ * Bytes read from the head of each staged file to classify it as text
+ * (sweep it) or binary (leave it untouched).
  */
 const TEXT_SNIFF_BYTES = 8 * 1024;
 
@@ -95,47 +82,39 @@ function sniffsAsText(filePath: string): boolean {
 
 /**
  * Redact a serialized-JSON document while preserving its validity: parse,
- * redact every string leaf, and re-stringify (unchanged text is returned
- * byte-identical). Falls back to plain-text redaction when the text isn't
- * valid JSON — it is already malformed, so there is no validity to preserve.
+ * redact every string leaf, and re-stringify with `indent` (unchanged text
+ * is returned byte-identical). A leading UTF-8 BOM — common in user
+ * attachments — would make `JSON.parse` throw, so it is stripped for parsing
+ * and re-prepended on changed output to keep the content faithful. Falls
+ * back to plain-text redaction when the text isn't valid JSON — it is
+ * already malformed, so there is no validity to preserve.
  */
-function redactSerializedJson(
-  text: string,
-  stringify: (value: unknown) => string,
-): string {
+function redactSerializedJson(text: string, indent?: number): string {
+  const bom = text.startsWith("\uFEFF") ? "\uFEFF" : "";
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = JSON.parse(bom ? text.slice(1) : text);
   } catch {
     return redactSecrets(text);
   }
   const { value, changed } = redactJsonStringLeaves(parsed);
-  return changed ? stringify(value) : text;
+  return changed ? bom + JSON.stringify(value, null, indent) : text;
 }
 
 /**
  * Redact a `.jsonl` file's content line by line, preserving each line's
- * JSON validity (compact re-stringify, no pretty-printing).
+ * JSON validity (compact re-stringify, no pretty-printing). Unchanged lines
+ * map to themselves, so split/join leaves clean content byte-identical.
  */
 function redactJsonlContent(content: string): string {
-  let changed = false;
-  const lines = content.split("\n").map((line) => {
-    if (line.trim() === "") return line;
-    const redacted = redactSerializedJson(line, (value) =>
-      JSON.stringify(value),
-    );
-    if (redacted !== line) changed = true;
-    return redacted;
-  });
-  return changed ? lines.join("\n") : content;
+  return content
+    .split("\n")
+    .map((line) => (line.trim() === "" ? line : redactSerializedJson(line)))
+    .join("\n");
 }
 
 function redactContent(content: string, ext: string): string {
-  if (ext === ".json") {
-    return redactSerializedJson(content, (value) =>
-      JSON.stringify(value, null, 2),
-    );
-  }
+  if (ext === ".json") return redactSerializedJson(content, 2);
   if (ext === ".jsonl") return redactJsonlContent(content);
   return redactSecrets(content);
 }
@@ -147,13 +126,19 @@ function redactContent(content: string, ext: string): string {
  *
  * Per-file failures are logged and skipped — a single unreadable file must
  * never fail the export (degraded mode beats no archive at all).
+ *
+ * `filesOmitted` counts oversized files whose content was replaced with the
+ * omission note — they are never read, so they are not counted as scanned
+ * or redacted.
  */
 export function redactStagedExportFiles(stagingDir: string): {
   filesScanned: number;
   filesRedacted: number;
+  filesOmitted: number;
 } {
   let filesScanned = 0;
   let filesRedacted = 0;
+  let filesOmitted = 0;
 
   const stack: string[] = [stagingDir];
   while (stack.length > 0) {
@@ -180,24 +165,22 @@ export function redactStagedExportFiles(stagingDir: string): {
       const ext = extname(entry.name).toLowerCase();
 
       try {
-        // Files outside the extension allowlist (e.g. staged conversation
-        // attachments) are still swept when they sniff as text; only
-        // binary-looking files are exempt.
-        if (!REDACTABLE_EXTENSIONS.has(ext) && !sniffsAsText(filePath)) {
-          continue;
-        }
+        if (!sniffsAsText(filePath)) continue;
         const { size } = statSync(filePath);
         if (size > MAX_SWEEP_FILE_BYTES) {
           // Fail closed: an oversized sweep-eligible file must not ship
           // unswept — it may carry legacy plaintext secrets the sweep
           // exists to catch. Replace its content with a short note.
+          // Normally unreachable now that every staged section is bounded
+          // at the source; retained as the final belt so assumption drift
+          // (a future unbounded section) can't silently ship unswept
+          // secrets.
           log.warn(
             { file: filePath, size },
             "Staged export file exceeds secret sweep size cap; replacing content with omission note",
           );
           writeFileSync(filePath, OVERSIZED_FILE_NOTE, "utf-8");
-          filesScanned++;
-          filesRedacted++;
+          filesOmitted++;
           continue;
         }
         const content = readFileSync(filePath, "utf-8");
@@ -216,5 +199,5 @@ export function redactStagedExportFiles(stagingDir: string): {
     }
   }
 
-  return { filesScanned, filesRedacted };
+  return { filesScanned, filesRedacted, filesOmitted };
 }

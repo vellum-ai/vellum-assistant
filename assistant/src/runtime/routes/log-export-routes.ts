@@ -49,6 +49,20 @@ const log = getLogger("log-export-routes");
 /** Maximum total payload size for log file contents (10 MB). */
 const MAX_LOG_PAYLOAD_BYTES = 10 * 1024 * 1024;
 
+/**
+ * Row caps for the conversation-data table dumps (`messages.json`,
+ * `llm-request-logs.json`, `llm-usage-events.json`). Without them, a
+ * `full: true` export dumps entire tables — for long-tenured users the only
+ * realistic way to blow past the sweep's `MAX_SWEEP_FILE_BYTES` cap, which
+ * fails closed by replacing the whole file with an omission note. Bounding
+ * at the source keeps the most recent (and most useful) rows instead,
+ * mirroring the `auditLimit` pattern: order by createdAt desc, newest rows
+ * first. Truncated sections are logged and surfaced in the export log line.
+ */
+const MAX_EXPORT_MESSAGE_ROWS = 10_000;
+const MAX_EXPORT_LLM_REQUEST_LOG_ROWS = 2_000;
+const MAX_EXPORT_LLM_USAGE_EVENT_ROWS = 10_000;
+
 interface ExportRequestBody {
   auditLimit?: number;
   conversationId?: string;
@@ -103,23 +117,43 @@ async function handleExport({
     );
 
     // --- Conversation data tables ---
+    // Sections truncated by a row cap, surfaced in the export log line.
+    const truncatedSections: string[] = [];
+    /**
+     * Keep the newest `limit` rows of a section dump. Callers fetch
+     * `limit + 1` rows so truncation is detectable without a COUNT query.
+     */
+    const capRows = <T>(rows: T[], limit: number, section: string): T[] => {
+      if (rows.length <= limit) return rows;
+      truncatedSections.push(section);
+      log.warn(
+        { section, limit },
+        "Export section exceeded its row cap; keeping only the most recent rows",
+      );
+      return rows.slice(0, limit);
+    };
     if (conversationId || full) {
       const conversationFilter = conversationId
         ? [eq(messages.conversationId, conversationId)]
         : [];
 
-      const messageRows = db
-        .select()
-        .from(messages)
-        .where(
-          and(
-            ...conversationFilter,
-            startTime ? gte(messages.createdAt, startTime) : undefined,
-            endTime ? lte(messages.createdAt, endTime) : undefined,
-          ),
-        )
-        .orderBy(messages.createdAt)
-        .all();
+      const messageRows = capRows(
+        db
+          .select()
+          .from(messages)
+          .where(
+            and(
+              ...conversationFilter,
+              startTime ? gte(messages.createdAt, startTime) : undefined,
+              endTime ? lte(messages.createdAt, endTime) : undefined,
+            ),
+          )
+          .orderBy(desc(messages.createdAt))
+          .limit(MAX_EXPORT_MESSAGE_ROWS + 1)
+          .all(),
+        MAX_EXPORT_MESSAGE_ROWS,
+        "messages",
+      );
       writeFileSync(
         join(staging, "messages.json"),
         JSON.stringify(messageRows, null, 2),
@@ -130,18 +164,23 @@ async function handleExport({
         ? [eq(llmRequestLogs.conversationId, conversationId)]
         : [];
 
-      const llmLogRows = db
-        .select()
-        .from(llmRequestLogs)
-        .where(
-          and(
-            ...llmConversationFilter,
-            startTime ? gte(llmRequestLogs.createdAt, startTime) : undefined,
-            endTime ? lte(llmRequestLogs.createdAt, endTime) : undefined,
-          ),
-        )
-        .orderBy(llmRequestLogs.createdAt)
-        .all();
+      const llmLogRows = capRows(
+        db
+          .select()
+          .from(llmRequestLogs)
+          .where(
+            and(
+              ...llmConversationFilter,
+              startTime ? gte(llmRequestLogs.createdAt, startTime) : undefined,
+              endTime ? lte(llmRequestLogs.createdAt, endTime) : undefined,
+            ),
+          )
+          .orderBy(desc(llmRequestLogs.createdAt))
+          .limit(MAX_EXPORT_LLM_REQUEST_LOG_ROWS + 1)
+          .all(),
+        MAX_EXPORT_LLM_REQUEST_LOG_ROWS,
+        "llm-request-logs",
+      );
       writeFileSync(
         join(staging, "llm-request-logs.json"),
         JSON.stringify(llmLogRows, null, 2),
@@ -152,18 +191,23 @@ async function handleExport({
         ? [eq(llmUsageEvents.conversationId, conversationId)]
         : [];
 
-      const usageRows = db
-        .select()
-        .from(llmUsageEvents)
-        .where(
-          and(
-            ...usageConversationFilter,
-            startTime ? gte(llmUsageEvents.createdAt, startTime) : undefined,
-            endTime ? lte(llmUsageEvents.createdAt, endTime) : undefined,
-          ),
-        )
-        .orderBy(llmUsageEvents.createdAt)
-        .all();
+      const usageRows = capRows(
+        db
+          .select()
+          .from(llmUsageEvents)
+          .where(
+            and(
+              ...usageConversationFilter,
+              startTime ? gte(llmUsageEvents.createdAt, startTime) : undefined,
+              endTime ? lte(llmUsageEvents.createdAt, endTime) : undefined,
+            ),
+          )
+          .orderBy(desc(llmUsageEvents.createdAt))
+          .limit(MAX_EXPORT_LLM_USAGE_EVENT_ROWS + 1)
+          .all(),
+        MAX_EXPORT_LLM_USAGE_EVENT_ROWS,
+        "llm-usage-events",
+      );
       writeFileSync(
         join(staging, "llm-usage-events.json"),
         JSON.stringify(usageRows, null, 2),
@@ -361,8 +405,10 @@ async function handleExport({
         full: full ?? false,
         workspaceEntries: workspaceResult.entries.length,
         workspaceBytes: workspaceResult.totalBytes,
+        truncatedSections,
         redactionScanned: redactionResult.filesScanned,
         redactionRedacted: redactionResult.filesRedacted,
+        redactionOmitted: redactionResult.filesOmitted,
       },
       "Export collected, creating tar.gz archive",
     );
@@ -396,7 +442,12 @@ function redactStringValue(val: unknown): string {
   return val ? "(set)" : "(empty)";
 }
 
-/** Narrow an unknown value to a mutable record, or undefined if not an object. */
+/**
+ * Narrow an unknown value to a mutable record, or undefined if not an object.
+ * Deliberately looser than `isPlainObject` (`util/object.ts`): arrays are
+ * admitted on purpose so sanitization stays fail-closed — a malformed config
+ * shape must redact more, never less.
+ */
 function asRecord(v: unknown): Record<string, unknown> | undefined {
   return v && typeof v === "object"
     ? (v as Record<string, unknown>)
