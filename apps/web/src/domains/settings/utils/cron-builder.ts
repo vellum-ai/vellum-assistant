@@ -18,8 +18,13 @@ export interface Cadence {
   readonly hour24: number;
   /** Selected weekdays, 0 = Sunday … 6 = Saturday. Used by weekly. */
   readonly weekdays: readonly number[];
-  /** Day of month, 1–31. Used by monthly. */
-  readonly dayOfMonth: number;
+  /**
+   * Day of month for the monthly cadence: 1–28 (days that exist in every
+   * month) or "last" for the final day. We deliberately omit 29–31 from the
+   * simple builder so a monthly schedule never silently skips short months —
+   * those cases remain reachable via the Advanced cron field.
+   */
+  readonly dayOfMonth: number | "last";
 }
 
 /** Sensible starting point: every day at 9:00 AM. */
@@ -84,7 +89,10 @@ export function buildCronExpression(cadence: Cadence): string {
     case "weekly":
       return `${minute} ${hour} * * ${normalizeWeekdays(cadence.weekdays).join(",")}`;
     case "monthly": {
-      const dayOfMonth = clampInt(cadence.dayOfMonth, 1, 31);
+      if (cadence.dayOfMonth === "last") {
+        return `${minute} ${hour} L * *`;
+      }
+      const dayOfMonth = clampInt(cadence.dayOfMonth, 1, 28);
       return `${minute} ${hour} ${dayOfMonth} * *`;
     }
   }
@@ -141,6 +149,8 @@ export function describeCadence(cadence: Cadence): string {
     case "weekly":
       return `Runs ${describeWeekdays(cadence.weekdays)} at ${time}`;
     case "monthly":
-      return `Runs on the ${formatOrdinal(clampInt(cadence.dayOfMonth, 1, 31))} of every month at ${time}`;
+      return cadence.dayOfMonth === "last"
+        ? `Runs on the last day of every month at ${time}`
+        : `Runs on the ${formatOrdinal(clampInt(cadence.dayOfMonth, 1, 28))} of every month at ${time}`;
   }
 }

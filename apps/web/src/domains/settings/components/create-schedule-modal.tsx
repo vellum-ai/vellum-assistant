@@ -58,13 +58,16 @@ const MINUTE_OPTIONS: DropdownOption<string>[] = Array.from(
   },
 );
 
-const DAY_OF_MONTH_OPTIONS: DropdownOption<string>[] = Array.from(
-  { length: 31 },
-  (_, i) => {
+// Only days that exist in every month (1–28) plus an explicit "Last day", so a
+// monthly schedule never silently skips short months. The 29th–31st (which skip
+// February etc.) remain available through the Advanced cron field.
+const DAY_OF_MONTH_OPTIONS: DropdownOption<string>[] = [
+  ...Array.from({ length: 28 }, (_, i) => {
     const day = i + 1;
     return { value: String(day), label: formatOrdinal(day) };
-  },
-);
+  }),
+  { value: "last", label: "Last day" },
+];
 
 const PERIOD_ITEMS: SegmentControlItem<"AM" | "PM">[] = [
   { value: "AM", label: "AM" },
@@ -336,12 +339,15 @@ function CadenceBuilder({
         <SubField label="On day">
           <Dropdown
             options={DAY_OF_MONTH_OPTIONS}
-            value={String(cadence.dayOfMonth)}
+            value={cadence.dayOfMonth === "last" ? "last" : String(cadence.dayOfMonth)}
             onChange={(value) =>
-              onChange({ ...cadence, dayOfMonth: Number(value) })
+              onChange({
+                ...cadence,
+                dayOfMonth: value === "last" ? "last" : Number(value),
+              })
             }
             aria-label="Day of month"
-            className="w-28"
+            className="w-32"
           />
         </SubField>
       ) : null}

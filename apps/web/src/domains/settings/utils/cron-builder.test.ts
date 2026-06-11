@@ -54,12 +54,27 @@ describe("buildCronExpression", () => {
     ).toBe("0 14 15 * *");
   });
 
+  test("monthly 'last' maps to cron L so short months are never skipped", () => {
+    expect(
+      buildCronExpression(
+        cadence({
+          frequency: "monthly",
+          hour24: 9,
+          minute: 0,
+          dayOfMonth: "last",
+        }),
+      ),
+    ).toBe("0 9 L * *");
+  });
+
   test("clamps out-of-range values into valid cron fields", () => {
+    // dayOfMonth caps at 28 — the simple builder never targets 29–31, which
+    // would skip months that lack those dates.
     expect(
       buildCronExpression(
         cadence({ frequency: "monthly", hour24: 99, minute: -5, dayOfMonth: 99 }),
       ),
-    ).toBe("0 23 31 * *");
+    ).toBe("0 23 28 * *");
   });
 });
 
@@ -131,5 +146,18 @@ describe("describeCadence", () => {
         cadence({ frequency: "monthly", dayOfMonth: 22, hour24: 9, minute: 0 }),
       ),
     ).toBe("Runs on the 22nd of every month at 9:00 AM");
+  });
+
+  test("monthly 'last' reads as the last day", () => {
+    expect(
+      describeCadence(
+        cadence({
+          frequency: "monthly",
+          dayOfMonth: "last",
+          hour24: 9,
+          minute: 0,
+        }),
+      ),
+    ).toBe("Runs on the last day of every month at 9:00 AM");
   });
 });
