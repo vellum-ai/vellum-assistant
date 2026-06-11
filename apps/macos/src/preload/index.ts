@@ -37,8 +37,10 @@ export type VellumCommand =
   | { kind: "retireAssistant"; assistantId: string }
   | { kind: "quickInputSubmit"; message: string }
   | { kind: "cancelActiveAction" }
+  | { kind: "cancelDictation" }
   | { kind: "replayOnboarding" }
   | { kind: "previewPrechat" }
+  | { kind: "replayHatchFailure" }
   | { kind: "openComponentGallery" };
 
 // Whether a hotkey is a system-wide global shortcut or a focused-app menu
@@ -57,6 +59,12 @@ export interface ResolvedHotkey {
   defaultAccelerator: string;
   override: string | null;
   accelerator: string;
+  /**
+   * Whether the user can rebind this command. `false` entries are reserved
+   * accelerators (e.g. Find, Settings) carried only so the recorder can flag
+   * conflicts against them; the page filters them out of the rendered rows.
+   */
+  rebindable: boolean;
 }
 
 // Surface exposed to the renderer as `window.vellum`. Each privileged

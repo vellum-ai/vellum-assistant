@@ -295,14 +295,14 @@ export type AgentEvent =
       trigger: CompactionTrigger;
       /** Epoch ms when the loop began the compaction ceremony. */
       startedAt: number;
-      /** Message count of the running history before injection stripping. */
-      preMessageCount: number;
+      /** The running history before injection stripping and compaction. */
+      messages: Message[];
     }
   | {
       /**
        * Emitted after the loop's inline mid-loop compaction pipeline runs,
        * immediately before re-injection — whether or not the pipeline actually
-       * compacted. The daemon's event dispatcher always commits `basis` (the
+       * compacted. The daemon's event dispatcher always commits `messages` (the
        * stripped pre-compaction history) as the conversation's durable message
        * state, so re-injection (the post-compaction hook) re-applies
        * injections onto the stripped base rather than stacking on top of the
@@ -314,9 +314,9 @@ export type AgentEvent =
        * Treated as a critical event: a failed durable commit re-throws so the
        * turn aborts rather than re-injecting against half-applied state.
        *
-       * `basis` is the stripped pre-compaction history the summary was built
-       * from; the dispatcher uses it to project Slack provenance onto the
-       * compacted result.
+       * `messages` is the stripped pre-compaction history the summary was
+       * built from; the dispatcher uses it to project Slack provenance onto
+       * the compacted result.
        */
       type: "compaction_completed";
       /** Correlates this end event with its `context_compacting` pair. */
@@ -331,7 +331,7 @@ export type AgentEvent =
       /** Epoch ms when the compaction pipeline returned. */
       finishedAt: number;
       result: ContextWindowResult;
-      basis: Message[];
+      messages: Message[];
     }
   | {
       /**
@@ -745,7 +745,7 @@ export class AgentLoop {
       requestId,
       trigger,
       startedAt,
-      preMessageCount: history.length,
+      messages: history,
     });
     // Strip runtime injections so the compactor summarizes the raw persistent
     // messages.
@@ -782,7 +782,7 @@ export class AgentLoop {
         onEvent,
       );
     }
-    // Emit unconditionally: the dispatcher commits the stripped `basis` as the
+    // Emit unconditionally: the dispatcher commits the stripped `messages` as the
     // durable message base whether or not the pipeline compacted (re-injection
     // reads it), and runs the durable compaction commit only when
     // `result.compacted`.
@@ -794,7 +794,7 @@ export class AgentLoop {
       startedAt,
       finishedAt: Date.now(),
       result: compactResult,
-      basis: rawHistory,
+      messages: rawHistory,
     });
     const exhausted = compactResult.exhausted ?? false;
     const autoCompressApplied = compactResult.autoCompressApplied ?? false;

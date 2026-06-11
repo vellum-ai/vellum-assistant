@@ -174,7 +174,7 @@ export class ClickHouseCompactionLogStore {
     await this.insert({
       ...emptyRow(await this.assistantId(), conversationId, event),
       phase: "start",
-      pre_message_count: event.preMessageCount,
+      pre_message_count: event.messages.length,
     });
   }
 
@@ -188,7 +188,7 @@ export class ClickHouseCompactionLogStore {
       phase: "end",
       finished_at: event.finishedAt,
       duration_ms: event.finishedAt - event.startedAt,
-      basis_message_count: event.basis.length,
+      basis_message_count: event.messages.length,
       compacted: r.compacted ? 1 : 0,
       previous_estimated_input_tokens: r.previousEstimatedInputTokens,
       estimated_input_tokens: r.estimatedInputTokens,
