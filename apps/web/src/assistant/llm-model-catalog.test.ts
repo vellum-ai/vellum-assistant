@@ -6,8 +6,9 @@
  *
  * Covers every catalog surface the web UI consumes: per-model fields
  * (ids, order, display names, token limits, thinking flags), per-provider
- * default models, the provider display-name and platform-auth maps, and the
- * INFERENCE_PROVIDERS picker list in ai-types.ts.
+ * default models, the provider display-name and platform-auth maps, the
+ * INFERENCE_PROVIDERS picker list in ai-types.ts, and the
+ * CONNECTION_PROVIDERS picker list in provider-editor-constants.ts.
  */
 
 import { readFileSync } from "node:fs";
@@ -15,6 +16,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import { INFERENCE_PROVIDERS } from "@/domains/settings/ai/ai-types";
+import { CONNECTION_PROVIDERS } from "@/domains/settings/ai/provider-editor-constants";
 
 import {
   DEFAULT_MODEL_BY_PROVIDER,
@@ -144,6 +146,20 @@ describe("parity with meta/llm-provider-catalog.json", () => {
     // picker's display order (a UI choice, with index 0 as the default
     // fallback), not the catalog's.
     expect([...INFERENCE_PROVIDERS].sort()).toEqual([...webProviderIds].sort());
+  });
+
+  test("CONNECTION_PROVIDERS covers every meta catalog provider", () => {
+    // The connection-creation picker is driven by CONNECTION_PROVIDERS in
+    // provider-editor-constants.ts. Unlike INFERENCE_PROVIDERS, it
+    // intentionally includes daemon-only providers (ollama) and the
+    // free-form openai-compatible escape hatch — any daemon provider can
+    // back a connection — so it must list exactly the meta catalog's
+    // provider ids or a provider becomes un-creatable as a connection.
+    // Order is not asserted: the list's order is the picker's display order.
+    const connectionProviderIds: string[] = [...CONNECTION_PROVIDERS];
+    expect(connectionProviderIds.sort()).toEqual(
+      metaCatalog.providers.map((provider) => provider.id).sort(),
+    );
   });
 
   for (const providerId of webProviderIds) {

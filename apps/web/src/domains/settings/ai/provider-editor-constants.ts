@@ -10,6 +10,13 @@ export type AuthType = "api_key" | "platform" | "none" | "oauth_subscription";
 // Constants
 // ---------------------------------------------------------------------------
 
+/**
+ * Providers that can be selected when creating a provider connection. Must
+ * list exactly the meta/llm-provider-catalog.json provider ids (including
+ * daemon-only ones like ollama and the openai-compatible escape hatch);
+ * parity is enforced by llm-model-catalog.test.ts. Array order is the
+ * picker's display order.
+ */
 export const CONNECTION_PROVIDERS: ConnectionProvider[] = [
   "anthropic",
   "openai",
