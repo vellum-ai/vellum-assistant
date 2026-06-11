@@ -94,6 +94,83 @@ export const MANAGED_PROFILE_TEMPLATES: Record<
 };
 
 /**
+ * User profile templates. Materialized at hatch time by
+ * `seedInferenceProfiles` for off-platform installations. Each points at the
+ * user's personal provider connection (backed by their API key in CES). The
+ * `provider` and `connectionName` fields are placeholders — they are
+ * overridden at hatch time with the user's chosen provider and personal
+ * connection name.
+ */
+export const USER_PROFILE_TEMPLATES: Record<string, BuiltinProfileDefinition> =
+  {
+    "custom-balanced": {
+      intent: "balanced",
+      provider: "anthropic",
+      connectionName: "",
+      source: "user",
+      label: "Balanced",
+      description: "Good balance of quality, cost, and speed",
+      maxTokens: 16000,
+      effort: "high",
+      thinking: { enabled: true, streamThinking: true },
+      contextWindow: {
+        maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
+      },
+    },
+    "custom-quality-optimized": {
+      intent: "quality-optimized",
+      provider: "anthropic",
+      connectionName: "",
+      source: "user",
+      label: "Quality",
+      description: "Best results with the most capable model",
+      maxTokens: 32000,
+      effort: "high",
+      thinking: { enabled: true, streamThinking: true },
+      contextWindow: {
+        maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
+      },
+    },
+    "custom-cost-optimized": {
+      intent: "latency-optimized",
+      provider: "anthropic",
+      connectionName: "",
+      source: "user",
+      label: "Speed",
+      description: "Fastest responses at lower cost",
+      maxTokens: 8192,
+      effort: "low",
+      thinking: { enabled: false, streamThinking: false },
+      contextWindow: {
+        maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
+      },
+    },
+  };
+
+/**
+ * The personal `custom-*` profile that matches a built-in's model intent —
+ * the landing spot when a hatch overlay backed the built-in name with its
+ * own provider routing (either remapped by the seeder onto the hatch
+ * personal connection, or transplanted wholesale by
+ * `mergeDefaultWorkspaceConfig` for providers that never get one). Unknown
+ * or absent names (and intents without a user template, e.g. `auto`) fall
+ * back to `custom-balanced`.
+ */
+export function customProfileNameForBuiltin(
+  builtinName: string | undefined,
+): string {
+  const intent = builtinName
+    ? MANAGED_PROFILE_TEMPLATES[builtinName]?.intent
+    : undefined;
+  if (intent) {
+    for (const [name, template] of Object.entries(USER_PROFILE_TEMPLATES)) {
+      if (template.intent === intent) return name;
+    }
+  }
+  return "custom-balanced";
+}
+
+/**
  * The "auto" profile key. When active, the daemon injects the
  * `switch_inference_profile` tool and lets the model self-select a profile
  * per query. No provider/model — the resolver falls through to the call-site

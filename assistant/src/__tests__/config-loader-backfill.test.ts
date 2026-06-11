@@ -81,6 +81,7 @@ import { migrateCreateProviderConnections } from "../memory/migrations/243-provi
 import { migrateProviderConnectionStatusLabel } from "../memory/migrations/244-provider-connection-status-label.js";
 import { migrateProviderConnectionBaseUrlAndModels } from "../memory/migrations/250-provider-connection-base-url-and-models.js";
 import * as schema from "../memory/schema.js";
+import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 import { getConnection } from "../providers/inference/connections.js";
 import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
@@ -1415,6 +1416,196 @@ describe("seedInferenceProfiles BYOK-mode built-in profile handling", () => {
       config.llm.profiles["custom-quality-optimized"]?.provider_connection,
     ).toBe("gemini-personal");
     expect(getConnection(db, "gemini-personal")).not.toBeNull();
+  });
+
+  test("ollama hatch overlay built-in routing transplants to custom-balanced instead of dropping", () => {
+    // Ollama never gets a hatch personal connection from the seeder (it is
+    // keyless), so the seeder's activeProfile remap can't repair a dropped
+    // routing. The merge transplants the full entry onto the custom name
+    // and the post-seed backfill derives the keyless connection, keeping
+    // first-run dispatch on the provider the hatch selected. The CLI emits
+    // no llm.default for ollama hatches (resolveHatchProvider returns null),
+    // so the overlay carries only the profile fragment + activeProfile.
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            profiles: {
+              balanced: { provider: "ollama", model: "llama3.2" },
+            },
+            activeProfile: "balanced",
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+    const db = createProviderConnectionsDb();
+
+    mergeDefaultConfigAndSeedInferenceProfiles(db);
+    // Lifecycle re-runs the backfill after hatch seeding because the boot
+    // backfill runs before the overlay merge; mirror that ordering.
+    runProviderConnectionsBackfill(db);
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.activeProfile).toBe("custom-balanced");
+    // The transplanted entry is the only materialized profile — no built-in
+    // names on disk, and no hatch personal-connection profile set (those are
+    // gated on an api-key provider in llm.default).
+    expect(Object.keys(raw.llm.profiles)).toEqual(["custom-balanced"]);
+    expect(raw.llm.profiles["custom-balanced"]).toEqual({
+      provider: "ollama",
+      model: "llama3.2",
+      source: "user",
+      provider_connection: "ollama-personal",
+    });
+    // No managed connection was genuinely selected, so every managed
+    // built-in gets the hatch-disable override.
+    expect(raw.llm.profileOverrides.balanced).toEqual({ status: "disabled" });
+    expect(raw.llm.profileOverrides["quality-optimized"]).toEqual({
+      status: "disabled",
+    });
+    expect(raw.llm.profileOverrides["cost-optimized"]).toEqual({
+      status: "disabled",
+    });
+    expect(raw.llm.profileOverrides["balanced-economy"]).toEqual({
+      status: "disabled",
+    });
+
+    const connection = getConnection(db, "ollama-personal");
+    expect(connection?.provider).toBe("ollama");
+    expect(connection?.auth).toEqual({ type: "none" });
+
+    const config = loadConfig();
+    expect(config.llm.activeProfile).toBe("custom-balanced");
+    const resolved = resolveCallSiteConfig("mainAgent", config.llm);
+    expect(resolved.provider).toBe("ollama");
+    expect(resolved.model).toBe("llama3.2");
+    expect(resolved.provider_connection).toBe("ollama-personal");
+  });
+
+  test("balanced-economy ollama routing transplants by intent to custom-balanced", () => {
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            profiles: {
+              "balanced-economy": { provider: "ollama", model: "qwen3" },
+            },
+            activeProfile: "balanced-economy",
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+    const db = createProviderConnectionsDb();
+
+    mergeDefaultConfigAndSeedInferenceProfiles(db);
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.activeProfile).toBe("custom-balanced");
+    expect(raw.llm.profiles["custom-balanced"]).toEqual({
+      provider: "ollama",
+      model: "qwen3",
+      source: "user",
+    });
+    expect(raw.llm.profiles["balanced-economy"]).toBeUndefined();
+    expect(raw.llm.profileOverrides["balanced-economy"]).toEqual({
+      status: "disabled",
+    });
+  });
+
+  test("openai-compatible hatch overlay routing transplants; explicit connection preserved, none derived", () => {
+    // openai-compatible connections require per-connection base_url/models,
+    // so neither the seeder nor the backfill can derive one from a bare
+    // provider id. The transplant still preserves the overlay's routing
+    // intent on disk: an explicit provider_connection carries through
+    // untouched, and an entry without one keeps its provider/model (the
+    // backfill logs a skip) instead of silently rerouting to the managed
+    // Anthropic template.
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            profiles: {
+              balanced: {
+                provider: "openai-compatible",
+                model: "my-model",
+                provider_connection: "my-endpoint",
+              },
+              "quality-optimized": {
+                provider: "openai-compatible",
+                model: "my-big-model",
+              },
+            },
+            activeProfile: "balanced",
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+    const db = createProviderConnectionsDb();
+
+    mergeDefaultConfigAndSeedInferenceProfiles(db);
+    runProviderConnectionsBackfill(db);
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.activeProfile).toBe("custom-balanced");
+    expect(raw.llm.profiles["custom-balanced"]).toEqual({
+      provider: "openai-compatible",
+      model: "my-model",
+      provider_connection: "my-endpoint",
+      source: "user",
+    });
+    expect(raw.llm.profiles["custom-quality-optimized"]).toEqual({
+      provider: "openai-compatible",
+      model: "my-big-model",
+      source: "user",
+    });
+    expect(raw.llm.profiles.balanced).toBeUndefined();
+    expect(raw.llm.profiles["quality-optimized"]).toBeUndefined();
+    expect(raw.llm.profileOverrides.balanced).toEqual({ status: "disabled" });
+  });
+
+  test("explicit overlay custom-* entry wins over a transplant of the same name", () => {
+    // When the overlay supplies both representations the explicit custom
+    // entry is authoritative; the built-in's routing falls back to the
+    // drop-and-track conversion.
+    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
+    writeFileSync(
+      overlayPath,
+      JSON.stringify(
+        {
+          llm: {
+            profiles: {
+              balanced: { provider: "ollama", model: "llama3.2" },
+              "custom-balanced": { provider: "ollama", model: "qwen3" },
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
+    const db = createProviderConnectionsDb();
+
+    mergeDefaultConfigAndSeedInferenceProfiles(db);
+
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    expect(raw.llm.profiles["custom-balanced"].model).toBe("qwen3");
+    expect(raw.llm.profiles.balanced).toBeUndefined();
   });
 
   test("hatch overlay activeProfile naming a built-in with a label-only body stays preserved", () => {

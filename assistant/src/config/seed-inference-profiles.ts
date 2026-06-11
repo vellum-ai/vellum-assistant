@@ -9,68 +9,20 @@ import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getLogger } from "../util/logger.js";
 import {
-  type BuiltinProfileDefinition,
+  customProfileNameForBuiltin,
   MANAGED_PROFILE_NAMES,
   MANAGED_PROFILE_TEMPLATES,
   materializeProfile,
+  USER_PROFILE_TEMPLATES,
 } from "./builtin-inference-profiles.js";
 import {
   isPlatformDeployment,
   loadRawConfig,
   saveRawConfig,
 } from "./loader.js";
-import {
-  DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS,
-  type ProfileEntry,
-} from "./schemas/llm.js";
+import { type ProfileEntry } from "./schemas/llm.js";
 
 const log = getLogger("seed-inference-profiles");
-
-/**
- * User profile templates. Materialized at hatch time for off-platform
- * installations. Each points at the user's personal provider connection
- * (backed by their API key in CES). The `provider` and `connectionName`
- * fields are placeholders — they are overridden at hatch time with the
- * user's chosen provider and personal connection name.
- */
-const USER_PROFILE_TEMPLATES: Record<string, BuiltinProfileDefinition> = {
-  "custom-balanced": {
-    intent: "balanced",
-    provider: "anthropic",
-    connectionName: "",
-    source: "user",
-    label: "Balanced",
-    description: "Good balance of quality, cost, and speed",
-    maxTokens: 16000,
-    effort: "high",
-    thinking: { enabled: true, streamThinking: true },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
-  "custom-quality-optimized": {
-    intent: "quality-optimized",
-    provider: "anthropic",
-    connectionName: "",
-    source: "user",
-    label: "Quality",
-    description: "Best results with the most capable model",
-    maxTokens: 32000,
-    effort: "high",
-    thinking: { enabled: true, streamThinking: true },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
-  "custom-cost-optimized": {
-    intent: "latency-optimized",
-    provider: "anthropic",
-    connectionName: "",
-    source: "user",
-    label: "Speed",
-    description: "Fastest responses at lower cost",
-    maxTokens: 8192,
-    effort: "low",
-    thinking: { enabled: false, streamThinking: false },
-    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-  },
-};
 
 export type SeedInferenceProfilesOptions = {
   /**
@@ -88,7 +40,10 @@ export type SeedInferenceProfilesOptions = {
    * to `llm.profileOverrides`. An `activeProfile` naming one of these meant
    * "this name, routed to my own provider" — not the code-defined managed
    * built-in — so the seeder remaps it to the equivalent personal `custom-*`
-   * profile instead of preserving it.
+   * profile instead of preserving it. Only providers that get a hatch
+   * personal connection land here: routing for connectionless providers
+   * (ollama / openai-compatible) is transplanted to the `custom-*` name by
+   * the merge itself and never reported as dropped.
    */
   builtinProfilesWithDroppedProviderConfig?: Iterable<string>;
   /** True when a hatch overlay was consumed this startup. */
@@ -245,7 +200,7 @@ export function seedInferenceProfiles(
       // Hatch = fresh setup. Pick the right default based on platform mode;
       // a remapped built-in lands on the custom profile with the same intent.
       llm.activeProfile = userConnectionName
-        ? customProfileForBuiltin(
+        ? customProfileNameForBuiltin(
             remapActiveToCustomProfile ? requestedActiveProfile : undefined,
           )
         : "balanced";
@@ -284,24 +239,6 @@ export function seedInferenceProfiles(
   }
 
   saveRawConfig(config);
-}
-
-/**
- * The personal `custom-*` profile that matches a built-in's model intent —
- * the landing spot for a hatch whose overlay built-in activeProfile had its
- * provider routing dropped. Unknown or absent names (and intents without a
- * user template, e.g. `auto`) fall back to `custom-balanced`.
- */
-function customProfileForBuiltin(builtinName: string | undefined): string {
-  const intent = builtinName
-    ? MANAGED_PROFILE_TEMPLATES[builtinName]?.intent
-    : undefined;
-  if (intent) {
-    for (const [name, template] of Object.entries(USER_PROFILE_TEMPLATES)) {
-      if (template.intent === intent) return name;
-    }
-  }
-  return "custom-balanced";
 }
 
 function readObject(value: unknown): Record<string, unknown> | null {

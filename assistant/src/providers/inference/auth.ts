@@ -79,6 +79,20 @@ export const ConnectionProviderSchema = z.enum(
   VALID_CONNECTION_PROVIDERS as readonly [string, ...string[]],
 );
 
+/**
+ * Providers whose connections cannot exist without per-connection
+ * `base_url` + `models` — there is no canonical hosted endpoint or model
+ * catalog to fall back on. Connection create/update validation enforces the
+ * requirement, and boot-time derivation paths (the provider_connections
+ * backfill, hatch seeding, and the overlay transplant gate in
+ * `mergeDefaultWorkspaceConfig`) skip these providers because a connection
+ * cannot be conjured from a bare provider id. Defined here rather than in
+ * `connections.ts` so `config/loader.ts` can import it without a module
+ * cycle (connections → registry → retry → config/loader).
+ */
+export const PROVIDERS_REQUIRING_BASE_URL_AND_MODELS: ReadonlySet<string> =
+  new Set(["openai-compatible"]);
+
 // ---------------------------------------------------------------------------
 // Per-connection model entries (openai-compatible)
 // ---------------------------------------------------------------------------

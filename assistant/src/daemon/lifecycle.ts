@@ -595,6 +595,24 @@ export async function runDaemon(): Promise<void> {
       );
     }
 
+    // The boot-time provider_connections backfill above ran BEFORE the
+    // overlay merge, so profile entries the merge just wrote — notably a
+    // built-in entry transplanted onto a `custom-*` name because it routes
+    // to a connectionless provider (ollama) — have no `provider_connection`
+    // yet. Re-run the backfill on hatch boots so first-run dispatch works
+    // without waiting for the next restart. Idempotent and cheap; non-hatch
+    // boots are unchanged.
+    if (dbReady && defaultConfigMerge.hadOverlay) {
+      try {
+        runProviderConnectionsBackfill(getDb());
+      } catch (err) {
+        log.warn(
+          { err },
+          "post-hatch provider_connections backfill failed — will retry on next boot",
+        );
+      }
+    }
+
     log.info("Daemon startup: loading config");
     const config = loadConfig();
 

@@ -12,6 +12,7 @@ import {
   type ConnectionProvider,
   ConnectionProviderSchema,
   type ProviderConnection,
+  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   VALID_CONNECTION_PROVIDERS,
 } from "./auth.js";
 
@@ -29,8 +30,9 @@ function parseModelsColumn(raw: string | null): ConnectionModel[] | null {
   }
 }
 
-export const PROVIDERS_REQUIRING_BASE_URL_AND_MODELS: ReadonlySet<string> =
-  new Set(["openai-compatible"]);
+// Defined in auth.ts (see the comment there for why); re-exported here so the
+// connection CRUD callers keep importing it alongside the CRUD functions.
+export { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS };
 
 // ---------------------------------------------------------------------------
 // Read

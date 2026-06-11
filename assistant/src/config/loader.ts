@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
+import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "../providers/inference/auth.js";
 import { safeStatSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -20,6 +21,7 @@ import {
 } from "./assistant-feature-flags.js";
 import {
   AUTO_PROFILE_KEY,
+  customProfileNameForBuiltin,
   isSeedDefaultBuiltinLabel,
   MANAGED_PROFILE_NAMES,
   resolveBuiltinProfiles,
@@ -736,6 +738,59 @@ const PROVIDER_ROUTING_PROFILE_KEYS = new Set([
   "mix",
 ]);
 
+/**
+ * Transplant an overlay built-in profile entry onto its matching `custom-*`
+ * profile name when the entry's routing targets a provider that never gets
+ * a hatch personal connection: ollama (keyless) and the
+ * `PROVIDERS_REQUIRING_BASE_URL_AND_MODELS` set (openai-compatible).
+ *
+ * For every other provider the routing fields are dropped here and the
+ * seeder repairs the activeProfile by remapping it onto the hatch-created
+ * personal connection (`builtinProfilesWithDroppedProviderConfig`). That
+ * repair is impossible for connectionless providers, so dropping their
+ * routing would silently boot the workspace on the code-defined managed
+ * Anthropic template — instead the full entry moves to the custom name
+ * (tagged `source: "user"`), and an `activeProfile` naming the built-in is
+ * rewritten to follow it. The provider_connections backfill (re-run by
+ * lifecycle after hatch seeding) derives the ollama connection on the same
+ * boot; openai-compatible entries keep whatever explicit
+ * `provider_connection` the overlay carried since a connection cannot be
+ * derived from a bare provider id.
+ *
+ * No transplant happens (returns undefined, caller falls back to
+ * drop-and-track) when the entry carries no routing fields, routes to a
+ * connection-getting provider, omits `provider` entirely, or the overlay
+ * already supplies the target custom name (an explicit entry wins over a
+ * transplant).
+ */
+function transplantBuiltinProfileRouting(
+  name: string,
+  entry: Record<string, unknown>,
+  droppedKeys: string[],
+  llmDefaults: Record<string, unknown>,
+  providedProfiles: Record<string, unknown>,
+): string | undefined {
+  if (!droppedKeys.some((key) => PROVIDER_ROUTING_PROFILE_KEYS.has(key))) {
+    return undefined;
+  }
+  const provider = entry.provider;
+  if (
+    typeof provider !== "string" ||
+    (provider !== "ollama" &&
+      !PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(provider))
+  ) {
+    return undefined;
+  }
+  const customName = customProfileNameForBuiltin(name);
+  if (customName in providedProfiles) return undefined;
+
+  providedProfiles[customName] = { ...entry, source: "user" };
+  if (llmDefaults.activeProfile === name) {
+    llmDefaults.activeProfile = customName;
+  }
+  return customName;
+}
+
 function emptyDefaultWorkspaceConfigMergeResult(): DefaultWorkspaceConfigMergeResult {
   return {
     hadOverlay: false,
@@ -788,13 +843,21 @@ export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult
   // Overlay entries for built-in profile names are converted to sparse
   // `llm.profileOverrides` entries (label/status only) — built-in profile
   // config is code-defined and never materialized into `llm.profiles` on
-  // disk. Non-override fields are dropped with a warning. Seed-default
-  // labels (the bare template label or its " (Managed)" variant) are seed
-  // artifacts, not overlay intent, so they are not lifted — only explicit
-  // `null` and non-default strings carry through; explicit overlay
+  // disk. Non-override fields are dropped with a warning, except when the
+  // entry routes to a provider that never gets a hatch personal connection
+  // (ollama / openai-compatible): those entries are transplanted wholesale
+  // onto the matching `custom-*` profile name so the routing survives (the
+  // seeder's activeProfile remap can't repair them — it depends on the
+  // personal connection). Overlay consumption only happens on hatch boots
+  // (the file is consumed-once; lifecycle passes `isHatch: hadOverlay`),
+  // so the transplant is inherently hatch-scoped. Seed-default labels (the
+  // bare template label or its " (Managed)" variant) are seed artifacts,
+  // not overlay intent, so they are not lifted — only explicit `null` and
+  // non-default strings carry through; explicit overlay
   // `llm.profileOverrides` entries are never filtered. The converted
   // names are excluded from `providedLlmProfileNames` so the seeder treats
-  // only custom overlay names as overlay-owned.
+  // only custom overlay names as overlay-owned; transplanted `custom-*`
+  // names are included, so the seeder preserves them.
   const convertedBuiltinNames = new Set<string>();
   const builtinProfilesWithDroppedProviderConfig = new Set<string>();
   if (llmDefaults && providedProfiles) {
@@ -811,13 +874,31 @@ export function mergeDefaultWorkspaceConfig(): DefaultWorkspaceConfigMergeResult
         (key) => !(key in override),
       );
       if (droppedKeys.length > 0) {
-        log.warn(
-          { profile: name, droppedKeys },
-          "Default workspace config supplied non-override fields for built-in profile %s; dropping them (built-in profile config is code-defined)",
+        const transplantedTo = transplantBuiltinProfileRouting(
           name,
+          entry,
+          droppedKeys,
+          llmDefaults,
+          providedProfiles,
         );
-        if (droppedKeys.some((key) => PROVIDER_ROUTING_PROFILE_KEYS.has(key))) {
-          builtinProfilesWithDroppedProviderConfig.add(name);
+        if (transplantedTo) {
+          log.info(
+            { profile: name, transplantedTo, provider: entry.provider },
+            "Default workspace config routed built-in profile %s to a connectionless provider; transplanted the entry to %s",
+            name,
+            transplantedTo,
+          );
+        } else {
+          log.warn(
+            { profile: name, droppedKeys },
+            "Default workspace config supplied non-override fields for built-in profile %s; dropping them (built-in profile config is code-defined)",
+            name,
+          );
+          if (
+            droppedKeys.some((key) => PROVIDER_ROUTING_PROFILE_KEYS.has(key))
+          ) {
+            builtinProfilesWithDroppedProviderConfig.add(name);
+          }
         }
       }
       // Mirrors the transition-compat path in applyBuiltinProfiles: a
