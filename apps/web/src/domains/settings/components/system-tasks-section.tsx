@@ -150,7 +150,12 @@ export function SystemTasksSection({
     return null;
   }
 
-  const readyUsages = [heartbeatUsage, consolidationUsage].filter(
+  // Aggregate only the visible jobs — a hidden job's query can still hold
+  // cached usage (e.g. consolidation after memory is turned off).
+  const readyUsages = [
+    ...(showHeartbeat ? [heartbeatUsage] : []),
+    ...(showConsolidation ? [consolidationUsage] : []),
+  ].filter(
     (usage): usage is Extract<ScheduleRowUsage, { status: "ready" }> =>
       usage.status === "ready",
   );

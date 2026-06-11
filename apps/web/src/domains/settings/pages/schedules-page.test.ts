@@ -1041,5 +1041,8 @@ describe("system task toggles", () => {
     expect(document.body.textContent).not.toContain(
       "Consolidation is part of Memory.",
     );
+    // Heartbeat is hidden here, so its cached usage must not inflate the
+    // aggregate cost on the collapsed trigger ($0.42, not $0.84).
+    expect(document.body.textContent).toContain("$0.42 (7d)");
   });
 });
