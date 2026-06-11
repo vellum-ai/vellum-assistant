@@ -1053,4 +1053,33 @@ describe("POST /v1/config/set — profileOverrides payload guard", () => {
       model: "gpt-4o",
     });
   });
+
+  test("set llm: an explicit profileOverrides null wins over label/status carried by the profiles entry", async () => {
+    (rawConfig.llm as Record<string, unknown>).profileOverrides = {
+      balanced: { label: "Custom" },
+    };
+    const result = await setRoute.handler({
+      body: {
+        path: "llm",
+        value: {
+          profiles: {
+            balanced: { label: "New Name", status: "disabled" },
+            "my-custom": { provider: "openai", model: "gpt-4o" },
+          },
+          profileOverrides: { balanced: null },
+        },
+      },
+    });
+    expect(result).toEqual({ ok: true });
+    const saved = savedRaw as unknown as Record<string, any>;
+    // The entry-level null is the strongest explicit override in the write:
+    // the lift is skipped rather than resurrecting the entry with the
+    // materialized label/status, and the null itself never reaches disk.
+    expect(saved.llm.profileOverrides).toBeUndefined();
+    expect(saved.llm.profiles.balanced).toBeUndefined();
+    expect(saved.llm.profiles["my-custom"]).toEqual({
+      provider: "openai",
+      model: "gpt-4o",
+    });
+  });
 });

@@ -660,7 +660,9 @@ function warnDroppedProfileOverrideFields(
  * - `null` entries are kept or removed per `keepNullEntries`: PATCH keeps
  *   them (`applyProfileOverridesPatch` implements clear-entry semantics for
  *   `null`), while replace-style SET writes remove them (deletion IS the
- *   clear).
+ *   clear) — `set llm` keeps them until after the built-in lift so the
+ *   explicit-null-wins guard in `liftIntoRawProfileOverrides` can see them
+ *   (see `normalizeRawProfileOverrides`).
  * - Non-object, non-null entries are dropped with a warning.
  */
 function sanitizeProfileOverridesMap(
@@ -698,8 +700,16 @@ function sanitizeProfileOverridesMap(
  * (`null` is the explicit clear; anything else is warned about) and the map
  * itself when nothing is left — `z.record` would reject a `null` map on the
  * next load.
+ *
+ * `keepNullEntries` is forwarded to the per-entry sanitization: the `set
+ * llm` path keeps entry-level nulls through the built-in lift (the
+ * explicit-null-wins guard in `liftIntoRawProfileOverrides` must see them)
+ * and prunes them with a second, default-options pass after the lift.
  */
-function normalizeRawProfileOverrides(raw: Record<string, unknown>): void {
+function normalizeRawProfileOverrides(
+  raw: Record<string, unknown>,
+  opts: { keepNullEntries: boolean } = { keepNullEntries: false },
+): void {
   const llm = asMutablePlainObject(raw.llm);
   if (!llm || !("profileOverrides" in llm)) return;
   const map = asMutablePlainObject(llm.profileOverrides);
@@ -712,7 +722,7 @@ function normalizeRawProfileOverrides(raw: Record<string, unknown>): void {
     delete llm.profileOverrides;
     return;
   }
-  sanitizeProfileOverridesMap(map, { keepNullEntries: false });
+  sanitizeProfileOverridesMap(map, opts);
   if (Object.keys(map).length === 0) delete llm.profileOverrides;
 }
 
@@ -957,43 +967,56 @@ function setConfigValueWithBuiltinSanitizer(
   if (segments.length <= 2) {
     // Whole-map (`llm.profiles`) or whole-subtree (`llm`) replacement.
     setNestedValue(raw, path, value);
-    if (segments.length === 1) {
+    const replacedLlmSubtree = segments.length === 1;
+    if (replacedLlmSubtree) {
       // The write replaced the whole `llm` subtree, so its
       // `profileOverrides` payload now sits on `raw` and must be guarded
       // like any other override-store write (illegal fields dropped,
       // empty/non-object entries removed) before the built-in lifts below
-      // merge into it.
-      normalizeRawProfileOverrides(raw);
+      // merge into it. Entry-level nulls (clear the entry) are kept through
+      // the lift so the explicit-null-wins guard in
+      // `liftIntoRawProfileOverrides` sees them; they are pruned afterwards.
+      normalizeRawProfileOverrides(raw, { keepNullEntries: true });
     }
     const llm = asMutablePlainObject(raw.llm);
     const profiles = llm ? asMutablePlainObject(llm.profiles) : null;
-    if (!llm || !profiles) return;
-    const builtinEntries = new Map<string, Record<string, unknown> | null>();
-    for (const name of Object.keys(profiles)) {
-      if (!MANAGED_PROFILE_NAMES.has(name)) continue;
-      builtinEntries.set(name, asMutablePlainObject(profiles[name]));
-      delete profiles[name];
-    }
-    if (builtinEntries.size === 0) return;
-    // Baseline AFTER stripping: what each built-in resolves to from the
-    // template plus the override store this write leaves in place. A
-    // transition-state seeder entry's label/status that the round-tripped
-    // body carries differs from this baseline and is lifted instead of lost.
-    const effective = effectiveLlmProfiles(raw);
-    for (const [name, entry] of builtinEntries) {
-      if (!entry) {
-        warnDroppedBuiltinProfileFields(name, ["<non-object entry>"]);
-        continue;
+    if (profiles) {
+      const builtinEntries = new Map<string, Record<string, unknown> | null>();
+      for (const name of Object.keys(profiles)) {
+        if (!MANAGED_PROFILE_NAMES.has(name)) continue;
+        builtinEntries.set(name, asMutablePlainObject(profiles[name]));
+        delete profiles[name];
       }
-      const { lifted, dropped } = extractBuiltinProfileOverride(
-        entry,
-        asMutablePlainObject(effective[name]),
-      );
-      warnDroppedBuiltinProfileFields(name, dropped);
-      liftIntoRawProfileOverrides(raw, name, lifted, {
-        // For `set llm`, raw.llm.profileOverrides is the write's own payload.
-        explicitWins: segments.length === 1,
-      });
+      if (builtinEntries.size > 0) {
+        // Baseline AFTER stripping: what each built-in resolves to from the
+        // template plus the override store this write leaves in place (null
+        // entries read as "no override"). A transition-state seeder entry's
+        // label/status that the round-tripped body carries differs from this
+        // baseline and is lifted instead of lost.
+        const effective = effectiveLlmProfiles(raw);
+        for (const [name, entry] of builtinEntries) {
+          if (!entry) {
+            warnDroppedBuiltinProfileFields(name, ["<non-object entry>"]);
+            continue;
+          }
+          const { lifted, dropped } = extractBuiltinProfileOverride(
+            entry,
+            asMutablePlainObject(effective[name]),
+          );
+          warnDroppedBuiltinProfileFields(name, dropped);
+          liftIntoRawProfileOverrides(raw, name, lifted, {
+            // For `set llm`, raw.llm.profileOverrides is the write's own
+            // payload.
+            explicitWins: replacedLlmSubtree,
+          });
+        }
+      }
+    }
+    if (replacedLlmSubtree) {
+      // Replace semantics: an entry-level null means the entry is cleared.
+      // The lift has honored it above, so drop the nulls (and a hollowed-out
+      // map) before the raw config heads to disk.
+      normalizeRawProfileOverrides(raw);
     }
     return;
   }
