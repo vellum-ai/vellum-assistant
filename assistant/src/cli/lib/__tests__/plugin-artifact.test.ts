@@ -33,6 +33,73 @@ describe("parsePluginArtifact", () => {
     });
   });
 
+  test("surfaces an optional label when the plugin names the download", () => {
+    // GIVEN a block that labels its artifact (e.g. for multi-artifact plugins)
+    const pkg = {
+      vellum: {
+        artifact: {
+          url: "https://example.com/App.dmg",
+          sha256: VALID_SHA,
+          label: "Download for macOS",
+        },
+      },
+    };
+
+    // WHEN we parse it
+    const artifact = parsePluginArtifact(pkg);
+
+    // THEN the label comes through alongside url + sha256
+    expect(artifact).toEqual({
+      url: "https://example.com/App.dmg",
+      sha256: VALID_SHA,
+      label: "Download for macOS",
+    });
+  });
+
+  test("trims a label and drops it when blank, keeping the descriptor", () => {
+    // GIVEN a descriptor whose label is whitespace-only
+    const pkg = {
+      vellum: {
+        artifact: {
+          url: "https://example.com/App.dmg",
+          sha256: VALID_SHA,
+          label: "   ",
+        },
+      },
+    };
+
+    // WHEN we parse it
+    const artifact = parsePluginArtifact(pkg);
+
+    // THEN the blank label is dropped but the artifact still surfaces
+    expect(artifact).toEqual({
+      url: "https://example.com/App.dmg",
+      sha256: VALID_SHA,
+    });
+  });
+
+  test("ignores a non-string label without dropping the descriptor", () => {
+    // GIVEN a label of the wrong type
+    const pkg = {
+      vellum: {
+        artifact: {
+          url: "https://example.com/App.dmg",
+          sha256: VALID_SHA,
+          label: 42,
+        },
+      },
+    };
+
+    // WHEN we parse it
+    const artifact = parsePluginArtifact(pkg);
+
+    // THEN the bad label is ignored but url + sha256 still come through
+    expect(artifact).toEqual({
+      url: "https://example.com/App.dmg",
+      sha256: VALID_SHA,
+    });
+  });
+
   test("ignores extra fields inside the artifact block", () => {
     // GIVEN a block carrying fields beyond url + sha256
     const pkg = {

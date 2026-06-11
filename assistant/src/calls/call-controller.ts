@@ -1312,7 +1312,7 @@ export class CallController {
 
       // Mark the linked guardian action request as timed out and
       // send expiry notices to guardian destinations. Deliveries
-      // must be captured before markTimedOutWithReason changes
+      // must be captured before expiring the request changes
       // their status.
       const pendingActionRequest = getPendingCanonicalRequestByCallSessionId(
         this.callSessionId,

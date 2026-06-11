@@ -276,6 +276,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "email attachment",
   "plugins",
   "plugins install",
+  "plugins inspect",
   "plugins list",
   "plugins search",
   "plugins uninstall",

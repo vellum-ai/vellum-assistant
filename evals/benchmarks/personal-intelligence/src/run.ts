@@ -86,9 +86,21 @@ export async function run(
     );
   }
 
-  const tests = await Promise.all(
+  const loadedTests = await Promise.all(
     unitIds.map((id) => loadTestDef(id, benchmark.unitsDir)),
   );
+  // Experimental units (declared via `status: experimental` in SPEC.md
+  // frontmatter) are pending QA and often depend on stubbed fixtures, so
+  // default unfiltered runs skip them. An explicit --filter opts in.
+  const tests =
+    filterIds.length > 0
+      ? loadedTests
+      : loadedTests.filter((test) => test.status !== "experimental");
+  if (tests.length === 0) {
+    throw new Error(
+      `Benchmark "${benchmark.id}" has no non-experimental ${benchmark.manifest.unitNoun} units — pass --filter to run experimental units explicitly`,
+    );
+  }
 
   let anyFailed = false;
   for (const profile of profiles) {

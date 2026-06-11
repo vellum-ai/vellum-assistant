@@ -18,6 +18,7 @@ import {
   type UsageSummary,
 } from "./metrics";
 import type { AgentEvent, AgentMessage } from "./adapter";
+import type { ProfileManifest } from "./profile";
 import type { TranscriptTurn } from "./transcript";
 
 /** Per-execution row used everywhere a single (profile, test) run is summarized. */
@@ -32,6 +33,13 @@ export interface ReportRunSummary {
    */
   cliArgv?: string[];
   profileId?: string;
+  /**
+   * Snapshot of the profile's manifest captured at run time (species,
+   * description, version, setup). Carried through from `run.json` so the
+   * report's per-profile info panel works in an exported bundle. Undefined
+   * for legacy runs that predate the field.
+   */
+  profileManifest?: ProfileManifest;
   testId?: string;
   status: RunMetadata["status"] | "unknown";
   startedAt?: string;
@@ -127,6 +135,12 @@ export type SessionStatus =
 /** Aggregate of one profile's runs inside a session. */
 export interface SessionProfileAggregate {
   profileId: string;
+  /**
+   * The profile's manifest, taken from any run of this profile in the
+   * session (all runs of a profile share one manifest). Drives the
+   * per-profile info panel. Undefined for legacy runs without the field.
+   */
+  info?: ProfileManifest;
   runCount: number;
   completedCount: number;
   failedCount: number;
@@ -177,6 +191,31 @@ export interface ReportSessionDetail extends ReportSessionSummary {
   tests: SessionTestEntry[];
 }
 
+/** Profile-in-session drill-in: how this profile scored on every test. */
+export interface ReportProfileInSession {
+  sessionId: string;
+  sessionLabel?: string;
+  profileId: string;
+  /** Profile manifest (species, description, version, setup) for the info panel. */
+  info?: ProfileManifest;
+  /**
+   * Equal-weighted mean across every metric of every run this profile
+   * produced in the session — the profile's overall score, mirroring the
+   * card on the session page.
+   */
+  scoreTotal: number;
+  tests: Array<{
+    testId: string;
+    runId: string;
+    status: ReportRunSummary["status"];
+    scoreTotal: number;
+    metricCount: number;
+    metrics: MetricResult[];
+    transcriptTurns: number;
+    totalCostUsd?: number;
+  }>;
+}
+
 /** Test-in-session drill-in: how each profile performed on this test. */
 export interface ReportTestInSession {
   sessionId: string;
@@ -224,6 +263,7 @@ function summarize(input: {
     sessionLabel: input.metadata?.sessionLabel,
     cliArgv: input.metadata?.cliArgv,
     profileId: input.metadata?.profileId,
+    profileManifest: input.metadata?.profileManifest,
     testId: input.metadata?.testId,
     status: fallbackStatus(input.metadata),
     startedAt: input.metadata?.startedAt,
@@ -529,6 +569,9 @@ function aggregateByProfile(
   return Array.from(groups.entries())
     .map(([profileId, profileRuns]) => ({
       profileId,
+      // All runs of a profile in a session share one manifest; the first
+      // run that carries it is authoritative (undefined for legacy runs).
+      info: profileRuns.find((run) => run.profileManifest)?.profileManifest,
       runCount: profileRuns.length,
       completedCount: profileRuns.filter((run) => run.status === "completed")
         .length,
@@ -575,6 +618,43 @@ export async function readReportSession(
     ...summary,
     profiles: aggregateByProfile(runs),
     tests: buildTestEntries(runs),
+  };
+}
+
+export async function readProfileInSession(
+  sessionId: string,
+  profileId: string,
+): Promise<ReportProfileInSession | undefined> {
+  const allRuns = await listAllRunSummaries();
+  const matching = allRuns.filter(
+    (run) => run.sessionId === sessionId && run.profileId === profileId,
+  );
+  if (matching.length === 0) return undefined;
+
+  // Load full detail per run so the per-test rows can show metric counts
+  // and cost, mirroring the test-in-session drill-in.
+  const details = await Promise.all(
+    matching.map((run) => readReportRun(run.runId)),
+  );
+
+  return {
+    sessionId,
+    sessionLabel: matching[0].sessionLabel,
+    profileId,
+    info: matching.find((run) => run.profileManifest)?.profileManifest,
+    scoreTotal: aggregateScore(matching),
+    tests: details
+      .map((detail) => ({
+        testId: detail.testId ?? "unknown",
+        runId: detail.runId,
+        status: detail.status,
+        scoreTotal: detail.scoreTotal,
+        metricCount: detail.metricCount,
+        metrics: detail.metrics,
+        transcriptTurns: detail.transcriptTurns,
+        totalCostUsd: detail.totalCostUsd,
+      }))
+      .sort((a, b) => a.testId.localeCompare(b.testId)),
   };
 }
 

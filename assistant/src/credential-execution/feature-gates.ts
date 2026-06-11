@@ -59,4 +59,3 @@ export function isCesSecureInstallEnabled(config: AssistantConfig): boolean {
 export function isCesGrantAuditEnabled(config: AssistantConfig): boolean {
   return isAssistantFeatureFlagEnabled(CES_GRANT_AUDIT_FLAG_KEY, config);
 }
-

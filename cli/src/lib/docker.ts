@@ -15,6 +15,7 @@ import cliPkg from "../../package.json";
 
 import {
   findAssistantByName,
+  normalizeVersion,
   saveAssistantEntry,
   setActiveAssistant,
 } from "./assistant-config";
@@ -1151,6 +1152,8 @@ export async function hatchDocker(
       log("✅ Docker images built");
     }
 
+    let releaseVersion: string | undefined;
+
     if (!mode.build || !repoRoot) {
       emitProgress(2, 6, "Pulling images...");
 
@@ -1186,6 +1189,9 @@ export async function hatchDocker(
           log(
             `⚠️  Platform releases unavailable; falling back to CLI version ${versionTag}`,
           );
+        }
+        if (versionTag !== "latest") {
+          releaseVersion = normalizeVersion(versionTag);
         }
         log("🔍 Resolving image references...");
         const resolved = await resolveImageRefs(versionTag, log);
@@ -1364,6 +1370,7 @@ export async function hatchDocker(
       cloud: "docker",
       species,
       hatchedAt: new Date().toISOString(),
+      version: releaseVersion,
       guardianBootstrapSecret: ownSecret,
       containerInfo: {
         assistantImage: imageTags.assistant,

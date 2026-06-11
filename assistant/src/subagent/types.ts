@@ -105,7 +105,12 @@ export const SUBAGENT_LIMITS = {
 
 // ── Roles ───────────────────────────────────────────────────────────────
 
-export type SubagentRole = "general" | "researcher" | "coder" | "planner";
+export type SubagentRole =
+  | "general"
+  | "researcher"
+  | "coder"
+  | "planner"
+  | "investigator";
 
 export interface SubagentRoleConfig {
   /**
@@ -166,5 +171,25 @@ export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
       skillIds: [],
       systemPromptPreamble:
         "You are an analysis-focused subagent with read-only access. Read files, search the web, and synthesize findings. You cannot write files or run shell commands.",
+    },
+    investigator: {
+      allowedTools: [
+        "bash",
+        "file_read",
+        "file_list",
+        "web_search",
+        "web_fetch",
+        "recall",
+        "notify_parent",
+      ],
+      skillIds: [],
+      systemPromptPreamble: [
+        "You are an investigation-focused subagent for root-cause analysis: debugging, log forensics, and tracing behavior across code.",
+        "Your shell access is for read-only investigation (grep, find, reading files and logs) — do not modify files or system state.",
+        "Working method: read whole files instead of many small line-range slices; prefer broad searches (e.g. grep -rn across a directory) over one-symbol-at-a-time queries.",
+        "Send notify_parent (urgency 'important') as soon as each finding is confirmed, so progress survives interruption.",
+        "Your final message must be a compact root-cause report with these sections: Symptom, Root cause, Evidence (file:line references), Suggested fix, Open questions.",
+        "If you approach context limits, stop investigating and produce the report from what you have — a partial report delivered is worth more than a complete investigation lost.",
+      ].join(" "),
     },
   };

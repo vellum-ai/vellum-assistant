@@ -38,7 +38,9 @@ describe("CardSurface", () => {
 
     expect(countOccurrences(rendered, "Response limit reached")).toBe(1);
     expect(rendered).toContain("The partial response above was saved.");
-    expect(rendered).toContain("I hit the response limit before I could finish.");
+    expect(rendered).toContain(
+      "I hit the response limit before I could finish.",
+    );
   });
 
   test("renders the card data title instead of the envelope title", () => {
@@ -119,7 +121,9 @@ describe("CardSurface", () => {
             templateData: {
               title: "Connect Gmail",
               status: "in_progress",
-              steps: [{ label: "Verifying Gmail connection", status: "failed" }],
+              steps: [
+                { label: "Verifying Gmail connection", status: "failed" },
+              ],
             },
           },
         })}
@@ -128,5 +132,72 @@ describe("CardSurface", () => {
     );
 
     expect(rendered).toContain("lucide-circle-x");
+  });
+
+  test("renders the counter progress bar when templateData has usable counters", () => {
+    const rendered = renderToStaticMarkup(
+      <CardSurface
+        surface={surface({
+          data: {
+            title: "Processing files",
+            body: "",
+            template: "task_progress",
+            templateData: { completed: 2, total: 5 },
+          },
+        })}
+        onAction={() => undefined}
+      />,
+    );
+
+    expect(rendered).toContain("2 / 5 tasks");
+    expect(rendered).toContain("40%");
+  });
+
+  test("degrades to the plain card body when task_progress steps is not an array", () => {
+    // Shape observed from MiniMax M3: arrays wrapped as { item: [...] }.
+    // This fails isTaskProgressSurface, and there are no counters either —
+    // the card must not render a meaningless "0 / 0 tasks" bar.
+    const rendered = renderToStaticMarkup(
+      <CardSurface
+        surface={surface({
+          title: "Building slide deck",
+          data: {
+            body: "Working on it.",
+            template: "task_progress",
+            templateData: {
+              title: "Slide Deck",
+              status: "in_progress",
+              steps: { item: [{ label: "Research", status: "in_progress" }] },
+            },
+          },
+        })}
+        onAction={() => undefined}
+      />,
+    );
+
+    expect(rendered).not.toContain("0 / 0 tasks");
+    expect(rendered).not.toContain("tasks");
+    expect(rendered).toContain("Building slide deck");
+    expect(rendered).toContain("Working on it.");
+  });
+
+  test("does not render a counter bar when task_progress has neither steps nor counters", () => {
+    const rendered = renderToStaticMarkup(
+      <CardSurface
+        surface={surface({
+          data: {
+            title: "Task",
+            body: "Details",
+            template: "task_progress",
+            templateData: { title: "Task", status: "in_progress" },
+          },
+        })}
+        onAction={() => undefined}
+      />,
+    );
+
+    expect(rendered).not.toContain("tasks");
+    expect(rendered).not.toContain("%");
+    expect(rendered).toContain("Details");
   });
 });

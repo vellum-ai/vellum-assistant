@@ -1,5 +1,6 @@
 import { CloudOff, LoaderCircle, Moon, WifiOff, Wrench } from "lucide-react";
 import { type ReactNode, useCallback, useState } from "react";
+import { Link } from "react-router";
 import { Button } from "@vellumai/design-library/components/button";
 import {
   Notice,
@@ -27,6 +28,7 @@ import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { cn } from "@/utils/misc";
+import { routes } from "@/utils/routes";
 
 interface BannerConfig {
   title: ReactNode;
@@ -64,6 +66,7 @@ function maintenanceModeBannerConfig(): BannerConfig {
 
 function operationalStatusBannerConfig(
   status: AssistantOperationalStatus | null | undefined,
+  showDoctorAction: boolean,
 ): BannerConfig | null {
   if (!status || isHealthyOperationalStatus(status)) return null;
 
@@ -74,6 +77,7 @@ function operationalStatusBannerConfig(
       return {
         tone: "error",
         title: OPERATIONAL_STATUS_TITLES[status.state],
+        actions: showDoctorAction ? doctorAction() : undefined,
       };
     case "sleeping":
       return {
@@ -113,6 +117,14 @@ function localHealthBannerConfig(
   }
 }
 
+function doctorAction(): ReactNode {
+  return (
+    <Button asChild variant="outlined" size="compact">
+      <Link to={`${routes.settings.debug}?tab=doctor`}>Go to Doctor</Link>
+    </Button>
+  );
+}
+
 function BannerNotice({
   banner,
   className,
@@ -144,6 +156,11 @@ function useAssistantBannerConfig(): BannerConfig | null {
   const operationalStatusAssistantId =
     useAssistantLifecycleStore.use.operationalStatusAssistantId();
   const assistantId = operationalStatusAssistantId ?? activeAssistantId;
+  const showDoctorAction =
+    assistantState.kind === "active" &&
+    !assistantState.isLocal &&
+    Boolean(activeAssistantId) &&
+    assistantId === activeAssistantId;
   const statusQuery = useAssistantOperationalStatus(assistantId);
   // Non-null only for local / self-hosted assistants, where the
   // platform's operational status never polls and the lifecycle
@@ -235,12 +252,13 @@ function useAssistantBannerConfig(): BannerConfig | null {
     return {
       tone: "error",
       title: "Assistant status is unavailable",
+      actions: showDoctorAction ? doctorAction() : undefined,
     };
   }
 
   const operationalBanner = shouldUseLifecycleMaintenanceMode
     ? maintenanceModeBannerConfig()
-    : operationalStatusBannerConfig(operationalStatus);
+    : operationalStatusBannerConfig(operationalStatus, showDoctorAction);
   const isMaintenanceModeBanner =
     operationalStatus?.state === "maintenance_mode" ||
     shouldUseLifecycleMaintenanceMode;

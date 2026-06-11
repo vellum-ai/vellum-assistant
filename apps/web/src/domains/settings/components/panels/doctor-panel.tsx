@@ -1,5 +1,5 @@
 import { ArrowUp, Loader2, Play, Square } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
@@ -17,19 +17,20 @@ import {
 } from "@/domains/settings/components/panels/doctor-chat-blocks";
 import { DoctorAvatar } from "@/domains/settings/components/panels/doctor-avatar";
 import {
-  type ChatEntry,
   hasPendingApproval,
   hasPendingBackup,
   mapPersistedMessagesToEntries,
   mapPersistedStatusToPanelStatus,
   selectLatestHistorySession,
 } from "@/domains/settings/components/panels/doctor-history";
-import { useDoctorSession } from "@/domains/settings/components/panels/use-doctor-session";
+import { useDoctorPanelStore } from "@/domains/settings/components/panels/doctor-panel-store";
+import { useDoctorSSE } from "@/domains/settings/components/panels/use-doctor-sse";
 import {
+  assistantsDoctorSessionsCreate,
   assistantsDoctorSessionsDestroy,
+  assistantsDoctorSessionsMessagesCreate,
   assistantsMaintenanceModeExitCreate,
 } from "@/generated/api/sdk.gen";
-import { useDoctorSSE } from "@/domains/settings/components/panels/use-doctor-sse";
 import {
   assistantsDoctorHistoryListOptions,
   assistantsDoctorHistoryRetrieveOptions,
@@ -40,6 +41,37 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { isPointerCoarse } from "@/utils/pointer";
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Fire-and-forget server-side cleanup for a doctor session. */
+function cleanupServerSession(assistantId: string, sessionId: string): void {
+  assistantsDoctorSessionsDestroy({
+    path: { assistant_id: assistantId, session_id: sessionId },
+    throwOnError: false,
+  }).catch(() => {});
+  assistantsMaintenanceModeExitCreate({
+    path: { assistant_id: assistantId },
+    throwOnError: false,
+  }).catch(() => {});
+}
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const DOCTOR_GREETING =
+  "Hi! I'm the Doctor. State the nature of the issue you're experiencing with your assistant and I'll help diagnose and fix it.";
+
+const APPROVAL_RESPONSES = new Set([
+  "approve",
+  "approve all exec",
+  "approve all future exec commands",
+  "approve_all_exec",
+  "deny",
+]);
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -47,24 +79,23 @@ export function DoctorPanel() {
   const assistantId =
     useResolvedAssistantsStore.use.activeAssistantId() ?? "";
 
-  const [entries, setEntries] = useState<ChatEntry[]>([]);
-  const [inputValue, setInputValue] = useState("");
-  const [pendingApproval, setPendingApproval] = useState(false);
-  const [pendingBackup, setPendingBackup] = useState(false);
+  // Store state (replaces 10 useState calls)
+  const entries = useDoctorPanelStore.use.entries();
+  const inputValue = useDoctorPanelStore.use.inputValue();
+  const pendingApproval = useDoctorPanelStore.use.pendingApproval();
+  const pendingBackup = useDoctorPanelStore.use.pendingBackup();
+  const thinking = useDoctorPanelStore.use.thinking();
+  const sessionId = useDoctorPanelStore.use.sessionId();
+  const sessionStatus = useDoctorPanelStore.use.sessionStatus();
+  const selectedHistorySessionId = useDoctorPanelStore.use.selectedHistorySessionId();
+  const appliedHistorySessionId = useDoctorPanelStore.use.appliedHistorySessionId();
+  const historyAutoLoadAttempted = useDoctorPanelStore.use.historyAutoLoadAttempted();
+  const sending = useDoctorPanelStore.use.sending();
+  const starting = useDoctorPanelStore.use.starting();
+  const ending = useDoctorPanelStore.use.ending();
+
+  // Local UI state (not shared with hooks)
   const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [thinking, setThinking] = useState(false);
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [sessionStatus, setSessionStatus] = useState<
-    "idle" | "active" | "completed" | "error"
-  >("idle");
-  const [selectedHistorySessionId, setSelectedHistorySessionId] = useState<
-    string | null
-  >(null);
-  const [appliedHistorySessionId, setAppliedHistorySessionId] = useState<
-    string | null
-  >(null);
-  const [historyAutoLoadAttempted, setHistoryAutoLoadAttempted] =
-    useState(false);
 
   const platformGate = usePlatformGate();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -91,41 +122,124 @@ export function DoctorPanel() {
   }, [entries]);
 
   // ---------------------------------------------------------------------------
-  // SSE hook
+  // SSE hook (owns only the AbortController lifecycle)
   // ---------------------------------------------------------------------------
 
-  const { connectSSE, abort, appendEntry } = useDoctorSSE({
-    setEntries,
-    setThinking,
-    setPendingApproval,
-    setPendingBackup,
-    setSessionStatus,
-  });
+  const { connectSSE, abort } = useDoctorSSE();
 
-  const {
-    sending,
-    starting,
-    ending,
-    startSession,
-    endSession,
-    restartSession,
-    sendMessage,
-  } = useDoctorSession({
-    assistantId,
-    sessionId,
-    setSessionId,
-    setSessionStatus,
-    appendEntry,
-    setEntries,
-    setThinking,
-    setPendingApproval,
-    setPendingBackup,
-    setInputValue,
-    setSelectedHistorySessionId,
-    setAppliedHistorySessionId,
-    connectSSE,
-    abort,
-  });
+  // ---------------------------------------------------------------------------
+  // Session actions (replaces useDoctorSession hook)
+  // ---------------------------------------------------------------------------
+
+  const startSession = useCallback(async () => {
+    if (!assistantId) return;
+    const store = useDoctorPanelStore.getState();
+    store.setStarting(true);
+    try {
+      const { data, error, response } = await assistantsDoctorSessionsCreate({
+        path: { assistant_id: assistantId },
+        throwOnError: false,
+      });
+
+      if (!response?.ok || error || !data) {
+        if (response?.status === 429) {
+          store.appendEntry({
+            kind: "error",
+            content:
+              "You've used all of your available Doctor sessions for this month. Please try again next month.",
+          });
+          return;
+        }
+        store.appendEntry({
+          kind: "error",
+          content: `Failed to start session: ${response?.statusText ?? "unknown error"}`,
+        });
+        return;
+      }
+
+      const sessId = data.session_id;
+      store.setSelectedHistorySessionId(null);
+      store.setAppliedHistorySessionId(null);
+      store.setSessionId(sessId);
+      store.setSessionStatus("active");
+      store.setEntries([
+        { kind: "assistant", content: DOCTOR_GREETING, id: "greeting", timestamp: Date.now() },
+      ]);
+      connectSSE(assistantId, sessId);
+    } catch (err) {
+      captureError(err, { context: "start_doctor_session" });
+      useDoctorPanelStore.getState().appendEntry({
+        kind: "error",
+        content: "Failed to start doctor session",
+      });
+    } finally {
+      useDoctorPanelStore.getState().setStarting(false);
+    }
+  }, [assistantId, connectSSE]);
+
+  const endSession = useCallback(async () => {
+    const store = useDoctorPanelStore.getState();
+    store.setEnding(true);
+    try {
+      abort();
+      if (store.sessionId && assistantId) {
+        cleanupServerSession(assistantId, store.sessionId);
+      }
+      useDoctorPanelStore.getState().teardown();
+    } finally {
+      useDoctorPanelStore.getState().setEnding(false);
+    }
+  }, [assistantId, abort]);
+
+  const resetToIdle = useCallback(async () => {
+    const store = useDoctorPanelStore.getState();
+    abort();
+    if (store.sessionId && assistantId) {
+      cleanupServerSession(assistantId, store.sessionId);
+    }
+    useDoctorPanelStore.getState().resetForNewSession();
+  }, [assistantId, abort]);
+
+  const sendMessage = useCallback(
+    async (content: string) => {
+      const store = useDoctorPanelStore.getState();
+      if (!store.sessionId || !assistantId || !content.trim()) return;
+      store.setSending(true);
+
+      const text = content.trim();
+      store.appendEntry({ kind: "user", content: text });
+      store.setInputValue("");
+
+      if (APPROVAL_RESPONSES.has(text.toLowerCase())) {
+        store.setPendingApproval(false);
+      }
+
+      try {
+        const { error, response } = await assistantsDoctorSessionsMessagesCreate({
+          path: { assistant_id: assistantId, session_id: store.sessionId },
+          body: { content: text },
+          throwOnError: false,
+        });
+        if (!response?.ok || error) {
+          useDoctorPanelStore.getState().appendEntry({
+            kind: "error",
+            content: `Failed to send message: ${response?.statusText ?? "unknown error"}`,
+          });
+        } else {
+          useDoctorPanelStore.getState().setThinking(true);
+        }
+      } catch (err) {
+        captureError(err, { context: "send_doctor_message" });
+        useDoctorPanelStore.getState().appendEntry({
+          kind: "error",
+          content: "Failed to send message",
+        });
+      } finally {
+        useDoctorPanelStore.getState().setSending(false);
+      }
+    },
+    [assistantId],
+  );
 
   // ---------------------------------------------------------------------------
   // Persisted history queries
@@ -145,15 +259,17 @@ export function DoctorPanel() {
     if (!historyListEnabled) return;
     if (historyListQuery.isError) {
       captureError(historyListQuery.error, { context: "doctor_history_list" });
-      setSelectedHistorySessionId(null);
-      setHistoryAutoLoadAttempted(true);
+      const store = useDoctorPanelStore.getState();
+      store.setSelectedHistorySessionId(null);
+      store.setHistoryAutoLoadAttempted(true);
       return;
     }
     const data = historyListQuery.data;
     if (!data) return;
     const latest = selectLatestHistorySession(data.results ?? []);
-    setSelectedHistorySessionId(latest ? latest.id : null);
-    setHistoryAutoLoadAttempted(true);
+    const store = useDoctorPanelStore.getState();
+    store.setSelectedHistorySessionId(latest ? latest.id : null);
+    store.setHistoryAutoLoadAttempted(true);
   }, [
     historyListEnabled,
     historyListQuery.data,
@@ -181,28 +297,29 @@ export function DoctorPanel() {
       captureError(historyDetailQuery.error, {
         context: "doctor_history_detail",
       });
-      setAppliedHistorySessionId(selectedHistorySessionId);
+      useDoctorPanelStore.getState().setAppliedHistorySessionId(selectedHistorySessionId);
       return;
     }
 
     const detail = historyDetailQuery.data;
     if (!detail) return;
 
+    const store = useDoctorPanelStore.getState();
     const resumedEntries = mapPersistedMessagesToEntries(
       detail.messages ?? [],
     );
-    setEntries(resumedEntries);
+    store.setEntries(resumedEntries);
     const panelStatus = mapPersistedStatusToPanelStatus(detail.status);
-    setSessionStatus(panelStatus);
+    store.setSessionStatus(panelStatus);
 
     if (panelStatus === "active" && assistantId) {
-      setPendingApproval(hasPendingApproval(resumedEntries));
-      setPendingBackup(hasPendingBackup(resumedEntries));
-      setSessionId(selectedHistorySessionId);
+      store.setPendingApproval(hasPendingApproval(resumedEntries));
+      store.setPendingBackup(hasPendingBackup(resumedEntries));
+      store.setSessionId(selectedHistorySessionId);
       connectSSE(assistantId, selectedHistorySessionId);
     }
 
-    setAppliedHistorySessionId(selectedHistorySessionId);
+    store.setAppliedHistorySessionId(selectedHistorySessionId);
   }, [
     sessionId,
     selectedHistorySessionId,
@@ -214,41 +331,43 @@ export function DoctorPanel() {
     historyDetailQuery.error,
   ]);
 
-  // Reset all doctor state when active assistant changes.
-  // State is cleared synchronously so a quick "Start Session" on the new
-  // assistant cannot be clobbered by delayed setters from the old teardown.
-  const prevAssistantIdRef = useRef(assistantId);
+  // Recover from stale state on same-assistant remount.
+  // The module-level store survives unmount, but useDoctorSSE's AbortController
+  // does not — it's a React ref that dies with the hook instance. If the store
+  // still shows an active session, the SSE stream is gone with no way to resume
+  // it from the old controller. Full-reset the store (preserving lastAssistantId)
+  // so the history auto-load cycle fires, which will either reconnect to the
+  // still-active server session or display the completed results.
+  // Only handles same-assistant case — different-assistant remounts are handled
+  // by the assistant-change effect which reads sessionId before clearing it.
   useEffect(() => {
-    if (prevAssistantIdRef.current === assistantId) return;
-    const oldAssistantId = prevAssistantIdRef.current;
-    const oldSessionId = sessionId;
-    prevAssistantIdRef.current = assistantId;
-
-    // Synchronous: abort stream + reset all state immediately
-    abort();
-    setSessionId(null);
-    setSessionStatus("idle");
-    setPendingApproval(false);
-    setPendingBackup(false);
-    setEntries([]);
-    setThinking(false);
-    setInputValue("");
-    setSelectedHistorySessionId(null);
-    setAppliedHistorySessionId(null);
-    setHistoryAutoLoadAttempted(false);
-
-    // Fire-and-forget: server-side cleanup for old assistant (no state setters)
-    if (oldSessionId && oldAssistantId) {
-      assistantsDoctorSessionsDestroy({
-        path: { assistant_id: oldAssistantId, session_id: oldSessionId },
-        throwOnError: false,
-      }).catch(() => {});
-      assistantsMaintenanceModeExitCreate({
-        path: { assistant_id: oldAssistantId },
-        throwOnError: false,
-      }).catch(() => {});
+    const store = useDoctorPanelStore.getState();
+    if (
+      store.lastAssistantId === assistantId &&
+      store.sessionStatus === "active" &&
+      store.sessionId
+    ) {
+      store.reset();
     }
-  }, [assistantId, abort, sessionId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: assistantId is stable at mount time
+  }, []);
+
+  // Reset all doctor state when active assistant changes (including remount
+  // with a different assistant — the store is module-level and survives unmount).
+  useEffect(() => {
+    const store = useDoctorPanelStore.getState();
+    if (store.lastAssistantId === assistantId) return;
+    const oldAssistantId = store.lastAssistantId;
+    const oldSessionId = store.sessionId;
+
+    abort();
+    store.reset();
+    useDoctorPanelStore.setState({ lastAssistantId: assistantId });
+
+    if (oldSessionId && oldAssistantId) {
+      cleanupServerSession(oldAssistantId, oldSessionId);
+    }
+  }, [assistantId, abort]);
 
   // Cleanup SSE on unmount
   useEffect(() => {
@@ -392,7 +511,7 @@ export function DoctorPanel() {
                         <BackupPromptBlock
                           entry={entry}
                           onRespond={(response) => {
-                            setPendingBackup(false);
+                            useDoctorPanelStore.getState().setPendingBackup(false);
                             sendMessage(response);
                           }}
                           disabled={!pendingBackup || sending}
@@ -455,7 +574,7 @@ export function DoctorPanel() {
                 ref={inputRef}
                 value={inputValue}
                 onChange={(e) => {
-                  setInputValue(e.target.value);
+                  useDoctorPanelStore.getState().setInputValue(e.target.value);
                   e.target.style.height = "auto";
                   e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
                 }}
@@ -499,7 +618,7 @@ export function DoctorPanel() {
             <div className="flex shrink-0 items-center justify-center gap-3 py-2">
               <button
                 type="button"
-                onClick={restartSession}
+                onClick={resetToIdle}
                 className="flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--primary-base)] px-4 py-2 text-body-medium-default text-[var(--content-inset)] transition-colors hover:bg-[var(--primary-hover)]"
               >
                 <Play className="h-4 w-4" />

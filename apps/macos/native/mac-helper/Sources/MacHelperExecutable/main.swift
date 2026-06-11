@@ -3,6 +3,7 @@ import AVFoundation
 import Carbon
 import Darwin
 import Foundation
+import IOKit.hid
 import MacHelperCore
 import Speech
 
@@ -67,6 +68,30 @@ final class MacHelper: @unchecked Sendable {
     // Bumped on every dictation.setPartials so a pending speech-authorization
     // callback can tell the session it was starting has since been stopped.
     private var dictationGeneration = 0
+    // The renderer's recording device (Chromium track label) — the helper
+    // taps this same device so the native recognizer hears what the
+    // MediaRecorder hears, not whatever the system default happens to be.
+    private var dictationDeviceName: String?
+    // Non-nil → the renderer pushes its own PCM via dictation.appendAudio
+    // and the helper opens no device at all (a second capture client on the
+    // renderer's device reads silence or kills the renderer's stream).
+    private var dictationPushRate: Double?
+    // PCM that arrived while the session was still authorizing — flushed
+    // into the session on start so the first words aren't eaten. Capped at
+    // ~10s (100 × 100ms chunks).
+    private var pendingPushAudio: [Data] = []
+    // The session draining toward its final transcript after a graceful
+    // disable. Held strongly so the next enable can cancel it; cleared by
+    // its own onFinal.
+    private var finishingSession: DictationPartialsSession?
+    // One-shot whole-utterance recognition of the renderer's recorded
+    // audio (`dictation.transcribe`) — the offline transcript authority.
+    // Streaming partials race the pump warmup and recognition latency on
+    // short dictations; recognizing the complete recording does not.
+    private var transcribeSession: DictationPartialsSession?
+    // Whether the current dictation session has produced any partial or
+    // error callback — read by the on-device watchdog on the main queue.
+    private var dictationSawActivity = false
 
     init(isDisclaimed: Bool) {
         self.isDisclaimed = isDisclaimed
@@ -91,6 +116,13 @@ final class MacHelper: @unchecked Sendable {
             }
             return try self.setFnPushToTalk(enable: enable)
         }
+        router.register("permission.status") { [weak self] params in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            let kind = try self.parsePermissionKind(params)
+            return ["status": self.permissionStatus(kind: kind)]
+        }
         router.register("dictation.setPartials") { [weak self] params in
             guard let self else {
                 throw JsonRpcDispatchError.internalError("Helper is shutting down")
@@ -103,7 +135,51 @@ final class MacHelper: @unchecked Sendable {
                     "dictation.setPartials requires enable"
                 )
             }
-            return self.setDictationPartials(enable: enable)
+            return self.setDictationPartials(
+                enable: enable,
+                deviceName: object["deviceName"] as? String,
+                pushAudio: object["pushAudio"] as? Bool ?? false,
+                sampleRate: object["sampleRate"] as? Double ?? 16000
+            )
+        }
+        router.register("dictation.appendAudio") { [weak self] params in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            guard
+                let object = params as? [String: Any],
+                let base64 = object["audio"] as? String,
+                let data = Data(base64Encoded: base64)
+            else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "dictation.appendAudio requires base64 audio"
+                )
+            }
+            if let session = self.dictationSession {
+                session.append(pcm: data)
+            } else if self.dictationPushRate != nil,
+                      self.pendingPushAudio.count < 100 {
+                self.pendingPushAudio.append(data)
+            }
+            return ["ok": true]
+        }
+        router.register("dictation.transcribe") { [weak self] params in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            guard
+                let object = params as? [String: Any],
+                let base64 = object["audio"] as? String,
+                let data = Data(base64Encoded: base64)
+            else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "dictation.transcribe requires base64 audio"
+                )
+            }
+            return self.transcribeOnce(
+                pcm: data,
+                sampleRate: object["sampleRate"] as? Double ?? 16000
+            )
         }
         return router
     }()
@@ -179,32 +255,71 @@ final class MacHelper: @unchecked Sendable {
     /// Start/stop local speech-recognition partials (`dictation.partial`
     /// notifications). The renderer enables this for the dictation overlay
     /// whenever daemon streaming STT is unreachable.
-    private func setDictationPartials(enable: Bool) -> [String: Any] {
-        dictationGeneration += 1
-        dictationSession?.stop()
-        dictationSession = nil
-
+    private func setDictationPartials(
+        enable: Bool,
+        deviceName: String? = nil,
+        pushAudio: Bool = false,
+        sampleRate: Double = 16000
+    ) -> [String: Any] {
         guard enable else {
+            // Graceful end: short dictations (1-2s taps) stop before the
+            // recognizer's first partial, so cancelling here would discard
+            // the whole utterance. finish() ends the audio and lets
+            // recognition complete — `dictation.finalized` carries the full
+            // transcript (the finishing session's notifications are
+            // unconditional, so the generation bump below doesn't mute it).
+            // The bump kills stragglers that would otherwise outlive the
+            // session: the watchdog, and a pending authorization callback
+            // that would start a zombie mic session after the recording
+            // already ended.
+            dictationGeneration += 1
+            finishingSession?.stop()
+            finishingSession = dictationSession
+            finishingSession?.finish()
+            dictationSession = nil
+            dictationPushRate = nil
+            pendingPushAudio.removeAll()
             return ["enabled": false]
         }
 
+        dictationGeneration += 1
+        finishingSession?.stop()
+        finishingSession = nil
+        dictationSession?.stop()
+        dictationSession = nil
+        dictationDeviceName = deviceName
+        dictationPushRate = pushAudio ? sampleRate : nil
+        pendingPushAudio.removeAll()
+
+        // Headless test hook — skip authorization entirely.
+        if DictationPartialsSession.fakeRecognition {
+            return startDictationSession()
+        }
+
+        // Push mode receives PCM from the renderer — it opens no device, so
+        // microphone permission is irrelevant; only speech recognition is.
+        let needMic = !pushAudio
         let speechStatus = SFSpeechRecognizer.authorizationStatus()
         let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
 
-        if speechStatus == .authorized, micStatus == .authorized {
+        if speechStatus == .authorized, !needMic || micStatus == .authorized {
             return startDictationSession()
         }
         if speechStatus == .denied || speechStatus == .restricted {
             return ["enabled": false, "reason": "speech-recognition-denied"]
         }
-        if micStatus == .denied || micStatus == .restricted {
+        if needMic, micStatus == .denied || micStatus == .restricted {
             return ["enabled": false, "reason": "microphone-denied"]
         }
 
         // A privacy request from a process whose TCC-responsible ancestor
         // lacks the usage strings is a SIGABRT, not a denial. Only prompt
         // when this process runs disclaimed (its own embedded Info.plist is
-        // the one TCC consults); otherwise degrade to no partials.
+        // the one TCC consults); otherwise degrade to no partials. Do NOT
+        // try to skip the disclaim in dev and ride the Electron identity:
+        // when the shell runs from a terminal, the responsible process is
+        // the TERMINAL, not Electron — observed as an instant SIGABRT on
+        // the first speech-authorization request.
         guard isDisclaimed else {
             return ["enabled": false, "reason": "permissions-not-promptable"]
         }
@@ -214,9 +329,20 @@ final class MacHelper: @unchecked Sendable {
         // from that point on.
         let generation = dictationGeneration
         requestSpeechIfNeeded { [weak self] speechGranted in
-            guard speechGranted else { return }
-            Self.requestMicIfNeeded { micGranted in
-                guard micGranted else { return }
+            guard speechGranted else {
+                // A silent return here is a black hole the renderer can't
+                // see — it was told `authorizing: true` and waits forever.
+                self?.writeNotification(
+                    method: "dictation.error",
+                    params: [
+                        "message": "speech recognition permission not granted",
+                        "onDevice": true,
+                        "willRetryServer": false,
+                    ]
+                )
+                return
+            }
+            let startAuthorized: @Sendable () -> Void = {
                 DispatchQueue.main.async {
                     guard
                         let self,
@@ -224,6 +350,24 @@ final class MacHelper: @unchecked Sendable {
                     else { return }
                     _ = self.startDictationSession()
                 }
+            }
+            guard needMic else {
+                startAuthorized()
+                return
+            }
+            Self.requestMicIfNeeded { [weak self] micGranted in
+                guard micGranted else {
+                    self?.writeNotification(
+                        method: "dictation.error",
+                        params: [
+                            "message": "microphone permission not granted",
+                            "onDevice": true,
+                            "willRetryServer": false,
+                        ]
+                    )
+                    return
+                }
+                startAuthorized()
             }
         }
         return ["enabled": true, "authorizing": true]
@@ -253,20 +397,168 @@ final class MacHelper: @unchecked Sendable {
         }
     }
 
-    private func startDictationSession() -> [String: Any] {
-        let session = DictationPartialsSession { [weak self] text in
-            self?.writeNotification(
-                method: "dictation.partial",
-                params: ["text": text]
-            )
+    /// Recognize a complete utterance in one shot: append the whole PCM
+    /// buffer, end the audio, and emit the final transcript as a
+    /// `dictation.transcribed` notification (empty text on failure).
+    private func transcribeOnce(
+        pcm data: Data, sampleRate: Double
+    ) -> [String: Any] {
+        guard
+            DictationPartialsSession.fakeRecognition
+                || SFSpeechRecognizer.authorizationStatus() == .authorized
+        else {
+            return ["ok": false, "reason": "speech-recognition-not-authorized"]
         }
+        transcribeSession?.stop()
+        transcribeSession = nil
+
+        let emitTranscribed: @Sendable (String) -> Void = { [weak self] text in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.writeNotification(
+                    method: "dictation.transcribed",
+                    params: ["text": text]
+                )
+                self.transcribeSession = nil
+            }
+        }
+        let session = DictationPartialsSession(
+            requireOnDevice: true,
+            inputDeviceName: nil,
+            pushSampleRate: sampleRate,
+            emit: { _ in },
+            onError: { _ in
+                // finish() runs immediately below, so recognition errors
+                // normally resolve through the finishing path with the best
+                // partial. This only catches a pre-finish failure.
+                emitTranscribed("")
+            },
+            onFinal: { text in
+                emitTranscribed(text)
+            }
+        )
+        do {
+            try session.start()
+        } catch {
+            return ["ok": false, "reason": error.localizedDescription]
+        }
+        transcribeSession = session
+        session.append(pcm: data)
+        session.finish()
+        return ["ok": true]
+    }
+
+    private func startDictationSession(requireOnDevice: Bool = true) -> [String: Any] {
+        let generation = dictationGeneration
+        dictationSawActivity = false
+        let session = DictationPartialsSession(
+            requireOnDevice: requireOnDevice,
+            inputDeviceName: dictationDeviceName,
+            pushSampleRate: dictationPushRate,
+            emit: { [weak self] text in
+                DispatchQueue.main.async {
+                    guard let self, generation == self.dictationGeneration else {
+                        return
+                    }
+                    self.dictationSawActivity = true
+                }
+                self?.writeNotification(
+                    method: "dictation.partial",
+                    params: ["text": text]
+                )
+            },
+            onError: { [weak self] error in
+                // Recognition died mid-session — e.g. kLSRErrorDomain 201
+                // ("Siri and Dictation are disabled") when the on-device pin
+                // is set but macOS Dictation isn't enabled. This used to be
+                // swallowed, leaving the session looking alive while emitting
+                // nothing. Surface it, and retry once on the server path so
+                // online sessions still get partials.
+                DispatchQueue.main.async {
+                    guard let self, generation == self.dictationGeneration else {
+                        return
+                    }
+                    self.dictationSawActivity = true
+                    self.writeNotification(
+                        method: "dictation.error",
+                        params: [
+                            "message": error.localizedDescription,
+                            "onDevice": requireOnDevice,
+                            "willRetryServer": requireOnDevice,
+                        ]
+                    )
+                    guard requireOnDevice else { return }
+                    self.dictationSession?.stop()
+                    self.dictationSession = nil
+                    _ = self.startDictationSession(requireOnDevice: false)
+                }
+            },
+            onFinal: { [weak self] text in
+                // Fires once per session, after finish() (or a recognizer
+                // self-finalization). The recording is already over — route
+                // the completed transcript to the renderer. A session
+                // cancelled by stop() never reaches this.
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.writeNotification(
+                        method: "dictation.finalized",
+                        params: ["text": text]
+                    )
+                    self.finishingSession = nil
+                }
+            }
+        )
         do {
             try session.start()
             dictationSession = session
-            return ["enabled": true]
+            if !pendingPushAudio.isEmpty {
+                for chunk in pendingPushAudio {
+                    session.append(pcm: chunk)
+                }
+                pendingPushAudio.removeAll()
+            }
+            // The watchdog's restart-on-server-path only makes sense for
+            // the mic tap: in push mode it would abandon the PCM already
+            // appended to the request (and offline the server path is
+            // useless anyway) — short dictations finish via
+            // `dictation.finalized`/`dictation.transcribe` instead.
+            if requireOnDevice, dictationPushRate == nil {
+                scheduleOnDeviceWatchdog(generation: generation)
+            }
+            return ["enabled": true, "tap": session.tappedDevice]
         } catch {
             log("dictation partials failed to start: \(error.localizedDescription)")
             return ["enabled": false, "reason": error.localizedDescription]
+        }
+    }
+
+    /// A pinned on-device task with a half-installed dictation asset can
+    /// hang without ever calling back — no partial, no error (observed when
+    /// the Dictation toggle was flipped while offline, so the model never
+    /// finished downloading). Error-driven retry can't catch that, so a
+    /// pinned session that stays silent is restarted on the server path.
+    private func scheduleOnDeviceWatchdog(generation: Int) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+            guard
+                let self,
+                generation == self.dictationGeneration,
+                !self.dictationSawActivity,
+                self.dictationSession != nil
+            else { return }
+            let heardAudio = self.dictationSession?.heardAudio == true
+            let tap = self.dictationSession?.tappedDevice ?? "unknown"
+            self.writeNotification(
+                method: "dictation.error",
+                params: [
+                    "message":
+                        "on-device recognition produced no output (heardAudio=\(heardAudio), tap=\(tap)); retrying on the server path",
+                    "onDevice": true,
+                    "willRetryServer": true,
+                ]
+            )
+            self.dictationSession?.stop()
+            self.dictationSession = nil
+            _ = self.startDictationSession(requireOnDevice: false)
         }
     }
 
@@ -277,6 +569,70 @@ final class MacHelper: @unchecked Sendable {
         } else {
             unregisterFnHotkey()
             return ["enabled": false]
+        }
+    }
+
+    private enum PermissionKind: String {
+        case speechRecognition
+        case inputMonitoring
+    }
+
+    private func parsePermissionKind(_ params: Any?) throws -> PermissionKind {
+        guard
+            let object = params as? [String: Any],
+            let rawKind = object["kind"] as? String,
+            let kind = PermissionKind(rawValue: rawKind)
+        else {
+            throw JsonRpcDispatchError.invalidParams(
+                "permission status calls require kind"
+            )
+        }
+        return kind
+    }
+
+    private func permissionStatus(kind: PermissionKind) -> String {
+        switch kind {
+        case .speechRecognition:
+            return speechRecognitionStatus()
+        case .inputMonitoring:
+            return inputMonitoringStatus()
+        }
+    }
+
+    func permissionStatus(rawKind: String) throws -> String {
+        guard let kind = PermissionKind(rawValue: rawKind) else {
+            throw JsonRpcDispatchError.invalidParams(
+                "permission status calls require kind"
+            )
+        }
+        return permissionStatus(kind: kind)
+    }
+
+    private func speechRecognitionStatus() -> String {
+        switch SFSpeechRecognizer.authorizationStatus() {
+        case .authorized:
+            return "granted"
+        case .denied:
+            return "denied"
+        case .restricted:
+            return "restricted"
+        case .notDetermined:
+            return "not-determined"
+        @unknown default:
+            return "unknown"
+        }
+    }
+
+    private func inputMonitoringStatus() -> String {
+        switch IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) {
+        case kIOHIDAccessTypeGranted:
+            return "granted"
+        case kIOHIDAccessTypeDenied:
+            return "denied"
+        case kIOHIDAccessTypeUnknown:
+            return "not-determined"
+        default:
+            return "unknown"
         }
     }
 
@@ -389,6 +745,10 @@ final class MacHelper: @unchecked Sendable {
 
     private func shutdown() {
         dictationGeneration += 1
+        finishingSession?.stop()
+        finishingSession = nil
+        transcribeSession?.stop()
+        transcribeSession = nil
         dictationSession?.stop()
         dictationSession = nil
         unregisterFnHotkey()
@@ -429,6 +789,69 @@ private enum HelperError: LocalizedError {
 
 let disclaimed = ensureDisclaimedResponsibility()
 let helper = MacHelper(isDisclaimed: disclaimed)
-MainActor.assumeIsolated {
-    helper.run()
+
+private func argumentValue(after flag: String) -> String? {
+    guard let index = CommandLine.arguments.firstIndex(of: flag) else {
+        return nil
+    }
+    let valueIndex = CommandLine.arguments.index(after: index)
+    guard valueIndex < CommandLine.arguments.endIndex else {
+        return nil
+    }
+    return CommandLine.arguments[valueIndex]
+}
+
+private func writePermissionStatusAndExit() {
+    guard
+        let kind = argumentValue(after: "--permission-status"),
+        let outputPath = argumentValue(after: "--status-output")
+    else {
+        FileHandle.standardError.write(
+            Data("[vellum-mac-helper] permission status requires kind and output path\n".utf8)
+        )
+        exit(2)
+    }
+
+    do {
+        let status = try helper.permissionStatus(rawKind: kind)
+        let data = try JSONSerialization.data(
+            withJSONObject: ["status": status],
+            options: []
+        )
+        try data.write(to: URL(fileURLWithPath: outputPath), options: .atomic)
+        exit(0)
+    } catch {
+        FileHandle.standardError.write(
+            Data("[vellum-mac-helper] failed to write permission status: \(error.localizedDescription)\n".utf8)
+        )
+        exit(1)
+    }
+}
+
+if CommandLine.arguments.contains("--request-speech-recognition") {
+    MainActor.assumeIsolated {
+        NSApplication.shared.setActivationPolicy(.prohibited)
+        if SFSpeechRecognizer.authorizationStatus() == .notDetermined {
+            SFSpeechRecognizer.requestAuthorization { _ in
+                DispatchQueue.main.async {
+                    NSApplication.shared.terminate(nil)
+                }
+            }
+            NSApplication.shared.run()
+        }
+    }
+} else if CommandLine.arguments.contains("--request-input-monitoring") {
+    MainActor.assumeIsolated {
+        NSApplication.shared.setActivationPolicy(.prohibited)
+        if IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) != kIOHIDAccessTypeGranted {
+            _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+        }
+        NSApplication.shared.terminate(nil)
+    }
+} else if CommandLine.arguments.contains("--permission-status") {
+    writePermissionStatusAndExit()
+} else {
+    MainActor.assumeIsolated {
+        helper.run()
+    }
 }

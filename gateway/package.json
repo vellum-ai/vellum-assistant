@@ -27,6 +27,7 @@
   "dependencies": {
     "@vellumai/assistant-client": "file:../packages/assistant-client",
     "@vellumai/ces-client": "file:../packages/ces-client",
+    "@vellumai/gateway-client": "file:../packages/gateway-client",
     "@vellumai/ipc-server-utils": "file:../packages/ipc-server-utils",
     "@vellumai/service-contracts": "file:../packages/service-contracts",
     "@vellumai/slack-text": "file:../packages/slack-text",
@@ -43,6 +44,7 @@
   "bundledDependencies": [
     "@vellumai/assistant-client",
     "@vellumai/ces-client",
+    "@vellumai/gateway-client",
     "@vellumai/ipc-server-utils",
     "@vellumai/service-contracts",
     "@vellumai/slack-text",

@@ -10,8 +10,6 @@
  *   - `buildLiveVoiceWsUrl` — must produce the cloud velay URL with the
  *     `assistantId` in the path, a URL-encoded `?token=`, the `wss` scheme,
  *     and `conversationId` propagated only when supplied.
- *
- * @jest-environment happy-dom
  */
 
 import {

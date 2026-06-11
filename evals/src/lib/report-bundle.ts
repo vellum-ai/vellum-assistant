@@ -16,6 +16,7 @@ import { dirname, join, resolve } from "node:path";
 import { renderReportPage } from "./report-html";
 import {
   findExecutionRunId,
+  readProfileInSession,
   readReportRun,
   readReportSession,
   readTestInSession,
@@ -67,6 +68,7 @@ export interface BundleMetadata {
  *   `/sessions/<sid>`                                → index.html
  *   `/sessions/<sid>/tests/<t>`                      → test--<t>.html
  *   `/sessions/<sid>/tests/<t>/profiles/<p>`         → exec--<t>--<p>.html
+ *   `/sessions/<sid>/profiles/<p>`                   → profile--<p>.html
  *   `/api/runs/<runId>/files/<name>`                 → files/<runId>--<name>
  */
 export function rewriteReportLinks(html: string): string {
@@ -94,6 +96,11 @@ function rewriteRoute(href: string): string | undefined {
   const test = href.match(/^\/sessions\/([^/]+)\/tests\/([^/]+)$/);
   if (test) {
     return `test--${decodeURIComponent(test[2])}.html`;
+  }
+
+  const profile = href.match(/^\/sessions\/([^/]+)\/profiles\/([^/]+)$/);
+  if (profile) {
+    return `profile--${decodeURIComponent(profile[2])}.html`;
   }
 
   if (/^\/sessions\/[^/]+$/.test(href) || href === "/") {
@@ -139,6 +146,15 @@ export async function buildRunBundle(sessionId: string): Promise<BundleFile[]> {
   const files: BundleFile[] = [
     { path: BUNDLE_ENTRY, content: renderStatic({ kind: "session", session }) },
   ];
+
+  for (const aggregate of session.profiles) {
+    const profile = await readProfileInSession(sessionId, aggregate.profileId);
+    if (!profile) continue;
+    files.push({
+      path: `profile--${aggregate.profileId}.html`,
+      content: renderStatic({ kind: "profile", profile }),
+    });
+  }
 
   for (const testEntry of session.tests) {
     const test = await readTestInSession(sessionId, testEntry.testId);

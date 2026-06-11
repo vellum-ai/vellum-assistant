@@ -4,8 +4,6 @@
  * The id is in-memory only: stable within one page load, fresh for each
  * new module initialization (which the runtime gives us on initial nav,
  * reload, duplicated tab, or bfcache restore).
- *
- * @jest-environment happy-dom
  */
 
 import { describe, expect, test } from "bun:test";

@@ -31,11 +31,13 @@ Single (1×1), suite (1×M), ablation (N×1), full matrix (N×M). Same codepath.
 
 **Test (personal-intelligence unit):** declarative directory under `benchmarks/personal-intelligence/tests/<id>/`. `SPEC.md` briefs the simulator agent. Optional `metrics/` subdirectory holds per-metric `.ts` scorers. The on-disk root is resolved via `loadBenchmark("personal-intelligence").unitsDir` (or the legacy `getTestsDir()`, overridable via `EVALS_TESTS_DIR`). Other benchmarks define their own unit shape under their own `unitDirName`.
 
-**Agent adapter (per species):** thin CLI process wrapper. Owns invocation, stdin/stdout format, session resume, cost extraction. Each test gets a fresh process — no sharing across tests (parallelization-ready). The Vellum adapter hatches a fresh Docker instance, sends user messages via `vellum message`, and reads assistant output from `vellum events --json`.
+**Agent adapter (per species):** thin CLI process wrapper. Owns invocation, stdin/stdout format, session resume. Each test gets a fresh process — no sharing across tests (parallelization-ready). The Vellum adapter hatches a fresh Docker instance, sends user messages via `vellum message`, and reads assistant output from `vellum events --json`. It does **not** own cost — see the egress jail below.
 
 **Simulator:** LLM-driven user (Claude Haiku). Same model across all tests and species; represents any-possible-user generality. Seeded for pseudo-determinism.
 
 **Egress jail:** Docker network layer. Vellum eval runs use a pre-created internal Docker network plus a dual-homed HTTP CONNECT proxy sidecar. The assistant receives proxy env vars at hatch time, so outbound model traffic flows through the allowlist proxy while integrations remain blocked by default.
+
+Also the **cost/usage authority.** The proxy parses token counts out of the observed model responses and the harness prices them locally, so cost reflects real traffic and can't be spoofed by an adapter or assistant choosing what to emit. Assistant-side usage must come from `readUsageRecords()` — never from emitted events. (Harness-owned calls like the LLM judge are not assistant traffic, so they price from their own usage.)
 
 **Report card:** JSONL — one row per (profile × test × run). Static HTML report rendered alongside.
 

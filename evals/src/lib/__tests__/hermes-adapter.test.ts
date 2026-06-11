@@ -263,16 +263,25 @@ describe("HermesAgent", () => {
     // consume stdin as the program body and leave `json.load(sys.stdin)`
     // staring at EOF (the bug we shipped in PR #31106 iter-2 and saw in
     // the wild as `JSONDecodeError: Expecting value: line 1 column 1`).
+    // The seed exec runs as `--user hermes` (the gateway's unprivileged
+    // user, not the default root) so state.db and its WAL/SHM files stay
+    // gateway-owned — a root-owned state.db would block the gateway from
+    // writing its schema and silently drop it to JSONL.
     expect(seedCall.args[0]).toBe("exec");
     expect(seedCall.args[1]).toBe("-i");
-    expect(seedCall.args[2]).toBe("eval-hermes-seed-hermes");
-    expect(seedCall.args[3]).toBe("python3");
-    expect(seedCall.args[4]).toBe("-c");
-    const script = seedCall.args[5] ?? "";
+    expect(seedCall.args[2]).toBe("--user");
+    expect(seedCall.args[3]).toBe("hermes");
+    expect(seedCall.args[4]).toBe("eval-hermes-seed-hermes");
+    expect(seedCall.args[5]).toBe("python3");
+    expect(seedCall.args[6]).toBe("-c");
+    const script = seedCall.args[7] ?? "";
     expect(script).toContain("INSERT INTO messages");
     expect(script).toContain("INSERT OR IGNORE INTO sessions");
     expect(script).toContain("json.load(sys.stdin)");
-    expect(seedCall.args.length).toBe(6);
+    // The schema-wait probe must be read-only so it never creates (and
+    // thus never root-poisons) state.db before the gateway does.
+    expect(script).toContain("?mode=ro");
+    expect(seedCall.args.length).toBe(8);
 
     // stdin carries ONLY the JSON payload now — no script prefix, no
     // separator newline. The payload has the messages, the target DB
@@ -285,7 +294,7 @@ describe("HermesAgent", () => {
         { role: "user", content: "remember this exact note" },
         { role: "assistant", content: "noted" },
       ],
-      schema_wait_timeout_seconds: 20,
+      schema_wait_timeout_seconds: 30,
       session_id: "evals_timeline-recall_eval-hermes-seed",
       source: HERMES_EVAL_SESSION_SOURCE,
       title: "evals seed: timeline-recall",

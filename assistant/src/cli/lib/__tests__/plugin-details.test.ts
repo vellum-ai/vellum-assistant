@@ -403,6 +403,7 @@ describe("getPluginDetails", () => {
             artifact: {
               url: "https://example.com/releases/v1.0.0/App.dmg",
               sha256: sha,
+              label: "Download for macOS",
             },
           },
         }),
@@ -415,10 +416,11 @@ describe("getPluginDetails", () => {
       { fetch, workspacePluginsDir: workspace },
     );
 
-    // THEN the artifact descriptor is surfaced
+    // THEN the artifact descriptor is surfaced, including its optional label
     expect(details.artifact).toEqual({
       url: "https://example.com/releases/v1.0.0/App.dmg",
       sha256: sha,
+      label: "Download for macOS",
     });
   });
 
