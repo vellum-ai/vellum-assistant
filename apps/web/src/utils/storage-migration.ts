@@ -91,6 +91,73 @@ export function migratePrefix(oldPrefix: string, newPrefix: string): void {
 }
 
 /**
+ * Remove every key matching `prefix`. Snapshots keys first to avoid mutating
+ * during iteration. Caller is responsible for the try/catch.
+ */
+function removeAllWithPrefix(prefix: string): void {
+  const keys: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.startsWith(prefix)) keys.push(key);
+  }
+  for (const key of keys) localStorage.removeItem(key);
+}
+
+/**
+ * Collapse the two legacy selection schemes — the tab-local
+ * `vellum:local:selectedAssistantId` and the per-org
+ * `vellum:currentAssistantId:<org>` map — into the single
+ * `vellum:selectedAssistantId` key.
+ *
+ * Among per-org entries, prefer the persisted active org's selection (the org
+ * store records it in sessionStorage as `vellum_active_organization_id`) so a
+ * multi-org user keeps their current org's pick. Only when that's absent does
+ * the lexicographically-smallest org suffix win — deterministic and idempotent.
+ * A non-ideal pick self-heals on read: `resolveSelectedAssistantId` validates
+ * the id against the active org and drops it if it doesn't belong. Idempotent
+ * via the target-exists short-circuit plus unconditional legacy removal.
+ */
+export function collapseSelectedAssistantKeys(): void {
+  if (typeof window === "undefined") return;
+  const target = "vellum:selectedAssistantId";
+  const tabLocalKey = "vellum:local:selectedAssistantId";
+  const perOrgPrefix = "vellum:currentAssistantId:";
+  try {
+    if (localStorage.getItem(target) === null) {
+      let candidate = localStorage.getItem(tabLocalKey);
+      if (candidate === null) candidate = activeOrgSelection(perOrgPrefix);
+      if (candidate === null) {
+        let smallestKey: string | null = null;
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith(perOrgPrefix)) {
+            if (smallestKey === null || key < smallestKey) smallestKey = key;
+          }
+        }
+        if (smallestKey !== null) candidate = localStorage.getItem(smallestKey);
+      }
+      if (candidate) localStorage.setItem(target, candidate);
+    }
+    localStorage.removeItem(tabLocalKey);
+    removeAllWithPrefix(perOrgPrefix);
+  } catch {
+    // Storage unavailable — migration retries on next load.
+  }
+}
+
+/** The per-org selection for the persisted active org, or null. */
+function activeOrgSelection(perOrgPrefix: string): string | null {
+  let activeOrg: string | null = null;
+  try {
+    activeOrg = sessionStorage.getItem("vellum_active_organization_id");
+  } catch {
+    return null;
+  }
+  if (!activeOrg) return null;
+  return localStorage.getItem(`${perOrgPrefix}${activeOrg}`);
+}
+
+/**
  * Run all pending storage key migrations. Called from
  * `run-storage-migrations.ts` (side-effect import at the top of
  * `main.tsx`), after `migrateDeviceSettings()` — device keys must
@@ -171,6 +238,11 @@ export function runStorageMigrations(): void {
 
   // vellum_ per-org → vellum:
   migratePrefix("vellum_current_assistant_id__", "vellum:currentAssistantId:");
+
+  // Collapse the canonicalized legacy selection keys (tab-local + per-org map)
+  // into the single `vellum:selectedAssistantId`. Must run AFTER the renames
+  // above so it sees the canonical key names.
+  collapseSelectedAssistantKeys();
 
   // -- Value format migrations ---------------------------------------------
   // Skills tip was stored as "1"; getLocalBool expects "true".

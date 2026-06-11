@@ -1,8 +1,8 @@
+import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import {
-  getLocalSetting,
-  removeLocalSetting,
-  setLocalSetting,
-} from "@/utils/local-settings";
+  clearSelectedAssistantId,
+  readSelectedAssistantId,
+} from "@/assistant/selected-assistant-storage";
 import {
   clearGatewayToken,
   ensureGatewayToken,
@@ -56,7 +56,6 @@ const setCachedLockfile = (data: Lockfile): void =>
 const EMPTY_LOCKFILE: Lockfile = { assistants: [], activeAssistant: null };
 
 const LOCKFILE_STORAGE_KEY = "vellum:local:lockfile";
-const SELECTED_ASSISTANT_STORAGE_KEY = "vellum:local:selectedAssistantId";
 
 export function getPlatformRuntimeUrl(): string {
   const injected = (
@@ -233,7 +232,9 @@ export async function retireLocalAssistant(
 ): Promise<LocalRetireResult> {
   const result = await retireLocalAssistantHost(assistantId);
   if (result.ok) {
-    clearSelectedAssistant();
+    // Clear the raw key directly (no store import here — that would cycle); the
+    // reactive slice reconciles via the `loadLockfile` below → `setFromLockfile`.
+    clearSelectedAssistantId();
     clearGatewayToken();
     setSelfHostedConnection(null);
     await loadLockfile();
@@ -287,7 +288,7 @@ export function getActiveAssistant(): LockfileAssistant | undefined {
 }
 
 export function getSelectedAssistant(): LockfileAssistant | undefined {
-  const selectedId = getLocalSetting(SELECTED_ASSISTANT_STORAGE_KEY, "");
+  const selectedId = readSelectedAssistantId();
   if (selectedId) {
     const found = getLockfile().assistants.find(
       (a) => a.assistantId === selectedId,
@@ -298,36 +299,19 @@ export function getSelectedAssistant(): LockfileAssistant | undefined {
 }
 
 /**
- * The raw tab-local selection id, or null — without the `activeAssistant`
- * fallback that `getSelectedAssistant` folds in. Callers that resolve the
- * lockfile active through their own validation must use this so a stale active
- * id isn't mistaken for a deliberate tab pick.
- */
-export function getTabLocalSelectedAssistantId(): string | null {
-  return getLocalSetting(SELECTED_ASSISTANT_STORAGE_KEY, "") || null;
-}
-
-export function setSelectedAssistantId(id: string): void {
-  setLocalSetting(SELECTED_ASSISTANT_STORAGE_KEY, id);
-}
-
-export function clearSelectedAssistant(): void {
-  removeLocalSetting(SELECTED_ASSISTANT_STORAGE_KEY);
-}
-
-/**
- * Reconcile the tab-local selection cache against the lockfile registry: if the
- * selected id no longer names a lockfile entry, clear it so `getSelectedAssistant`
- * falls back to `getActiveAssistant`. No-op when there is no tab-local selection —
- * resolution is left to `getActiveAssistant`.
+ * Reconcile the selection key against the lockfile registry: if the selected id
+ * no longer names a lockfile entry, clear it so `getSelectedAssistant` falls
+ * back to `getActiveAssistant`. The store's own reconcile (on `setFromLockfile`)
+ * covers the reactive slice; this keeps the raw key honest on the synchronous
+ * `commitLockfile` path, including the pre-React-mount gateway-auth boot.
  */
 export function reconcileSelectedAssistant(): void {
-  const selectedId = getLocalSetting(SELECTED_ASSISTANT_STORAGE_KEY, "");
+  const selectedId = readSelectedAssistantId();
   if (!selectedId) return;
   const present = getLockfile().assistants.some(
     (a) => a.assistantId === selectedId,
   );
-  if (!present) clearSelectedAssistant();
+  if (!present) clearSelectedAssistantId();
 }
 
 // ---------------------------------------------------------------------------

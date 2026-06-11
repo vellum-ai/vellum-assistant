@@ -19,7 +19,7 @@ import {
     writeSelectedVersion,
 } from "@/domains/onboarding/prefs";
 import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
-import { getLocalGatewayUrl, getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, saveLockfileAssistant, setSelectedAssistantId } from "@/lib/local-mode";
+import { getLocalGatewayUrl, getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, saveLockfileAssistant } from "@/lib/local-mode";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { avatarQueryKey } from "@/lib/sync/query-tags";
 import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
@@ -304,7 +304,9 @@ export function HatchingScreen() {
           }
           await loadLockfile();
           if (result.assistantId) {
-            setSelectedAssistantId(result.assistantId);
+            useResolvedAssistantsStore
+              .getState()
+              .setSelectedAssistant(result.assistantId);
           }
 
           // Wait for the gateway + daemon to be fully ready before proceeding.
