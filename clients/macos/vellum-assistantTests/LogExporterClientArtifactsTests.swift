@@ -114,6 +114,45 @@ struct LogExporterClientArtifactsTests {
         #expect(sanitized["model"] as? String == "some-model")
     }
 
+    @Test
+    func sanitizeWorkspaceConfigRedactsWellFormedAgentsDespiteMalformedSibling() throws {
+        let config: [String: Any] = [
+            "acp": [
+                "agents": [
+                    "broken": "not-a-dictionary",
+                    "codex": [
+                        "command": "codex",
+                        "env": [
+                            "OPENAI_API_KEY": "sk-proj-synthetic-test-value-1234567890"
+                        ]
+                    ]
+                ]
+            ]
+        ]
+
+        let sanitized = LogExporter.sanitizeWorkspaceConfig(config)
+
+        guard let acp = sanitized["acp"] as? [String: Any],
+              let agents = acp["agents"] as? [String: Any],
+              let codex = agents["codex"] as? [String: Any],
+              let env = codex["env"] as? [String: Any] else {
+            Issue.record("Expected sanitized acp.agents.codex.env")
+            return
+        }
+
+        // The well-formed agent's env is still redacted despite the malformed sibling
+        #expect(env["OPENAI_API_KEY"] as? String == "(set)")
+        #expect(codex["command"] as? String == "codex")
+
+        // The malformed entry passes through unchanged
+        #expect(agents["broken"] as? String == "not-a-dictionary")
+
+        // No plaintext secrets anywhere in the serialized output
+        let data = try JSONSerialization.data(withJSONObject: sanitized)
+        let json = String(decoding: data, as: UTF8.self)
+        #expect(!json.contains("sk-proj-synthetic-test-value-1234567890"))
+    }
+
     // MARK: - All Artifacts Present
 
     @Test
