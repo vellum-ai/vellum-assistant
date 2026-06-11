@@ -32,6 +32,7 @@ import {
   restoreBackup,
 } from "../lib/backup-ops.js";
 import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
+import { upgradeLocal } from "../lib/local-upgrade.js";
 import { exec } from "../lib/step-runner.js";
 import {
   broadcastUpgradeEvent,
@@ -72,6 +73,13 @@ function parseArgs(): UpgradeArgs {
       console.log("Upgrade an assistant to a newer version.");
       console.log("To roll back to a previous version, use `vellum rollback`.");
       console.log("");
+      console.log(
+        "Local assistants run the CLI's embedded runtime; upgrading restarts",
+      );
+      console.log(
+        "them on the current CLI — use --latest to update the CLI first.",
+      );
+      console.log("");
       console.log("Arguments:");
       console.log(
         "  <name>               Name of the assistant to upgrade (default: active or only assistant)",
@@ -103,6 +111,9 @@ function parseArgs(): UpgradeArgs {
       );
       console.log(
         "  vellum upgrade my-assistant --version v1.2.3 # Upgrade to a specific version",
+      );
+      console.log(
+        "  vellum upgrade --latest                     # On a local assistant: update the CLI, then restart on it",
       );
       process.exit(0);
     } else if (arg === "--version") {
@@ -929,6 +940,13 @@ export async function upgrade(): Promise<void> {
   const { name, version, latest, prepare, finalize } = parseArgs();
   const entry = resolveTargetAssistant(name);
 
+  if ((prepare || finalize) && resolveCloud(entry) === "local") {
+    const msg = "--prepare/--finalize are not supported for local assistants";
+    console.error(`Error: ${msg}.`);
+    emitCliError("UNSUPPORTED_TOPOLOGY", msg);
+    process.exit(1);
+  }
+
   if (prepare) {
     await upgradePrepare(entry, version);
     return;
@@ -960,6 +978,11 @@ export async function upgrade(): Promise<void> {
       await upgradePlatform(entry, effectiveVersion);
       return;
     }
+
+    if (cloud === "local") {
+      await upgradeLocal(entry, effectiveVersion, cliPkg.version);
+      return;
+    }
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     console.error(`\n❌ Upgrade failed: ${detail}`);
@@ -975,7 +998,7 @@ export async function upgrade(): Promise<void> {
     process.exit(1);
   }
 
-  const msg = `Error: Upgrade is not supported for '${cloud}' assistants. Only 'docker' and 'vellum' assistants can be upgraded via the CLI.`;
+  const msg = `Error: Upgrade is not supported for '${cloud}' assistants. Only 'docker', 'vellum', and 'local' assistants can be upgraded via the CLI.`;
   console.error(msg);
   emitCliError("UNSUPPORTED_TOPOLOGY", msg);
   process.exit(1);
