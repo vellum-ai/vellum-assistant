@@ -789,7 +789,9 @@ function ProfileInfoPanel({
       ) : null}
       <div>
         <dt>Description</dt>
-        <dd>{info?.description ?? "No description in this profile's manifest."}</dd>
+        <dd>
+          {info?.description ?? "No description in this profile's manifest."}
+        </dd>
       </div>
       <div>
         <dt>Setup</dt>
@@ -871,7 +873,10 @@ function ProfileInSessionPage({
       <Crumbs
         trail={[
           { href: "/", label: "All runs" },
-          { href: sessionUrl, label: profile.sessionLabel ?? profile.sessionId },
+          {
+            href: sessionUrl,
+            label: profile.sessionLabel ?? profile.sessionId,
+          },
           { label: profile.profileId },
         ]}
       />
@@ -893,8 +898,8 @@ function ProfileInSessionPage({
       <section className="section">
         <h2>Test scores</h2>
         <p className="section-subtle">
-          How this profile scored on every test in the run. Click a test to
-          open its transcript and logs.
+          How this profile scored on every test in the run. Click a test to open
+          its transcript and logs.
         </p>
         <table>
           <thead>

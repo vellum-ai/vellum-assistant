@@ -215,9 +215,7 @@ export async function handleRequest(request: Request): Promise<Response> {
     return pageResponse({ kind: "test", test });
   }
 
-  const pageProfile = path.match(
-    /^\/sessions\/([^/]+)\/profiles\/([^/]+)$/,
-  );
+  const pageProfile = path.match(/^\/sessions\/([^/]+)\/profiles\/([^/]+)$/);
   if (pageProfile) {
     const [, sessionEnc, profileEnc] = pageProfile;
     const sessionId = decodeURIComponent(sessionEnc);
