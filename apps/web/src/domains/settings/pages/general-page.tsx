@@ -274,7 +274,10 @@ export function GeneralPage() {
         />
       </DetailCard>
 
-      {isAuthenticated && platformGate === "full" && <ProfileCard assistant={platformAssistant} />}
+      {isAuthenticated && platformGate === "full" && (
+        // Handles are platform-only — withhold the prop for self-hosted assistants.
+        <ProfileCard assistant={isPlatformHosted ? platformAssistant : null} />
+      )}
 
       {infraGate === "full" && assistant && (
         <ResizeCard
