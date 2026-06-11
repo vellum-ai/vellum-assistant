@@ -2,6 +2,7 @@ import * as realFs from "node:fs";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SkillSummary, SkillToolManifest } from "../config/skills.js";
+import type { SkillLoadedEventRecord } from "../memory/skill-loaded-events-store.js";
 import { RiskLevel } from "../permissions/types.js";
 import type {
   Message,
@@ -9,7 +10,9 @@ import type {
   ToolResultContent,
   ToolUseContent,
 } from "../providers/types.js";
+import type { SkillInstallMeta } from "../skills/install-meta.js";
 import type { Tool } from "../tools/types.js";
+import type { UsageAttributionSnapshot } from "../usage/attribution.js";
 import { buildSkillLoadHistory } from "./test-support/browser-skill-harness.js";
 
 // ---------------------------------------------------------------------------
@@ -25,6 +28,14 @@ let mockSkillRefCount: Map<string, number> = new Map();
 let mockVersionHashes: Record<string, string> = {};
 /** Skill IDs for which computeSkillVersionHash should throw (simulates unreadable directories). */
 let mockVersionHashErrors: Set<string> = new Set();
+/** Install metadata by skill id (readInstallMeta derives the id from the directory path). */
+let mockInstallMetas: Record<string, SkillInstallMeta | null> = {};
+/** Merged catalog entries returned by getCachedCatalogSync. */
+let mockCachedCatalog: Array<{ id: string; updatedAt?: string }> = [];
+/** skill_loaded events captured by the mocked store. */
+let recordedSkillLoadedEvents: SkillLoadedEventRecord[] = [];
+/** When true, recordSkillLoadedEvent throws (simulates a store failure). */
+let mockRecordSkillLoadedFailure = false;
 
 // ---------------------------------------------------------------------------
 // Mocks — must be set up before importing the module under test
@@ -227,6 +238,27 @@ mock.module("../config/skill-state.js", () => ({
     skill.featureFlag || undefined,
 }));
 
+mock.module("../skills/install-meta.js", () => ({
+  readInstallMeta: (skillDir: string) => {
+    const parts = skillDir.split("/");
+    const skillId = parts[parts.length - 1];
+    return mockInstallMetas[skillId] ?? null;
+  },
+}));
+
+mock.module("../skills/catalog-cache.js", () => ({
+  getCachedCatalogSync: () => mockCachedCatalog,
+}));
+
+mock.module("../memory/skill-loaded-events-store.js", () => ({
+  recordSkillLoadedEvent: (record: SkillLoadedEventRecord) => {
+    if (mockRecordSkillLoadedFailure) {
+      throw new Error("Mock: skill_loaded store failure");
+    }
+    recordedSkillLoadedEvents.push(record);
+  },
+}));
+
 // ---------------------------------------------------------------------------
 // Import module under test (after mocks)
 // ---------------------------------------------------------------------------
@@ -238,7 +270,11 @@ const { projectSkillTools, resetSkillToolProjection } =
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeSkill(id: string, dir?: string): SkillSummary {
+function makeSkill(
+  id: string,
+  dir?: string,
+  source: SkillSummary["source"] = "managed",
+): SkillSummary {
   return {
     id,
     name: id,
@@ -247,7 +283,7 @@ function makeSkill(id: string, dir?: string): SkillSummary {
     directoryPath: dir ?? `/skills/${id}`,
     skillFilePath: `/skills/${id}/SKILL.md`,
 
-    source: "managed",
+    source,
   };
 }
 
@@ -706,6 +742,264 @@ describe("projectSkillTools", () => {
     resetSkillToolProjection(sessionB);
     expect(mockRegisteredTools.has("deploy")).toBe(false);
     expect(mockSkillRefCount.has("deploy")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// skill_loaded telemetry recording
+// ---------------------------------------------------------------------------
+
+describe("skill_loaded telemetry recording", () => {
+  let sessionState: Map<string, string>;
+
+  function makeAttribution(): UsageAttributionSnapshot {
+    return {
+      callSite: "mainAgent",
+      activeProfile: "balanced",
+      overrideProfile: null,
+      callSiteProfile: null,
+      appliedProfile: "balanced",
+      profileSource: "active",
+      resolvedProvider: "test-provider",
+      resolvedModel: "test-model",
+      resolvedMixArm: null,
+    };
+  }
+
+  function makeTelemetry() {
+    return { conversationId: "conv-xyz", attribution: makeAttribution() };
+  }
+
+  beforeEach(() => {
+    mockCatalog = [];
+    mockManifests = {};
+    mockRegisteredTools = new Map();
+    mockUnregisteredSkillIds = [];
+    mockSkillRefCount = new Map();
+    mockVersionHashes = {};
+    mockVersionHashErrors = new Set();
+    mockInstallMetas = {};
+    mockCachedCatalog = [];
+    recordedSkillLoadedEvents = [];
+    mockRecordSkillLoadedFailure = false;
+    sessionState = new Map<string, string>();
+  });
+
+  test("bundled skill activation records an event with attribution and catalog updatedAt", () => {
+    mockCatalog = [makeSkill("notes", undefined, "bundled")];
+    mockManifests = { notes: makeManifest(["notes_add"]) };
+    mockCachedCatalog = [{ id: "notes", updatedAt: "2026-01-02T03:04:05Z" }];
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="notes" />'),
+    ];
+    projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: makeTelemetry(),
+    });
+
+    expect(recordedSkillLoadedEvents).toHaveLength(1);
+    expect(recordedSkillLoadedEvents[0]).toEqual({
+      conversationId: "conv-xyz",
+      skillName: "notes",
+      skillUpdatedAt: "2026-01-02T03:04:05Z",
+      provider: "test-provider",
+      model: "test-model",
+      inferenceProfile: "balanced",
+      inferenceProfileSource: "active",
+    });
+  });
+
+  test("managed skill with vellum install origin records an event", () => {
+    mockCatalog = [makeSkill("deploy")];
+    mockManifests = { deploy: makeManifest(["deploy_run"]) };
+    mockInstallMetas = {
+      deploy: { origin: "vellum", installedAt: "2026-01-01T00:00:00Z" },
+    };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+    ];
+    projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: makeTelemetry(),
+    });
+
+    expect(recordedSkillLoadedEvents).toHaveLength(1);
+    expect(recordedSkillLoadedEvents[0].skillName).toBe("deploy");
+  });
+
+  test("managed skill with clawhub or custom origin does NOT record", () => {
+    mockCatalog = [makeSkill("third-party"), makeSkill("homemade")];
+    mockManifests = {
+      "third-party": makeManifest(["tp_run"]),
+      homemade: makeManifest(["hm_run"]),
+    };
+    mockInstallMetas = {
+      "third-party": {
+        origin: "clawhub",
+        installedAt: "2026-01-01T00:00:00Z",
+      },
+      homemade: { origin: "custom", installedAt: "2026-01-01T00:00:00Z" },
+    };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="third-party" />'),
+      ...skillLoadMessages('<loaded_skill id="homemade" />'),
+    ];
+    const result = projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: makeTelemetry(),
+    });
+
+    expect(recordedSkillLoadedEvents).toHaveLength(0);
+    // Tool projection itself is unaffected
+    expect(result.allowedToolNames).toEqual(new Set(["tp_run", "hm_run"]));
+  });
+
+  test("managed skill without install metadata does NOT record", () => {
+    mockCatalog = [makeSkill("deploy")];
+    mockManifests = { deploy: makeManifest(["deploy_run"]) };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="deploy" />'),
+    ];
+    projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: makeTelemetry(),
+    });
+
+    expect(recordedSkillLoadedEvents).toHaveLength(0);
+  });
+
+  test("workspace skill does NOT record", () => {
+    mockCatalog = [makeSkill("local-helper", undefined, "workspace")];
+    mockManifests = { "local-helper": makeManifest(["lh_run"]) };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="local-helper" />'),
+    ];
+    projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: makeTelemetry(),
+    });
+
+    expect(recordedSkillLoadedEvents).toHaveLength(0);
+  });
+
+  test("second turn with the skill still active does NOT re-record", () => {
+    mockCatalog = [makeSkill("notes", undefined, "bundled")];
+    mockManifests = { notes: makeManifest(["notes_add"]) };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="notes" />'),
+    ];
+    projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: makeTelemetry(),
+    });
+    projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: makeTelemetry(),
+    });
+
+    expect(recordedSkillLoadedEvents).toHaveLength(1);
+  });
+
+  test("version-hash change that re-registers counts as a new load", () => {
+    mockCatalog = [makeSkill("notes", undefined, "bundled")];
+    mockManifests = { notes: makeManifest(["notes_add"]) };
+    mockVersionHashes = { notes: "v1:hash-aaa" };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="notes" />'),
+    ];
+    projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: makeTelemetry(),
+    });
+
+    mockVersionHashes = { notes: "v1:hash-bbb" };
+    projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: makeTelemetry(),
+    });
+
+    expect(recordedSkillLoadedEvents).toHaveLength(2);
+  });
+
+  test("catalog miss yields undefined skillUpdatedAt (persisted as null)", () => {
+    mockCatalog = [makeSkill("notes", undefined, "bundled")];
+    mockManifests = { notes: makeManifest(["notes_add"]) };
+    mockCachedCatalog = []; // no merged-catalog entry for "notes"
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="notes" />'),
+    ];
+    projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: makeTelemetry(),
+    });
+
+    expect(recordedSkillLoadedEvents).toHaveLength(1);
+    expect(recordedSkillLoadedEvents[0].skillUpdatedAt).toBeUndefined();
+  });
+
+  test("null attribution records the event without model fields", () => {
+    mockCatalog = [makeSkill("notes", undefined, "bundled")];
+    mockManifests = { notes: makeManifest(["notes_add"]) };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="notes" />'),
+    ];
+    projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: { conversationId: "conv-xyz", attribution: null },
+    });
+
+    expect(recordedSkillLoadedEvents).toHaveLength(1);
+    expect(recordedSkillLoadedEvents[0]).toEqual({
+      conversationId: "conv-xyz",
+      skillName: "notes",
+      skillUpdatedAt: undefined,
+      provider: undefined,
+      model: undefined,
+      inferenceProfile: undefined,
+      inferenceProfileSource: undefined,
+    });
+  });
+
+  test("store failure does not throw out of projectSkillTools", () => {
+    mockCatalog = [makeSkill("notes", undefined, "bundled")];
+    mockManifests = { notes: makeManifest(["notes_add"]) };
+    mockRecordSkillLoadedFailure = true;
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="notes" />'),
+    ];
+    const result = projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+      telemetry: makeTelemetry(),
+    });
+
+    // Tool projection behavior is unchanged when recording fails
+    expect(result.allowedToolNames.has("notes_add")).toBe(true);
+    expect(sessionState.has("notes")).toBe(true);
+  });
+
+  test("absent telemetry context disables recording entirely", () => {
+    mockCatalog = [makeSkill("notes", undefined, "bundled")];
+    mockManifests = { notes: makeManifest(["notes_add"]) };
+
+    const history: Message[] = [
+      ...skillLoadMessages('<loaded_skill id="notes" />'),
+    ];
+    const result = projectSkillTools(history, {
+      previouslyActiveSkillIds: sessionState,
+    });
+
+    expect(recordedSkillLoadedEvents).toHaveLength(0);
+    expect(result.allowedToolNames.has("notes_add")).toBe(true);
   });
 });
 
