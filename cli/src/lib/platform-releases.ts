@@ -27,14 +27,17 @@ const RELEASES_FETCH_LIMIT = 100;
 /**
  * Fetch the releases list from the platform API, optionally filtered by
  * channel (the `channel` param takes precedence over `stable` server-side).
+ * `platformUrl` overrides the lockfile/env-resolved default — pass the
+ * target assistant's platform URL when it may differ from the active one.
  * Returns `null` when the platform is unreachable or responds non-OK —
  * distinct from `[]` (platform answered, no releases).
  */
 export async function fetchReleases(opts?: {
   channel?: "stable" | "preview";
+  platformUrl?: string;
 }): Promise<ReleaseListItem[] | null> {
   try {
-    const platformUrl = getPlatformUrl();
+    const platformUrl = opts?.platformUrl || getPlatformUrl();
     const filter = opts?.channel ? `channel=${opts.channel}` : "stable=true";
     const response = await loopbackSafeFetch(
       `${platformUrl}/v1/releases/?${filter}&limit=${RELEASES_FETCH_LIMIT}`,

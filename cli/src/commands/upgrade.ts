@@ -864,7 +864,12 @@ async function upgradePlatform(
     health.version ?? assistantDetail?.currentReleaseVersion ?? undefined;
 
   const releaseChannel = assistantDetail?.releaseChannel ?? "stable";
-  const releases = await fetchReleases({ channel: releaseChannel });
+  // Target the same platform as the detail/health/POST calls — the entry's
+  // platform may differ from the active lockfile default.
+  const releases = await fetchReleases({
+    channel: releaseChannel,
+    platformUrl: entry.runtimeUrl,
+  });
 
   const resolution = resolveUpgradeTarget({
     explicitVersion: version,
