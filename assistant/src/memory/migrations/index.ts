@@ -272,6 +272,7 @@ export { migrateAddMemoryV3EverInjected } from "./277-add-memory-v3-ever-injecte
 export { migrateToolInvocationsTelemetryColumns } from "./278-tool-invocations-telemetry-columns.js";
 export { createSkillLoadedEventsTable } from "./279-create-skill-loaded-events.js";
 export { migrateConversationsSurfacedAt } from "./280-conversations-surfaced-at.js";
+export { migrateCreateRecallGateDecisions } from "./281-create-recall-gate-decisions.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

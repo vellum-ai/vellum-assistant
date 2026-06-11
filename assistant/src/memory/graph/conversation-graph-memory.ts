@@ -9,6 +9,7 @@
 import { and, desc, eq, inArray, ne, notInArray } from "drizzle-orm";
 import { z } from "zod";
 
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { estimateTextTokens } from "../../context/token-estimator.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
@@ -52,6 +53,11 @@ import {
   type ResolvedImage,
   resolveInjectionImages,
 } from "./injection.js";
+import {
+  backfillRetrievalLatency,
+  evaluateRecallGate,
+  logRecallGateDecision,
+} from "./recall-gate/index.js";
 import { loadContextMemory, retrieveForTurn } from "./retriever.js";
 import type { RetrievalMetrics } from "./types.js";
 
@@ -190,6 +196,22 @@ export class ConversationGraphMemory {
    *
    * Returns up to 3 summary texts, most recent first.
    */
+  private extractLastAssistantText(messages: Message[]): string {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i]!;
+      if (msg.role === "assistant") {
+        const text = msg.content
+          .filter(
+            (b): b is Extract<typeof b, { type: "text" }> => b.type === "text",
+          )
+          .map((b) => b.text)
+          .join(" ");
+        if (text.trim().length > 0) return text;
+      }
+    }
+    return "";
+  }
+
   private fetchRecentSummaries(): string[] {
     try {
       const db = getDb();
@@ -482,13 +504,60 @@ export class ConversationGraphMemory {
     if (!hasUserContent && this.initialized && !this.needsReload)
       return noopResult;
 
+    // --- Recall-decision gate (experiment) ---
+    const shadowEnabled = isAssistantFeatureFlagEnabled(
+      "recall-gate-shadow",
+      config,
+    );
+    const liveEnabled = isAssistantFeatureFlagEnabled(
+      "recall-gate-live",
+      config,
+    );
+    if (shadowEnabled || liveEnabled) {
+      const userText = readRawUserText(lastMessage) ?? "";
+      const lastAssistantText = this.extractLastAssistantText(messages);
+      const turn = this.tracker.getTurn();
+
+      const gateStart = performance.now();
+      const decision = evaluateRecallGate(
+        userText,
+        lastAssistantText,
+        messages,
+        turn,
+      );
+      const gateLatencyUs = Math.round((performance.now() - gateStart) * 1000);
+
+      const mode = liveEnabled ? ("live" as const) : ("shadow" as const);
+      logRecallGateDecision({
+        conversationId: this.conversationId,
+        turn,
+        decision: decision.skip ? "skip" : "retrieve",
+        ruleFired: decision.rule,
+        safetyFloorHit: decision.safetyFloorHit,
+        safetyFloorTokens: decision.safetyFloorTokens,
+        redactedUserText: decision.redactedUserText,
+        promptCharCount: decision.promptCharCount,
+        promptTokenEstimate: decision.promptTokenEstimate,
+        hasEntities: decision.hasEntities,
+        hasQuestionMark: decision.hasQuestionMark,
+        decisionLatencyUs: gateLatencyUs,
+        mode,
+      });
+
+      if (decision.skip && liveEnabled) {
+        return noopResult;
+      }
+    }
+
+    const retrievalStart = shadowEnabled ? performance.now() : 0;
     try {
       // Decide which retrieval mode to use
+      let result;
       if (!this.initialized || this.needsReload) {
         const recentSummaries = this.fetchRecentSummaries();
         const firstUserText = extractUserText(lastMessage);
 
-        return await this.runContextLoad(
+        result = await this.runContextLoad(
           messages,
           config,
           recentSummaries,
@@ -496,9 +565,19 @@ export class ConversationGraphMemory {
           abortSignal,
           onEvent,
         );
+      } else {
+        result = await this.runPerTurn(messages, config, abortSignal);
       }
 
-      return await this.runPerTurn(messages, config, abortSignal);
+      if (shadowEnabled) {
+        const retrievalMs = Math.round(performance.now() - retrievalStart);
+        backfillRetrievalLatency(
+          this.conversationId,
+          this.tracker.getTurn(),
+          retrievalMs,
+        );
+      }
+      return result;
     } catch (err) {
       const errCode =
         err instanceof z.ZodError ? err.issues[0]?.code : undefined;

@@ -88,6 +88,7 @@ import {
   migrateCreateMemoryGraphTables,
   migrateCreateMemoryRecallLogs,
   migrateCreateProviderConnections,
+  migrateCreateRecallGateDecisions,
   migrateCreateThreadStartersTable,
   migrateCreateTraceEventsTable,
   migrateDeletePrivateConversations,
@@ -498,6 +499,7 @@ export function initializeDb(): void {
     migrateToolInvocationsTelemetryColumns,
     createSkillLoadedEventsTable,
     migrateConversationsSurfacedAt,
+    migrateCreateRecallGateDecisions,
   ];
 
   // Run each migration step, catching and logging individual failures so one
