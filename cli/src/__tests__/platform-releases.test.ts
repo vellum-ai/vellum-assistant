@@ -45,6 +45,7 @@ describe("fetchReleases", () => {
     expect(releases).toEqual([RELEASE]);
     const url = String(fetchMock.mock.calls[0][0]);
     expect(url).toContain("/v1/releases/?stable=true");
+    expect(url).toContain("limit=100");
   });
 
   test("passes the channel param when given", async () => {
@@ -52,6 +53,7 @@ describe("fetchReleases", () => {
     await fetchReleases({ channel: "preview" });
     const url = String(fetchMock.mock.calls[0][0]);
     expect(url).toContain("/v1/releases/?channel=preview");
+    expect(url).toContain("limit=100");
   });
 
   test("returns null on non-OK response", async () => {

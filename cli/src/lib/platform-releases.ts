@@ -18,6 +18,13 @@ export interface ReleaseListItem {
 }
 
 /**
+ * The endpoint defaults `limit` to 10, which is too few to validate an
+ * explicit --version against ("absent from the list" is treated as a hard
+ * error) — always request the documented maximum.
+ */
+const RELEASES_FETCH_LIMIT = 100;
+
+/**
  * Fetch the releases list from the platform API, optionally filtered by
  * channel (the `channel` param takes precedence over `stable` server-side).
  * Returns `null` when the platform is unreachable or responds non-OK —
@@ -28,9 +35,9 @@ export async function fetchReleases(opts?: {
 }): Promise<ReleaseListItem[] | null> {
   try {
     const platformUrl = getPlatformUrl();
-    const query = opts?.channel ? `channel=${opts.channel}` : "stable=true";
+    const filter = opts?.channel ? `channel=${opts.channel}` : "stable=true";
     const response = await loopbackSafeFetch(
-      `${platformUrl}/v1/releases/?${query}`,
+      `${platformUrl}/v1/releases/?${filter}&limit=${RELEASES_FETCH_LIMIT}`,
       { signal: AbortSignal.timeout(10_000) },
     );
     if (!response.ok) return null;
