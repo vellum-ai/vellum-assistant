@@ -630,8 +630,11 @@ describe("identity routes — intro greetings", () => {
     expect(sidechainCalls[0]?.tools).toEqual([]);
     expect(sidechainCalls[0]?.content).toContain("Generate 5 short");
     expect(sidechainCalls[0]?.content).not.toContain("Current time of day:");
+    expect(sidechainCalls[0]?.content).toContain(
+      "do not mention the current time",
+    );
     expect(sidechainCalls[0]?.content).toMatch(
-      /Current user-local time: morning \(08:15\)\.$/,
+      /Current user-local time for subtle tone only: morning \(08:15\)\.$/,
     );
     expect(sidechainCalls[0]?.content).toContain("JSON array");
     expect(sidechainCalls[0]?.systemPrompt).toContain(
@@ -647,6 +650,7 @@ describe("identity routes — intro greetings", () => {
         "Ready to make this lighter.",
         "Morning momentum?",
         "Five options, one good start.",
+        "A useful next step?",
       ]),
       hadTextDeltas: false,
       response: { content: [] },
@@ -670,8 +674,8 @@ describe("identity routes — intro greetings", () => {
         "Charting the next useful thing?",
         "I brought the compass. Where to?",
         "Ready to make this lighter.",
-        "Morning momentum?",
         "Five options, one good start.",
+        "A useful next step?",
       ],
       text: "Charting the next useful thing?",
       source: "cache",

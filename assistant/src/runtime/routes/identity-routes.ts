@@ -413,6 +413,8 @@ const GENERATED_GREETING_LIMIT = 5;
 const GREETING_GENERATION_TIMEOUT_MS = 10_000;
 const GREETING_GENERATION_FAILURE_COOLDOWN_MS = 60_000;
 const EMPTY_STATE_GREETING_CALLSITE = "emptyStateGreeting" as const;
+const EXPLICIT_TIME_OF_DAY_PATTERN =
+  /\b(?:morning|afternoon|evening|tonight|midnight|noon|sunrise|sunset)\b/i;
 
 type IdentityIntroSource = "workspace" | "cache" | "fallback";
 
@@ -561,7 +563,7 @@ async function generateEmptyStateGreetings(
       excludeCustomPrefix: true,
     });
     const localTimeInstruction = localTimeContext
-      ? ` Current user-local time: ${localTimeContext}.`
+      ? ` Current user-local time for subtle tone only: ${localTimeContext}.`
       : "";
     const result = await runBtwSidechain({
       content:
@@ -569,7 +571,8 @@ async function generateEmptyStateGreetings(
         "Use the assistant identity, voice, and relationship guidance from IDENTITY.md and SOUL.md. " +
         "Each greeting should feel personal and inviting, not like a generic assistant introduction. " +
         "Return only a JSON array of strings. No markdown, keys, or explanation. " +
-        "Keep any time-sensitive phrasing appropriate for the user's local time." +
+        "Generated greetings are cached for 4 hours, so do not mention the current time " +
+        "or use explicit time-of-day words like morning, afternoon, evening, or tonight." +
         localTimeInstruction,
       provider,
       systemPrompt,
@@ -636,6 +639,7 @@ function normalizeGeneratedGreetings(values: unknown[]): string[] {
       .replace(/^["'`]+|["'`]+$/g, "")
       .trim();
     if (!greeting) continue;
+    if (EXPLICIT_TIME_OF_DAY_PATTERN.test(greeting)) continue;
 
     const key = greeting.toLowerCase();
     if (seen.has(key)) continue;
