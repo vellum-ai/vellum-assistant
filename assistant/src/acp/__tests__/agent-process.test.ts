@@ -161,11 +161,12 @@ describe("AcpAgentProcess loadSession/resumeSession", () => {
 });
 
 describe("AcpAgentProcess auth_required retry", () => {
-  // The merged child env includes process.env, so the advertised var names use
-  // a VELLUM_TEST_ prefix guaranteed absent from the test process env. The
-  // structure mirrors codex-acp's real advertisement: an agent-driven browser
-  // login (no `type`, must never be auto-selected) followed by two env_var
-  // methods, in that order.
+  // spawnedEnv is injected the way spawn() builds it ({ ...process.env,
+  // ...config.env }), so the advertised var names use a VELLUM_TEST_ prefix
+  // guaranteed absent from the test process env. The structure mirrors
+  // codex-acp's real advertisement: an agent-driven browser login (no `type`,
+  // must never be auto-selected) followed by two env_var methods, in that
+  // order.
   const CODEX_VAR = "VELLUM_TEST_FAKE_CODEX_API_KEY";
   const OPENAI_VAR = "VELLUM_TEST_FAKE_OPENAI_API_KEY";
 
@@ -185,7 +186,10 @@ describe("AcpAgentProcess auth_required retry", () => {
     },
   ];
 
-  const authRequiredError = { code: -32000, message: "Authentication required" };
+  const authRequiredError = {
+    code: -32000,
+    message: "Authentication required",
+  };
 
   /**
    * Creates a process whose connection is stubbed with mocks, then runs
@@ -221,14 +225,21 @@ describe("AcpAgentProcess auth_required retry", () => {
     const newSession = failThenSucceed(options.newSessionRejections ?? [], {
       sessionId: "session-1",
     });
-    const loadSession = failThenSucceed(options.loadSessionRejections ?? [], {});
+    const loadSession = failThenSucceed(
+      options.loadSessionRejections ?? [],
+      {},
+    );
     const resumeSession = failThenSucceed(
       options.resumeSessionRejections ?? [],
       {},
     );
     const authenticate = mock(() => Promise.resolve({}));
 
-    (proc as unknown as { connection: unknown }).connection = {
+    const internals = proc as unknown as {
+      connection: unknown;
+      spawnedEnv: NodeJS.ProcessEnv;
+    };
+    internals.connection = {
       initialize: () =>
         Promise.resolve({
           protocolVersion: 1,
@@ -239,10 +250,18 @@ describe("AcpAgentProcess auth_required retry", () => {
       resumeSession,
       authenticate,
     };
+    internals.spawnedEnv = { ...process.env, ...options.env };
 
     await proc.initialize();
 
-    return { proc, newSession, loadSession, resumeSession, authenticate };
+    return {
+      proc,
+      newSession,
+      loadSession,
+      resumeSession,
+      authenticate,
+      internals,
+    };
   }
 
   test("createSession does not authenticate when newSession succeeds", async () => {
@@ -271,9 +290,11 @@ describe("AcpAgentProcess auth_required retry", () => {
     expect(newSession).toHaveBeenCalledTimes(2);
   });
 
-  test("auth_required with CODEX-style key selects the earlier advertised method", async () => {
+  test("auth_required with both keys present selects the earlier advertised method", async () => {
+    // Both methods are satisfiable, so this pins advertised-order selection
+    // rather than only-satisfiable selection.
     const { proc, authenticate } = await setupAuthProcess({
-      env: { [CODEX_VAR]: "sk-codex" },
+      env: { [CODEX_VAR]: "sk-codex", [OPENAI_VAR]: "sk-openai" },
       newSessionRejections: [authRequiredError],
     });
 
@@ -371,5 +392,45 @@ describe("AcpAgentProcess auth_required retry", () => {
     });
     expect(authenticate).not.toHaveBeenCalled();
     expect(newSession).toHaveBeenCalledTimes(1);
+  });
+
+  test("auth_required after the agent process exits throws the not-spawned error", async () => {
+    const { proc, authenticate, internals } = await setupAuthProcess({
+      env: { [OPENAI_VAR]: "sk-test" },
+    });
+
+    // Simulate handleProcessExit racing the auth retry: the agent dies as it
+    // rejects with auth_required, nulling the connection before the retry
+    // path runs. spawnedEnv stays satisfiable so only the connection guard
+    // can produce the failure.
+    (internals.connection as { newSession: unknown }).newSession = () => {
+      internals.connection = null;
+      return Promise.reject(authRequiredError);
+    };
+
+    await expect(proc.createSession("/tmp/project")).rejects.toThrow(
+      'ACP agent "codex" is not spawned',
+    );
+    expect(authenticate).not.toHaveBeenCalled();
+  });
+
+  test("satisfiability uses the env captured at spawn, not live process.env", async () => {
+    const { proc, authenticate } = await setupAuthProcess({
+      env: { [OPENAI_VAR]: "sk-test" },
+      newSessionRejections: [authRequiredError],
+    });
+
+    // Drift process.env after "spawn": the earlier-advertised codex var
+    // appears, but the spawned child never saw it, so the openai method
+    // must still be selected.
+    process.env[CODEX_VAR] = "sk-codex-late";
+    try {
+      await proc.createSession("/tmp/project");
+    } finally {
+      delete process.env[CODEX_VAR];
+    }
+
+    expect(authenticate).toHaveBeenCalledTimes(1);
+    expect(authenticate).toHaveBeenCalledWith({ methodId: "openai-api-key" });
   });
 });
