@@ -25,6 +25,10 @@ function isOneShot(job: { expression: string | null }): boolean {
   return job.expression == null;
 }
 
+function describeAuthoredPurpose(job: { description: string }): string {
+  return job.description || "(none)";
+}
+
 export async function executeScheduleList(
   input: Record<string, unknown>,
   _context: ToolContext,
@@ -48,6 +52,7 @@ export async function executeScheduleList(
       `  Type: ${oneShot ? "one-shot" : "recurring"}`,
       `  Mode: ${job.mode}`,
       `  Status: ${job.status}`,
+      `  Description: ${describeAuthoredPurpose(job)}`,
     ];
 
     if (oneShot) {
@@ -118,14 +123,17 @@ export async function executeScheduleList(
     if (oneShot) {
       const fireTime = formatLocalDate(job.nextRunAt);
       lines.push(
-        `  - [${status}] ${job.name} (id: ${job.id}) (one-shot, ${job.mode}) - fire at: ${fireTime} [${job.status}]`,
+        `  - [${status}] ${job.name} (id: ${job.id}) (one-shot, ${job.mode}) [${job.status}]`,
+        `    Description: ${describeAuthoredPurpose(job)}`,
+        `    fire at: ${fireTime}`,
       );
     } else {
       const next = job.enabled ? formatLocalDate(job.nextRunAt) : "n/a";
       lines.push(
-        `  - [${status}] ${job.name} (id: ${job.id}) ([${
-          job.syntax
-        }] ${describeSchedule(job)}, ${job.mode}) - next: ${next}`,
+        `  - [${status}] ${job.name} (id: ${job.id}) (${job.mode})`,
+        `    Description: ${describeAuthoredPurpose(job)}`,
+        `    Schedule: [${job.syntax}] ${describeSchedule(job)}`,
+        `    Next: ${next}`,
       );
     }
   }

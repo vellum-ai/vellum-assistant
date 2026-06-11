@@ -33,6 +33,7 @@ export async function executeScheduleCreate(
     };
   }
   const name = input.name as string;
+  const description = input.description as string | undefined;
   const timezone = (input.timezone as string) ?? null;
   const message = (input.message as string) ?? "";
   const script = (input.script as string) ?? null;
@@ -59,6 +60,17 @@ export async function executeScheduleCreate(
   if (!name || typeof name !== "string") {
     return {
       content: "Error: name is required and must be a string",
+      isError: true,
+    };
+  }
+
+  if (
+    !description ||
+    typeof description !== "string" ||
+    description.trim().length === 0
+  ) {
+    return {
+      content: "Error: description is required and must be a non-empty string",
       isError: true,
     };
   }
@@ -128,6 +140,7 @@ export async function executeScheduleCreate(
     try {
       const job = createSchedule({
         name,
+        description,
         cronExpression: null,
         timezone,
         message,
@@ -154,6 +167,7 @@ export async function executeScheduleCreate(
           `One-shot schedule created successfully.`,
           `  ID: ${job.id}`,
           `  Name: ${job.name}`,
+          `  Description: ${job.description}`,
           `  Type: one-shot`,
           `  Mode: ${job.mode}`,
           `  Fire at: ${fireDate}`,
@@ -211,6 +225,7 @@ export async function executeScheduleCreate(
   try {
     const job = createSchedule({
       name,
+      description,
       cronExpression: resolved.expression,
       timezone,
       message,
@@ -243,6 +258,7 @@ export async function executeScheduleCreate(
         `Recurring schedule created successfully.`,
         `  ID: ${job.id}`,
         `  Name: ${job.name}`,
+        `  Description: ${job.description}`,
         `  Syntax: ${job.syntax}`,
         `  Mode: ${job.mode}`,
         `  Schedule: ${scheduleDescription}${
