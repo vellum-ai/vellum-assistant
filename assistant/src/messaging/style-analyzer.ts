@@ -6,7 +6,9 @@
  * for memory storage.
  */
 
-import { getConfiguredProvider } from "../providers/provider-send-message.js";
+import { z } from "zod";
+
+import { runOneShotLLM } from "../providers/one-shot-llm.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { truncate } from "../util/truncate.js";
 import type { Message as ProviderMessage } from "./provider-types.js";
@@ -97,6 +99,34 @@ const storeStyleAnalysisTool = {
 } satisfies ToolDefinition;
 
 /**
+ * Validates the `store_style_analysis` tool input. Mirrors the JSON Schema
+ * above and the hand-rolled type guards this replaced: `style_patterns` is
+ * required; `aspect`/`summary`/`importance` are required per pattern with
+ * `examples` optional; `contact_observations` is optional. `aspect` stays a
+ * free `string` (the wire tool schema constrains the enum, and the prior cast
+ * never validated it) so a stray aspect value doesn't drop the whole result.
+ */
+const StoreStyleAnalysisSchema = z.object({
+  style_patterns: z.array(
+    z.object({
+      aspect: z.string(),
+      summary: z.string(),
+      importance: z.number(),
+      examples: z.array(z.string()).optional(),
+    }),
+  ),
+  contact_observations: z
+    .array(
+      z.object({
+        name: z.string(),
+        email: z.string(),
+        tone_note: z.string(),
+      }),
+    )
+    .optional(),
+});
+
+/**
  * Build a text corpus from provider messages for LLM analysis.
  * Truncates individual messages to keep overall size manageable.
  */
@@ -127,10 +157,6 @@ export async function extractStylePatterns(
     .map((e, i) => `--- Message ${i + 1} ---\n${e}`)
     .join("\n\n");
 
-  const provider = await getConfiguredProvider("styleAnalyzer");
-  if (!provider) {
-    return { stylePatterns: [], contactObservations: [] };
-  }
   const promptMessages: Message[] = [
     {
       role: "user",
@@ -143,40 +169,25 @@ export async function extractStylePatterns(
     },
   ];
 
-  const response = await provider.sendMessage(promptMessages, {
+  // Any non-`ok` outcome (no provider, timeout, missing tool, schema mismatch)
+  // collapses to the empty result this call site has always returned.
+  const outcome = await runOneShotLLM("styleAnalyzer", promptMessages, {
     tools: [storeStyleAnalysisTool],
+    toolChoice: storeStyleAnalysisTool.name,
+    schema: StoreStyleAnalysisSchema,
     systemPrompt: STYLE_EXTRACTION_SYSTEM_PROMPT,
-    signal: AbortSignal.timeout(30_000),
-    config: { callSite: "styleAnalyzer" },
   });
-
-  const toolBlock = response.content.find((b) => b.type === "tool_use");
-  if (!toolBlock || toolBlock.type !== "tool_use") {
+  if (outcome.status !== "ok") {
     return { stylePatterns: [], contactObservations: [] };
   }
+  const result = outcome.data;
 
-  const result = toolBlock.input as {
-    style_patterns?: Array<{
-      aspect: string;
-      summary: string;
-      importance: number;
-      examples?: string[];
-    }>;
-    contact_observations?: Array<{
-      name: string;
-      email: string;
-      tone_note: string;
-    }>;
-  };
-
-  const stylePatterns: StylePattern[] = (result.style_patterns ?? []).map(
-    (p) => ({
-      aspect: p.aspect,
-      summary: truncate(p.summary, 500, ""),
-      importance: p.importance,
-      examples: p.examples,
-    }),
-  );
+  const stylePatterns: StylePattern[] = result.style_patterns.map((p) => ({
+    aspect: p.aspect,
+    summary: truncate(p.summary, 500, ""),
+    importance: p.importance,
+    examples: p.examples,
+  }));
 
   const contactObservations: ContactObservation[] = (
     result.contact_observations ?? []

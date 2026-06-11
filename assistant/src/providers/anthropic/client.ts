@@ -734,6 +734,48 @@ function ensureToolPairing(
   return result;
 }
 
+/**
+ * Translate the neutral (Anthropic-shaped) `tool_choice` carried on the call
+ * config into the Anthropic Messages wire format. Callers express `tool_choice`
+ * once in the Anthropic union — `{ type: "auto" | "any" | "none" | "tool",
+ * name? }` — and each provider maps it to its own dialect (OpenAI/Gemini
+ * translate; the Anthropic shapes already match the wire format 1:1 except that
+ * we validate them explicitly here rather than blindly forwarding an unknown
+ * object).
+ *
+ * Returning `undefined` for an absent/unrecognized value means the request
+ * omits `tool_choice` and lets the model decide.
+ *
+ * Composition with the thinking-conflict guard: `RetryProvider`
+ * (`retry.ts` ~line 382) already strips `thinking` when a forced `tool_choice`
+ * (`"tool"` / `"any"`) is present, so by the time we map here the incompatible
+ * combination has been resolved upstream. We must NOT re-derive or drop the
+ * choice — just forward the validated shape.
+ *
+ * See Anthropic's tool_choice spec:
+ * https://docs.anthropic.com/en/api/messages#body-tool-choice
+ */
+export function mapNeutralToolChoiceToAnthropic(
+  toolChoice: unknown,
+): Anthropic.ToolChoice | undefined {
+  if (toolChoice == null || typeof toolChoice !== "object") return undefined;
+  const tc = toolChoice as { type?: unknown; name?: unknown };
+  switch (tc.type) {
+    case "auto":
+      return { type: "auto" };
+    case "any":
+      return { type: "any" };
+    case "none":
+      return { type: "none" };
+    case "tool":
+      return typeof tc.name === "string"
+        ? { type: "tool", name: tc.name }
+        : undefined;
+    default:
+      return undefined;
+  }
+}
+
 export class AnthropicProvider implements Provider {
   public readonly name = "anthropic";
   private client: Anthropic;
@@ -1000,6 +1042,7 @@ export class AnthropicProvider implements Provider {
         mutableLatestUserMessage: _mutableLatestUserMessage,
         max_tokens: callerMaxTokens,
         usageAttributionHeaders,
+        tool_choice: rawToolChoice,
         ...restConfig
       } = (config ?? {}) as Record<string, unknown> & {
         // "xhigh" is an intermediate tier between "high" and "max" supported
@@ -1052,6 +1095,17 @@ export class AnthropicProvider implements Provider {
           ? { output_config: mergedOutputConfig }
           : {}),
       };
+
+      // Map the neutral `tool_choice` onto the Anthropic wire request. We pull
+      // it out of the spread above and translate it explicitly so the adapter
+      // honors a caller's forced/auto/none choice deterministically rather than
+      // relying on the neutral union happening to be byte-identical to the SDK
+      // shape. `RetryProvider` has already stripped any thinking that would
+      // conflict with a forced choice before we get here.
+      const mappedToolChoice = mapNeutralToolChoiceToAnthropic(rawToolChoice);
+      if (mappedToolChoice !== undefined) {
+        params.tool_choice = mappedToolChoice;
+      }
 
       if (systemPrompt) {
         // The whole system prompt is rendered as a single cached
