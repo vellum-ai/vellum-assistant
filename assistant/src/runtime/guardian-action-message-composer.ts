@@ -28,7 +28,9 @@ const log = getLogger("guardian-action-message-composer");
 // ---------------------------------------------------------------------------
 
 export const GUARDIAN_ACTION_COPY_TIMEOUT_MS = 4_000;
-export const GUARDIAN_ACTION_COPY_MAX_TOKENS = 200;
+// Per-call-site max-tokens cap lives in CALL_SITE_DEFAULTS.guardianQuestionCopy
+// (config/call-site-defaults.ts) so operator/user `llm.callSites` tuning is
+// honored; the resolved value auto-flows to the wire via retry.ts.
 export const GUARDIAN_ACTION_COPY_SYSTEM_PROMPT =
   "You are an assistant writing one user-facing message about a guardian action in a voice call scenario. " +
   "Keep it concise, natural, and conversational. Preserve factual details exactly. " +

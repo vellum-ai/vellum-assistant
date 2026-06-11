@@ -1,10 +1,7 @@
-import { loadConfig } from "../config/loader.js";
-import { wrapWithCallSiteRouting } from "../providers/call-site-routing.js";
-import { getConfiguredProvider } from "../providers/provider-send-message.js";
+import { runOneShotLLM } from "../providers/one-shot-llm.js";
 import {
   buildGuardianActionGenerationPrompt,
   getGuardianActionFallbackMessage,
-  GUARDIAN_ACTION_COPY_MAX_TOKENS,
   GUARDIAN_ACTION_COPY_SYSTEM_PROMPT,
   GUARDIAN_ACTION_COPY_TIMEOUT_MS,
   includesRequiredKeywords,
@@ -12,25 +9,17 @@ import {
 import type { GuardianActionCopyGenerator } from "../runtime/http-types.js";
 
 /**
- * Create the daemon-owned guardian action copy generator that resolves
- * providers and calls `provider.sendMessage` to generate guardian action
- * copy text. Uses the `guardianQuestionCopy` call site so model selection
- * tracks the unified `llm.callSites` configuration.
+ * Create the daemon-owned guardian action copy generator that resolves a
+ * provider and runs a one-shot LLM call to generate guardian action copy
+ * text. Uses the `guardianQuestionCopy` call site so model selection,
+ * provider/connection routing, and tuning all track the unified
+ * `llm.callSites` configuration.
  *
  * This keeps all provider awareness in the daemon lifecycle, away from
  * the runtime composer.
  */
 export function createGuardianActionCopyGenerator(): GuardianActionCopyGenerator {
   return async (context, options = {}) => {
-    const baseProvider = await getConfiguredProvider("guardianQuestionCopy");
-    if (!baseProvider) return null;
-    // Wrap so the per-call `callSite` can route to a different provider
-    // transport when `llm.callSites.guardianQuestionCopy.provider` overrides
-    // the default. Connection-aware: when the resolved profile names a
-    // `provider_connection`, that connection's auth wins over the legacy
-    // registry lookup. See `wrapWithCallSiteRouting`.
-    const provider = wrapWithCallSiteRouting(baseProvider, loadConfig());
-
     const fallbackText =
       options.fallbackText?.trim() || getGuardianActionFallbackMessage(context);
     const requiredKeywords = options.requiredKeywords
@@ -42,25 +31,27 @@ export function createGuardianActionCopyGenerator(): GuardianActionCopyGenerator
       requiredKeywords,
     );
 
-    const response = await provider.sendMessage(
+    const result = await runOneShotLLM(
+      "guardianQuestionCopy",
       [{ role: "user", content: [{ type: "text", text: prompt }] }],
       {
-        tools: [],
         systemPrompt: GUARDIAN_ACTION_COPY_SYSTEM_PROMPT,
-        config: {
-          max_tokens: options.maxTokens ?? GUARDIAN_ACTION_COPY_MAX_TOKENS,
-          callSite: "guardianQuestionCopy",
-        },
-        signal: AbortSignal.timeout(
-          options.timeoutMs ?? GUARDIAN_ACTION_COPY_TIMEOUT_MS,
-        ),
+        timeoutMs: options.timeoutMs ?? GUARDIAN_ACTION_COPY_TIMEOUT_MS,
+        // No provider configured → unavailable; any non-`ok` status below
+        // returns null so the caller falls back to deterministic template copy.
+        onUnavailable: "null",
+        // Runtime per-call override only. When `options.maxTokens` is
+        // undefined the resolved CALL_SITE_DEFAULTS.guardianQuestionCopy cap
+        // (200) auto-flows to the wire via retry.ts — do not hardcode it here.
+        ...(options.maxTokens !== undefined
+          ? // call-site-tuning:allow — reason: runtime caller override, not a static default
+            { config: { max_tokens: options.maxTokens } }
+          : {}),
       },
     );
 
-    const block = response.content.find((entry) => entry.type === "text");
-    const text = block && "text" in block ? block.text.trim() : "";
-    if (!text) return null;
-    const cleaned = text
+    if (result.status !== "ok") return null;
+    const cleaned = result.data
       .replace(/^["'`]+/, "")
       .replace(/["'`]+$/, "")
       .trim();
