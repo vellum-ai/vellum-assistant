@@ -97,6 +97,26 @@ function generateTicks(max: number, count: number): number[] {
   return ticks;
 }
 
+/** SVG path for a rect with only the top-left and top-right corners rounded. */
+function topRoundedRect(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+): string {
+  const clampedR = Math.min(r, w / 2, h / 2);
+  return [
+    `M${x},${y + clampedR}`,
+    `A${clampedR},${clampedR} 0 0 1 ${x + clampedR},${y}`,
+    `H${x + w - clampedR}`,
+    `A${clampedR},${clampedR} 0 0 1 ${x + w},${y + clampedR}`,
+    `V${y + h}`,
+    `H${x}`,
+    `Z`,
+  ].join("");
+}
+
 /** Pick evenly-spaced X label indices that avoid overlap on narrow viewports. */
 function pickXTickIndices(
   total: number,
@@ -404,23 +424,43 @@ export function BillingUsageChart({
                     tooltip?.hoveredKey && tooltip.hoveredKey !== seg.key
                       ? 0.4
                       : 1;
+                  const shared = {
+                    key: `${di}-${seg.key}`,
+                    fill: seg.color,
+                    opacity,
+                    cursor: onBarClick ? "pointer" : undefined,
+                    onMouseMove: (e: React.MouseEvent<SVGElement>) =>
+                      handleBarMouseMove(
+                        e as React.MouseEvent<SVGRectElement>,
+                        di,
+                        seg.key,
+                      ),
+                    onMouseLeave: handleBarMouseLeave,
+                    onClick: () => handleBarClick(seg.key),
+                  };
+
+                  if (seg.isLast) {
+                    return (
+                      <path
+                        {...shared}
+                        d={topRoundedRect(
+                          seg.x,
+                          seg.y,
+                          barWidth,
+                          seg.h,
+                          3,
+                        )}
+                      />
+                    );
+                  }
+
                   return (
                     <rect
-                      key={`${di}-${seg.key}`}
+                      {...shared}
                       x={seg.x}
                       y={seg.y}
                       width={barWidth}
                       height={seg.h}
-                      fill={seg.color}
-                      opacity={opacity}
-                      rx={seg.isLast ? 3 : 0}
-                      ry={seg.isLast ? 3 : 0}
-                      cursor={onBarClick ? "pointer" : undefined}
-                      onMouseMove={(e) =>
-                        handleBarMouseMove(e, di, seg.key)
-                      }
-                      onMouseLeave={handleBarMouseLeave}
-                      onClick={() => handleBarClick(seg.key)}
                     />
                   );
                 }),
