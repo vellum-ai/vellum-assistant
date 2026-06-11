@@ -99,21 +99,36 @@ export class UsageTelemetryReporter {
   private activeFlush: Promise<void> | null = null;
 
   constructor() {
-    // `tool_invocations` is an always-on audit table: while telemetry is
-    // opted out the reporter is never constructed, but the audit listener
-    // keeps writing rows. Initialize an absent watermark to "now" at
-    // construction so a later opt-in doesn't retroactively ship the opt-out
-    // window. Construction happens during daemon startup before any tool
-    // runs, so no legitimate row falls behind the watermark — initializing
-    // at first FLUSH instead would drop tools used during the 30s+ flush
-    // delay. The checkpoint is persisted immediately so a crash before the
-    // first flush can't leave it absent and re-initialize later.
+    // `tool_invocations` is an always-on audit table that predates this
+    // reporter shipping its rows: an absent watermark means no flush (opted
+    // in or out) has ever advanced it, so rows recorded before this build —
+    // including any opted-out period under older builds that gated the
+    // reporter on collectUsageData — would otherwise ship retroactively.
+    // Initialize an absent watermark to "now" at construction. Construction
+    // happens during daemon startup before any tool runs, so no legitimate
+    // row falls behind the watermark — initializing at first FLUSH instead
+    // would drop tools used during the 30s+ flush delay. The checkpoint is
+    // persisted immediately so a crash before the first flush can't leave it
+    // absent and re-initialize later. An EXISTING watermark is never touched:
+    // opted-out sessions keep it advancing via the opt-out flush branch, and
+    // overwriting it here would drop a legitimate unshipped backlog.
     // `skill_loaded` needs no init: recording is gated on collectUsageData,
     // so opt-out rows never exist and its standard 0 default is safe.
-    if (getMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK) == null) {
-      setMemoryCheckpoint(
-        CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK,
-        String(Date.now()),
+    //
+    // Best-effort: DB init failures are tolerated at daemon startup (degraded
+    // mode), so this must never throw out of the constructor — matching
+    // flush(), which treats DB errors as non-fatal.
+    try {
+      if (getMemoryCheckpoint(CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK) == null) {
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_TOOL_EXECUTED_WATERMARK,
+          String(Date.now()),
+        );
+      }
+    } catch (err) {
+      log.warn(
+        { err },
+        "tool_executed watermark init failed at construction — non-fatal; a later construction with a working DB re-runs the absent-checkpoint init",
       );
     }
   }
@@ -165,9 +180,13 @@ export class UsageTelemetryReporter {
     try {
       if (batchCount >= MAX_CONSECUTIVE_BATCHES) return;
 
-      // Respect runtime opt-out: if the user has disabled usage data collection,
-      // skip the flush and advance watermarks so events recorded during the
-      // opt-out window are never sent retroactively.
+      // Respect opt-out: if the user has disabled usage data collection, skip
+      // the flush and advance watermarks so events recorded during the
+      // opt-out window are never sent retroactively. The daemon runs the
+      // reporter even when opted out specifically so this branch keeps
+      // executing — every cycle plus the final flush in stop() — which is
+      // what lets a later opt-in (runtime or via restart) resume from a
+      // watermark that already covers the opt-out window.
       if (!getConfig().collectUsageData) {
         // Advance only the timestamp watermarks. Leave the ID watermarks
         // untouched so the compound-cursor branch stays active — setting them

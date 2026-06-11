@@ -1579,12 +1579,14 @@ describe("UsageTelemetryReporter", () => {
     );
   });
 
-  test("absent tool_executed checkpoint is initialized at construction — opt-out-window rows never ship", async () => {
+  test("absent tool_executed checkpoint is initialized at construction — rows predating the reporter never ship", async () => {
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     const checkpoints = useStatefulCheckpoints();
 
-    // Rows accumulated while telemetry was opted out: the reporter is never
-    // constructed then, but the always-on audit listener keeps writing.
+    // Rows accumulated before any flush ever advanced the watermark — e.g.
+    // an opt-out period under an older build that gated reporter
+    // construction on collectUsageData while the always-on audit listener
+    // kept writing.
     seedToolInvocation({
       id: "ti-opt-out-window",
       createdAt: Date.now() - 60_000,
@@ -1628,7 +1630,11 @@ describe("UsageTelemetryReporter", () => {
       createdAt: 1700000001000,
     });
     // Legitimate backlog past the stored watermark — a re-initialization to
-    // Date.now() at construction would silently drop it.
+    // Date.now() at construction would silently drop it. Rows past the
+    // watermark are always legitimately shippable: opted-out sessions keep
+    // the watermark advancing via the opt-out flush branch (the reporter
+    // runs even when collection is disabled), so the backlog can only hold
+    // opted-in rows.
     seedToolInvocation({ id: "ti-backlog", createdAt: 1700000002000 });
 
     const reporter = new UsageTelemetryReporter();
@@ -1645,6 +1651,65 @@ describe("UsageTelemetryReporter", () => {
     expect(
       body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
     ).toEqual(["ti-backlog"]);
+  });
+
+  test("opt-out window never ships across restarts — opted-out flushes keep the watermark ahead of audit rows", async () => {
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    // A previous opted-in session shipped through this watermark.
+    const checkpoints = useStatefulCheckpoints({
+      "telemetry:tool_executed:last_reported_at": String(1700000001000),
+      "telemetry:tool_executed:last_reported_id": "ti-shipped-opted-in",
+    });
+
+    // Session 1: the user opted out and restarted. The daemon still
+    // constructs and runs the reporter; the always-on audit listener keeps
+    // writing rows. Every opted-out flush (5-minute cycle plus the final
+    // flush in stop()) advances the watermark past them without sending.
+    mockCollectUsageData = false;
+    const optOutRowCreatedAt = Date.now() - 5_000;
+    seedToolInvocation({
+      id: "ti-opt-out-window",
+      createdAt: optOutRowCreatedAt,
+    });
+    const optedOutReporter = new UsageTelemetryReporter();
+    await optedOutReporter.stop(); // shutdown path: runs the final flush
+    expect(mockFetch).not.toHaveBeenCalled();
+    const advanced = Number(
+      checkpoints.get("telemetry:tool_executed:last_reported_at"),
+    );
+    expect(advanced).toBeGreaterThan(optOutRowCreatedAt);
+
+    // Session 2: the user opts back in and restarts. Only rows recorded
+    // after the opt-out epoch ship — the opt-out-window row never does.
+    mockCollectUsageData = true;
+    seedToolInvocation({ id: "ti-after-opt-in", createdAt: advanced + 1000 });
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(
+      body.events.map((e: { daemon_event_id: string }) => e.daemon_event_id),
+    ).toEqual(["ti-after-opt-in"]);
+  });
+
+  test("checkpoint store failure during construction is non-fatal — degraded-DB daemons still start", () => {
+    // initializeDb() failures are tolerated at daemon startup (degraded
+    // mode), so the constructor's checkpoint init must never throw out of
+    // the constructor and abort the daemon.
+    mockGetMemoryCheckpoint.mockImplementation(() => {
+      throw new Error("database disk image is malformed");
+    });
+    expect(() => new UsageTelemetryReporter()).not.toThrow();
+
+    // The write path failing is equally non-fatal.
+    mockGetMemoryCheckpoint.mockImplementation(() => null);
+    mockSetMemoryCheckpoint.mockImplementation(() => {
+      throw new Error("database disk image is malformed");
+    });
+    expect(() => new UsageTelemetryReporter()).not.toThrow();
   });
 
   // -------------------------------------------------------------------------
