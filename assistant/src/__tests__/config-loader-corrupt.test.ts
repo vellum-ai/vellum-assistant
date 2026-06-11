@@ -26,6 +26,7 @@ import {
   loadConfig,
   loadRawConfig,
 } from "../config/loader.js";
+import type { AssistantConfig } from "../config/schema.js";
 import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -64,6 +65,20 @@ function listQuarantinedFiles(): string[] {
 /** Sorted recursive listing of every path under the workspace dir. */
 function snapshotWorkspaceTree(): string[] {
   return readdirSync(WORKSPACE_DIR, { recursive: true }).map(String).sort();
+}
+
+/**
+ * Assert the config carries the code-defined built-in profiles — the
+ * fallback paths must match what the missing-file path returns, so
+ * read-only callers can validate built-in profile names like `balanced`.
+ */
+function expectBuiltinProfiles(config: AssistantConfig): void {
+  const balanced = config.llm.profiles.balanced;
+  expect(balanced).toBeDefined();
+  expect(typeof balanced!.provider).toBe("string");
+  expect(balanced!.provider!.length).toBeGreaterThan(0);
+  expect(typeof balanced!.model).toBe("string");
+  expect(balanced!.model!.length).toBeGreaterThan(0);
 }
 
 // ---------------------------------------------------------------------------
@@ -278,6 +293,10 @@ describe("getConfigReadOnly corrupt-file recovery", () => {
 
     expect(config).toBeDefined();
     expect(config.memory).toBeDefined();
+    // Built-in-aware defaults, matching the missing-file path: read-only
+    // callers (e.g. inference-send profile validation) must still see the
+    // code-defined built-ins, not a bare schema-default empty profile set.
+    expectBuiltinProfiles(config);
     expect(listQuarantinedFiles()).toHaveLength(0);
     expect(readFileSync(CONFIG_PATH, "utf-8")).toBe(
       '{"provider": "anthropic", "mo',
@@ -319,6 +338,7 @@ describe("getConfigReadOnly corrupt-file recovery", () => {
 
       expect(config).toBeDefined();
       expect(config.memory).toBeDefined();
+      expectBuiltinProfiles(config);
       expect(listQuarantinedFiles()).toHaveLength(0);
       expect(readFileSync(CONFIG_PATH, "utf-8")).toBe(jsonText);
       // Side-effect-free: nothing anywhere in the workspace was created,

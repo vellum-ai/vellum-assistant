@@ -1251,7 +1251,8 @@ export function getConfig(): AssistantConfig {
 /**
  * Read-only config accessor: returns the current config without creating
  * directories or writing files. Reads config.json if it exists on disk;
- * returns schema defaults otherwise — and also when the file is unparseable
+ * returns built-in-aware defaults (schema defaults plus the code-defined
+ * built-in LLM profiles) otherwise — and also when the file is unparseable
  * or its top-level value is not a plain object (corrupt files are left in
  * place, never quarantined). Unlike `getConfig()` / `loadConfig()`,
  * this never calls `ensureDataDir()` or writes a default config to disk,
@@ -1269,19 +1270,17 @@ export function getConfigReadOnly(): AssistantConfig {
     try {
       parsed = JSON.parse(readFileSync(configPath, "utf-8"));
     } catch {
-      return cloneDefaultConfig();
+      parsed = undefined;
     }
-    if (!isPlainObject(parsed)) {
-      // Same top-level-shape contract as `loadConfig`: a `null`, primitive,
-      // or array would TypeError inside `validateWithBuiltinProfiles`
-      // (`ensurePlainObjectAt(raw, "llm")`). Fall back to defaults silently,
-      // like the parse-error path above — no logging here: the logger is a
-      // lazy proxy whose first call creates the logs directory and file,
-      // which would violate this accessor's side-effect-free contract.
-      // `loadConfig` owns warning and quarantining on the next full load.
-      return cloneDefaultConfig();
-    }
-    fileConfig = parsed;
+    // Same top-level-shape contract as `loadConfig`: a `null`, primitive,
+    // or array would TypeError inside `validateWithBuiltinProfiles`
+    // (`ensurePlainObjectAt(raw, "llm")`). Unparseable or wrong-shape files
+    // fall through with `{}` so the result still carries the built-in
+    // profiles, exactly like the missing-file path — silently: the logger
+    // is a lazy proxy whose first call creates the logs directory and file,
+    // which would violate this accessor's side-effect-free contract.
+    // `loadConfig` owns warning and quarantining on the next full load.
+    if (isPlainObject(parsed)) fileConfig = parsed;
   }
 
   return validateWithBuiltinProfiles(fileConfig);
