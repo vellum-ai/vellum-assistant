@@ -42,10 +42,7 @@ import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
 import type { EventStream } from "@/lib/streaming/stream-transport";
-import type {
-  ActiveConversationMessagesRefreshResult,
-  WebSyncReconnectResult,
-} from "@/lib/sync/web-sync-router";
+import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 import type { AssistantEvent } from "@/types/event-types";
 import type { UseAssistantReachabilityResult } from "@/assistant/use-assistant-reachability";
 
@@ -62,7 +59,7 @@ export interface UseEventStreamParams {
 
   // Callbacks from useStreamEventHandler / useMessageReconciliation
   handleStreamEvent: (event: AssistantEvent, epoch: number) => void;
-  reconcileActiveConversation: () => Promise<ActiveConversationMessagesRefreshResult>;
+  reconcileActiveConversation: () => Promise<ReconcileActiveConversationResult>;
   startReconciliationLoop: (epoch: number) => void;
   cancelReconciliation: () => void;
 
@@ -70,10 +67,6 @@ export interface UseEventStreamParams {
   reachabilityProbe: UseAssistantReachabilityResult["probe"];
   reachabilityPhase: string;
   reachabilityReset: () => void;
-
-  // Sync router dispatch for post-reconnect reconcile
-  dispatchReconnect: () => Promise<WebSyncReconnectResult | undefined>;
-
 }
 
 export function useEventStream({
@@ -88,7 +81,6 @@ export function useEventStream({
   reachabilityProbe,
   reachabilityPhase,
   reachabilityReset,
-  dispatchReconnect,
 }: UseEventStreamParams): void {
   // ---- Ref-stabilize unstable callback params ----
   //
@@ -104,7 +96,6 @@ export function useEventStream({
   const reachabilityProbeRef = useRef(reachabilityProbe);
   const cancelReconciliationRef = useRef(cancelReconciliation);
   const reachabilityResetRef = useRef(reachabilityReset);
-  const dispatchReconnectRef = useRef(dispatchReconnect);
   useLayoutEffect(() => {
     handleStreamEventRef.current = handleStreamEvent;
     reconcileActiveConversationRef.current = reconcileActiveConversation;
@@ -112,7 +103,6 @@ export function useEventStream({
     reachabilityProbeRef.current = reachabilityProbe;
     cancelReconciliationRef.current = cancelReconciliation;
     reachabilityResetRef.current = reachabilityReset;
-    dispatchReconnectRef.current = dispatchReconnect;
   });
 
   const reachabilityPhaseRef = useRef(reachabilityPhase);
@@ -266,7 +256,6 @@ export function useEventStream({
       reconcileActive: () => reconcileActiveConversationRef.current(),
       startReconciliationLoop: (epoch) =>
         startReconciliationLoopRef.current(epoch),
-      dispatchReconnect: () => dispatchReconnectRef.current(),
     });
   }, [assistantStateKind, assistantId, activeConversationId]);
 

@@ -1,11 +1,11 @@
 /**
- * Orchestrates the message pipeline: reconciliation, sync router,
- * stream event handling, SSE subscription, and latest-message refresh.
+ * Orchestrates the message pipeline: reconciliation, stream event
+ * handling, SSE subscription, active-conversation message sync, and
+ * latest-message refresh.
  *
  * These hooks form a strict dependency chain where intermediate values
- * (dispatchSyncChanged, dispatchReconnect, handleStreamEvent) never
- * escape to the parent. Only the four values needed by external
- * consumers are exposed.
+ * (handleStreamEvent) never escape to the parent. Only the values
+ * needed by external consumers are exposed.
  */
 
 import {
@@ -18,9 +18,12 @@ import { useNavigate } from "react-router";
 
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useMessageReconciliation } from "@/domains/chat/hooks/use-message-reconciliation";
-import { useSyncRouter } from "@/domains/chat/hooks/use-sync-router";
 import { useStreamEventHandler } from "@/domains/chat/hooks/use-stream-event-handler";
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { getClientId } from "@/lib/telemetry/client-identity";
+import { parseConversationSyncTag } from "@/lib/sync/types";
+import { useConversationStore } from "@/stores/conversation-store";
 import type { UseAssistantReachabilityResult } from "@/assistant/use-assistant-reachability";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 
@@ -35,8 +38,6 @@ export interface UseMessageLifecycleParams {
   conversationExistsOnServer: boolean;
   latestPageOldestTimestamp: number | null;
   reachability: UseAssistantReachabilityResult;
-  reachabilityReadyEpoch: number;
-  avatarInvalidate: () => void;
   setAssetsRefreshKey: Dispatch<SetStateAction<number>>;
 }
 
@@ -61,8 +62,6 @@ export function useMessageLifecycle({
   conversationExistsOnServer,
   latestPageOldestTimestamp,
   reachability,
-  reachabilityReadyEpoch,
-  avatarInvalidate,
   setAssetsRefreshKey,
 }: UseMessageLifecycleParams): UseMessageLifecycleReturn {
   const navigate = useNavigate();
@@ -84,16 +83,7 @@ export function useMessageLifecycle({
     latestPageOldestTimestamp,
   });
 
-  // 2. Sync router — owns identity invalidation, reachability refresh,
-  //    and all sync_changed tag dispatch.
-  const { dispatchSyncChanged, dispatchReconnect } = useSyncRouter({
-    assistantId,
-    reachabilityReadyEpoch,
-    invalidateAvatar: avatarInvalidate,
-    reconcileActiveConversation,
-  });
-
-  // 3. Stream event handler — routes incoming SSE events to domain
+  // 2. Stream event handler — routes incoming SSE events to domain
   //    handler functions (message, error, tool-call, metadata, etc.).
   const { handleStreamEvent } = useStreamEventHandler({
     push,
@@ -101,10 +91,9 @@ export function useMessageLifecycle({
     cancelReconciliation,
     startReconciliationLoop,
     setAssetsRefreshKey,
-    dispatchSyncChanged,
   });
 
-  // 4. SSE subscription lifecycle — subscribes, filters, and tears down
+  // 3. SSE subscription lifecycle — subscribes, filters, and tears down
   //    the bus-owned SSE for the active conversation.
   useEventStream({
     assistantStateKind,
@@ -118,7 +107,31 @@ export function useMessageLifecycle({
     reachabilityProbe: reachability.probe,
     reachabilityPhase: reachability.state.phase,
     reachabilityReset: reachability.reset,
-    dispatchReconnect,
+  });
+
+  // 4. Active-conversation `:messages` sync — when another client writes
+  //    to the active conversation, a `sync_changed` event carries a
+  //    `conversation:<id>:messages` tag. Reconcile the active conversation
+  //    so the user sees the new messages without a manual refresh.
+  //    Self-echo suppression mirrors the guard in useConversationSync.
+  useBusSubscription("sse.event", (envelope) => {
+    if (!assistantId) return;
+    const event = envelope.message;
+    if (event.type !== "sync_changed") return;
+    if (event.originClientId && event.originClientId === getClientId()) return;
+    const currentActiveId = useConversationStore.getState().activeConversationId;
+    if (!currentActiveId) return;
+    for (const tag of event.tags) {
+      const parsed = parseConversationSyncTag(tag);
+      if (
+        parsed &&
+        parsed.resource === "messages" &&
+        parsed.conversationId === currentActiveId
+      ) {
+        void reconcileActiveConversation();
+        return;
+      }
+    }
   });
 
   return {

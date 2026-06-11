@@ -216,9 +216,9 @@ export function ActiveChatView() {
     true,
   );
 
-  // Avatar — called here for sync-router invalidation; ChatMainPanel
-  // has its own call (TanStack Query deduplicates the fetch).
-  const avatar = useAssistantAvatar(assistantId);
+  // Avatar — called here so the cache is warm; ChatMainPanel has
+  // its own call (TanStack Query deduplicates the fetch).
+  useAssistantAvatar(assistantId);
 
   // -------------------------------------------------------------------------
   // Conversation loader
@@ -243,8 +243,9 @@ export function ActiveChatView() {
   });
 
   // -------------------------------------------------------------------------
-  // Message lifecycle — reconciliation, sync router, stream event handling,
-  // SSE subscription, and latest-message refresh.
+  // Message lifecycle — reconciliation, stream event handling, SSE
+  // subscription, active-conversation message sync, and latest-message
+  // refresh.
   // -------------------------------------------------------------------------
   const {
     startReconciliationLoop,
@@ -257,8 +258,6 @@ export function ActiveChatView() {
     conversationExistsOnServer,
     latestPageOldestTimestamp: historyResult.pagination.latestPageOldestTimestamp,
     reachability,
-    reachabilityReadyEpoch,
-    avatarInvalidate: avatar.invalidate,
     setAssetsRefreshKey,
   });
 

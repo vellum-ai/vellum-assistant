@@ -77,7 +77,6 @@ export type {
 } from "@/domains/chat/types";
 
 import type { AssistantEvent } from "@/types/event-types";
-import type { SyncChangedEvent } from "@/lib/sync/types";
 
 // ---------------------------------------------------------------------------
 // Params & return types
@@ -95,9 +94,6 @@ export interface UseStreamEventHandlerParams {
 
   // --- UI surfaces ---
   setAssetsRefreshKey: Dispatch<SetStateAction<number>>;
-
-  // --- Sync router ---
-  dispatchSyncChanged: (event: SyncChangedEvent) => void;
 }
 
 interface UseStreamEventHandlerReturn {
@@ -130,7 +126,6 @@ export function useStreamEventHandler(
     cancelReconciliation,
     startReconciliationLoop,
     setAssetsRefreshKey,
-    dispatchSyncChanged,
   } = params;
 
   // --- Refs owned by this hook (only used inside handleStreamEvent) ---
@@ -368,15 +363,12 @@ export function useStreamEventHandler(
         case "subagent_event":
           handleSubagentEvent(event, ctx);
           break;
-        case "sync_changed":
-          dispatchSyncChanged(event);
-          break;
-
         // Cross-domain events handled by bus subscribers mounted in
         // RootLayout (useAssistantResourceSync, useConversationSync,
         // useNotificationIntentSync, useDocumentEditorSync) or
         // ChatPage-scoped hooks (useDiskPressureMonitor). The chat
         // handler is intentionally a no-op for these.
+        case "sync_changed":
         case "home_feed_updated":
         case "relationship_state_updated":
         case "identity_changed":
@@ -409,9 +401,6 @@ export function useStreamEventHandler(
       isNative,
       cancelReconciliation,
       startReconciliationLoop,
-      // Stable deps listed for correctness — React guarantees identity
-      // stability for refs, and store getState is module-level stable.
-      dispatchSyncChanged,
       queryClient,
       setAssetsRefreshKey,
     ],

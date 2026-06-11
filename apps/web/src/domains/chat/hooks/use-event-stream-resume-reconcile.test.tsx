@@ -39,7 +39,6 @@ function renderEventStream(params: {
       reachabilityProbe: () => {},
       reachabilityPhase: "ready",
       reachabilityReset: () => {},
-      dispatchReconnect: async () => undefined,
     });
   });
 }
@@ -102,9 +101,8 @@ describe("useEventStream — sse.opened reconcile triggers", () => {
       assistantId: "asst-1",
       cause: "error",
     });
-    // The error path runs reconcile via an async IIFE that awaits
-    // the sync router's dispatchReconnect first, so drain microtasks
-    // before asserting.
+    // The error path runs reconcile via an async IIFE, so drain
+    // microtasks before asserting.
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(reconcile).toHaveBeenCalledTimes(1);
   });

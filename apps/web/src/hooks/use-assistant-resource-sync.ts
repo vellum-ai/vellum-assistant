@@ -6,6 +6,10 @@
  * `relationship_state_updated`, `identity_changed`, `avatar_updated`) into
  * TanStack Query cache invalidations.
  *
+ * Also handles `sse.opened` (non-fresh) to invalidate cached resources on
+ * reconnect — the client may have missed `sync_changed` events during the
+ * transport gap.
+ *
  * All operations are stateless one-liner invalidations with no
  * debouncing or per-row patching.
  *
@@ -38,11 +42,11 @@ import { SYNC_TAGS } from "@/lib/sync/types";
 /**
  * Subscribes to assistant-resource sync events via the event bus.
  *
- * Handles `sync_changed` tags for avatar, identity, identity intro, config,
- * sounds, schedules, and apps, plus discrete event types for home feed/state
- * changes and identity/avatar pushes. These are all stateless invalidations —
- * no reconnect handling needed since the underlying `useQuery` hooks refetch
- * automatically when the query becomes stale.
+ * Two bus channels:
+ * - `sse.event` — routes `sync_changed` tags and discrete event types
+ *   into TanStack Query cache invalidations.
+ * - `sse.opened` — on reconnect (non-fresh), invalidates all cached
+ *   assistant resources to catch events missed during the transport gap.
  */
 export function useAssistantResourceSync(
   assistantId: string | null,
@@ -136,6 +140,49 @@ export function useAssistantResourceSync(
         });
         return;
     }
+  });
+
+  useBusSubscription("sse.opened", ({ cause }) => {
+    if (!assistantId || !isAssistantActive) return;
+    if (cause === "fresh") return;
+    // Reconnect — invalidate all assistant-level resource caches so
+    // stale data from missed `sync_changed` events gets refreshed.
+    void queryClient.invalidateQueries({
+      queryKey: avatarQueryKey(assistantId),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: assistantIdentityQueryKey(assistantId),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: assistantIdentityIntroQueryKey(assistantId),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: assistantDaemonConfigQueryKey(assistantId),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: assistantSoundsConfigQueryKey(assistantId),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: assistantSoundsAvailableQueryKey(assistantId),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: assistantSchedulesQueryKey(assistantId),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: assistantScheduleRunsQueryKey(assistantId),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: assistantScheduleUsageSummaryQueryKey(assistantId),
+    });
+    void queryClient.invalidateQueries({
+      predicate: (query) => isAppsGetQueryKey(query.queryKey),
+    });
+    void queryClient.invalidateQueries({
+      predicate: (query) => isHomeFeedGetQueryKey(query.queryKey),
+    });
+    void queryClient.invalidateQueries({
+      predicate: (query) => isHomeStateGetQueryKey(query.queryKey),
+    });
   });
 }
 
