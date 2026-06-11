@@ -8,17 +8,39 @@
 // Also detects behavioral patterns in the assistant's own actions.
 // ---------------------------------------------------------------------------
 
+import { z } from "zod";
+
 import type { AssistantConfig } from "../../config/types.js";
-import {
-  extractToolUse,
-  getConfiguredProvider,
-  userMessage,
-} from "../../providers/provider-send-message.js";
-import { BackendUnavailableError } from "../../util/errors.js";
+import { runOneShotLLM } from "../../providers/one-shot-llm.js";
+import { userMessage } from "../../providers/provider-send-message.js";
 import { getLogger } from "../../util/logger.js";
 import { createEdge, createNode, queryNodes } from "./store.js";
 
 const log = getLogger("graph-pattern-scan");
+
+/**
+ * Pattern-scan tool input. Encodes what the previous manual
+ * `toolBlock.input as {...}` cast assumed. `patterns` is the array the loop
+ * iterates; each element is dropped (`continue`) downstream if it has fewer
+ * than 3 valid source nodes, so the schema only needs to guarantee the
+ * iterated fields exist with the right types. `partOfStory` stays optional.
+ */
+const PatternScanResultSchema = z.object({
+  patterns: z
+    .array(
+      z.object({
+        content: z.string(),
+        type: z.string(),
+        significance: z.number(),
+        source_node_ids: z.array(z.string()),
+        partOfStory: z.string().optional(),
+      }),
+    )
+    .optional(),
+});
+
+/** Generous timeout for the pattern-scan background batch call. */
+const PATTERN_SCAN_TIMEOUT_MS = 60_000;
 
 // ---------------------------------------------------------------------------
 // Pattern scan prompt
@@ -141,11 +163,6 @@ export async function runPatternScan(
     return result;
   }
 
-  const provider = await getConfiguredProvider("patternScan");
-  if (!provider) {
-    throw new BackendUnavailableError("Provider unavailable for pattern scan");
-  }
-
   const systemPrompt = buildPatternScanPrompt(
     allNodes.map((n) => ({
       id: n.id,
@@ -155,7 +172,11 @@ export async function runPatternScan(
     })),
   );
 
-  const response = await provider.sendMessage(
+  // `onUnavailable: "throw"` preserves the prior BackendUnavailableError
+  // semantics. A schema mismatch or missing tool_use degrades to "no patterns
+  // detected" — the same empty result the old `!toolBlock` path produced.
+  const llmResult = await runOneShotLLM(
+    "patternScan",
     [
       userMessage(
         "Analyze this memory sample for recurring patterns. Only report patterns you're confident about.",
@@ -163,30 +184,24 @@ export async function runPatternScan(
     ],
     {
       tools: [PATTERN_TOOL_SCHEMA],
+      toolChoice: "detect_patterns",
+      schema: PatternScanResultSchema,
       systemPrompt,
-      config: {
-        callSite: "patternScan" as const,
-        tool_choice: { type: "tool" as const, name: "detect_patterns" },
-      },
+      timeoutMs: PATTERN_SCAN_TIMEOUT_MS,
+      onUnavailable: "throw",
     },
   );
 
-  const toolBlock = extractToolUse(response);
-  if (!toolBlock) {
-    log.warn("No tool_use block in pattern scan response");
+  if (llmResult.status !== "ok") {
+    log.warn(
+      { reason: llmResult.status === "failure" ? llmResult.reason : undefined },
+      "Pattern scan produced no usable tool output",
+    );
     result.latencyMs = Date.now() - start;
     return result;
   }
 
-  const input = toolBlock.input as {
-    patterns?: Array<{
-      content: string;
-      type: string;
-      significance: number;
-      source_node_ids: string[];
-      partOfStory?: string;
-    }>;
-  };
+  const input = llmResult.data;
 
   const existingIds = new Set(allNodes.map((n) => n.id));
   const now = Date.now();

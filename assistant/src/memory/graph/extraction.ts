@@ -14,6 +14,7 @@ import { and, asc, desc, eq, gt } from "drizzle-orm";
 import type { AssistantConfig } from "../../config/types.js";
 import { buildCoreIdentityContext } from "../../prompts/system-prompt.js";
 import {
+  createTimeout,
   extractToolUse,
   getConfiguredProvider,
   userMessage,
@@ -49,6 +50,14 @@ import type {
 } from "./types.js";
 
 const log = getLogger("graph-extraction");
+
+/**
+ * Generous timeout for the extraction LLM call. Extraction processes a whole
+ * conversation transcript (the largest single input of any memory background
+ * job), so it gets the longest budget — but it must still be bounded so a
+ * stalled provider connection can't wedge the memory worker indefinitely.
+ */
+const EXTRACTION_TIMEOUT_MS = 120_000;
 
 // ---------------------------------------------------------------------------
 // Extraction system prompt
@@ -1071,14 +1080,21 @@ export async function runGraphExtraction(
         ),
       ];
 
-  const response = await provider.sendMessage(extractionMessages, {
-    tools: [EXTRACT_TOOL_SCHEMA],
-    systemPrompt,
-    config: {
-      callSite: "memoryExtraction" as const,
-      tool_choice: { type: "tool" as const, name: "extract_graph_diff" },
-    },
-  });
+  const { signal, cleanup } = createTimeout(EXTRACTION_TIMEOUT_MS);
+  let response;
+  try {
+    response = await provider.sendMessage(extractionMessages, {
+      tools: [EXTRACT_TOOL_SCHEMA],
+      systemPrompt,
+      config: {
+        callSite: "memoryExtraction" as const,
+        tool_choice: { type: "tool" as const, name: "extract_graph_diff" },
+      },
+      signal,
+    });
+  } finally {
+    cleanup();
+  }
 
   const toolBlock = extractToolUse(response);
   if (!toolBlock) {

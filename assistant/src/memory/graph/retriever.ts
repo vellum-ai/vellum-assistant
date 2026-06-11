@@ -6,12 +6,11 @@
 // 2. Per-turn injection — lightweight embedding search for new memories
 // ---------------------------------------------------------------------------
 
+import { z } from "zod";
+
 import type { AssistantConfig } from "../../config/types.js";
-import {
-  extractToolUse,
-  getConfiguredProvider,
-  userMessage,
-} from "../../providers/provider-send-message.js";
+import { runOneShotLLM } from "../../providers/one-shot-llm.js";
+import { userMessage } from "../../providers/provider-send-message.js";
 import type { ContentBlock, ImageContent } from "../../providers/types.js";
 import { getLogger } from "../../util/logger.js";
 import { embedWithRetry } from "../embed.js";
@@ -66,6 +65,33 @@ function extractCapabilityId(node: MemoryNode): string | null {
 // LLM re-ranking + deduplication
 // ---------------------------------------------------------------------------
 
+/**
+ * Generous timeout for the retrieval rerank/dedup background calls. These run
+ * inside the context-load / per-turn pipelines, but all three degrade to a
+ * deterministic score-based slice on failure, so a stalled provider can't
+ * wedge retrieval — the timeout just bounds how long it waits before falling
+ * back.
+ */
+const RERANK_TIMEOUT_MS = 60_000;
+
+/**
+ * Tool input for the `select_memories` rerank pass. Encodes what the previous
+ * `toolBlock.input as { selected?: number[] }` cast assumed; `selected` stays
+ * optional so an absent/empty list degrades to the scored slice exactly as
+ * before.
+ */
+const SelectMemoriesSchema = z.object({
+  selected: z.array(z.number()).optional(),
+});
+
+/**
+ * Tool input for the `select_items` dedup passes (per-turn and cross-category).
+ * Mirrors the prior `{ items?: number[] }` cast.
+ */
+const SelectItemsSchema = z.object({
+  items: z.array(z.number()).optional(),
+});
+
 const RERANK_TOOL = {
   name: "select_memories",
   description:
@@ -97,9 +123,6 @@ async function rerankAndDedup(
   if (candidates.length <= maxNodes) return candidates;
 
   try {
-    const provider = await getConfiguredProvider("memoryRetrieval");
-    if (!provider) return candidates.slice(0, maxNodes);
-
     // Numbered listing for the LLM: index + age + full content
     const now = Date.now();
     const listing = candidates
@@ -113,9 +136,16 @@ async function rerankAndDedup(
       })
       .join("\n");
 
-    const response = await provider.sendMessage([userMessage(listing)], {
-      tools: [RERANK_TOOL],
-      systemPrompt: `You are selecting memories for an AI assistant's context at conversation start. You see ${candidates.length} candidate memories ranked by algorithmic score.
+    // `onUnavailable: "null"` keeps the prior "no provider → scored slice"
+    // degradation; any non-`ok` status falls through to the same fallback.
+    const llmResult = await runOneShotLLM(
+      "memoryRetrieval",
+      [userMessage(listing)],
+      {
+        tools: [RERANK_TOOL],
+        toolChoice: "select_memories",
+        schema: SelectMemoriesSchema,
+        systemPrompt: `You are selecting memories for an AI assistant's context at conversation start. You see ${candidates.length} candidate memories ranked by algorithmic score.
 
 Your job:
 1. REMOVE DUPLICATES: If multiple entries describe the same event/fact/topic, keep ONLY the most complete version. Be aggressive — even partial overlaps should be deduplicated.
@@ -124,18 +154,14 @@ Your job:
    - Diversity (don't load 5 memories about the same topic)
    - Importance (key relationship moments, active commitments, identity-defining events)
 3. Return the IDs in order of importance (most important first).`,
-      config: {
-        callSite: "memoryRetrieval" as const,
-        tool_choice: { type: "tool" as const, name: "select_memories" },
-        thinking: { type: "disabled" },
-        temperature: 0,
+        timeoutMs: RERANK_TIMEOUT_MS,
+        config: { thinking: { type: "disabled" }, temperature: 0 },
       },
-    });
+    );
 
-    const toolBlock = extractToolUse(response);
-    if (!toolBlock) return candidates.slice(0, maxNodes);
+    if (llmResult.status !== "ok") return candidates.slice(0, maxNodes);
 
-    const input = toolBlock.input as { selected?: number[] };
+    const input = llmResult.data;
     if (!input.selected?.length) return candidates.slice(0, maxNodes);
 
     // Rebuild scored list in the LLM's chosen order (1-indexed → 0-indexed)
@@ -193,10 +219,6 @@ async function dedupForTurn(
   query: string,
 ): Promise<{ nodes: ScoredNode[]; llmApplied: boolean }> {
   try {
-    const provider = await getConfiguredProvider("memoryRetrieval");
-    if (!provider)
-      return { nodes: candidates.slice(0, maxNodes), llmApplied: false };
-
     const now = Date.now();
     const listing = candidates
       .map((s, i) => {
@@ -209,25 +231,23 @@ async function dedupForTurn(
       })
       .join("\n");
 
-    const response = await provider.sendMessage(
+    const llmResult = await runOneShotLLM(
+      "memoryRetrieval",
       [userMessage(`query:\n${query}\n\nitems:\n\n${listing}`)],
       {
         tools: [SELECT_ITEMS_TOOL],
+        toolChoice: "select_items",
+        schema: SelectItemsSchema,
         systemPrompt: `Dedupe + rerank the following numbered items. Pick the most relevant items to the query. Call the select_items tool.\n\nBe aggressive on dedup — when multiple items describe the same event, fact, or status, keep ONLY the richest version. But be generous on relevance — only cut items that are completely irrelevant to the query. If it's even tangentially related, keep it.`,
-        config: {
-          callSite: "memoryRetrieval" as const,
-          tool_choice: { type: "tool" as const, name: "select_items" },
-          thinking: { type: "disabled" },
-          temperature: 0,
-        },
+        timeoutMs: RERANK_TIMEOUT_MS,
+        config: { thinking: { type: "disabled" }, temperature: 0 },
       },
     );
 
-    const toolBlock = extractToolUse(response);
-    if (!toolBlock)
+    if (llmResult.status !== "ok")
       return { nodes: candidates.slice(0, maxNodes), llmApplied: false };
 
-    const input = toolBlock.input as { items?: number[] };
+    const input = llmResult.data;
     if (!input.items?.length)
       return { nodes: candidates.slice(0, maxNodes), llmApplied: false };
 
@@ -286,9 +306,6 @@ async function dedupCrossCategory(
   maxNodes: number,
 ): Promise<ScoredNode[]> {
   try {
-    const provider = await getConfiguredProvider("memoryRetrieval");
-    if (!provider) return candidates.slice(0, maxNodes);
-
     const now = Date.now();
     const listing = candidates
       .map((s, i) => {
@@ -301,21 +318,22 @@ async function dedupCrossCategory(
       })
       .join("\n");
 
-    const response = await provider.sendMessage([userMessage(listing)], {
-      tools: [DEDUP_ITEMS_TOOL],
-      systemPrompt: `Deduplicate the following numbered items. When multiple items describe the same event, fact, or status, keep ONLY the richest version. Keep ALL items that are not duplicates — do not filter by relevance or topic. Call the select_items tool with every item that survives dedup.`,
-      config: {
-        callSite: "memoryRetrieval" as const,
-        tool_choice: { type: "tool" as const, name: "select_items" },
-        thinking: { type: "disabled" },
-        temperature: 0,
+    const llmResult = await runOneShotLLM(
+      "memoryRetrieval",
+      [userMessage(listing)],
+      {
+        tools: [DEDUP_ITEMS_TOOL],
+        toolChoice: "select_items",
+        schema: SelectItemsSchema,
+        systemPrompt: `Deduplicate the following numbered items. When multiple items describe the same event, fact, or status, keep ONLY the richest version. Keep ALL items that are not duplicates — do not filter by relevance or topic. Call the select_items tool with every item that survives dedup.`,
+        timeoutMs: RERANK_TIMEOUT_MS,
+        config: { thinking: { type: "disabled" }, temperature: 0 },
       },
-    });
+    );
 
-    const toolBlock = extractToolUse(response);
-    if (!toolBlock) return candidates.slice(0, maxNodes);
+    if (llmResult.status !== "ok") return candidates.slice(0, maxNodes);
 
-    const input = toolBlock.input as { items?: number[] };
+    const input = llmResult.data;
     if (!input.items?.length) return candidates.slice(0, maxNodes);
 
     const reranked: ScoredNode[] = [];
