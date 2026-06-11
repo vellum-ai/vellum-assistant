@@ -1,5 +1,3 @@
-import type { TooltipContentProps } from "recharts";
-
 import { CHART_TOOLTIP_STYLE } from "@/components/charts/chart-config";
 import { formatDateLabel } from "@/components/charts/format-date-label";
 
@@ -40,8 +38,16 @@ export function TooltipRow({ item }: { item: TooltipRowItem }) {
   );
 }
 
-interface StackedBarTooltipProps
-  extends Partial<TooltipContentProps<number, string>> {
+export type TooltipPayloadEntry = {
+  dataKey: string;
+  value: number;
+  payload?: { __hoveredKey?: string };
+};
+
+interface StackedBarTooltipProps {
+  active?: boolean;
+  payload?: TooltipPayloadEntry[];
+  label?: string;
   labelMap: Record<string, string>;
   colorMap: Record<string, string>;
   formatValue: (v: number) => string;
@@ -73,10 +79,6 @@ export function StackedBarTooltip({
       color: colorMap[String(p.dataKey)] ?? "#6b7280",
       numericValue: Number(p.value),
     }))
-    // Recharts emits payload in stack-key order, which is the insertion
-    // order from the source bucket — neither cost-sorted nor alphabetical.
-    // Sort by numeric value desc so the breakdown reads high → low (label
-    // is a tiebreaker for stability across re-renders).
     .sort((a, b) => {
       if (a.numericValue !== b.numericValue) {
         return b.numericValue - a.numericValue;

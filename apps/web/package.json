@@ -79,7 +79,6 @@
     "react-dom": "19.2.6",
     "react-markdown": "10.1.0",
     "react-router": "7.15.0",
-    "recharts": "3.8.1",
     "rehype-katex": "7.0.1",
     "rehype-raw": "7.0.0",
     "rehype-sanitize": "6.0.0",
