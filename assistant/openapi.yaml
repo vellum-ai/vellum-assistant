@@ -11133,6 +11133,14 @@ paths:
                     required:
                       - connected
                     additionalProperties: false
+                  capabilities:
+                    type: object
+                    properties:
+                      memoryOptOut:
+                        type: boolean
+                    required:
+                      - memoryOptOut
+                    additionalProperties: false
                   profiler:
                     type: object
                     properties:
@@ -11217,6 +11225,7 @@ paths:
                   - cpu
                   - migrations
                   - ces
+                  - capabilities
                 additionalProperties: false
   /v1/healthz:
     get:
@@ -11301,6 +11310,14 @@ paths:
                     required:
                       - connected
                     additionalProperties: false
+                  capabilities:
+                    type: object
+                    properties:
+                      memoryOptOut:
+                        type: boolean
+                    required:
+                      - memoryOptOut
+                    additionalProperties: false
                   profiler:
                     type: object
                     properties:
@@ -11385,6 +11402,7 @@ paths:
                   - cpu
                   - migrations
                   - ces
+                  - capabilities
                 additionalProperties: false
   /v1/heartbeat/checklist:
     get:

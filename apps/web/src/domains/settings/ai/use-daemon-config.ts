@@ -58,8 +58,11 @@ export function useAssistantId() {
  * from the raw config — no `useState` copies, no hydration effects.
  * Consumers that only read config pay no mutation overhead.
  */
-export function useDaemonConfigQuery() {
+export function useDaemonConfigQuery(
+  options: { enabled?: boolean } = {},
+) {
   const { assistantId } = useAssistantId();
+  const enabled = options.enabled ?? true;
 
   const { data: config } = useQuery({
     queryKey: assistantDaemonConfigQueryKey(assistantId),
@@ -74,7 +77,7 @@ export function useDaemonConfigQuery() {
       // interface until the spec is updated.
       return data as DaemonConfig;
     },
-    enabled: !!assistantId,
+    enabled: !!assistantId && enabled,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
   });

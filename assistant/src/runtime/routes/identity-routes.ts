@@ -354,6 +354,9 @@ function getDetailedHealth() {
     ces: {
       connected: cesClient?.isReady() ?? false,
     },
+    capabilities: {
+      memoryOptOut: true,
+    },
     ...(profiler ? { profiler } : {}),
   };
 }
@@ -645,6 +648,10 @@ const cesHealthSchema = z.object({
   connected: z.boolean(),
 });
 
+const healthCapabilitiesSchema = z.object({
+  memoryOptOut: z.boolean(),
+});
+
 const healthDiskSchema = z.object({
   path: z.string(),
   totalMb: z.number(),
@@ -677,6 +684,7 @@ const detailedHealthSchema = z.object({
   cpu: healthCpuSchema,
   migrations: healthMigrationsSchema,
   ces: cesHealthSchema,
+  capabilities: healthCapabilitiesSchema,
   profiler: profilerStatusSchema.optional(),
 });
 

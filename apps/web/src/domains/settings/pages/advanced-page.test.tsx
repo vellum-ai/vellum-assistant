@@ -4,11 +4,15 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import type { DaemonConfigPatch } from "@/domains/settings/ai/ai-types";
 
 let daemonConfig: { memory?: { enabled?: boolean } } | undefined;
+let memoryOptOutCapability = true;
 const mutateAsyncMock = mock(async (_patch: DaemonConfigPatch) => ({}));
 
 mock.module("@/domains/settings/components/assistant-status-panel", () => ({
   useAssistantWithHealthz: () => ({
     assistant: { id: "assistant-1", is_local: true },
+    healthz: memoryOptOutCapability
+      ? { capabilities: { memoryOptOut: true } }
+      : { capabilities: {} },
   }),
 }));
 
@@ -30,6 +34,7 @@ const { AdvancedPage } = await import("./advanced-page");
 
 beforeEach(() => {
   daemonConfig = { memory: { enabled: true } };
+  memoryOptOutCapability = true;
   mutateAsyncMock.mockClear();
 });
 
@@ -68,5 +73,16 @@ describe("AdvancedPage memory settings", () => {
         memory: { enabled: false },
       }),
     );
+  });
+
+  test("hides memory settings when the assistant does not report opt-out support", () => {
+    memoryOptOutCapability = false;
+
+    render(<AdvancedPage />);
+
+    expect(screen.queryByText("Memory")).toBeNull();
+    expect(
+      screen.queryByRole("switch", { name: "Enable memory" }),
+    ).toBeNull();
   });
 });
