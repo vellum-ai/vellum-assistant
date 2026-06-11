@@ -95,6 +95,7 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   },
   guardianQuestionCopy: {
     profile: "cost-optimized",
+    maxTokens: 200,
     effort: "low",
     thinking: { enabled: false },
   },
