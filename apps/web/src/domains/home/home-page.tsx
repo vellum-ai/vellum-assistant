@@ -8,6 +8,7 @@ import type {
     SuggestedPrompt,
 } from "@vellumai/assistant-api";
 import { ResizablePanel } from "@vellumai/design-library";
+import { HomeSchedulesPanel } from "./components/home-schedules-panel";
 import { HomeDetailPanel } from "./detail-panel/home-detail-panel";
 import { HomeFeedList } from "./home-feed-list";
 import { HomeGreetingHeader } from "./home-greeting-header";
@@ -131,6 +132,7 @@ export function HomePage({
     <HomePageSkeleton />
   ) : (
     <>
+      <HomeSchedulesPanel assistantId={assistantId} />
       <HomeGreetingHeader
         avatarComponents={avatar.components}
         avatarTraits={avatar.traits}
