@@ -7,18 +7,42 @@ body {
   color: var(--content-default);
 }
 
-/* Electron prechat onboarding typography — mirror the lighter DM Sans (Swift
- * VFont) weights/sizes so the macOS Electron funnel matches the native Swift
- * client. Scoped via `.electron-prechat-type` (applied ONLY on Electron) so the
- * web/iOS funnel and the rest of the app are unchanged. The design-library type
- * tokens read their weight from `--text-*-weight` custom properties, so we just
- * rebind those vars; values mirror the Swift VFont tokens:
- *   titleLarge 24/400 · bodyMediumLighter 14/300 · labelDefault 11/400 ·
- *   bodySmallDefault 12/400. `bodyMediumDefault` intentionally stays 500
- *   (Swift `bodyMediumEmphasised`) for buttons + vibe-card titles; section
- *   headers / row labels opt down to 400 via `.prechat-md-regular`. */
+/* Electron app-wide typography — mirror the lighter DM Sans (Swift VFont)
+ * weights so the whole Electron app matches the native Swift macOS client.
+ * Applied as a class on <html> by theme-init.js when running inside the
+ * Electron host (window.vellum.platform === "electron"), so browser web and
+ * iOS keep their heavier weights. The design-library type tokens read their
+ * weight from `--text-*-weight` custom properties, so we just rebind them;
+ * values mirror the Swift VFont tokens (TypographyTokens.swift):
+ *   titleLarge/Medium 400 · bodyLargeDefault 400 · bodyLargeLighter 300 ·
+ *   bodyMediumDefault 400 · bodyMediumLighter 300 · bodySmallDefault 400 ·
+ *   bodySmallEmphasised 500 · labelDefault 400 · labelSmall 400.
+ * (titleSmall stays 500 on both clients.) Surfaces that need Swift's
+ * `bodyMediumEmphasised` (500) — e.g. design-library Button labels — declare
+ * their weight explicitly instead of inheriting the token. */
+.electron-type {
+  --text-title-large-weight: 400;
+  --text-title-medium-weight: 400;
+  --text-body-large-default-weight: 400;
+  --text-body-large-lighter-weight: 300;
+  --text-body-medium-default-weight: 400;
+  --text-body-medium-lighter-weight: 300;
+  --text-body-small-default-weight: 400;
+  --text-body-small-emphasised-weight: 500;
+  --text-label-medium-default-weight: 400;
+  --text-label-small-default-weight: 400;
+}
+
+/* Electron prechat onboarding typography — predates the app-wide
+ * `.electron-type` override and is intentionally kept separate: the prechat
+ * funnel pins `bodyMediumDefault` at 500 (Swift `bodyMediumEmphasised`) for
+ * vibe-card titles, with section headers / row labels opting down to 400 via
+ * `.prechat-md-regular`. The remaining vars repeat the app-wide values so the
+ * funnel renders identically even if it ever mounts without `.electron-type`
+ * on the root. */
 .electron-prechat-type {
   --text-title-large-weight: 400;
+  --text-body-medium-default-weight: 500;
   --text-body-medium-lighter-weight: 300;
   --text-label-medium-default-weight: 400;
   --text-label-small-default-weight: 400;
@@ -103,7 +127,8 @@ body {
   border-color: transparent;
   border-top-color: var(--border-active);
   border-right-color: var(--border-active);
-  animation: avatar-ring-spin 0.85s linear infinite;
+  /* 0.8s matches the macOS VLoadingIndicator rotation period. */
+  animation: avatar-ring-spin 0.8s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

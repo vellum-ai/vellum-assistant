@@ -186,7 +186,8 @@ export function ChatComposer({
   contextWindowIndicatorSlot,
   noticesAboveFormSlot,
   hasBillingBanner = false,
-  textareaMaxHeightPx = 240,
+  // 300 matches the macOS client's composerMaxHeight (ComposerView.swift).
+  textareaMaxHeightPx = 300,
   cmdEnterMode = false,
   suggestion,
   modelSupportsVision = true,

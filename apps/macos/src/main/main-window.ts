@@ -14,14 +14,16 @@ import {
   writeOnboardingActive,
 } from "./window-state";
 
-// Default *and* minimum content-area size of the onboarding flow, mirroring
-// the macOS Swift client's onboarding window (`OnboardingWindow.swift`, where
-// `contentRect` == `contentMinSize` == 440×630). Applied as the *content*
-// size (`useContentSize`) so the usable area matches the Swift app's
-// `.fullSizeContentView` content rect rather than including the Electron
-// title bar. The window stays resizable larger, but the same dimensions are
-// also the minimum so the chrome-less flow can't be dragged below its content.
-const ONBOARDING_CONTENT_SIZE = { width: 440, height: 630 } as const;
+// Default *and* minimum content-area size of the onboarding flow. Width
+// mirrors the macOS Swift client's onboarding window
+// (`OnboardingWindow.swift`: `contentRect` == `contentMinSize` == 440×630);
+// height runs 30px taller by design choice so the step content breathes.
+// Applied as the *content* size (`useContentSize`) so the usable area matches
+// the Swift app's `.fullSizeContentView` content rect rather than including
+// the Electron title bar. The window stays resizable larger, but the same
+// dimensions are also the minimum so the chrome-less flow can't be dragged
+// below its content.
+const ONBOARDING_CONTENT_SIZE = { width: 440, height: 660 } as const;
 
 // Default bounds for the main window once onboarding is done.
 const MAIN_DEFAULT_BOUNDS = { width: 1280, height: 800 } as const;
@@ -174,12 +176,12 @@ const createMainWindow = (): BrowserWindow => {
   // Vite's `base`; see `getRendererRootUrl`.
   const loadTarget = getRendererRootUrl(app.isPackaged);
 
-  // Onboarding opens at the 440×630 default (matching the Swift client);
-  // otherwise restore the user's saved main-app bounds. Both layouts are
-  // resizable larger, but each carries its own minimum (`minWidth`/
-  // `minHeight`): the compact onboarding flow can't be dragged below its
-  // 440×630 content, and the main app can't be dragged below 800×600 (both
-  // mirror the Swift client's `contentMinSize`). The persisted flag
+  // Onboarding opens at the 440×660 default; otherwise restore the user's
+  // saved main-app bounds. Both layouts are resizable larger, but each
+  // carries its own minimum (`minWidth`/`minHeight`): the compact onboarding
+  // flow can't be dragged below its 440×660 content, and the main app can't
+  // be dragged below 800×600 (mirroring the Swift client's `contentMinSize`).
+  // The persisted flag
   // lets a relaunch *during* onboarding rebuild the small window directly
   // (no flash); the absent-flag default is `false` (open large) so we
   // never cramp the `/account/*` screens that render outside RootLayout —
@@ -352,7 +354,7 @@ export const dispatchToMain = (command: VellumCommand): void => {
 };
 
 /**
- * Switch the main window between the onboarding layout (440×630 default and
+ * Switch the main window between the onboarding layout (440×660 default and
  * minimum) and the main-app layout (restored bounds, 800×600 minimum). Both
  * resize larger freely; the difference is the default/restored size and which
  * floor applies. Persists the mode so the next launch's window is constructed
@@ -382,7 +384,7 @@ export const setOnboarding = (active: boolean): void => {
 
   if (active) {
     // Lower the floor before shrinking: `setContentSize` clamps to the current
-    // minimum, so the 800×600 main floor must drop to 440×630 first or the
+    // minimum, so the 800×600 main floor must drop to 440×660 first or the
     // window wouldn't actually shrink.
     win.setMinimumSize(
       ONBOARDING_CONTENT_SIZE.width,

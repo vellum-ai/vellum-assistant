@@ -99,10 +99,10 @@ export function HatchingScreen() {
   const [searchParams] = useSearchParams();
   const hostingParam = searchParams.get("hosting");
   const failParam = searchParams.get("fail");
-  // On Electron the window is short (630px) with `titleBarStyle: "hidden"`, so
-  // the macOS traffic lights + global WindowDragRegion (28px) overlap the top
-  // of this `justify-center` layout. Gate the title-bar clearance + the content
-  // trim that keeps it inside the window on Electron so web/iOS are untouched.
+  // On Electron the compact window mirrors the Swift HatchingStepView layout:
+  // the title is pinned 84px from the window top (`pt-21`, the shared step
+  // title position, clearing the traffic lights / WindowDragRegion), and the
+  // creature centers in the leftover space. Web/iOS keep the centered layout.
   const electron = isElectron();
   const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
   const sessionStatus = useAuthStore.use.sessionStatus();
@@ -564,12 +564,12 @@ export function HatchingScreen() {
       <OnboardingLayout>
         <div
           role="alert"
-          className={`mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 ${electron ? "pt-[3.25rem] pb-8" : "pb-40"} text-center text-[var(--content-default)]`}
+          className={`mx-auto flex w-full max-w-xl flex-col items-center px-6 ${electron ? "min-h-full pt-21 pb-28 electron-prechat-type" : "min-h-screen justify-center pb-40"} text-center text-[var(--content-default)]`}
         >
-          <h1 className="text-3xl font-semibold tracking-tight">
+          <h1 className={electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}>
             Something went wrong
           </h1>
-          <p className="mt-4 text-body-medium-lighter text-[var(--content-tertiary)]">
+          <p className={`text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-4"}`}>
             {error}
           </p>
           {platformHostedDisabled && (
@@ -582,7 +582,7 @@ export function HatchingScreen() {
                 variant="primary"
                 size="regular"
                 fullWidth
-                className="h-11 text-base"
+                className={electron ? undefined : "h-11 text-base"}
               >
                 <a href={`${window.location.origin}/download`}>
                   Download the macOS app
@@ -595,14 +595,14 @@ export function HatchingScreen() {
             alt=""
             width={160}
             height={160}
-            className={`${electron ? "my-8" : "my-16"} onboarding-avatar-failed`}
+            className={`${electron ? "my-auto py-8" : "my-16"} onboarding-avatar-failed`}
           />
-          <div className="flex w-full max-w-sm flex-col gap-2">
+          <div className={`flex w-full flex-col ${electron ? "gap-2.5 max-w-[280px]" : "gap-2 max-w-sm"}`}>
             <Button
               variant="primary"
               size="regular"
               fullWidth
-              className="h-11 text-base"
+              className={electron ? undefined : "h-11 text-base"}
               onClick={() => {
                 segmentStartRef.current = 0;
                 segmentStartTimeRef.current = Date.now();
@@ -622,7 +622,7 @@ export function HatchingScreen() {
               variant="outlined"
               size="regular"
               fullWidth
-              className="h-11 text-base"
+              className={electron ? undefined : "h-11 text-base"}
               onClick={() =>
                 void navigate(
                   useLocalHatch
@@ -642,12 +642,22 @@ export function HatchingScreen() {
 
   return (
     <OnboardingLayout>
-      <div className={`mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 ${electron ? "pt-[3.25rem] pb-8" : "pb-40"} text-center text-[var(--content-default)]`}>
-        <h1 className="text-3xl font-semibold tracking-tight">
+      {/* Electron mirrors the Swift HatchingStepView layout: title pinned
+          84px from the window top (the shared step-title position), the
+          creature centered in the leftover space via auto margins (Swift's
+          Spacer pair), and the progress section near the bottom. Web/iOS
+          keep the centered layout. */}
+      {/* The electron bottom padding (pb-28) keeps the progress section clear
+          of the fixed CreatureFooter art, matching the Swift layout where the
+          progress bar sits above the in-flow footer characters. The 200px bar
+          cap and 10px label mirror HatchingStepView.swift (widthCap(200),
+          VFont.labelSmall). */}
+      <div className={`mx-auto flex w-full max-w-xl flex-col items-center px-6 ${electron ? "min-h-full pt-21 pb-28 electron-prechat-type" : "min-h-screen justify-center pb-40"} text-center text-[var(--content-default)]`}>
+        <h1 className={electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}>
           {phase === "ready" ? "Your assistant is ready!" : "Waking up…"}
         </h1>
         {phase !== "ready" && (
-          <p className="mt-4 text-body-medium-lighter text-[var(--content-tertiary)]">
+          <p className={`text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-4"}`}>
             Hang tight — your assistant will have a few questions for you once
             it&apos;s up.
           </p>
@@ -657,15 +667,15 @@ export function HatchingScreen() {
           alt=""
           width={160}
           height={160}
-          className={`${electron ? "my-8" : "my-16"} ${phase === "ready" ? "onboarding-avatar-awake" : "onboarding-avatar-pulse"}`}
+          className={`${electron ? "my-auto py-8" : "my-16"} ${phase === "ready" ? "onboarding-avatar-awake" : "onboarding-avatar-pulse"}`}
         />
         <ProgressBar
           value={displayProgress}
           height={6}
-          className="w-full max-w-sm"
+          className={`w-full ${electron ? "max-w-[200px]" : "max-w-sm"}`}
           aria-label="Assistant startup progress"
         />
-        <p className="mt-3 text-body-small-default text-[var(--content-tertiary)]">
+        <p className={`text-[var(--content-tertiary)] ${electron ? "mt-4 text-label-small-default" : "mt-3 text-body-small-default"}`}>
           {PHASE_LABEL[phase]}
         </p>
       </div>

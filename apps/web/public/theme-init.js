@@ -17,6 +17,12 @@
     root.setAttribute("data-theme", shouldBeDark ? "dark" : "light");
     root.classList.toggle("dark", shouldBeDark);
     root.classList.remove("velvet");
+    // Electron renders with the Swift macOS client's lighter type weights
+    // (see `.electron-type` in src/index.css). The preload script exposes
+    // window.vellum before any page script runs, so this is flash-free.
+    if (window.vellum && window.vellum.platform === "electron") {
+      root.classList.add("electron-type");
+    }
   } catch {
     // Theme startup is best-effort. React will apply the default later.
   }

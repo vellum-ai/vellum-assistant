@@ -241,10 +241,12 @@ export function ToolProgressCardShell({
     onExpandChange?.(next);
   };
 
+  // 0.15s mirrors the macOS client's VAnimation.fast, which drives the
+  // equivalent tool-step expansion in AssistantProgressView.swift.
   const transition = reduce
     ? { duration: 0 }
     : {
-        duration: 0.25,
+        duration: 0.15,
         ease: [0.16, 1, 0.3, 1] as [number, number, number, number],
       };
 
