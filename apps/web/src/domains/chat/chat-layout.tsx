@@ -35,7 +35,6 @@ import {
     navigateToConversation,
     navigateToNewConversation,
 } from "@/domains/chat/utils/conversation-navigation";
-import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { haptic } from "@/utils/haptics";
 
 import {
@@ -316,13 +315,6 @@ export function ChatLayout() {
     [navigate],
   );
 
-  // A fresh draft URL per call so the sidebar pencil can render as a link and
-  // each open-in-new-tab gesture lands on its own draft conversation.
-  const getNewConversationHref = useCallback(
-    () => routes.conversation(createDraftConversationId()),
-    [],
-  );
-
   const {
     handleArchiveConversation,
     handleUnarchiveConversation,
@@ -552,15 +544,6 @@ export function ChatLayout() {
     [],
   );
 
-  const handleNewConversationInNewWindow = useCallback(() => {
-    const draftId = createDraftConversationId();
-    if (isElectron()) {
-      void openPopoutWindow(draftId);
-    } else {
-      window.open(routes.conversation(draftId), "_blank");
-    }
-  }, []);
-
   const renderSideMenu = (args: SideMenuRenderArgs): ReactNode => (
     <AssistantSideMenu
       assistantId={assistantId ?? ""}
@@ -576,7 +559,6 @@ export function ChatLayout() {
       attentionConversationIds={attentionConversationIds}
       onSelectConversation={handleSelectConversation}
       onStartNewConversation={startNewConversation}
-      getNewConversationHref={getNewConversationHref}
       isIntelligenceActive={isIdentityActive}
       onOpenIntelligence={handleOpenIdentity}
       isLibraryActive={isLibraryActive}
@@ -596,7 +578,6 @@ export function ChatLayout() {
       onMarkAllReadInGroup={handleMarkAllReadInGroup}
       onArchiveAllInGroup={handleArchiveAllInGroup}
       onOpenInNewWindow={isNative ? undefined : handleOpenInNewWindow}
-      onNewConversationInNewWindow={isNative ? undefined : handleNewConversationInNewWindow}
       onInspect={showLlmInspector ? handleInspectConversation : undefined}
       footerAction={
         <PreferencesMenu

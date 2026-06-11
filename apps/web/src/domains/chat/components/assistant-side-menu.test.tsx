@@ -271,29 +271,25 @@ describe("AssistantSideMenu · new conversation affordance", () => {
     onSelectConversation: () => {},
   };
 
-  test("renders the pencil as a link when a href generator is supplied", () => {
+  test("renders the new-conversation pencil button when onStartNewConversation is supplied", () => {
     const html = renderToStaticMarkup(
       createElement(AssistantSideMenu, {
         ...baseProps,
         onStartNewConversation: () => {},
-        getNewConversationHref: () => "/assistant/conversations/draft-xyz",
       }),
     );
 
     expect(html).toContain('aria-label="New conversation"');
-    expect(html).toContain('href="/assistant/conversations/draft-xyz"');
+    // It is a plain icon button, not a navigation link.
+    expect(html).not.toContain('<a aria-label="New conversation"');
   });
 
-  test("falls back to a plain button when no href generator is supplied", () => {
+  test("omits the new-conversation button when onStartNewConversation is absent", () => {
     const html = renderToStaticMarkup(
-      createElement(AssistantSideMenu, {
-        ...baseProps,
-        onStartNewConversation: () => {},
-      }),
+      createElement(AssistantSideMenu, { ...baseProps }),
     );
 
-    expect(html).toContain('aria-label="New conversation"');
-    expect(html).not.toContain("/assistant/conversations/");
+    expect(html).not.toContain('aria-label="New conversation"');
   });
 });
 
