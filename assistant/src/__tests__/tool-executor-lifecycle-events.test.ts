@@ -4,6 +4,7 @@ import type {
   ToolExecutionResult,
   ToolLifecycleEvent,
 } from "../tools/types.js";
+import type { UsageAttributionSnapshot } from "../usage/attribution.js";
 
 const mockConfig = {
   provider: "anthropic",
@@ -33,6 +34,9 @@ const mockConfig = {
   permissions: {
     mode: "workspace" as const,
   },
+  // The audit listener nulls the telemetry columns when this is false; the
+  // end-to-end listener tests below assert the opted-in sizing behavior.
+  collectUsageData: true,
 };
 
 let checkerDecision: "allow" | "prompt" | "deny" = "allow";
@@ -513,6 +517,275 @@ describe("ToolExecutor lifecycle events", () => {
     if (executed.type !== "executed")
       throw new Error("Expected executed event");
     expect(executed.executionTarget).toBe("sandbox");
+  });
+
+  // ── attribution forwarding tests ──────────────────────────
+
+  // Uses a non-main call site (voice turn) so these tests also prove the
+  // executor forwards the snapshot verbatim — non-main turns must not be
+  // rewritten to the main agent's attribution.
+  const testAttribution: UsageAttributionSnapshot = {
+    callSite: "callAgent",
+    activeProfile: "balanced",
+    overrideProfile: null,
+    callSiteProfile: "voice-profile",
+    appliedProfile: "voice-profile",
+    profileSource: "call_site",
+    resolvedProvider: "anthropic",
+    resolvedModel: "test-model",
+    resolvedMixArm: null,
+  };
+
+  test("forwards context.attribution into the executed lifecycle event", async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    await executor.execute(
+      "file_read",
+      { path: "README.md" },
+      makeContext(events, { attribution: testAttribution }),
+    );
+
+    const executed = events.find((event) => event.type === "executed");
+    if (executed?.type !== "executed")
+      throw new Error("Expected executed event");
+    expect(executed.attribution).toEqual(testAttribution);
+  });
+
+  test("forwards context.attribution into the error lifecycle event", async () => {
+    toolThrow = new Error("boom");
+
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    await executor.execute(
+      "file_read",
+      {},
+      makeContext(events, { attribution: testAttribution }),
+    );
+
+    const errorEvent = events.find((event) => event.type === "error");
+    if (errorEvent?.type !== "error") throw new Error("Expected error event");
+    expect(errorEvent.attribution).toEqual(testAttribution);
+  });
+
+  test("missing context.attribution yields null on the executed event without throwing", async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    const result = await executor.execute(
+      "file_read",
+      { path: "README.md" },
+      makeContext(events),
+    );
+
+    expect(result).toMatchObject({ content: "ok", isError: false });
+    const executed = events.find((event) => event.type === "executed");
+    if (executed?.type !== "executed")
+      throw new Error("Expected executed event");
+    expect(executed.attribution).toBeNull();
+  });
+
+  test("missing context.attribution yields null on the error event without throwing", async () => {
+    toolThrow = new Error("boom");
+
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    const result = await executor.execute("file_read", {}, makeContext(events));
+
+    expect(result.isError).toBe(true);
+    const errorEvent = events.find((event) => event.type === "error");
+    if (errorEvent?.type !== "error") throw new Error("Expected error event");
+    expect(errorEvent.attribution).toBeNull();
+  });
+
+  test("stamps attribution on pre-execution gate error events (unknown tool)", async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    const result = await executor.execute(
+      "unknown_tool",
+      { test: true },
+      makeContext(events, { attribution: testAttribution }),
+    );
+
+    expect(result.isError).toBe(true);
+    const errorEvent = events.find((event) => event.type === "error");
+    if (errorEvent?.type !== "error") throw new Error("Expected error event");
+    expect(errorEvent.errorMessage).toContain("Unknown tool: unknown_tool");
+    expect(errorEvent.attribution).toEqual(testAttribution);
+  });
+
+  test("missing attribution yields null on pre-execution gate error events", async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    const result = await executor.execute(
+      "unknown_tool",
+      { test: true },
+      makeContext(events),
+    );
+
+    expect(result.isError).toBe(true);
+    const errorEvent = events.find((event) => event.type === "error");
+    if (errorEvent?.type !== "error") throw new Error("Expected error event");
+    expect(errorEvent.attribution).toBeNull();
+  });
+
+  test("stamps attribution on the aborted pre-execution gate error event", async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await executor.execute(
+      "file_read",
+      { path: "README.md" },
+      makeContext(events, {
+        attribution: testAttribution,
+        signal: controller.signal,
+      }),
+    );
+
+    expect(result).toEqual({ content: "Cancelled", isError: true });
+    const errorEvent = events.find((event) => event.type === "error");
+    if (errorEvent?.type !== "error") throw new Error("Expected error event");
+    expect(errorEvent.errorMessage).toBe("Cancelled");
+    expect(errorEvent.attribution).toEqual(testAttribution);
+  });
+
+  // ── raw input byte sizing tests ───────────────────────────
+
+  test("stamps inputBytes from the raw input even when sanitization redacts fields", async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    const rawInput = { path: "README.md", token: "t-1" };
+    const rawSize = Buffer.byteLength(JSON.stringify(rawInput), "utf8");
+
+    await executor.execute("file_read", rawInput, makeContext(events));
+
+    const executed = events.find((event) => event.type === "executed");
+    if (executed?.type !== "executed")
+      throw new Error("Expected executed event");
+    // The event input is sanitized, but the size reflects the raw payload.
+    expect(executed.input.token).toBe("<redacted />");
+    expect(executed.inputBytes).toBe(rawSize);
+    expect(executed.inputBytes).not.toBe(
+      Buffer.byteLength(JSON.stringify(executed.input), "utf8"),
+    );
+  });
+
+  test("stamps inputBytes from the raw input on error events", async () => {
+    toolThrow = new Error("boom");
+
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    const rawInput = { path: "README.md", api_key: "k-1" };
+
+    await executor.execute("file_read", rawInput, makeContext(events));
+
+    const errorEvent = events.find((event) => event.type === "error");
+    if (errorEvent?.type !== "error") throw new Error("Expected error event");
+    expect(errorEvent.input.api_key).toBe("<redacted />");
+    expect(errorEvent.inputBytes).toBe(
+      Buffer.byteLength(JSON.stringify(rawInput), "utf8"),
+    );
+  });
+
+  test("stamps resultBytes from the raw content before sensitive-output sanitization", async () => {
+    // Directive stripping + placeholder substitution shrink the content the
+    // lifecycle event carries; the stamped size must reflect the raw output.
+    const rawContent =
+      'Your invite: <vellum-sensitive-output kind="invite_code" value="SECRET-CODE-123" /> use SECRET-CODE-123';
+    fakeToolResult = { content: rawContent, isError: false };
+
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    await executor.execute("file_read", { path: "a" }, makeContext(events));
+
+    const executed = events.find((event) => event.type === "executed");
+    if (executed?.type !== "executed")
+      throw new Error("Expected executed event");
+    // The event carries the sanitized content...
+    expect(executed.result.content).not.toContain("SECRET-CODE-123");
+    // ...but the stamped size is the raw pre-sanitization byte length.
+    expect(executed.resultBytes).toBe(Buffer.byteLength(rawContent, "utf8"));
+    expect(executed.resultBytes).not.toBe(
+      Buffer.byteLength(executed.result.content, "utf8"),
+    );
+  });
+
+  test("stamps resultBytes for non-sensitive results too (raw equals emitted content)", async () => {
+    const events: ToolLifecycleEvent[] = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    await executor.execute("file_read", { path: "a" }, makeContext(events));
+
+    const executed = events.find((event) => event.type === "executed");
+    if (executed?.type !== "executed")
+      throw new Error("Expected executed event");
+    expect(executed.result.content).toBe("ok");
+    expect(executed.resultBytes).toBe(Buffer.byteLength("ok", "utf8"));
+  });
+
+  test("audit listener records result_bytes from the raw pre-sanitization output", async () => {
+    const { createToolAuditListener } =
+      await import("../events/tool-audit-listener.js");
+    const records: Array<{ resultBytes?: number | null; result: string }> = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    const rawContent =
+      'Code: <vellum-sensitive-output kind="invite_code" value="SECRET-CODE-456" />SECRET-CODE-456';
+    fakeToolResult = { content: rawContent, isError: false };
+
+    await executor.execute(
+      "file_read",
+      { path: "a" },
+      {
+        workingDir: "/tmp/project",
+        conversationId: "conversation-1",
+        trustClass: "guardian" as const,
+        onToolLifecycleEvent: createToolAuditListener((record) =>
+          records.push(record),
+        ),
+      },
+    );
+
+    expect(records).toHaveLength(1);
+    expect(records[0].resultBytes).toBe(Buffer.byteLength(rawContent, "utf8"));
+    // The stored result column is still the sanitized payload.
+    expect(records[0].result).not.toContain("SECRET-CODE-456");
+  });
+
+  test("audit listener records arg_bytes equal to the raw serialized input size", async () => {
+    // End-to-end: executor sanitization must not shrink the recorded
+    // arg_bytes — the audit row sizes the raw pre-redaction input.
+    const { createToolAuditListener } =
+      await import("../events/tool-audit-listener.js");
+    const records: Array<{ argBytes?: number | null; input: string }> = [];
+    const executor = new ToolExecutor(makePrompter());
+
+    const rawInput = { path: "README.md", token: "t-1" };
+
+    await executor.execute("file_read", rawInput, {
+      workingDir: "/tmp/project",
+      conversationId: "conversation-1",
+      trustClass: "guardian" as const,
+      onToolLifecycleEvent: createToolAuditListener((record) =>
+        records.push(record),
+      ),
+    });
+
+    expect(records).toHaveLength(1);
+    expect(records[0].argBytes).toBe(
+      Buffer.byteLength(JSON.stringify(rawInput), "utf8"),
+    );
+    // The stored input column is still the redacted payload.
+    expect(records[0].input).not.toContain("t-1");
   });
 
   test("skill tool with sandbox execution_target resolves to sandbox executionTarget", async () => {
