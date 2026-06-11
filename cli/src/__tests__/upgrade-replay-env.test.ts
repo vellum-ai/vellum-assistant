@@ -130,6 +130,22 @@ describe("buildReplayState", () => {
     expect(state.extraGatewayEnv.VELLUM_DEVICE_ID).toBe("existing");
   });
 
+  test("backfills VELLUM_DEVICE_ID on assistant replay env when absent", () => {
+    const state = buildReplayState({}, {});
+    expect(state.extraAssistantEnv.VELLUM_DEVICE_ID).toBe("host-device-id");
+  });
+
+  test("assistant backfill inherits captured gateway VELLUM_DEVICE_ID", () => {
+    const state = buildReplayState({}, { VELLUM_DEVICE_ID: "gw-captured" });
+    expect(state.extraGatewayEnv.VELLUM_DEVICE_ID).toBe("gw-captured");
+    expect(state.extraAssistantEnv.VELLUM_DEVICE_ID).toBe("gw-captured");
+  });
+
+  test("captured assistant VELLUM_DEVICE_ID wins over host-derived id", () => {
+    const state = buildReplayState({ VELLUM_DEVICE_ID: "existing" }, {});
+    expect(state.extraAssistantEnv.VELLUM_DEVICE_ID).toBe("existing");
+  });
+
   test("plucks secrets from the captured envs", () => {
     const state = buildReplayState(
       { CES_SERVICE_TOKEN: "ces-token", ACTOR_TOKEN_SIGNING_KEY: "sign-key" },
