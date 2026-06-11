@@ -415,6 +415,32 @@ const GIT_TIMEOUT_MS = 120_000;
 /** Install-provenance sidecar written at the plugin root. */
 const INSTALL_MANIFEST_FILENAME = ".vellum-plugin.json";
 
+/** Resolved source coordinates recorded in the provenance sidecar. */
+export interface InstallManifestSource {
+  /** Source kind. Only `github` is written today. */
+  readonly kind: string;
+  readonly owner: string;
+  readonly repo: string;
+  /** Repo-relative directory holding the plugin root; absent = repo root. */
+  readonly path?: string;
+  /** Ref the install resolved through (the pinned commit SHA for marketplace installs). */
+  readonly ref: string;
+}
+
+/**
+ * Parsed contents of the `.vellum-plugin.json` provenance sidecar — what was
+ * installed, from where, and at exactly which commit. Read by
+ * {@link readInstallManifest} for provenance reporting (e.g. `plugins inspect`).
+ */
+export interface InstallManifest {
+  readonly name: string;
+  readonly source: InstallManifestSource;
+  /** Resolved commit SHA the source was cloned at; `null` when it could not be read at install time. */
+  readonly commit: string | null;
+  /** ISO-8601 timestamp of when the install was materialized. */
+  readonly installedAt: string;
+}
+
 /**
  * Materialize an external plugin by shallow-cloning its repo at the pinned ref.
  *
@@ -881,6 +907,59 @@ function writeInstallManifest(
     join(stagingDir, INSTALL_MANIFEST_FILENAME),
     `${JSON.stringify(manifest, null, 2)}\n`,
   );
+}
+
+/**
+ * Read the install-provenance sidecar from an installed plugin's root.
+ *
+ * Lenient by design — a missing, unreadable, or malformed sidecar yields
+ * `null` rather than throwing, mirroring {@link ./list-installed-plugins}.
+ * Older or manually-copied installs that predate the sidecar simply report no
+ * provenance. The resolved commit is the authoritative record of which bytes
+ * are installed, so callers (e.g. `plugins inspect`) can compare it against the
+ * marketplace's current pin to detect drift.
+ */
+export function readInstallManifest(pluginDir: string): InstallManifest | null {
+  const manifestPath = join(pluginDir, INSTALL_MANIFEST_FILENAME);
+  if (!existsSync(manifestPath)) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(manifestPath, "utf8"));
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return null;
+  }
+
+  const obj = parsed as Record<string, unknown>;
+  const src = obj.source;
+  if (typeof src !== "object" || src === null || Array.isArray(src)) {
+    return null;
+  }
+  const source = src as Record<string, unknown>;
+  if (
+    typeof obj.name !== "string" ||
+    typeof source.owner !== "string" ||
+    typeof source.repo !== "string" ||
+    typeof source.ref !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    name: obj.name,
+    source: {
+      kind: typeof source.kind === "string" ? source.kind : "github",
+      owner: source.owner,
+      repo: source.repo,
+      path: typeof source.path === "string" ? source.path : undefined,
+      ref: source.ref,
+    },
+    commit: typeof obj.commit === "string" ? obj.commit : null,
+    installedAt: typeof obj.installedAt === "string" ? obj.installedAt : "",
+  };
 }
 
 /**
