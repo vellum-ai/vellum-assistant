@@ -70,6 +70,7 @@ const {
   canOpenScheduleRunConversation,
   canOpenScheduleSourceConversation,
   formatScheduleCost,
+  formatTimestamp,
   shouldShowSystemTaskToggles,
 } = await import("@/domains/settings/utils/schedule-formatters");
 const { RecentRunsCard } = await import(
@@ -432,6 +433,61 @@ describe("ScheduleRow", () => {
     expect(usageClicks).toBe(0);
     expect(detailClicks).toBe(0);
     expect(screen.queryByText("execute")).toBeNull();
+  });
+
+  test("renders the last run timestamp without a status dot", () => {
+    const lastRunAt = 1_761_792_000_000;
+
+    render(
+      createElement(ScheduleRow, {
+        schedule: rowSchedule({
+          lastRunAt,
+          lastStatus: "ok",
+        }),
+        usage: {
+          status: "ready",
+          summary: {
+            scheduleId: "schedule-123",
+            runCount: 1,
+            totalEstimatedCostUsd: 0.03,
+            eventCount: 1,
+          },
+        },
+        onClick: () => {},
+        onToggle: () => {},
+        onOpenUsage: () => {},
+      }),
+    );
+
+    expect(screen.getByText(formatTimestamp(lastRunAt))).toBeTruthy();
+    expect(screen.queryByLabelText("ok")).toBeNull();
+  });
+
+  test("renders the next run timestamp before a schedule has run", () => {
+    const nextRunAt = 1_761_795_600_000;
+
+    render(
+      createElement(ScheduleRow, {
+        schedule: rowSchedule({
+          nextRunAt,
+          lastRunAt: null,
+        }),
+        usage: {
+          status: "ready",
+          summary: {
+            scheduleId: "schedule-123",
+            runCount: 0,
+            totalEstimatedCostUsd: 0,
+            eventCount: 0,
+          },
+        },
+        onClick: () => {},
+        onToggle: () => {},
+        onOpenUsage: () => {},
+      }),
+    );
+
+    expect(screen.getByText(formatTimestamp(nextRunAt))).toBeTruthy();
   });
 
   test("one-time rows use the shared clickable row affordance", () => {

@@ -1,9 +1,6 @@
 import { ChevronRight } from "lucide-react";
 
-import {
-  ScheduleUsageStats,
-  StatusDot,
-} from "@/domains/settings/components/schedule-shared-ui";
+import { ScheduleUsageStats } from "@/domains/settings/components/schedule-shared-ui";
 import {
   formatTimestamp,
   type ScheduleRowUsage,
@@ -25,6 +22,8 @@ export function ScheduleRow({
   onToggle: (enabled: boolean) => void;
   onOpenUsage: () => void;
 }) {
+  const displayRunAt = schedule.lastRunAt ?? schedule.nextRunAt;
+
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-[var(--surface-hover)] [&+&]:border-t [&+&]:border-[var(--border-base)]">
       <button
@@ -39,12 +38,9 @@ export function ScheduleRow({
         </div>
         <div className="mt-0.5 flex items-center gap-3 text-body-small-default text-[var(--content-tertiary)]">
           <span className="truncate">{schedule.description}</span>
-          {schedule.lastRunAt && (
-            <span className="flex shrink-0 items-center gap-1">
-              <StatusDot status={schedule.lastStatus} />
-              {formatTimestamp(schedule.lastRunAt)}
-            </span>
-          )}
+          {displayRunAt ? (
+            <span className="shrink-0">{formatTimestamp(displayRunAt)}</span>
+          ) : null}
         </div>
       </button>
       <div className="flex shrink-0 items-center gap-3">
