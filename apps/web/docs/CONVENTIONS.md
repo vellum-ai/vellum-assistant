@@ -288,7 +288,7 @@ src/
     sentry/                        #   Sentry error reporting (init, consent control)
     auth/                          #   allauth client, CSRF, auth middleware
     feature-flags/                 #   feature flag provider
-    sync/                          #   server state sync (tag registry, router)
+    sync/                          #   server state sync (query-tag keys, sync types)
     streaming/                     #   SSE transport, event parsing, debug tracking
     api-client.ts                  #   HeyAPI configured client + interceptors
     telemetry/                     #   client identity for daemon registration

@@ -32,6 +32,10 @@ export interface NudgeState {
   githubBannerDismissed: boolean;
   /** Epoch ms of the most recent GitHub banner dismiss. 0 = never. */
   githubBannerDismissedAt: number;
+  /** Epoch ms of the first time the GitHub nudge module observed the user. 0 = not yet recorded. */
+  githubFirstSeenAt: number;
+  /** Cumulative count of user messages sent across all conversations. */
+  githubUserMessagesSeen: number;
   discordJoined: boolean;
   discordBannerDismissed: boolean;
   /** Epoch ms of the first time the Discord nudge module observed the user. 0 = not yet recorded. */
@@ -41,6 +45,9 @@ export interface NudgeState {
 export interface NudgeActions {
   markGitHubStarred: () => void;
   dismissGitHubBanner: () => void;
+  /** Stamp `githubFirstSeenAt` to `Date.now()` on first observation. No-op afterwards. */
+  ensureGitHubFirstSeenAt: () => void;
+  incrementGitHubUserMessagesSeen: (delta: number) => void;
   markDiscordJoined: () => void;
   dismissDiscordBanner: () => void;
   /** Stamp `discordFirstSeenAt` to `Date.now()` on first observation. No-op afterwards. */
@@ -57,6 +64,8 @@ const INITIAL_STATE: NudgeState = {
   githubStarred: false,
   githubBannerDismissed: false,
   githubBannerDismissedAt: 0,
+  githubFirstSeenAt: 0,
+  githubUserMessagesSeen: 0,
   discordJoined: false,
   discordBannerDismissed: false,
   discordFirstSeenAt: 0,
@@ -79,6 +88,15 @@ const useNudgeStoreBase = create<NudgeStore>()(
           githubBannerDismissed: true,
           githubBannerDismissedAt: Date.now(),
         }),
+      ensureGitHubFirstSeenAt: () => {
+        if (get().githubFirstSeenAt === 0) {
+          set({ githubFirstSeenAt: Date.now() });
+        }
+      },
+      incrementGitHubUserMessagesSeen: (delta: number) => {
+        if (delta <= 0) return;
+        set({ githubUserMessagesSeen: get().githubUserMessagesSeen + delta });
+      },
       markDiscordJoined: () => set({ discordJoined: true }),
       dismissDiscordBanner: () => set({ discordBannerDismissed: true }),
       ensureDiscordFirstSeenAt: () => {
@@ -94,6 +112,8 @@ const useNudgeStoreBase = create<NudgeStore>()(
         githubStarred: state.githubStarred,
         githubBannerDismissed: state.githubBannerDismissed,
         githubBannerDismissedAt: state.githubBannerDismissedAt,
+        githubFirstSeenAt: state.githubFirstSeenAt,
+        githubUserMessagesSeen: state.githubUserMessagesSeen,
         discordJoined: state.discordJoined,
         discordBannerDismissed: state.discordBannerDismissed,
         discordFirstSeenAt: state.discordFirstSeenAt,

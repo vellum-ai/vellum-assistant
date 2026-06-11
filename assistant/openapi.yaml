@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.8.10
+  version: 0.8.11
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -13002,6 +13002,23 @@ paths:
                   - source
                   - refreshing
                 additionalProperties: false
+      parameters:
+        - name: localHour
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 23
+          description: Optional client-local hour of day used only when refreshing generated greetings.
+        - name: localMinute
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 59
+          description: Optional client-local minute used only when refreshing generated greetings.
   /v1/image-generation/generate:
     post:
       operationId: imagegeneration_generate_post
