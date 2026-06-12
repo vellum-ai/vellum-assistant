@@ -75,6 +75,9 @@ type ConversationStub = {
   source: string;
   forkParentMessageId: string | null;
   title?: string;
+  conversationType?: string | null;
+  inferenceProfile?: string | null;
+  inferenceProfileExpiresAt?: number | null;
 };
 let conversationOverrides: Record<string, ConversationStub> = {};
 
@@ -178,6 +181,29 @@ mock.module("../conversation-crud.js", () => ({
     }
     deletedConversationIds.push(id);
   },
+  // Mirrors the real helper's semantics (interactive-only, expiry-aware) so
+  // matchConversationProfile tests exercise the same fallback behavior.
+  resolveOverrideProfile: (
+    fields: {
+      conversationType?: string | null;
+      inferenceProfile?: string | null;
+      inferenceProfileExpiresAt?: number | null;
+    } | null,
+  ) => {
+    if (
+      fields?.conversationType === "background" ||
+      fields?.conversationType === "scheduled"
+    ) {
+      return undefined;
+    }
+    if (
+      fields?.inferenceProfileExpiresAt != null &&
+      fields.inferenceProfileExpiresAt <= Date.now()
+    ) {
+      return undefined;
+    }
+    return fields?.inferenceProfile ?? undefined;
+  },
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
@@ -263,6 +289,7 @@ function makeConfig(
     userTimezone?: string;
     detectedTimezone?: string;
     keepSupersededRuns?: boolean;
+    matchConversationProfile?: boolean;
   } = {},
 ): Parameters<typeof memoryRetrospectiveJob>[1] {
   return {
@@ -270,6 +297,7 @@ function makeConfig(
       v2: { enabled: true },
       retrospective: {
         keepSupersededRuns: overrides.keepSupersededRuns ?? false,
+        matchConversationProfile: overrides.matchConversationProfile ?? false,
       },
     },
     ui: {
@@ -669,6 +697,76 @@ describe("memoryRetrospectiveJob", () => {
     expect(outcome.kind).toBe("invoked");
     expect(forkCalls).toHaveLength(1);
     expect(lastRunAtBumps).toHaveLength(0);
+  });
+
+  test("fork path: matchConversationProfile on + source inferenceProfile present → wake carries forceOverrideProfile", async () => {
+    forkFlagEnabled = true;
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+      conversationType: "standard",
+      inferenceProfile: "profile-x",
+    };
+
+    const outcome = await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ matchConversationProfile: true }),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.opts.forceOverrideProfile).toBe("profile-x");
+    // Attribution bucket is unchanged — only the resolved profile floats.
+    expect(wakeCalls[0]!.opts.callSite).toBe("memoryRetrospective");
+  });
+
+  test("fork path: matchConversationProfile off (default) → wake carries no forceOverrideProfile", async () => {
+    forkFlagEnabled = true;
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+      conversationType: "standard",
+      inferenceProfile: "profile-x",
+    };
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(wakeCalls).toHaveLength(1);
+    expect("forceOverrideProfile" in wakeCalls[0]!.opts).toBe(false);
+  });
+
+  test("fork path: matchConversationProfile on but source has no inferenceProfile → wake carries no forceOverrideProfile", async () => {
+    forkFlagEnabled = true;
+
+    await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ matchConversationProfile: true }),
+    );
+
+    expect(wakeCalls).toHaveLength(1);
+    expect("forceOverrideProfile" in wakeCalls[0]!.opts).toBe(false);
+  });
+
+  test("fork path: matchConversationProfile on but the profile session expired → wake carries no forceOverrideProfile", async () => {
+    forkFlagEnabled = true;
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+      conversationType: "standard",
+      inferenceProfile: "profile-x",
+      inferenceProfileExpiresAt: Date.now() - 1000,
+    };
+
+    await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ matchConversationProfile: true }),
+    );
+
+    expect(wakeCalls).toHaveLength(1);
+    expect("forceOverrideProfile" in wakeCalls[0]!.opts).toBe(false);
   });
 
   test("legacy path: source mid-turn still runs (gate is fork-path only)", async () => {

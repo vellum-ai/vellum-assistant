@@ -161,6 +161,81 @@ describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
     expect(runArgs[0]!.options?.requestId).toBe("wake:scheduler");
   });
 
+  test("forceOverrideProfile replaces the pinned-profile lookup and forwards the force flag to agentLoop.run", async () => {
+    // The conversation's own pinned profile must be ignored — the caller's
+    // forced profile (e.g. a fork-based retrospective matching the source
+    // conversation) takes its place AND floats above the call-site layers
+    // via the resolver's `forceOverrideProfile` escape hatch.
+    mockOverrideProfile = "pinned-ignored";
+    mockLlmConfig = LLMSchema.parse({
+      default: {
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        maxTokens: 64000,
+        contextWindow: { maxInputTokens: 200000 },
+      },
+      profiles: {
+        forced: {
+          contextWindow: { maxInputTokens: 120000 },
+        },
+      },
+      callSites: {
+        memoryRetrospective: { contextWindow: { maxInputTokens: 180000 } },
+      },
+    }) as Record<string, unknown>;
+    const { target, runArgs } = makeTarget();
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "test hint",
+        source: "memory-retrospective",
+        callSite: "memoryRetrospective",
+        forceOverrideProfile: "forced",
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(result.invoked).toBe(true);
+    expect(runArgs).toHaveLength(1);
+    expect(runArgs[0]!.options?.overrideProfile).toBe("forced");
+    expect(runArgs[0]!.options?.forceOverrideProfile).toBe(true);
+    expect(runArgs[0]!.options?.callSite).toBe("memoryRetrospective");
+    // The effective context window resolves under the FORCED profile, above
+    // the explicit call-site override (120k beats the call site's 180k).
+    expect(runArgs[0]!.options?.resolveContextWindow?.().maxInputTokens).toBe(
+      120000,
+    );
+  });
+
+  test("without forceOverrideProfile the wake never sets the force flag", async () => {
+    mockOverrideProfile = "frontier";
+    mockLlmConfig = LLMSchema.parse({
+      default: {
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        maxTokens: 64000,
+        contextWindow: { maxInputTokens: 200000 },
+      },
+      profiles: { frontier: {} },
+      callSites: { mainAgent: {} },
+    }) as Record<string, unknown>;
+    const { target, runArgs } = makeTarget();
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "test hint",
+        source: "scheduler",
+      },
+      { resolveTarget: async () => target },
+    );
+
+    expect(runArgs).toHaveLength(1);
+    expect(runArgs[0]!.options?.overrideProfile).toBe("frontier");
+    expect(runArgs[0]!.options?.forceOverrideProfile).toBe(false);
+  });
+
   test("passes undefined overrideProfile when the conversation has no pinned profile, but still forwards mainAgent callSite", async () => {
     mockOverrideProfile = undefined;
     const { target, runArgs } = makeTarget();
