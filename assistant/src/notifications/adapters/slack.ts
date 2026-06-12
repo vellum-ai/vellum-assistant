@@ -104,9 +104,9 @@ function buildAccessRequestBlocks(payload: Record<string, unknown>): unknown[] {
         : undefined;
     let channelDisplay = sourceChannel;
     if (sourceChannel === "slack" && conversationExternalId) {
-      // Slack channel IDs starting with C are public/private channels;
-      // D-prefixed IDs are DMs. Use <#C...> mrkdwn for clickable channel links.
-      if (/^C[A-Z0-9]+$/i.test(conversationExternalId)) {
+      // C = public/private channels, G = group DMs / MPIMs / legacy private channels.
+      // Both support the <#ID> mrkdwn deep-link. D = 1:1 DMs (no linkable channel).
+      if (/^[CG][A-Z0-9]+$/i.test(conversationExternalId)) {
         channelDisplay = `Slack — <#${conversationExternalId}>`;
       } else {
         channelDisplay = "Slack — Direct message";
