@@ -2901,14 +2901,8 @@ jobs:
           xcrun stapler validate "${{ steps.dmg.outputs.dmg_path }}"
           echo "Electron notarization ticket stapled and validated"
 
-      - name: Upload Electron DMG artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: apps/macos/dist/${{ matrix.dmg_name }}
-          if-no-files-found: error
-          retention-days: 7
-
+      # Update artifacts upload before the DMG so a DMG artifact never exists
+      # without its update feed (a DMG shipped without one strands auto-update).
       - name: Upload Electron update artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -2917,7 +2911,15 @@ jobs:
             apps/macos/dist/*-mac.yml
             apps/macos/dist/*.zip
             apps/macos/dist/*.zip.blockmap
-          if-no-files-found: warn
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload Electron DMG artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: apps/macos/dist/${{ matrix.dmg_name }}
+          if-no-files-found: error
           retention-days: 7
 
       - name: Cleanup keychain and keys
@@ -2944,23 +2946,35 @@ jobs:
       contents: read
       id-token: write
     steps:
+      # build-electron is continue-on-error, so a failed leg still reports
+      # result == 'success' to needs — its artifacts may simply not exist.
+      # Missing arches are skipped (Electron is non-blocking); an arch that is
+      # present but incomplete fails the job, which blocks the release gate.
       - name: Download arm64 update artifacts
+        continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: macos-electron-update-arm64
           path: electron-artifacts/arm64
 
       - name: Download x64 update artifacts
+        continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: macos-electron-update-x64
           path: electron-artifacts/x64
 
       - name: Validate update artifacts
+        id: validate
         run: |
-          MISSING=0
+          HAS_ARTIFACTS=false
           for ARCH in arm64 x64; do
             DIR="electron-artifacts/${ARCH}"
+            if [ ! -d "$DIR" ]; then
+              echo "::warning::No update artifacts for ${ARCH} (Electron build leg failed); skipping"
+              continue
+            fi
+            MISSING=0
             if [ ! -f "$(find "$DIR" -name '*-mac.yml' -type f 2>/dev/null | grep -m1 .)" ]; then
               echo "::error::Missing update manifest (*-mac.yml) for ${ARCH}"
               MISSING=1
@@ -2969,16 +2983,20 @@ jobs:
               echo "::error::Missing ZIP for ${ARCH}"
               MISSING=1
             fi
+            [ "$MISSING" -eq 0 ] || exit 1
+            HAS_ARTIFACTS=true
           done
-          [ "$MISSING" -eq 0 ] || exit 1
+          echo "has_artifacts=$HAS_ARTIFACTS" >> "$GITHUB_OUTPUT"
 
       - name: Authenticate to GCP
+        if: ${{ steps.validate.outputs.has_artifacts == 'true' }}
         uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
       - name: Upload Electron update artifacts to GCS
+        if: ${{ steps.validate.outputs.has_artifacts == 'true' }}
         run: |
           ENVIRONMENT=${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
           BUCKET=${{ needs.extract-version.outputs.is_staging == 'true' && 'vellum-ai-staging-releases' || 'vellum-ai-prod-releases' }}
