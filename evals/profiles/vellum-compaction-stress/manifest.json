@@ -1,4 +1,3 @@
 {
-  "species": "vellum",
-  "setup": ["assistant plugins install simple-memory"]
+  "species": "vellum"
 }
