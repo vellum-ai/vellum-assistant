@@ -13,10 +13,10 @@ import { exec } from "./commands/exec";
 import { flags } from "./commands/flags";
 import { gateway } from "./commands/gateway";
 import { hatch } from "./commands/hatch";
-import { ingress } from "./commands/ingress";
 import { login, logout, whoami } from "./commands/login";
 import { logs } from "./commands/logs";
 import { message } from "./commands/message";
+import { nginxIngress } from "./commands/nginx-ingress";
 import { pair } from "./commands/pair";
 import { ps } from "./commands/ps";
 import { recover } from "./commands/recover";
@@ -51,11 +51,11 @@ const commands = {
   flags,
   gateway,
   hatch,
-  ingress,
   login,
   logout,
   logs,
   message,
+  "nginx-ingress": nginxIngress,
   pair,
   ps,
   recover,
@@ -99,7 +99,7 @@ function printHelp(): void {
   console.log("  gateway  Gateway management commands");
   console.log("  hatch    Create a new assistant instance");
   console.log(
-    "  ingress  Manage the nginx proxy fronting the gateway for web access [beta]",
+    "  nginx-ingress  Manage the nginx proxy fronting the gateway for web access [beta]",
   );
   console.log("  logs     View logs from an assistant instance");
   console.log("  login    Log in to the Vellum platform");

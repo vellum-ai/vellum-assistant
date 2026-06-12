@@ -25,15 +25,15 @@ import { GATEWAY_PORT } from "./constants.js";
  * port instead of the gateway port.
  */
 
-export const DEFAULT_INGRESS_PORT = 8080;
+export const DEFAULT_NGINX_INGRESS_PORT = 8080;
 
-/** Listen port for the ingress, from VELLUM_INGRESS_PORT (default 8080). */
-export function getIngressPort(): number {
-  const raw = process.env.VELLUM_INGRESS_PORT;
-  if (!raw) return DEFAULT_INGRESS_PORT;
+/** Listen port for nginx ingress, from VELLUM_NGINX_INGRESS_PORT. */
+export function getNginxIngressPort(): number {
+  const raw = process.env.VELLUM_NGINX_INGRESS_PORT;
+  if (!raw) return DEFAULT_NGINX_INGRESS_PORT;
   const value = Number(raw);
   if (!Number.isInteger(value) || value < 1 || value > 65535) {
-    throw new Error("VELLUM_INGRESS_PORT must be a valid TCP port");
+    throw new Error("VELLUM_NGINX_INGRESS_PORT must be a valid TCP port");
   }
   return value;
 }
