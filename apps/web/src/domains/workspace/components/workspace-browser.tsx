@@ -57,6 +57,15 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
     setDrawerOpen(false);
   }, []);
 
+  const handlePathDeleted = useCallback((path: string) => {
+    const isDeleted = (p: string) => p === path || p.startsWith(`${path}/`);
+    setSelectedPath((prev) => (prev !== null && isDeleted(prev) ? null : prev));
+    setExpandedPaths((prev) => {
+      const next = new Set([...prev].filter((p) => !isDeleted(p)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, []);
+
   const treeProps = {
     assistantId,
     expandedPaths,
@@ -68,6 +77,7 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
     onSelectPath: handleSelectPath,
     onToggleShowHidden: () => setShowHidden((v) => !v),
     onChangeSortMode: setSortMode,
+    onPathDeleted: handlePathDeleted,
   };
 
   return (

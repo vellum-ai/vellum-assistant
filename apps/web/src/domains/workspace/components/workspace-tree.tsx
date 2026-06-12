@@ -24,6 +24,7 @@ import {
     Image as ImageIcon,
     Plus,
     Search,
+    Trash2,
     Video,
     X,
 } from "lucide-react";
@@ -42,6 +43,7 @@ import {
     type WorkspaceSortMode,
 } from "@/domains/workspace/utils/sort-entries";
 import {
+    workspaceDeletePost,
     workspaceMkdirPost,
     workspaceTreeGet,
     workspaceWritePost,
@@ -50,6 +52,7 @@ import type { WorkspaceTreeGetResponse } from "@/generated/daemon/types.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { BottomSheet } from "@vellumai/design-library/components/bottom-sheet";
 import { Button } from "@vellumai/design-library/components/button";
+import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Input } from "@vellumai/design-library/components/input";
 import { PanelItem } from "@vellumai/design-library/components/panel-item";
 import { Popover } from "@vellumai/design-library/components/popover";
@@ -61,6 +64,12 @@ export type { WorkspaceSortMode };
 // ---------------------------------------------------------------------------
 
 type WorkspaceTreeEntry = WorkspaceTreeGetResponse["entries"][number];
+
+interface DeleteTarget {
+  path: string;
+  name: string;
+  isDirectory: boolean;
+}
 
 function workspaceTreeRetrieveOptions(opts: {
   path: { assistant_id: string };
@@ -135,6 +144,7 @@ function TreeNode({
   searchLower,
   onToggleExpand,
   onSelectPath,
+  onRequestDelete,
   depth,
 }: {
   entry: WorkspaceTreeEntry;
@@ -146,6 +156,7 @@ function TreeNode({
   searchLower: string;
   onToggleExpand: (path: string) => void;
   onSelectPath: (path: string) => void;
+  onRequestDelete: (target: DeleteTarget) => void;
   depth: number;
 }) {
   const entryPath = entry.path ?? "";
@@ -194,49 +205,68 @@ function TreeNode({
 
   return (
     <div>
-      <button
-        onClick={handleClick}
-        className="group flex w-full items-center gap-1.5 px-2 py-1 text-left text-body-medium-lighter transition-colors hover:bg-[var(--surface-hover)]"
-        style={{
-          paddingLeft: `${depth * 14 + 8}px`,
-          paddingRight: "8px",
-          color: isSelected
-            ? "var(--content-default)"
-            : isHidden
-              ? "var(--content-tertiary)"
-              : "var(--content-default)",
-          backgroundColor: isSelected
-            ? "color-mix(in oklab, var(--primary-base) 12%, transparent)"
-            : undefined,
-          opacity: isHidden && !isSelected ? 0.7 : 1,
-        }}
-      >
-        {isDirectory ? (
-          effectivelyExpanded ? (
-            <ChevronDown
-              className="h-3 w-3 shrink-0"
-              style={{ color: "var(--content-tertiary)" }}
-            />
+      <div className="group relative">
+        <button
+          onClick={handleClick}
+          className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-body-medium-lighter transition-colors hover:bg-[var(--surface-hover)]"
+          style={{
+            paddingLeft: `${depth * 14 + 8}px`,
+            paddingRight: "8px",
+            color: isSelected
+              ? "var(--content-default)"
+              : isHidden
+                ? "var(--content-tertiary)"
+                : "var(--content-default)",
+            backgroundColor: isSelected
+              ? "color-mix(in oklab, var(--primary-base) 12%, transparent)"
+              : undefined,
+            opacity: isHidden && !isSelected ? 0.7 : 1,
+          }}
+        >
+          {isDirectory ? (
+            effectivelyExpanded ? (
+              <ChevronDown
+                className="h-3 w-3 shrink-0"
+                style={{ color: "var(--content-tertiary)" }}
+              />
+            ) : (
+              <ChevronRight
+                className="h-3 w-3 shrink-0"
+                style={{ color: "var(--content-tertiary)" }}
+              />
+            )
           ) : (
-            <ChevronRight
-              className="h-3 w-3 shrink-0"
+            <span className="h-3 w-3 shrink-0" />
+          )}
+          <FileIconForEntry entry={entry} />
+          <span className="min-w-0 flex-1 truncate">{entryName}</span>
+          {entry.size != null && (
+            <span
+              className="shrink-0 text-label-medium-default tabular-nums group-hover:invisible group-focus-within:invisible"
               style={{ color: "var(--content-tertiary)" }}
-            />
-          )
-        ) : (
-          <span className="h-3 w-3 shrink-0" />
-        )}
-        <FileIconForEntry entry={entry} />
-        <span className="min-w-0 flex-1 truncate">{entryName}</span>
-        {entry.size != null && (
-          <span
-            className="shrink-0 text-label-medium-default tabular-nums"
-            style={{ color: "var(--content-tertiary)" }}
-          >
-            {formatFileSize(entry.size)}
-          </span>
-        )}
-      </button>
+            >
+              {formatFileSize(entry.size)}
+            </span>
+          )}
+        </button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="compact"
+          iconOnly={<Trash2 aria-hidden />}
+          onClick={() =>
+            onRequestDelete({
+              path: entryPath,
+              name: entryName,
+              isDirectory,
+            })
+          }
+          aria-label={`Delete ${entryName}`}
+          title="Delete"
+          className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+          tintColor="var(--content-tertiary)"
+        />
+      </div>
       {isDirectory && effectivelyExpanded && children.length > 0 && (
         <div>
           {children.map((child) => (
@@ -251,6 +281,7 @@ function TreeNode({
               searchLower={searchLower}
               onToggleExpand={onToggleExpand}
               onSelectPath={onSelectPath}
+              onRequestDelete={onRequestDelete}
               depth={depth + 1}
             />
           ))}
@@ -363,6 +394,7 @@ export function WorkspaceTree({
   onSelectPath,
   onToggleShowHidden,
   onChangeSortMode,
+  onPathDeleted,
 }: {
   assistantId: string;
   expandedPaths: Set<string>;
@@ -374,6 +406,7 @@ export function WorkspaceTree({
   onSelectPath: (path: string) => void;
   onToggleShowHidden: () => void;
   onChangeSortMode: (next: WorkspaceSortMode) => void;
+  onPathDeleted: (path: string) => void;
 }) {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -447,6 +480,37 @@ export function WorkspaceTree({
       createMutation.mutate({ kind: dialogKind, name });
     },
     [dialogKind, createMutation],
+  );
+
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+
+  const deleteMutation = useMutation({
+    mutationFn: async (target: DeleteTarget) => {
+      const { error, response } = await workspaceDeletePost({
+        path: { assistant_id: assistantId },
+        body: { path: target.path },
+        throwOnError: false,
+      });
+      if (error || !response?.ok) {
+        throw new Error(
+          typeof error === "string" ? error : "Failed to delete — try again.",
+        );
+      }
+      return target;
+    },
+    onSuccess: (target) => {
+      setDeleteTarget(null);
+      invalidateTree();
+      onPathDeleted(target.path);
+    },
+  });
+
+  const handleRequestDelete = useCallback(
+    (target: DeleteTarget) => {
+      deleteMutation.reset();
+      setDeleteTarget(target);
+    },
+    [deleteMutation],
   );
 
   return (
@@ -567,6 +631,7 @@ export function WorkspaceTree({
               searchLower={searchLower}
               onToggleExpand={onToggleExpand}
               onSelectPath={onSelectPath}
+              onRequestDelete={handleRequestDelete}
               depth={0}
             />
           ))
@@ -586,6 +651,36 @@ export function WorkspaceTree({
           error={dialogError}
         />
       )}
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title={deleteTarget?.isDirectory ? "Delete Folder" : "Delete File"}
+        message={
+          <>
+            Are you sure you want to delete{" "}
+            <span style={{ color: "var(--content-default)" }}>
+              {deleteTarget?.name}
+            </span>
+            {deleteTarget?.isDirectory ? " and all of its contents" : ""}? This
+            cannot be undone.
+            {deleteMutation.error && (
+              <span
+                className="mt-2 block"
+                style={{ color: "var(--system-negative-strong)" }}
+              >
+                {deleteMutation.error.message}
+              </span>
+            )}
+          </>
+        }
+        confirmLabel={deleteMutation.isPending ? "Deleting…" : "Delete"}
+        destructive
+        isPending={deleteMutation.isPending}
+        onConfirm={() => {
+          if (deleteTarget) deleteMutation.mutate(deleteTarget);
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </>
   );
 }
