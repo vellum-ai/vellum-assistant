@@ -527,13 +527,21 @@ export const VoiceInputButton = forwardRef<
     },
     // The dictation overlay's stop button. While recording it ends the
     // session the normal way (capture stops, audio goes to STT); while
-    // processing it abandons the transcription outright.
+    // processing it abandons the transcription outright. Both branches
+    // need an ownership guard: two instances are mounted per window (chat
+    // composer + the headless push-to-talk bridge) and the non-owner must
+    // not touch the shared store — its vsReset would flip the phase to
+    // idle before the owner's handler runs, leaving the owner's STT
+    // request alive to insert the transcript anyway. The owner is the
+    // instance holding the recorder (recording, or stopped but onstop
+    // hasn't run) or the in-flight transcribe abort controller.
     stopDictation: () => {
       const { phase } = useVoiceRecordingStore.getState();
       if (phase === "recording") {
         if (!mediaRecorderRef.current) return;
         stopRecording();
       } else if (phase === "processing") {
+        if (!mediaRecorderRef.current && !transcribeAbortRef.current) return;
         abortProcessing();
       }
     },
