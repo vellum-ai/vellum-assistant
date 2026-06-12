@@ -72,6 +72,16 @@ describe("098-remove-stale-updates-bulletin-file", () => {
     expect(existsSync(updatesPath())).toBe(false);
   });
 
+  test("preserves a file without release-note markers (user-repurposed)", () => {
+    const userContent = "# My own notes\n\nThe user repurposed this file.\n";
+    writeFileSync(updatesPath(), userContent, "utf-8");
+
+    removeStaleUpdatesBulletinFileMigration.run(workspaceDir);
+
+    expect(existsSync(updatesPath())).toBe(true);
+    expect(readFileSync(updatesPath(), "utf-8")).toBe(userContent);
+  });
+
   test("preserves a file containing a config-quarantine note", () => {
     const mixed = `${RELEASE_NOTES_CONTENT}\n${QUARANTINE_CONTENT}`;
     writeFileSync(updatesPath(), mixed, "utf-8");

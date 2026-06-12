@@ -14,18 +14,27 @@ const MIGRATION_ID = "098-remove-stale-updates-bulletin-file";
 const CONFIG_QUARANTINE_MARKER_PREFIX = "<!-- config-quarantine:";
 
 /**
+ * Marker embedded by the historical release-note migrations in every block
+ * they appended. Its presence identifies a file as system-written bulletin
+ * content; a file without any release-note marker may have been repurposed
+ * by the user and is left untouched.
+ */
+const RELEASE_NOTE_MARKER_PREFIX = "<!-- release-note-id:";
+
+/**
  * Remove a leftover `UPDATES.md` from workspaces.
  *
  * Release notes used to be appended to `<workspace>/UPDATES.md` by workspace
  * migrations and processed by a background conversation dispatched at daemon
  * startup. That processing job has been removed, so any accumulated release
  * notes in the file will never be consumed — they are stale noise that the
- * agent could stumble over. Delete the file unless it contains a
+ * agent could stumble over. Delete the file only when it is identifiable as
+ * bulletin content (contains a release-note marker) and contains no
  * config-quarantine note (those remain meaningful as passive workspace
  * context).
  *
- * Idempotent: deleting an already-deleted file is a no-op, and a file that
- * only ever contains quarantine notes is permanently skipped.
+ * Idempotent: deleting an already-deleted file is a no-op, and skipped files
+ * are skipped again on re-run.
  */
 export const removeStaleUpdatesBulletinFileMigration: WorkspaceMigration = {
   id: MIGRATION_ID,
@@ -40,6 +49,9 @@ export const removeStaleUpdatesBulletinFileMigration: WorkspaceMigration = {
 
     const content = readFileSync(updatesPath, "utf-8");
     if (content.includes(CONFIG_QUARANTINE_MARKER_PREFIX)) {
+      return;
+    }
+    if (!content.includes(RELEASE_NOTE_MARKER_PREFIX)) {
       return;
     }
 
