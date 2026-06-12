@@ -2,7 +2,6 @@ import {
   findAssistantByName,
   getActiveAssistant,
   loadAllAssistants,
-  normalizeVersion,
   resolveCloud,
   saveAssistantEntry,
   type AssistantEntry,
@@ -403,11 +402,6 @@ export async function rollback(): Promise<void> {
           networkName: res.network,
         },
         previousContainerInfo: entry.containerInfo,
-        // Cleared (not preserved) when the rolled-back-to version is unknown
-        version:
-          previousVersion !== "unknown"
-            ? normalizeVersion(previousVersion)
-            : undefined,
         // Clear the backup path — it belonged to the upgrade we just rolled back
         preUpgradeBackupPath: undefined,
         previousDbMigrationVersion: undefined,
