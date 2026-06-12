@@ -1,7 +1,7 @@
 import { Loader2, Search } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
     getDefaultModelForProvider,
@@ -28,10 +28,8 @@ import {
     selectSeedProfileForOverride,
     visibleProfilesForPicker,
 } from "@/assistant/profile-pickers";
-import {
-    useDaemonConfigMutation,
-    useDaemonConfigQuery,
-} from "@/domains/settings/ai/use-daemon-config";
+import { buildOrderedProfiles } from "@/domains/settings/ai/ai-utils";
+import { configGetOptions, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -92,12 +90,26 @@ function CallSiteOverridesModalInner({
   onClose,
   onSavingChange,
 }: InnerProps) {
-  const {
-    orderedProfiles,
-    callSites: persistedOverrides,
-    config: daemonConfig,
-  } = useDaemonConfigQuery();
-  const configMutation = useDaemonConfigMutation();
+  const queryClient = useQueryClient();
+
+  const { data: daemonConfig } = useQuery({
+    ...configGetOptions({ path: { assistant_id: assistantId } }),
+    staleTime: 30_000,
+  });
+
+  const profiles = useMemo(() => daemonConfig?.llm?.profiles ?? {}, [daemonConfig?.llm?.profiles]);
+  const profileOrder = useMemo(() => daemonConfig?.llm?.profileOrder ?? [], [daemonConfig?.llm?.profileOrder]);
+  const persistedOverrides = useMemo(() => daemonConfig?.llm?.callSites ?? {}, [daemonConfig?.llm?.callSites]);
+  const orderedProfiles = useMemo(
+    () => buildOrderedProfiles(profiles, profileOrder),
+    [profiles, profileOrder],
+  );
+
+  const configMutation = useConfigPatchMutation({
+    onSuccess: (data) => {
+      configGetSetQueryData(queryClient, { path: { assistant_id: assistantId } }, data);
+    },
+  });
 
   const [search, setSearch] = useState("");
   const [draftEdits, setDraftEdits] = useState<
@@ -302,7 +314,7 @@ function CallSiteOverridesModalInner({
             }
           : null;
       }
-      await configMutation.mutateAsync({ llm: { callSites: patch } });
+      await configMutation.mutateAsync({ path: { assistant_id: assistantId }, body: { llm: { callSites: patch } } });
       onClose();
       toast.success("Overrides saved.");
     } catch (error) {
@@ -312,7 +324,7 @@ function CallSiteOverridesModalInner({
       setSaving(false);
       onSavingChange?.(false);
     }
-  }, [drafts, onClose, configMutation, onSavingChange]);
+  }, [drafts, onClose, configMutation, onSavingChange, assistantId]);
 
   const handleReset = useCallback(async () => {
     setSaving(true);
@@ -322,7 +334,7 @@ function CallSiteOverridesModalInner({
       for (const id of Object.keys(drafts)) {
         resetPatch[id] = null;
       }
-      await configMutation.mutateAsync({ llm: { callSites: resetPatch } });
+      await configMutation.mutateAsync({ path: { assistant_id: assistantId }, body: { llm: { callSites: resetPatch } } });
       onClose();
       toast.success("Overrides reset.");
     } catch (error) {
@@ -332,7 +344,7 @@ function CallSiteOverridesModalInner({
       setSaving(false);
       onSavingChange?.(false);
     }
-  }, [drafts, onClose, configMutation, onSavingChange]);
+  }, [drafts, onClose, configMutation, onSavingChange, assistantId]);
 
   // ---------------------------------------------------------------------------
   // Render

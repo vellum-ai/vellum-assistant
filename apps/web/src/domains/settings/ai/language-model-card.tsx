@@ -1,6 +1,9 @@
 import { Loader2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
+import { useQueryClient } from "@tanstack/react-query";
+
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { Button } from "@vellumai/design-library/components/button";
@@ -9,6 +12,7 @@ import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import { ByoServiceCard, SaveButton } from "@/domains/settings/ai/ai-shared-ui";
+import { buildOrderedProfiles } from "@/domains/settings/ai/ai-utils";
 import { CallSiteOverridesModal } from "@/domains/settings/ai/call-site-overrides-modal";
 import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal";
 import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal";
@@ -18,17 +22,34 @@ import {
     profilePickerLabel,
     visibleProfilesForPicker,
 } from "@/assistant/profile-pickers";
-import { useDaemonConfigMutation, useDaemonConfigQuery } from "@/domains/settings/ai/use-daemon-config";
+import { configGetOptions, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
+import { useQuery } from "@tanstack/react-query";
 
 export function LanguageModelCard() {
-  const {
-    assistantId,
-    orderedProfiles,
-    activeProfile,
-    callSites,
-  } = useDaemonConfigQuery();
-  const configMutation = useDaemonConfigMutation();
+  const assistantId = useActiveAssistantId();
+  const queryClient = useQueryClient();
+
+  const { data: config } = useQuery({
+    ...configGetOptions({ path: { assistant_id: assistantId } }),
+    staleTime: 30_000,
+  });
+
+  const activeProfile = config?.llm?.activeProfile ?? null;
+  const callSites = config?.llm?.callSites ?? {};
+  const orderedProfiles = useMemo(
+    () => buildOrderedProfiles(
+      config?.llm?.profiles ?? {},
+      config?.llm?.profileOrder ?? [],
+    ),
+    [config?.llm?.profiles, config?.llm?.profileOrder],
+  );
+
+  const configMutation = useConfigPatchMutation({
+    onSuccess: (data) => {
+      configGetSetQueryData(queryClient, { path: { assistant_id: assistantId } }, data);
+    },
+  });
 
   const [effectiveActiveProfile, setDraftActiveProfile] = useDraftOverride(activeProfile);
 
@@ -58,13 +79,16 @@ export function LanguageModelCard() {
 
   const handleManagedProfileSave = useCallback(async () => {
     try {
-      await configMutation.mutateAsync({ llm: { activeProfile: effectiveActiveProfile } });
+      await configMutation.mutateAsync({
+        path: { assistant_id: assistantId },
+        body: { llm: { activeProfile: effectiveActiveProfile } },
+      });
       toast.success("Profile saved.");
     } catch (error) {
       toast.error("Failed to switch profile. Please try again.");
       captureError(error, { context: "settings-ai-language-model-save" });
     }
-  }, [effectiveActiveProfile, configMutation]);
+  }, [effectiveActiveProfile, configMutation, assistantId]);
 
   return (
     <>

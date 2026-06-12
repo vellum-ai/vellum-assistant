@@ -4706,7 +4706,7 @@ paths:
     patch:
       operationId: config_patch
       summary: Patch config
-      description: Deep-merge a partial JSON object into the settings.json configuration.
+      description: Deep-merge a partial JSON object into the settings.json configuration. Returns the full merged config.
       tags:
         - config
       responses:
@@ -4717,11 +4717,496 @@ paths:
               schema:
                 type: object
                 properties:
-                  ok:
-                    type: boolean
-                required:
-                  - ok
-                additionalProperties: false
+                  llm:
+                    type: object
+                    properties:
+                      default:
+                        type: object
+                        properties:
+                          provider:
+                            type: string
+                            enum:
+                              - anthropic
+                              - openai
+                              - gemini
+                              - ollama
+                              - fireworks
+                              - openrouter
+                              - openai-compatible
+                              - minimax
+                          model:
+                            type: string
+                            minLength: 1
+                          maxTokens:
+                            type: integer
+                            exclusiveMinimum: 0
+                            maximum: 9007199254740991
+                          effort:
+                            type: string
+                            enum:
+                              - none
+                              - low
+                              - medium
+                              - high
+                              - xhigh
+                              - max
+                          speed:
+                            type: string
+                            enum:
+                              - standard
+                              - fast
+                          verbosity:
+                            type: string
+                            enum:
+                              - low
+                              - medium
+                              - high
+                          temperature:
+                            anyOf:
+                              - type: number
+                                minimum: 0
+                                maximum: 2
+                              - type: "null"
+                          thinking:
+                            type: object
+                            properties:
+                              enabled:
+                                type: boolean
+                              streamThinking:
+                                type: boolean
+                              level:
+                                type: string
+                                enum:
+                                  - minimal
+                                  - low
+                                  - medium
+                                  - high
+                            additionalProperties: false
+                          contextWindow:
+                            type: object
+                            properties:
+                              enabled:
+                                type: boolean
+                              maxInputTokens:
+                                type: integer
+                                exclusiveMinimum: 0
+                                maximum: 9007199254740991
+                              targetBudgetRatio:
+                                type: number
+                                exclusiveMinimum: 0
+                                maximum: 1
+                              compactThreshold:
+                                type: number
+                                exclusiveMinimum: 0
+                                maximum: 1
+                              summaryBudgetRatio:
+                                type: number
+                                exclusiveMinimum: 0
+                                maximum: 1
+                              overflowRecovery:
+                                type: object
+                                properties:
+                                  enabled:
+                                    type: boolean
+                                  safetyMarginRatio:
+                                    type: number
+                                    exclusiveMinimum: 0
+                                    exclusiveMaximum: 1
+                                  maxAttempts:
+                                    type: integer
+                                    exclusiveMinimum: 0
+                                    maximum: 9007199254740991
+                                  interactiveLatestTurnCompression:
+                                    type: string
+                                    enum:
+                                      - truncate
+                                      - summarize
+                                      - drop
+                                  nonInteractiveLatestTurnCompression:
+                                    type: string
+                                    enum:
+                                      - truncate
+                                      - summarize
+                                      - drop
+                                additionalProperties: false
+                            additionalProperties: false
+                          openrouter:
+                            type: object
+                            properties:
+                              only:
+                                type: array
+                                items:
+                                  type: string
+                                  minLength: 1
+                            additionalProperties: false
+                          logitBias:
+                            type: string
+                            enum:
+                              - suppress-cjk
+                          disableCache:
+                            type: boolean
+                          provider_connection:
+                            type: string
+                        additionalProperties: false
+                      profiles:
+                        type: object
+                        propertyNames:
+                          type: string
+                        additionalProperties:
+                          type: object
+                          properties:
+                            provider:
+                              type: string
+                              enum:
+                                - anthropic
+                                - openai
+                                - gemini
+                                - ollama
+                                - fireworks
+                                - openrouter
+                                - openai-compatible
+                                - minimax
+                            model:
+                              type: string
+                              minLength: 1
+                            maxTokens:
+                              type: integer
+                              exclusiveMinimum: 0
+                              maximum: 9007199254740991
+                            effort:
+                              type: string
+                              enum:
+                                - none
+                                - low
+                                - medium
+                                - high
+                                - xhigh
+                                - max
+                            speed:
+                              type: string
+                              enum:
+                                - standard
+                                - fast
+                            verbosity:
+                              type: string
+                              enum:
+                                - low
+                                - medium
+                                - high
+                            temperature:
+                              anyOf:
+                                - type: number
+                                  minimum: 0
+                                  maximum: 2
+                                - type: "null"
+                            thinking:
+                              type: object
+                              properties:
+                                enabled:
+                                  type: boolean
+                                streamThinking:
+                                  type: boolean
+                                level:
+                                  type: string
+                                  enum:
+                                    - minimal
+                                    - low
+                                    - medium
+                                    - high
+                              additionalProperties: false
+                            contextWindow:
+                              type: object
+                              properties:
+                                enabled:
+                                  type: boolean
+                                maxInputTokens:
+                                  type: integer
+                                  exclusiveMinimum: 0
+                                  maximum: 9007199254740991
+                                targetBudgetRatio:
+                                  type: number
+                                  exclusiveMinimum: 0
+                                  maximum: 1
+                                compactThreshold:
+                                  type: number
+                                  exclusiveMinimum: 0
+                                  maximum: 1
+                                summaryBudgetRatio:
+                                  type: number
+                                  exclusiveMinimum: 0
+                                  maximum: 1
+                                overflowRecovery:
+                                  type: object
+                                  properties:
+                                    enabled:
+                                      type: boolean
+                                    safetyMarginRatio:
+                                      type: number
+                                      exclusiveMinimum: 0
+                                      exclusiveMaximum: 1
+                                    maxAttempts:
+                                      type: integer
+                                      exclusiveMinimum: 0
+                                      maximum: 9007199254740991
+                                    interactiveLatestTurnCompression:
+                                      type: string
+                                      enum:
+                                        - truncate
+                                        - summarize
+                                        - drop
+                                    nonInteractiveLatestTurnCompression:
+                                      type: string
+                                      enum:
+                                        - truncate
+                                        - summarize
+                                        - drop
+                                  additionalProperties: false
+                              additionalProperties: false
+                            openrouter:
+                              type: object
+                              properties:
+                                only:
+                                  type: array
+                                  items:
+                                    type: string
+                                    minLength: 1
+                              additionalProperties: false
+                            logitBias:
+                              type: string
+                              enum:
+                                - suppress-cjk
+                            disableCache:
+                              type: boolean
+                            source:
+                              type: string
+                              enum:
+                                - managed
+                                - user
+                            label:
+                              anyOf:
+                                - type: string
+                                  minLength: 1
+                                - type: "null"
+                            description:
+                              type: string
+                            provider_connection:
+                              type: string
+                              minLength: 1
+                            status:
+                              anyOf:
+                                - type: string
+                                  enum:
+                                    - active
+                                    - disabled
+                                - type: "null"
+                            mix:
+                              minItems: 2
+                              type: array
+                              items:
+                                type: object
+                                properties:
+                                  profile:
+                                    type: string
+                                    minLength: 1
+                                  weight:
+                                    type: number
+                                    exclusiveMinimum: 0
+                                required:
+                                  - profile
+                                  - weight
+                                additionalProperties: false
+                            supportsVision:
+                              type: boolean
+                          additionalProperties: false
+                      profileOrder:
+                        type: array
+                        items:
+                          type: string
+                      activeProfile:
+                        type: string
+                      callSites:
+                        type: object
+                        propertyNames:
+                          type: string
+                        additionalProperties:
+                          anyOf:
+                            - type: object
+                              properties:
+                                provider:
+                                  type: string
+                                  enum:
+                                    - anthropic
+                                    - openai
+                                    - gemini
+                                    - ollama
+                                    - fireworks
+                                    - openrouter
+                                    - openai-compatible
+                                    - minimax
+                                model:
+                                  type: string
+                                  minLength: 1
+                                maxTokens:
+                                  type: integer
+                                  exclusiveMinimum: 0
+                                  maximum: 9007199254740991
+                                effort:
+                                  type: string
+                                  enum:
+                                    - none
+                                    - low
+                                    - medium
+                                    - high
+                                    - xhigh
+                                    - max
+                                speed:
+                                  type: string
+                                  enum:
+                                    - standard
+                                    - fast
+                                verbosity:
+                                  type: string
+                                  enum:
+                                    - low
+                                    - medium
+                                    - high
+                                temperature:
+                                  anyOf:
+                                    - type: number
+                                      minimum: 0
+                                      maximum: 2
+                                    - type: "null"
+                                thinking:
+                                  type: object
+                                  properties:
+                                    enabled:
+                                      type: boolean
+                                    streamThinking:
+                                      type: boolean
+                                    level:
+                                      type: string
+                                      enum:
+                                        - minimal
+                                        - low
+                                        - medium
+                                        - high
+                                  additionalProperties: false
+                                contextWindow:
+                                  type: object
+                                  properties:
+                                    enabled:
+                                      type: boolean
+                                    maxInputTokens:
+                                      type: integer
+                                      exclusiveMinimum: 0
+                                      maximum: 9007199254740991
+                                    targetBudgetRatio:
+                                      type: number
+                                      exclusiveMinimum: 0
+                                      maximum: 1
+                                    compactThreshold:
+                                      type: number
+                                      exclusiveMinimum: 0
+                                      maximum: 1
+                                    summaryBudgetRatio:
+                                      type: number
+                                      exclusiveMinimum: 0
+                                      maximum: 1
+                                    overflowRecovery:
+                                      type: object
+                                      properties:
+                                        enabled:
+                                          type: boolean
+                                        safetyMarginRatio:
+                                          type: number
+                                          exclusiveMinimum: 0
+                                          exclusiveMaximum: 1
+                                        maxAttempts:
+                                          type: integer
+                                          exclusiveMinimum: 0
+                                          maximum: 9007199254740991
+                                        interactiveLatestTurnCompression:
+                                          type: string
+                                          enum:
+                                            - truncate
+                                            - summarize
+                                            - drop
+                                        nonInteractiveLatestTurnCompression:
+                                          type: string
+                                          enum:
+                                            - truncate
+                                            - summarize
+                                            - drop
+                                      additionalProperties: false
+                                  additionalProperties: false
+                                openrouter:
+                                  type: object
+                                  properties:
+                                    only:
+                                      type: array
+                                      items:
+                                        type: string
+                                        minLength: 1
+                                  additionalProperties: false
+                                logitBias:
+                                  type: string
+                                  enum:
+                                    - suppress-cjk
+                                disableCache:
+                                  type: boolean
+                                profile:
+                                  type: string
+                              additionalProperties: false
+                            - type: "null"
+                      profileSession:
+                        type: object
+                        properties:
+                          defaultTtlSeconds:
+                            type: number
+                          maxTtlSeconds:
+                            type: number
+                        additionalProperties: false
+                      pricingOverrides:
+                        type: array
+                        items: {}
+                    additionalProperties: {}
+                  memory:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      v2:
+                        type: object
+                        properties:
+                          enabled:
+                            type: boolean
+                        additionalProperties: {}
+                    additionalProperties: {}
+                  services:
+                    type: object
+                    properties:
+                      web-search:
+                        type: object
+                        properties:
+                          mode:
+                            type: string
+                          provider:
+                            type: string
+                        additionalProperties: {}
+                      image-generation:
+                        type: object
+                        properties:
+                          mode:
+                            type: string
+                        additionalProperties: {}
+                      inference:
+                        type: object
+                        properties:
+                          mode:
+                            type: string
+                        additionalProperties: {}
+                    additionalProperties: {}
+                additionalProperties: {}
       requestBody:
         required: true
         content:

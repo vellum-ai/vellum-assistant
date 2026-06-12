@@ -42,8 +42,7 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { ProfilePatchEntry } from "@/domains/settings/ai/ai-types";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import { configGet, configPatch } from "@/generated/daemon/sdk.gen";
-import { inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
-import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
+import { configGetSetQueryData, inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { toast } from "@vellumai/design-library/components/toast";
 
 interface OpenProfileQuickAddArgs {
@@ -104,12 +103,9 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
   // Persist a freshly-created profile, then hand the name back to the caller.
   // Writes `llm.profiles[name]` plus an appended `profileOrder` in a single
   // config PATCH so the daemon records both the entry and its picker position.
-  // This re-implements (rather than reuses) ManageProfilesModal's create path:
-  // that modal goes through the settings-domain `useDaemonConfigMutation` hook,
-  // which this cross-domain provider cannot import
-  // (`local/no-cross-domain-imports`). So it persists via the generated SDK
-  // functions (`configGet`/`configPatch`) and adds the server-side duplicate
-  // guard below.
+  // Uses generated SDK functions (`configGet`/`configPatch`) directly because
+  // this cross-domain provider can't import settings-domain hooks
+  // (`local/no-cross-domain-imports`).
   //
   // The order is computed from a FRESH server fetch rather than the
   // `profileOrder` captured when the modal opened. The caller may have opened
@@ -147,7 +143,7 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
         throw new Error(`A profile with the key "${name}" already exists.`);
       }
 
-      await configPatch({
+      const patchResult = await configPatch({
         path: { assistant_id: assistantId },
         body: {
           llm: {
@@ -157,14 +153,15 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
         },
         throwOnError: true,
       });
-      // This raw PATCH bypasses `useDaemonConfigMutation`, which is what would
-      // normally invalidate the shared daemon-config cache. Without this, a
-      // Settings/AI tab that previously loaded `useDaemonConfigQuery` keeps
-      // serving its cached config (30s fresh) and the just-created profile is
-      // missing there until a refetch. Invalidate so Settings stays in sync.
-      await queryClient.invalidateQueries({
-        queryKey: assistantDaemonConfigQueryKey(assistantId),
-      });
+      // Write the PATCH response (full merged config) directly to the shared
+      // config query cache so all consumers see the new profile immediately.
+      if (patchResult.data) {
+        configGetSetQueryData(
+          queryClient,
+          { path: { assistant_id: assistantId } },
+          patchResult.data,
+        );
+      }
       // Hand back the display-name label alongside the key so the caller's
       // optimistic picker entry renders the Name immediately rather than
       // showing the key until the next config refetch. The create form derives

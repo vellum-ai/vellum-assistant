@@ -801,7 +801,10 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   deepMergeOverwrite(raw, patch);
 
   await commitConfigWrite(raw, "patch");
-  return { ok: true };
+
+  const merged = applyContextDefaultsToRawConfig(loadRawConfig());
+  enrichProfilesWithVisionFlag(merged);
+  return merged;
 }
 
 /**
@@ -1392,10 +1395,10 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Patch config",
     description:
-      "Deep-merge a partial JSON object into the settings.json configuration.",
+      "Deep-merge a partial JSON object into the settings.json configuration. Returns the full merged config.",
     tags: ["config"],
     requestBody: ConfigPatchRequestSchema,
-    responseBody: z.object({ ok: z.boolean() }),
+    responseBody: ConfigGetResponseSchema,
     handler: handlePatchConfig,
   },
   {
