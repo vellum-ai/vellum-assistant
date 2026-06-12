@@ -1,11 +1,4 @@
-import { sql } from "drizzle-orm";
-import {
-  index,
-  integer,
-  sqliteTable,
-  text,
-  uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import { conversations } from "./conversations.js";
 
@@ -49,9 +42,6 @@ export const contactChannels = sqliteTable(
     createdAt: integer("created_at").notNull(),
   },
   (table) => [
-    uniqueIndex("idx_contact_channels_type_ext_user_unique")
-      .on(table.type, table.externalUserId)
-      .where(sql`external_user_id IS NOT NULL`),
     index("idx_contact_channels_type_ext_chat").on(
       table.type,
       table.externalChatId,

@@ -4,13 +4,17 @@ import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 const log = getLogger("migration-282");
 
 /**
- * Deduplicate contact_channels rows sharing the same (type, external_user_id)
- * and add a partial unique index so duplicates cannot recur.
+ * Originally this migration deduped contact_channels rows sharing the same
+ * (type, external_user_id) and created a partial unique index. The unique
+ * index is no longer needed because all identity lookups now use the
+ * (type, address) unique constraint from migration 105. The external_user_id
+ * column is redundant — address always equals canonicalize(externalUserId)
+ * for every active channel type.
  *
- * A Slack user ID (or Telegram user ID, etc.) uniquely identifies a person
- * per channel type. Multiple rows for the same identity are data corruption,
- * not a valid state. The dedup keeps the row with the best status
- * (blocked > revoked > active > unverified > other) and most recent updated_at.
+ * This migration now:
+ *  1. Still deduplicates any historical corruption (idempotent, harmless).
+ *  2. Drops the partial unique index on (type, external_user_id) if it
+ *     exists from a prior run.
  */
 export function migrateContactChannelsUniqueExtUser(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
@@ -30,10 +34,6 @@ export function migrateContactChannelsUniqueExtUser(database: DrizzleDb): void {
       .get()?.cnt ?? 0;
 
   // Step 1: Delete duplicate rows, keeping the best one per (type, external_user_id).
-  // "Best" = lowest status rank, then most recent updated_at.
-  // Blocked/revoked ranks highest because they represent explicit user decisions
-  // that the rest of the contact code preserves (syncChannels guards against
-  // overwriting blocked status). Active ranks next as the normal verified state.
   const result = raw.run(/*sql*/ `
     DELETE FROM contact_channels
     WHERE id NOT IN (
@@ -66,13 +66,12 @@ export function migrateContactChannelsUniqueExtUser(database: DrizzleDb): void {
     );
   }
 
-  // Step 2: Drop the old non-unique index (if it exists) — the unique index
-  // covers the same columns and supersedes it.
-  raw.run(/*sql*/ `DROP INDEX IF EXISTS idx_contact_channels_type_ext_user`);
+  // Step 2: Drop the unique index on (type, external_user_id) — all identity
+  // lookups now use the (type, address) constraint from migration 105.
+  raw.run(
+    /*sql*/ `DROP INDEX IF EXISTS idx_contact_channels_type_ext_user_unique`,
+  );
 
-  // Step 3: Create a partial unique index on (type, external_user_id) for
-  // non-null external_user_id values.
-  raw.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_channels_type_ext_user_unique
-             ON contact_channels(type, external_user_id)
-             WHERE external_user_id IS NOT NULL`);
+  // Also drop the old non-unique index if it exists from older installs.
+  raw.run(/*sql*/ `DROP INDEX IF EXISTS idx_contact_channels_type_ext_user`);
 }

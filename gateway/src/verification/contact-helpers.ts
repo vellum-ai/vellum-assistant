@@ -54,6 +54,8 @@ export interface ContactChannelRow {
 
 /**
  * Find an existing contact channel for a given channel type + external user ID.
+ * Queries by address (the canonical identity column) since address always
+ * equals canonicalize(externalUserId) for channels that have one.
  */
 export async function findContactChannelByExternalUserId(
   channelType: string,
@@ -67,7 +69,7 @@ export async function findContactChannelByExternalUserId(
             cc.status
      FROM contact_channels cc
      JOIN contacts c ON c.id = cc.contact_id
-     WHERE cc.type = ? AND cc.external_user_id = ?
+     WHERE cc.type = ? AND LOWER(cc.address) = LOWER(?)
      LIMIT 1`,
     [channelType, externalUserId],
   );

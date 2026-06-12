@@ -1,6 +1,6 @@
 import { type Database } from "bun:sqlite";
 
-import { and, desc, eq, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 
 import {
   type SqliteValue,
@@ -47,6 +47,8 @@ export class ContactStore {
     channelType: string,
     externalUserId: string,
   ): Contact | undefined {
+    // address is the canonical identity for all channel types — it always
+    // equals canonicalize(externalUserId) for channels that have one.
     return this.db
       .select({
         id: contacts.id,
@@ -61,7 +63,7 @@ export class ContactStore {
       .where(
         and(
           eq(contactChannels.type, channelType),
-          eq(contactChannels.externalUserId, externalUserId),
+          eq(contactChannels.address, externalUserId.toLowerCase()),
         ),
       )
       .limit(1)
@@ -78,9 +80,9 @@ export class ContactStore {
   }
 
   /**
-   * Looks up a non-revoked phone channel whose externalUserId or address
-   * matches the given phone number. Used to detect callers whose number is
-   * registered but not yet verified via DTMF challenge.
+   * Looks up a non-revoked phone channel whose address matches the given
+   * phone number. Used to detect callers whose number is registered but
+   * not yet verified via DTMF challenge.
    */
   getContactByPhoneNumber(
     phoneNumber: string,
@@ -93,10 +95,7 @@ export class ContactStore {
         and(
           eq(contactChannels.type, "phone"),
           ne(contactChannels.status, "revoked"),
-          or(
-            eq(contactChannels.externalUserId, phoneNumber),
-            eq(contactChannels.address, phoneNumber),
-          ),
+          eq(contactChannels.address, phoneNumber.toLowerCase()),
         ),
       )
       .limit(1)
@@ -579,7 +578,8 @@ export class ContactStore {
             updateSet.blockedReason = ch.blockedReason;
         }
         if (ch.verifiedAt !== undefined) updateSet.verifiedAt = ch.verifiedAt;
-        if (ch.verifiedVia !== undefined) updateSet.verifiedVia = ch.verifiedVia;
+        if (ch.verifiedVia !== undefined)
+          updateSet.verifiedVia = ch.verifiedVia;
         if (ch.inviteId !== undefined) updateSet.inviteId = ch.inviteId;
         this.db
           .update(contactChannels)
@@ -921,10 +921,8 @@ export class ContactStore {
       0,
     );
     const lastInteraction =
-      channels.reduce(
-        (max, ch) => Math.max(max, ch.lastInteraction ?? 0),
-        0,
-      ) || null;
+      channels.reduce((max, ch) => Math.max(max, ch.lastInteraction ?? 0), 0) ||
+      null;
 
     return {
       id: first.id,

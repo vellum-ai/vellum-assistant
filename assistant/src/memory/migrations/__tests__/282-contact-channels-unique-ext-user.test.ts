@@ -294,11 +294,12 @@ describe("migration 282 — contact_channels unique (type, external_user_id)", (
     expect(channels).toHaveLength(2);
   });
 
-  test("drops old non-unique index and creates unique index", () => {
+  test("drops both old non-unique and unique indexes on external_user_id", () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);
     bootstrap(db);
 
+    // Pre-migration: old non-unique index exists
     const beforeIndexes = getIndexes(raw);
     const oldIdx = beforeIndexes.find(
       (i) => i.name === "idx_contact_channels_type_ext_user",
@@ -309,19 +310,18 @@ describe("migration 282 — contact_channels unique (type, external_user_id)", (
     migrateContactChannelsUniqueExtUser(db);
 
     const afterIndexes = getIndexes(raw);
-    const droppedIdx = afterIndexes.find(
-      (i) => i.name === "idx_contact_channels_type_ext_user",
-    );
-    expect(droppedIdx).toBeUndefined();
-
-    const uniqueIdx = afterIndexes.find(
-      (i) => i.name === "idx_contact_channels_type_ext_user_unique",
-    );
-    expect(uniqueIdx).toBeDefined();
-    expect(uniqueIdx!.unique).toBe(1);
+    // Both indexes on external_user_id should be gone
+    expect(
+      afterIndexes.find((i) => i.name === "idx_contact_channels_type_ext_user"),
+    ).toBeUndefined();
+    expect(
+      afterIndexes.find(
+        (i) => i.name === "idx_contact_channels_type_ext_user_unique",
+      ),
+    ).toBeUndefined();
   });
 
-  test("unique index prevents duplicate inserts after migration", () => {
+  test("no unique index on external_user_id after migration — duplicates allowed", () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);
     bootstrap(db);
@@ -340,7 +340,8 @@ describe("migration 282 — contact_channels unique (type, external_user_id)", (
 
     migrateContactChannelsUniqueExtUser(db);
 
-    // Attempting to insert a duplicate should throw a constraint violation
+    // The unique index on external_user_id no longer exists, so duplicate
+    // externalUserId values are allowed (identity is enforced via address).
     expect(() =>
       insertChannel(raw, {
         id: "ch2",
@@ -351,7 +352,7 @@ describe("migration 282 — contact_channels unique (type, external_user_id)", (
         status: "unverified",
         updatedAt: 2000,
       }),
-    ).toThrow();
+    ).not.toThrow();
   });
 
   test("unique index allows same externalUserId on different channel types", () => {
