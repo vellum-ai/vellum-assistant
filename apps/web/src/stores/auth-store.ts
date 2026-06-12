@@ -191,10 +191,16 @@ const isInconclusiveProbe = (
  * Web builds have no readable credential (cookie sessions), so they
  * keep the conservative login-screen behavior.
  *
- * `platformSession` is deliberately left untouched: the session is
- * believed, not confirmed. The app-resume/online refresh revalidates
- * once the network returns; a settled "no session" answer there ends
- * the session (and drops the snapshot) through the normal path.
+ * Restores through the full `authenticatedPlatformUser` transition —
+ * including `platformSession: "present"` — rather than leaving the
+ * tri-state `"unknown"`: the snapshot is only ever written when a
+ * platform session was confirmed, and no probe runs offline to settle
+ * an `"unknown"`, so consumers gated on it (the auth middleware's
+ * no-assistant wait, the onboarding fork) would stall against their
+ * timeouts. "Present" is the believed state; the app-resume/online
+ * refresh revalidates once the network returns, and a settled "no
+ * session" answer there ends the session (and drops the snapshot)
+ * through the normal path.
  */
 async function restoreOfflineSession(set: AuthSet): Promise<boolean> {
   if (!getElectronSessionToken()) return false;
@@ -203,7 +209,7 @@ async function restoreOfflineSession(set: AuthSet): Promise<boolean> {
   // Consent/org sync falls back to device-cached keys when the server
   // fetch fails (it will, offline) — same continuity as an online boot.
   await syncUserScopedState(cached.id);
-  set({ sessionStatus: "authenticated", user: cached });
+  set(authenticatedPlatformUser(cached));
   return true;
 }
 

@@ -662,9 +662,10 @@ describe("offline session restore (LUM-2412)", () => {
 
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
     expect(useAuthStore.getState().user?.id).toBe("user-cached");
-    // Believed, not confirmed — platformSession stays unsettled until a
-    // real probe answers.
-    expect(useAuthStore.getState().platformSession).toBe("unknown");
+    // The snapshot only exists for a confirmed platform session, and no
+    // probe runs offline to settle an "unknown" — so the restore settles
+    // "present" (believed state); reconnect revalidation corrects it.
+    expect(useAuthStore.getState().platformSession).toBe("present");
   });
 
   test("transport-failed boot (proxy 502) with token + snapshot settles authenticated from cache", async () => {
