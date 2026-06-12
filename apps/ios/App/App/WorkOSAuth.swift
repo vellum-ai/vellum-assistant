@@ -76,7 +76,10 @@ enum WorkOSAuth {
         else { return nil }
 
         for provider in providers {
-            guard provider["openid_configuration_url"] == nil,
+            // `as? String == nil` treats an absent key, JSON null (NSNull
+            // under JSONSerialization), and any non-string alike as "no
+            // discovery URL" — i.e. the OAuth2 provider, not legacy OIDC.
+            guard (provider["openid_configuration_url"] as? String) == nil,
                   let flows = provider["flows"] as? [String],
                   flows.contains("provider_token"),
                   let clientId = provider["client_id"] as? String
