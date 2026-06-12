@@ -109,6 +109,7 @@ function driftResponse(
     local: {
       target: `/ws/plugins/${name}`,
       commit: "60a392b0000000000000000000000000000000aa",
+      committedAt: "2026-06-01T00:00:00.000Z",
       version: "0.1.0",
       description: "Level Up plugin",
       installedAt: "2026-06-01T00:00:00.000Z",
@@ -123,6 +124,7 @@ function driftResponse(
         status === "update-available"
           ? "3eae1820000000000000000000000000000000bb"
           : "60a392b0000000000000000000000000000000aa",
+      committedAt: "2026-06-01T00:00:00.000Z",
       description: "Level Up plugin",
       homepage: null,
       license: "MIT",

@@ -48,6 +48,22 @@ describe("isTransientNetworkError", () => {
     ).toBe(true);
   });
 
+  // --- Mid-stream body read errors ---
+
+  test("matches Chrome mid-stream 'network error'", () => {
+    expect(isTransientNetworkError(new TypeError("network error"))).toBe(
+      true,
+    );
+  });
+
+  test("matches Firefox mid-stream 'Error in input stream'", () => {
+    expect(
+      isTransientNetworkError(new TypeError("Error in input stream")),
+    ).toBe(true);
+  });
+
+  // --- Rejection cases ---
+
   test("rejects non-TypeError errors", () => {
     expect(isTransientNetworkError(new Error("Failed to fetch"))).toBe(false);
   });
