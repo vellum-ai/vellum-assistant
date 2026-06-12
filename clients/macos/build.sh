@@ -712,8 +712,9 @@ build_binaries() {
         "$SCRIPT_DIR/assistant-bin" "vellum-assistant" "${cli_flags[@]}" &
     pids+=($!)
 
+    local vellum_cli_flags=("${BUN_EXTERNAL_FLAGS[@]}" "${env_flags[@]}")
     SKIP_BUN_INSTALL=1 build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/cli-bin" "vellum-cli" "${env_flags[@]}" &
+        "$SCRIPT_DIR/cli-bin" "vellum-cli" "${vellum_cli_flags[@]}" &
     pids+=($!)
 
     SKIP_BUN_INSTALL=1 build_bun_binary "$GATEWAY_SRC_DIR" "$GATEWAY_SRC_DIR/src/index.ts" \
@@ -1330,7 +1331,7 @@ if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$CLI_SRC_DIR/src" ] && command -v
 fi
 if [ "$CLI_BIN_NEEDS_BUILD" = true ]; then
     build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/cli-bin" "vellum-cli"
+        "$SCRIPT_DIR/cli-bin" "vellum-cli" "${BUN_EXTERNAL_FLAGS[@]}"
 fi
 
 # Also rebuild if CLI binary changed or newly added
