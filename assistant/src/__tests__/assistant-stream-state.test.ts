@@ -703,6 +703,41 @@ describe("assistant-stream-state", () => {
       expect(a.seq).toBe(1);
     });
 
+    test("a pre-restart cursor replays the post-restart events (reservation gap is not an eviction)", () => {
+      // GIVEN a client that saw seq 1 before the daemon restarted
+      stampAndBuffer(mkEvent());
+      _simulateRestartForTesting();
+
+      // AND the restarted daemon has buffered new events
+      const a = mkEvent();
+      const b = mkEvent();
+      stampAndBuffer(a);
+      stampAndBuffer(b);
+      expect(a.seq).toBe(1025);
+
+      // WHEN the client reconnects with its pre-restart cursor
+      const window = getReplayWindow(1);
+
+      // THEN the post-restart events are replayed rather than treated as
+      // an out-of-window gap (no events below the reservation ever existed
+      // in this process, so nothing replayable is missing).
+      expect(window).not.toBeNull();
+      expect(window?.map((e) => e.seq)).toEqual([1025, 1026]);
+    });
+
+    test("a pre-restart cursor still gets the snapshot fallback once post-restart events evict", () => {
+      stampAndBuffer(mkEvent());
+      _simulateRestartForTesting();
+
+      // Stamp past the 200-event ring cap so the restarted process's
+      // earliest events are genuinely evicted.
+      for (let i = 0; i < 205; i++) stampAndBuffer(mkEvent());
+
+      // The gap now includes evicted post-restart events, so replay must
+      // signal the snapshot fallback.
+      expect(getReplayWindow(1)).toBeNull();
+    });
+
     test("a missing reservation file is a cold start at 1", () => {
       rmSync(
         join(process.env.VELLUM_WORKSPACE_DIR!, "data", "stream-seq.json"),

@@ -125,6 +125,13 @@ interface AssistantStreamState {
   reservedSeqCeiling: number;
   /** Whether the persisted reservation has been loaded this process. */
   seqReservationLoaded: boolean;
+  /**
+   * Seq of the first event stamped by this process, or `0` before any
+   * stamp. Distinguishes a reservation skip (seqs below this value were
+   * never assigned by this process, so nothing is missing from the
+   * ring) from genuine ring eviction when judging replay validity.
+   */
+  firstStampedSeq: number;
   ring: RingEntry[];
   totalSizeBytes: number;
   /**
@@ -142,6 +149,7 @@ const state: AssistantStreamState = {
   nextSeq: 1,
   reservedSeqCeiling: 0,
   seqReservationLoaded: false,
+  firstStampedSeq: 0,
   ring: [],
   totalSizeBytes: 0,
   persistedSeqByConversation: new Map(),
@@ -170,6 +178,7 @@ export function stampAndBuffer(
 
   reserveSeqCapacity();
   event.seq = state.nextSeq++;
+  if (state.firstStampedSeq === 0) state.firstStampedSeq = event.seq;
 
   // Approximate size by serialized JSON length. This is the same
   // bytes-on-wire we'll send, so it tracks ring memory pressure
@@ -218,8 +227,16 @@ export function getReplayWindow(
 
   if (state.ring.length === 0) return [];
 
+  // A cursor from before this process started can skip over the
+  // reservation gap: seqs below `firstStampedSeq` were never assigned
+  // by this process, so as long as the ring still holds everything
+  // this process stamped, no replayable event is missing. (Events from
+  // the previous process are unrecoverable either way — clients catch
+  // up on those via the snapshot path, triggered by the seq jump.)
   const oldest = state.ring[0]?.seq ?? Infinity;
-  if (lastSeenSeq < oldest - 1) return null;
+  const coversRestartGap =
+    lastSeenSeq < state.firstStampedSeq && oldest === state.firstStampedSeq;
+  if (lastSeenSeq < oldest - 1 && !coversRestartGap) return null;
 
   return state.ring
     .filter(
@@ -296,6 +313,7 @@ export function _resetStreamStateForTesting(): void {
   // wrote into the (per-process temp) workspace.
   state.reservedSeqCeiling = 0;
   state.seqReservationLoaded = true;
+  state.firstStampedSeq = 0;
   state.ring = [];
   state.totalSizeBytes = 0;
   state.persistedSeqByConversation.clear();
@@ -309,6 +327,7 @@ export function _simulateRestartForTesting(): void {
   state.nextSeq = 1;
   state.reservedSeqCeiling = 0;
   state.seqReservationLoaded = false;
+  state.firstStampedSeq = 0;
   state.ring = [];
   state.totalSizeBytes = 0;
   state.persistedSeqByConversation.clear();
