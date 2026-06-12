@@ -24,7 +24,12 @@ export type WorkflowRunStatus =
   | "cap_exceeded"
   | "interrupted";
 
-export type WorkflowJournalKind = "agent" | "hostFn" | "workflow";
+/**
+ * The journal records leaf-agent calls. The engine only ever writes `"agent"`;
+ * the column stays TEXT so adding kinds later needs no migration. (Speculative
+ * `"hostFn"` / `"workflow"` variants were removed — narrow to what is emitted.)
+ */
+export type WorkflowJournalKind = "agent";
 
 /** A persisted workflow run row, with JSON columns parsed into values. */
 export interface WorkflowRun {

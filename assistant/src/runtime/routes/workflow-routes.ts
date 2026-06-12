@@ -114,8 +114,15 @@ function assertFlagEnabled(): void {
   }
 }
 
+/**
+ * The single compact-run wire contract, inferred from {@link workflowRunSchema}.
+ * The HTTP routes return this shape; other producers (e.g. the CLI's client-side
+ * mirror) should track it so projections can't silently drift.
+ */
+export type WorkflowRunWire = z.infer<typeof workflowRunSchema>;
+
 /** Project a stored run into the wire shape (drops bulky source/args/result). */
-function toWireRun(run: WorkflowRun) {
+export function toWireRun(run: WorkflowRun): WorkflowRunWire {
   return {
     id: run.id,
     name: run.name,

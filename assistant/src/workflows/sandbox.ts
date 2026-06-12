@@ -25,6 +25,8 @@ import {
   type QuickJSHandle,
 } from "quickjs-emscripten";
 
+import { deterministicStringify } from "./deterministic-stringify.js";
+
 const DEFAULT_MEMORY_LIMIT_BYTES = 256 * 1024 * 1024;
 
 /**
@@ -98,25 +100,6 @@ export interface CreateWorkflowSandboxOptions {
 export interface WorkflowSandbox {
   /** Run `scriptSource` (JS or TS) with `args` available as the global `args`. */
   run(scriptSource: string, args: unknown): Promise<unknown>;
-}
-
-/**
- * Deterministic JSON stringify with sorted object keys, so marshalled values
- * that may later feed hashing (for replay/resume) are stable regardless of
- * insertion order. `undefined` round-trips to `null` (JSON has no undefined).
- */
-function deterministicStringify(value: unknown): string {
-  return JSON.stringify(sortValue(value)) ?? "null";
-}
-
-function sortValue(value: unknown): unknown {
-  if (value === null || typeof value !== "object") return value;
-  if (Array.isArray(value)) return value.map(sortValue);
-  const out: Record<string, unknown> = {};
-  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-    out[key] = sortValue((value as Record<string, unknown>)[key]);
-  }
-  return out;
 }
 
 /**

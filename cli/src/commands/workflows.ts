@@ -1,9 +1,18 @@
+import { extractAssistantFlag, extractValueFlag } from "../lib/arg-utils.js";
 import { AssistantClient } from "../lib/assistant-client.js";
 import {
   formatAssistantLookupError,
   lookupAssistantByIdentifier,
 } from "../lib/assistant-config.js";
 
+/**
+ * Client-side mirror of the server's wire-run projection
+ * (`WorkflowRunWire` from `assistant/src/runtime/routes/workflow-routes.ts`).
+ * The CLI is an independent build unit and deliberately does NOT import from
+ * `assistant/` (see `cli/src/shared/provider-env-vars.ts`), so the shape is
+ * mirrored here. Only the fields the CLI renders are declared — the server may
+ * send a superset. Keep in sync with `workflowRunSchema`.
+ */
 type WorkflowRun = {
   id: string;
   name: string | null;
@@ -231,39 +240,6 @@ async function resumeRun(runId: string, assistantName?: string): Promise<void> {
   console.log(
     `Resumed workflow run ${runId}. It replays its completed steps and continues from where it was interrupted.`,
   );
-}
-
-/**
- * Strip `--assistant <name>` from argv and return the captured value.
- * Mutates the input array so downstream positional parsing is clean.
- */
-function extractAssistantFlag(args: string[]): string | undefined {
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] !== "--assistant") continue;
-    const value = args[i + 1];
-    if (!value || value.startsWith("-")) {
-      console.error("Missing value for --assistant <name>");
-      process.exit(1);
-    }
-    args.splice(i, 2);
-    return value;
-  }
-  return undefined;
-}
-
-/** Strip `--<name> <value>` from argv and return the captured value. */
-function extractValueFlag(args: string[], name: string): string | undefined {
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] !== `--${name}`) continue;
-    const value = args[i + 1];
-    if (!value || value.startsWith("-")) {
-      console.error(`Missing value for --${name} <value>`);
-      process.exit(1);
-    }
-    args.splice(i, 2);
-    return value;
-  }
-  return undefined;
 }
 
 export async function workflows(): Promise<void> {
