@@ -21,10 +21,59 @@ import type {
   SubprocessLogFile,
 } from "./report-data";
 import type { TranscriptTurn } from "./transcript";
+import { priceUsageRecord } from "./pricing";
 
 function formatNumber(value: number | undefined, digits = 2): string {
   if (value === undefined) return "—";
   return Number.isInteger(value) ? String(value) : value.toFixed(digits);
+}
+
+/** Human-readable byte size, e.g. `812 B`, `14.2 KB`, `3.1 MB`. */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  return `${(kb / 1024).toFixed(1)} MB`;
+}
+
+function utf8ByteLength(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+/**
+ * Total byte volume of every log stream rendered on the Logs tab: the
+ * file-backed subprocess/docker logs plus the serialized container and
+ * runner event streams. Surfaced as the Logs pill's headline stat so a
+ * reader can gauge how much log there is to read before opening the tab.
+ */
+function logsSizeBytes(run: ReportRunDetail): number {
+  let total = 0;
+  for (const log of run.subprocessLogs) total += utf8ByteLength(log.content);
+  for (const artifact of run.dockerArtifacts)
+    total += utf8ByteLength(artifact.content);
+  total += utf8ByteLength(JSON.stringify(run.assistantEvents));
+  total += utf8ByteLength(JSON.stringify(run.ingestAssistantEvents));
+  total += utf8ByteLength(JSON.stringify(run.progressEvents));
+  return total;
+}
+
+function readRecordNumber(
+  record: Record<string, unknown>,
+  ...keys: string[]
+): number | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return undefined;
+}
+
+function readRecordString(
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
 }
 
 function formatAggregateScore(value: number | undefined): string {
@@ -230,6 +279,20 @@ pre.log { max-height: 480px; overflow: auto; padding: 16px; border-radius: 16px;
 .cost-diag-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .cost-diag-table th, .cost-diag-table td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border); }
 .cost-diag-table th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; }
+.cost-requests { margin-top: 16px; }
+.cost-requests h3 { font-size: 16px; margin: 0 0 10px; letter-spacing: -.02em; }
+.cost-req-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cost-req-table th, .cost-req-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.cost-req-table th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; }
+.cost-req-table tbody:hover { background: rgba(255,255,255,.02); }
+.cost-req-table .payload-row td { padding: 0 10px 8px; border-bottom: 1px solid var(--border); }
+.payload-details > summary { cursor: pointer; color: var(--muted); font-size: 12px; list-style: none; padding: 4px 0; }
+.payload-details > summary::-webkit-details-marker { display: none; }
+.payload-details > summary::before { content: "▸ "; }
+.payload-details[open] > summary::before { content: "▾ "; }
+.payload-details[open] > summary:hover, .payload-details > summary:hover { color: var(--accent2); }
+.payload-body h4 { margin: 10px 0 4px; font-size: 12px; color: var(--muted); font-weight: 800; }
+.payload-pre { max-height: 360px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
 .tabs { margin-top: 4px; }
 .tab-input { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .tablist { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
@@ -1327,7 +1390,7 @@ function LogsPanel({ run }: { run: ReportRunDetail }) {
  * in the static, no-JS report bundle. Score is selected by default.
  */
 function ExecutionTabs({ run }: { run: ReportRunDetail }) {
-  const logCount = run.subprocessLogs.length + run.dockerArtifacts.length;
+  const logsSize = logsSizeBytes(run);
   return (
     <div className="tabs">
       <input
@@ -1372,7 +1435,7 @@ function ExecutionTabs({ run }: { run: ReportRunDetail }) {
         </label>
         <label className="tab-pill" htmlFor="exec-tab-logs">
           <span className="tab-pill-label">Logs</span>
-          <span className="tab-pill-value">{logCount}</span>
+          <span className="tab-pill-value">{formatBytes(logsSize)}</span>
         </label>
       </div>
       <div className="tabpanels">
@@ -1412,6 +1475,7 @@ function ExecutionTabs({ run }: { run: ReportRunDetail }) {
             />
             <StatCard label="Requests" value={run.usage.requests.length} />
           </div>
+          <CostRequestsTable usage={run.usage} />
           <CostDiagnosticsPanel usage={run.usage} />
         </section>
 
@@ -1511,6 +1575,122 @@ function ExecutionPage({
 
       <ExecutionTabs run={run} />
     </>
+  );
+}
+
+/**
+ * Expandable view of the raw request/response bodies the egress recorder
+ * captured for one priced request. Returns null when the recorder wrote no
+ * payloads (older runs, or a record that predates payload capture). When a
+ * body was truncated past the recorder's cap, the heading notes how many of
+ * the full bytes are shown so the reader knows the view is partial.
+ */
+function RequestPayloads({ record }: { record: Record<string, unknown> }) {
+  const requestBody = readRecordString(record, "request_body");
+  const responseBody = readRecordString(record, "response_body");
+  if (requestBody === undefined && responseBody === undefined) return null;
+
+  const payloadHeading = (
+    label: string,
+    body: string | undefined,
+    truncated: boolean,
+    fullBytes: number | undefined,
+  ) =>
+    truncated && fullBytes !== undefined && body !== undefined
+      ? `${label} — showing first ${formatBytes(utf8ByteLength(body))} of ${formatBytes(fullBytes)}`
+      : label;
+
+  return (
+    <details className="payload-details">
+      <summary>Request &amp; response payloads</summary>
+      <div className="payload-body">
+        <h4>
+          {payloadHeading(
+            "Request",
+            requestBody,
+            record.request_body_truncated === true,
+            readRecordNumber(record, "request_body_bytes"),
+          )}
+        </h4>
+        <pre className="log payload-pre">{requestBody ?? "—"}</pre>
+        <h4>
+          {payloadHeading(
+            "Response",
+            responseBody,
+            record.response_body_truncated === true,
+            readRecordNumber(record, "response_body_bytes"),
+          )}
+        </h4>
+        <pre className="log payload-pre">{responseBody ?? "—"}</pre>
+      </div>
+    </details>
+  );
+}
+
+/**
+ * Per-request cost breakdown for the Cost tab. One row per recorded model
+ * request — model, token counts, and the dollar cost computed by the same
+ * `priceUsageRecord` the run total uses — so a reader can see exactly which
+ * requests drove (or didn't drive) the cost. Each row carries an expandable
+ * view of the request/response payloads, which is the first place to look
+ * when the cost figure looks wrong (e.g. the large agentic calls never
+ * reached the recorder and only small auxiliary calls were priced).
+ */
+function CostRequestsTable({ usage }: { usage: UsageSummary }) {
+  if (usage.requests.length === 0) return null;
+  return (
+    <div className="cost-requests">
+      <h3>Per-request breakdown</h3>
+      <table className="cost-req-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Model</th>
+            <th>Input</th>
+            <th>Output</th>
+            <th>Cache (write / read)</th>
+            <th>Cost</th>
+          </tr>
+        </thead>
+        {usage.requests.map((record, index) => {
+          const priced = priceUsageRecord(record);
+          const cacheWrite = readRecordNumber(
+            record,
+            "cache_creation_input_tokens",
+          );
+          const cacheRead = readRecordNumber(record, "cache_read_input_tokens");
+          return (
+            <tbody key={index}>
+              <tr>
+                <td>{index}</td>
+                <td>{readRecordString(record, "model") ?? "—"}</td>
+                <td>
+                  {formatNumber(
+                    readRecordNumber(record, "input_tokens", "inputTokens"),
+                    0,
+                  )}
+                </td>
+                <td>
+                  {formatNumber(
+                    readRecordNumber(record, "output_tokens", "outputTokens"),
+                    0,
+                  )}
+                </td>
+                <td>
+                  {formatNumber(cacheWrite, 0)} / {formatNumber(cacheRead, 0)}
+                </td>
+                <td>{formatCost(priced.costUsd)}</td>
+              </tr>
+              <tr className="payload-row">
+                <td colSpan={6}>
+                  <RequestPayloads record={record} />
+                </td>
+              </tr>
+            </tbody>
+          );
+        })}
+      </table>
+    </div>
   );
 }
 
