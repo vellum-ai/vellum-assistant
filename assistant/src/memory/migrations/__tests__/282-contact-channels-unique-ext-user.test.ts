@@ -189,6 +189,43 @@ describe("migration 282 — contact_channels unique (type, external_user_id)", (
     expect(channels[0]!.status).toBe("active");
   });
 
+  test("deduplicates rows keeping blocked over active (preserves deny state)", () => {
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+    bootstrap(db);
+
+    insertContact(raw, "c1");
+    insertContact(raw, "c2");
+
+    // Duplicate: same (type=slack, external_user_id=U789)
+    // Active row exists, but user explicitly blocked this person — blocked must survive
+    insertChannel(raw, {
+      id: "ch-active",
+      contactId: "c1",
+      type: "slack",
+      address: "U789",
+      externalUserId: "U789",
+      status: "active",
+      updatedAt: 1000,
+    });
+    insertChannel(raw, {
+      id: "ch-blocked",
+      contactId: "c2",
+      type: "slack",
+      address: "U789",
+      externalUserId: "U789",
+      status: "blocked",
+      updatedAt: 800,
+    });
+
+    migrateContactChannelsUniqueExtUser(db);
+
+    const channels = getAllChannels(raw);
+    expect(channels).toHaveLength(1);
+    expect(channels[0]!.id).toBe("ch-blocked");
+    expect(channels[0]!.status).toBe("blocked");
+  });
+
   test("deduplicates rows keeping most recent when same status", () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);

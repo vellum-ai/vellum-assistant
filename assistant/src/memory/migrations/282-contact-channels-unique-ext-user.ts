@@ -30,7 +30,10 @@ export function migrateContactChannelsUniqueExtUser(database: DrizzleDb): void {
       .get()?.cnt ?? 0;
 
   // Step 1: Delete duplicate rows, keeping the best one per (type, external_user_id).
-  // "Best" = lowest status rank (active=0, unverified=1, else=2), then most recent updated_at.
+  // "Best" = lowest status rank, then most recent updated_at.
+  // Blocked/revoked ranks highest because they represent explicit user decisions
+  // that the rest of the contact code preserves (syncChannels guards against
+  // overwriting blocked status). Active ranks next as the normal verified state.
   const result = raw.run(/*sql*/ `
     DELETE FROM contact_channels
     WHERE id NOT IN (
@@ -40,9 +43,11 @@ export function migrateContactChannelsUniqueExtUser(database: DrizzleDb): void {
                  PARTITION BY type, external_user_id
                  ORDER BY
                    CASE status
-                     WHEN 'active' THEN 0
-                     WHEN 'unverified' THEN 1
-                     ELSE 2
+                     WHEN 'blocked' THEN 0
+                     WHEN 'revoked' THEN 1
+                     WHEN 'active' THEN 2
+                     WHEN 'unverified' THEN 3
+                     ELSE 4
                    END,
                    updated_at DESC
                ) AS rn
