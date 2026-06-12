@@ -45,9 +45,11 @@ export function EmailServiceCard() {
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
   const platformGate = usePlatformGate();
 
-  const [mode, setMode] = useState<ServiceMode>(
-    () => platformGate === "gated" ? "your-own" : getLocalSetting(LS_EMAIL_MODE, "managed") as ServiceMode,
-  );
+  const [mode, setMode] = useState<ServiceMode>(() => {
+    if (platformGate === "gated") return "your-own";
+    const raw = getLocalSetting(LS_EMAIL_MODE, "managed");
+    return raw === "managed" || raw === "your-own" ? raw : "managed";
+  });
   const [byoProviderId, setByoProviderId] = useState<EmailByoProvider["id"]>(
     () => getLocalSetting(LS_EMAIL_BYO_PROVIDER, "resend") as EmailByoProvider["id"],
   );

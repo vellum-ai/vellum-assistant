@@ -5,7 +5,7 @@ import { SEARCH_PROVIDER_IDS } from "../../providers/search-provider-catalog.js"
 import { SttServiceSchema } from "./stt.js";
 import { TtsServiceSchema } from "./tts.js";
 
-const ServiceModeSchema = z.enum(["managed", "your-own"]);
+export const ServiceModeSchema = z.enum(["managed", "your-own"]);
 type ServiceMode = z.infer<typeof ServiceModeSchema>;
 
 export const VALID_INFERENCE_PROVIDERS = [

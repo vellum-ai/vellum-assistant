@@ -47,9 +47,11 @@ export function ImageGenerationCard() {
   // Server value derived from daemon config, falling back to localStorage.
   // Updates automatically when the cache refreshes.
   const serverImageGenMode = useMemo<ServiceMode>(() => {
-    if (!daemonConfig) return getLocalSetting(LS_IMAGE_GEN_MODE, "your-own") as ServiceMode;
-    const mode = daemonConfig.services?.["image-generation"]?.mode;
-    return (mode === "managed" || mode === "your-own" ? mode : getLocalSetting(LS_IMAGE_GEN_MODE, "your-own")) as ServiceMode;
+    if (!daemonConfig) {
+      const raw = getLocalSetting(LS_IMAGE_GEN_MODE, "your-own");
+      return raw === "managed" || raw === "your-own" ? raw : "your-own";
+    }
+    return daemonConfig.services?.["image-generation"]?.mode ?? "your-own";
   }, [daemonConfig]);
 
   const [imageGenMode, setDraftImageGenMode] = useDraftOverride(serverImageGenMode);

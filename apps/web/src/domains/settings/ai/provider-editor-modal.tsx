@@ -103,7 +103,7 @@ export function ProviderEditorContent({
   );
   const [authType, setAuthType] = useState<AuthType>(() => {
     if (!connection) return "platform";
-    return connection.auth.type as AuthType;
+    return connection.auth.type;
   });
   const [credential, setCredential] = useState(() => {
     if (connection?.auth.type === "api_key") return connection.auth.credential;
@@ -177,7 +177,7 @@ export function ProviderEditorContent({
     setLabel(connection?.label ?? "");
     setName(connection?.name ?? "");
     setProvider(effectiveProvider);
-    setAuthType(connection ? (connection.auth.type as AuthType) : "platform");
+    setAuthType(connection ? connection.auth.type : "platform");
     if (connection?.auth.type === "api_key") {
       setCredential(connection.auth.credential);
     } else if (!connection) {
@@ -412,7 +412,7 @@ export function ProviderEditorContent({
           <Dropdown
             aria-label="Provider"
             value={provider}
-            onChange={(v) => setProvider(v as ConnectionProvider)}
+            onChange={(v) => setProvider(v)}
             disabled
             options={connectionProviderOptions.map((p) => ({
               value: p,
@@ -467,7 +467,7 @@ export function ProviderEditorContent({
             aria-label="Auth type"
             value={authType}
             onChange={(v) => {
-              setAuthType(v as AuthType);
+              setAuthType(v);
               setError(null);
             }}
             disabled={isAuthLocked || provider === "ollama"}

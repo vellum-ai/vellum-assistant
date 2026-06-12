@@ -60,10 +60,14 @@ export type ProfileStatus = NonNullable<ProfileEntry["status"]>;
 export const OPENAI_COMPATIBLE_PROVIDER = "openai-compatible";
 
 // ---------------------------------------------------------------------------
-// Service mode
+// Service mode (derived from the generated config schema)
 // ---------------------------------------------------------------------------
 
-export type ServiceMode = "managed" | "your-own";
+export type ServiceMode = NonNullable<
+  NonNullable<
+    NonNullable<ConfigGetResponse["services"]>["web-search"]
+  >["mode"]
+>;
 
 // ---------------------------------------------------------------------------
 // Derived types

@@ -320,7 +320,7 @@ export function ProviderCreateForm({
           aria-label="Provider"
           value={provider}
           onChange={(v) => {
-            const newProvider = v as ConnectionProvider;
+            const newProvider = v;
             setProvider(newProvider);
             // Re-seed Name + Key from the newly selected provider type, but
             // only while the user hasn't manually edited either field (dirty
@@ -412,7 +412,7 @@ export function ProviderCreateForm({
           aria-label="Auth type"
           value={authType}
           onChange={(v) => {
-            setAuthType(v as AuthType);
+            setAuthType(v);
             setError(null);
           }}
           disabled={provider === "ollama"}

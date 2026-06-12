@@ -49,17 +49,20 @@ export function WebSearchCard() {
   // Server values derived from daemon config, falling back to localStorage.
   // When the cache refreshes (after save + invalidation), these update
   // automatically.
-  const { serverWebSearchMode, serverWebSearchProvider } = useMemo(() => {
+  const { serverWebSearchMode, serverWebSearchProvider } = useMemo((): {
+    serverWebSearchMode: ServiceMode;
+    serverWebSearchProvider: string;
+  } => {
     if (!daemonConfig) {
+      const raw = getLocalSetting(LS_WEB_SEARCH_MODE, "your-own");
       return {
-        serverWebSearchMode: getLocalSetting(LS_WEB_SEARCH_MODE, "your-own") as ServiceMode,
+        serverWebSearchMode: raw === "managed" || raw === "your-own" ? raw : "your-own",
         serverWebSearchProvider: getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native"),
       };
     }
     const wsService = daemonConfig.services?.["web-search"];
-    const mode = wsService?.mode;
     return {
-      serverWebSearchMode: (mode === "managed" || mode === "your-own" ? mode : getLocalSetting(LS_WEB_SEARCH_MODE, "your-own")) as ServiceMode,
+      serverWebSearchMode: wsService?.mode ?? "your-own",
       serverWebSearchProvider: wsService?.provider || getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native"),
     };
   }, [daemonConfig]);
