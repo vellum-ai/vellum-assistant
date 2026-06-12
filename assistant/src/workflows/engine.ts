@@ -359,16 +359,20 @@ export async function executeWorkflow(
     agentsSpawned += 1;
 
     try {
+      // A leaf is EITHER a schema leaf (structured output via forced
+      // tool-choice — `schema` set, no tools) OR a tool leaf (free-form with
+      // tools — no schema). `runLeaf` hard-errors if BOTH are passed. The
+      // resolved capabilities always include a non-empty read-only baseline, so
+      // forward `tools` only on the tool-leaf path; a schema leaf runs with none.
+      const isSchemaLeaf = leafOpts.schema !== undefined;
       const result = await leafRunner({
         prompt,
         ...(leafOpts.label !== undefined ? { label: leafOpts.label } : {}),
-        ...(leafOpts.schema !== undefined
-          ? { schema: leafOpts.schema as never }
-          : {}),
+        ...(isSchemaLeaf ? { schema: leafOpts.schema as never } : {}),
         ...(leafOpts.profile !== undefined
           ? { profile: leafOpts.profile }
           : {}),
-        tools: capabilities.tools,
+        ...(isSchemaLeaf ? {} : { tools: capabilities.tools }),
         trustContext,
         ...(signal ? { signal } : {}),
       });

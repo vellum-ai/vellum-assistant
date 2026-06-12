@@ -54,11 +54,13 @@ function makeFakeRunner(opts?: {
   onCall?: (prompt: string) => void;
 }) {
   const prompts: string[] = [];
+  const calls: RunLeafOptions[] = [];
   let inFlight = 0;
   let highWater = 0;
 
   const runner = async (leafOpts: RunLeafOptions): Promise<LeafResult> => {
     prompts.push(leafOpts.prompt);
+    calls.push(leafOpts);
     opts?.onCall?.(leafOpts.prompt);
     inFlight += 1;
     highWater = Math.max(highWater, inFlight);
@@ -85,6 +87,7 @@ function makeFakeRunner(opts?: {
   return {
     runner: runner as unknown as typeof import("./leaf-runner.js").runLeaf,
     prompts,
+    calls,
     get highWater() {
       return highWater;
     },
@@ -99,12 +102,13 @@ function execute(
   runner: typeof import("./leaf-runner.js").runLeaf,
   config: WorkflowsConfig = configWith(),
   args: unknown = null,
+  capabilities: ResolvedCapabilities = CAPABILITIES,
 ) {
   return executeWorkflow({
     runId,
     scriptSource: META + scriptSource,
     args,
-    capabilities: CAPABILITIES,
+    capabilities,
     config,
     journal: journalStore,
     leafRunner: runner,
@@ -320,6 +324,45 @@ describe("executeWorkflow — resume", () => {
       journalB.map((e) => [e.seq, e.callHash]),
     );
     expect(journalA.map((e) => e.seq)).toEqual([0, 1, 2]);
+  });
+});
+
+describe("executeWorkflow — schema vs tool leaf tool forwarding", () => {
+  beforeEach(resetTables);
+
+  // A non-empty capability set, mirroring a real run (which always carries the
+  // read-only baseline). The engine must forward these tools ONLY to tool leaves.
+  const toolsCapabilities: ResolvedCapabilities = {
+    tools: [{ name: "file_read" } as ResolvedCapabilities["tools"][number]],
+    hostFunctions: [],
+    persona: false,
+  };
+
+  test("a schema leaf is called with NO tools; a plain tool leaf gets capabilities.tools", async () => {
+    const fake = makeFakeRunner();
+    // The schema crosses the (here-bypassed) sandbox as a plain JSON Schema
+    // object; the engine forwards it verbatim. The plain leaf has no schema.
+    const res = await execute(
+      "wf-tool-forward",
+      `const schemaLeaf = agent("structured", { schema: { type: "object" } });
+       const toolLeaf = agent("freeform");
+       return [schemaLeaf, toolLeaf];`,
+      fake.runner,
+      configWith(),
+      null,
+      toolsCapabilities,
+    );
+
+    expect(res.status).toBe("completed");
+    expect(fake.prompts).toEqual(["structured", "freeform"]);
+
+    const [schemaCall, toolCall] = fake.calls;
+    // Schema leaf: schema present, NO tools forwarded.
+    expect(schemaCall!.schema).toEqual({ type: "object" });
+    expect(schemaCall!.tools ?? []).toEqual([]);
+    // Tool leaf: no schema, capabilities.tools forwarded.
+    expect(toolCall!.schema).toBeUndefined();
+    expect(toolCall!.tools).toBe(toolsCapabilities.tools);
   });
 });
 
