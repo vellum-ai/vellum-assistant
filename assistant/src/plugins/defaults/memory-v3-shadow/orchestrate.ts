@@ -357,6 +357,7 @@ export async function orchestrate(
   });
   const finderTail: PoolCandidate[] = finder.map((c) => ({
     slug: c.slug,
+    lane: c.lane,
     descriptor:
       c.descriptor.trim().length > 0
         ? c.descriptor

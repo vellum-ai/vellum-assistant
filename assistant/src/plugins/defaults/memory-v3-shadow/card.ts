@@ -73,21 +73,32 @@ function renderTocLine(
 }
 
 /**
- * Render a page's compact card: header marker, head section (uncapped — the
- * corpus's rare long leads inject whole; a length cap is a deliberate
- * non-feature), and one-line TOC.
+ * Render a page's compact card: header marker, optional annotation line, head
+ * section (uncapped — the corpus's rare long leads inject whole; a length cap
+ * is a deliberate non-feature), and one-line TOC.
  *
  * ```
  * # memory/concepts/<slug>.md
+ * [lane: fresh · updated 2026-06-10 14:23]
  * <head section verbatim>
  *
  * [sections: §… · §…]
  * ```
  *
+ * The annotation renders directly under the header: selector-visible metadata
+ * must sit on the always-rendered card surface (section-grain rendering can
+ * hide anything that lives only inside page content). Annotations must derive
+ * only from lane-init state (lane membership, page mtime) so the card stays
+ * byte-identical across turns between lane recomputes.
+ *
  * The TOC line is omitted when the page has no `## ` sections and no usable
- * `links:`. Deterministic for a given (slug, rawPageText).
+ * `links:`. Deterministic for a given (slug, rawPageText, annotation).
  */
-export function renderCard(slug: Slug, rawPageText: string): string {
+export function renderCard(
+  slug: Slug,
+  rawPageText: string,
+  annotation?: string,
+): string {
   const parsed = parseFrontmatterFields(rawPageText);
   // `parseFrontmatterFields` returns null both for "no frontmatter block" and
   // "block present but YAML failed to parse" — strip the block either way so a
@@ -101,6 +112,9 @@ export function renderCard(slug: Slug, rawPageText: string): string {
   const head = (firstHeading ? body.slice(0, firstHeading.index) : body).trim();
 
   let card = injectedConceptHeader(slug);
+  if (annotation !== undefined && annotation.length > 0) {
+    card += `\n${annotation}`;
+  }
   if (head.length > 0) card += `\n${head}`;
 
   const toc = renderTocLine(body, fields);
