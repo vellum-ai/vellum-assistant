@@ -322,17 +322,17 @@ export class AcpAgentProcess {
    * Returns the prompt response (includes stopReason).
    */
   async prompt(sessionId: string, text: string): Promise<PromptResponse> {
-    const connection = this.requireConnection();
-
     log.info(
       { agentId: this.agentId, sessionId },
       "Sending prompt to ACP agent",
     );
 
-    return connection.prompt({
-      sessionId,
-      prompt: [{ type: "text", text }],
-    });
+    return this.withAuthRetry(() =>
+      this.requireConnection().prompt({
+        sessionId,
+        prompt: [{ type: "text", text }],
+      }),
+    );
   }
 
   /**

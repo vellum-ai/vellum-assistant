@@ -202,6 +202,7 @@ describe("AcpAgentProcess auth_required retry", () => {
     newSessionRejections?: unknown[];
     loadSessionRejections?: unknown[];
     resumeSessionRejections?: unknown[];
+    promptRejections?: unknown[];
   }) {
     const proc = new AcpAgentProcess(
       "codex",
@@ -233,6 +234,9 @@ describe("AcpAgentProcess auth_required retry", () => {
       options.resumeSessionRejections ?? [],
       {},
     );
+    const prompt = failThenSucceed(options.promptRejections ?? [], {
+      stopReason: "end_turn",
+    });
     const authenticate = mock(() => Promise.resolve({}));
 
     const internals = proc as unknown as {
@@ -248,6 +252,7 @@ describe("AcpAgentProcess auth_required retry", () => {
       newSession,
       loadSession,
       resumeSession,
+      prompt,
       authenticate,
     };
     internals.spawnedEnv = { ...process.env, ...options.env };
@@ -259,6 +264,7 @@ describe("AcpAgentProcess auth_required retry", () => {
       newSession,
       loadSession,
       resumeSession,
+      prompt,
       authenticate,
       internals,
     };
@@ -379,6 +385,38 @@ describe("AcpAgentProcess auth_required retry", () => {
 
     expect(authenticate).toHaveBeenCalledWith({ methodId: "openai-api-key" });
     expect(resumeSession).toHaveBeenCalledTimes(2);
+  });
+
+  test("prompt authenticates and retries on auth_required, returning the response", async () => {
+    const { proc, prompt, authenticate } = await setupAuthProcess({
+      env: { [OPENAI_VAR]: "sk-test" },
+      promptRejections: [authRequiredError],
+    });
+
+    const response = await proc.prompt("session-1", "hello");
+
+    expect(response).toEqual({ stopReason: "end_turn" });
+    expect(authenticate).toHaveBeenCalledTimes(1);
+    expect(authenticate).toHaveBeenCalledWith({ methodId: "openai-api-key" });
+    expect(prompt).toHaveBeenCalledTimes(2);
+  });
+
+  test("prompt auth_required with no satisfiable env_var method throws an actionable error", async () => {
+    const { proc, prompt, authenticate } = await setupAuthProcess({
+      env: {},
+      promptRejections: [authRequiredError],
+    });
+
+    const promise = proc.prompt("session-1", "hello");
+
+    await expect(promise).rejects.toThrow(
+      'ACP agent "codex" requires authentication',
+    );
+    await expect(promise).rejects.toThrow("Login with ChatGPT");
+    await expect(promise).rejects.toThrow(CODEX_VAR);
+    await expect(promise).rejects.toThrow(OPENAI_VAR);
+    expect(authenticate).not.toHaveBeenCalled();
+    expect(prompt).toHaveBeenCalledTimes(1);
   });
 
   test("a non-auth error propagates without authenticating", async () => {
