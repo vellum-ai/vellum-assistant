@@ -156,7 +156,17 @@ export function RootLayout() {
     rePair: () => {
       const id = getSelectedAssistant()?.assistantId;
       if (id) {
-        void useAuthStore.getState().connectLocalAssistant(id);
+        // connectLocalAssistant rethrows (e.g. GuardianTokenError) so callers
+        // can offer recovery; route to the chooser, whose connect path owns
+        // the recovery dialog, instead of dead-ending on a silent rejection.
+        useAuthStore
+          .getState()
+          .connectLocalAssistant(id)
+          .catch((err: unknown) => {
+            console.error("rePair.connectLocalAssistant failed", err);
+            toast.error("Failed to connect to the assistant.");
+            void navigate(routes.selectAssistant);
+          });
       }
     },
     shareFeedback: () => setFeedbackOpen(true),

@@ -43,7 +43,7 @@ export async function wake(): Promise<void> {
       "  --foreground   Run assistant in foreground with logs printed to terminal",
     );
     console.log(
-      "  --repair-guardian  Re-provision the guardian token if missing (resets the\n" +
+      "  --repair-guardian  Re-provision the guardian token if missing or expired (resets the\n" +
         "                     gateway bootstrap and re-leases — REVOKES other device-bound\n" +
         "                     tokens, so only use deliberately, never from auto-repair)",
     );
@@ -238,8 +238,10 @@ export async function wake(): Promise<void> {
     console.log("   Seeded guardian token from sibling environment.");
   }
 
-  // Last-resort recovery (explicit `--repair-guardian` only): if no guardian
-  // token exists for this env even after sibling seeding, re-provision one. The
+  // Last-resort recovery (explicit `--repair-guardian` only): if no usable
+  // guardian token exists for this env even after sibling seeding — the file
+  // is missing, or it exists but its refresh token has expired so every
+  // connect 401s with no way to mint a fresh access token — re-provision. The
   // single-use bootstrap secret may already be spent — a prior connect can
   // lease a token that's then lost, or the gateway marks the secret consumed
   // before the client persists it — which otherwise bricks connect into a
@@ -248,7 +250,11 @@ export async function wake(): Promise<void> {
   // by the lockfile secret — mirrors the macOS client's forceReBootstrap), then
   // re-lease. Gated behind the flag because the re-lease revokes other
   // device-bound tokens; it must never run from the automatic repair path.
-  if (repairGuardian && !loadGuardianToken(entry.assistantId)) {
+  const persistedToken = loadGuardianToken(entry.assistantId);
+  const refreshExpired =
+    persistedToken != null &&
+    new Date(persistedToken.refreshTokenExpiresAt).getTime() <= Date.now();
+  if (repairGuardian && (!persistedToken || refreshExpired)) {
     const loopbackUrl = `http://127.0.0.1:${resources.gatewayPort}`;
     const maxAttempts = 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {

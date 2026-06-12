@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { resolveSelectedAssistantId } from "@/assistant/selection";
 import { retireAssistant } from "@/assistant/retire-service";
+import { isGuardianRepairable } from "@/lib/local-mode";
 import { ConnectRecoveryDialog } from "@/domains/onboarding/components/connect-recovery-dialog";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { formatRelativeDate } from "@/utils/format-date";
@@ -92,7 +93,11 @@ export function SelectAssistantScreen() {
       // A token that's gone for good can only be fixed by re-provisioning,
       // so offer the recovery dialog; every other failure keeps the generic
       // message — repair can't help those.
-      if (assistant.isLocal && requiresGuardianReprovision(err)) {
+      if (
+        assistant.isLocal &&
+        requiresGuardianReprovision(err) &&
+        isGuardianRepairable(assistant.id)
+      ) {
         setRecoveryAssistant(assistant);
       } else {
         setError("Failed to connect. Please try again.");
@@ -117,30 +122,43 @@ export function SelectAssistantScreen() {
     if (!recoveryAssistant || recoveryPending) return;
     setRecoveryPending(true);
     setRecoveryError(null);
-    const result = await wakeLocalAssistantHost(recoveryAssistant.id, {
-      repairGuardian: true,
-    });
-    if (result.ok) {
-      clearRecoveryState();
-      void handleConnect(recoveryAssistant);
-    } else {
+    // try/catch, not just the result branch: a thrown fetch/transport error
+    // would otherwise strand recoveryPending=true on a deliberately
+    // un-dismissable pending dialog.
+    try {
+      const result = await wakeLocalAssistantHost(recoveryAssistant.id, {
+        repairGuardian: true,
+      });
+      if (result.ok) {
+        clearRecoveryState();
+        void handleConnect(recoveryAssistant);
+        return;
+      }
       setRecoveryError(result.error || "Repair failed. Please try again.");
-      setRecoveryPending(false);
+    } catch (err) {
+      console.error("selectAssistant.recoveryRepair failed", err);
+      setRecoveryError("Repair failed. Please try again.");
     }
+    setRecoveryPending(false);
   };
 
   const handleRecoveryRetire = async () => {
     if (!recoveryAssistant || recoveryPending) return;
     setRecoveryPending(true);
     setRecoveryError(null);
-    const outcome = await retireAssistant(recoveryAssistant.id);
-    if (outcome.ok) {
-      clearRecoveryState();
-      void navigate(outcome.nextRoute, { replace: true });
-    } else {
+    try {
+      const outcome = await retireAssistant(recoveryAssistant.id);
+      if (outcome.ok) {
+        clearRecoveryState();
+        void navigate(outcome.nextRoute, { replace: true });
+        return;
+      }
       setRecoveryError(outcome.error);
-      setRecoveryPending(false);
+    } catch (err) {
+      console.error("selectAssistant.recoveryRetire failed", err);
+      setRecoveryError("Failed to retire assistant. Please try again.");
     }
+    setRecoveryPending(false);
   };
 
   // Auto-skip when there's exactly one assistant and it's accessible.

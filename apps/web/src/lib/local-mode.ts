@@ -278,6 +278,19 @@ export function isPlatformAssistant(a: LockfileAssistant): boolean {
   return a.cloud === "vellum";
 }
 
+/**
+ * True when the CLI's `wake --repair-guardian` can actually re-provision this
+ * assistant's guardian token. Only plain `cloud: "local"` entries reach the
+ * repair block — `wake` returns early for Docker containers and refuses
+ * apple-container entries — so recovery UI must not offer repair for those.
+ */
+export function isGuardianRepairable(assistantId: string): boolean {
+  const entry = getLockfile().assistants.find(
+    (a) => a.assistantId === assistantId,
+  );
+  return entry?.cloud === "local";
+}
+
 export function getLocalAssistants(): LockfileAssistant[] {
   return getLockfile().assistants.filter(isLocalAssistant);
 }
