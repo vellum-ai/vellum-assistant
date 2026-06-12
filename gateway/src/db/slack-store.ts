@@ -12,11 +12,18 @@ import {
 const LAST_SEEN_KEY = "global";
 const SLACK_CHANNEL_TYPE = "slack";
 
-/** Persisted bot identity fields for any channel adapter. */
-export type ChannelBotIdentity = {
-  userId: string;
-  username: string | null;
-  /** Channel-specific metadata (e.g. Slack team name). */
+/** Drizzle-inferred row type for the channel_bot_identity table. */
+type ChannelBotIdentityRow = typeof channelBotIdentity.$inferSelect;
+
+/**
+ * Parsed bot identity with deserialized metadata. The raw DB row stores
+ * metadata as a JSON text column; this type represents the parsed shape
+ * returned by `getBotIdentity` and accepted by `setBotIdentity`.
+ */
+export type ChannelBotIdentity = Omit<
+  ChannelBotIdentityRow,
+  "channelType" | "updatedAt" | "metadata"
+> & {
   metadata: Record<string, unknown> | null;
 };
 
