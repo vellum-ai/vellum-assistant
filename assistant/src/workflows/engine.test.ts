@@ -289,6 +289,68 @@ describe("executeWorkflow — resume", () => {
     expect(second.prompts).toEqual([]);
   });
 
+  test("resume carries agentsSpawned/tokens forward from the persisted run row (not reset to 0)", async () => {
+    // First run journals 2 leaves → persisted agents_spawned = 2.
+    const first = makeFakeRunner();
+    await execute(
+      "wf-resume-count",
+      `agent("a"); return agent("b");`,
+      first.runner,
+    );
+    const afterFirst = journalStore.getRun("wf-resume-count");
+    expect(afterFirst?.agentsSpawned).toBe(2);
+    expect(afterFirst?.inputTokens).toBe(20);
+
+    // Resume with one ADDED leaf: a/b replay (no re-count), the new leaf spawns.
+    const second = makeFakeRunner();
+    const res = await execute(
+      "wf-resume-count",
+      `agent("a"); agent("b"); return agent("c");`,
+      second.runner,
+    );
+    expect(res.status).toBe("completed");
+    expect(second.prompts).toEqual(["c"]);
+    // Carried forward: persisted 2 + 1 newly spawned = 3 (NOT reset to 1).
+    expect(res.agentsSpawned).toBe(3);
+    expect(res.inputTokens).toBe(30);
+
+    // The persisted agents_spawned is not regressed downward by the resume.
+    const afterSecond = journalStore.getRun("wf-resume-count");
+    expect(afterSecond?.agentsSpawned).toBe(3);
+    expect(afterSecond!.agentsSpawned).toBeGreaterThanOrEqual(
+      afterFirst!.agentsSpawned,
+    );
+  });
+
+  test("resume enforces the agent cap against the carried-over total (no fresh budget)", async () => {
+    // First run spawns 3 leaves under a generous cap → persisted at 3.
+    const first = makeFakeRunner();
+    await execute(
+      "wf-resume-cap",
+      `agent("a"); agent("b"); return agent("c");`,
+      first.runner,
+      configWith({ maxAgentsPerRun: 500 }),
+    );
+    expect(journalStore.getRun("wf-resume-cap")?.agentsSpawned).toBe(3);
+
+    // Resume with cap=3 and one NEW leaf. Were the counter reset to 0, the new
+    // leaf would fit a fresh budget; seeded from the persisted 3, the cap is
+    // already met, so the new leaf trips it.
+    const second = makeFakeRunner();
+    const res = await execute(
+      "wf-resume-cap",
+      `agent("a"); agent("b"); agent("c"); return agent("d");`,
+      second.runner,
+      configWith({ maxAgentsPerRun: 3 }),
+    );
+
+    expect(res.status).toBe("cap_exceeded");
+    // The new leaf never ran; the carried total stays at the cap.
+    expect(second.prompts).toEqual([]);
+    expect(res.agentsSpawned).toBe(3);
+    expect(journalStore.getRun("wf-resume-cap")?.agentsSpawned).toBe(3);
+  });
+
   test("a changed call breaks the replay prefix and re-runs from there", async () => {
     const first = makeFakeRunner();
     await execute(
@@ -366,6 +428,60 @@ describe("executeWorkflow — schema vs tool leaf tool forwarding", () => {
     // Tool leaf: no schema, capabilities.tools forwarded.
     expect(toolCall!.schema).toBeUndefined();
     expect(toolCall!.tools).toBe(toolsCapabilities.tools);
+  });
+});
+
+describe("executeWorkflow — persona gating", () => {
+  beforeEach(resetTables);
+
+  const personaCapabilities: ResolvedCapabilities = {
+    tools: [],
+    hostFunctions: [],
+    persona: true,
+  };
+
+  test("a persona leaf forwards persona:true to the runner when the run declared persona", async () => {
+    const fake = makeFakeRunner();
+    const res = await execute(
+      "wf-persona-ok",
+      `return agent("draft a reply", { persona: true });`,
+      fake.runner,
+      configWith(),
+      null,
+      personaCapabilities,
+    );
+
+    expect(res.status).toBe("completed");
+    expect(fake.calls).toHaveLength(1);
+    expect(fake.calls[0]!.persona).toBe(true);
+  });
+
+  test("a non-persona leaf does NOT forward persona", async () => {
+    const fake = makeFakeRunner();
+    await execute(
+      "wf-persona-anon",
+      `return agent("plain task");`,
+      fake.runner,
+      configWith(),
+      null,
+      personaCapabilities,
+    );
+    expect(fake.calls[0]!.persona).toBeUndefined();
+  });
+
+  test("a persona leaf in a run WITHOUT declared persona fails the run (loud, never silent)", async () => {
+    const fake = makeFakeRunner();
+    // Default CAPABILITIES has persona:false.
+    const res = await execute(
+      "wf-persona-denied",
+      `return agent("draft a reply", { persona: true });`,
+      fake.runner,
+    );
+
+    expect(res.status).toBe("failed");
+    // The leaf runner is never invoked — the gate trips before the spawn.
+    expect(fake.calls).toHaveLength(0);
+    expect(res.agentsSpawned).toBe(0);
   });
 });
 
