@@ -1,47 +1,14 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import {
-  closeSync,
-  existsSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
-import { homedir } from "node:os";
+import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { GATEWAY_PORT } from "./constants";
 import { loopbackSafeFetch } from "./loopback-fetch.js";
-
-function getDefaultWorkspaceDir(): string {
-  return (
-    process.env.VELLUM_WORKSPACE_DIR?.trim() ||
-    join(homedir(), ".vellum", "workspace")
-  );
-}
-
-function getConfigPath(workspaceDir: string): string {
-  return join(workspaceDir, "config.json");
-}
-
-function loadRawConfig(workspaceDir: string): Record<string, unknown> {
-  const configPath = getConfigPath(workspaceDir);
-  if (!existsSync(configPath)) return {};
-  return JSON.parse(readFileSync(configPath, "utf-8")) as Record<
-    string,
-    unknown
-  >;
-}
-
-function saveRawConfig(
-  workspaceDir: string,
-  config: Record<string, unknown>,
-): void {
-  const configPath = getConfigPath(workspaceDir);
-  const dir = dirname(configPath);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
-}
+import { resolveTunnelTargetPort } from "./nginx-ingress.js";
+import {
+  getDefaultWorkspaceDir,
+  loadRawConfig,
+  saveRawConfig,
+} from "./workspace-config.js";
 
 const NGROK_API_URL = "http://127.0.0.1:4040/api/tunnels";
 const NGROK_POLL_INTERVAL_MS = 500;
@@ -326,8 +293,15 @@ export async function runNgrokTunnel(): Promise<void> {
 
   console.log(`Using ${version}`);
 
-  const port = GATEWAY_PORT;
   const workspaceDir = getDefaultWorkspaceDir();
+  // While the nginx ingress is running, tunnel to it instead of the gateway —
+  // it stamps the edge marker and security headers on the way through.
+  const { port, viaIngress } = resolveTunnelTargetPort(workspaceDir);
+  if (viaIngress) {
+    console.log(
+      `nginx ingress detected — tunneling to it on 127.0.0.1:${port}.`,
+    );
+  }
 
   // Check for an existing ngrok tunnel pointing at the gateway
   const existingUrl = await findExistingTunnel(port);

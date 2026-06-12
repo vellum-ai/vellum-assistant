@@ -1,7 +1,18 @@
 import type { Server } from "bun";
 
+import { requestArrivedViaEdgeProxy } from "../http/edge-forwarded-header.js";
+
 /**
  * Check whether the TCP peer of a Bun HTTP request is a loopback address.
+ *
+ * Requests carrying the self-hosted nginx edge marker are never loopback: the
+ * edge proxies traffic that may originate from a remote browser over a tunnel
+ * whose every hop is 127.0.0.1 (browser → tunnel agent → nginx → gateway), so
+ * neither the raw socket peer nor X-Forwarded-For (whose leftmost entry the
+ * tunnel may let a client influence) can be used to judge locality. The check
+ * is unconditional — a client that sets the marker itself only narrows its own
+ * privileges, and the edge's `proxy_set_header` replaces any inbound copy so a
+ * remote caller cannot strip it.
  *
  * When `trustProxy` is set, `X-Forwarded-For` is consulted to recover the real
  * client behind a trusted reverse proxy — but ONLY when the raw socket peer is
@@ -17,6 +28,8 @@ export function isLoopbackPeer(
   req: Request,
   opts?: { trustProxy?: boolean },
 ): boolean {
+  if (requestArrivedViaEdgeProxy(req)) return false;
+
   const peer = server.requestIP(req);
   const peerIsLoopback = peer ? isLoopbackAddress(peer.address) : false;
 

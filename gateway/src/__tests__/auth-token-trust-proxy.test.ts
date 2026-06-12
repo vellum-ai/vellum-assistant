@@ -101,4 +101,21 @@ describe("handleCreateToken — trustProxy loopback gate", () => {
     );
     expect(res.status).toBe(401);
   });
+
+  test("edge-forwarded marker + spoofed XFF=127.0.0.1 over a loopback socket is rejected → 403", async () => {
+    // The nginx-ingress topology: every hop is loopback and an appending
+    // tunnel can leave a client-forged loopback entry leftmost in XFF. The
+    // marker (stamped by nginx, unstrippable by the client) must override
+    // both signals.
+    const res = await handleCreateToken(
+      makeReq({
+        "x-vellum-edge-forwarded": "1",
+        "x-forwarded-for": "127.0.0.1",
+        origin: LOOPBACK_ORIGIN,
+      }),
+      makeLoopbackServer(),
+      true,
+    );
+    expect(res.status).toBe(403);
+  });
 });
