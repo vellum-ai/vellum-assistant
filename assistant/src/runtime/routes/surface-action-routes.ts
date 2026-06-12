@@ -14,13 +14,20 @@ import { isHttpAuthDisabled } from "../../config/env.js";
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { processGuardianDecision } from "../guardian-action-service.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
 import { resolveLocalTrustContext } from "../local-actor-identity.js";
 import {
   resolveTrustContext,
   withSourceChannel,
 } from "../trust-context-resolver.js";
-import { BadRequestError, InternalError, NotFoundError, RouteError } from "./errors.js";
+import { parseCallbackData } from "./channel-route-shared.js";
+import {
+  BadRequestError,
+  InternalError,
+  NotFoundError,
+  RouteError,
+} from "./errors.js";
 import { resolveSurfaceConversation } from "./surface-conversation-resolver.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -109,6 +116,40 @@ async function handleSurfaceAction({
   }
   if (conversationId != null && typeof conversationId !== "string") {
     throw new BadRequestError("conversationId must be a string");
+  }
+
+  // Intercept access-request approval actions (apr:<requestId>:<action>)
+  // before conversation resolution — these are cross-conversation decisions
+  // that route through the canonical guardian decision primitive.
+  const aprDecision = parseCallbackData(actionId, "vellum");
+  if (aprDecision) {
+    const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
+    const result = await processGuardianDecision({
+      requestId: aprDecision.requestId!,
+      action: aprDecision.action,
+      conversationId: conversationId ?? undefined,
+      channel: "vellum",
+      actorContext: {
+        actorPrincipalId: actorPrincipalId,
+        guardianPrincipalId: actorPrincipalId,
+      },
+    });
+
+    if (!result.ok) {
+      throw new BadRequestError(result.message);
+    }
+    if (!result.applied) {
+      log.warn(
+        { actionId, requestId: aprDecision.requestId, reason: result.reason },
+        "Access request decision not applied",
+      );
+    } else {
+      log.info(
+        { actionId, requestId: result.requestId },
+        "Access request decision applied via surface action",
+      );
+    }
+    return { ok: true };
   }
 
   const conversation = await resolveSurfaceConversation(
@@ -270,9 +311,7 @@ export const ROUTES: RouteDefinition[] = [
     description: "Revert the most recent action on a surface.",
     tags: ["surfaces"],
     requestBody: z.object({
-      conversationId: z
-        .string()
-        .describe("Conversation that owns the surface"),
+      conversationId: z.string().describe("Conversation that owns the surface"),
     }),
     responseBody: z.object({
       ok: z.boolean(),

@@ -92,6 +92,7 @@ export type ApprovalDecisionSource =
   | "whatsapp_button"
   | "slack_button"
   | "slack_reaction"
+  | "vellum_surface"
   | "plain_text";
 
 /** The structured result of a user's approval decision. */
