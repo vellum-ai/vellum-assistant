@@ -294,8 +294,8 @@ const bridge: VellumBridge = {
         platformAssistants,
         organizationId,
       ) as Promise<LockfileWriteResult>,
-    wake: (assistantId: string) =>
-      ipcRenderer.invoke("vellum:localMode:wake", assistantId) as Promise<{
+    wake: (assistantId: string, options?: { repairGuardian?: boolean }) =>
+      ipcRenderer.invoke("vellum:localMode:wake", assistantId, options) as Promise<{
         ok: boolean;
         error?: string;
       }>,
