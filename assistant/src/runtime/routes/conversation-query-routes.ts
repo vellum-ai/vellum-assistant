@@ -541,7 +541,8 @@ const ConfigGetResponseSchema = z
       .passthrough()
       .optional(),
   })
-  .passthrough();
+  .passthrough()
+  .meta({ id: "ConfigGetResponse" });
 
 /**
  * Given a `z.object(...)` schema, returns a new schema where every property
@@ -640,7 +641,8 @@ const ConfigPatchRequestSchema = z
       .passthrough()
       .optional(),
   })
-  .passthrough();
+  .passthrough()
+  .meta({ id: "ConfigPatchRequest" });
 
 function handleGetConfig() {
   try {
