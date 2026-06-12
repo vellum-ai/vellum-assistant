@@ -8,6 +8,9 @@ import { getLogger } from "../../util/logger.js";
 import {
   buildAccessRequestIdentityLine,
   buildAccessRequestInviteDirective,
+  buildAccessRequestWarnings,
+  buildSlackMessagePermalink,
+  parseAccessRequestPayload,
   sanitizeIdentityField,
 } from "../access-request-copy.js";
 import { isConversationSeedSane } from "../conversation-seed-composer.js";
@@ -55,6 +58,7 @@ function resolveSlackMessageText(payload: ChannelDeliveryPayload): string {
  * - Context: approval code instructions + invite directive
  */
 function buildAccessRequestBlocks(payload: Record<string, unknown>): unknown[] {
+  const p = parseAccessRequestPayload(payload);
   const blocks: unknown[] = [];
 
   // Header
@@ -64,62 +68,41 @@ function buildAccessRequestBlocks(payload: Record<string, unknown>): unknown[] {
   });
 
   // Requester identity section
-  const identityLine = buildAccessRequestIdentityLine(payload);
   blocks.push({
     type: "section",
-    text: { type: "mrkdwn", text: identityLine },
+    text: { type: "mrkdwn", text: buildAccessRequestIdentityLine(payload) },
   });
 
-  // Build fields for structured requester details
+  // Structured requester details
   const fields: Array<{ type: "mrkdwn"; text: string }> = [];
 
-  const senderIdentifier = nonEmpty(
-    typeof payload.senderIdentifier === "string"
-      ? sanitizeIdentityField(payload.senderIdentifier)
-      : undefined,
+  const safeName = nonEmpty(
+    p.senderIdentifier ? sanitizeIdentityField(p.senderIdentifier) : undefined,
   );
-  if (senderIdentifier) {
-    fields.push({ type: "mrkdwn", text: `*Name:*\n${senderIdentifier}` });
+  if (safeName) {
+    fields.push({ type: "mrkdwn", text: `*Name:*\n${safeName}` });
   }
 
-  const actorUsername = nonEmpty(
-    typeof payload.actorUsername === "string"
-      ? sanitizeIdentityField(payload.actorUsername)
-      : undefined,
+  const safeUsername = nonEmpty(
+    p.actorUsername ? sanitizeIdentityField(p.actorUsername) : undefined,
   );
-  if (actorUsername) {
-    fields.push({ type: "mrkdwn", text: `*Username:*\n@${actorUsername}` });
+  if (safeUsername) {
+    fields.push({ type: "mrkdwn", text: `*Username:*\n@${safeUsername}` });
   }
 
-  const sourceChannel = nonEmpty(
-    typeof payload.sourceChannel === "string"
-      ? payload.sourceChannel
-      : undefined,
-  );
-  if (sourceChannel) {
-    // For Slack, show the conversation context (DM vs channel link).
-    const conversationExternalId =
-      typeof payload.conversationExternalId === "string"
-        ? payload.conversationExternalId
+  if (p.sourceChannel) {
+    let channelDisplay = p.sourceChannel;
+    if (p.sourceChannel === "slack" && p.conversationExternalId) {
+      const permalink = p.messageTs
+        ? buildSlackMessagePermalink(p.conversationExternalId, p.messageTs)
         : undefined;
-    const messageTs =
-      typeof payload.messageTs === "string" ? payload.messageTs : undefined;
-    let channelDisplay = sourceChannel;
-    if (sourceChannel === "slack" && conversationExternalId) {
-      // Build a permalink to the specific message when we have the timestamp.
-      // Format: https://slack.com/archives/{channelId}/p{ts_without_dot}
-      // This is workspace-agnostic and resolves for any authenticated viewer.
-      const permalink =
-        messageTs && conversationExternalId
-          ? `https://slack.com/archives/${conversationExternalId}/p${messageTs.replace(".", "")}`
-          : undefined;
 
       // C = public/private channels, G = group DMs / MPIMs / legacy private channels.
       // Both support the <#ID> mrkdwn deep-link. D = 1:1 DMs (no linkable channel).
-      if (/^[CG][A-Z0-9]+$/i.test(conversationExternalId)) {
+      if (/^[CG][A-Z0-9]+$/i.test(p.conversationExternalId)) {
         channelDisplay = permalink
-          ? `Slack — <#${conversationExternalId}> · <${permalink}|View message>`
-          : `Slack — <#${conversationExternalId}>`;
+          ? `Slack — <#${p.conversationExternalId}> · <${permalink}|View message>`
+          : `Slack — <#${p.conversationExternalId}>`;
       } else {
         channelDisplay = permalink
           ? `Slack — Direct message · <${permalink}|View message>`
@@ -129,51 +112,26 @@ function buildAccessRequestBlocks(payload: Record<string, unknown>): unknown[] {
     fields.push({ type: "mrkdwn", text: `*Source:*\n${channelDisplay}` });
   }
 
-  const actorExternalId = nonEmpty(
-    typeof payload.actorExternalId === "string"
-      ? sanitizeIdentityField(payload.actorExternalId)
-      : undefined,
+  const safeExternalId = nonEmpty(
+    p.actorExternalId ? sanitizeIdentityField(p.actorExternalId) : undefined,
   );
-  if (actorExternalId && actorExternalId !== senderIdentifier) {
-    fields.push({ type: "mrkdwn", text: `*ID:*\n${actorExternalId}` });
+  if (safeExternalId && safeExternalId !== safeName) {
+    fields.push({ type: "mrkdwn", text: `*ID:*\n${safeExternalId}` });
   }
 
   if (fields.length > 0) {
-    blocks.push({
-      type: "section",
-      fields,
-    });
+    blocks.push({ type: "section", fields });
   }
 
-  // Previously revoked warning
-  const previousMemberStatus =
-    typeof payload.previousMemberStatus === "string"
-      ? payload.previousMemberStatus
-      : undefined;
-  if (previousMemberStatus === "revoked") {
+  // Unified warnings: revoked + trust signals
+  const warnings = buildAccessRequestWarnings(p);
+  if (warnings.length > 0) {
     blocks.push({
       type: "context",
-      elements: [
-        {
-          type: "mrkdwn",
-          text: ":warning: This user was previously revoked.",
-        },
-      ],
-    });
-  }
-
-  // Trust signal warnings (Slack-specific)
-  const trustWarnings: string[] = [];
-  if (payload.isStranger === true) {
-    trustWarnings.push(":warning: External Slack user (not in this workspace)");
-  }
-  if (payload.isRestricted === true) {
-    trustWarnings.push(":warning: Guest / restricted account");
-  }
-  if (trustWarnings.length > 0) {
-    blocks.push({
-      type: "context",
-      elements: trustWarnings.map((text) => ({ type: "mrkdwn", text })),
+      elements: warnings.map((w) => ({
+        type: "mrkdwn" as const,
+        text: `:warning: ${w}`,
+      })),
     });
   }
 
@@ -181,9 +139,7 @@ function buildAccessRequestBlocks(payload: Record<string, unknown>): unknown[] {
   blocks.push({ type: "divider" });
 
   // Approval code instructions
-  const requestCode = nonEmpty(
-    typeof payload.requestCode === "string" ? payload.requestCode : undefined,
-  );
+  const requestCode = nonEmpty(p.requestCode);
   if (requestCode) {
     const code = requestCode.toUpperCase();
     blocks.push({
@@ -196,28 +152,23 @@ function buildAccessRequestBlocks(payload: Record<string, unknown>): unknown[] {
   }
 
   // Invite directive
-  const inviteDirective = buildAccessRequestInviteDirective();
   blocks.push({
     type: "context",
-    elements: [{ type: "mrkdwn", text: inviteDirective }],
+    elements: [{ type: "mrkdwn", text: buildAccessRequestInviteDirective() }],
   });
 
   // Guardian verification note
-  const guardianResolutionSource =
-    typeof payload.guardianResolutionSource === "string"
-      ? payload.guardianResolutionSource
-      : undefined;
   if (
-    (guardianResolutionSource === "vellum-anchor" ||
-      guardianResolutionSource === "none") &&
-    sourceChannel
+    (p.guardianResolutionSource === "vellum-anchor" ||
+      p.guardianResolutionSource === "none") &&
+    p.sourceChannel
   ) {
     blocks.push({
       type: "context",
       elements: [
         {
           type: "mrkdwn",
-          text: `_You haven't verified your identity on ${sourceChannel} yet. If this was you trying to message your assistant, say "help me verify as guardian on ${sourceChannel}" to set up direct access._`,
+          text: `_You haven't verified your identity on ${p.sourceChannel} yet. If this was you trying to message your assistant, say "help me verify as guardian on ${p.sourceChannel}" to set up direct access._`,
         },
       ],
     });
