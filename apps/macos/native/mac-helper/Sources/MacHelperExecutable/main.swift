@@ -451,62 +451,65 @@ final class MacHelper: @unchecked Sendable {
     private func startDictationSession(requireOnDevice: Bool = true) -> [String: Any] {
         let generation = dictationGeneration
         dictationSawActivity = false
+        let emitPartial: @Sendable (String) -> Void = { [weak self] text in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if generation == self.dictationGeneration {
+                    self.dictationSawActivity = true
+                }
+                self.writeNotification(
+                    method: "dictation.partial",
+                    params: ["text": text]
+                )
+            }
+        }
+        // Recognition died mid-session — e.g. kLSRErrorDomain 201
+        // ("Siri and Dictation are disabled") when the on-device pin
+        // is set but macOS Dictation isn't enabled. This used to be
+        // swallowed, leaving the session looking alive while emitting
+        // nothing. Surface it, and retry once on the server path so
+        // online sessions still get partials.
+        let emitError: @Sendable (Error) -> Void = { [weak self] error in
+            DispatchQueue.main.async {
+                guard let self, generation == self.dictationGeneration else {
+                    return
+                }
+                self.dictationSawActivity = true
+                self.writeNotification(
+                    method: "dictation.error",
+                    params: [
+                        "message": error.localizedDescription,
+                        "onDevice": requireOnDevice,
+                        "willRetryServer": requireOnDevice,
+                    ]
+                )
+                guard requireOnDevice else { return }
+                self.dictationSession?.stop()
+                self.dictationSession = nil
+                _ = self.startDictationSession(requireOnDevice: false)
+            }
+        }
+        // Fires once per session, after finish() (or a recognizer
+        // self-finalization). The recording is already over — route
+        // the completed transcript to the renderer. A session
+        // cancelled by stop() never reaches this.
+        let emitFinalized: @Sendable (String) -> Void = { [weak self] text in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.writeNotification(
+                    method: "dictation.finalized",
+                    params: ["text": text]
+                )
+                self.finishingSession = nil
+            }
+        }
         let session = DictationPartialsSession(
             requireOnDevice: requireOnDevice,
             inputDeviceName: dictationDeviceName,
             pushSampleRate: dictationPushRate,
-            emit: { [weak self] text in
-                DispatchQueue.main.async {
-                    guard let self, generation == self.dictationGeneration else {
-                        return
-                    }
-                    self.dictationSawActivity = true
-                }
-                self?.writeNotification(
-                    method: "dictation.partial",
-                    params: ["text": text]
-                )
-            },
-            onError: { [weak self] error in
-                // Recognition died mid-session — e.g. kLSRErrorDomain 201
-                // ("Siri and Dictation are disabled") when the on-device pin
-                // is set but macOS Dictation isn't enabled. This used to be
-                // swallowed, leaving the session looking alive while emitting
-                // nothing. Surface it, and retry once on the server path so
-                // online sessions still get partials.
-                DispatchQueue.main.async {
-                    guard let self, generation == self.dictationGeneration else {
-                        return
-                    }
-                    self.dictationSawActivity = true
-                    self.writeNotification(
-                        method: "dictation.error",
-                        params: [
-                            "message": error.localizedDescription,
-                            "onDevice": requireOnDevice,
-                            "willRetryServer": requireOnDevice,
-                        ]
-                    )
-                    guard requireOnDevice else { return }
-                    self.dictationSession?.stop()
-                    self.dictationSession = nil
-                    _ = self.startDictationSession(requireOnDevice: false)
-                }
-            },
-            onFinal: { [weak self] text in
-                // Fires once per session, after finish() (or a recognizer
-                // self-finalization). The recording is already over — route
-                // the completed transcript to the renderer. A session
-                // cancelled by stop() never reaches this.
-                DispatchQueue.main.async {
-                    guard let self else { return }
-                    self.writeNotification(
-                        method: "dictation.finalized",
-                        params: ["text": text]
-                    )
-                    self.finishingSession = nil
-                }
-            }
+            emit: { text in emitPartial(text) },
+            onError: { error in emitError(error) },
+            onFinal: { text in emitFinalized(text) }
         )
         do {
             try session.start()
