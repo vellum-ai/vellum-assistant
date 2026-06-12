@@ -4,9 +4,19 @@
  * A workflow script (run in a sandbox by a later PR) fans out to many "leaf"
  * agents; the engine calls {@link runLeaf} once per leaf. A leaf is deliberately
  * cheap and ephemeral — it must NOT create a conversation row, a jsonl mirror, a
- * title-generation job, or broadcast any events. It is the single-leaf
- * primitive: anonymous, with no assistant identity, no persona, and no
- * persistence. Persona leaves and concurrency are layered on by other PRs.
+ * title-generation job, or broadcast turn lifecycle events. By default a leaf is
+ * anonymous: a minimal task-scoped system prompt, no assistant identity, and no
+ * memory pipeline.
+ *
+ * Setting `persona: true` opts a leaf into PERSONA mode: it carries the
+ * assistant's identity system prompt (`buildSystemPrompt`) AND runs the same
+ * memory-injection pipeline a main-agent turn uses
+ * (`ConversationGraphMemory.prepareMemory`), so its output is authentically
+ * "the assistant" — e.g. drafting a reply in the assistant's voice. This is the
+ * costly path by design. Model resolution mirrors `mainAgent`: with no explicit
+ * `profile`, the workspace `activeProfile` is used as the `overrideProfile`.
+ * Persona leaves keep the same no-persistence guarantee — no conversation row
+ * is ever created.
  *
  * Two leaf shapes are supported:
  *
@@ -33,12 +43,16 @@ import { z } from "zod";
 
 import { type AgentEvent, AgentLoop } from "../agent/loop.js";
 import { getConfig } from "../config/loader.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context.js";
+import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
+import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import {
   extractToolUse,
   getConfiguredProvider,
 } from "../providers/provider-send-message.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 
@@ -59,6 +73,81 @@ const LEAF_SYSTEM_PROMPT =
   "You are a focused task worker. Complete the task described in the user " +
   "message using the available tools, then reply with the final result as " +
   "plain text. Be concise.";
+
+/**
+ * Resolve the system prompt and the (possibly memory-injected) message array
+ * for a leaf. Anonymous leaves use the minimal task prompt and the raw prompt
+ * message unchanged. Persona leaves assemble the assistant's identity system
+ * prompt and run the main-agent memory-injection pipeline, REUSING
+ * `buildSystemPrompt` and `ConversationGraphMemory.prepareMemory` — no fork.
+ *
+ * The memory pipeline keys off an ephemeral conversation id and is disposed in
+ * a finally block; it reads the memory graph and prepends a `<memory>` block to
+ * the messages WITHOUT creating any conversation row (consistent with the
+ * anonymous path's no-persistence guarantee).
+ */
+async function resolveLeafContext(
+  opts: RunLeafOptions,
+): Promise<{ systemPrompt: string; messages: Message[] }> {
+  const userMessages: Message[] = [
+    { role: "user", content: [{ type: "text", text: opts.prompt }] },
+  ];
+
+  if (!opts.persona) {
+    return { systemPrompt: LEAF_SYSTEM_PROMPT, messages: userMessages };
+  }
+
+  const systemPrompt = buildSystemPrompt({
+    trustContext: opts.trustContext,
+    // A persona leaf is not an onboarding turn, and it must not emit the
+    // first-run bootstrap block: keep it to the assistant's stable identity.
+    excludeBootstrap: true,
+  });
+
+  const messages = await injectPersonaMemory(opts, userMessages);
+  return { systemPrompt, messages };
+}
+
+/**
+ * Run the main-agent memory-injection pipeline for a persona leaf and return
+ * the messages with the retrieved `<memory>` block prepended. Constructs an
+ * ephemeral, non-persisting {@link ConversationGraphMemory} handle keyed by a
+ * synthetic id (it registers itself in the live-by-conversation map, so it is
+ * disposed in `finally` to avoid leaking the handle). Best-effort: a retrieval
+ * failure leaves the messages unchanged rather than failing the leaf.
+ */
+async function injectPersonaMemory(
+  opts: RunLeafOptions,
+  messages: Message[],
+): Promise<Message[]> {
+  const config = getConfig();
+  if (config.memory?.enabled === false) return messages;
+
+  const ephemeralConversationId = `workflow-leaf:${randomUUID()}`;
+  const graphMemory = new ConversationGraphMemory(ephemeralConversationId);
+  // The memory pipeline broadcasts retrieval progress to the shared event hub
+  // (matching the main-agent hook); a leaf has no per-turn event callback.
+  const onEvent = (msg: ServerMessage): void => {
+    broadcastMessage(msg);
+  };
+  // `prepareMemory` requires a non-aborting signal; reuse the caller's when
+  // present so cancellation propagates.
+  const signal = opts.signal ?? new AbortController().signal;
+  try {
+    const result = await graphMemory.prepareMemory(
+      messages,
+      config,
+      signal,
+      onEvent,
+    );
+    return result.runMessages;
+  } catch (err) {
+    log.warn({ err }, "Persona leaf memory injection failed (non-fatal)");
+    return messages;
+  } finally {
+    graphMemory.dispose();
+  }
+}
 
 /**
  * Thrown when {@link runLeaf} is asked to use an inference profile that does not
@@ -96,9 +185,25 @@ export interface RunLeafOptions {
   tools?: Tool[];
   /**
    * Optional inference-profile override. Validated against `llm.profiles`;
-   * an unknown profile throws {@link WorkflowUnknownProfileError}.
+   * an unknown profile throws {@link WorkflowUnknownProfileError}. An explicit
+   * profile ALWAYS wins over the persona default (see {@link persona}).
    */
   profile?: string;
+  /**
+   * Opt-in persona mode. When `true`, the leaf carries the assistant's identity
+   * system prompt (`buildSystemPrompt`) AND runs the same memory-injection
+   * pipeline a normal main-agent turn uses (`ConversationGraphMemory.prepareMemory`),
+   * so its output is authentically "the assistant" (e.g. for drafting replies in
+   * the assistant's voice). This is the costly path by design.
+   *
+   * Model resolution mirrors `mainAgent`: when no explicit {@link profile} is
+   * given, the workspace `activeProfile` is used as the `overrideProfile`.
+   *
+   * When falsy (the default), the leaf stays ANONYMOUS: minimal task prompt, no
+   * identity, no memory pipeline. Persona shares the anonymous path's
+   * no-persistence guarantee — it never creates a conversation row.
+   */
+  persona?: boolean;
   /** Cooperative cancellation signal. */
   signal?: AbortSignal;
   /** Trust/auth context for the run, forwarded to the agent loop. */
@@ -133,7 +238,7 @@ export async function runLeaf(opts: RunLeafOptions): Promise<LeafResult> {
     );
   }
 
-  const overrideProfile = resolveOverrideProfile(opts.profile);
+  const overrideProfile = resolveLeafOverrideProfile(opts);
 
   if (opts.tools && opts.tools.length > 0) {
     return runToolLeaf(opts, overrideProfile);
@@ -142,19 +247,48 @@ export async function runLeaf(opts: RunLeafOptions): Promise<LeafResult> {
 }
 
 /**
- * Validate an explicit profile request against `llm.profiles`. Returns the
- * profile name (to forward as `overrideProfile`) or `undefined` when none was
- * requested. Throws {@link WorkflowUnknownProfileError} for an unknown profile.
+ * Resolve the `overrideProfile` forwarded into the per-call-site config
+ * resolution for a leaf.
+ *
+ * An explicit `opts.profile` is validated and always wins. Otherwise, for a
+ * persona leaf, the resolution mirrors `mainAgent`: the workspace
+ * `activeProfile` is used as the `overrideProfile` (the active profile reflects
+ * the user's chat-model selection). Anonymous leaves with no explicit profile
+ * resolve to `undefined` (shipped call-site defaults apply).
  */
-function resolveOverrideProfile(
-  profile: string | undefined,
-): string | undefined {
-  if (profile === undefined) return undefined;
-  const profiles = getConfig().llm.profiles ?? {};
-  if (!(profile in profiles)) {
+function resolveLeafOverrideProfile(opts: RunLeafOptions): string | undefined {
+  if (opts.profile !== undefined) {
+    return validateProfile(opts.profile);
+  }
+  if (opts.persona) {
+    // Mirror `mainAgent`: the workspace active profile floats above the
+    // call-site default. Unlike an explicit request, a missing/deleted active
+    // profile degrades gracefully (it is not statically validated) — a
+    // non-existent `activeProfile` falls through to the shipped default rather
+    // than throwing, matching the `mainAgent` resolver's tolerance for a stale
+    // `activeProfile`.
+    const activeProfile = getConfig().llm.activeProfile;
+    return activeProfile != null && profileExists(activeProfile)
+      ? activeProfile
+      : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Validate an explicit profile request against `llm.profiles`. Throws
+ * {@link WorkflowUnknownProfileError} for an unknown profile — an explicit
+ * script request must fail loudly rather than be silently downgraded.
+ */
+function validateProfile(profile: string): string {
+  if (!profileExists(profile)) {
     throw new WorkflowUnknownProfileError(profile);
   }
   return profile;
+}
+
+function profileExists(profile: string): boolean {
+  return profile in (getConfig().llm.profiles ?? {});
 }
 
 /**
@@ -166,6 +300,8 @@ async function runSchemaLeaf(
   overrideProfile: string | undefined,
 ): Promise<LeafResult> {
   const schema = opts.schema as z.ZodType;
+
+  const { systemPrompt, messages } = await resolveLeafContext(opts);
 
   const provider = await getConfiguredProvider(LEAF_CALL_SITE, {
     ...(overrideProfile !== undefined ? { overrideProfile } : {}),
@@ -184,18 +320,15 @@ async function runSchemaLeaf(
     input_schema: zodToInputSchema(schema),
   };
 
-  const response = await provider.sendMessage(
-    [{ role: "user", content: [{ type: "text", text: opts.prompt }] }],
-    {
-      tools: [tool],
-      systemPrompt: LEAF_SYSTEM_PROMPT,
-      config: {
-        callSite: LEAF_CALL_SITE,
-        tool_choice: { type: "tool" as const, name: SCHEMA_TOOL_NAME },
-      },
-      ...(opts.signal ? { signal: opts.signal } : {}),
+  const response = await provider.sendMessage(messages, {
+    tools: [tool],
+    systemPrompt,
+    config: {
+      callSite: LEAF_CALL_SITE,
+      tool_choice: { type: "tool" as const, name: SCHEMA_TOOL_NAME },
     },
-  );
+    ...(opts.signal ? { signal: opts.signal } : {}),
+  });
 
   const toolBlock = extractToolUse(response);
   if (!toolBlock || toolBlock.name !== SCHEMA_TOOL_NAME) {
@@ -233,6 +366,8 @@ async function runToolLeaf(
 ): Promise<LeafResult> {
   const tools = opts.tools ?? [];
 
+  const { systemPrompt, messages } = await resolveLeafContext(opts);
+
   const provider = await getConfiguredProvider(LEAF_CALL_SITE, {
     ...(overrideProfile !== undefined ? { overrideProfile } : {}),
   });
@@ -255,7 +390,7 @@ async function runToolLeaf(
 
   const loop = new AgentLoop({
     provider,
-    systemPrompt: LEAF_SYSTEM_PROMPT,
+    systemPrompt,
     tools: tools as ToolDefinition[],
     toolExecutor: (name, input, onOutput) =>
       executeLeafTool(toolsByName, name, input, {
@@ -281,9 +416,7 @@ async function runToolLeaf(
   };
 
   const result = await loop.run({
-    messages: [
-      { role: "user", content: [{ type: "text", text: opts.prompt }] },
-    ],
+    messages,
     onEvent,
     requestId: ephemeralConversationId,
     trust: opts.trustContext,
