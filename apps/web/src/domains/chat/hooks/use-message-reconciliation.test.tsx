@@ -27,7 +27,7 @@ import { useStreamStore } from "@/domains/chat/stream-store";
 import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/chat/turn-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import {
-  __resetLocalSeqForTesting,
+  resetLocalSeqs,
   recordLocalSeq,
 } from "@/lib/streaming/local-seq";
 
@@ -230,7 +230,7 @@ beforeEach(async () => {
   fetchCallCount = 0;
   // The local seq frontier is module-global; clear it so a frontier seeded
   // by one test never leaks into the next.
-  __resetLocalSeqForTesting();
+  resetLocalSeqs();
   // Zustand stores survive across tests in the same Bun process; reset
   // the conversation-list state so each test sees a clean slate.
   useConversationStore.setState({

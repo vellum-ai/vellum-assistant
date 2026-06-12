@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
-  __resetLocalSeqForTesting,
+  resetLocalSeqs,
   getLocalSeq,
 } from "@/lib/streaming/local-seq";
 import type { AssistantEvent } from "@/types/event-types";
@@ -77,7 +77,7 @@ const makeDeps = (override: {
 beforeEach(() => {
   mockStreamEpoch = 7;
   globalCursor = null;
-  __resetLocalSeqForTesting();
+  resetLocalSeqs();
   recordDiagnosticMock.mockClear();
 });
 
@@ -621,5 +621,52 @@ describe("sse-event-consumer — per-conversation idempotent apply", () => {
       expect.objectContaining({ conversationId: "conv-1", eventSeq: 5 }),
     );
     expect(getLocalSeq("conv-1")).toBe(5);
+  });
+
+  test("a generation reset clears the frontiers so new-space events apply", () => {
+    /**
+     * After a daemon restart the seq counter restarts near 1 while the
+     * per-conversation frontiers still hold old-space values. Without
+     * clearing them, every new event sits at or below the stale frontier
+     * and is dropped as a replay, freezing the transcript until reload.
+     */
+    // GIVEN a frontier recorded in the old seq space
+    const { deps, handleStreamEvent } = makeDeps({
+      activeConversationId: "conv-1",
+    });
+    const consumer = createSseEventConsumer(deps);
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 1795,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+    expect(getLocalSeq("conv-1")).toBe(1795);
+
+    // WHEN the daemon restarts and events arrive in the new seq space
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 1,
+        message: { type: "assistant_text_delta", text: "b" },
+      }),
+    );
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 2,
+        message: { type: "assistant_text_delta", text: "c" },
+      }),
+    );
+
+    // THEN the new-space events dispatch (not dropped as replays) and
+    // the frontier tracks the new space
+    expect(handleStreamEvent).toHaveBeenCalledTimes(3);
+    expect(recordDiagnosticMock).not.toHaveBeenCalledWith(
+      "sse_event_seq_replayed",
+      expect.anything(),
+    );
+    expect(getLocalSeq("conv-1")).toBe(2);
   });
 });

@@ -56,7 +56,13 @@ export function getServerSeq(conversationId: string): number | null {
   return serverSeqByConversation.get(conversationId) ?? null;
 }
 
-/** Reset state. Test-only. */
-export function __resetServerSeqForTesting(): void {
+/**
+ * Clear every conversation's recorded server seq.
+ *
+ * Called when the seq space the positions were recorded against is
+ * abandoned: a seq generation reset (daemon restart) and assistant
+ * switch (seq is per-assistant). Also used by tests.
+ */
+export function resetServerSeqs(): void {
   serverSeqByConversation.clear();
 }

@@ -28,7 +28,9 @@ import * as Sentry from "@sentry/react";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { publish, subscribe } from "@/lib/event-bus";
+import { resetLocalSeqs } from "@/lib/streaming/local-seq";
 import { resetReconnectCursor } from "@/lib/streaming/reconnect-cursor";
+import { resetServerSeqs } from "@/lib/streaming/server-seq";
 import {
   clearSseReconnectHandler,
   setSseReconnectHandler,
@@ -63,6 +65,11 @@ export const sseService: SseService = {
     // transport reconnect within this attachment goes through `open()`,
     // not `attach()`, so a live cursor is preserved across reconnects.
     resetReconnectCursor();
+    // The per-conversation seq frontiers live in the same per-assistant
+    // seq space as the cursor, so they are equally meaningless on the
+    // new connection and must start cold with it.
+    resetLocalSeqs();
+    resetServerSeqs();
 
     let current: EventStream | null = null;
     let cancelled = false;

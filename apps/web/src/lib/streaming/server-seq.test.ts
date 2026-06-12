@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
-  __resetServerSeqForTesting,
+  resetServerSeqs,
   getServerSeq,
   recordServerSeq,
 } from "@/lib/streaming/server-seq";
 
 beforeEach(() => {
-  __resetServerSeqForTesting();
+  resetServerSeqs();
 });
 
 describe("server-seq", () => {

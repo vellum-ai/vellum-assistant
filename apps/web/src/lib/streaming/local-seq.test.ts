@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
-  __resetLocalSeqForTesting,
+  resetLocalSeqs,
   getLocalSeq,
   recordLocalSeq,
 } from "@/lib/streaming/local-seq";
 
 beforeEach(() => {
-  __resetLocalSeqForTesting();
+  resetLocalSeqs();
 });
 
 describe("local-seq", () => {

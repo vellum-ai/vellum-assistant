@@ -69,12 +69,17 @@
 import { useStreamStore } from "@/domains/chat/stream-store";
 import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
 import { recordDiagnostic } from "@/lib/diagnostics";
-import { getLocalSeq, recordLocalSeq } from "@/lib/streaming/local-seq";
+import {
+  getLocalSeq,
+  recordLocalSeq,
+  resetLocalSeqs,
+} from "@/lib/streaming/local-seq";
 import {
   advanceReconnectCursor,
   getReconnectCursor,
   replaceReconnectCursor,
 } from "@/lib/streaming/reconnect-cursor";
+import { resetServerSeqs } from "@/lib/streaming/server-seq";
 import type { AssistantEvent } from "@/types/event-types";
 
 /**
@@ -141,6 +146,13 @@ export function createSseEventConsumer(
             observed: eventSeq,
           });
           replaceReconnectCursor(eventSeq);
+          // The per-conversation frontiers were recorded against the old
+          // seq space too — left in place they would classify every event
+          // in the new (restarted, near-1) space as an already-applied
+          // replay and gate snapshots as stale, freezing the transcript
+          // until reload. Clear them so the new space applies cleanly.
+          resetLocalSeqs();
+          resetServerSeqs();
           gapDeferred = true;
           // Fire-and-forget: cursor is already replaced above (the old
           // seq space is meaningless after a restart). Swallow rejection

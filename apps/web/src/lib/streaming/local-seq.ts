@@ -62,7 +62,15 @@ export function getLocalSeq(conversationId: string): number | null {
   return localSeqByConversation.get(conversationId) ?? null;
 }
 
-/** Reset state. Test-only. */
-export function __resetLocalSeqForTesting(): void {
+/**
+ * Clear every conversation's local seq frontier.
+ *
+ * Called when the seq space the frontiers were recorded against is
+ * abandoned: a seq generation reset (daemon restart — the counter
+ * restarts near 1, so stale frontiers would classify every new event
+ * as an already-applied replay) and assistant switch (seq is
+ * per-assistant). Also used by tests.
+ */
+export function resetLocalSeqs(): void {
   localSeqByConversation.clear();
 }
