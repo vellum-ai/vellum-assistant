@@ -536,7 +536,10 @@ Examples:
           "New message body sent to the assistant on each fire",
         )
         .option("--script <command>", "Shell command for script-mode schedules")
-        .option("--mode <mode>", "One of: notify, execute, script, wake")
+        .option(
+          "--mode <mode>",
+          "One of: notify, execute, script, wake (wake only when the schedule already has a wake conversation target)",
+        )
         .option(
           "--routing-intent <intent>",
           "One of: single_channel, multi_channel, all_channels",
@@ -653,6 +656,24 @@ Examples:
                 "--timeout-ms and --clear-timeout are mutually exclusive; pass --timeout-ms to set a timeout or --clear-timeout to remove it",
               );
               return;
+            }
+
+            // Wake mode requires a wake conversation target, which this CLI
+            // cannot set. Allow `--mode wake` only when the schedule already
+            // has one — otherwise the scheduler would skip every fire as a
+            // no-op.
+            if (opts.mode === "wake") {
+              const existing = await cliIpcCall<GetScheduleResponse>(
+                "getSchedule",
+                { pathParams: { id: scheduleId } },
+              );
+              if (!existing.ok) return exitFromIpcResult(existing, cmd);
+              if (!existing.result?.schedule.wakeConversationId) {
+                fail(
+                  "--mode wake requires the schedule to already have a wake conversation target; this CLI cannot set one. Create wake schedules with the schedule tool instead.",
+                );
+                return;
+              }
             }
 
             const body: Record<string, unknown> = {};

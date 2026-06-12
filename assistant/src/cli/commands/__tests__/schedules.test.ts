@@ -813,6 +813,58 @@ describe("schedules update", () => {
     expect(errorLines.join("\n")).toContain("mutually exclusive");
   });
 
+  test("rejects --mode wake when the schedule has no wake conversation target", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: { schedule: { wakeConversationId: null } },
+    };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "update",
+      "schedule-1",
+      "--mode",
+      "wake",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(ipcCalls).toEqual([
+      { method: "getSchedule", params: { pathParams: { id: "schedule-1" } } },
+    ]);
+    expect(errorLines.join("\n")).toContain("wake conversation target");
+  });
+
+  test("allows --mode wake when the schedule already has a wake target", async () => {
+    // The shared mock returns one shape for both IPC calls; satisfy the
+    // getSchedule guard and the update response renderer simultaneously.
+    mockIpcResult = {
+      ok: true,
+      result: {
+        schedule: { wakeConversationId: "conv-1" },
+        schedules: [],
+      },
+    };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "update",
+      "schedule-1",
+      "--mode",
+      "wake",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(ipcCalls).toHaveLength(2);
+    expect(ipcCalls[0].method).toBe("getSchedule");
+    expect(ipcCalls[1]).toEqual({
+      method: "updateSchedule",
+      params: {
+        pathParams: { id: "schedule-1" },
+        body: { mode: "wake" },
+      },
+    });
+  });
+
   test("sends boolean false for negated flags", async () => {
     mockIpcResult = { ok: true, result: { schedules: [] } };
 

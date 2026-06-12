@@ -659,4 +659,30 @@ const assistantBashArgRules: ArgRule[] = [
 ];
 getExistingPath(spec, "bash").argRules = assistantBashArgRules;
 
+// `schedules update` is medium-risk as a state mutation, but updates that
+// install or switch to a script payload persist host shell execution for a
+// later schedule fire — classify those as high like `bash`.
+const scheduleUpdateArgRules: ArgRule[] = [
+  {
+    id: "assistant-schedules-update:script",
+    flags: ["--script"],
+    risk: "high",
+    reason:
+      "Persists an arbitrary shell command that the schedule executes on fire",
+  },
+  {
+    id: "assistant-schedules-update:mode-script",
+    flags: ["--mode"],
+    valuePattern: "^script$",
+    risk: "high",
+    reason:
+      "Switches the schedule to script mode (host shell execution on fire)",
+  },
+];
+const scheduleUpdateNode = getExistingPath(spec, "schedules update");
+scheduleUpdateNode.argRules = scheduleUpdateArgRules;
+// Both rule flags consume the next token as a value; declare them so the
+// arg parser pairs `--mode script` / `--script <cmd>` correctly.
+scheduleUpdateNode.argSchema = { valueFlags: ["--mode", "--script"] };
+
 export default spec;
