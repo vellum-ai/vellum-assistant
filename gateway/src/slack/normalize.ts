@@ -508,8 +508,8 @@ export type NormalizedSlackEvent = {
  * Returns null if the event cannot be routed or should be ignored
  * (e.g. subtypes like message_changed, missing user).
  *
- * Self-authored messages (bot echoes) are filtered upstream in
- * `processEventPayload` before normalization is reached.
+ * Bot's own messages are dropped by `processEventPayload` before
+ * normalization.
  */
 export function normalizeSlackDirectMessage(
   event: SlackDirectMessageEvent,
@@ -590,8 +590,8 @@ export function normalizeSlackDirectMessage(
  * Returns null if the event should be ignored (subtypes, missing user,
  * or unroutable channels).
  *
- * Self-authored messages (bot echoes) are filtered upstream in
- * `processEventPayload` before normalization is reached.
+ * Bot's own messages are dropped by `processEventPayload` before
+ * normalization.
  */
 export function normalizeSlackChannelMessage(
   event: SlackChannelMessageEvent,
@@ -942,8 +942,8 @@ export function normalizeSlackReactionRemoved(
  * Returns null if the event should be ignored (missing user, unroutable
  * channels, or unchanged edit timestamps).
  *
- * Self-authored edits (bot echoes) are filtered upstream in
- * `processEventPayload` before normalization is reached.
+ * Bot's own edits are dropped by `processEventPayload` before
+ * normalization.
  */
 export function normalizeSlackMessageEdit(
   event: SlackMessageChangedEvent,

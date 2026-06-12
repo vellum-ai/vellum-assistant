@@ -75,8 +75,9 @@ export const slackLastSeenTs = sqliteTable("slack_last_seen_ts", {
  * never changes for a given token. Persisting it here decouples the gateway
  * from a successful API call at every startup: the first successful
  * resolution writes the row, and subsequent startups load it directly.
- * The provider API is still called to validate the token, but a transient
- * failure no longer leaves the gateway unable to identify its own messages.
+ * The provider API is still called to validate the token; a transient
+ * failure falls back to the persisted value instead of leaving the gateway
+ * unable to identify its own messages.
  *
  * One row per channel type. `channel_type` is the primary key.
  */
