@@ -199,6 +199,10 @@ async function up(target: NginxIngressTarget): Promise<void> {
 
 async function down(target: NginxIngressTarget): Promise<void> {
   const stopped = await stopIngressNginx(target.workspaceDir);
+  if (!stopped && isIngressRunning(target.workspaceDir)) {
+    console.error("Error: nginx ingress is still running; could not stop it.");
+    process.exit(1);
+  }
   console.log(
     stopped ? "nginx ingress stopped." : "nginx ingress is not running.",
   );

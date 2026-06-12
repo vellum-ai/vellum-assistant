@@ -255,6 +255,18 @@ export function startIngressNginx(opts: {
 
 const STOP_TIMEOUT_MS = 2_000;
 
+async function waitForPidExit(
+  pid: number,
+  timeoutMs: number,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isPidAlive(pid)) return true;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return !isPidAlive(pid);
+}
+
 /**
  * Stop a running ingress nginx via its pidfile and clear the recorded state.
  * Returns true if a process was stopped.
@@ -266,23 +278,29 @@ const STOP_TIMEOUT_MS = 2_000;
  */
 export async function stopIngressNginx(workspaceDir: string): Promise<boolean> {
   const { pidPath } = getIngressPaths(workspaceDir);
-  clearIngressState(workspaceDir);
 
   const pid = readPidFile(pidPath);
-  let stopped = false;
-  if (pid !== null && isPidAlive(pid) && isNginxProcess(pid)) {
-    process.kill(pid, "SIGTERM");
-    const deadline = Date.now() + STOP_TIMEOUT_MS;
-    while (Date.now() < deadline && isPidAlive(pid)) {
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    if (isPidAlive(pid)) {
-      process.kill(pid, "SIGKILL");
-    }
-    stopped = true;
+  if (pid === null || !isPidAlive(pid) || !isNginxProcess(pid)) {
+    clearIngressState(workspaceDir);
+    rmSync(pidPath, { force: true });
+    return false;
   }
+
+  try {
+    process.kill(pid, "SIGTERM");
+    if (!(await waitForPidExit(pid, STOP_TIMEOUT_MS))) {
+      process.kill(pid, "SIGKILL");
+      if (!(await waitForPidExit(pid, STOP_TIMEOUT_MS))) {
+        return false;
+      }
+    }
+  } catch {
+    return false;
+  }
+
+  clearIngressState(workspaceDir);
   rmSync(pidPath, { force: true });
-  return stopped;
+  return true;
 }
 
 /**

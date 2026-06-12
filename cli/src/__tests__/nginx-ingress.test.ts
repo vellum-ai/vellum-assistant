@@ -1,5 +1,12 @@
 import * as childProcess from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -15,7 +22,10 @@ mock.module("node:child_process", () => ({
 import {
   buildIngressNginxConfig,
   resolveTunnelTargetPort,
+  stopIngressNginx,
 } from "../lib/nginx-ingress.js";
+
+const originalKill = process.kill;
 
 describe("buildIngressNginxConfig", () => {
   const conf = buildIngressNginxConfig({ gatewayPort: 7830, listenPort: 7840 });
@@ -49,10 +59,11 @@ describe("buildIngressNginxConfig", () => {
   });
 });
 
-describe("resolveTunnelTargetPort", () => {
+describe("nginx ingress process state", () => {
   const workspaces: string[] = [];
 
   afterEach(() => {
+    process.kill = originalKill;
     execFileSyncMock.mockReset();
     for (const dir of workspaces.splice(0)) {
       rmSync(dir, { recursive: true, force: true });
@@ -76,6 +87,16 @@ describe("resolveTunnelTargetPort", () => {
     const dir = join(workspaceDir, "data", "ingress");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "nginx.pid"), `${pid}\n`);
+  }
+
+  function readConfig(workspaceDir: string): Record<string, unknown> {
+    return JSON.parse(
+      readFileSync(join(workspaceDir, "config.json"), "utf-8"),
+    ) as Record<string, unknown>;
+  }
+
+  function pidPath(workspaceDir: string): string {
+    return join(workspaceDir, "data", "ingress", "nginx.pid");
   }
 
   /** A PID guaranteed dead: a short-lived child that has already exited. */
@@ -136,5 +157,53 @@ describe("resolveTunnelTargetPort", () => {
       port: 7830,
       viaIngress: false,
     });
+  });
+
+  test("clears ingress state after nginx is confirmed stopped", async () => {
+    const ws = makeWorkspace();
+    const pid = 123_456;
+    let alive = true;
+    writeIngressState(ws, 7841);
+    writePidFile(ws, pid);
+    execFileSyncMock.mockReturnValue("nginx: master process nginx");
+    process.kill = mock((targetPid: number, signal?: string | number) => {
+      if (targetPid !== pid) return originalKill(targetPid, signal);
+      if (signal === 0) {
+        if (!alive) throw new Error("dead");
+        return true;
+      }
+      if (signal === "SIGTERM") {
+        alive = false;
+        return true;
+      }
+      return true;
+    }) as unknown as typeof process.kill;
+
+    await expect(stopIngressNginx(ws)).resolves.toBe(true);
+
+    const config = readConfig(ws);
+    expect((config.ingress as Record<string, unknown>).nginx).toBeUndefined();
+    expect(existsSync(pidPath(ws))).toBe(false);
+  });
+
+  test("keeps ingress state when nginx kill fails", async () => {
+    const ws = makeWorkspace();
+    const pid = 123_457;
+    writeIngressState(ws, 7841);
+    writePidFile(ws, pid);
+    execFileSyncMock.mockReturnValue("nginx: master process nginx");
+    process.kill = mock((targetPid: number, signal?: string | number) => {
+      if (targetPid !== pid) return originalKill(targetPid, signal);
+      if (signal === 0) return true;
+      throw new Error("operation not permitted");
+    }) as unknown as typeof process.kill;
+
+    await expect(stopIngressNginx(ws)).resolves.toBe(false);
+
+    const config = readConfig(ws);
+    expect((config.ingress as Record<string, unknown>).nginx).toEqual({
+      listenPort: 7841,
+    });
+    expect(existsSync(pidPath(ws))).toBe(true);
   });
 });

@@ -98,8 +98,12 @@ async function shouldPreferNginxIngress(assistantId: string): Promise<boolean> {
       assistantId,
       WEB_REMOTE_INGRESS_FLAG,
     );
-  } catch {
-    return false;
+  } catch (err) {
+    throw new Error(
+      `Could not verify the \`${WEB_REMOTE_INGRESS_FLAG}\` feature flag before starting the tunnel. Is the assistant running? Try \`vellum wake\` and retry. ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
   }
 }
 
