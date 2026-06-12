@@ -317,7 +317,7 @@ export class GeminiProvider implements Provider {
       if (systemPrompt) {
         geminiConfig.systemInstruction = systemPrompt.replaceAll(
           SYSTEM_PROMPT_CACHE_BOUNDARY,
-          "\n",
+          "\n\n",
         );
       }
       if (maxTokens) {

@@ -798,7 +798,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     if (systemPrompt) {
       result.push({
         role: "system",
-        content: systemPrompt.replaceAll(SYSTEM_PROMPT_CACHE_BOUNDARY, "\n"),
+        content: systemPrompt.replaceAll(SYSTEM_PROMPT_CACHE_BOUNDARY, "\n\n"),
       });
     }
 

@@ -219,7 +219,7 @@ export class OpenAIResponsesProvider implements Provider {
       if (systemPrompt) {
         params.instructions = systemPrompt.replaceAll(
           SYSTEM_PROMPT_CACHE_BOUNDARY,
-          "\n",
+          "\n\n",
         );
       }
 
