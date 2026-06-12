@@ -67,24 +67,28 @@ export const slackLastSeenTs = sqliteTable("slack_last_seen_ts", {
 });
 
 /**
- * Persisted Slack bot identity resolved via `auth.test`.
+ * Persisted bot identity for any channel adapter.
  *
- * The bot's own Slack user ID is a deployment constant — it never changes
- * for a given bot token. Persisting it here decouples the gateway from a
- * successful `auth.test` call at every startup: the first successful
+ * Each channel adapter (Slack, Telegram, Discord, etc.) resolves the bot's
+ * own identity via a provider-specific API call (e.g. Slack `auth.test`,
+ * Telegram `getMe`). The bot's identity is a deployment constant — it
+ * never changes for a given token. Persisting it here decouples the gateway
+ * from a successful API call at every startup: the first successful
  * resolution writes the row, and subsequent startups load it directly.
- * `auth.test` is still called to validate the token, but a transient
+ * The provider API is still called to validate the token, but a transient
  * failure no longer leaves the gateway unable to identify its own messages.
+ *
+ * One row per channel type. `channel_type` is the primary key.
  */
-export const slackBotIdentity = sqliteTable("slack_bot_identity", {
-  /** Single-row key, always `'default'`. */
-  key: text("key").primaryKey(),
-  /** The bot's Slack user ID (e.g. `U01ABC123`). */
+export const channelBotIdentity = sqliteTable("channel_bot_identity", {
+  /** Channel adapter type (e.g. `'slack'`, `'telegram'`, `'discord'`). */
+  channelType: text("channel_type").primaryKey(),
+  /** The bot's user ID on the channel (e.g. Slack `U01ABC123`, Telegram numeric ID). */
   userId: text("user_id").notNull(),
-  /** The bot's display name (e.g. `assistant`). */
+  /** The bot's display name / username on the channel. */
   username: text("username"),
-  /** The Slack workspace/team name. */
-  teamName: text("team_name"),
+  /** Channel-specific metadata as JSON (e.g. Slack team name, Telegram first_name). */
+  metadata: text("metadata"),
   updatedAt: integer("updated_at").notNull(),
 });
 

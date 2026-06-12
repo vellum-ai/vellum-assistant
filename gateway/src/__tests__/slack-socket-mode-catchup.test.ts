@@ -105,11 +105,11 @@ function createSlackStore(): { rawDb: Database; store: SlackStore } {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
-    CREATE TABLE slack_bot_identity (
-      key TEXT PRIMARY KEY,
+    CREATE TABLE channel_bot_identity (
+      channel_type TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
       username TEXT,
-      team_name TEXT,
+      metadata TEXT,
       updated_at INTEGER NOT NULL
     );
   `);

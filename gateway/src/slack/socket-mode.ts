@@ -86,7 +86,7 @@ export type SlackSocketModeConfig = {
   botUserId?: string;
   /** Bot's display name, resolved at startup via auth.test. */
   botUsername?: string;
-  /** Workspace/team name, resolved at startup via auth.test. */
+  /** Slack workspace/team name, resolved at startup via auth.test. */
   teamName?: string;
 };
 
@@ -173,11 +173,7 @@ export class SlackSocketModeClient {
    * cannot self-heal.
    */
   private async resolveBotIdentity(): Promise<void> {
-    if (
-      this.config.botUserId &&
-      this.config.botUsername &&
-      this.config.teamName
-    ) {
+    if (this.config.botUserId && this.config.botUsername) {
       return;
     }
 
@@ -214,7 +210,7 @@ export class SlackSocketModeClient {
         this.store.setBotIdentity({
           userId: data.user_id,
           username: data.user ?? null,
-          teamName: data.team ?? null,
+          metadata: data.team ? { teamName: data.team } : null,
         });
       }
 
@@ -243,16 +239,17 @@ export class SlackSocketModeClient {
     }
 
     // Transient API failure — fall back to the last persisted identity.
-    const persisted = this.store.getBotIdentity();
+    const persisted = this.store.getBotIdentity("slack");
     if (persisted) {
       this.config.botUserId = persisted.userId;
       this.config.botUsername = persisted.username ?? this.config.botUsername;
-      this.config.teamName = persisted.teamName ?? this.config.teamName;
+      const meta = persisted.metadata as { teamName?: string } | null;
+      this.config.teamName = meta?.teamName ?? this.config.teamName;
       log.info(
         {
           botUserId: persisted.userId,
           botUsername: persisted.username,
-          teamName: persisted.teamName,
+          teamName: meta?.teamName,
         },
         "Loaded Slack bot identity from persisted store (auth.test was unavailable)",
       );
@@ -502,9 +499,11 @@ export class SlackSocketModeClient {
       | SlackReactionRemovedEvent,
   ): void {
     const channelEvent = event as SlackChannelMessageEvent;
+    const subtype = (event as SlackMessageChangedEvent).subtype;
     if (
       event.type !== "message" ||
-      (event as SlackMessageChangedEvent).subtype ||
+      subtype === "message_changed" ||
+      subtype === "message_deleted" ||
       !channelEvent.thread_ts ||
       !channelEvent.channel
     ) {
@@ -597,17 +596,25 @@ export class SlackSocketModeClient {
         this.reconnectAttempt = 0;
         // Retry bot identity resolution on every reconnect so a transient
         // auth.test failure at startup is self-healing. Once resolved, the
-        // check in resolveBotIdentity short-circuits immediately.
-        void this.resolveBotIdentity().catch((err) => {
-          log.error({ err }, "Bot identity resolution failed on reconnect");
-        });
-        // Recover messages that arrived during the reconnect gap (Slack
-        // does not buffer Socket Mode events during disconnects). Runs
-        // off the open handler so initial-start, normal reconnect, and
-        // sleep/wake force-reconnect all share the same recovery path.
-        // Errors are swallowed inside replayMissedEvents — a failed
-        // catch-up should never destabilize the live socket.
-        void this.replayMissedEvents(ws);
+        // check in resolveBotIdentity short-circuits immediately (no await
+        // delay on the normal path).
+        //
+        // Replay must wait for identity resolution — without botUserId the
+        // catch-up path cannot self-filter replayed events, and if identity
+        // is still unknown processEventPayload will drop them (fail-closed).
+        void this.resolveBotIdentity()
+          .catch((err) => {
+            log.error({ err }, "Bot identity resolution failed on reconnect");
+          })
+          .then(() => {
+            // Recover messages that arrived during the reconnect gap (Slack
+            // does not buffer Socket Mode events during disconnects). Runs
+            // off the open handler so initial-start, normal reconnect, and
+            // sleep/wake force-reconnect all share the same recovery path.
+            // Errors are swallowed inside replayMissedEvents — a failed
+            // catch-up should never destabilize the live socket.
+            return this.replayMissedEvents(ws);
+          });
       });
 
       ws.addEventListener("message", (messageEvent) => {

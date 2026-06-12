@@ -2,21 +2,22 @@ import type { Database } from "bun:sqlite";
 import { and, eq, gt, isNotNull, isNull, like } from "drizzle-orm";
 import { type GatewayDb, getGatewayDb } from "./connection.js";
 import {
+  channelBotIdentity,
   contactChannels,
   slackActiveThreads,
-  slackBotIdentity,
   slackLastSeenTs,
   slackSeenEvents,
 } from "./schema.js";
 
 const LAST_SEEN_KEY = "global";
-const BOT_IDENTITY_KEY = "default";
+const SLACK_CHANNEL_TYPE = "slack";
 
-/** Persisted Slack bot identity fields. */
-export type SlackBotIdentity = {
+/** Persisted bot identity fields for any channel adapter. */
+export type ChannelBotIdentity = {
   userId: string;
   username: string | null;
-  teamName: string | null;
+  /** Channel-specific metadata (e.g. Slack team name). */
+  metadata: Record<string, unknown> | null;
 };
 
 /**
@@ -273,44 +274,59 @@ export class SlackStore {
   // -- Bot identity --
 
   /**
-   * Load the persisted bot identity. Returns undefined on first-ever
-   * start (before any successful `auth.test` resolution).
+   * Load the persisted bot identity for a channel type. Returns undefined
+   * on first-ever start (before any successful identity resolution).
    */
-  getBotIdentity(): SlackBotIdentity | undefined {
+  getBotIdentity(
+    channelType: string = SLACK_CHANNEL_TYPE,
+  ): ChannelBotIdentity | undefined {
     const row = this.db
       .select({
-        userId: slackBotIdentity.userId,
-        username: slackBotIdentity.username,
-        teamName: slackBotIdentity.teamName,
+        userId: channelBotIdentity.userId,
+        username: channelBotIdentity.username,
+        metadata: channelBotIdentity.metadata,
       })
-      .from(slackBotIdentity)
-      .where(eq(slackBotIdentity.key, BOT_IDENTITY_KEY))
+      .from(channelBotIdentity)
+      .where(eq(channelBotIdentity.channelType, channelType))
       .get();
-    return row ?? undefined;
+    if (!row) return undefined;
+    return {
+      userId: row.userId,
+      username: row.username,
+      metadata: row.metadata
+        ? (JSON.parse(row.metadata) as Record<string, unknown>)
+        : null,
+    };
   }
 
   /**
-   * Persist the bot identity after a successful `auth.test` resolution.
+   * Persist the bot identity after a successful resolution.
    * Upserts so the first write creates the row and subsequent writes
    * update it (e.g. after a bot token rotation).
    */
-  setBotIdentity(identity: SlackBotIdentity): void {
+  setBotIdentity(
+    identity: ChannelBotIdentity,
+    channelType: string = SLACK_CHANNEL_TYPE,
+  ): void {
     const now = Date.now();
+    const metadataJson = identity.metadata
+      ? JSON.stringify(identity.metadata)
+      : null;
     this.db
-      .insert(slackBotIdentity)
+      .insert(channelBotIdentity)
       .values({
-        key: BOT_IDENTITY_KEY,
+        channelType,
         userId: identity.userId,
         username: identity.username,
-        teamName: identity.teamName,
+        metadata: metadataJson,
         updatedAt: now,
       })
       .onConflictDoUpdate({
-        target: slackBotIdentity.key,
+        target: channelBotIdentity.channelType,
         set: {
           userId: identity.userId,
           username: identity.username,
-          teamName: identity.teamName,
+          metadata: metadataJson,
           updatedAt: now,
         },
       })
