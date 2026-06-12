@@ -104,6 +104,9 @@ function makeFakeRunner(opts?: {
     get highWater() {
       return highWater;
     },
+    get inFlight() {
+      return inFlight;
+    },
   };
 }
 
@@ -294,9 +297,7 @@ describe("executeWorkflow — abort handling (leaf abort = run abort)", () => {
    * mirrors that by rejecting with an `AbortError` once released after abort.
    */
   function makeBlockingRunner(signal: AbortSignal, onStart: () => void) {
-    const runner = async (): Promise<
-      import("./leaf-runner.js").LeafResult
-    > => {
+    const runner = async (): Promise<import("./leaf-runner.js").LeafResult> => {
       onStart();
       await new Promise<void>((resolve) => {
         if (signal.aborted) return resolve();
@@ -691,6 +692,91 @@ describe("executeWorkflow — agent cap", () => {
     expect(res.status).toBe("completed");
     expect(res.result).toBe("out:c");
     expect(second.prompts).toEqual([]);
+  });
+});
+
+describe("executeWorkflow — fan-out unwind (no orphaned leaves)", () => {
+  beforeEach(resetTables);
+
+  test("a cap tripped mid-fan-out drains in-flight leaves before finishing (no post-finalization writes)", async () => {
+    // maxAgentsPerRun=1 + maxConcurrentLeaves=2: leaf "a" spawns and goes in
+    // flight (slow), then leaf "b" trips the cap and throws. The fan-out must
+    // NOT resolve while "a" is still running — otherwise the run is reported
+    // `cap_exceeded` and `finishRun` lands while "a" later appends a journal
+    // entry. This fake IGNORES the abort signal, so it proves the DRAIN: the
+    // engine waits for the orphan to settle rather than relying on cancellation.
+    const fake = makeFakeRunner({ delayMs: 80 });
+    const res = await execute(
+      "wf-unwind-drain",
+      `return parallel([leaf("a"), leaf("b")]);`,
+      fake.runner,
+      configWith({ maxAgentsPerRun: 1, maxConcurrentLeaves: 2 }),
+    );
+
+    expect(res.status).toBe("cap_exceeded");
+    expect(res.agentsSpawned).toBe(1);
+    // The run did not finish while a leaf was still in flight.
+    expect(fake.inFlight).toBe(0);
+
+    // No journal entry lands AFTER the run is finalized: snapshot now, wait past
+    // the leaf delay, and assert the count is unchanged (leaf "a" journaled
+    // DURING the drain, before finishRun — not after it).
+    const lenAtResolve = journalStore.getJournal("wf-unwind-drain").length;
+    await new Promise((r) => setTimeout(r, 150));
+    expect(journalStore.getJournal("wf-unwind-drain").length).toBe(
+      lenAtResolve,
+    );
+  });
+
+  test("a cap tripped mid-fan-out CANCELS the in-flight leaf (not just awaits it)", async () => {
+    // Same shape, but a signal-aware runner: when the fan-out's internal
+    // controller aborts (because the cap tripped), the in-flight leaf "a" is
+    // cancelled — it rejects like a real cancelled provider call. The run still
+    // ends `cap_exceeded` (the cap sentinel is the FIRST error), a cancelled
+    // leaf is NOT journaled, and the run waits for it to settle.
+    let inFlight = 0;
+    let abortedCount = 0;
+    const runner = (async (leafOpts: RunLeafOptions): Promise<LeafResult> => {
+      inFlight += 1;
+      const sig = leafOpts.signal;
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const fail = (): void => {
+            abortedCount += 1;
+            const err = new Error("The operation was aborted");
+            err.name = "AbortError";
+            reject(err);
+          };
+          if (sig?.aborted) return fail();
+          // No timer: if never aborted the leaf stays pending (matches the
+          // existing blocking-runner pattern — no leaked timers).
+          sig?.addEventListener("abort", fail, { once: true });
+        });
+        return {
+          output: `out:${leafOpts.prompt}`,
+          inputTokens: 10,
+          outputTokens: 5,
+          toolCallCount: 0,
+        };
+      } finally {
+        inFlight -= 1;
+      }
+    }) as unknown as typeof import("./leaf-runner.js").runLeaf;
+
+    const res = await execute(
+      "wf-unwind-cancel",
+      `return parallel([leaf("a"), leaf("b")]);`,
+      runner,
+      configWith({ maxAgentsPerRun: 1, maxConcurrentLeaves: 2 }),
+    );
+
+    expect(res.status).toBe("cap_exceeded");
+    // The in-flight leaf was cancelled by the fan-out controller and drained.
+    expect(abortedCount).toBe(1);
+    expect(inFlight).toBe(0);
+    // A cancelled leaf is never journaled (neither completed nor failed); the
+    // cap leaf throws before journaling — so the journal is empty.
+    expect(journalStore.getJournal("wf-unwind-cancel")).toHaveLength(0);
   });
 });
 

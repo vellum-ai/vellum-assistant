@@ -407,6 +407,7 @@ export async function executeWorkflow(
     seq: number,
     prompt: string,
     leafOpts: LeafCallOptions,
+    leafSignal?: AbortSignal,
   ): Promise<{ output: unknown; failed: boolean }> => {
     if (signal?.aborted) throw new AbortedSignal();
 
@@ -451,7 +452,13 @@ export async function executeWorkflow(
         ...(isSchemaLeaf ? {} : { tools: capabilities.tools }),
         ...(leafOpts.persona ? { persona: true } : {}),
         trustContext,
-        ...(signal ? { signal } : {}),
+        // Cancel the leaf on EITHER the run's external abort or the fan-out's
+        // internal unwind (`leafSignal`, set by `parallel` so a tripped agent
+        // cap / sibling error cancels in-flight leaves instead of orphaning
+        // them). The status-classification checks below stay on the EXTERNAL
+        // `signal` only, so a fan-out cancel surfaces via `isAbortError(err)`
+        // and the FIRST sentinel (cap) still decides the run status.
+        ...((leafSignal ?? signal) ? { signal: leafSignal ?? signal } : {}),
       });
       inputTokens += result.inputTokens;
       outputTokens += result.outputTokens;
@@ -560,14 +567,28 @@ export async function executeWorkflow(
       // Assign seqs in array order BEFORE launching concurrency, so completion
       // order cannot perturb the deterministic seq mapping.
       const assigned = specs.map((spec) => ({ spec, seq: nextSeq++ }));
+      // Fan-out unwind controller. When the agent cap trips or a sibling throws,
+      // `runWithConcurrency` fires `onUnwind` to abort this — cancelling every
+      // in-flight leaf — then drains them before the error propagates. Without
+      // it, the early rejection would mark the run terminal and `finishRun`
+      // while orphaned leaves kept running: appending journal entries and
+      // performing granted side-effecting tools after the run was reported done.
+      const fanoutAbort = new AbortController();
+      const leafSignal = mergeSignals(signal, fanoutAbort.signal);
       return runWithConcurrency(
         assigned,
         config.maxConcurrentLeaves,
         async ({ spec, seq }) => {
-          const { output } = await runLeafAtSeq(seq, spec.prompt, spec.opts);
+          const { output } = await runLeafAtSeq(
+            seq,
+            spec.prompt,
+            spec.opts,
+            leafSignal,
+          );
           // `parallel` never throws on a single leaf failure — it yields null.
           return output;
         },
+        () => fanoutAbort.abort(),
       );
     };
 
@@ -743,27 +764,72 @@ function toSpecArray(specsArg: unknown): LeafSpec[] {
 }
 
 /**
+ * Merge an optional external abort signal with a fan-out's internal controller
+ * so an in-flight leaf is cancelled by EITHER the caller's cancellation or the
+ * fan-out unwinding (agent cap / sibling error). Returns the internal signal
+ * alone when there is no external one.
+ */
+function mergeSignals(
+  external: AbortSignal | undefined,
+  internal: AbortSignal,
+): AbortSignal {
+  return external ? AbortSignal.any([external, internal]) : internal;
+}
+
+/**
  * Run `tasks` with at most `limit` in flight, preserving INPUT ORDER in the
  * returned results array. A simple index-cursor worker pool: each worker pulls
  * the next index, runs it, and writes the result back at that index.
+ *
+ * Fan-out unwind safety: if a task throws (the agent-cap or abort sentinel, or
+ * an unexpected error) the pool does NOT reject while siblings are still in
+ * flight. It captures the FIRST error, stops workers from pulling NEW tasks,
+ * fires `onUnwind` (so the caller can cancel the in-flight leaves), then awaits
+ * every worker to settle before re-throwing that first error. Rejecting eagerly
+ * via a fail-fast `Promise.all` would let `executeWorkflow` mark the run
+ * terminal and call `finishRun` while orphaned leaves keep running — appending
+ * journal entries and performing granted side-effecting tools after the run was
+ * already reported done (and a user, seeing the terminal status, may retry and
+ * duplicate the work).
  */
 async function runWithConcurrency<T, R>(
   tasks: T[],
   limit: number,
   run: (task: T) => Promise<R>,
+  onUnwind?: () => void,
 ): Promise<R[]> {
   const results: R[] = new Array(tasks.length);
   let cursor = 0;
+  let failed = false;
+  let firstError: unknown;
   const width = Math.max(1, Math.min(limit, tasks.length || 1));
 
   const worker = async (): Promise<void> => {
     for (;;) {
+      // Once any task has thrown, stop pulling NEW work; let the in-flight
+      // leaves (which `onUnwind` has asked to cancel) drain to settlement.
+      if (failed) return;
       const index = cursor++;
       if (index >= tasks.length) return;
-      results[index] = await run(tasks[index]!);
+      try {
+        results[index] = await run(tasks[index]!);
+      } catch (err) {
+        // Capture the FIRST error and signal the caller to cancel siblings.
+        // Later errors (e.g. an in-flight leaf rejecting from that very
+        // cancellation) are discarded so the original cause wins.
+        if (!failed) {
+          failed = true;
+          firstError = err;
+          onUnwind?.();
+        }
+        return;
+      }
     }
   };
 
+  // Each worker catches its own errors and resolves, so this awaits ALL of them
+  // to settle — an all-settled drain, not a fail-fast `Promise.all`.
   await Promise.all(Array.from({ length: width }, () => worker()));
+  if (failed) throw firstError;
   return results;
 }
