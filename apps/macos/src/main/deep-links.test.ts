@@ -195,6 +195,17 @@ describe("parseVellumUrl", () => {
     });
   });
 
+  test("legacy auth/callback → unknown with query stripped (no code leak)", () => {
+    // The legacy code must not survive into the URL the renderer logs as
+    // a `deeplink.unknown` Sentry breadcrumb.
+    expect(
+      parseVellumUrl("vellum://auth/callback?code=secret&state=xyz"),
+    ).toEqual({ kind: "unknown", url: "vellum://auth/callback" });
+    expect(
+      parseVellumUrl("vellum-assistant://auth/callback?code=secret"),
+    ).toEqual({ kind: "unknown", url: "vellum-assistant://auth/callback" });
+  });
+
   test("env-specific scheme for a foreign environment is rejected as unknown", () => {
     // A scheme that doesn't match any known environment is always
     // rejected, regardless of which env this test suite runs under.

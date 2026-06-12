@@ -115,6 +115,11 @@ export const parseVellumUrl = (input: string): DeepLink => {
     if (threadId) return { kind: "openThread", threadId };
     return { kind: "unknown", url: input };
   }
+  if (url.host === "auth" && url.pathname.startsWith("/callback")) {
+    // The deprecated `/accounts/native/*` flow returns its auth code here.
+    // Strip the sensitive code from the query so it doesn't get captured downstream.
+    return { kind: "unknown", url: `${url.protocol}//${url.host}${url.pathname}` };
+  }
   return { kind: "unknown", url: input };
 };
 
