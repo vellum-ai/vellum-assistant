@@ -39,9 +39,9 @@
       "scope": "both",
       "key": "experiment-activation-flow-2026-06-03",
       "label": "Activation Flow Experiment 2026-06-03",
-      "description": "Multivariate activation-flow experiment. control = standard flow; variant-a = activation rail; variant-b = preseeded personal-page app (read by the daemon, hence scope \"both\"). Targeted via LaunchDarkly.",
+      "description": "Multivariate activation-flow experiment. control = standard flow; variant-a = activation rail; personal-page = preseeded personal-page app (read by the daemon, hence scope \"both\"). Targeted via LaunchDarkly.",
       "defaultEnabled": "control",
-      "values": ["control", "variant-a", "variant-b"]
+      "values": ["control", "variant-a", "personal-page"]
     },
     {
       "id": "local-docker-enabled",

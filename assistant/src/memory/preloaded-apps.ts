@@ -42,7 +42,7 @@ export const PERSONAL_PAGE_APP_ID = "personal-page";
 export const ACTIVATION_FLOW_FLAG = "experiment-activation-flow-2026-06-03";
 
 /** Arm of the activation-flow experiment that gets the preseeded page. */
-export const PERSONAL_PAGE_ARM = "variant-b";
+export const PERSONAL_PAGE_ARM = "personal-page";
 
 export async function seedPreloadedApps(
   config: AssistantConfig,
