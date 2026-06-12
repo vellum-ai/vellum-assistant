@@ -12,6 +12,20 @@ export interface InspectorExportFile {
   contents: string;
 }
 
+/**
+ * Fetches the normalized request/response sections for one log.
+ * Resolves `null` when the daemon has no per-log context endpoint
+ * (the list entries then carry their sections inline). Other failures
+ * should reject so the export surfaces an error instead of silently
+ * producing an incomplete archive.
+ */
+export type LlmCallSectionsFetcher = (
+  logId: string,
+) => Promise<Pick<
+  LLMRequestLogEntry,
+  "requestSections" | "responseSections"
+> | null>;
+
 interface ActualUserMessageExport {
   callId: string;
   callIndex: number;
@@ -114,12 +128,42 @@ export function buildInspectorExportFiles(
 export async function buildInspectorExportZipBlob(
   context: LlmContextResponse,
   payloads: LlmLogPayload[],
+  fetchCallSections?: LlmCallSectionsFetcher,
 ): Promise<Blob> {
+  const hydrated = {
+    ...context,
+    logs: await hydrateLogSections(context.logs, fetchCallSections),
+  };
   const zip = new JSZip();
-  for (const file of buildInspectorExportFiles(context, payloads)) {
+  for (const file of buildInspectorExportFiles(hydrated, payloads)) {
     zip.file(file.path, file.contents);
   }
   return zip.generateAsync({ type: "blob", mimeType: "application/zip" });
+}
+
+/**
+ * Lists fetched with `view=summary` omit per-log sections, so the
+ * export hydrates each call from the per-log context endpoint. Logs
+ * that already carry sections inline (full-view lists from older
+ * daemons) are kept as-is.
+ */
+async function hydrateLogSections(
+  logs: LLMRequestLogEntry[],
+  fetchCallSections: LlmCallSectionsFetcher | undefined,
+): Promise<LLMRequestLogEntry[]> {
+  if (!fetchCallSections) return logs;
+  return Promise.all(
+    logs.map(async (log): Promise<LLMRequestLogEntry> => {
+      if (log.requestSections || log.responseSections) return log;
+      const detail = await fetchCallSections(log.id);
+      if (!detail) return log;
+      return {
+        ...log,
+        requestSections: detail.requestSections,
+        responseSections: detail.responseSections,
+      };
+    }),
+  );
 }
 
 function extractActualUserMessages(
