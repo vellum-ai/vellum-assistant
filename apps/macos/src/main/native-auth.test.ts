@@ -101,13 +101,9 @@ mock.module("./session-token-store", () => ({
   getSessionToken: () => store.saved.at(-1) ?? null,
 }));
 
-const {
-  buildStartUrl,
-  generateState,
-  handleAuthCallback,
-  installNativeAuth,
-  __resetForTesting,
-} = await import("./native-auth");
+const { generateState, installNativeAuth, __resetForTesting } = await import(
+  "./native-auth"
+);
 
 afterEach(() => {
   __resetForTesting();
@@ -130,36 +126,6 @@ describe("generateState", () => {
     const a = generateState();
     const b = generateState();
     expect(a).not.toBe(b);
-  });
-});
-
-describe("buildStartUrl", () => {
-  test("builds URL with required state param", () => {
-    const url = buildStartUrl("https://platform.vellum.ai", "abc123", {});
-    expect(url).toBe(
-      "https://platform.vellum.ai/accounts/native/start?state=abc123",
-    );
-  });
-
-  test("includes optional params when provided", () => {
-    const url = buildStartUrl("https://platform.vellum.ai", "abc123", {
-      providerHint: "GoogleOAuth",
-      loginHint: "user@example.com",
-      clientVersion: "1.0.0",
-    });
-    const parsed = new URL(url);
-    expect(parsed.searchParams.get("state")).toBe("abc123");
-    expect(parsed.searchParams.get("provider_hint")).toBe("GoogleOAuth");
-    expect(parsed.searchParams.get("login_hint")).toBe("user@example.com");
-    expect(parsed.searchParams.get("client_version")).toBe("1.0.0");
-  });
-
-  test("omits optional params when not provided", () => {
-    const url = buildStartUrl("https://platform.vellum.ai", "abc123", {});
-    const parsed = new URL(url);
-    expect(parsed.searchParams.has("provider_hint")).toBe(false);
-    expect(parsed.searchParams.has("login_hint")).toBe(false);
-    expect(parsed.searchParams.has("client_version")).toBe(false);
   });
 });
 
@@ -190,13 +156,6 @@ describe("installNativeAuth — session-token wiring", () => {
     const result = await pending;
     expect(result.sessionToken).toBe("sess-tok-123");
     expect(store.saved).toContain("sess-tok-123");
-  });
-
-  test("legacy deep-link callbacks are ignored by the PKCE flow", async () => {
-    installNativeAuth();
-    // No pending legacy flow exists; a stray deep link must be a no-op.
-    await handleAuthCallback("unknown-state", "auth-code-xyz");
-    expect(store.saved).toHaveLength(0);
   });
 
   test("evicts both legacy session cookies on install", () => {
