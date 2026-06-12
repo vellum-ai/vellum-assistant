@@ -124,6 +124,7 @@ export async function runUpdateBulletinJobIfNeeded(): Promise<void> {
       source: "update-bulletin",
       origin: "updates_bulletin",
       prompt: updateBulletinHint(),
+      systemHint: "Release updates",
       trustContext: {
         sourceChannel: "vellum",
         trustClass: "guardian",

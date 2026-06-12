@@ -537,6 +537,13 @@ export function createConversation(
     | string
     | {
         title?: string;
+        /**
+         * Override the `is_auto_title` column (schema default 1). Pass
+         * `AUTO_TITLE_DETERMINISTIC` (2) when the title was derived
+         * deterministically at bootstrap so later generation passes know
+         * they may replace it.
+         */
+        isAutoTitle?: number;
         conversationType?: ConversationCreateType;
         source?: string;
         scheduleJobId?: string;
@@ -566,6 +573,9 @@ export function createConversation(
   const conversation = {
     id,
     title: opts.title ?? null,
+    ...(opts.isAutoTitle !== undefined
+      ? { isAutoTitle: opts.isAutoTitle }
+      : {}),
     createdAt: now,
     updatedAt: now,
     totalInputTokens: 0,
