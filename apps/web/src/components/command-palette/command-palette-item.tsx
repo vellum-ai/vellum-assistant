@@ -39,8 +39,8 @@ export function CommandPaletteItem({
         className={[
           "flex h-10 w-full items-center gap-3 rounded-md px-3 text-left text-sm font-medium outline-none transition-colors",
           isSelected
-            ? "bg-[#444d56] text-[#f6f5f4]"
-            : "text-[#a9b2bb] hover:bg-[#1c2024] hover:text-[#f6f5f4]",
+            ? "bg-[var(--surface-active)] text-[var(--content-default)]"
+            : "text-[var(--content-secondary)] hover:bg-[var(--surface-overlay)] hover:text-[var(--content-default)]",
         ].join(" ")}
       >
         {Icon ? (
@@ -49,20 +49,20 @@ export function CommandPaletteItem({
             aria-hidden
             className={
               isSelected
-                ? "shrink-0 text-[#f6f5f4]"
-                : "shrink-0 text-[#8d99a5]"
+                ? "shrink-0 text-[var(--content-default)]"
+                : "shrink-0 text-[var(--content-tertiary)]"
             }
           />
         ) : null}
         <span className="flex min-w-0 flex-1 items-center gap-2">
           <span className="truncate">{title}</span>
           {subtitle ? (
-            <span className="shrink-0 truncate text-xs text-[#8d99a5]">
+            <span className="shrink-0 truncate text-xs text-[var(--content-tertiary)]">
               {subtitle}
             </span>
           ) : null}
           {shortcutHint ? (
-            <span className="ml-auto shrink-0 text-xs text-[#8d99a5]">
+            <span className="ml-auto shrink-0 text-xs text-[var(--content-tertiary)]">
               {shortcutHint}
             </span>
           ) : null}
