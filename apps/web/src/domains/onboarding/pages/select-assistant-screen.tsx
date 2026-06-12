@@ -3,10 +3,16 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { resolveSelectedAssistantId } from "@/assistant/selection";
+import { retireAssistant } from "@/assistant/retire-service";
+import { ConnectRecoveryDialog } from "@/domains/onboarding/components/connect-recovery-dialog";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { formatRelativeDate } from "@/utils/format-date";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { isElectron } from "@/runtime/is-electron";
+import {
+  GuardianTokenError,
+  wakeLocalAssistantHost,
+} from "@/runtime/local-mode-host";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import {
@@ -55,6 +61,12 @@ export function SelectAssistantScreen() {
   const [connecting, setConnecting] = useState(false);
   const [autoSkipping, setAutoSkipping] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A local assistant whose guardian token is missing/unrefreshable; opens
+  // the recovery dialog instead of the generic connect error.
+  const [recoveryAssistant, setRecoveryAssistant] =
+    useState<ResolvedAssistant | null>(null);
+  const [recoveryPending, setRecoveryPending] = useState(false);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
 
   // Default selection: the app's known selected assistant when accessible,
   // else the first accessible assistant.
@@ -75,9 +87,62 @@ export function SelectAssistantScreen() {
         await useAuthStore.getState().connectPlatformAssistant(assistant.id);
       }
       void navigate(routes.assistant, { replace: true });
-    } catch {
-      setError("Failed to connect. Please try again.");
+    } catch (err) {
+      console.error("selectAssistant.handleConnect failed", err);
+      // A missing (404) or expired-and-unrefreshable (401) guardian token
+      // can only be fixed by re-provisioning, so offer the recovery dialog.
+      // 403 (refused loopback boundary) and transient failures keep the
+      // generic message — repair can't help those.
+      if (
+        assistant.isLocal &&
+        err instanceof GuardianTokenError &&
+        (err.status === 404 || err.status === 401)
+      ) {
+        setRecoveryAssistant(assistant);
+      } else {
+        setError("Failed to connect. Please try again.");
+      }
       setConnecting(false);
+    }
+  };
+
+  const clearRecoveryState = () => {
+    setRecoveryAssistant(null);
+    setRecoveryPending(false);
+    setRecoveryError(null);
+    // If recovery interrupted an auto-skip, dismissing it must land on the
+    // chooser — leaving autoSkipping set would re-render the indefinite
+    // "Connecting…" screen with no way out.
+    setAutoSkipping(false);
+  };
+
+  const handleRecoveryRepair = async () => {
+    if (!recoveryAssistant) return;
+    setRecoveryPending(true);
+    setRecoveryError(null);
+    const result = await wakeLocalAssistantHost(recoveryAssistant.id, {
+      repairGuardian: true,
+    });
+    if (result.ok) {
+      clearRecoveryState();
+      void handleConnect(recoveryAssistant);
+    } else {
+      setRecoveryError(result.error || "Repair failed. Please try again.");
+      setRecoveryPending(false);
+    }
+  };
+
+  const handleRecoveryRetire = async () => {
+    if (!recoveryAssistant) return;
+    setRecoveryPending(true);
+    setRecoveryError(null);
+    const outcome = await retireAssistant(recoveryAssistant.id);
+    if (outcome.ok) {
+      clearRecoveryState();
+      void navigate(outcome.nextRoute, { replace: true });
+    } else {
+      setRecoveryError(outcome.error);
+      setRecoveryPending(false);
     }
   };
 
@@ -107,8 +172,9 @@ export function SelectAssistantScreen() {
 
   const displayError = loginError ?? error;
 
-  // Loading state during auto-skip
-  if (autoSkipping && !displayError) {
+  // Loading state during auto-skip. A pending recovery falls through to the
+  // chooser so the dialog can render.
+  if (autoSkipping && !displayError && !recoveryAssistant) {
     return (
       <OnboardingLayout>
         <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 text-[var(--content-default)]">
@@ -217,6 +283,15 @@ export function SelectAssistantScreen() {
           </Button>
         </div>
       </div>
+      <ConnectRecoveryDialog
+        open={recoveryAssistant != null}
+        assistantName={recoveryAssistant ? assistantLabel(recoveryAssistant) : ""}
+        isPending={recoveryPending}
+        errorMessage={recoveryError ?? undefined}
+        onCancel={clearRecoveryState}
+        onRepair={() => void handleRecoveryRepair()}
+        onRetire={() => void handleRecoveryRetire()}
+      />
     </OnboardingLayout>
   );
 }
