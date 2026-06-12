@@ -1,6 +1,6 @@
 import {
+  hasAssistantResponse,
   readRunMetadata,
-  readTranscript,
   type MetricInput,
   type MetricResult,
 } from "../../../../../src/lib/metrics";
@@ -15,8 +15,7 @@ const LIMIT_MS = 5 * 60 * 1000;
 export default async function scoreCompletedUnderFiveMinutes(
   input: MetricInput,
 ): Promise<MetricResult> {
-  const transcript = await readTranscript(input.runId);
-  if (!transcript.some((turn) => turn.role === "assistant")) {
+  if (!(await hasAssistantResponse(input.runId))) {
     return {
       name: "completed-under-five-minutes",
       score: 0,
