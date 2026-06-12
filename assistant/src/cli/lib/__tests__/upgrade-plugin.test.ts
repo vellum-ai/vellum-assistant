@@ -21,7 +21,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import type { FetchLike, GitRunner } from "../install-from-github.js";
+import {
+  type FetchLike,
+  type GitRunner,
+  PluginSourceUnavailableError,
+} from "../install-from-github.js";
 import { PluginNotInstalledError } from "../uninstall-plugin.js";
 import { PluginNotUpgradableError, upgradePlugin } from "../upgrade-plugin.js";
 
@@ -57,6 +61,7 @@ function manifestWith(name: string, ref: string): unknown {
 function makeFetch(opts: {
   manifest?: unknown;
   manifestStatus?: number;
+  remoteCommitDate?: string;
 }): FetchLike {
   return (async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
@@ -71,6 +76,19 @@ function makeFetch(opts: {
       }
       return new Response(JSON.stringify(opts.manifest), { status: 200 });
     }
+    // The remote commit date `inspect` resolves to surface the human-readable
+    // "to" timestamp; absent it 404s and the timestamp degrades to null.
+    if (url.includes("api.github.com") && url.includes("/commits/")) {
+      if (opts.remoteCommitDate === undefined) {
+        return new Response("not found", { status: 404 });
+      }
+      return new Response(
+        JSON.stringify({
+          commit: { committer: { date: opts.remoteCommitDate } },
+        }),
+        { status: 200 },
+      );
+    }
     // No adapter stub: the Contents API listing for plugins/<name> is empty.
     if (url.startsWith(CONTENTS)) {
       return new Response("not found", { status: 404 });
@@ -79,10 +97,17 @@ function makeFetch(opts: {
   }) as FetchLike;
 }
 
-/** A fake clone that materializes one file and reports `commit` at HEAD. */
-function fakeGitRunner(commit: string, calls?: string[][]): GitRunner {
+/**
+ * A fake clone that materializes one file and reports `commit` at HEAD. When
+ * `committedAtSeconds` is given, `git show -s --format=%ct HEAD` reports that
+ * UNIX committer time, mirroring how install captures the commit timestamp.
+ */
+function fakeGitRunner(
+  commit: string,
+  opts: { calls?: string[][]; committedAtSeconds?: number } = {},
+): GitRunner {
   return async (args, { cwd }) => {
-    calls?.push([...args]);
+    opts.calls?.push([...args]);
     switch (args[0]) {
       case "fetch": {
         mkdirSync(join(cwd, ".git"), { recursive: true });
@@ -92,6 +117,13 @@ function fakeGitRunner(commit: string, calls?: string[][]): GitRunner {
       }
       case "rev-parse":
         return { stdout: `${commit}\n` };
+      case "show":
+        return {
+          stdout:
+            opts.committedAtSeconds === undefined
+              ? ""
+              : `${opts.committedAtSeconds}\n`,
+        };
       default:
         return { stdout: "" };
     }
@@ -107,7 +139,7 @@ const unusedGitRunner: GitRunner = async (args) => {
 function installCopy(
   pluginsDir: string,
   name: string,
-  sidecar: { commit: string } | null,
+  sidecar: { commit: string; committedAt?: string } | null,
 ): void {
   const dir = join(pluginsDir, name);
   mkdirSync(dir, { recursive: true });
@@ -117,8 +149,9 @@ function installCopy(
   );
   if (sidecar !== null) {
     writeFileSync(
-      join(dir, ".vellum-plugin.json"),
+      join(dir, "install-meta.json"),
       JSON.stringify({
+        origin: "vellum",
         name,
         source: {
           kind: "github",
@@ -127,6 +160,7 @@ function installCopy(
           ref: sidecar.commit,
         },
         commit: sidecar.commit,
+        committedAt: sidecar.committedAt,
         installedAt: "2026-06-10T12:00:00.000Z",
       }),
     );
@@ -135,7 +169,7 @@ function installCopy(
 
 /** Read the commit recorded in a copy's provenance sidecar, if present. */
 function sidecarCommit(pluginsDir: string, name: string): string | null {
-  const path = join(pluginsDir, name, ".vellum-plugin.json");
+  const path = join(pluginsDir, name, "install-meta.json");
   if (!existsSync(path)) return null;
   return JSON.parse(readFileSync(path, "utf-8")).commit ?? null;
 }
@@ -174,6 +208,54 @@ describe("upgradePlugin", () => {
     expect(result.fileCount).toBeGreaterThan(0);
     // AND the new pin is recorded in the provenance sidecar on disk
     expect(sidecarCommit(pluginsDir, "level-up")).toBe(SHA_B);
+  });
+
+  test("threads commit timestamps through the move as the human-readable version", async () => {
+    // GIVEN an installed copy with a recorded commit timestamp
+    installCopy(pluginsDir, "level-up", {
+      commit: SHA_A,
+      committedAt: "2026-06-01T12:34:56.000Z",
+    });
+    // AND the marketplace pins a newer commit whose date the clone reports
+    const fetch = makeFetch({ manifest: manifestWith("level-up", SHA_B) });
+    // 2026-06-05T08:12:24Z expressed as UNIX seconds for `git show %ct`.
+    const runGit = fakeGitRunner(SHA_B, {
+      committedAtSeconds: Math.floor(
+        Date.parse("2026-06-05T08:12:24.000Z") / 1000,
+      ),
+    });
+
+    // WHEN the plugin is upgraded
+    const result = await upgradePlugin(
+      { name: "level-up" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN both ends of the move carry their commit timestamps
+    expect(result.fromTimestamp).toBe("2026-06-01T12:34:56.000Z");
+    expect(result.toTimestamp).toBe("2026-06-05T08:12:24.000Z");
+  });
+
+  test("a dry run resolves the target timestamp from the marketplace pin", async () => {
+    // GIVEN an installed copy and a marketplace pin whose commit GitHub dates
+    installCopy(pluginsDir, "level-up", {
+      commit: SHA_A,
+      committedAt: "2026-06-01T12:34:56.000Z",
+    });
+    const fetch = makeFetch({
+      manifest: manifestWith("level-up", SHA_B),
+      remoteCommitDate: "2026-06-05T08:12:24.000Z",
+    });
+
+    // WHEN a dry-run upgrade is performed (git must never run)
+    const result = await upgradePlugin(
+      { name: "level-up", dryRun: true },
+      { fetch, runGit: unusedGitRunner, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the preview shows the timestamp move resolved without a clone
+    expect(result.fromTimestamp).toBe("2026-06-01T12:34:56.000Z");
+    expect(result.toTimestamp).toBe("2026-06-05T08:12:24.000Z");
   });
 
   test("is a no-op when the installed commit already equals the pin", async () => {
@@ -261,19 +343,21 @@ describe("upgradePlugin", () => {
     ).rejects.toBeInstanceOf(PluginNotUpgradableError);
   });
 
-  test("throws PluginNotUpgradableError when the marketplace is unreachable", async () => {
+  test("throws PluginSourceUnavailableError when the marketplace is unreachable", async () => {
     // GIVEN an installed copy and a marketplace fetch that fails transiently
     installCopy(pluginsDir, "level-up", { commit: SHA_A });
     const fetch = makeFetch({ manifestStatus: 500 });
 
     // WHEN an upgrade is attempted
-    // THEN the latest pin cannot be determined, so it refuses
+    // THEN the outage is surfaced as a retryable source-unavailable error
+    // (distinct from the permanent no-marketplace-entry conflict), since the
+    // same request can succeed once the catalog recovers
     await expect(
       upgradePlugin(
         { name: "level-up" },
         { fetch, runGit: unusedGitRunner, workspacePluginsDir: pluginsDir },
       ),
-    ).rejects.toBeInstanceOf(PluginNotUpgradableError);
+    ).rejects.toBeInstanceOf(PluginSourceUnavailableError);
   });
 
   test("preserves the existing install when the re-install clone fails", async () => {

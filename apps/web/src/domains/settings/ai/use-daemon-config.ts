@@ -19,6 +19,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CallSiteOverrideDraft, DaemonConfig, DaemonConfigPatch, ProfileEntry } from "@/domains/settings/ai/ai-types";
 import { applyConfigPatch, assertProvisionSuccess, buildOrderedProfiles, snapshotPatchedFields } from "@/domains/settings/ai/ai-utils";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import type { ConfigPatchData } from "@/generated/daemon/types.gen";
 import { configGet, configPatch, secretsPost } from "@/generated/daemon/sdk.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
@@ -140,9 +141,14 @@ export function useDaemonConfigMutation() {
   return useMutation({
     mutationFn: async (body: DaemonConfigPatch) => {
       const resolvedId = await resolveAssistantId();
+      // DaemonConfigPatch is intentionally stricter than the generated
+      // ConfigPatchData["body"] (no index sigs → catches key typos). The
+      // structural mismatch is only in optional field widths (string vs
+      // literal union) — values are always valid at runtime since they come
+      // from constrained UI selectors.
       const { data } = await configPatch({
         path: { assistant_id: resolvedId },
-        body,
+        body: body as ConfigPatchData["body"],
         throwOnError: true,
       });
       return { data, resolvedId };

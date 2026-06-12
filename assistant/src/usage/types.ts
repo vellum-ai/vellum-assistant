@@ -62,7 +62,7 @@ export interface UsageEventInput {
   inferenceProfile?: string | null;
   inferenceProfileSource?: UsageAttributionProfileSource | null;
   /** Number of actual LLM API calls represented by this event (defaults to 1). */
-  llmCallCount?: number;
+  llmCallCount?: number | null;
 }
 
 /**
@@ -85,6 +85,13 @@ export interface UsageEvent extends UsageEventInput {
   inferenceProfileSource: UsageAttributionProfileSource | null;
   estimatedCostUsd: number | null;
   pricingStatus: "priced" | "unpriced";
+  /**
+   * Number of provider API calls aggregated into this event. The main agent
+   * loop persists one row per turn with this set to the number of calls in
+   * the loop; auxiliary call sites persist 1. `null` only for rows persisted
+   * before migration `200-usage-llm-call-count` ran.
+   */
+  llmCallCount: number | null;
   /**
    * Version of the assistant binary at the moment this event was
    * RECORDED, captured by `recordUsageEvent` and persisted with the

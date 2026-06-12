@@ -11,9 +11,9 @@ import { SkillDetail } from "@/domains/intelligence/components/skills/skill-deta
 import { installSkill } from "@/domains/intelligence/skills/install";
 import type { SkillInfo } from "@/domains/intelligence/skills/types";
 import {
-    skillsByIdDeleteMutation,
     skillsGetOptions,
     skillsGetQueryKey,
+    useSkillsByIdDeleteMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { type Options } from "@/generated/daemon/sdk.gen";
 import type { IdentityGetResponse, SkillsGetData } from "@/generated/daemon/types.gen";
@@ -265,8 +265,7 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
     },
   });
 
-  const uninstallMutation = useMutation({
-    ...skillsByIdDeleteMutation(),
+  const uninstallMutation = useSkillsByIdDeleteMutation({
     onMutate: (variables) => setRemovingSkillId(variables.path.id),
     onSettled: () => {
       setRemovingSkillId(null);

@@ -5,6 +5,10 @@ import {
   getCanonicalGuardianRequest,
   updateCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
+import {
+  isUnparseableToolArgs,
+  unparseableToolArgsMessage,
+} from "../providers/unparseable-tool-args.js";
 import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
 import { createOrReuseToolGrantRequest } from "../runtime/tool-grant-request-helper.js";
 import { redactSecrets } from "../security/secret-scanner.js";
@@ -239,6 +243,33 @@ export class ToolApprovalHandler {
         allowed: false,
         result: { content: "Cancelled", isError: true },
       };
+    }
+
+    // Reject tool calls whose arguments failed JSON parsing in the provider
+    // layer (wrapped under the `_raw` marker). Executing with the marker
+    // object would feed garbage input to the tool — and worse, a tool that
+    // tolerates missing fields can "succeed" (e.g. ui_show creating a
+    // typeless surface), so the model never learns its arguments were
+    // mangled. Fail loudly instead so the model retries.
+    if (isUnparseableToolArgs(input)) {
+      const msg = unparseableToolArgsMessage(name, input._raw);
+      const durationMs = Date.now() - startTime;
+      emitLifecycleEvent({
+        type: "error",
+        toolName: name,
+        executionTarget,
+        input,
+        workingDir: context.workingDir,
+        conversationId: context.conversationId,
+        requestId: context.requestId,
+        riskLevel,
+        decision: "error",
+        durationMs,
+        errorMessage: msg,
+        isExpected: true,
+        errorCategory: "tool_failure",
+      });
+      return { allowed: false, result: { content: msg, isError: true } };
     }
 
     // Reject tool invocations targeting guardian control-plane endpoints from non-guardian actors.

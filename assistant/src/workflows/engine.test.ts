@@ -27,6 +27,16 @@ function resetTables(): void {
   getSqlite().exec("DELETE FROM workflow_runs");
 }
 
+/** Poll until `predicate()` is true (or a short deadline elapses). */
+async function waitUntil(predicate: () => boolean): Promise<void> {
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((r) => setTimeout(r, 2));
+  }
+  throw new Error("Timed out waiting for condition");
+}
+
 const TRUST: TrustContext = { sourceChannel: "vellum", trustClass: "guardian" };
 
 const CAPABILITIES: ResolvedCapabilities = {
@@ -106,6 +116,7 @@ function execute(
   config: WorkflowsConfig = configWith(),
   args: unknown = null,
   capabilities: ResolvedCapabilities = CAPABILITIES,
+  signal?: AbortSignal,
 ) {
   return executeWorkflow({
     runId,
@@ -116,6 +127,7 @@ function execute(
     journal: journalStore,
     leafRunner: runner,
     trustContext: TRUST,
+    ...(signal ? { signal } : {}),
   });
 }
 
@@ -235,6 +247,148 @@ describe("executeWorkflow — fan-out & aggregation", () => {
       inputTokens: 10,
       outputTokens: 5,
     });
+  });
+});
+
+describe("executeWorkflow — script return value becomes the run result", () => {
+  beforeEach(resetTables);
+
+  test("a top-level `return <value>` surfaces as the run result (not a bare expression)", async () => {
+    const fake = makeFakeRunner();
+    const res = await execute(
+      "wf-return",
+      `const summary = agent("summarize");
+       return { final: summary, kind: "report" };`,
+      fake.runner,
+    );
+    expect(res.status).toBe("completed");
+    expect(res.result).toEqual({ final: "out:summarize", kind: "report" });
+  });
+
+  test("a script with NO top-level return completes with no result (undefined)", async () => {
+    // The authoring contract requires `return <result>;`. A bare trailing
+    // expression is discarded by the function-body wrapper, so the run
+    // completes with NO result. This documents WHY the contract mandates an
+    // explicit return: the leaf ran, but its value never reached the caller.
+    const fake = makeFakeRunner();
+    const res = await execute(
+      "wf-no-return",
+      `const summary = agent("summarize");
+       summary;`,
+      fake.runner,
+    );
+    expect(res.status).toBe("completed");
+    expect(res.result).toBeUndefined();
+    // The leaf DID run — the value was simply discarded by the missing return.
+    expect(fake.prompts).toEqual(["summarize"]);
+  });
+});
+
+describe("executeWorkflow — abort handling (leaf abort = run abort)", () => {
+  beforeEach(resetTables);
+
+  /**
+   * A runner that signals (via `onStart`) when a leaf is in flight and blocks on
+   * `gate` until the test resolves it. When the run's signal aborts mid-flight,
+   * a real provider/agent-loop call rejects with an abort error; this fake
+   * mirrors that by rejecting with an `AbortError` once released after abort.
+   */
+  function makeBlockingRunner(signal: AbortSignal, onStart: () => void) {
+    const runner = async (): Promise<
+      import("./leaf-runner.js").LeafResult
+    > => {
+      onStart();
+      await new Promise<void>((resolve) => {
+        if (signal.aborted) return resolve();
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+      // The signal fired while we were awaiting — reject the way a cancelled
+      // provider call does.
+      const err = new Error("The operation was aborted");
+      err.name = "AbortError";
+      throw err;
+    };
+    return runner as unknown as typeof import("./leaf-runner.js").runLeaf;
+  }
+
+  test("aborting mid-leaf in agent() ends the run as `aborted` (not `failed`)", async () => {
+    const controller = new AbortController();
+    let started = false;
+    const runner = makeBlockingRunner(controller.signal, () => {
+      started = true;
+    });
+
+    const runPromise = execute(
+      "wf-abort-agent",
+      `const a = agent("long-running");
+       return a;`,
+      runner,
+      configWith(),
+      null,
+      CAPABILITIES,
+      controller.signal,
+    );
+
+    // Wait until the leaf is in flight, then abort.
+    await waitUntil(() => started);
+    controller.abort();
+
+    const res = await runPromise;
+    expect(res.status).toBe("aborted");
+    expect(res.result).toBeNull();
+
+    // The cancelled leaf is NOT journaled as a failed entry.
+    const journal = journalStore.getJournal("wf-abort-agent");
+    expect(journal.every((e) => e.status !== "failed")).toBe(true);
+  });
+
+  test("aborting mid-leaf in parallel() ends the run as `aborted` and does not null-coalesce", async () => {
+    const controller = new AbortController();
+    let startedCount = 0;
+    const runner = makeBlockingRunner(controller.signal, () => {
+      startedCount += 1;
+    });
+
+    const runPromise = execute(
+      "wf-abort-parallel",
+      `const r = parallel([leaf("a"), leaf("b"), leaf("c")]);
+       return r;`,
+      runner,
+      configWith({ maxConcurrentLeaves: 3 }),
+      null,
+      CAPABILITIES,
+      controller.signal,
+    );
+
+    await waitUntil(() => startedCount >= 1);
+    controller.abort();
+
+    const res = await runPromise;
+    // The run terminates as aborted rather than completing with [null,...].
+    expect(res.status).toBe("aborted");
+    expect(res.result).toBeNull();
+    const journal = journalStore.getJournal("wf-abort-parallel");
+    expect(journal.every((e) => e.status !== "failed")).toBe(true);
+  });
+
+  test("an abort raised at the leaf gate BEFORE the call also yields `aborted`", async () => {
+    // Pre-aborted signal: the engine's top-of-leaf `signal?.aborted` guard fires
+    // before the runner is invoked.
+    const controller = new AbortController();
+    controller.abort();
+    const fake = makeFakeRunner();
+
+    const res = await execute(
+      "wf-abort-pre",
+      `return agent("never-runs");`,
+      fake.runner,
+      configWith(),
+      null,
+      CAPABILITIES,
+      controller.signal,
+    );
+    expect(res.status).toBe("aborted");
+    expect(fake.prompts).toEqual([]);
   });
 });
 

@@ -18,6 +18,7 @@ import {
   PluginInspectNotFoundError,
 } from "../inspect-plugin.js";
 import type { FetchLike } from "../install-from-github.js";
+import { computeFingerprint } from "../plugin-fingerprint.js";
 
 const SHA_A = "a".repeat(40);
 const SHA_B = "b".repeat(40);
@@ -40,11 +41,18 @@ function manifestWith(name: string, ref: string): unknown {
 }
 
 /**
- * Build a `fetch` that serves the marketplace manifest. `marketplace:
- * undefined` answers 404 (empty catalog); `fail: true` rejects with a network
- * error. Anything else surfaces a 500 so test bugs are loud.
+ * Build a `fetch` that serves the marketplace manifest and the GitHub commit
+ * API. `marketplace: undefined` answers 404 (empty catalog); `fail: true`
+ * rejects the marketplace request with a network error. `remoteCommitDate`
+ * seeds the committer date the GitHub commit endpoint returns (its absence
+ * 404s, so the remote timestamp degrades to `null`). Anything else surfaces a
+ * 500 so test bugs are loud.
  */
-function makeFetch(opts: { marketplace?: unknown; fail?: boolean }): FetchLike {
+function makeFetch(opts: {
+  marketplace?: unknown;
+  fail?: boolean;
+  remoteCommitDate?: string;
+}): FetchLike {
   return (async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
     if (url.includes("marketplace.json")) {
@@ -53,6 +61,17 @@ function makeFetch(opts: { marketplace?: unknown; fail?: boolean }): FetchLike {
         return new Response("not found", { status: 404 });
       }
       return new Response(JSON.stringify(opts.marketplace), { status: 200 });
+    }
+    if (url.includes("api.github.com") && url.includes("/commits/")) {
+      if (opts.remoteCommitDate === undefined) {
+        return new Response("not found", { status: 404 });
+      }
+      return new Response(
+        JSON.stringify({
+          commit: { committer: { date: opts.remoteCommitDate } },
+        }),
+        { status: 200 },
+      );
     }
     return new Response("unexpected url: " + url, { status: 500 });
   }) as FetchLike;
@@ -64,7 +83,13 @@ function installPlugin(
   name: string,
   opts: {
     version?: string;
-    sidecar?: { commit?: string | null; ref?: string } | null;
+    sidecar?: {
+      commit?: string | null;
+      ref?: string;
+      committedAt?: string;
+    } | null;
+    /** Embed a content fingerprint of the materialized tree in the sidecar. */
+    fingerprint?: boolean;
   } = {},
 ): void {
   const dir = join(workspace, name);
@@ -79,9 +104,15 @@ function installPlugin(
   );
   if (opts.sidecar !== null) {
     const sidecar = opts.sidecar ?? { commit: SHA_A };
+    // Mirror install: fingerprint the tree before the sidecar is written so it
+    // is not part of its own baseline.
+    const fingerprint = opts.fingerprint
+      ? computeFingerprint(dir, ["install-meta.json"])
+      : undefined;
     writeFileSync(
-      join(dir, ".vellum-plugin.json"),
+      join(dir, "install-meta.json"),
       JSON.stringify({
+        origin: "vellum",
         name,
         source: {
           kind: "github",
@@ -90,7 +121,9 @@ function installPlugin(
           ref: sidecar.ref ?? sidecar.commit ?? SHA_A,
         },
         commit: sidecar.commit ?? undefined,
+        committedAt: sidecar.committedAt,
         installedAt: "2026-06-10T12:00:00.000Z",
+        fingerprint,
       }),
     );
   }
@@ -127,6 +160,47 @@ describe("inspectPlugin", () => {
     expect(result.local?.version).toBe("0.1.0");
     expect(result.remote?.repo).toBe("example-org/level-up");
     expect(result.remote?.license).toBe("MIT");
+  });
+
+  test("surfaces commit timestamps as the human-readable version on both sides", async () => {
+    // GIVEN an installed copy with a recorded commit timestamp and a
+    // marketplace whose pinned commit GitHub dates a few days later
+    installPlugin(workspace, "level-up", {
+      sidecar: { commit: SHA_A, committedAt: "2026-06-01T12:34:56.000Z" },
+    });
+    const fetch = makeFetch({
+      marketplace: manifestWith("level-up", SHA_B),
+      remoteCommitDate: "2026-06-05T08:12:24.000Z",
+    });
+
+    // WHEN it is inspected
+    const result = await inspectPlugin(
+      { name: "level-up" },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN the installed timestamp comes from the sidecar and the remote one
+    // is resolved from GitHub — both as ISO-8601 UTC strings
+    expect(result.local?.committedAt).toBe("2026-06-01T12:34:56.000Z");
+    expect(result.remote?.committedAt).toBe("2026-06-05T08:12:24.000Z");
+  });
+
+  test("leaves the remote timestamp null when the commit date cannot be fetched", async () => {
+    // GIVEN a marketplace entry but a GitHub commit endpoint that 404s
+    installPlugin(workspace, "level-up", { sidecar: { commit: SHA_A } });
+    const fetch = makeFetch({ marketplace: manifestWith("level-up", SHA_B) });
+
+    // WHEN it is inspected
+    const result = await inspectPlugin(
+      { name: "level-up" },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN the SHA is still reported while the timestamp degrades to null
+    expect(result.remote?.commit).toBe(SHA_B);
+    expect(result.remote?.committedAt).toBeNull();
+    // AND an older install without a recorded commit date reports null too
+    expect(result.local?.committedAt).toBeNull();
   });
 
   test("reports update-available when the marketplace pin has advanced", async () => {
@@ -231,6 +305,66 @@ describe("inspectPlugin", () => {
     expect(result.local?.commit).toBe(SHA_A);
     expect(result.remote).toBeNull();
     expect(result.remoteError).toContain("network down");
+  });
+
+  test("reports no local changes when the on-disk tree matches the fingerprint", async () => {
+    // GIVEN an installed plugin with a recorded content fingerprint, untouched
+    installPlugin(workspace, "level-up", {
+      sidecar: { commit: SHA_A },
+      fingerprint: true,
+    });
+    const fetch = makeFetch({ marketplace: manifestWith("level-up", SHA_A) });
+
+    // WHEN it is inspected
+    const result = await inspectPlugin(
+      { name: "level-up" },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN the local copy is reported clean against its baseline
+    expect(result.local?.localChanges?.clean).toBe(true);
+    expect(result.local?.localChanges?.modified).toEqual([]);
+  });
+
+  test("detects a locally modified file against the fingerprint", async () => {
+    // GIVEN an installed plugin with a recorded fingerprint
+    installPlugin(workspace, "level-up", {
+      sidecar: { commit: SHA_A },
+      fingerprint: true,
+    });
+
+    // AND a tracked file is edited after install
+    writeFileSync(
+      join(workspace, "level-up", "package.json"),
+      JSON.stringify({ name: "level-up", version: "9.9.9" }),
+    );
+    const fetch = makeFetch({ marketplace: manifestWith("level-up", SHA_A) });
+
+    // WHEN it is inspected
+    const result = await inspectPlugin(
+      { name: "level-up" },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN the edited file surfaces as a local modification
+    expect(result.local?.localChanges?.clean).toBe(false);
+    expect(result.local?.localChanges?.modified).toEqual(["package.json"]);
+  });
+
+  test("reports unknown local changes when no fingerprint was recorded", async () => {
+    // GIVEN an install whose sidecar predates fingerprinting
+    installPlugin(workspace, "level-up", { sidecar: { commit: SHA_A } });
+    const fetch = makeFetch({ marketplace: manifestWith("level-up", SHA_A) });
+
+    // WHEN it is inspected
+    const result = await inspectPlugin(
+      { name: "level-up" },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN modification cannot be determined
+    expect(result.local).not.toBeNull();
+    expect(result.local?.localChanges).toBeNull();
   });
 
   test("throws when the plugin is neither installed nor in the marketplace", async () => {

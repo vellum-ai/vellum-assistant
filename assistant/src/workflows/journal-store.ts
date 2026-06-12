@@ -1,7 +1,7 @@
 /**
  * Typed persistence for the workflow orchestration engine.
  *
- * Two tables (created by migration 281):
+ * Two tables (created by migration 282):
  *
  * - `workflow_runs` — one row per orchestration run (a sandboxed script that
  *   spawns parallel leaf agents), tracking lifecycle status and token usage.

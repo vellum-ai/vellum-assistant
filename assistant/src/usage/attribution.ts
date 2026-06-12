@@ -16,6 +16,12 @@ export interface UsageAttributionInput {
   callSite: LLMCallSite | null;
   overrideProfile?: string | null;
   /**
+   * Mirrors `ResolveCallSiteOpts.forceOverrideProfile`: the override profile
+   * was floated above the call-site layers for this request, so attribution
+   * must credit it ahead of the call-site profile too.
+   */
+  forceOverrideProfile?: boolean;
+  /**
    * Per-conversation seed for `mix`-profile expansion (the conversation id).
    * When the applied profile is a mix, threading the same seed the dispatch
    * path uses ensures `resolvedModel`/`resolvedMixArm` reflect the arm the
@@ -116,6 +122,9 @@ export function resolveUsageAttribution(
   const mixSelections = new Map<string, string>();
   const resolved = resolveCallSiteConfig(callSite, llm, {
     ...(overrideProfile != null ? { overrideProfile } : {}),
+    ...(input.forceOverrideProfile === true
+      ? { forceOverrideProfile: true }
+      : {}),
     ...(input.selectionSeed != null
       ? { selectionSeed: input.selectionSeed }
       : {}),
@@ -131,6 +140,7 @@ export function resolveUsageAttribution(
     profiles: llm.profiles ?? {},
     activeProfile,
     overrideProfile,
+    forceOverrideProfile: input.forceOverrideProfile === true,
     callSiteProfile,
   });
 
@@ -155,6 +165,7 @@ function resolveAppliedProfile(input: {
   profiles: Record<string, unknown>;
   activeProfile: string | null;
   overrideProfile: string | null;
+  forceOverrideProfile: boolean;
   callSiteProfile: string | null;
 }): Pick<UsageAttributionSnapshot, "appliedProfile" | "profileSource"> {
   if (input.callSite === "mainAgent") {
@@ -191,6 +202,19 @@ function resolveAppliedProfile(input: {
     return {
       appliedProfile: null,
       profileSource: "default",
+    };
+  }
+
+  // Forced override floats above the call-site profile (the resolver's
+  // `forceOverrideProfile` escape hatch), so it wins attribution too.
+  if (
+    input.forceOverrideProfile &&
+    input.overrideProfile != null &&
+    input.profiles[input.overrideProfile] != null
+  ) {
+    return {
+      appliedProfile: input.overrideProfile,
+      profileSource: "conversation",
     };
   }
 

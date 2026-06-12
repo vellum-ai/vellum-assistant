@@ -31,7 +31,7 @@ import {
 export type ChartMetric = "spend" | "events";
 
 const MOBILE_Y_AXIS_WIDTH = 40;
-const MOBILE_AXIS_TICK = { fontSize: 11, fill: "#8d99a5" } as const;
+const MOBILE_AXIS_TICK = { fontSize: 11, fill: "var(--content-tertiary)" } as const;
 
 const USAGE_SOURCE_COLORS: Record<string, string> = {
   runtime_proxy_api: "#3b82f6",

@@ -9,6 +9,22 @@ import type { SurfaceConversationContext } from "./conversation-surfaces.js";
 import type { TrustContext } from "./trust-context.js";
 
 /**
+ * How a subagent/wake tool allowlist is enforced.
+ *
+ * - `"wire"` (default): filter the tool definitions sent to the provider so
+ *   the model never sees non-allowlisted tools. Smaller request, but the
+ *   tool array no longer byte-matches the conversation's normal turns, so
+ *   the provider prompt-cache prefix (`tools → system → messages`) cannot
+ *   be reused.
+ * - `"execution"`: keep the conversation's full tool surface on the wire
+ *   (preserving cache parity with the source conversation's turns) and
+ *   enforce the allowlist at execution time — a call to a non-allowlisted
+ *   tool returns an error tool_result without ever invoking the tool's
+ *   executor.
+ */
+export type SubagentToolGateMode = "wire" | "execution";
+
+/**
  * Subset of Conversation state that the tool executor callback reads at
  * call time (not construction time). These are captured by the
  * returned closure, so they must be live references.
@@ -21,6 +37,15 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   abortController: AbortController | null;
   /** When set, only tools in this set may execute during the current turn. */
   allowedToolNames?: Set<string>;
+  /** When set, the subagent/wake tool allowlist (see {@link subagentToolGateMode}). */
+  subagentAllowedTools?: Set<string>;
+  /**
+   * How {@link subagentAllowedTools} is enforced. Absent or `"wire"` keeps
+   * the historical behavior (definitions filtered before the provider
+   * request); `"execution"` keeps the full tool surface on the wire and
+   * rejects non-allowlisted calls in the executor callback instead.
+   */
+  subagentToolGateMode?: SubagentToolGateMode;
   /** Turn-scoped disk-pressure cleanup mode flag. */
   diskPressureCleanupModeActive?: boolean;
   /** True when the conversation has no connected client (HTTP-only path). */

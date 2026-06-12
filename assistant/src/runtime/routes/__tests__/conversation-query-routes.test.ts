@@ -175,6 +175,26 @@ function seedRequestLog(
     .run();
 }
 
+function seedRequestLogWithSections(messageId: string, id: string): void {
+  getDb()
+    .insert(llmRequestLogs)
+    .values({
+      id,
+      conversationId: "conv-1",
+      messageId,
+      provider: "openai",
+      requestPayload: JSON.stringify({
+        model: "gpt-4.1",
+        messages: [{ role: "user", content: "hello" }],
+      }),
+      responsePayload: JSON.stringify({
+        choices: [{ message: { content: "hi" } }],
+      }),
+      createdAt: 1_700_000_000_000,
+    })
+    .run();
+}
+
 function seedConversationKey(
   conversationKey: string,
   conversationId: string,
@@ -271,6 +291,118 @@ describe("GET /v1/conversations/llm-context", () => {
     expect(body.conversationId).toBeNull();
     expect(body.conversationKey).toBe("missing-key");
     expect(body.logs).toEqual([]);
+  });
+});
+
+describe("llm-context view=summary", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  function seedConversationWithLog(): void {
+    seedConversationAndMessage({
+      conversationId: "conv-1",
+      messageId: "msg-1",
+      source: "user",
+      conversationType: "standard",
+    });
+    seedConversationKey("conv-key", "conv-1");
+    seedRequestLogWithSections("msg-1", "log-a");
+  }
+
+  test("conversation endpoint omits sections in summary view but keeps summary fields", async () => {
+    seedConversationWithLog();
+
+    const body = (await dispatchConversationLlmContext({
+      conversationKey: "conv-key",
+      view: "summary",
+    })) as {
+      logs: Array<Record<string, unknown>>;
+    };
+
+    expect(body.logs).toHaveLength(1);
+    const log = body.logs[0]!;
+    expect(log.requestSections).toBeUndefined();
+    expect(log.responseSections).toBeUndefined();
+    expect(log.id).toBe("log-a");
+    expect(log.summary).toBeDefined();
+  });
+
+  test("conversation endpoint includes sections by default", async () => {
+    seedConversationWithLog();
+
+    const body = (await dispatchConversationLlmContext({
+      conversationKey: "conv-key",
+    })) as {
+      logs: Array<Record<string, unknown>>;
+    };
+
+    expect(Array.isArray(body.logs[0]!.requestSections)).toBe(true);
+    expect(Array.isArray(body.logs[0]!.responseSections)).toBe(true);
+  });
+
+  test("message endpoint omits sections in summary view", async () => {
+    seedConversationWithLog();
+
+    const body = (await llmContextRoute.handler({
+      pathParams: { id: "msg-1" },
+      queryParams: { view: "summary" },
+    })) as {
+      logs: Array<Record<string, unknown>>;
+    };
+
+    expect(body.logs).toHaveLength(1);
+    expect(body.logs[0]!.requestSections).toBeUndefined();
+    expect(body.logs[0]!.responseSections).toBeUndefined();
+    expect(body.logs[0]!.summary).toBeDefined();
+  });
+
+  test("rejects unknown view values", async () => {
+    seedConversationWithLog();
+
+    expect(
+      dispatchConversationLlmContext({
+        conversationKey: "conv-key",
+        view: "compact",
+      }),
+    ).rejects.toThrow("Invalid view parameter");
+  });
+});
+
+describe("GET /v1/llm-request-logs/:id/context", () => {
+  const logContextRoute = ROUTES.find(
+    (r) => r.operationId === "llm_request_logs_context_get",
+  )!;
+
+  beforeEach(() => {
+    clearTables();
+  });
+
+  test("returns the normalized entry with sections for a single log", async () => {
+    seedConversationAndMessage({
+      conversationId: "conv-1",
+      messageId: "msg-1",
+      source: "user",
+      conversationType: "standard",
+    });
+    seedRequestLogWithSections("msg-1", "log-detail");
+
+    const body = (await logContextRoute.handler({
+      pathParams: { id: "log-detail" },
+    })) as Record<string, unknown>;
+
+    expect(body.id).toBe("log-detail");
+    expect(body.requestPayload).toBeNull();
+    expect(body.responsePayload).toBeNull();
+    expect(body.summary).toBeDefined();
+    expect(Array.isArray(body.requestSections)).toBe(true);
+    expect(Array.isArray(body.responseSections)).toBe(true);
+  });
+
+  test("throws NotFound for a missing log id", async () => {
+    expect(
+      logContextRoute.handler({ pathParams: { id: "log-missing" } }),
+    ).rejects.toThrow("log not found");
   });
 });
 

@@ -55,7 +55,12 @@ export interface ModelTelemetryEventBase extends TelemetryEventBase {
   inference_profile_source: UsageAttributionProfileSource | null;
 }
 
-/** LLM usage event — one per provider API call. */
+/**
+ * LLM usage event — one per persisted usage row. The main agent loop
+ * persists a single row per turn with token totals summed across every
+ * provider API call in the loop (`llm_call_count` carries the call count);
+ * auxiliary call sites persist one row per call.
+ */
 export interface LlmUsageTelemetryEvent extends TelemetryEventBase {
   type: "llm_usage";
   /**
@@ -85,6 +90,15 @@ export interface LlmUsageTelemetryEvent extends TelemetryEventBase {
   output_tokens: number;
   cache_creation_input_tokens: number | null;
   cache_read_input_tokens: number | null;
+  /**
+   * Number of provider API calls aggregated into this event. The main
+   * agent loop persists one usage row per turn with token totals summed
+   * across every call in the loop, so this is how downstream consumers
+   * recover per-call averages (effective tokens ÷ calls). Auxiliary call
+   * sites record exactly 1. Null for rows persisted before daemon
+   * migration `200-usage-llm-call-count`; consumers treat null as 1.
+   */
+  llm_call_count: number | null;
   /**
    * The provider's untouched `usage` block. Anthropic surfaces a TTL
    * breakdown under `cache_creation.ephemeral_{5m,1h}_input_tokens`;

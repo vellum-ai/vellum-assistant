@@ -1,9 +1,8 @@
-import { useMutation } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { DetailCard } from "@/components/detail-card";
-import { userDeletionRequestCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
+import { useUserDeletionRequestCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
 import {
     useActiveAssistantLifecycleIsLoading,
     usePlatformGate,
@@ -38,8 +37,7 @@ export function DeleteAccountSection() {
   const logout = useAuthStore.use.logout();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const deleteMutation = useMutation({
-    ...userDeletionRequestCreateMutation(),
+  const deleteMutation = useUserDeletionRequestCreateMutation({
     onSuccess: async () => {
       toast.success(
         "Account deletion requested. You will be logged out shortly.",

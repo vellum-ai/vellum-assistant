@@ -290,7 +290,6 @@ export async function hatchLocal(
     cloud: "local",
     species,
     hatchedAt: new Date().toISOString(),
-    version: cliPkg.version,
     resources: { ...resources, signingKey },
     guardianBootstrapSecret: bootstrapSecret,
   };

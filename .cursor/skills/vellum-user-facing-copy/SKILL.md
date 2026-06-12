@@ -26,9 +26,7 @@ Avoid real names, personal emails, real phone numbers, account IDs, tokens, or p
 
 ## Release Notes
 
-Release notes are processed from `UPDATES.md` and can become assistant-facing context. Keep them concise and user-relevant.
-
-Do not add release notes for feature-flagged, default-disabled, or rollout-only features. Add notes later when the feature reaches GA.
+There is currently no release-note surfacing mechanism — the workspace-bulletin feature was removed. Do not add new release-note workspace migrations; the historical set is frozen.
 
 ## Error Messages
 

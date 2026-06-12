@@ -537,6 +537,13 @@ export function createConversation(
     | string
     | {
         title?: string;
+        /**
+         * Override the `is_auto_title` column (schema default 1). Pass
+         * `AUTO_TITLE_DETERMINISTIC` (2) when the title was derived
+         * deterministically at bootstrap so later generation passes know
+         * they may replace it.
+         */
+        isAutoTitle?: number;
         conversationType?: ConversationCreateType;
         source?: string;
         scheduleJobId?: string;
@@ -566,6 +573,9 @@ export function createConversation(
   const conversation = {
     id,
     title: opts.title ?? null,
+    ...(opts.isAutoTitle !== undefined
+      ? { isAutoTitle: opts.isAutoTitle }
+      : {}),
     createdAt: now,
     updatedAt: now,
     totalInputTokens: 0,
@@ -2039,8 +2049,8 @@ export interface OverrideProfileFields {
 /**
  * Resolve the per-turn inference-profile override from a conversation's
  * fields. Returns the `inferenceProfile` for interactive conversations,
- * `undefined` for automation threads (subagent fan-out, scheduled tasks,
- * update bulletins) so they run on the workspace defaults rather than
+ * `undefined` for automation threads (subagent fan-out, scheduled
+ * tasks) so they run on the workspace defaults rather than
  * inheriting an interactive override.
  */
 export function resolveOverrideProfile(

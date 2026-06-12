@@ -272,9 +272,10 @@ export { migrateAddMemoryV3EverInjected } from "./277-add-memory-v3-ever-injecte
 export { migrateToolInvocationsTelemetryColumns } from "./278-tool-invocations-telemetry-columns.js";
 export { createSkillLoadedEventsTable } from "./279-create-skill-loaded-events.js";
 export { migrateConversationsSurfacedAt } from "./280-conversations-surfaced-at.js";
-export { migrateWorkflowRuns } from "./281-workflow-runs.js";
-export { migrateScheduleWorkflowMode } from "./282-schedule-workflow-mode.js";
-export { migrateWorkflowRunTrust } from "./283-workflow-run-trust.js";
+export { migrateMemoryRetrospectiveRememberedLog } from "./281-memory-retrospective-remembered-log.js";
+export { migrateWorkflowRuns } from "./282-workflow-runs.js";
+export { migrateScheduleWorkflowMode } from "./283-schedule-workflow-mode.js";
+export { migrateWorkflowRunTrust } from "./284-workflow-run-trust.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

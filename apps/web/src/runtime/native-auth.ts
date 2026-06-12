@@ -40,6 +40,7 @@ interface NativeAuthPlugin {
     baseURL: string;
     loginHint?: string;
     providerHint?: string;
+    intent?: string;
   }): Promise<{ sessionToken: string }>;
 }
 
@@ -101,12 +102,14 @@ export async function startNativeLogin(options?: {
   returnTo?: string | null;
   loginHint?: string;
   providerHint?: string;
+  intent?: string;
 }): Promise<void> {
   const baseURL = options?.baseURL ?? deriveAuthBaseURL();
   const { sessionToken } = await NativeAuth.startAuth({
     baseURL,
     ...(options?.loginHint ? { loginHint: options.loginHint } : {}),
     ...(options?.providerHint ? { providerHint: options.providerHint } : {}),
+    ...(options?.intent ? { intent: options.intent } : {}),
   });
 
   // `document.cookie` can't set HttpOnly, but Django validates the
@@ -248,6 +251,7 @@ export async function startAuthFlow(
             : options.returnTo ?? null,
         loginHint: options.loginHint,
         providerHint: options.providerHint,
+        intent: options.intent,
       });
     } catch (err) {
       // Capacitor translates `call.reject(msg, code)` from Swift into a

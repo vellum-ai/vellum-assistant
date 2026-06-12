@@ -37,11 +37,6 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
 }));
 
-mock.module("../memory/guardian-action-store.js", () => ({
-  getGuardianActionRequest: () => null,
-  resolveGuardianActionRequest: () => {},
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},

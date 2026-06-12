@@ -37,6 +37,7 @@ import {
   type FetchLike,
   type GitRunner,
   installPlugin,
+  PluginSourceUnavailableError,
   type PostinstallRunner,
   sanitizePluginName,
 } from "./install-from-github.js";
@@ -80,8 +81,18 @@ export interface PluginUpgradeResult {
   readonly outcome: PluginUpgradeOutcome;
   /** Installed commit before the upgrade; `null` when no provenance was recorded. */
   readonly fromCommit: string | null;
+  /**
+   * ISO-8601 committer timestamp (UTC) of {@link PluginUpgradeResult.fromCommit},
+   * the human-readable version moved from; `null` when it was not recorded.
+   */
+  readonly fromTimestamp: string | null;
   /** Marketplace-pinned commit the install was (or would be) moved to. */
   readonly toCommit: string;
+  /**
+   * ISO-8601 committer timestamp (UTC) of {@link PluginUpgradeResult.toCommit},
+   * the human-readable version moved to; `null` when it could not be resolved.
+   */
+  readonly toTimestamp: string | null;
   /** Absolute path to the installed plugin directory. */
   readonly target: string;
   /** Files materialized by the upgrade; `null` for a no-op or dry run. */
@@ -116,10 +127,11 @@ function pluginTarget(name: string, deps: UpgradePluginDeps): string {
  * Move an installed plugin to the marketplace's current pin.
  *
  * Throws {@link PluginNotInstalledError} when no copy is installed,
- * {@link PluginNotUpgradableError} when the install has no marketplace pin to
- * advance to (no catalog entry, or the catalog was unreachable), and
- * propagates {@link installPlugin}'s errors (e.g. source unavailable,
- * postinstall failure) when the re-install itself fails.
+ * {@link PluginNotUpgradableError} when the install has no marketplace entry to
+ * advance to, {@link PluginSourceUnavailableError} when the marketplace catalog
+ * is temporarily unreachable (a retryable outage, distinct from the permanent
+ * no-entry case), and propagates {@link installPlugin}'s errors (e.g. source
+ * unavailable, postinstall failure) when the re-install itself fails.
  */
 export async function upgradePlugin(
   opts: UpgradePluginOptions,
@@ -150,9 +162,13 @@ export async function upgradePlugin(
         "it has no marketplace entry to upgrade from",
       );
     case "remote-unavailable":
-      throw new PluginNotUpgradableError(
-        name,
-        `the marketplace could not be reached (${inspection.remoteError ?? "unknown error"})`,
+      // A transient catalog outage is not a permanent "cannot upgrade" state:
+      // the same request can succeed once the marketplace source recovers, so
+      // surface it as a retryable source-unavailable error rather than a
+      // conflict.
+      throw new PluginSourceUnavailableError(
+        `Plugin "${name}" cannot be upgraded: the marketplace could not be reached (${inspection.remoteError ?? "unknown error"}).`,
+        503,
       );
   }
 
@@ -167,7 +183,9 @@ export async function upgradePlugin(
   }
 
   const fromCommit = local.commit;
+  const fromTimestamp = local.committedAt;
   const toCommit = remote.commit;
+  const toTimestamp = remote.committedAt;
   const provenanceWasUnknown = inspection.status === "unknown-provenance";
 
   if (inspection.status === "up-to-date") {
@@ -175,7 +193,9 @@ export async function upgradePlugin(
       name,
       outcome: "already-up-to-date",
       fromCommit,
+      fromTimestamp,
       toCommit,
+      toTimestamp,
       target: local.target,
       fileCount: null,
       dryRun,
@@ -188,7 +208,9 @@ export async function upgradePlugin(
       name,
       outcome: "would-upgrade",
       fromCommit,
+      fromTimestamp,
       toCommit,
+      toTimestamp,
       target: local.target,
       fileCount: null,
       dryRun: true,
@@ -210,7 +232,9 @@ export async function upgradePlugin(
     name,
     outcome: "upgraded",
     fromCommit,
+    fromTimestamp,
     toCommit: result.commit ?? toCommit,
+    toTimestamp: result.committedAt ?? toTimestamp,
     target: result.target,
     fileCount: result.fileCount,
     dryRun: false,

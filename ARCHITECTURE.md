@@ -336,7 +336,7 @@ subgraph "Text Q&A Session"
             JOBS_WORKER["MemoryJobsWorker<br/>poll every 1.5s<br/>embed, extract, cleanup_stale"]
         end
 
-        subgraph "SQLite Database (~/.vellum/workspace/data/db/assistant.db)"
+        subgraph "SQLite Database ($VELLUM_WORKSPACE_DIR/data/db/assistant.db)"
             DB_CONV["conversations"]
             DB_MSG["messages"]
             DB_TOOL["tool_invocations"]
@@ -442,7 +442,7 @@ subgraph "Text Q&A Session"
         ENC_STORE["Encrypted Store<br/>(local: ~/.vellum/protected/keys.enc<br/>Docker: /ces-security/keys.enc)"]
         USERDEFAULTS["UserDefaults<br/>preferences / state"]
         APP_SUPPORT["~/Library/App Support/<br/>vellum-assistant/"]
-        APPS_DATA["~/.vellum/workspace/data/apps/<br/>app JSON + pages"]
+        APPS_DATA["$VELLUM_WORKSPACE_DIR/data/apps/<br/>app JSON + pages"]
         SESSION_LOGS["logs/session-*.json"]
     end
 
@@ -664,7 +664,7 @@ The workflow engine lets the assistant author a short JS/TS script that runs in 
 - **`sandbox.ts`** (`createWorkflowSandbox`) — a fresh QuickJS-WASM VM per run with **no** `fetch`/`process`/`Bun`/`require`/network/filesystem and a banned `Date.now`/`Math.random`/argless `new Date()`. Host functions are *asyncified*: a host call suspends the whole VM until its promise settles, so from the script's view host calls are **synchronous** (authors write `const r = agent(...)`, never `await`). An interrupt handler enforces a CPU deadline and cooperative abort.
 - **`capabilities.ts`** (`resolveCapabilities`) — resolves the per-run manifest into the concrete allow-set: a read-only baseline (`file_read`, `file_list`, `recall`, `web_search`, `web_fetch`) unioned with declared `tools`, with a forbidden set always denied. This is the single consent point; the leaf runner hard-denies anything outside it.
 - **`leaf-runner.ts`** (`runLeaf`) — the single-leaf primitive. A *schema* leaf makes one forced-`tool_choice` provider call returning structured output (no tools); a *tool* leaf runs a restricted agent loop. Leaves are anonymous by default (minimal task prompt, no identity, no memory); `persona: true` injects the assistant identity + memory pipeline. No leaf ever creates a conversation row, jsonl mirror, title job, or turn broadcast. Every leaf call resolves through the `workflowLeaf` call site (cost-optimized profile by default).
-- **`journal-store.ts`** — typed persistence over the `workflow_runs` and `workflow_journal` tables (migration 281). The journal is an append-only `(run_id, seq)` log; on resume the engine replays cached results for the unchanged call prefix instead of re-spawning agents.
+- **`journal-store.ts`** — typed persistence over the `workflow_runs` and `workflow_journal` tables (migration 282). The journal is an append-only `(run_id, seq)` log; on resume the engine replays cached results for the unchanged call prefix instead of re-spawning agents.
 - **`library.ts`** — saved workflows at `<workspace>/workflows/*.workflow.ts`, resolvable by name (by `meta.name`, then filename base) for `run_workflow({ name })`, `workflow(name)`, and the scheduler's `workflow` mode.
 
 ### Data flow
@@ -702,7 +702,7 @@ graph TB
 
 ### Tables, routes, and CLI
 
-- **Tables** (migration 281): `workflow_runs` (one row per run — status, agent/token counts, script source/hash, capabilities, originating conversation) and `workflow_journal` (append-only `(run_id, seq)` leaf-call log). Leaf cost is attributed in `llm_usage_events` under `call_site = 'workflowLeaf'`.
+- **Tables** (migration 282): `workflow_runs` (one row per run — status, agent/token counts, script source/hash, capabilities, originating conversation) and `workflow_journal` (append-only `(run_id, seq)` leaf-call log). Leaf cost is attributed in `llm_usage_events` under `call_site = 'workflowLeaf'`.
 - **Routes** (read/abort surfaces, all 404 when the flag is off): `GET /v1/workflows`, `GET /v1/workflows/runs`, `GET /v1/workflows/runs/:id`, `POST /v1/workflows/runs/:id/abort`.
 - **CLI**: `vellum workflows list | runs | show <id> | abort <id>`.
 - **Config** (`workflows.*`): `maxAgentsPerRun` (500), `maxConcurrentLeaves` (6), `maxConcurrentRuns` (3), `journalRetentionDays` (30).

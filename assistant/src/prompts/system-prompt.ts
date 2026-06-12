@@ -23,6 +23,7 @@ import {
 } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { cleanupBootstrapFiles } from "./bootstrap-cleanup.js";
+import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
 import { resolveGuardianPersona, resolveUserSlug } from "./persona-resolver.js";
 import { renderWorkspaceSections } from "./sections.js";
 import { isTemplateContent } from "./template-detection.js";
@@ -366,10 +367,17 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // Every system-prompt block flows through the bundled section
   // pipeline — including runtime-computed entries like
   // `14-connected-services` whose body is derived from live OAuth
-  // caches.  The whole prompt is treated as a single cached block by
-  // the Anthropic provider; per-provider details live in each
-  // provider's client.
-  return renderWorkspaceSections(ctx).join("\n\n");
+  // caches.  Sections render grouped into cache blocks (split at the
+  // section carrying a cache-breakpoint declaration — by default
+  // `11-channel-persona`); the blocks are joined with the
+  // `SYSTEM_PROMPT_CACHE_BOUNDARY` marker, which the Anthropic provider
+  // splits into independently cached system blocks and other providers
+  // strip.  Empty blocks are dropped so the marker never dangles at
+  // either end of the prompt.
+  return renderWorkspaceSections(ctx)
+    .map((block) => block.join("\n\n"))
+    .filter((block) => block.length > 0)
+    .join(SYSTEM_PROMPT_CACHE_BOUNDARY);
 }
 
 // Re-export from shared util so existing importers don't break.

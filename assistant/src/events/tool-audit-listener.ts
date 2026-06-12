@@ -3,6 +3,7 @@ import {
   recordToolInvocation,
   type ToolInvocationRecord,
 } from "../memory/tool-usage-store.js";
+import { redactJsonStringLeaves } from "../security/redact-json.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import {
   stringifyToolInput,
@@ -43,11 +44,14 @@ function toInvocationRecord(
 ): ToolInvocationRecord | null {
   switch (event.type) {
     case "executed": {
-      const input = stringifyToolInput(event.input);
+      const rawInput = stringifyToolInput(event.input);
       return {
         conversationId: event.conversationId,
         toolName: event.toolName,
-        input,
+        // Inputs can carry secrets the model typed verbatim (e.g.
+        // `export OPENAI_API_KEY=...` in a bash command) — redact before
+        // the row reaches the audit store, like results below.
+        input: redactToolInput(event.input, rawInput),
         result: redactSecrets(event.result.content).slice(
           0,
           RESULT_PREVIEW_LIMIT,
@@ -63,18 +67,18 @@ function toInvocationRecord(
         // don't stamp.
         ...telemetryColumns(
           event,
-          input,
+          rawInput,
           event.resultBytes ?? Buffer.byteLength(event.result.content, "utf8"),
         ),
       };
     }
     case "error": {
-      const input = stringifyToolInput(event.input);
+      const rawInput = stringifyToolInput(event.input);
       const result = `error: ${event.errorMessage}`;
       return {
         conversationId: event.conversationId,
         toolName: event.toolName,
-        input,
+        input: redactToolInput(event.input, rawInput),
         result,
         decision: "error",
         riskLevel: event.riskLevel,
@@ -83,7 +87,7 @@ function toInvocationRecord(
         // The error result string is built right here and never goes
         // through sensitive-output sanitization, so sizing it directly is
         // already raw — no executor stamp exists or is needed.
-        ...telemetryColumns(event, input, Buffer.byteLength(result, "utf8")),
+        ...telemetryColumns(event, rawInput, Buffer.byteLength(result, "utf8")),
       };
     }
     case "permission_denied":
@@ -92,7 +96,7 @@ function toInvocationRecord(
       return {
         conversationId: event.conversationId,
         toolName: event.toolName,
-        input: stringifyToolInput(event.input),
+        input: redactToolInput(event.input, stringifyToolInput(event.input)),
         result: formatDeniedResult(event.reason),
         decision: "denied",
         riskLevel: event.riskLevel,
@@ -102,6 +106,33 @@ function toInvocationRecord(
     case "start":
     case "permission_prompt":
       return null;
+  }
+}
+
+/**
+ * Redact secrets from a tool input while keeping the stored audit string
+ * parseable JSON. The redaction marker (`<redacted type="..." />`) contains
+ * double quotes, so redacting the serialized string would corrupt it —
+ * instead, walk the input's string leaves BEFORE stringification so the
+ * marker lands inside a JSON string value (with its quotes escaped).
+ *
+ * `rawInput` is the canonical pre-redaction serialization (also used for
+ * the `argBytes` telemetry fallback — byte sizes must reflect the full
+ * payload before truncation and redaction). It is returned untouched when
+ * nothing matched, keeping benign inputs byte-identical, and is redacted as
+ * plain text if the input can't be walked or re-serialized (e.g. cyclic
+ * structures).
+ */
+function redactToolInput(
+  input: Record<string, unknown>,
+  rawInput: string,
+): string {
+  try {
+    const { value, changed } = redactJsonStringLeaves(input);
+    if (!changed) return rawInput;
+    return JSON.stringify(value);
+  } catch {
+    return redactSecrets(rawInput);
   }
 }
 
@@ -134,12 +165,12 @@ const NULL_TELEMETRY_COLUMNS: TelemetryColumns = {
  */
 function telemetryColumns(
   event: Extract<ToolLifecycleEvent, { type: "executed" | "error" }>,
-  input: string,
+  rawInput: string,
   resultBytes: number,
 ): TelemetryColumns {
   if (!getConfig().collectUsageData) return NULL_TELEMETRY_COLUMNS;
   return {
-    argBytes: event.inputBytes ?? Buffer.byteLength(input, "utf8"),
+    argBytes: event.inputBytes ?? Buffer.byteLength(rawInput, "utf8"),
     resultBytes,
     ...toAttributionColumns(event.attribution),
   };

@@ -63,7 +63,7 @@ import {
   getTurnTimeBounds,
 } from "../../memory/conversation-crud.js";
 import { getLlmRequestLogSource } from "../../memory/llm-request-log-source.js";
-import type { LogRow } from "../../memory/llm-request-log-store.js";
+import type { CompactionAgentLogRow } from "../../memory/llm-request-log-store.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
@@ -126,7 +126,7 @@ const compactionTrailResponseSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// Projection — LogRow → CompactionTrailEvent
+// Projection — CompactionAgentLogRow → CompactionTrailEvent
 // ---------------------------------------------------------------------------
 
 function tryParseJson(value: string): unknown {
@@ -138,9 +138,16 @@ function tryParseJson(value: string): unknown {
 }
 
 /**
- * Project a raw `llm_request_logs` row into the compaction-trail wire
- * shape. Reuses `normalizeLlmContextPayloads` so model/provider/token
- * extraction stays consistent with what the rest of the inspector shows.
+ * Project a compaction-agent `llm_request_logs` row into the
+ * compaction-trail wire shape. Reuses `normalizeLlmContextPayloads` so
+ * model/provider/token extraction stays consistent with what the rest of
+ * the inspector shows.
+ *
+ * Only the response payload is normalized — every summary field the
+ * trail needs (model, tokens, stop reason, preview, cost) comes from the
+ * response. The request payload is an entire near-limit context window
+ * per compaction, so the sources never load it; its message count is
+ * computed in SQL and arrives on the row.
  *
  * Fields the normalizer can't derive (today: `durationMs`) land as
  * `null` — see the `CompactionTrailEvent.durationMs` doc comment for the
@@ -150,10 +157,10 @@ function tryParseJson(value: string): unknown {
  * caller.
  */
 export function projectLogRowToCompactionTrailEvent(
-  log: LogRow,
+  log: CompactionAgentLogRow,
 ): CompactionTrailEvent {
   const normalized = normalizeLlmContextPayloads({
-    requestPayload: tryParseJson(log.requestPayload),
+    requestPayload: undefined,
     responsePayload: tryParseJson(log.responsePayload),
     createdAt: log.createdAt,
   });
@@ -172,7 +179,7 @@ export function projectLogRowToCompactionTrailEvent(
     outputTokens: summary?.outputTokens ?? null,
     durationMs: null,
     responsePreview: summary?.responsePreview ?? null,
-    requestMessageCount: summary?.requestMessageCount ?? null,
+    requestMessageCount: log.requestMessageCount,
     stopReason: summary?.stopReason ?? null,
     estimatedCostUsd: summary?.estimatedCostUsd ?? null,
   };
@@ -232,7 +239,10 @@ async function handleGetCompactionTrail({
   }
 
   const source = await getLlmRequestLogSource();
-  const selectedCall = await source.getRequestLogById(callId);
+  // Metadata-only lookup — the handler needs the call's conversation
+  // scope and `createdAt` anchor, never its payloads (a single request
+  // payload can be a full context window).
+  const selectedCall = await source.getRequestLogMetaById(callId);
   if (!selectedCall) {
     throw new NotFoundError(`LLM call ${callId} not found`);
   }

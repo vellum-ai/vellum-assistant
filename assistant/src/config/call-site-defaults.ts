@@ -7,6 +7,13 @@ type CallSiteDefaultConfig = {
   temperature?: number | null;
   thinking?: { enabled?: boolean; streamThinking?: boolean };
   contextWindow?: { maxInputTokens?: number };
+  /**
+   * Opt the call site out of prompt caching. Set for one-shot call sites
+   * whose prompts never repeat — or repeat slower than the cache TTL — so
+   * each call would pay the cache-write premium without a future read.
+   * Telemetry confirms ~0–5% cache hit rates on these sites.
+   */
+  disableCache?: boolean;
 };
 
 export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
@@ -17,7 +24,7 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   patternScan: { profile: "balanced" },
   narrativeRefinement: { profile: "balanced" },
   callAgent: { profile: "balanced" },
-  memoryConsolidation: { profile: "balanced" },
+  memoryConsolidation: { profile: "balanced", disableCache: true },
   identityIntro: { profile: "balanced" },
   emptyStateGreeting: { profile: "balanced" },
 
@@ -32,6 +39,7 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     effort: "low",
     thinking: { enabled: false, streamThinking: false },
     temperature: 0,
+    disableCache: true,
   },
   conversationStarters: {
     profile: "balanced",
@@ -47,7 +55,7 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   memoryV2Sweep: { profile: "cost-optimized" },
   memoryV2Consolidation: { profile: "balanced" },
   conversationSummarization: { profile: "cost-optimized" },
-  conversationTitle: { profile: "cost-optimized" },
+  conversationTitle: { profile: "cost-optimized", disableCache: true },
   approvalCopy: { profile: "cost-optimized" },
   approvalConversation: { profile: "cost-optimized" },
   trustRuleSuggestion: { profile: "cost-optimized" },
@@ -70,6 +78,7 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     profile: "cost-optimized",
     effort: "low",
     thinking: { enabled: false },
+    disableCache: true,
   },
   guardianQuestionCopy: {
     profile: "cost-optimized",
@@ -107,12 +116,14 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     effort: "low",
     thinking: { enabled: false },
     temperature: 0.7,
+    disableCache: true,
   },
   homeSuggestedPrompts: {
     profile: "cost-optimized",
     maxTokens: 512,
     effort: "low",
     thinking: { enabled: false },
+    disableCache: true,
   },
   workflowLeaf: {
     profile: "cost-optimized",

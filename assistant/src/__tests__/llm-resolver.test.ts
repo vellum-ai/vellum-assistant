@@ -341,6 +341,97 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.verbosity).toBe("low");
   });
 
+  test("forceOverrideProfile floats the override profile above site profile and callsite fields for non-main call sites", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        active: { verbosity: "low" },
+        sitep: { effort: "none", speed: "fast" },
+        forced: {
+          model: "claude-haiku-4-5",
+          effort: "high",
+          thinking: { enabled: false },
+        },
+      },
+      callSites: {
+        memoryExtraction: { profile: "sitep", maxTokens: 1000 },
+      },
+      activeProfile: "active",
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm, {
+      overrideProfile: "forced",
+      forceOverrideProfile: true,
+    });
+    // Forced override wins over both the site profile and the call-site
+    // override fields it touches.
+    expect(resolved.model).toBe("claude-haiku-4-5");
+    expect(resolved.effort).toBe("high");
+    expect(resolved.thinking.enabled).toBe(false);
+    // Call-site layers still win where the forced profile is silent.
+    expect(resolved.maxTokens).toBe(1000);
+    expect(resolved.speed).toBe("fast");
+    // Active profile still applies under everything.
+    expect(resolved.verbosity).toBe("low");
+  });
+
+  test("forceOverrideProfile absent leaves the override below callsite fields (unchanged precedence)", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        forced: { effort: "high" },
+      },
+      callSites: {
+        memoryExtraction: { effort: "none" },
+      },
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm, {
+      overrideProfile: "forced",
+    });
+    expect(resolved.effort).toBe("none");
+  });
+
+  test("forceOverrideProfile with a missing profile reference falls through to unchanged precedence", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        sitep: { effort: "low", model: "claude-haiku-4-5" },
+      },
+      callSites: {
+        memoryExtraction: { profile: "sitep" },
+      },
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm, {
+      overrideProfile: "nonexistent",
+      forceOverrideProfile: true,
+    });
+    // The missing reference is inert: site profile still wins.
+    expect(resolved.effort).toBe("low");
+    expect(resolved.model).toBe("claude-haiku-4-5");
+  });
+
+  test("forceOverrideProfile is a no-op for mainAgent (override already resolves on top)", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        active: { effort: "low" },
+        override: { effort: "high" },
+      },
+      callSites: {
+        mainAgent: { effort: "none" },
+      },
+      activeProfile: "active",
+    });
+    const withForce = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "override",
+      forceOverrideProfile: true,
+    });
+    const withoutForce = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "override",
+    });
+    expect(withForce).toEqual(withoutForce);
+    expect(withForce.effort).toBe("high");
+  });
+
   test("overrideProfile absent leaves prior behavior intact", () => {
     // No `opts` argument at all — the resolver must behave exactly as it did
     // before this PR for configs without activeProfile/overrideProfile.

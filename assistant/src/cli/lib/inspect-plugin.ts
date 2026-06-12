@@ -4,7 +4,7 @@
  *
  * The marketplace pins every plugin to a full, immutable commit SHA (see
  * {@link ./plugin-marketplace}); an install records the exact commit it
- * materialized in a `.vellum-plugin.json` provenance sidecar (see
+ * materialized in an `install-meta.json` provenance sidecar (see
  * {@link ./install-from-github}). Drift detection is therefore an exact
  * commit-SHA comparison — the pin only moves when a curator bumps it, so a
  * mismatch means a newer pin is available. The local `package.json` version is
@@ -19,14 +19,19 @@
 import {
   DEFAULT_PLUGIN_REF,
   type FetchLike,
-  type InstallManifest,
-  readInstallManifest,
+  INSTALL_META_FILENAME,
+  type InstallMeta,
+  readInstallMeta,
   sanitizePluginName,
 } from "./install-from-github.js";
 import {
   type InstalledPluginInfo,
   readInstalledPlugin,
 } from "./list-installed-plugins.js";
+import {
+  compareFingerprint,
+  type FingerprintComparison,
+} from "./plugin-fingerprint.js";
 import {
   fetchMarketplaceEntries,
   type MarketplaceEntry,
@@ -65,6 +70,13 @@ export interface PluginLocalInfo {
   readonly target: string;
   /** Resolved commit the copy was installed at; `null` when no provenance was recorded. */
   readonly commit: string | null;
+  /**
+   * ISO-8601 committer timestamp of {@link PluginLocalInfo.commit} (UTC), the
+   * human-readable version `plugins inspect` shows. `null` for older installs
+   * written before commit timestamps were recorded. Distinct from
+   * {@link PluginLocalInfo.installedAt} (when this machine ran the install).
+   */
+  readonly committedAt: string | null;
   /** `package.json` `version`, when present. */
   readonly version: string | null;
   /** `package.json` `description`, when present. */
@@ -72,7 +84,13 @@ export interface PluginLocalInfo {
   /** ISO-8601 install timestamp from the provenance sidecar; `null` when absent. */
   readonly installedAt: string | null;
   /** Source coordinates recorded at install time; `null` when no sidecar exists. */
-  readonly source: InstallManifest["source"] | null;
+  readonly source: InstallMeta["source"] | null;
+  /**
+   * Local-edit state relative to the install-time fingerprint: `null` when no
+   * fingerprint was recorded (an older or manually-copied install), so
+   * modification cannot be determined.
+   */
+  readonly localChanges: FingerprintComparison | null;
   /** Non-fatal issues with the installed copy (e.g. malformed `package.json`). */
   readonly issues: readonly string[];
 }
@@ -85,6 +103,12 @@ export interface PluginRemoteInfo {
   readonly path: string;
   /** Pinned commit SHA the marketplace currently resolves installs to. */
   readonly commit: string;
+  /**
+   * ISO-8601 committer timestamp of {@link PluginRemoteInfo.commit} (UTC),
+   * resolved from GitHub. `null` when the commit metadata could not be fetched
+   * (network / rate-limit); the SHA is still reported.
+   */
+  readonly committedAt: string | null;
   readonly description: string | null;
   readonly homepage: string | null;
   readonly license: string | null;
@@ -135,7 +159,7 @@ export interface InspectPluginDeps {
 
 function readLocal(
   entry: InstalledPluginInfo,
-  manifest: InstallManifest | null,
+  manifest: InstallMeta | null,
 ): PluginLocalInfo {
   // The provenance commit is authoritative; fall back to the recorded ref only
   // when it is itself a full SHA (marketplace installs always pin one), so a
@@ -146,13 +170,22 @@ function readLocal(
     (manifest && FULL_SHA_RE.test(manifest.source.ref)
       ? manifest.source.ref
       : null);
+  // Compare the on-disk tree against the install-time baseline, applying the
+  // same exclusion so the sidecar is never counted as a local addition.
+  const localChanges = manifest?.fingerprint
+    ? compareFingerprint(entry.target, manifest.fingerprint, [
+        INSTALL_META_FILENAME,
+      ])
+    : null;
   return {
     target: entry.target,
     commit,
+    committedAt: manifest?.committedAt ?? null,
     version: entry.packageJson?.version ?? null,
     description: entry.packageJson?.description ?? null,
     installedAt: manifest?.installedAt || null,
     source: manifest?.source ?? null,
+    localChanges,
     issues: entry.issues,
   };
 }
@@ -160,17 +193,57 @@ function readLocal(
 function readRemote(
   entry: MarketplaceEntry,
   marketplaceRef: string,
+  committedAt: string | null,
 ): PluginRemoteInfo {
   return {
     repo: entry.source.repo,
     path: entry.source.path ?? "",
     commit: entry.source.ref,
+    committedAt,
     description: entry.description ?? null,
     homepage: entry.homepage ?? null,
     license: entry.license ?? null,
     category: entry.category ?? null,
     marketplaceRef,
   };
+}
+
+/**
+ * Resolve the committer date of a pinned commit from GitHub, normalized to a
+ * UTC ISO-8601 string so it is directly comparable with the install-time
+ * {@link PluginLocalInfo.committedAt}.
+ *
+ * Best-effort: any failure (network, rate-limit, unexpected shape) yields
+ * `null` so inspection still reports the remote pin's SHA without its date,
+ * mirroring how the local side degrades to `unknown` when no date was recorded.
+ */
+async function fetchCommitDate(
+  repo: string,
+  sha: string,
+  fetch: FetchLike,
+): Promise<string | null> {
+  const url = `https://api.github.com/repos/${repo}/commits/${encodeURIComponent(sha)}`;
+  try {
+    const res = await fetch(url, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "User-Agent": "vellum-assistant-cli",
+      },
+    });
+    if (!res.ok) return null;
+    const json: unknown = JSON.parse(await res.text());
+    if (typeof json !== "object" || json === null) return null;
+    const commit = (json as Record<string, unknown>).commit;
+    if (typeof commit !== "object" || commit === null) return null;
+    const committer = (commit as Record<string, unknown>).committer;
+    if (typeof committer !== "object" || committer === null) return null;
+    const date = (committer as Record<string, unknown>).date;
+    if (typeof date !== "string") return null;
+    const ms = Date.parse(date);
+    return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -192,9 +265,7 @@ export async function inspectPlugin(
     workspacePluginsDir: deps.workspacePluginsDir,
   });
   const installed = entry !== null;
-  const local = entry
-    ? readLocal(entry, readInstallManifest(entry.target))
-    : null;
+  const local = entry ? readLocal(entry, readInstallMeta(entry.target)) : null;
 
   let remote: PluginRemoteInfo | null = null;
   let remoteError: string | null = null;
@@ -204,7 +275,14 @@ export async function inspectPlugin(
       { ref: marketplaceRef },
     );
     const match = entries.find((e) => e.name === name);
-    if (match) remote = readRemote(match, marketplaceRef);
+    if (match) {
+      const committedAt = await fetchCommitDate(
+        match.source.repo,
+        match.source.ref,
+        deps.fetch,
+      );
+      remote = readRemote(match, marketplaceRef, committedAt);
+    }
   } catch (err) {
     remoteError = err instanceof Error ? err.message : String(err);
   }

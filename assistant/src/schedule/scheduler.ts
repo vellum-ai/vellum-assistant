@@ -676,6 +676,7 @@ export async function runScheduleDueWorkOnce(
         jobName: `schedule:${job.id}`,
         source: "schedule",
         prompt: job.message,
+        systemHint: `Schedule: ${job.name}`,
         trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
         callSite: "mainAgent",
         timeoutMs: SCHEDULE_TALK_TIMEOUT_MS,

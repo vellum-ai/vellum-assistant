@@ -486,14 +486,14 @@ The proxy subsystem is fully wired, including credential injection. The session 
 
 ## Conversation Disk View — Filesystem-Based Conversation Access
 
-The conversation disk view projects conversation metadata, messages, and attachments to a browsable filesystem layout under `~/.vellum/workspace/conversations/`. This enables the assistant to search, read, and manipulate conversation data (including media attachments) using standard file tools (`read_file`, `glob`, `grep`) rather than dedicated asset search tools.
+The conversation disk view projects conversation metadata, messages, and attachments to a browsable filesystem layout under `$VELLUM_WORKSPACE_DIR/conversations/`. This enables the assistant to search, read, and manipulate conversation data (including media attachments) using standard file tools (`read_file`, `glob`, `grep`) rather than dedicated asset search tools.
 
 ### Directory Layout
 
 Each conversation is projected to a directory named `{isoDate}_{id}`:
 
 ```
-~/.vellum/workspace/conversations/
+$VELLUM_WORKSPACE_DIR/conversations/
   2025-01-15T10-30-00.000Z_abc123/
     meta.json             # Conversation metadata (id, title, type, channel, timestamps)
     messages.jsonl        # Flattened message log (one JSON object per line)
@@ -506,7 +506,7 @@ Each conversation is projected to a directory named `{isoDate}_{id}`:
 
 The disk view is updated at the daemon level, not automatically by the DB CRUD layer. Conversation creation, metadata updates, and deletion are synced from `conversation-crud.ts`, but message sync (`syncMessageToDisk`) is only called from daemon-level code paths (e.g. `conversation-messaging.ts`) — not from the CRUD `addMessage()` function. This means `messages.jsonl` reflects messages processed through the daemon's messaging pipeline, not every message write. All disk writes are best-effort; failures are logged but never thrown, so the disk view cannot break DB operations.
 
-> **Privacy note:** Conversation disk-view files live under `~/.vellum/workspace/conversations/`. Workspace files are not included in diagnostic log exports ("Send logs to Vellum"). For conversation-scoped exports, conversation data is included as structured JSON tables (e.g. `messages.json`, `llm-request-logs.json`), not as a raw database dump.
+> **Privacy note:** Conversation disk-view files live under `$VELLUM_WORKSPACE_DIR/conversations/`. Workspace files are not included in diagnostic log exports ("Send logs to Vellum"). For conversation-scoped exports, conversation data is included as structured JSON tables (e.g. `messages.json`, `llm-request-logs.json`), not as a raw database dump.
 
 ```mermaid
 sequenceDiagram

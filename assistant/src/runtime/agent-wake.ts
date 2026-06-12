@@ -7,6 +7,13 @@
  *
  * Semantics:
  *   - Resolves the conversation context exactly as a normal user turn.
+ *   - Runs the conversation's auto-threshold compaction gate
+ *     (`conversation.maybeCompact()`) before snapshotting the history —
+ *     the wake bypasses the orchestrator's in-loop compaction, so this is
+ *     its turn-start equivalent. Callers can pass
+ *     `suppressAutoCompaction: true` to skip it; a suppressed wake whose
+ *     input exceeds the effective context window fails deterministically
+ *     with `reason: "context_overflow"` instead of compacting.
  *   - Appends `hint` as a non-persisted assistant message sandwiched
  *     between two static user messages — never shows up in the transcript
  *     or SSE feed. The assistant role prevents prompt injection (LLMs
@@ -73,7 +80,7 @@ import {
   recordRequestLog,
   setAgentLoopExitReasonOnLatestLog,
 } from "../memory/llm-request-log-store.js";
-import type { Message } from "../providers/types.js";
+import { isContextOverflowError, type Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("agent-wake");
@@ -114,6 +121,19 @@ export interface WakeOptions {
    */
   callSite?: LLMCallSite;
   /**
+   * Run the wake's LLM calls under this inference profile, floated ABOVE the
+   * call site's named profile and call-site overrides (the resolver's
+   * `forceOverrideProfile` escape hatch). When set, it replaces the
+   * conversation's own pinned-profile lookup. Used by fork-based memory
+   * retrospectives to resolve the SAME model/thinking/effort as the source
+   * conversation's turns so the provider prompt-cache prefix can be reused.
+   * A profile name that no longer exists in `llm.profiles` silently falls
+   * back to normal call-site resolution (the resolver's standard
+   * missing-reference semantics). Logging/attribution still bucket under
+   * `callSite`.
+   */
+  forceOverrideProfile?: string;
+  /**
    * Role to use for the injected hint message. Defaults to `"assistant"` so
    * the hint is sandwiched between two static user bookends — the canonical
    * anti-injection pattern for hints that may carry text from an external
@@ -124,22 +144,25 @@ export interface WakeOptions {
    */
   hintRole?: "assistant" | "user";
   /**
-   * Documented intent: this wake must not trigger auto-threshold compaction.
+   * Skip the wake's pre-run auto-threshold compaction gate and refuse to
+   * run over-window instead of compacting.
    *
-   * Today this is automatically satisfied because the wake invokes
-   * `conversation.agentLoop.run()` directly, bypassing the daemon orchestrator
-   * (`conversation-agent-loop.ts`) where the compaction pipeline lives. The
-   * flag is recorded in the wake's structured log line so operators can
-   * verify the contract holds across refactors. If compaction is ever moved
-   * into `AgentLoop.run` or invoked from the wake path, callers that pass
-   * `true` here MUST be updated to suppress it; callers that pass `false`
-   * (or omit it) MUST tolerate compaction firing.
+   * By default the wake runs `conversation.maybeCompact()` before
+   * snapshotting the history — the wake invokes `conversation.agentLoop.run()`
+   * directly with the loop's in-loop budget gate disabled, so this pre-run
+   * gate is the wake path's equivalent of the turn-start compaction the
+   * daemon orchestrator (`conversation-agent-loop.ts`) performs for user
+   * turns. Passing `true` skips the gate entirely; if the wake input would
+   * then exceed the effective context window, the wake fails fast with
+   * `reason: "context_overflow"` instead of compacting, and a provider
+   * context-overflow rejection mid-run is mapped to the same failure.
    *
    * Used by fork-based memory retrospectives: the wake operates on a
-   * freshly-forked conversation that may already be near (or past) the
-   * source's auto-threshold, but the goal is to operate on that exact
-   * context — running a compaction LLM call before the wake's own first
-   * call would waste tokens and defeat prompt-cache reuse.
+   * freshly-forked throwaway conversation that may already be near (or
+   * past) the source's auto-threshold, but the goal is to operate on that
+   * exact context — running a compaction LLM call before the wake's own
+   * first call would waste tokens, defeat prompt-cache reuse, and fire
+   * compaction side-effects on a fork that is deleted afterwards.
    */
   suppressAutoCompaction?: boolean;
   /**
@@ -161,23 +184,48 @@ export interface WakeOptions {
   /**
    * Optional exact tool allowlist for this wake. Used by internal maintenance
    * jobs that need the assistant's judgment but must not execute arbitrary
-   * side-effect tools.
+   * side-effect tools. Enforcement depends on `toolGateMode`: in `"wire"`
+   * mode (default) the tool definitions sent to the provider are filtered to
+   * the allowlist; in `"execution"` mode the full tool surface stays on the
+   * wire and non-allowlisted calls are rejected with an error tool_result
+   * before their executor runs. Either way, only allowlisted tools can
+   * execute during the wake.
    */
   allowedTools?: readonly string[];
+  /**
+   * How `allowedTools` is enforced. Defaults to `"wire"` — the historical
+   * behavior, byte-identical when absent: the provider request's tool array
+   * is filtered down to the allowlist. Pass `"execution"` to keep the
+   * conversation's full tool surface on the wire and enforce the allowlist
+   * at execution time instead. Provider prompt caches key on the rendered
+   * `tools → system → messages` prefix, so wire-filtering the tool array
+   * invalidates the source conversation's cached prefix; execution mode
+   * preserves it. Used by fork-based memory retrospectives when matching
+   * the source conversation's inference profile. Ignored when
+   * `allowedTools` is absent.
+   */
+  toolGateMode?: "wire" | "execution";
 }
 
 /**
- * Reason a wake returned `invoked: false`. Callers (CLI, update-bulletin
- * job) need to distinguish "conversation doesn't exist" from "conversation
- * exists but stayed busy past the wait-until-idle timeout" — the former is
- * a user-visible error, the latter is an expected transient condition.
+ * Reason a wake returned `invoked: false`. Callers (e.g. the CLI) need to
+ * distinguish "conversation doesn't exist" from "conversation exists but
+ * stayed busy past the wait-until-idle timeout" — the former is a
+ * user-visible error, the latter is an expected transient condition.
  */
 export type WakeSkipReason =
   | "not_found"
   | "archived"
   | "timeout"
   | "no_resolver"
-  | "disk_pressure";
+  | "disk_pressure"
+  /**
+   * The wake input exceeds the effective context window and the caller
+   * suppressed auto-compaction (`suppressAutoCompaction: true`), so the
+   * run cannot proceed without the compaction it was told not to perform.
+   * Only possible on suppressed wakes.
+   */
+  | "context_overflow";
 
 export interface WakeResult {
   invoked: boolean;
@@ -331,10 +379,12 @@ function classifyWakeDiskPressurePolicy(opts: WakeOptions): {
 }
 
 /**
- * Trust snapshot the wake hands to the agent loop. A wake has no compaction
- * path (it runs with overflow recovery disabled), so this snapshot is unread
- * except on the disk-pressure cleanup-mode path, whose guardian value scopes
- * the compactor's image manifest if cleanup ever compacts. Other wakes pass an
+ * Trust snapshot the wake hands to the agent loop. The wake's loop run has
+ * no in-loop compaction path (it runs with overflow recovery disabled; the
+ * wake compacts via the pre-run gate instead, which resolves trust from the
+ * conversation's own trust context), so this snapshot is unread except on
+ * the disk-pressure cleanup-mode path, whose guardian value scopes the
+ * compactor's image manifest if cleanup ever compacts. Other wakes pass an
  * `unknown`-class snapshot so a missing actor cannot grant elevated trust.
  */
 function buildWakeTrust(
@@ -420,6 +470,7 @@ export async function wakeAgentForOpportunity(
   deps?: WakeDeps,
 ): Promise<WakeResult> {
   const { conversationId, hint, source } = opts;
+  const suppressAutoCompaction = opts.suppressAutoCompaction === true;
   const resolveTarget = deps?.resolveTarget ?? defaultResolveTarget;
   const nowFn = deps?.now ?? Date.now;
   const startedAt = nowFn();
@@ -484,6 +535,60 @@ export async function wakeAgentForOpportunity(
     // declare guardian trust so side-effect tools clear the approval gate.
     if (opts.trustContext) {
       conversation.setTrustContext(opts.trustContext);
+    }
+
+    // Honor the conversation's pinned inference-profile override (if any).
+    // Without this, scheduled-task wakes and other opportunity wakes bypass
+    // `runAgentLoopImpl` entirely and execute under workspace defaults,
+    // silently violating the user's pinned preference. A caller-supplied
+    // `forceOverrideProfile` replaces that lookup and additionally floats the
+    // profile above the call-site layers (see the option's doc). Resolve the
+    // effective context budget here as well because wakes bypass the normal
+    // user-turn path that computes it for tool-result truncation. Read before
+    // `setProcessing(true)` so a thrown DB/config read can't strand the
+    // processing flag.
+    const forceOverrideProfile = opts.forceOverrideProfile !== undefined;
+    const overrideProfile =
+      opts.forceOverrideProfile ??
+      getConversationOverrideProfile(conversationId);
+    const callSite = opts.callSite ?? "mainAgent";
+    const config = getConfig();
+    const effectiveContextWindow = resolveEffectiveContextWindow({
+      llm: config.llm,
+      callSite,
+      overrideProfile,
+      forceOverrideProfile,
+    });
+
+    // Mark processing for the duration of the wake — including the pre-run
+    // compaction gate below, whose summary LLM call must not race a user
+    // send into a concurrent agent loop on the same conversation. A user
+    // message arriving while the flag is set is queued by `enqueueMessage()`
+    // and drained after the wake's tail is pushed + persisted. This happens
+    // before applying a wake-scoped tool allowlist so a concurrent user turn
+    // cannot start under the wake's restricted tool set.
+    conversation.setProcessing(true);
+
+    // ── Pre-run auto-compaction gate ──────────────────────────────────
+    // The wake invokes `conversation.agentLoop.run()` with the loop's
+    // in-loop budget gate disabled (see `resolveContextWindow` below), so
+    // the orchestrator's turn-start compaction never fires for wakes.
+    // Mirror it here: run the conversation's auto-threshold compaction
+    // before snapshotting the baseline — a successful compaction replaces
+    // `conversation.messages`, so it must precede the snapshot. Callers
+    // like fork-based memory retrospectives suppress this gate: the fork
+    // is throwaway and a summarization LLM call on it is wasted spend.
+    // Failure is non-fatal — the wake proceeds on the uncompacted history
+    // exactly as it would have before the gate existed.
+    if (!suppressAutoCompaction) {
+      try {
+        await conversation.maybeCompact();
+      } catch (err) {
+        log.warn(
+          { conversationId, source, err },
+          "agent-wake: pre-run auto-compaction failed; continuing with the uncompacted history",
+        );
+      }
     }
 
     const baseline = conversation.getMessages();
@@ -564,6 +669,14 @@ export async function wakeAgentForOpportunity(
     // so the latest-row lookup in `setAgentLoopExitReasonOnLatestLog`
     // can see the freshly-persisted final usage row.
     let pendingExitReason: string | null = null;
+    // Set when the provider rejects a call as context-too-large while
+    // auto-compaction is suppressed. The loop has no recovery ladder to
+    // drive (overflow recovery is disabled for wakes), so it swallows the
+    // rejection into a graceful no-output stop — which would read as a
+    // *successful* silent no-op to callers like the memory-retrospective
+    // job. Capture the signal here so the wake can fail deterministically
+    // instead (`reason: "context_overflow"`).
+    let suppressedContextOverflow = false;
     const persistLog = (record: PendingLog): void => {
       try {
         recordRequestLog(
@@ -572,7 +685,7 @@ export async function wakeAgentForOpportunity(
           JSON.stringify(record.rawResponse),
           undefined,
           record.provider,
-          "mainAgent",
+          callSite,
         );
       } catch (err) {
         log.warn(
@@ -657,6 +770,17 @@ export async function wakeAgentForOpportunity(
         } else {
           persistExitReason(event.reason);
         }
+      }
+      // Detect an over-window rejection on a compaction-suppressed wake.
+      // `provider_error` fires at the provider-call site; `error` fires from
+      // the loop's generic catch — check both so a rewrapping retry layer
+      // can't hide the signal.
+      if (
+        suppressAutoCompaction &&
+        (event.type === "provider_error" || event.type === "error") &&
+        isContextOverflowError(event.error)
+      ) {
+        suppressedContextOverflow = true;
       }
       if (mode === "buffering") {
         buffered.push(event);
@@ -758,23 +882,6 @@ export async function wakeAgentForOpportunity(
       persistedTailIndex += newMessages.length;
     };
 
-    // Honor the conversation's pinned inference-profile override (if any).
-    // Without this, scheduled-task wakes and other opportunity wakes bypass
-    // `runAgentLoopImpl` entirely and execute under workspace defaults,
-    // silently violating the user's pinned preference. Resolve the effective
-    // context budget here as well because wakes bypass the normal user-turn
-    // path that computes it for tool-result truncation. Read before
-    // `setProcessing(true)` so a thrown DB/config read can't strand the
-    // processing flag.
-    const overrideProfile = getConversationOverrideProfile(conversationId);
-    const callSite = opts.callSite ?? "mainAgent";
-    const config = getConfig();
-    const effectiveContextWindow = resolveEffectiveContextWindow({
-      llm: config.llm,
-      callSite,
-      overrideProfile,
-    });
-
     let wakeToolScopeRestored = false;
     let restoreWakeToolScope: (() => void) | null = null;
     const restoreWakeAllowedTools = (): void => {
@@ -796,6 +903,7 @@ export async function wakeAgentForOpportunity(
         restoreWakeToolScope = scopeWakeAllowedTools(
           conversation,
           new Set(opts.allowedTools),
+          opts.toolGateMode,
         );
         return true;
       } catch (err) {
@@ -806,14 +914,6 @@ export async function wakeAgentForOpportunity(
         return false;
       }
     };
-
-    // Mark processing for the duration of the run so a concurrent user
-    // send is queued by `enqueueMessage()` rather than spawning a second
-    // concurrent agent loop on the same conversation (which would
-    // interleave writes to `conversation.messages`). This happens before
-    // applying a wake-scoped tool allowlist so a concurrent user turn cannot
-    // start under the wake's restricted tool set.
-    conversation.setProcessing(true);
 
     // Fires after each tool-execution turn finalizes (assistant message
     // + matching tool_result user message both in history). A single
@@ -834,7 +934,70 @@ export async function wakeAgentForOpportunity(
     let toolUseNames: string[] = [];
     let tailMessageCount = 0;
     let drainedInTry = false;
+    // Set when the wake fails with `reason: "context_overflow"`. The finally
+    // block skips its generic outcome log for this path — the failure
+    // already logged its own dedicated warn line.
+    let failedContextOverflow = false;
+    // Shared failure path for a provider over-window rejection on a
+    // compaction-suppressed wake (reached from the run's catch when the
+    // rejection escaped as a throw, or post-run when the loop swallowed it
+    // into a graceful no-output stop and only the event capture saw it).
+    const failSuppressedContextOverflow = (err?: unknown): WakeResult => {
+      failedContextOverflow = true;
+      log.warn(
+        { conversationId, source, ...(err === undefined ? {} : { err }) },
+        "agent-wake: provider rejected the input as over-window with auto-compaction suppressed; failing the wake",
+      );
+      return {
+        invoked: false,
+        producedToolCalls: false,
+        reason: "context_overflow" as const,
+      };
+    };
     try {
+      // ── Over-window policy under suppressed auto-compaction ─────────
+      // The pre-run gate above is the wake's only compaction path (the
+      // loop's in-loop budget gate stays disabled), so when the caller
+      // suppressed it an over-window input has no recovery. Fail fast and
+      // deterministically — before spending any LLM call — instead of
+      // letting the provider reject the run into a silent no-op. Estimated
+      // with the same estimator the auto-compaction pre-check uses; an
+      // estimator failure proceeds fail-open (the reactive
+      // `suppressedContextOverflow` capture below still maps a provider
+      // rejection to the same failure).
+      if (suppressAutoCompaction) {
+        let estimatedInputTokens: number | null = null;
+        try {
+          estimatedInputTokens =
+            conversation.contextWindowManager.estimateInputTokens(runInput);
+        } catch (err) {
+          log.warn(
+            { conversationId, source, err },
+            "agent-wake: over-window pre-flight estimate failed; proceeding without it",
+          );
+        }
+        if (
+          estimatedInputTokens !== null &&
+          estimatedInputTokens > effectiveContextWindow.maxInputTokens
+        ) {
+          failedContextOverflow = true;
+          log.warn(
+            {
+              conversationId,
+              source,
+              estimatedInputTokens,
+              maxInputTokens: effectiveContextWindow.maxInputTokens,
+            },
+            "agent-wake: input exceeds the effective context window and auto-compaction is suppressed; failing fast",
+          );
+          return {
+            invoked: false,
+            producedToolCalls: false,
+            reason: "context_overflow" as const,
+          };
+        }
+      }
+
       if (!applyWakeAllowedTools()) {
         return {
           invoked: false,
@@ -859,22 +1022,44 @@ export async function wakeAgentForOpportunity(
           callSite,
           trust: wakeTrust,
           overrideProfile,
-          // Wake runs have no orchestrator-side mid-loop compaction path,
-          // so the budget gate stays disabled (`overflowRecovery.enabled =
-          // false`); `maxInputTokens` is still supplied for tool-result
-          // truncation.
+          forceOverrideProfile,
+          // The wake's compaction lives in the pre-run gate above
+          // (`conversation.maybeCompact()`), never in the loop: the in-loop
+          // budget gate and overflow-recovery ladder stay disabled because
+          // the wake's tail accounting holds external indexes into the
+          // returned history (`baselineLength` + hint count), which an
+          // in-loop compaction rebase would invalidate. `maxInputTokens` is
+          // still supplied for tool-result truncation.
           resolveContextWindow: () => ({
             maxInputTokens: effectiveContextWindow.maxInputTokens,
             overflowRecovery: { enabled: false, safetyMarginRatio: 0 },
           }),
         }));
       } catch (err) {
+        // An over-window throw on a compaction-suppressed wake is the
+        // suppression contract's failure mode, not a generic loop error —
+        // surface it as a deterministic failed result.
+        if (
+          suppressedContextOverflow ||
+          (suppressAutoCompaction && isContextOverflowError(err))
+        ) {
+          return failSuppressedContextOverflow(err);
+        }
         // Capture the error for post-finally logging, then short-circuit
         // the rest of the try body — no tail to push/persist when the
         // run threw mid-flight. The outer finally still runs to release
         // `processing` and drain the queue.
         runError = err instanceof Error ? err : new Error(String(err));
         return { invoked: true, producedToolCalls: false };
+      }
+
+      // The loop swallows provider rejections into a graceful no-output
+      // stop, so an over-window rejection on a compaction-suppressed wake
+      // surfaces only through the event stream (captured into
+      // `suppressedContextOverflow` by `onEvent`). Map it to a deterministic
+      // failure instead of the silent no-op it would otherwise read as.
+      if (suppressedContextOverflow) {
+        return failSuppressedContextOverflow();
       }
 
       // Run completed cleanly. The canonical user-turn pattern
@@ -971,9 +1156,12 @@ export async function wakeAgentForOpportunity(
       }
 
       const durationMs = nowFn() - startedAt;
-      const suppressAutoCompaction = opts.suppressAutoCompaction === true;
       const suppressWakeSurface = opts.suppressWakeSurface === true;
-      if (runError) {
+      if (failedContextOverflow) {
+        // Already logged its own dedicated warn line at the failure site;
+        // a generic "silent no-op" line here would misclassify a failed
+        // wake as a successful empty one.
+      } else if (runError) {
         log.error(
           {
             conversationId,

@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 
+import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
@@ -14,6 +15,7 @@ import type {
   SendMessageOptions,
 } from "../types.js";
 import { ContextOverflowError } from "../types.js";
+import { wrapUnparseableToolArgs } from "../unparseable-tool-args.js";
 import { detectOpenAICompatibleContextOverflow } from "./chat-completions-provider.js";
 
 const log = getLogger("openai-responses");
@@ -216,7 +218,10 @@ export class OpenAIResponsesProvider implements Provider {
       };
 
       if (systemPrompt) {
-        params.instructions = systemPrompt;
+        params.instructions = systemPrompt.replaceAll(
+          SYSTEM_PROMPT_CACHE_BOUNDARY,
+          "\n\n",
+        );
       }
 
       if (maxTokens && !this.codexSubscription) {
@@ -461,7 +466,7 @@ export class OpenAIResponsesProvider implements Provider {
         try {
           input = JSON.parse(tc.args);
         } catch {
-          input = { _raw: tc.args };
+          input = wrapUnparseableToolArgs(tc.args);
         }
         content.push({
           type: "tool_use",

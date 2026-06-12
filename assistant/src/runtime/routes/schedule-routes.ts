@@ -382,6 +382,34 @@ function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
     assertWorkflowsEnabled();
   }
 
+  // Mirror the create-side validation: a schedule whose RESULTING mode is
+  // `workflow` must carry a non-empty `workflowName`. Without this, a PATCH can
+  // leave a workflow-mode schedule nameless — the scheduler then hits the
+  // `!job.workflowName` skip branch and a one-shot job claimed as `firing`
+  // never calls completeOneShot/retry, wedging it `firing` forever. We compute
+  // the post-update state (the body's value if present, else the persisted one)
+  // so both "switch to workflow without a name" and "clear the name on an
+  // already-workflow schedule" are rejected. Skip when the schedule does not
+  // exist — the updateSchedule call below surfaces that as NotFound.
+  const existing = getSchedule(id);
+  if (existing) {
+    const resultingMode =
+      "mode" in body ? (body.mode as string) : existing.mode;
+    if (resultingMode === "workflow") {
+      const resultingWorkflowName =
+        "workflowName" in body
+          ? typeof body.workflowName === "string"
+            ? body.workflowName.trim()
+            : ""
+          : (existing.workflowName ?? "");
+      if (!resultingWorkflowName) {
+        throw new BadRequestError(
+          "workflowName is required for workflow-mode schedules",
+        );
+      }
+    }
+  }
+
   const updates: Record<string, unknown> = {};
   for (const key of [
     "name",

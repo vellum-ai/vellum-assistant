@@ -1,12 +1,12 @@
 
 import { captureError } from "@/lib/sentry/capture-error";
 import { useCallback } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 
 import {
-  groupsByGroupIdDeleteMutation,
-  groupsByGroupIdPatchMutation,
-  groupsPostMutation,
+  useGroupsByGroupIdDeleteMutation,
+  useGroupsByGroupIdPatchMutation,
+  useGroupsPostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { Options } from "@/generated/daemon/sdk.gen";
 import type {
@@ -57,22 +57,19 @@ export function useConversationGroupActions({
 }: UseConversationGroupActionsParams) {
   const queryClient = useQueryClient();
 
-  const { mutateAsync: createGroupAsync } = useMutation({
-    ...groupsPostMutation(),
+  const { mutateAsync: createGroupAsync } = useGroupsPostMutation({
     onError: (err) => {
       captureError(err, { context: "createGroup" });
     },
   });
 
-  const { mutateAsync: patchGroupAsync } = useMutation({
-    ...groupsByGroupIdPatchMutation(),
+  const { mutateAsync: patchGroupAsync } = useGroupsByGroupIdPatchMutation({
     onError: (err) => {
       captureError(err, { context: "renameGroup" });
     },
   });
 
-  const { mutateAsync: deleteGroupAsync } = useMutation({
-    ...groupsByGroupIdDeleteMutation(),
+  const { mutateAsync: deleteGroupAsync } = useGroupsByGroupIdDeleteMutation({
     onError: (err) => {
       captureError(err, { context: "deleteGroup" });
     },

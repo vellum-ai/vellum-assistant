@@ -39,6 +39,8 @@ Scripts run in a SANDBOX with a SYNCHRONOUS host API. You write straight-line co
 The script MUST begin with a pure-literal export (no computed values, no template strings, no concatenation):
   export const meta = { name: "summarize-inbox", description: "Summarize and triage the inbox" };
 
+The script's RESULT is whatever it \`return\`s at the top level: end with \`return <result>;\`. A bare trailing expression (e.g. \`result;\`) is NOT captured — the run would complete with no result. Always \`return\` the value you want surfaced.
+
 DETERMINISM (this is what makes runs resumable): do NOT call \`Date.now()\`, \`Math.random()\`, or \`new Date()\` — they THROW. Pass any timestamps or random seeds in via \`args\`.
 
 HOST API (all synchronous):
@@ -74,7 +76,7 @@ EXAMPLE script:
     { schema: { type: "object", properties: { score: { type: "number" } }, required: ["score"] } }
   ));
   const best = agent(\`Given these scored options, write the final recommendation in your own voice: \${JSON.stringify(scores)}\`, { persona: true });
-  best;`;
+  return best;`;
 
 /**
  * Resolve the {@link TrustContext} to forward to the run's leaves. Prefer the

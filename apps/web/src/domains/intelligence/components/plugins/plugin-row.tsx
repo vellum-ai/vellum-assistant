@@ -1,21 +1,29 @@
 import { ChevronRight } from "lucide-react";
 import { Link } from "react-router";
 
+import { UpdateAvailableBadge } from "@/domains/intelligence/components/plugins/update-available-badge";
+import { usePluginDrift } from "@/domains/intelligence/use-plugin-drift";
 import type { PluginsGetResponse } from "@/generated/daemon/types.gen";
 import { routes } from "@/utils/routes";
 import { Card } from "@vellumai/design-library";
 
 interface PluginRowProps {
   plugin: PluginsGetResponse["plugins"][number];
+  assistantId: string;
 }
 
 /**
  * Row for a single installed plugin. Links to the plugin's detail page,
- * where the README, tracked metadata, and a Remove action live. The
- * hover affordance (surface tint + chevron) signals the row is
- * navigable.
+ * where the README, tracked metadata, and Upgrade / Remove actions live.
+ * The hover affordance (surface tint + chevron) signals the row is
+ * navigable; an "Update available" pill appears when the installed copy
+ * is behind the marketplace pin. The drift query is shared (by key) with
+ * the detail page, so opening a flagged plugin doesn't re-inspect it.
  */
-export function PluginRow({ plugin }: PluginRowProps) {
+export function PluginRow({ plugin, assistantId }: PluginRowProps) {
+  const driftQuery = usePluginDrift({ assistantId, name: plugin.name });
+  const updateAvailable = driftQuery.data?.status === "update-available";
+
   return (
     <Card.Root asChild>
       <Link
@@ -41,6 +49,7 @@ export function PluginRow({ plugin }: PluginRowProps) {
                 v{plugin.version}
               </span>
             ) : null}
+            {updateAvailable ? <UpdateAvailableBadge /> : null}
           </div>
           <p
             className="mt-1 truncate text-body-medium-lighter"

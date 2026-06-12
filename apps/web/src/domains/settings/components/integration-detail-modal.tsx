@@ -1,11 +1,12 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
 import {
     assistantsOauthConnectionsListOptions,
     assistantsOauthConnectionsListQueryKey,
-    assistantsOauthDisconnectByConnectionCreateMutation,
+    assistantsOauthConnectionsListSetQueryData,
+    useAssistantsOauthDisconnectByConnectionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import { Button } from "@vellumai/design-library/components/button";
@@ -82,15 +83,16 @@ export function IntegrationDetailModal({
     allConnections,
   });
 
-  const disconnectOAuth = useMutation({
-    ...assistantsOauthDisconnectByConnectionCreateMutation(),
+  const connectionsOpts = { path: { assistant_id: assistantId } };
+
+  const disconnectOAuth = useAssistantsOauthDisconnectByConnectionCreateMutation({
     onSuccess(_data, variables) {
       toast.success(`${displayName} account disconnected.`);
       const connectionId = variables.path.connection_id;
-      queryClient.setQueryData(
-        connectionsQueryKey,
-        (old: OAuthConnection[] | undefined) =>
-          old?.filter((c) => c.id !== connectionId),
+      assistantsOauthConnectionsListSetQueryData(
+        queryClient,
+        connectionsOpts,
+        (old) => old?.filter((c) => c.id !== connectionId),
       );
       queryClient.invalidateQueries({ queryKey: connectionsQueryKey });
       setPendingDisconnectId(null);

@@ -1,11 +1,11 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import {
     assistantsOauthConnectionsListOptions,
-    assistantsOauthStartCreateMutation,
+    useAssistantsOauthStartCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import { useOAuthCompleteDeepLinkListener } from "@/hooks/use-oauth-complete-deep-link-listener";
@@ -102,9 +102,7 @@ export function GoogleConnectScreen({
     }
   }, []);
 
-  const startOAuth = useMutation({
-    ...assistantsOauthStartCreateMutation(),
-  });
+  const startOAuth = useAssistantsOauthStartCreateMutation();
 
   useEffect(() => {
     return () => {

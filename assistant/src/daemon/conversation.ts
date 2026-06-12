@@ -146,7 +146,10 @@ import {
   handleSurfaceUndo as handleSurfaceUndoImpl,
   type SurfaceActionResult,
 } from "./conversation-surfaces.js";
-import type { ToolSetupContext } from "./conversation-tool-setup.js";
+import type {
+  SubagentToolGateMode,
+  ToolSetupContext,
+} from "./conversation-tool-setup.js";
 import {
   createResolveToolsCallback,
   createToolExecutor,
@@ -220,6 +223,15 @@ export class Conversation {
   /** @internal */ toolsDisabledDepth = 0;
   /** @internal */ preactivatedSkillIds?: string[];
   /** @internal */ subagentAllowedTools?: Set<string>;
+  /**
+   * How {@link subagentAllowedTools} is enforced — absent/`"wire"` filters
+   * the provider tool definitions (historical behavior); `"execution"`
+   * keeps the full tool surface on the wire for prompt-cache parity and
+   * rejects non-allowlisted calls at execution time. Set and restored
+   * alongside the allowlist by `scopeWakeAllowedTools`.
+   * @internal
+   */
+  subagentToolGateMode?: SubagentToolGateMode;
   /** @internal */ coreToolNames: Set<string>;
   /** @internal */ readonly skillProjectionState = new Map<string, string>();
   /** @internal */ readonly skillProjectionCache: SkillProjectionCache = {};
@@ -1503,6 +1515,34 @@ export class Conversation {
   }
 
   async forceCompact(): Promise<ContextWindowResult> {
+    return this.runCompaction(true);
+  }
+
+  /**
+   * Auto-threshold compaction gate. Runs the same durable compaction
+   * pipeline as {@link forceCompact} (summary call, circuit-breaker
+   * accounting, Slack provenance, in-memory + DB commit) but honors the
+   * `compaction.autoThreshold` check — an under-threshold history is a
+   * cheap no-op — and the compaction circuit breaker, returning `null`
+   * without estimating anything while the breaker is open. Used by the
+   * agent-wake path (`runtime/agent-wake.ts`), which bypasses the daemon
+   * orchestrator's in-loop budget gate and needs an equivalent turn-start
+   * compaction before snapshotting its run input.
+   */
+  async maybeCompact(): Promise<ContextWindowResult | null> {
+    if (await this.agentLoop.compactionCircuit.isOpen()) {
+      return null;
+    }
+    return this.runCompaction(false);
+  }
+
+  /**
+   * Shared compaction pipeline behind {@link forceCompact} and
+   * {@link maybeCompact}. `force` skips the auto-threshold check inside the
+   * context-window manager (user-initiated `/compact`); without it the
+   * manager no-ops below the threshold.
+   */
+  private async runCompaction(force: boolean): Promise<ContextWindowResult> {
     const overrideProfile = resolveOverrideProfile(this) ?? null;
     const config = getConfig();
     const effectiveContextWindow = resolveEffectiveContextWindow({
@@ -1538,15 +1578,17 @@ export class Conversation {
       conversationId: this.conversationId,
       messages: messagesToCompact,
       signal: this.abortController?.signal ?? undefined,
-      force: true,
+      force,
       overrideProfile,
       actorTrustClass: this.trustContext?.trustClass,
     });
-    // Track circuit-breaker state for user-initiated `/compact` and other
-    // forced paths so a successful forced compaction clears a stuck counter
-    // and a run of forced failures still trips the breaker. `summaryFailed`
-    // is `undefined` on early-return paths (no eligible messages, disabled,
-    // etc.) — skip those so they don't silently reset the counter.
+    // Track circuit-breaker state for every compaction that ran a summary
+    // call — user-initiated `/compact`, other forced paths, and the wake's
+    // auto gate — so a success clears a stuck counter and a run of failures
+    // still trips the breaker. `summaryFailed` is `undefined` on
+    // early-return paths (no eligible messages, disabled, below the auto
+    // threshold, etc.) — skip those so they don't silently reset the
+    // counter.
     if (result.summaryFailed !== undefined) {
       await this.agentLoop.compactionCircuit.recordOutcome(
         result.summaryFailed,

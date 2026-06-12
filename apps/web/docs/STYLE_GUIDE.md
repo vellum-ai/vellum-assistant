@@ -207,6 +207,17 @@ The rule flags any `dark:` paired with a numeric color shade, including:
 
 If your design needs a role that isn't already a token, add it to `tokens.css` first (with light/dark/velvet values) and then use it.
 
+### When raw hex is acceptable
+
+Not all color must come from tokens. Hardcoded hex is correct when it represents something that should NOT vary by theme:
+
+- **Third-party brand colors** — Discord purple (`#5865F2`), YouTube red, etc. Brand identity is constant across themes. If the brand's neutral tone conflicts with surface contrast (like X/Twitter's black on a dark card), use `var(--content-default)` instead — it provides the right neutral per theme.
+- **CSS custom property fallbacks** — `var(--token, #hex)` in template strings (e.g. TipTap editor styles). The hex only renders when the token doesn't resolve.
+- **Data-visualization palette** — Chart bars, graph lines. These are semantic by series (A, B, C), not by theme surface role.
+- **Annotation overlays** — Comment highlights, selection markers. Semi-transparent `rgba()` colors floating above content.
+
+If the color is a UI surface, text, or border that users see across themes — use a token. If it's a brand identity, a CSS fallback, or a data-viz series — hardcode is correct.
+
 ---
 
 ## TypeScript

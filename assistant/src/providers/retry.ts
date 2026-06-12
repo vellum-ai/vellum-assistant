@@ -197,22 +197,25 @@ function normalizeSendMessageOptions(
   delete nextConfig.usageAttributionHeaders;
   delete nextConfig.usageTracking;
 
-  // `overrideProfile` and `selectionSeed` are routing/resolution-time concerns
-  // (consumed by the resolver below and `CallSiteRoutingProvider`'s provider
-  // selection); neither is a wire-format field. Strip unconditionally so they
-  // never leak into provider request bodies even when callers set them without
-  // a `callSite`.
+  // `overrideProfile`, `forceOverrideProfile`, and `selectionSeed` are
+  // routing/resolution-time concerns (consumed by the resolver below and
+  // `CallSiteRoutingProvider`'s provider selection); none is a wire-format
+  // field. Strip unconditionally so they never leak into provider request
+  // bodies even when callers set them without a `callSite`.
   delete nextConfig.overrideProfile;
+  delete nextConfig.forceOverrideProfile;
   delete nextConfig.selectionSeed;
 
   if (config.callSite !== undefined) {
     const resolved = resolveCallSiteConfig(config.callSite, getConfig().llm, {
       overrideProfile: config.overrideProfile,
+      forceOverrideProfile: config.forceOverrideProfile,
       selectionSeed: config.selectionSeed,
     });
     const attribution = resolveUsageAttribution({
       callSite: config.callSite,
       overrideProfile: config.overrideProfile,
+      forceOverrideProfile: config.forceOverrideProfile,
       selectionSeed: config.selectionSeed,
     });
 
@@ -267,6 +270,14 @@ function normalizeSendMessageOptions(
     }
     if (nextConfig.thinking === undefined && resolved.thinking !== undefined) {
       nextConfig.thinking = resolved.thinking;
+    }
+    // Not a wire field: consumed (and stripped) by provider clients that
+    // implement prompt caching, like `cacheTtl` / `disableTurnStartCache`.
+    if (
+      nextConfig.disableCache === undefined &&
+      resolved.disableCache !== undefined
+    ) {
+      nextConfig.disableCache = resolved.disableCache;
     }
     // Forward OpenRouter-only routing preferences so `OpenRouterProvider` can
     // translate `openrouter.only` into the wire-format `provider: { only: [...] }`

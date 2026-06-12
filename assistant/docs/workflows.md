@@ -101,12 +101,14 @@ untrusted), so it must be a plain object literal with string `name` and
 `description`. The `name` is how a saved workflow is referenced by `workflow(name)`
 and the scheduler.
 
-The script's final expression is its result. End with the value you want
-returned:
+The script's result is whatever it `return`s at the top level. End with
+`return <result>;` — the script body runs as a function, so a bare trailing
+expression (e.g. `result;`) is **discarded** and the run finishes with no
+result. Always `return` the value you want surfaced:
 
 ```js
 const result = agent(`Write the final summary: ${JSON.stringify(parts)}`);
-result; // returned as the run result
+return result; // returned as the run result
 ```
 
 ---
@@ -268,7 +270,7 @@ const summary = agent(
     `highlighting anything urgent:\n${JSON.stringify(scored)}`,
   { persona: true },
 );
-summary;
+return summary;
 ```
 
 A failed scoring leaf shows up as `null` in `scored`; the run continues.
@@ -321,7 +323,7 @@ const verified = pipeline(
     ),
 );
 
-verified;
+return verified;
 ```
 
 ### Granting a side-effecting tool
@@ -428,7 +430,7 @@ Engine caps live under `workflows.*` in assistant config:
 
 ## Persistence and resume
 
-Run state lives in two tables (migration 281):
+Run state lives in two tables (migration 282):
 
 - **`workflow_runs`** — one row per run: status (`running` / `completed` /
   `failed` / `aborted` / `cap_exceeded` / `interrupted`), agent/token counts,

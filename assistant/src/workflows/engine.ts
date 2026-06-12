@@ -153,6 +153,28 @@ class AbortedSignal extends Error {
 }
 
 /**
+ * True if `err` is a cancellation rejection — the engine's own
+ * {@link AbortedSignal}, or the canonical `AbortError` a fetch/provider/
+ * agent-loop call rejects with when its `AbortSignal` fires (both `DOMException`
+ * and plain-`Error` shapes). Such an error means the leaf was CANCELLED, not
+ * that it failed, so the engine ends the whole run as `aborted` rather than
+ * journaling a failed leaf and letting `parallel` continue with `null`.
+ *
+ * Detection is name-based only (`AbortError`) — deliberately NOT a message
+ * substring match — so a genuine leaf failure whose text merely contains
+ * "aborted" is not mis-classified. The catch site checks `signal.aborted`
+ * FIRST, so an in-flight abort is caught regardless of the rejection's shape;
+ * this helper just covers a stray late `AbortError` after the signal cleared.
+ */
+function isAbortError(err: unknown): boolean {
+  if (err instanceof AbortedSignal) return true;
+  if (typeof DOMException !== "undefined" && err instanceof DOMException) {
+    return err.name === "AbortError";
+  }
+  return err instanceof Error && err.name === "AbortError";
+}
+
+/**
  * Thrown into the script when `workflow(name)` references a saved workflow that
  * does not exist in the library. Surfaces as a catchable VM exception (or, if
  * uncaught, fails the run).
@@ -445,8 +467,17 @@ export async function executeWorkflow(
       });
       return { output: result.output, failed: false };
     } catch (err) {
-      // A leaf failure is journaled as failed (so it is NOT replayed as a hit)
-      // and surfaced to the caller, which decides to null or rethrow it.
+      // An ABORT that fired while the leaf provider/tool call was in flight is
+      // NOT a leaf failure — it unwinds the WHOLE run. Detect it FIRST and
+      // rethrow the abort sentinel so the top-level catch ends the run with
+      // status `aborted`, `parallel` terminates (rather than null-coalescing a
+      // cancelled leaf and continuing), and the journal is NOT polluted with a
+      // spurious "failed" entry for a leaf that was merely cancelled.
+      if (signal?.aborted || isAbortError(err)) {
+        throw new AbortedSignal();
+      }
+      // A genuine leaf failure is journaled as failed (so it is NOT replayed as
+      // a hit) and surfaced to the caller, which decides to null or rethrow it.
       journal.appendJournalEntry({
         runId,
         seq,

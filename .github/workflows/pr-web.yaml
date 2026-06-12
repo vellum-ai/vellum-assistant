@@ -8,6 +8,9 @@ on:
       - 'packages/design-library/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
+      # The web LLM catalog parity test reads this file, so daemon-side catalog
+      # regenerations must run the web tests on the PR that introduces drift.
+      - 'meta/llm-provider-catalog.json'
       - '.github/workflows/pr-web.yaml'
       - '.github/actions/install-shared-packages/**'
 
