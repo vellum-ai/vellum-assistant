@@ -1,21 +1,50 @@
 #!/usr/bin/env bun
 // Builds a Slack app manifest creation URL.
 //
-// Usage:
+// Usage (preferred — robust to any character in the inputs):
+//   echo '{"name":"My Bot","desc":"Assistant for X"}' \
+//     | bun run skills/slack-app-setup/scripts/build-manifest-url.ts
+//
+// Usage (fallback):
 //   BOT_NAME="My Bot" BOT_DESC="Optional description" \
 //     bun run skills/slack-app-setup/scripts/build-manifest-url.ts
 //
-// Inputs are read from env vars (not argv) so special characters in the
-// bot name or description can never break the JSON or URL encoding.
+// stdin-JSON is preferred because it pairs with a quoted shell heredoc
+// (e.g. `<<'END'`) so apostrophes, quotes, backticks, $variables, etc.
+// in the bot name or description cannot break shell quoting or URL encoding.
 //
 // Output: JSON `{ "ok": true, "data": { "url": "..." } }` on success,
 //         JSON `{ "ok": false, "error": "..." }` on failure.
 
-const name = process.env.BOT_NAME;
-const desc = process.env.BOT_DESC ?? "";
+type Input = { name?: string; desc?: string };
+
+let input: Input = {};
+const stdinText = await Bun.stdin.text();
+if (stdinText.trim()) {
+  try {
+    input = JSON.parse(stdinText);
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        ok: false,
+        error: `Invalid JSON on stdin: ${(err as Error).message}`,
+      }),
+    );
+    process.exit(1);
+  }
+}
+
+const name = input.name ?? process.env.BOT_NAME;
+const desc = input.desc ?? process.env.BOT_DESC ?? "";
 
 if (!name) {
-  console.error('{"ok": false, "error": "BOT_NAME env var required"}');
+  console.error(
+    JSON.stringify({
+      ok: false,
+      error:
+        "Missing bot name. Pass {\"name\":\"...\"} on stdin or set BOT_NAME.",
+    }),
+  );
   process.exit(1);
 }
 

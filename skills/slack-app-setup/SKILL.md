@@ -59,14 +59,16 @@ Infer the bot identity yourself — do not ask the user to confirm before genera
 - **Bot name:** your assigned assistant name. If unset → prompt the user to name you first, then come back.
 - **Description:** `Assistant for {guardianName}`, from the current user context / `users/default.md`.
 
-Run the bundled script — env vars carry the inputs so quoting can never break the URL:
+Run the bundled script — inputs are JSON on stdin via a single-quoted heredoc, so apostrophes / quotes / backticks / `$` in the bot name or description pass through verbatim and can never break shell quoting or URL encoding:
 
 ```
 bash {
-  command: "BOT_NAME='<bot_name>' BOT_DESC='<description>' bun run skills/slack-app-setup/scripts/build-manifest-url.ts"
+  command: "bun run skills/slack-app-setup/scripts/build-manifest-url.ts <<'SLACK_INPUT_END'\n{\"name\": \"<bot_name>\", \"desc\": \"<description>\"}\nSLACK_INPUT_END"
   activity: "to generate the Slack app manifest link"
 }
 ```
+
+The heredoc delimiter `'SLACK_INPUT_END'` is single-quoted on purpose — the shell will not expand anything inside it. Inside the JSON, only `"` and `\` need escaping; apostrophes, dollar signs, and backticks do not.
 
 ⚠️ CRITICAL — point of action: **You must run the script.** Do not hand-write the manifest, do not show the user raw YAML or JSON, do not type out a URL from memory. The script is the only source of truth for scopes, events, and Socket Mode settings; anything you write yourself will silently miss pieces and setup will fail downstream.
 
@@ -90,9 +92,9 @@ Tell the user:
 
 Then collect:
 
-- `credential_store` `action: "prompt"`, `service: "slack_channel"`, `field: "app_token"`, `label: "App-Level Token"`, `placeholder: "xapp-..."`, `description: "Paste the App-Level Token you just generated"`.
+- Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "app_token"`, `label: "App-Level Token"`, `placeholder: "xapp-..."`, `description: "Paste the App-Level Token you just generated"`.
 
-⚠️ CRITICAL — point of action: **Always route the token through `credential_store` prompt.** Do not ask the user to paste a token directly in chat, do not use `ui_show` for collection, do not call `assistant credentials reveal`. The prompt is the only handler that validates and stores securely.
+⚠️ CRITICAL — point of action: **Always route the token through `credential_store` prompt.** Do NOT ask the user to paste tokens in chat. Do NOT use `ui_show` for collection. Do NOT call `assistant credentials reveal`. The prompt is the only handler that validates and stores securely.
 
 ### Step 3b — Install + Bot Token
 
@@ -102,13 +104,13 @@ Tell the user:
 
 Then collect:
 
-- `credential_store` `action: "prompt"`, `service: "slack_channel"`, `field: "bot_token"`, `label: "Bot User OAuth Token"`, `placeholder: "xoxb-..."`, `description: "From Install App page — the Bot User OAuth Token"`.
+- Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "bot_token"`, `label: "Bot User OAuth Token"`, `placeholder: "xoxb-..."`, `description: "From Install App page — the Bot User OAuth Token"`.
 
 ### Step 3c — User Token (optional, same page)
 
 If the Install App page also shows a **User OAuth Token** → collect it for full triage visibility. It lets the assistant see every channel the user is in, not just channels the bot was added to.
 
-- `credential_store` `action: "prompt"`, `service: "slack_channel"`, `field: "user_token"`, `label: "User OAuth Token"`, `placeholder: "xoxp-..."`, `description: "From Install App page — the User OAuth Token (optional, for full channel visibility)"`.
+- Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "user_token"`, `label: "User OAuth Token"`, `placeholder: "xoxp-..."`, `description: "From Install App page — the User OAuth Token (optional, for full channel visibility)"`.
 
 If the User OAuth Token is **not** shown → skip this step (default). Tell the user it's optional and they can add it later.
 
@@ -173,4 +175,4 @@ If identity was skipped → swap the last two lines for:
 
 ## Clearing Credentials
 
-To disconnect, prefer the Settings UI path — it clears both the secure tokens and the workspace metadata together, matching the in-app Settings handler.
+To disconnect, prefer the Settings UI path so the same Slack settings handler used by Settings clears both the secure tokens and the workspace metadata together.
