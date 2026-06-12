@@ -53,14 +53,12 @@ async function isVelUp(): Promise<boolean> {
 const velRunning = await isVelUp();
 const downstreamScript = velRunning ? "dev:electron-only" : "dev:standalone";
 
-// Match the native Swift app's default of "local" when vel up is running.
-const env: NodeJS.ProcessEnv = velRunning
-  ? {
-      ...process.env,
-      VELLUM_DEV_URL: VEL_RENDERER_URL,
-      VELLUM_ENVIRONMENT: process.env.VELLUM_ENVIRONMENT || "local",
-    }
-  : process.env;
+// Match the native Swift app's default of "local".
+const env: NodeJS.ProcessEnv = {
+  ...process.env,
+  VELLUM_ENVIRONMENT: process.env.VELLUM_ENVIRONMENT || "local",
+  ...(velRunning ? { VELLUM_DEV_URL: VEL_RENDERER_URL } : {}),
+};
 
 if (velRunning) {
   console.log(

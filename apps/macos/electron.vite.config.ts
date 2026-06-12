@@ -47,7 +47,7 @@ const resolveBuildSha = (): string => {
 const BUILD_DEFINES = {
   __VELLUM_BUILD_SHA__: JSON.stringify(resolveBuildSha()),
   __VELLUM_ENVIRONMENT__: JSON.stringify(
-    process.env.VELLUM_ENVIRONMENT || "production",
+    process.env.VELLUM_ENVIRONMENT || "local",
   ),
   __VELLUM_ENABLE_CHROME_DEVTOOLS__: JSON.stringify(
     process.env.VELLUM_ENABLE_CHROME_DEVTOOLS === "true" ||
