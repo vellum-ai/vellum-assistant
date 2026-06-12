@@ -129,7 +129,7 @@ export function ChatLayout() {
   // inherits a populated sidebar on direct navigation — not just /assistant.
   // TanStack Query handles dedup with any other consumer using the same key.
   const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
-  const { conversations } = useConversationListQuery(
+  const { conversations, fetchNextPage, hasNextPage } = useConversationListQuery(
     assistantId,
     isAssistantActive,
   );
@@ -173,10 +173,9 @@ export function ChatLayout() {
   const { hasUnreadHome } = useHomeUnreadBadge(assistantId);
 
   // Mirror the unread count + signed-in flag into the Electron Dock
-  // (no-op off Electron). Uses the conversation list this layout
-  // already subscribes to, so there's no extra query — see
-  // `./hooks/use-electron-dock-sync.ts`.
-  useElectronDockSync(conversations);
+  // (no-op off Electron). Uses the server-side unread-count endpoint —
+  // see `./hooks/use-electron-dock-sync.ts`.
+  useElectronDockSync(assistantId);
 
   // Header slots come from a module-level store so gated routes
   // (which see `ActiveAssistantGate`'s `<Outlet />` as their
@@ -548,6 +547,8 @@ export function ChatLayout() {
       width={args.width}
       onWidthChange={args.onWidthChange}
       conversations={conversations}
+      fetchNextPage={fetchNextPage}
+      hasNextPage={hasNextPage}
       conversationGroups={conversationGroups}
       activeConversationId={sidebarActiveConversationId}
       processingConversationIds={processingConversationIds}

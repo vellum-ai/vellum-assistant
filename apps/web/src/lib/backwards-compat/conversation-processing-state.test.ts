@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createElement, type ReactNode } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, type InfiniteData } from "@tanstack/react-query";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
 import { useActiveConversationIsProcessing } from "@/lib/backwards-compat/conversation-processing-state";
-import { conversationsQueryKey } from "@/lib/sync/query-tags";
+import { conversationListInfiniteQueryKey, type ConversationPage } from "@/utils/conversation-list-fetchers";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -42,12 +42,18 @@ async function isProcessing(inputs: {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  queryClient.setQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID), [
-    {
-      conversationId: CONVERSATION_ID,
-      isProcessing: inputs.serverIsProcessing,
-    } as Conversation,
-  ]);
+  const infiniteKey = conversationListInfiniteQueryKey(ASSISTANT_ID);
+  queryClient.setQueryData<InfiniteData<ConversationPage>>(infiniteKey, {
+    pages: [{
+      conversations: [{
+        conversationId: CONVERSATION_ID,
+        isProcessing: inputs.serverIsProcessing,
+      } as Conversation],
+      hasMore: false,
+      nextOffset: 1,
+    }],
+    pageParams: [0],
+  });
 
   useResolvedAssistantsStore.getState().setActiveAssistantId(ASSISTANT_ID);
   useConversationStore.getState().setActiveConversationId(CONVERSATION_ID);

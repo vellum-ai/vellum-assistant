@@ -10256,6 +10256,28 @@ paths:
               required:
                 - conversationId
               additionalProperties: false
+  /v1/conversations/unread-count:
+    get:
+      operationId: conversations_unreadcount_get
+      summary: Get unread conversation count
+      description:
+        Count of foreground conversations with unseen assistant messages. Excludes background, scheduled, and
+        archived conversations.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: number
+                required:
+                  - count
+                additionalProperties: false
   /v1/conversations/wake:
     post:
       operationId: conversations_wake_post

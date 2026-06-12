@@ -34,15 +34,18 @@ import {
   test,
 } from "bun:test";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, type InfiniteData } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 
 import * as sdkGen from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
 import {
   archivedConversationsQueryKey,
-  conversationsQueryKey,
 } from "@/lib/sync/query-tags";
+import {
+  conversationListInfiniteQueryKey,
+  type ConversationPage,
+} from "@/utils/conversation-list-fetchers";
 
 // ---------------------------------------------------------------------------
 // Module mocks. Archive/unarchive impls are pulled from module-level holders
@@ -96,7 +99,12 @@ function seedClient(conversations: Conversation[]): QueryClient {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  client.setQueryData(conversationsQueryKey(ASSISTANT_ID), conversations);
+  const queryKey = conversationListInfiniteQueryKey(ASSISTANT_ID);
+  const infiniteData: InfiniteData<ConversationPage> = {
+    pages: [{ conversations, hasMore: false, nextOffset: conversations.length }],
+    pageParams: [0],
+  };
+  client.setQueryData(queryKey, infiniteData);
   return client;
 }
 
@@ -140,10 +148,10 @@ function readArchived(
   client: QueryClient,
   conversationId: string,
 ): number | undefined {
-  const list = client.getQueryData<Conversation[]>(
-    conversationsQueryKey(ASSISTANT_ID),
-  );
-  return list?.find((c) => c.conversationId === conversationId)?.archivedAt;
+  const queryKey = conversationListInfiniteQueryKey(ASSISTANT_ID);
+  const data = client.getQueryData<InfiniteData<ConversationPage>>(queryKey);
+  const list = data?.pages.flatMap((p) => p.conversations) ?? [];
+  return list.find((c) => c.conversationId === conversationId)?.archivedAt;
 }
 
 /** Manually-controlled promise for staging in-flight API states in tests. */

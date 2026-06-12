@@ -21,6 +21,7 @@ import {
 } from "@/utils/conversation-predicates";
 import {
   findConversation,
+  prependToConversationsCache,
   updateAllConversationCaches,
   updateBackgroundConversationsCache,
   updateConversationsCache,
@@ -73,10 +74,7 @@ export function prependConversation(
   assistantId: string | null,
   conversation: Conversation,
 ): void {
-  updateConversationsCache(queryClient, assistantId, (conversations) => [
-    conversation,
-    ...conversations,
-  ]);
+  prependToConversationsCache(queryClient, assistantId, conversation);
 }
 
 export function removeConversation(
@@ -122,24 +120,31 @@ export function surfaceConversationInCaches(
     lastMessageAt: Math.max(conversation.lastMessageAt ?? 0, lastMessageAt),
   };
 
-  updateAllConversationCaches(queryClient, assistantId, (conversations) => {
+  // Update the conversation in background/scheduled/archived caches in place.
+  updateBackgroundConversationsCache(queryClient, assistantId, (conversations) => {
     let changed = false;
     const next = conversations.map((c) => {
-      if (c.conversationId !== conversation.conversationId) {
-        return c;
-      }
+      if (c.conversationId !== conversation.conversationId) return c;
+      changed = true;
+      return surfacedConversation;
+    });
+    return changed ? next : conversations;
+  });
+  updateScheduledConversationsCache(queryClient, assistantId, (conversations) => {
+    let changed = false;
+    const next = conversations.map((c) => {
+      if (c.conversationId !== conversation.conversationId) return c;
       changed = true;
       return surfacedConversation;
     });
     return changed ? next : conversations;
   });
 
-  updateConversationsCache(queryClient, assistantId, (conversations) => [
-    surfacedConversation,
-    ...conversations.filter(
-      (c) => c.conversationId !== conversation.conversationId,
-    ),
-  ]);
+  // Remove from foreground pages then prepend to the top.
+  updateConversationsCache(queryClient, assistantId, (conversations) =>
+    conversations.filter((c) => c.conversationId !== conversation.conversationId),
+  );
+  prependToConversationsCache(queryClient, assistantId, surfacedConversation);
 }
 
 /**

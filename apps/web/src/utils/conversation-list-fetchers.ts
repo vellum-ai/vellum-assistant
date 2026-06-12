@@ -1,22 +1,23 @@
 /**
- * Fetch functions and `queryOptions` factories for conversation lists
- * (foreground, background, scheduled, archived).
+ * Query options factories for conversation lists (foreground, background,
+ * scheduled, archived).
  *
- * Each fetcher returns a sorted `Conversation[]` from the daemon's paginated
- * `conversationsGet()` endpoint. The `queryOptions` factories co-locate
- * `queryKey` + `queryFn` + `staleTime` so consumers can spread them into
- * `useQuery()`, pass them to `queryClient.prefetchQuery()`, or destructure
- * `.queryKey` for imperative cache operations — all with full type safety.
+ * The foreground list uses `useInfiniteQuery` with cursor-based pagination
+ * (offset/limit), loading one page at a time on demand. Background, scheduled,
+ * and archived lists use a standard `useQuery` that fetches all rows (these
+ * are lazy-loaded on user action and typically small).
  *
  * References:
+ * - https://tanstack.com/query/latest/docs/framework/react/guides/infinite-queries
  * - https://tanstack.com/query/latest/docs/framework/react/guides/query-options
- * - https://tanstack.com/query/latest/docs/framework/react/guides/query-functions
- * - https://tanstack.com/query/latest/docs/eslint/prefer-query-options
  */
 
 import { queryOptions } from "@tanstack/react-query";
 import { captureError } from "@/lib/sentry/capture-error";
 import { conversationsGet } from "@/generated/daemon/sdk.gen";
+import { conversationsGetInfiniteQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import type { Options } from "@/generated/daemon/sdk.gen";
+import type { ConversationsGetData } from "@/generated/daemon/types.gen";
 import {
   ApiError,
   assertHasResponse,
@@ -25,12 +26,17 @@ import {
 import {
   archivedConversationsQueryKey,
   backgroundConversationsQueryKey,
-  conversationsQueryKey,
   scheduledConversationsQueryKey,
 } from "@/lib/sync/query-tags";
 import type { Conversation } from "@/types/conversation-types";
 import { isScheduledConversation } from "@/utils/conversation-predicates";
 import { toConversation } from "@/utils/conversation-transforms";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+export const CONVERSATION_LIST_PAGE_SIZE = 50;
 
 // ---------------------------------------------------------------------------
 // Shared sort comparator
@@ -44,30 +50,105 @@ function byTimestampDesc(
 }
 
 // ---------------------------------------------------------------------------
-// Internal pagination helper
+// Foreground conversation list — infinite query
 // ---------------------------------------------------------------------------
 
-const CONVERSATION_LIST_PAGE_SIZE = 50;
-const CONVERSATION_LIST_MAX_PAGES = 200;
+/**
+ * A single page of the foreground conversation list, stored in the infinite
+ * query cache. The `conversations` field holds domain-typed `Conversation[]`
+ * (already transformed from the daemon's raw response) so optimistic cache
+ * mutations can operate directly on `Conversation` objects.
+ */
+export interface ConversationPage {
+  conversations: Conversation[];
+  hasMore: boolean;
+  nextOffset: number;
+}
+
+const QUERY_STALE_TIME_MS = 30_000;
+
+/**
+ * Infinite query options for the foreground conversation list. Loads one page
+ * (50 items) initially and fetches more on demand via `fetchNextPage()`.
+ *
+ * The queryFn transforms raw daemon responses to `Conversation[]` at fetch
+ * time so the cache stores domain types directly — enabling optimistic
+ * updates without raw↔domain conversion overhead.
+ */
+export function conversationListInfiniteOptions(assistantId: string) {
+  return {
+    queryKey: conversationListInfiniteQueryKey(assistantId),
+    queryFn: async ({ pageParam, signal }: { pageParam: number; signal: AbortSignal }): Promise<ConversationPage> => {
+      const { data } = await conversationsGet({
+        path: { assistant_id: assistantId },
+        query: { limit: CONVERSATION_LIST_PAGE_SIZE, offset: pageParam },
+        signal,
+        throwOnError: true,
+      });
+      return {
+        conversations: (data.conversations ?? []).map(toConversation),
+        hasMore: data.hasMore ?? false,
+        nextOffset: data.nextOffset ?? 0,
+      };
+    },
+    initialPageParam: 0 as number,
+    getNextPageParam: (lastPage: ConversationPage): number | undefined =>
+      lastPage.hasMore ? lastPage.nextOffset : undefined,
+    staleTime: QUERY_STALE_TIME_MS,
+  };
+}
+
+/**
+ * Build the infinite query key for the foreground conversation list.
+ * Exported so imperative callers (cache mutations, sync handlers) can
+ * target the same cache entry.
+ */
+export function conversationListInfiniteQueryKey(assistantId: string | null) {
+  const opts: Options<ConversationsGetData> = {
+    path: { assistant_id: assistantId ?? "" },
+    query: { limit: CONVERSATION_LIST_PAGE_SIZE },
+  };
+  return conversationsGetInfiniteQueryKey(opts);
+}
+
+/**
+ * Flatten infinite query pages into a single `Conversation[]`. Used by
+ * hooks and imperative cache readers that need the complete loaded list.
+ */
+export function flattenConversationPages(
+  pages: ConversationPage[],
+): Conversation[] {
+  return pages.flatMap((page) => page.conversations);
+}
+
+// ---------------------------------------------------------------------------
+// Background / Scheduled / Archived — standard queries (lazy, small lists)
+//
+// These lists are lazily loaded only when the user reveals the corresponding
+// sidebar section. They remain as exhaustive fetchers because:
+// 1. They're small (typically 10–50 items)
+// 2. They never run on the initial render path
+// 3. The sidebar needs the full list for grouping by source/job
+// ---------------------------------------------------------------------------
 
 type FetchConversationListOptions = {
   conversationType?: "background" | "scheduled";
-  /**
-   * Filter by archive state. Defaults to `"active"` on the daemon side, so
-   * omitting this returns non-archived rows only — matching how the sidebar
-   * wants to read the list. The Archive page passes `"archived"`.
-   */
   archiveStatus?: "active" | "archived" | "all";
 };
 
-async function fetchConversationList(
+/**
+ * Fetch all pages of a conversation list. Used only for background, scheduled,
+ * and archived lists where the full list is needed and the count is small.
+ */
+async function fetchAllPages(
   assistantId: string,
   options: FetchConversationListOptions = {},
 ): Promise<Conversation[]> {
   const { conversationType, archiveStatus } = options;
   const all: Conversation[] = [];
+  const maxPages = 200;
 
-  for (let page = 0; page < CONVERSATION_LIST_MAX_PAGES; page++) {
+  for (let page = 0; page < maxPages; page++) {
     const offset = page * CONVERSATION_LIST_PAGE_SIZE;
     const { data, error, response } = await conversationsGet({
       path: { assistant_id: assistantId },
@@ -90,7 +171,6 @@ async function fetchConversationList(
 
     const hasMore = data?.hasMore ?? false;
     if (!hasMore) break;
-
     if (conversations.length === 0) break;
   }
 
@@ -98,20 +178,38 @@ async function fetchConversationList(
 }
 
 // ---------------------------------------------------------------------------
-// Merged list (foreground + background, deduplicated)
+// Public fetchers (background, scheduled, archived)
 // ---------------------------------------------------------------------------
 
+async function listBackgroundConversations(
+  assistantId: string,
+): Promise<Conversation[]> {
+  const background = await fetchAllPages(assistantId, {
+    conversationType: "background",
+  });
+  return background
+    .filter((c) => !isScheduledConversation(c))
+    .sort(byTimestampDesc("lastMessageAt"));
+}
+
+async function listScheduledConversations(
+  assistantId: string,
+): Promise<Conversation[]> {
+  const scheduled = await fetchAllPages(assistantId, {
+    conversationType: "scheduled",
+  });
+  return [...scheduled].sort(byTimestampDesc("lastMessageAt"));
+}
+
+async function listArchivedConversations(
+  assistantId: string,
+): Promise<Conversation[]> {
+  return fetchMergedConversationList(assistantId, "archived", "archivedAt");
+}
+
 /**
- * Fetch active or archived conversations for an assistant — foreground and
- * background buckets fetched in parallel, deduplicated by `conversationId`,
- * and sorted. Used by the Archive page, which lists every conversation type
- * together.
- *
- * The background fetch is best-effort: if it fails the foreground list is
- * still returned so the calling surface remains usable.
- *
- * @param archiveStatus — `"active"` or `"archived"` (archive page)
- * @param sortKey — which timestamp to sort descending by (default: `lastMessageAt`)
+ * Fetch archived conversations — foreground and background buckets in parallel,
+ * deduplicated by conversationId, and sorted.
  */
 async function fetchMergedConversationList(
   assistantId: string,
@@ -122,8 +220,8 @@ async function fetchMergedConversationList(
   const bgOpts: FetchConversationListOptions = { ...opts, conversationType: "background" };
 
   const [foregroundResult, backgroundResult] = await Promise.allSettled([
-    fetchConversationList(assistantId, opts),
-    fetchConversationList(assistantId, bgOpts),
+    fetchAllPages(assistantId, opts),
+    fetchAllPages(assistantId, bgOpts),
   ]);
 
   if (foregroundResult.status === "rejected") {
@@ -155,108 +253,9 @@ async function fetchMergedConversationList(
 }
 
 // ---------------------------------------------------------------------------
-// Public fetchers
+// queryOptions factories (background, scheduled, archived)
 // ---------------------------------------------------------------------------
 
-/**
- * Fetch all active (non-archived) foreground conversations for a given
- * assistant, sorted newest-first.
- *
- * Background and scheduled jobs are intentionally excluded — they load
- * through `listBackgroundConversations` / `listScheduledConversations` only
- * once the user expands the Background/Scheduled sidebar sections, so a large
- * background backlog never blocks the initial chat render (the conversation
- * the user actually opened).
- */
-export async function listConversations(
-  assistantId: string,
-): Promise<Conversation[]> {
-  const foreground = await fetchConversationList(assistantId);
-  return [...foreground].sort(byTimestampDesc("lastMessageAt"));
-}
-
-/**
- * Fetch all active (non-archived) background conversations for a given
- * assistant, sorted newest-first.
- *
- * The daemon's `conversationType=background` filter is the back-compat
- * umbrella that also returns scheduled rows, so those are filtered out here
- * to keep the background cache disjoint from the scheduled cache (one
- * conversation, one cache). Scheduled jobs load through
- * `listScheduledConversations` instead.
- *
- * Mounted lazily by the sidebar — only enabled once the user reveals the
- * Background section — so this never runs on the initial load path. Cached
- * separately from the foreground list under `backgroundConversationsQueryKey`.
- */
-export async function listBackgroundConversations(
-  assistantId: string,
-): Promise<Conversation[]> {
-  const background = await fetchConversationList(assistantId, {
-    conversationType: "background",
-  });
-  return background
-    .filter((c) => !isScheduledConversation(c))
-    .sort(byTimestampDesc("lastMessageAt"));
-}
-
-/**
- * Fetch all active (non-archived) scheduled conversations for a given
- * assistant, sorted newest-first.
- *
- * Uses the daemon's dedicated `conversationType=scheduled` filter so the
- * Scheduled sidebar section can load independently of the background
- * backlog. Mounted lazily — only enabled once the user reveals the
- * Scheduled section — so this never runs on the initial load path. Cached
- * separately under `scheduledConversationsQueryKey`.
- */
-export async function listScheduledConversations(
-  assistantId: string,
-): Promise<Conversation[]> {
-  const scheduled = await fetchConversationList(assistantId, {
-    conversationType: "scheduled",
-  });
-  return [...scheduled].sort(byTimestampDesc("lastMessageAt"));
-}
-
-/**
- * Fetch all archived conversations for the archive page.
- * Sorted by `archivedAt` descending (most recently archived first).
- */
-export async function listArchivedConversations(
-  assistantId: string,
-): Promise<Conversation[]> {
-  return fetchMergedConversationList(assistantId, "archived", "archivedAt");
-}
-
-// ---------------------------------------------------------------------------
-// queryOptions factories
-//
-// Co-locate queryKey + queryFn + staleTime so hooks can spread them into
-// useQuery() and imperative callers can use .queryKey for cache operations.
-//
-// References:
-// - https://tanstack.com/query/latest/docs/framework/react/guides/query-options
-// - https://tkdodo.eu/blog/the-query-options-api
-// ---------------------------------------------------------------------------
-
-const QUERY_STALE_TIME_MS = 30_000;
-
-/**
- * Query options for the foreground conversation list. Spread into
- * `useQuery()` and override `enabled` at the hook level.
- */
-export function conversationListOptions(assistantId: string) {
-  return queryOptions({
-    queryKey: conversationsQueryKey(assistantId),
-    queryFn: () => listConversations(assistantId),
-    staleTime: QUERY_STALE_TIME_MS,
-  });
-}
-
-/**
- * Query options for the background conversation list.
- */
 export function backgroundConversationListOptions(assistantId: string) {
   return queryOptions({
     queryKey: backgroundConversationsQueryKey(assistantId),
@@ -265,9 +264,6 @@ export function backgroundConversationListOptions(assistantId: string) {
   });
 }
 
-/**
- * Query options for the scheduled conversation list.
- */
 export function scheduledConversationListOptions(assistantId: string) {
   return queryOptions({
     queryKey: scheduledConversationsQueryKey(assistantId),
@@ -276,9 +272,6 @@ export function scheduledConversationListOptions(assistantId: string) {
   });
 }
 
-/**
- * Query options for the archived conversation list.
- */
 export function archivedConversationListOptions(assistantId: string) {
   return queryOptions({
     queryKey: archivedConversationsQueryKey(assistantId),

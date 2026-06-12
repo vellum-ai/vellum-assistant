@@ -12,9 +12,10 @@ import {
 } from "@/domains/chat/utils/stream-handlers/message-handlers";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
-import { conversationsQueryKey } from "@/lib/sync/query-tags";
 import { findConversation } from "@/utils/conversation-cache";
 import type { Conversation } from "@/types/conversation-types";
+import { conversationListInfiniteQueryKey, type ConversationPage } from "@/utils/conversation-list-fetchers";
+import type { InfiniteData } from "@tanstack/react-query";
 
 describe("handleAssistantTurnStart", () => {
   it("seeds currentAssistantMessageIdRef from the event's messageId", () => {
@@ -29,10 +30,11 @@ describe("handleAssistantTurnStart", () => {
   it("patches the cached conversation's isProcessing to true so 0.8.8+ reads the server flag", () => {
     // GIVEN a cached conversation row the daemon last reported as idle
     const ctx = makeCtx();
-    ctx.queryClient.setQueryData<Conversation[]>(
-      conversationsQueryKey("ast-1"),
-      [{ conversationId: "conv-1", isProcessing: false }],
-    );
+    const infiniteKey = conversationListInfiniteQueryKey("ast-1");
+    ctx.queryClient.setQueryData<InfiniteData<ConversationPage>>(infiniteKey, {
+      pages: [{ conversations: [{ conversationId: "conv-1", isProcessing: false } as Conversation], hasMore: false, nextOffset: 1 }],
+      pageParams: [0],
+    });
 
     // WHEN the daemon emits the turn's first start signal
     handleAssistantTurnStart(
@@ -65,10 +67,11 @@ describe("handleAssistantTextDelta", () => {
     // GIVEN a cached conversation that never saw assistant_turn_start
     // (e.g. the start event was dropped on a reconnect)
     const ctx = makeCtx();
-    ctx.queryClient.setQueryData<Conversation[]>(
-      conversationsQueryKey("ast-1"),
-      [{ conversationId: "conv-1", isProcessing: false }],
-    );
+    const infiniteKey = conversationListInfiniteQueryKey("ast-1");
+    ctx.queryClient.setQueryData<InfiniteData<ConversationPage>>(infiniteKey, {
+      pages: [{ conversations: [{ conversationId: "conv-1", isProcessing: false } as Conversation], hasMore: false, nextOffset: 1 }],
+      pageParams: [0],
+    });
 
     // WHEN the first text delta lands
     handleAssistantTextDelta(

@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { setDockBadge, setDockSignedIn } from "@/runtime/dock";
 import { setMenuPlatformSession } from "@/runtime/menu";
 import { useHasPlatformSession, useIsAuthenticated } from "@/stores/auth-store";
-import type { Conversation } from "@/types/conversation-types";
-import { contributesToUnreadCount } from "@/utils/conversation-predicates";
+import { useUnreadConversationCountQuery } from "@/hooks/conversation-queries";
 import { getDeviceBool, watchDeviceSetting } from "@/utils/device-settings";
 
 /**
@@ -14,35 +13,20 @@ import { getDeviceBool, watchDeviceSetting } from "@/utils/device-settings";
  * hosts (see `@/runtime/dock`), so this hook is safe to mount
  * unconditionally inside `ChatLayout`.
  *
- * Mount the hook once at a layout that already has the conversation
- * list in hand (currently `ChatLayout`, which subscribes to
- * `useConversationListQuery` at the route root). The count is derived
- * locally via `contributesToUnreadCount` (the same predicate that
- * drives sidebar attention indicators) so we don't fetch twice and
- * automated background / scheduled / archived threads don't contribute
- * to the badge.
- *
- * The signed-in input is temporary: once main owns auth state
- * directly, main becomes the source of truth and this side of the
- * bridge becomes a no-op. (Main also clears the badge when signed-in
- * flips to false so a logout-driven remount of this layout can't leave
- * a stale count on the Dock.)
+ * The unread count is fetched from the daemon's dedicated
+ * `GET /v1/conversations/unread-count` endpoint, which runs a single SQL
+ * count query. This decouples badge accuracy from how many conversations
+ * are loaded in the sidebar — the badge is always correct regardless of
+ * pagination state.
  */
-export function useElectronDockSync(conversations: Conversation[]): void {
+export function useElectronDockSync(assistantId: string | null): void {
   const isAuthenticated = useIsAuthenticated();
   const hasPlatformSession = useHasPlatformSession();
   const [dockBadgesEnabled, setDockBadgesEnabled] = useState(() =>
     getDeviceBool("dockBadgesEnabled", true),
   );
 
-  const unreadCount = useMemo(
-    () =>
-      conversations.reduce(
-        (n, c) => (contributesToUnreadCount(c) ? n + 1 : n),
-        0,
-      ),
-    [conversations],
-  );
+  const { count: unreadCount } = useUnreadConversationCountQuery(assistantId);
 
   useEffect(
     () =>

@@ -1,41 +1,37 @@
 /**
  * TanStack Query hooks for conversations and conversation groups.
  *
- * Conversations and conversation groups are server-derived data and live
- * in TanStack Query per `apps/web/docs/STATE_MANAGEMENT.md`. The
- * companion `conversation-store.ts` keeps only the client-side slice —
- * active/editing key, processing/attention sets, and snapshots.
- *
- * Each hook spreads a `queryOptions` factory from
- * `utils/conversation-list-fetchers.ts` and adds runtime concerns
- * (`enabled` gating via `useIsOrgReady()`, `select` transforms). This
- * co-locates `queryKey` + `queryFn` + `staleTime` in one place so they
- * can be reused across hooks, prefetches, and imperative cache reads.
+ * The foreground list uses `useInfiniteQuery` with cursor-based pagination
+ * (offset/limit). One page (50 items) loads on mount; additional pages load
+ * on demand via `fetchNextPage()`. Background, scheduled, and archived lists
+ * use standard `useQuery` (they're lazily loaded and small).
  *
  * Cache mutation helpers live in `utils/conversation-cache-mutations.ts`.
  *
  * References:
+ * - https://tanstack.com/query/latest/docs/framework/react/guides/infinite-queries
  * - https://tanstack.com/query/latest/docs/framework/react/guides/query-options
- * - https://tanstack.com/query/latest/docs/framework/react/guides/queries
- * - https://tanstack.com/query/latest/docs/framework/react/guides/updates-from-mutation-responses
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 
 import {
+  conversationsUnreadcountGetOptions,
   groupsGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { Options } from "@/generated/daemon/sdk.gen";
 import type {
+  ConversationsUnreadcountGetData,
   GroupsGetData,
 } from "@/generated/daemon/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import type { Conversation, ConversationGroup } from "@/types/conversation-types";
 import {
-  archivedConversationListOptions,
   backgroundConversationListOptions,
-  conversationListOptions,
+  conversationListInfiniteOptions,
+  flattenConversationPages,
   scheduledConversationListOptions,
+  archivedConversationListOptions,
 } from "@/utils/conversation-list-fetchers";
 
 // ---------------------------------------------------------------------------
@@ -49,21 +45,16 @@ const EMPTY_GROUPS: ConversationGroup[] = [];
 /**
  * Subscribe to the foreground conversation list for the given assistant.
  *
- * Fetches foreground conversations via `listConversations()` and stores a
- * flat `Conversation[]` under `conversationsQueryKey`. Background and
- * scheduled jobs are deliberately excluded — they load through
- * `useBackgroundConversationListQuery` only when the user reveals them — so
- * the initial chat render is never blocked on a large background backlog.
+ * Loads one page (50 conversations) on mount via `useInfiniteQuery`. The
+ * sidebar renders the first few immediately; additional pages load on demand
+ * when the user clicks "show more" (via `fetchNextPage()`).
  *
- * Returns an empty array until the query resolves so consumers can render
- * an empty sidebar without null-checking. Cache writes from mutations and
- * SSE handlers feed through here automatically.
+ * Returns a flat `Conversation[]` (all loaded pages flattened) so existing
+ * consumers (sidebar grouping, attention tracking, command palette) work
+ * without modification.
  *
- * `isError`, `error`, and `refetch` are exposed so chat-surface consumers
- * can surface a visible error state when the conversation list fails —
- * most notably for self-hosted assistants, where a missing actor-token
- * JWT surfaces as a gateway 401 that has to terminate the loading spinner
- * with an actionable retry instead of silently keeping the sidebar empty.
+ * `fetchNextPage` and `hasNextPage` are exposed for the sidebar's "show
+ * more" button to trigger on-demand loading when local data is exhausted.
  */
 export function useConversationListQuery(
   assistantId: string | null,
@@ -75,14 +66,22 @@ export function useConversationListQuery(
   isError: boolean;
   error: Error | null;
   refetch: () => void;
+  fetchNextPage: () => void;
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
 } {
   const isOrgReady = useIsOrgReady();
-  const query = useQuery({
-    ...conversationListOptions(assistantId!),
+  const query = useInfiniteQuery({
+    ...conversationListInfiniteOptions(assistantId!),
     enabled: enabled && Boolean(assistantId) && isOrgReady,
   });
+
+  const conversations = query.data
+    ? flattenConversationPages(query.data.pages)
+    : EMPTY_CONVERSATIONS;
+
   return {
-    conversations: query.data ?? EMPTY_CONVERSATIONS,
+    conversations,
     isLoading: query.isLoading,
     isPending: query.isPending,
     isError: query.isError,
@@ -90,6 +89,39 @@ export function useConversationListQuery(
     refetch: () => {
       void query.refetch();
     },
+    fetchNextPage: () => {
+      void query.fetchNextPage();
+    },
+    hasNextPage: query.hasNextPage,
+    isFetchingNextPage: query.isFetchingNextPage,
+  };
+}
+
+/**
+ * Subscribe to the server-authoritative unread conversation count.
+ *
+ * Returns the count of foreground conversations with unseen assistant
+ * messages (excludes background, scheduled, and archived). Used by the
+ * dock badge instead of deriving the count client-side from the full list.
+ */
+export function useUnreadConversationCountQuery(
+  assistantId: string | null,
+  enabled: boolean = true,
+): { count: number; isLoading: boolean } {
+  const isOrgReady = useIsOrgReady();
+  const opts: Options<ConversationsUnreadcountGetData> = {
+    path: { assistant_id: assistantId ?? "" },
+  };
+  const query = useQuery({
+    ...conversationsUnreadcountGetOptions(opts),
+    enabled: enabled && Boolean(assistantId) && isOrgReady,
+    // Poll frequently so the badge stays up-to-date without relying on
+    // having the full conversation list loaded.
+    refetchInterval: 30_000,
+  });
+  return {
+    count: query.data?.count ?? 0,
+    isLoading: query.isLoading,
   };
 }
 
@@ -131,10 +163,7 @@ export function useBackgroundConversationListQuery(
  * background backlog.
  *
  * `enabled` gates the network fetch on whether the user has revealed the
- * Scheduled sidebar section. Passing `enabled: false` keeps the observer
- * subscribed to cache updates without firing a request — mirroring the
- * background hook so attention tracking reflects scheduled rows once loaded
- * without triggering the fetch itself.
+ * Scheduled sidebar section.
  */
 export function useScheduledConversationListQuery(
   assistantId: string | null,
@@ -161,9 +190,6 @@ export function useScheduledConversationListQuery(
  * cache lives under a separate query key (`archivedConversationsQueryKey`)
  * so that mutations to the active list don't refetch the archive view and
  * vice versa.
- *
- * Returns an empty array until the query resolves so consumers can render
- * an empty state without null-checking.
  */
 export function useArchivedConversationListQuery(
   assistantId: string | null,
