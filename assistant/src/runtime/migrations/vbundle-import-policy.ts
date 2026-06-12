@@ -34,6 +34,23 @@ export function isLegacyPersonaArchivePath(archivePath: string): boolean {
   return archivePath === LEGACY_USER_MD_ARCHIVE_PATH;
 }
 
+/**
+ * Archive paths for retired features. Legacy bundles exported while those
+ * features existed still contain these entries; preflight and both importers
+ * must treat them as silent non-blocking skips (no conflict, no warning) so
+ * old backups stay restorable without noise, and the files are never written
+ * back to the workspace.
+ *
+ * `prompts/UPDATES.md` carried the retired update-bulletin release notes.
+ */
+export const RETIRED_ARCHIVE_PATHS: ReadonlySet<string> = new Set([
+  "prompts/UPDATES.md",
+]);
+
+export function isRetiredArchivePath(archivePath: string): boolean {
+  return RETIRED_ARCHIVE_PATHS.has(archivePath);
+}
+
 export function isConfigArchivePath(archivePath: string): boolean {
   return CONFIG_ARCHIVE_PATHS.has(archivePath);
 }

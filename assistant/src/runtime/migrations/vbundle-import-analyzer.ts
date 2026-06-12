@@ -19,6 +19,7 @@ import { join, resolve } from "node:path";
 
 import { resolveGuardianPersonaPath } from "../../prompts/persona-resolver.js";
 import { getLogger } from "../../util/logger.js";
+import { isRetiredArchivePath } from "./vbundle-import-policy.js";
 import type { ManifestType } from "./vbundle-validator.js";
 
 const log = getLogger("vbundle-import-analyzer");
@@ -34,14 +35,6 @@ const ALLOWED_PROMPT_FILENAMES = new Set(["IDENTITY.md", "SOUL.md", "USER.md"]);
 
 /** Archive path for the legacy guardian user persona file. */
 const LEGACY_USER_MD_ARCHIVE_PATH = "prompts/USER.md";
-
-/**
- * Archive path for the retired update-bulletin file. Legacy bundles exported
- * while the feature existed contain this entry; it must remain importable as
- * a non-blocking skip so old backups stay restorable, but the file is never
- * written back to the workspace.
- */
-const RETIRED_UPDATES_MD_ARCHIVE_PATH = "prompts/UPDATES.md";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -291,13 +284,13 @@ export function analyzeImport(
         continue;
       }
 
-      // Retired update-bulletin file from a legacy bundle: nothing consumes
-      // it anymore, so drop it silently instead of blocking the restore with
+      // Retired-feature file from a legacy bundle: nothing consumes it
+      // anymore, so drop it silently instead of blocking the restore with
       // an UNKNOWN_ARCHIVE_PATH conflict.
-      if (fileEntry.path === RETIRED_UPDATES_MD_ARCHIVE_PATH) {
+      if (isRetiredArchivePath(fileEntry.path)) {
         log.info(
           { path: fileEntry.path },
-          "Retired prompts/UPDATES.md in legacy bundle — will be skipped on import",
+          "Retired archive path in legacy bundle — will be skipped on import",
         );
         files.push({
           path: fileEntry.path,

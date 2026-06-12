@@ -388,6 +388,49 @@ describe("commitImport for legacy prompts/USER.md", () => {
     expect(existsSync(join(USERS_DIR, "USER.md"))).toBe(false);
   });
 
+  test("retired prompts/UPDATES.md skips silently — no warning, nothing written", () => {
+    const resolver = new DefaultPathResolver(
+      WORKSPACE_ROOT,
+      undefined,
+      () => null,
+    );
+
+    const { archive } = buildVBundle({
+      files: [
+        {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
+          path: "prompts/UPDATES.md",
+          data: new TextEncoder().encode("## Old release notes\n"),
+        },
+      ],
+      ...defaultV1Options(),
+    });
+
+    const result = commitImport({
+      archiveData: archive,
+      pathResolver: resolver,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.report.success).toBe(true);
+      expect(
+        result.report.files.find((f) => f.path === "prompts/UPDATES.md")
+          ?.action,
+      ).toBe("skipped");
+      // Silent skip: the commit report must agree with preflight, which
+      // raises neither a conflict nor a warning for retired paths.
+      expect(
+        result.report.warnings.some((w) => w.includes("prompts/UPDATES.md")),
+      ).toBe(false);
+    }
+
+    expect(existsSync(join(WORKSPACE_ROOT, "UPDATES.md"))).toBe(false);
+  });
+
   test("does NOT overwrite a customized users/<slug>.md", () => {
     const slug = "captain.md";
     const guardianPath = join(USERS_DIR, slug);
