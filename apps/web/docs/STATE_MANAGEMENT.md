@@ -319,13 +319,13 @@ const useOrgStoreBase = create<OrgStore>()((set) => ({
   },
 }));
 
-// Domain data — React Query (used only in components)
-const { data } = useQuery(assistantsListOptions());
+// Domain data — generated hook (used in components)
+const { data } = useAssistantsListQuery();
 ```
 
 ### Why React Query (not SWR or others)
 
-- [HeyAPI `@tanstack/react-query` plugin](https://heyapi.dev/openapi-ts/plugins/tanstack-query) auto-generates type-safe query/mutation/infinite-query hooks from the OpenAPI spec. No equivalent plugin exists for SWR (still in proposal stage) or other libraries — this alone is decisive given our HeyAPI codegen pipeline.
+- [HeyAPI `@tanstack/react-query` plugin](https://heyapi.dev/openapi-ts/plugins/tanstack-query) auto-generates ready-to-use hooks (`useXxxQuery()`, `useXxxMutation()`), factory functions (`xxxOptions()`, `xxxMutation()`), and typed cache helpers (`setXxxQueryData()`) from the OpenAPI spec. No equivalent plugin exists for SWR (still in proposal stage) or other libraries — this alone is decisive given our HeyAPI codegen pipeline. See [`CONVENTIONS.md` — Generated hooks vs factory functions](./CONVENTIONS.md#generated-hooks-vs-factory-functions) for when to use each layer.
 - First-class mutation support, optimistic updates, and Redux-DevTools-style query inspection.
 - 12M+ weekly downloads (2026), the most feature-complete option in the React server-state space.
 - Boundary with Zustand is documented explicitly — see the section above. React Query handles server state; Zustand handles client state; they do not overlap.
@@ -467,8 +467,9 @@ the eager `ChatPage` path) must gate on `useIsOrgReady()`:
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 
 const isOrgReady = useIsOrgReady();
-const query = useQuery({
-  ...queryOptions,
+const query = useAssistantsListQuery({
+  query: { hosting: "platform" },
+  // generated hooks accept the same options as useQuery
   enabled: enabled && Boolean(assistantId) && isOrgReady,
 });
 ```
