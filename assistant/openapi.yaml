@@ -21433,6 +21433,13 @@ paths:
                               - type: string
                               - type: "null"
                             description: Resolved commit the copy was installed at; null when no provenance was recorded.
+                          committedAt:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                            description:
+                              ISO-8601 committer timestamp (UTC) of the installed commit — the human-readable version; null for installs
+                              predating commit-timestamp capture. Distinct from `installedAt`.
                           version:
                             anyOf:
                               - type: string
@@ -21515,6 +21522,7 @@ paths:
                         required:
                           - target
                           - commit
+                          - committedAt
                           - version
                           - description
                           - installedAt
@@ -21538,6 +21546,13 @@ paths:
                           commit:
                             type: string
                             description: Pinned commit SHA the marketplace currently resolves installs to.
+                          committedAt:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                            description:
+                              ISO-8601 committer timestamp (UTC) of the pinned commit, resolved from GitHub; null when the commit
+                              metadata could not be fetched.
                           description:
                             anyOf:
                               - type: string
@@ -21561,6 +21576,7 @@ paths:
                           - repo
                           - path
                           - commit
+                          - committedAt
                           - description
                           - homepage
                           - license
@@ -21633,9 +21649,21 @@ paths:
                       - type: string
                       - type: "null"
                     description: Installed commit before the upgrade; null when no provenance was recorded.
+                  fromTimestamp:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: ISO-8601 committer timestamp (UTC) of `fromCommit` — the version moved from; null when not recorded.
                   toCommit:
                     type: string
                     description: Marketplace-pinned commit the install was (or would be) moved to.
+                  toTimestamp:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description:
+                      ISO-8601 committer timestamp (UTC) of `toCommit` — the version moved to; null when it could not be
+                      resolved.
                   target:
                     type: string
                     description: Absolute path to the installed plugin directory on the host.
@@ -21656,7 +21684,9 @@ paths:
                   - name
                   - outcome
                   - fromCommit
+                  - fromTimestamp
                   - toCommit
+                  - toTimestamp
                   - target
                   - fileCount
                   - dryRun

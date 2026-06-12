@@ -41,11 +41,18 @@ function manifestWith(name: string, ref: string): unknown {
 }
 
 /**
- * Build a `fetch` that serves the marketplace manifest. `marketplace:
- * undefined` answers 404 (empty catalog); `fail: true` rejects with a network
- * error. Anything else surfaces a 500 so test bugs are loud.
+ * Build a `fetch` that serves the marketplace manifest and the GitHub commit
+ * API. `marketplace: undefined` answers 404 (empty catalog); `fail: true`
+ * rejects the marketplace request with a network error. `remoteCommitDate`
+ * seeds the committer date the GitHub commit endpoint returns (its absence
+ * 404s, so the remote timestamp degrades to `null`). Anything else surfaces a
+ * 500 so test bugs are loud.
  */
-function makeFetch(opts: { marketplace?: unknown; fail?: boolean }): FetchLike {
+function makeFetch(opts: {
+  marketplace?: unknown;
+  fail?: boolean;
+  remoteCommitDate?: string;
+}): FetchLike {
   return (async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
     if (url.includes("marketplace.json")) {
@@ -54,6 +61,17 @@ function makeFetch(opts: { marketplace?: unknown; fail?: boolean }): FetchLike {
         return new Response("not found", { status: 404 });
       }
       return new Response(JSON.stringify(opts.marketplace), { status: 200 });
+    }
+    if (url.includes("api.github.com") && url.includes("/commits/")) {
+      if (opts.remoteCommitDate === undefined) {
+        return new Response("not found", { status: 404 });
+      }
+      return new Response(
+        JSON.stringify({
+          commit: { committer: { date: opts.remoteCommitDate } },
+        }),
+        { status: 200 },
+      );
     }
     return new Response("unexpected url: " + url, { status: 500 });
   }) as FetchLike;
@@ -65,7 +83,11 @@ function installPlugin(
   name: string,
   opts: {
     version?: string;
-    sidecar?: { commit?: string | null; ref?: string } | null;
+    sidecar?: {
+      commit?: string | null;
+      ref?: string;
+      committedAt?: string;
+    } | null;
     /** Embed a content fingerprint of the materialized tree in the sidecar. */
     fingerprint?: boolean;
   } = {},
@@ -99,6 +121,7 @@ function installPlugin(
           ref: sidecar.ref ?? sidecar.commit ?? SHA_A,
         },
         commit: sidecar.commit ?? undefined,
+        committedAt: sidecar.committedAt,
         installedAt: "2026-06-10T12:00:00.000Z",
         fingerprint,
       }),
@@ -137,6 +160,47 @@ describe("inspectPlugin", () => {
     expect(result.local?.version).toBe("0.1.0");
     expect(result.remote?.repo).toBe("example-org/level-up");
     expect(result.remote?.license).toBe("MIT");
+  });
+
+  test("surfaces commit timestamps as the human-readable version on both sides", async () => {
+    // GIVEN an installed copy with a recorded commit timestamp and a
+    // marketplace whose pinned commit GitHub dates a few days later
+    installPlugin(workspace, "level-up", {
+      sidecar: { commit: SHA_A, committedAt: "2026-06-01T12:34:56.000Z" },
+    });
+    const fetch = makeFetch({
+      marketplace: manifestWith("level-up", SHA_B),
+      remoteCommitDate: "2026-06-05T08:12:24.000Z",
+    });
+
+    // WHEN it is inspected
+    const result = await inspectPlugin(
+      { name: "level-up" },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN the installed timestamp comes from the sidecar and the remote one
+    // is resolved from GitHub — both as ISO-8601 UTC strings
+    expect(result.local?.committedAt).toBe("2026-06-01T12:34:56.000Z");
+    expect(result.remote?.committedAt).toBe("2026-06-05T08:12:24.000Z");
+  });
+
+  test("leaves the remote timestamp null when the commit date cannot be fetched", async () => {
+    // GIVEN a marketplace entry but a GitHub commit endpoint that 404s
+    installPlugin(workspace, "level-up", { sidecar: { commit: SHA_A } });
+    const fetch = makeFetch({ marketplace: manifestWith("level-up", SHA_B) });
+
+    // WHEN it is inspected
+    const result = await inspectPlugin(
+      { name: "level-up" },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN the SHA is still reported while the timestamp degrades to null
+    expect(result.remote?.commit).toBe(SHA_B);
+    expect(result.remote?.committedAt).toBeNull();
+    // AND an older install without a recorded commit date reports null too
+    expect(result.local?.committedAt).toBeNull();
   });
 
   test("reports update-available when the marketplace pin has advanced", async () => {
