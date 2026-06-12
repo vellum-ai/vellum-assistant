@@ -26,9 +26,16 @@ const LOCAL_CLI_ENTRY =
     ? __VELLUM_LOCAL_CLI_ENTRY__
     : "";
 
-/** Repo CLI entry for local builds, when the checkout still exists. */
+/**
+ * Repo CLI entry for local builds, when the checkout is actually runnable:
+ * the entry must exist and the CLI package's deps must be installed
+ * (cli/node_modules is a standalone install, not hoisted). Otherwise local
+ * builds fall back to the pinned install path.
+ */
 export function getLocalCliEntry(): string | null {
-  return LOCAL_CLI_ENTRY !== "" && existsSync(LOCAL_CLI_ENTRY)
+  if (LOCAL_CLI_ENTRY === "" || !existsSync(LOCAL_CLI_ENTRY)) return null;
+  const cliRoot = path.resolve(path.dirname(LOCAL_CLI_ENTRY), "..");
+  return existsSync(path.join(cliRoot, "node_modules"))
     ? LOCAL_CLI_ENTRY
     : null;
 }
