@@ -1,6 +1,10 @@
 import { getConfig } from "../../../../config/loader.js";
 import { resolveImageGenCredentials } from "../../../../media/image-credentials.js";
 import {
+  describeImageModels,
+  resolveImageModel,
+} from "../../../../media/image-models.js";
+import {
   generateImage,
   mapImageGenError,
   providerForModel,
@@ -19,7 +23,20 @@ export async function run(
 ): Promise<ToolExecutionResult> {
   const config = getConfig();
   const svc = config.services["image-generation"];
-  const modelOverride = input.model;
+  let modelOverride = input.model;
+  // Resolve tier aliases (fast, quality, openai) to concrete model IDs via
+  // the registry. Unknown values get an error listing the current catalog so
+  // callers can self-correct without a stale schema enum.
+  if (typeof modelOverride === "string" && modelOverride) {
+    const entry = resolveImageModel(modelOverride);
+    if (!entry) {
+      return {
+        content: `Unknown model "${modelOverride}". Available models and aliases:\n${describeImageModels()}\n\nRetry with one of the aliases above, or omit the model parameter to use the configured default.`,
+        isError: true,
+      };
+    }
+    modelOverride = entry.id;
+  }
   // Derive provider from the explicit model when supplied so that requesting
   // e.g. `gpt-image-2` while config.provider === "gemini" routes to OpenAI
   // instead of silently falling back to the Gemini default model.
@@ -130,8 +147,10 @@ export async function run(
       contentBlocks,
     };
   } catch (error) {
+    // Echo the model that failed so callers (including the skill's retry
+    // branch) can key off the error text instead of remembering their input.
     return {
-      content: `${mapImageGenError(provider, error)}\n\nReport this error to the user. Do not change service configuration (mode, provider, or model) to try to fix it.`,
+      content: `${mapImageGenError(provider, error)}\n\nFailed model: ${model}\n\nReport this error to the user. Do not change service configuration (mode, provider, or model) to try to fix it.`,
       isError: true,
     };
   }

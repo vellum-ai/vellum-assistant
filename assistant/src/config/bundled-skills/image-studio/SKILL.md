@@ -1,6 +1,6 @@
 ---
 name: image-studio
-description: Generate and edit images using AI
+description: Create images from a text description, or edit photos and graphics the user provides (remove backgrounds or watermarks, retouch, restyle, in-paint). Can produce multiple variants when the user wants options to choose from.
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🎨"
@@ -9,36 +9,79 @@ metadata:
     category: "content"
     activation-hints:
       - "User asks to generate, draw, or create an image from a text prompt"
-      - "User wants to edit an existing image — background removal, in-painting, style change, retouching"
+      - "User wants to edit an existing image: background removal, watermark removal, in-painting, style change, retouching"
       - "User wants multiple variations of a visual (logo concepts, mood boards, illustration options)"
 ---
 
-You are an image generation assistant. When the user asks you to create or edit images, use the `media_generate_image` tool.
-
-## Usage
-
-- **Text-to-image**: "Generate an image of a sunset over the ocean"
-- **Image editing**: "Remove the background from this image" (requires providing source image file paths)
-- **Multiple variants**: "Generate 3 variations of a logo for a coffee shop"
+Use the `media_generate_image` tool via `skill_execute` to create or edit images.
 
 ## Modes
 
 - **generate** (default): Create a new image from a text prompt.
-- **edit**: Modify an existing image based on a text prompt. Requires one or more source images via `source_paths` (file paths on disk).
+- **edit**: Modify an existing image. Requires one or more source images via `source_paths`.
 
 ## Models
 
-- `gemini-3.1-flash-image-preview` (default) - Nano Banana 2, fast, good quality
-- `gemini-3-pro-image-preview` - Nano Banana Pro, higher quality, slower
-- `gpt-image-2` - OpenAI GPT Image 2, high fidelity, slower
+Do not pass the `model` parameter unless you need a specific tier. Omitting it uses the configured default, which is correct for most requests.
 
-## Tips
+When you do need to choose, use an alias, not a concrete model ID. Aliases always resolve to the current model for that tier:
 
-- Be descriptive in your prompts for better results. Include details about style, composition, lighting, and mood.
-- When editing images, clearly describe what changes you want made to the source image.
-- Use the `variants` parameter (1-4) to generate multiple options and pick the best one.
-- If no API key is configured for the selected model's provider (Gemini or OpenAI), the tool will return an error - ask the user to set one up.
+- `fast`: quickest, good quality (default tier)
+- `quality`: higher fidelity, slower
+- `openai`: OpenAI's model; most permissive on photo edits
+
+Pass a concrete model ID only if the user names one explicitly. If the tool rejects an unknown model ID, the error lists the currently available models and aliases.
+
+## Example calls
+
+Generate (no model parameter, default is correct):
+
+```json
+{ "tool": "media_generate_image", "input": { "prompt": "A sunset over the ocean, golden hour, soft haze, 35mm photo style", "variants": 2 } }
+```
+
+Edit:
+
+```json
+{ "tool": "media_generate_image", "input": { "prompt": "Remove the watermark text from the background. Keep the subject, framing, lighting, and colors exactly identical. Change nothing else.", "mode": "edit", "source_paths": ["conversations/<conv-id>/attachments/photo.jpeg"], "model": "openai" } }
+```
+
+`source_paths` is a flat array of file path strings. Do NOT pass objects:
+
+- Wrong: `"source_paths": [{ "path": "img.jpeg" }]` → schema validation error
+- Right: `"source_paths": ["img.jpeg"]`
+
+## Source images for edit mode
+
+- Paths resolve inside the workspace. Conversation attachments live under `conversations/<conversation-id>/attachments/`; prefer that path for images the user attached.
+- Host paths (e.g. `~/Desktop/photo.jpg`) only work if the file arrived as an attachment; the tool falls back to the stored workspace copy. If the user references a host file that was never attached, pull it into the workspace first, then pass the workspace path.
+
+## Prompting
+
+- Generate: describe style, composition, lighting, and mood, not just the subject.
+- Edit: name the change AND what must stay the same. Models re-render the whole image, so without preservation language ("keep subject, framing, and lighting identical; only change X") they drift on crop and color.
+- Aspect ratio and size have no parameter today. State them in the prompt ("16:9 widescreen banner") and verify the output.
+- Use `variants` (1 to 4) when the user wants options or when an edit is risky; pick or present the best.
+
+## Output handling
+
+Images return as inline content blocks in the tool result; they are not written to disk automatically.
+
+- If the user just wants to see the image, the inline result is enough.
+- If the user wants a file or you need to iterate on the result, save it to disk and deliver it through the conversation's attachment mechanism.
 
 ## Error handling
 
-When image generation fails, report the error to the user as-is. **Do not** attempt to fix the error by changing service configuration (e.g. switching between "managed" and "your-own" mode, or changing the provider/model). Service configuration changes should only be made at the user's explicit request via Settings.
+Two kinds of failure. Treat them differently:
+
+1. **Configuration errors** (missing API key, provider not set up): report the error to the user as-is. Do NOT change service configuration (managed vs your-own mode, default provider, or default model in Settings). Configuration changes happen only at the user's explicit request.
+2. **Generation failures** (any other error: "invalid", content policy, safety rejection, provider error). Do not diagnose the cause; switch providers. The error message names the model that failed:
+   - If the error names a `gemini-*` model (or no model) → retry ONCE with `model: "openai"`.
+   - If the error names `gpt-image-2` or another `gpt-*` model → retry ONCE with `model: "quality"`.
+   - If the retry also fails → stop and report both errors to the user.
+
+Do NOT rephrase the prompt and retry on the same model, even if the error suggests checking the prompt. One provider switch, then stop.
+
+## Complete when
+
+The tool has returned at least one image and the user can see it: either the inline result in chat or an attached saved file. An error report counts as complete only after the retry path in Error handling has been exhausted.
