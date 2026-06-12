@@ -1981,7 +1981,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Refresh guardian access token",
           description:
-            "Refreshes an expired guardian access token. Accepts expired JWTs (signature, audience, and policy epoch are still verified — only the expiration check is relaxed). Requires `refreshToken`; the refresh token record's stored credential binding is reused when rotating credentials.",
+            "Refreshes an expired guardian access token. Accepts expired JWTs (signature, audience, and policy epoch are still verified — only the expiration check is relaxed). Requires `refreshToken`; the refresh token record's stored device binding is reused when rotating credentials.",
           operationId: "guardianRefresh",
           security: [{ BearerAuth: [] }],
           requestBody: {

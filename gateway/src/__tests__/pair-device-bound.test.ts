@@ -14,7 +14,7 @@ import { initSigningKey } from "../auth/token-service.js";
 initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long-xx"));
 
 // pair.ts → resolveLocalGuardianPrincipalId() queries the assistant DB; mock it
-// to return a stable principal. The credential-bound token records live in the
+// to return a stable principal. The device-bound token records live in the
 // (real) gateway DB initialized below.
 const mockQuery = mock();
 mock.module("../db/assistant-db-proxy.js", () => ({
@@ -197,7 +197,7 @@ describe("/v1/pair cli interface", () => {
     });
   }
 
-  test("mints a credential-bound token pair without a client deviceId", async () => {
+  test("mints a device-bound token pair without a client deviceId", async () => {
     const res = await handlePair(
       makeCliRequest({ platform: "cli" }),
       LOOPBACK_IP,

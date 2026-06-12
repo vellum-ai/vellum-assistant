@@ -1,6 +1,6 @@
 /**
  * Tests for guardian credential rotation: a refresh token record owns the
- * stored credential binding used for revocation/minting, while the bearer
+ * stored device binding used for revocation/minting, while the bearer
  * actor principal must match before rotation side effects are allowed.
  */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";

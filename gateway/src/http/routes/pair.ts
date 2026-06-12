@@ -219,7 +219,8 @@ export async function handlePair(
 
   // Chrome extension clients may still supply a deviceId to receive a
   // DB-recorded, refreshable token pair. CLI pairings are always refreshable
-  // and use a server-generated credential binding instead.
+  // and use a server-generated deviceId instead of requiring one from the
+  // client.
   let deviceId: string | undefined;
   let bodyPlatform: string | undefined;
   if ((req.headers.get("content-type") ?? "").includes("json")) {
@@ -264,12 +265,12 @@ export async function handlePair(
       );
     }
 
-    // Client-supplied binding path: mint a recorded, refreshable access token.
+    // Device-bound path: mint a recorded, refreshable access token.
     if (deviceId) {
-      return mintCredentialBoundPairResponse({
+      return mintDeviceBoundPairResponse({
         guardianPrincipalId,
         assistantId,
-        credentialBindingId: deviceId,
+        deviceId,
         platform: bodyPlatform ?? interfaceId,
         interfaceId,
         clientId,
@@ -301,9 +302,9 @@ export async function handlePair(
 
   // CLI pairing (e.g. `vellum pair`): a loopback-local caller mints a
   // refreshable credential for another machine. The loopback /
-  // X-Forwarded-For / edge-marker guards above are the boundary. The gateway
-  // generates the credential binding internally so the pairing bundle only
-  // contains the token material the remote client actually needs.
+  // X-Forwarded-For / edge-marker guards above are the boundary. The gateway now
+  // generates the deviceId internally so the pairing bundle only contains the
+  // token material the remote client actually needs.
   if (interfaceId === "cli") {
     // A real `vellum pair` is a terminal process and never sends an Origin
     // header; any Origin means a browser/WebView is calling (e.g. dynamic
@@ -317,7 +318,7 @@ export async function handlePair(
       auditDeny(req, clientIp, "cli_browser_origin", { origin });
       return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
     }
-    return mintCredentialBoundPairResponse({
+    return mintDeviceBoundPairResponse({
       guardianPrincipalId,
       assistantId,
       platform: bodyPlatform ?? "cli",
@@ -335,29 +336,29 @@ export async function handlePair(
 }
 
 /**
- * Mint a recorded refreshable credential and build the pair response. Shared
- * by the chrome-extension (client-supplied binding) and cli pairing
- * (server-generated binding) paths.
+ * Mint a device-bound, recorded, refreshable credential and build the pair
+ * response. Shared by the chrome-extension (client-supplied deviceId) and cli
+ * pairing (server-generated deviceId) paths.
  *
  * Issues the standard access + long-lived refresh token pair, so a paired
  * client renews via `/v1/guardian/refresh` instead of re-pairing. Tokens remain
- * revocable through the stored credential binding, and the refresh endpoint
+ * revocable through the stored device binding, and the refresh endpoint
  * rejects revoked/rotated tokens — so revocation, not a short TTL, bounds a
  * leaked token's reach. The access TTL matches what `/v1/guardian/refresh`
  * mints on rotation, so it stays consistent across the token's life.
  */
-function mintCredentialBoundPairResponse(opts: {
+function mintDeviceBoundPairResponse(opts: {
   guardianPrincipalId: string;
   assistantId: string;
-  credentialBindingId?: string;
+  deviceId?: string;
   platform: string;
   interfaceId: string;
   clientId: string | null;
 }): Response {
-  const credentialBindingId = opts.credentialBindingId ?? crypto.randomUUID();
+  const deviceId = opts.deviceId ?? crypto.randomUUID();
   const pair = mintAndRecordDeviceBoundTokenPair({
     guardianPrincipalId: opts.guardianPrincipalId,
-    deviceId: credentialBindingId,
+    deviceId,
     platform: opts.platform,
   });
 
@@ -368,7 +369,7 @@ function mintCredentialBoundPairResponse(opts: {
       guardianPrincipalId: opts.guardianPrincipalId,
       platform: opts.platform,
     },
-    "Client paired successfully via loopback (credential-bound)",
+    "Client paired successfully via loopback (device-bound)",
   );
 
   return Response.json({
