@@ -11,6 +11,7 @@ mock.module("../util/logger.js", () => ({
 import type { AssistantConfig } from "../config/schema.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import type { ExecuteWorkflowOptions } from "./engine.js";
+import { WorkflowNotFoundError } from "./engine.js";
 import type {
   CreateRunInput,
   WorkflowRun,
@@ -125,6 +126,8 @@ function makeHarness(opts?: {
   maxConcurrentRuns?: number;
   /** Custom engine impl; defaults to the deferred-resolver fake. */
   engine?: WorkflowRunManagerDeps["executeWorkflow"];
+  /** Saved-workflow resolver for the `start({ name })` path. */
+  getWorkflow?: WorkflowRunManagerDeps["getWorkflow"];
 }): ManagerHarness {
   const fake = makeFakeJournal();
   const executeCalls: ExecuteWorkflowOptions[] = [];
@@ -181,6 +184,7 @@ function makeHarness(opts?: {
       let n = 0;
       return () => `run-${++n}`;
     })(),
+    ...(opts?.getWorkflow ? { getWorkflow: opts.getWorkflow } : {}),
   };
 
   const manager = new WorkflowRunManager(deps);
@@ -401,5 +405,47 @@ describe("WorkflowRunManager — completion", () => {
       true,
     );
     expect(h.wakes).toHaveLength(0);
+  });
+});
+
+describe("WorkflowRunManager.start — saved-workflow name resolution", () => {
+  const SAVED_SOURCE =
+    "export const meta = { name: 'saved-flow', description: 'd' }";
+
+  test("start({ name }) resolves the library source and runs it", () => {
+    const h = makeHarness({
+      getWorkflow: (name) =>
+        name === "saved-flow"
+          ? { source: SAVED_SOURCE, path: "/ws/workflows/saved.workflow.ts" }
+          : null,
+    });
+
+    const { runId } = h.manager.start({
+      name: "saved-flow",
+      args: { x: 1 },
+      manifest: { tools: [], hostFunctions: [], persona: false },
+      trustContext: TRUST,
+    });
+
+    // The run row + engine call carry the RESOLVED source, not the name.
+    expect(h.fake.rows.get(runId)?.scriptSource).toBe(SAVED_SOURCE);
+    expect(h.executeCalls).toHaveLength(1);
+    expect(h.executeCalls[0]!.scriptSource).toBe(SAVED_SOURCE);
+    // meta.name is extracted from the resolved source.
+    expect(h.fake.rows.get(runId)?.name).toBe("saved-flow");
+  });
+
+  test("start({ name }) with an unknown name throws and creates no run row", () => {
+    const h = makeHarness({ getWorkflow: () => null });
+    expect(() =>
+      h.manager.start({
+        name: "ghost",
+        args: {},
+        manifest: { tools: [], hostFunctions: [], persona: false },
+        trustContext: TRUST,
+      }),
+    ).toThrow(WorkflowNotFoundError);
+    expect(h.executeCalls).toHaveLength(0);
+    expect(h.fake.rows.size).toBe(0);
   });
 });

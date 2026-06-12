@@ -62,6 +62,7 @@ import type { ResolvedCapabilities } from "./capabilities.js";
 import type * as JournalStore from "./journal-store.js";
 import type { WorkflowRunStatus } from "./journal-store.js";
 import type { runLeaf } from "./leaf-runner.js";
+import * as library from "./library.js";
 import { createWorkflowSandbox, WorkflowScriptError } from "./sandbox.js";
 
 const log = getLogger("workflow-engine");
@@ -147,6 +148,32 @@ class AbortedSignal extends Error {
   constructor() {
     super("Workflow aborted");
     this.name = "AbortedSignal";
+  }
+}
+
+/**
+ * Thrown into the script when `workflow(name)` references a saved workflow that
+ * does not exist in the library. Surfaces as a catchable VM exception (or, if
+ * uncaught, fails the run).
+ */
+export class WorkflowNotFoundError extends Error {
+  readonly code = "workflow_not_found" as const;
+  constructor(readonly name: string) {
+    super(`No saved workflow named "${name}".`);
+    this.name = "WorkflowNotFoundError";
+  }
+}
+
+/**
+ * Thrown into the script when `workflow()` is called from inside a nested
+ * workflow. Nesting is limited to ONE level: a top-level script may call
+ * `workflow()`, but a child workflow may not.
+ */
+export class WorkflowNestingDepthError extends Error {
+  readonly code = "workflow_nesting_too_deep" as const;
+  constructor() {
+    super("workflow() may only be called from a top-level workflow (depth 1).");
+    this.name = "WorkflowNestingDepthError";
   }
 }
 
@@ -412,102 +439,179 @@ export async function executeWorkflow(
   // --- Host functions ------------------------------------------------------
   // `agent` runs one sequential leaf and surfaces failures (throws into the
   // script). `parallel` is the fan-out primitive: it null-coalesces failures.
+  //
+  // The host API is built by a FACTORY so it can be re-bound for a nested
+  // `workflow()` child: the child reuses the SAME shared run-state (seq counter,
+  // agent cap, journal, signal, capabilities) but applies a `labelPrefix` so its
+  // leaf labels are attributed to the child workflow. The single-level nesting
+  // guard lives in the `workflow()` host fn, gated on `depth`.
 
-  const hostAgent = async (
-    promptArg: unknown,
-    optsArg?: unknown,
-  ): Promise<unknown> => {
-    const prompt = String(promptArg);
-    const leafOpts = normalizeLeafOpts(optsArg);
-    const seq = nextSeq++;
-    const { output, failed } = await runLeafAtSeq(seq, prompt, leafOpts);
-    if (failed) {
-      throw new WorkflowScriptError(
-        `Workflow agent leaf${leafOpts.label ? ` "${leafOpts.label}"` : ""} failed.`,
+  /** Prefix a leaf label with the (optional) nested-workflow attribution. */
+  const withLabelPrefix = (
+    labelPrefix: string,
+    leafOpts: LeafCallOptions,
+  ): LeafCallOptions => {
+    if (!labelPrefix) return leafOpts;
+    const base = leafOpts.label ?? "";
+    return {
+      ...leafOpts,
+      label: base ? `${labelPrefix}/${base}` : labelPrefix,
+    };
+  };
+
+  /**
+   * Build the host API bound to the shared run-state. `labelPrefix` attributes a
+   * nested child's leaves; `depth` (0 = top-level, 1 = nested) gates `workflow()`.
+   */
+  const buildHostFunctions = (
+    labelPrefix: string,
+    depth: number,
+  ): Record<string, (...a: unknown[]) => unknown | Promise<unknown>> => {
+    const hostAgent = async (
+      promptArg: unknown,
+      optsArg?: unknown,
+    ): Promise<unknown> => {
+      const prompt = String(promptArg);
+      const leafOpts = withLabelPrefix(labelPrefix, normalizeLeafOpts(optsArg));
+      const seq = nextSeq++;
+      const { output, failed } = await runLeafAtSeq(seq, prompt, leafOpts);
+      if (failed) {
+        throw new WorkflowScriptError(
+          `Workflow agent leaf${leafOpts.label ? ` "${leafOpts.label}"` : ""} failed.`,
+        );
+      }
+      return output;
+    };
+
+    const hostLeaf = (promptArg: unknown, optsArg?: unknown): LeafSpec => ({
+      __workflowSpec: true,
+      prompt: String(promptArg),
+      opts: withLabelPrefix(labelPrefix, normalizeLeafOpts(optsArg)),
+    });
+
+    const hostParallel = async (specsArg: unknown): Promise<unknown[]> => {
+      // A spec built by `leaf()` already carries the child label prefix; a
+      // bare-string spec (sugar) bypassed `leaf()`, so prefix it here. Either
+      // way the prefix is applied EXACTLY once.
+      const specs = toSpecArray(specsArg).map((spec, i) =>
+        typeof (specsArg as unknown[])[i] === "string"
+          ? { ...spec, opts: withLabelPrefix(labelPrefix, spec.opts) }
+          : spec,
       );
-    }
-    return output;
-  };
-
-  const hostLeaf = (promptArg: unknown, optsArg?: unknown): LeafSpec => ({
-    __workflowSpec: true,
-    prompt: String(promptArg),
-    opts: normalizeLeafOpts(optsArg),
-  });
-
-  const hostParallel = async (specsArg: unknown): Promise<unknown[]> => {
-    const specs = toSpecArray(specsArg);
-    // Assign seqs in array order BEFORE launching concurrency, so completion
-    // order cannot perturb the deterministic seq mapping.
-    const assigned = specs.map((spec) => ({ spec, seq: nextSeq++ }));
-    return runWithConcurrency(
-      assigned,
-      config.maxConcurrentLeaves,
-      async ({ spec, seq }) => {
-        const { output } = await runLeafAtSeq(seq, spec.prompt, spec.opts);
-        // `parallel` never throws on a single leaf failure — it yields null.
-        return output;
-      },
-    );
-  };
-
-  const hostPhase = (titleArg: unknown): void => {
-    onProgress?.({ type: "phase", title: String(titleArg) });
-  };
-  const hostLog = (msgArg: unknown): void => {
-    onProgress?.({ type: "log", message: String(msgArg) });
-  };
-  const hostUsage = (): {
-    agentsSpawned: number;
-    inputTokens: number;
-    outputTokens: number;
-  } => ({ agentsSpawned, inputTokens, outputTokens });
-
-  // Always-available host functions.
-  const hostFunctions: Record<
-    string,
-    (...a: unknown[]) => unknown | Promise<unknown>
-  > = {
-    agent: (p, o) => hostAgent(p, o),
-    leaf: (p, o) => hostLeaf(p, o),
-    parallel: (s) => hostParallel(s),
-    phase: (t) => hostPhase(t),
-    log: (m) => hostLog(m),
-    usage: () => hostUsage(),
-  };
-
-  // Manifest-declared host functions are injected by name as no-op-safe stubs
-  // only when explicitly granted. (Their concrete impls are bound by later PRs;
-  // here we expose the names so an undeclared call is a ReferenceError and a
-  // declared-but-unbound call fails loudly rather than silently.)
-  for (const name of capabilities.hostFunctions) {
-    if (name in hostFunctions) continue;
-    hostFunctions[name] = () => {
-      throw new WorkflowScriptError(
-        `Host function "${name}" is declared but not bound in this engine build.`,
+      // Assign seqs in array order BEFORE launching concurrency, so completion
+      // order cannot perturb the deterministic seq mapping.
+      const assigned = specs.map((spec) => ({ spec, seq: nextSeq++ }));
+      return runWithConcurrency(
+        assigned,
+        config.maxConcurrentLeaves,
+        async ({ spec, seq }) => {
+          const { output } = await runLeafAtSeq(seq, spec.prompt, spec.opts);
+          // `parallel` never throws on a single leaf failure — it yields null.
+          return output;
+        },
       );
     };
-  }
 
-  // The prelude defines `map`/`pipeline` over `parallel`; prepend it so the
-  // user script can call them. The sandbox runs the script as a SYNCHRONOUS
-  // function body, where a top-level `export` is a syntax error — strip the
-  // `export` keyword(s) so `export const meta = ...` becomes a plain local.
-  const fullScript = `${SCRIPT_PRELUDE_HELPERS}${SCRIPT_PRELUDE}\n${stripTopLevelExports(scriptSource)}`;
+    const hostPhase = (titleArg: unknown): void => {
+      onProgress?.({ type: "phase", title: String(titleArg) });
+    };
+    const hostLog = (msgArg: unknown): void => {
+      onProgress?.({ type: "log", message: String(msgArg) });
+    };
+    const hostUsage = (): {
+      agentsSpawned: number;
+      inputTokens: number;
+      outputTokens: number;
+    } => ({ agentsSpawned, inputTokens, outputTokens });
 
-  const sandbox = createWorkflowSandbox({
-    hostFunctions,
-    ...(onProgress
-      ? { onLog: (m) => onProgress({ type: "log", message: m }) }
-      : {}),
-    ...(signal ? { signal } : {}),
-  });
+    /**
+     * Run a saved workflow by name INLINE as part of this run: the child draws
+     * `seq` from the same counter, counts against the same agent cap, and shares
+     * the same journal/signal/leaf-runner — so determinism and journaled resume
+     * carry across the nesting boundary. Nesting is depth-1 only: a `workflow()`
+     * call from inside a child throws {@link WorkflowNestingDepthError}.
+     */
+    const hostWorkflow = async (
+      nameArg: unknown,
+      childArgs?: unknown,
+    ): Promise<unknown> => {
+      if (depth >= 1) throw new WorkflowNestingDepthError();
+      if (signal?.aborted) throw new AbortedSignal();
+      const childName = String(nameArg);
+      const saved = library.getWorkflow(childName);
+      if (!saved) throw new WorkflowNotFoundError(childName);
+      // The child runs in its OWN sandbox VM (the parent VM is suspended in
+      // asyncify and cannot be re-entered), but with host functions bound to the
+      // SAME shared run-state and a child label prefix, at depth 1.
+      const childHostFns = buildHostFunctions(childName, depth + 1);
+      return runScriptInSandbox(saved.source, childArgs ?? null, childHostFns);
+    };
+
+    // Always-available host functions.
+    const hostFunctions: Record<
+      string,
+      (...a: unknown[]) => unknown | Promise<unknown>
+    > = {
+      agent: (p, o) => hostAgent(p, o),
+      leaf: (p, o) => hostLeaf(p, o),
+      parallel: (s) => hostParallel(s),
+      workflow: (n, a) => hostWorkflow(n, a),
+      phase: (t) => hostPhase(t),
+      log: (m) => hostLog(m),
+      usage: () => hostUsage(),
+    };
+
+    // Manifest-declared host functions are injected by name as no-op-safe stubs
+    // only when explicitly granted. (Their concrete impls are bound by later
+    // PRs; here we expose the names so an undeclared call is a ReferenceError and
+    // a declared-but-unbound call fails loudly rather than silently.)
+    for (const name of capabilities.hostFunctions) {
+      if (name in hostFunctions) continue;
+      hostFunctions[name] = () => {
+        throw new WorkflowScriptError(
+          `Host function "${name}" is declared but not bound in this engine build.`,
+        );
+      };
+    }
+    return hostFunctions;
+  };
+
+  /**
+   * Run one workflow script source in a fresh sandbox VM, wired to the given
+   * host functions. Shared by the top-level run and every nested `workflow()`
+   * child. The prelude defines `map`/`pipeline` over `parallel`; prepend it so
+   * the script can call them. The sandbox runs the script as a SYNCHRONOUS
+   * function body, where a top-level `export` is a syntax error — strip the
+   * `export` keyword(s) so `export const meta = ...` becomes a plain local.
+   */
+  const runScriptInSandbox = (
+    source: string,
+    scriptArgs: unknown,
+    hostFunctions: Record<
+      string,
+      (...a: unknown[]) => unknown | Promise<unknown>
+    >,
+  ): Promise<unknown> => {
+    const fullScript = `${SCRIPT_PRELUDE_HELPERS}${SCRIPT_PRELUDE}\n${stripTopLevelExports(source)}`;
+    const sandbox = createWorkflowSandbox({
+      hostFunctions,
+      ...(onProgress
+        ? { onLog: (m) => onProgress({ type: "log", message: m }) }
+        : {}),
+      ...(signal ? { signal } : {}),
+    });
+    return sandbox.run(fullScript, scriptArgs);
+  };
 
   let status: WorkflowRunStatus;
   let result: unknown = null;
 
   try {
-    result = await sandbox.run(fullScript, args);
+    result = await runScriptInSandbox(
+      scriptSource,
+      args,
+      buildHostFunctions("", 0),
+    );
     status = "completed";
   } catch (err) {
     if (capExceeded || err instanceof CapExceededSignal) {
