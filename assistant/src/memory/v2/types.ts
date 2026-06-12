@@ -62,6 +62,11 @@ export const ConceptPageFrontmatterSchema = z
     main: z.string().optional(),
     kind: z.string().optional(),
     status: z.string().optional(),
+    // One-line live state of the page's subject (open items, deadlines,
+    // what's pending), as-of dated by convention. Memory-v3 renders it on the
+    // card surface so state-shaped questions can select the page. Distinct
+    // from `status:` (the article-model draft marker, e.g. "cc-draft").
+    current: z.string().optional(),
   })
   .strict();
 

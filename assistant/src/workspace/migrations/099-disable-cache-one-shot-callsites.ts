@@ -30,7 +30,7 @@ const ONE_SHOT_CALL_SITES = [
 ] as const;
 
 export const disableCacheOneShotCallsitesMigration: WorkspaceMigration = {
-  id: "098-disable-cache-one-shot-callsites",
+  id: "099-disable-cache-one-shot-callsites",
   description:
     "Add disableCache: true to existing one-shot call-site entries so upgraded workspaces match the new shipped defaults",
   run(workspaceDir: string): void {

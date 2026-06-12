@@ -3,7 +3,7 @@
  *
  * `runBackgroundJob()` consolidates the bootstrap → processMessage → timeout
  * pattern that every background producer (heartbeat, filing, scheduler, memory
- * consolidation, watcher, update-bulletin, subagent, sequence) has been
+ * consolidation, watcher, subagent, sequence) has been
  * open-coding. Wrapping it here lets us:
  *
  *  - apply a single timeout policy
@@ -182,7 +182,7 @@ export async function runBackgroundJob(
   // failed" rows visible in the sidebar the moment a real user hatches the
   // assistant — see `pre-first-message-gate.ts` for the rationale.
   //
-  // Service-level callers (heartbeat, update-bulletin) are expected to gate
+  // Service-level callers (e.g. heartbeat) are expected to gate
   // earlier and never reach this point; reaching the gate here means a
   // caller either forgot to gate or deliberately opted in via
   // `allowPreFirstUserMessage`. We log at `info` (not `warn`) because the

@@ -9,14 +9,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { disableCacheOneShotCallsitesMigration } from "../workspace/migrations/098-disable-cache-one-shot-callsites.js";
+import { disableCacheOneShotCallsitesMigration } from "../workspace/migrations/099-disable-cache-one-shot-callsites.js";
 
 let workspaceDir: string;
 
 function freshWorkspace(): void {
   workspaceDir = join(
     tmpdir(),
-    `vellum-migration-098-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `vellum-migration-099-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   mkdirSync(workspaceDir, { recursive: true });
 }
@@ -50,10 +50,10 @@ function callSites(config: Record<string, unknown>): CallSites {
   return (config.llm as { callSites: CallSites }).callSites;
 }
 
-describe("098-disable-cache-one-shot-callsites migration", () => {
+describe("099-disable-cache-one-shot-callsites migration", () => {
   test("has correct migration id", () => {
     expect(disableCacheOneShotCallsitesMigration.id).toBe(
-      "098-disable-cache-one-shot-callsites",
+      "099-disable-cache-one-shot-callsites",
     );
   });
 

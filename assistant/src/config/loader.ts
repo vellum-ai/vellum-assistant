@@ -201,10 +201,10 @@ function filesystemSafeTimestamp(date: Date = new Date()): string {
  * in `.json` so editors syntax-highlight the preserved content:
  *   `<path>.corrupt-<ISO-timestamp>.json`
  *
- * On a successful rename, also appends a bulletin to `<workspace>/UPDATES.md`
- * so the background update-bulletin job surfaces the event to the user
- * proactively on their next interaction (log-level errors alone are invisible
- * to users).
+ * On a successful rename, also appends a note to `<workspace>/UPDATES.md`
+ * so the event is recorded where the agent can find it when the user asks
+ * why their settings changed (log-level errors alone are invisible to
+ * users).
  */
 function quarantineCorruptConfig(configPath: string, err: unknown): string {
   const quarantinePath = `${configPath}.corrupt-${filesystemSafeTimestamp()}.json`;
@@ -227,19 +227,17 @@ function quarantineCorruptConfig(configPath: string, err: unknown): string {
 }
 
 /**
- * Append a config-quarantine bulletin to `<workspace>/UPDATES.md`. On the
- * next daemon boot the background update-bulletin job picks up UPDATES.md
- * and processes it inside a background-only conversation (not the user's
- * chat). The agent decides whether and when to surface the event — typical
- * cases are the user asking why their settings changed or noticing missing
- * API keys. The bulletin is agent-visible context, not a push notification.
+ * Append a config-quarantine note to `<workspace>/UPDATES.md`. The file is
+ * passive workspace context: nothing processes it proactively, but it lives
+ * in the assistant's workspace so the agent can discover it organically —
+ * typical cases are the user asking why their settings changed or noticing
+ * missing API keys. The note is agent-visible context, not a push
+ * notification.
  *
  * Idempotency: the appended block embeds a marker keyed on the quarantine
  * filename's basename. If that marker is already present in UPDATES.md (a
  * prior append succeeded but the process crashed before control returned, or
- * the file was hand-edited), the function is a no-op. This mirrors the
- * pattern release-notes workspace migrations use — see the "Release Update
- * Hygiene" section in the root `AGENTS.md`.
+ * the file was hand-edited), the function is a no-op.
  *
  * Best-effort: any write failure is logged at `warn` and swallowed. The
  * quarantine path must never block startup, and the error log from

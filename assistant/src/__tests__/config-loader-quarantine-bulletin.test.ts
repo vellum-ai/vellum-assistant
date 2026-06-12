@@ -92,8 +92,8 @@ describe("config-quarantine UPDATES.md bulletin", () => {
     expect(existsSync(UPDATES_PATH)).toBe(true);
     const body = readFileSync(UPDATES_PATH, "utf-8");
 
-    // Heading must match the wording the background update-bulletin job
-    // relays to the user.
+    // Heading must be recognizable when the agent discovers the note in
+    // its workspace.
     expect(body).toContain("## Config was reset to defaults");
     // Quarantine file path is what the user cats to recover.
     expect(body).toContain(quarantinedPath);
