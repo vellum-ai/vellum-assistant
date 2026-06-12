@@ -477,8 +477,17 @@ async function runForkBasedRetrospective(
   // unconditionally (not gated on matchConversationProfile): the correct
   // persona is a review-quality fix on its own; with profile matching it
   // additionally preserves the source's cached system-prompt prefix.
-  // `undefined` (identity not recoverable) keeps today's behavior.
-  const personaOverride = resolveSourcePersonaOverride(sourceConversation);
+  // An empty slug resolution (identity not recoverable) keeps today's
+  // persona behavior. `hasNoClient` is pinned to the live-turn value
+  // unconditionally: the fork is hydrated clientless
+  // (`getOrCreateConversation` → `updateClient(_, true)`), but the source's
+  // live turns ran with `hasNoClient = false`, and the prompt's
+  // `05-access-preference` section renders different text under the flag —
+  // early enough to break byte-parity with the source's cached prefix.
+  const personaOverride: SystemPromptPersonaOverride = {
+    ...resolveSourcePersonaOverride(sourceConversation),
+    hasNoClient: false,
+  };
 
   // `skipHintInjection: true` because the instruction is already a
   // persisted message — the wake's hint sandwich would only duplicate it.
@@ -506,7 +515,7 @@ async function runForkBasedRetrospective(
       ...(matchedProfile !== undefined
         ? { forceOverrideProfile: matchedProfile }
         : {}),
-      ...(personaOverride !== undefined ? { personaOverride } : {}),
+      personaOverride,
       hintRole: "user",
       skipHintInjection: true,
       suppressAutoCompaction: true,

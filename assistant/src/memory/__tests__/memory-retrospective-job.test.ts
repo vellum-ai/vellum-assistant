@@ -805,6 +805,7 @@ describe("memoryRetrospectiveJob", () => {
     expect(wakeCalls[0]!.opts.personaOverride).toEqual({
       userSlug: "alice",
       channelSlug: "vellum",
+      hasNoClient: false,
     });
     // Resolved via the live-turn guardian branch: undefined trust context,
     // never the wake's internal guardian context.
@@ -826,10 +827,11 @@ describe("memoryRetrospectiveJob", () => {
     expect(wakeCalls[0]!.opts.personaOverride).toEqual({
       userSlug: "alice",
       channelSlug: "vellum",
+      hasNoClient: false,
     });
   });
 
-  test("fork path: channel-routed source → no persona override (identity not recoverable)", async () => {
+  test("fork path: channel-routed source → no persona slugs (identity not recoverable), hasNoClient still pinned", async () => {
     forkFlagEnabled = true;
     conversationOverrides["src-conv-1"] = {
       source: "user",
@@ -841,7 +843,10 @@ describe("memoryRetrospectiveJob", () => {
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 
     expect(wakeCalls).toHaveLength(1);
-    expect("personaOverride" in wakeCalls[0]!.opts).toBe(false);
+    // The slugs are unrecoverable for a channel-routed source, but the
+    // hasNoClient pin is unconditional: the fork hydrates clientless while
+    // the source's live turns ran with hasNoClient = false.
+    expect(wakeCalls[0]!.opts.personaOverride).toEqual({ hasNoClient: false });
     expect(resolveUserSlugCalls).toEqual([]);
   });
 
@@ -855,6 +860,7 @@ describe("memoryRetrospectiveJob", () => {
     expect(wakeCalls[0]!.opts.personaOverride).toEqual({
       userSlug: "default",
       channelSlug: "vellum",
+      hasNoClient: false,
     });
   });
 
@@ -870,6 +876,7 @@ describe("memoryRetrospectiveJob", () => {
     expect(wakeCalls[0]!.opts.personaOverride).toEqual({
       userSlug: "alice",
       channelSlug: "vellum",
+      hasNoClient: false,
     });
   });
 
