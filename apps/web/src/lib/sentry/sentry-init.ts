@@ -84,6 +84,9 @@ const options: BrowserOptions = {
     /^Load failed($| \()/,
     /^Failed to fetch($| \()/,
     /^NetworkError when attempting to fetch resource\.?($| \()/,
+    // Mid-stream body-read errors (after HTTP 200, during ReadableStream).
+    /^network error$/,
+    /^Error in input stream$/,
   ],
   denyUrls: [
     // Browser-extension schemes.
