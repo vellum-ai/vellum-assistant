@@ -39,6 +39,8 @@ Single (1×1), suite (1×M), ablation (N×1), full matrix (N×M). Same codepath.
 
 Also the **cost/usage authority.** The proxy parses token counts out of the observed model responses and the harness prices them locally, so cost reflects real traffic and can't be spoofed by an adapter or assistant choosing what to emit. Assistant-side usage must come from `readUsageRecords()` — never from emitted events. (Harness-owned calls like the LLM judge are not assistant traffic, so they price from their own usage.)
 
+The jail is **fail-closed** (default DROP; only model + `platform.vellum.ai` hosts allowlisted), so a jailed adapter must pre-stage everything its model calls need _before_ the jail closes — provider SDKs (some species install them lazily at first use), CA trust for the recording proxy's TLS interception, and a provider pinned to an allowlisted host. Relying on runtime installs, certifi's default trust store, or provider auto-resolution makes a turn hang on dropped traffic until its retry budget expires. See `src/lib/adapters/hermes.ts`.
+
 **Report card:** JSONL — one row per (profile × test × run). Static HTML report rendered alongside.
 
 ## Conventions
