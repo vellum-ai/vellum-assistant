@@ -74,6 +74,12 @@ function seedThreads(body: string): void {
   writeFileSync(path, body, "utf-8");
 }
 
+function seedBuffer(body: string): void {
+  const path = getWorkspacePromptPath("memory/buffer.md");
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, body, "utf-8");
+}
+
 function clearV2StaticFiles(): void {
   for (const file of [
     "memory/essentials.md",
@@ -114,6 +120,22 @@ describe("memory-v2-static injector", () => {
     expect(block!.text).toBe(
       "<info>\n## Essentials\n\nAlice prefers VS Code.\n\n## Threads\n\nOpen: ship PR.\n</info>",
     );
+  });
+
+  test("suppresses the Buffer section on memoryV2Consolidation turns", async () => {
+    seedEssentials("Alice prefers VS Code.");
+    seedBuffer("- [Apr 27, 9:00 AM] backlog entry");
+
+    const consolidationBlock = await memoryV2StaticInjector.produce(
+      makeContext({ callSite: "memoryV2Consolidation" }),
+    );
+    expect(consolidationBlock).not.toBeNull();
+    expect(consolidationBlock!.text).toContain("## Essentials");
+    expect(consolidationBlock!.text).not.toContain("## Buffer");
+
+    // Other call sites (and untagged turns) keep the buffer section.
+    const mainBlock = await memoryV2StaticInjector.produce(makeContext());
+    expect(mainBlock!.text).toContain("## Buffer");
   });
 
   test("escapes inner </info> closing tags so the wrapper cannot be broken out of", async () => {

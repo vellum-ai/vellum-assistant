@@ -310,7 +310,9 @@ describe("report html", () => {
       kind: "execution",
       run: executionDetail,
     });
-    expect(executionHtml).toContain(">100.00%</div>");
+    // The execution page renders the aggregate score in the Score tab pill
+    // and each metric's score in the report card — both as percentages.
+    expect(executionHtml).toContain(">100.00%</span>");
   });
 
   test("metrics with unit: 'raw' opt out of percent rendering", () => {

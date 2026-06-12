@@ -23,6 +23,7 @@ import {
   PluginNotFoundError,
 } from "../lib/install-from-github.js";
 import { listInstalledPlugins } from "../lib/list-installed-plugins.js";
+import type { FingerprintComparison } from "../lib/plugin-fingerprint.js";
 import { registerCommand } from "../lib/register-command.js";
 import {
   InvalidSearchPatternError,
@@ -32,6 +33,11 @@ import {
   PluginNotInstalledError,
   uninstallPlugin,
 } from "../lib/uninstall-plugin.js";
+import {
+  PluginNotUpgradableError,
+  type PluginUpgradeResult,
+  upgradePlugin,
+} from "../lib/upgrade-plugin.js";
 import { getCliLogger } from "../logger.js";
 
 const log = getCliLogger("plugins");
@@ -53,6 +59,8 @@ Examples:
   $ assistant plugins list --json
   $ assistant plugins inspect example
   $ assistant plugins inspect example --json
+  $ assistant plugins upgrade example
+  $ assistant plugins upgrade example --dry-run
   $ assistant plugins search example
   $ assistant plugins search "^example"
   $ assistant plugins search example --json
@@ -308,6 +316,61 @@ Examples:
             process.exitCode = 1;
           }
         });
+
+      plugins
+        .command("upgrade <name>")
+        .description(
+          "Upgrade an installed plugin to the marketplace's current pin",
+        )
+        .option(
+          "--dry-run",
+          "Show what would change without modifying the install",
+        )
+        .option("--json", "Emit machine-readable JSON instead of a summary")
+        .action(
+          async (name: string, opts: { dryRun?: boolean; json?: boolean }) => {
+            try {
+              const result = await upgradePlugin(
+                { name, dryRun: opts.dryRun },
+                { fetch: globalThis.fetch.bind(globalThis) },
+              );
+
+              if (opts.json) {
+                process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+                return;
+              }
+
+              // Logged after the JSON early-return: the CLI logger writes
+              // info to stdout, which would otherwise corrupt --json output.
+              log.info(
+                {
+                  name: result.name,
+                  outcome: result.outcome,
+                  from: result.fromCommit,
+                  to: result.toCommit,
+                },
+                "plugin upgrade",
+              );
+
+              for (const line of formatUpgrade(result)) {
+                console.log(line);
+              }
+            } catch (err) {
+              if (
+                err instanceof PluginNotInstalledError ||
+                err instanceof PluginNotUpgradableError ||
+                err instanceof InvalidPluginNameError
+              ) {
+                console.error(err.message);
+                process.exitCode = 1;
+                return;
+              }
+              const message = err instanceof Error ? err.message : String(err);
+              console.error(`Plugin upgrade failed: ${message}`);
+              process.exitCode = 1;
+            }
+          },
+        );
     },
   });
 }
@@ -338,6 +401,23 @@ function statusLine(inspection: PluginInspection): string {
   }
 }
 
+/**
+ * Summarize local edits relative to the install-time fingerprint. Reports
+ * "unknown" when no baseline was recorded (an older or manually-copied
+ * install), "none" when the on-disk tree matches, or a per-category count.
+ */
+function localEditsLine(changes: FingerprintComparison | null): string {
+  if (!changes)
+    return "unknown (no recorded baseline; reinstall to record one)";
+  if (changes.clean) return "none";
+  const parts = [
+    `${changes.modified.length} modified`,
+    `${changes.added.length} added`,
+    `${changes.removed.length} removed`,
+  ];
+  return parts.join(", ");
+}
+
 /** Render an inspection as aligned, human-readable summary lines. */
 function formatInspection(inspection: PluginInspection): string[] {
   const { name, local, remote, remoteError } = inspection;
@@ -352,6 +432,7 @@ function formatInspection(inspection: PluginInspection): string[] {
       ? `  (${local.installedAt.slice(0, 10)})`
       : "";
     row("installed", `${shortSha(local.commit)}${installedAt}`);
+    row("local edits", localEditsLine(local.localChanges));
   }
 
   if (remote) {
@@ -379,4 +460,32 @@ function formatInspection(inspection: PluginInspection): string[] {
   for (const issue of local?.issues ?? []) row("issue", issue);
 
   return lines;
+}
+
+/** Render an upgrade result as human-readable summary lines. */
+function formatUpgrade(result: PluginUpgradeResult): string[] {
+  const { name, fromCommit, toCommit } = result;
+  const move = `${shortSha(fromCommit)} → ${shortSha(toCommit)}`;
+  const provenanceNote = result.provenanceWasUnknown
+    ? " (previous install had no recorded provenance)"
+    : "";
+
+  switch (result.outcome) {
+    case "already-up-to-date":
+      return [`"${name}" is already up to date (${shortSha(toCommit)}).`];
+    case "would-upgrade":
+      return [
+        `"${name}" would upgrade ${move}${provenanceNote} (dry run; no changes made).`,
+      ];
+    case "upgraded": {
+      const count =
+        result.fileCount === null
+          ? ""
+          : ` (${result.fileCount} file${result.fileCount === 1 ? "" : "s"})`;
+      return [
+        `Upgraded "${name}" ${move}${count}${provenanceNote} → ${result.target}`,
+        "Restart the assistant to pick up the upgrade.",
+      ];
+    }
+  }
 }

@@ -18,6 +18,7 @@ import {
   PluginInspectNotFoundError,
 } from "../inspect-plugin.js";
 import type { FetchLike } from "../install-from-github.js";
+import { computeFingerprint } from "../plugin-fingerprint.js";
 
 const SHA_A = "a".repeat(40);
 const SHA_B = "b".repeat(40);
@@ -65,6 +66,8 @@ function installPlugin(
   opts: {
     version?: string;
     sidecar?: { commit?: string | null; ref?: string } | null;
+    /** Embed a content fingerprint of the materialized tree in the sidecar. */
+    fingerprint?: boolean;
   } = {},
 ): void {
   const dir = join(workspace, name);
@@ -79,9 +82,15 @@ function installPlugin(
   );
   if (opts.sidecar !== null) {
     const sidecar = opts.sidecar ?? { commit: SHA_A };
+    // Mirror install: fingerprint the tree before the sidecar is written so it
+    // is not part of its own baseline.
+    const fingerprint = opts.fingerprint
+      ? computeFingerprint(dir, ["install-meta.json"])
+      : undefined;
     writeFileSync(
-      join(dir, ".vellum-plugin.json"),
+      join(dir, "install-meta.json"),
       JSON.stringify({
+        origin: "vellum",
         name,
         source: {
           kind: "github",
@@ -91,6 +100,7 @@ function installPlugin(
         },
         commit: sidecar.commit ?? undefined,
         installedAt: "2026-06-10T12:00:00.000Z",
+        fingerprint,
       }),
     );
   }
@@ -231,6 +241,66 @@ describe("inspectPlugin", () => {
     expect(result.local?.commit).toBe(SHA_A);
     expect(result.remote).toBeNull();
     expect(result.remoteError).toContain("network down");
+  });
+
+  test("reports no local changes when the on-disk tree matches the fingerprint", async () => {
+    // GIVEN an installed plugin with a recorded content fingerprint, untouched
+    installPlugin(workspace, "level-up", {
+      sidecar: { commit: SHA_A },
+      fingerprint: true,
+    });
+    const fetch = makeFetch({ marketplace: manifestWith("level-up", SHA_A) });
+
+    // WHEN it is inspected
+    const result = await inspectPlugin(
+      { name: "level-up" },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN the local copy is reported clean against its baseline
+    expect(result.local?.localChanges?.clean).toBe(true);
+    expect(result.local?.localChanges?.modified).toEqual([]);
+  });
+
+  test("detects a locally modified file against the fingerprint", async () => {
+    // GIVEN an installed plugin with a recorded fingerprint
+    installPlugin(workspace, "level-up", {
+      sidecar: { commit: SHA_A },
+      fingerprint: true,
+    });
+
+    // AND a tracked file is edited after install
+    writeFileSync(
+      join(workspace, "level-up", "package.json"),
+      JSON.stringify({ name: "level-up", version: "9.9.9" }),
+    );
+    const fetch = makeFetch({ marketplace: manifestWith("level-up", SHA_A) });
+
+    // WHEN it is inspected
+    const result = await inspectPlugin(
+      { name: "level-up" },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN the edited file surfaces as a local modification
+    expect(result.local?.localChanges?.clean).toBe(false);
+    expect(result.local?.localChanges?.modified).toEqual(["package.json"]);
+  });
+
+  test("reports unknown local changes when no fingerprint was recorded", async () => {
+    // GIVEN an install whose sidecar predates fingerprinting
+    installPlugin(workspace, "level-up", { sidecar: { commit: SHA_A } });
+    const fetch = makeFetch({ marketplace: manifestWith("level-up", SHA_A) });
+
+    // WHEN it is inspected
+    const result = await inspectPlugin(
+      { name: "level-up" },
+      { fetch, workspacePluginsDir: workspace },
+    );
+
+    // THEN modification cannot be determined
+    expect(result.local).not.toBeNull();
+    expect(result.local?.localChanges).toBeNull();
   });
 
   test("throws when the plugin is neither installed nor in the marketplace", async () => {

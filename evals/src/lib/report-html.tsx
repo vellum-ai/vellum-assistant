@@ -230,6 +230,43 @@ pre.log { max-height: 480px; overflow: auto; padding: 16px; border-radius: 16px;
 .cost-diag-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .cost-diag-table th, .cost-diag-table td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border); }
 .cost-diag-table th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; }
+.tabs { margin-top: 4px; }
+.tab-input { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.tablist { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+.tab-pill { display: flex; flex-direction: column; gap: 8px; padding: 18px; border-radius: 22px; background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.035)); border: 1px solid var(--border); cursor: pointer; transition: .15s ease; }
+.tab-pill:hover { border-color: rgba(139,92,246,.45); transform: translateY(-1px); }
+.tab-pill-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .12em; font-weight: 800; }
+.tab-pill-value { font-size: 30px; font-weight: 900; letter-spacing: -.04em; }
+.tabpanel { display: none; padding: 24px; border-radius: 24px; background: rgba(0,0,0,.18); border: 1px solid var(--border); }
+.tabpanel h2 { margin: 0 0 14px; font-size: 20px; letter-spacing: -.03em; }
+#exec-tab-score:checked ~ .tabpanels .panel-score,
+#exec-tab-turns:checked ~ .tabpanels .panel-turns,
+#exec-tab-cost:checked ~ .tabpanels .panel-cost,
+#exec-tab-logs:checked ~ .tabpanels .panel-logs { display: block; }
+#exec-tab-score:checked ~ .tablist label[for="exec-tab-score"],
+#exec-tab-turns:checked ~ .tablist label[for="exec-tab-turns"],
+#exec-tab-cost:checked ~ .tablist label[for="exec-tab-cost"],
+#exec-tab-logs:checked ~ .tablist label[for="exec-tab-logs"] { border-color: rgba(139,92,246,.7); background: linear-gradient(180deg, rgba(139,92,246,.22), rgba(34,211,238,.08)); }
+#exec-tab-score:focus-visible ~ .tablist label[for="exec-tab-score"],
+#exec-tab-turns:focus-visible ~ .tablist label[for="exec-tab-turns"],
+#exec-tab-cost:focus-visible ~ .tablist label[for="exec-tab-cost"],
+#exec-tab-logs:focus-visible ~ .tablist label[for="exec-tab-logs"] { outline: 2px solid var(--accent2); outline-offset: 2px; }
+.log-group { margin-top: 24px; }
+.log-group:first-child { margin-top: 0; }
+.log-group h3 { font-size: 16px; margin: 0 0 8px; letter-spacing: -.02em; }
+.metric-card-list { display: flex; flex-direction: column; gap: 10px; }
+.metric-card { border: 1px solid var(--border); border-radius: 16px; background: rgba(255,255,255,.04); overflow: hidden; }
+.metric-card > summary { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 14px 16px; cursor: pointer; list-style: none; }
+.metric-card > summary::-webkit-details-marker { display: none; }
+.metric-card > summary::after { content: "▸"; color: var(--muted); transition: transform .15s ease; }
+.metric-card[open] > summary::after { transform: rotate(90deg); }
+.metric-card-name { font-weight: 800; }
+.metric-card-detail { padding: 0 16px 16px; border-top: 1px solid var(--border); }
+.metric-card-reason { white-space: pre-wrap; line-height: 1.5; margin: 12px 0 0; }
+.metric-card-meta { display: grid; gap: 8px; margin: 14px 0 0; }
+.metric-card-meta > div { display: grid; grid-template-columns: 160px 1fr; gap: 12px; align-items: start; }
+.metric-card-meta dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; margin: 0; }
+.metric-card-meta dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; word-break: break-word; }
 .debug-section { border: 1px solid rgba(251, 113, 133, .24); background: rgba(251, 113, 133, .06); }
 .debug-item { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
 .debug-item:last-child { margin-bottom: 0; }
@@ -928,34 +965,55 @@ function ProfileInSessionPage({
   );
 }
 
-function MetricTable({ metrics }: { metrics: MetricResult[] }) {
+/**
+ * The Score tab's report card: one expandable row per metric. The summary
+ * always shows the metric name + its scored value; expanding reveals the
+ * scorer's `reason` and any structured `metadata` it attached. Rendered with
+ * native `<details>` so it stays interactive in the fully static,
+ * no-JS report bundle.
+ */
+function MetricReportCard({ metrics }: { metrics: MetricResult[] }) {
   if (metrics.length === 0) {
     return <p className="muted">No metrics recorded for this run yet.</p>;
   }
 
   return (
-    <table>
-      <thead>
-        <tr>
-          <th>Metric</th>
-          <th>Score</th>
-          <th>Reason</th>
-        </tr>
-      </thead>
-      <tbody>
-        {metrics.map((metric) => (
-          <tr key={metric.name}>
-            <td>
-              <strong>{metric.name}</strong>
-            </td>
-            <td className={`score ${scoreClass(metric.score)}`}>
-              {formatScore(metric.score, metric.unit, 2)}
-            </td>
-            <td>{metric.reason ?? ""}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="metric-card-list">
+      {metrics.map((metric) => {
+        const meta = metric.metadata ? Object.entries(metric.metadata) : [];
+        return (
+          <details key={metric.name} className="metric-card">
+            <summary className="metric-card-summary">
+              <span className="metric-card-name">{metric.name}</span>
+              <span className={`score ${scoreClass(metric.score)}`}>
+                {formatScore(metric.score, metric.unit, 2)}
+              </span>
+            </summary>
+            <div className="metric-card-detail">
+              {metric.reason ? (
+                <p className="metric-card-reason">{metric.reason}</p>
+              ) : (
+                <p className="muted">No reason recorded for this metric.</p>
+              )}
+              {meta.length > 0 && (
+                <dl className="metric-card-meta">
+                  {meta.map(([key, value]) => (
+                    <div key={key}>
+                      <dt>{key}</dt>
+                      <dd>
+                        {typeof value === "string"
+                          ? value
+                          : JSON.stringify(value)}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+            </div>
+          </details>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1156,6 +1214,221 @@ function RunnerLogs({ events }: { events: PersistedProgressEvent[] }) {
   );
 }
 
+/**
+ * The Logs tab: every process-log stream for a run, stacked. Groups the
+ * container/forensic snapshots and the structured event/runner logs that
+ * used to be separate top-level sections so they all live behind one tab.
+ */
+function LogsPanel({ run }: { run: ReportRunDetail }) {
+  return (
+    <>
+      {run.dockerArtifacts.length > 0 && (
+        <div className="log-group">
+          <h3>Docker snapshot</h3>
+          <p className="section-subtle">
+            Container forensics captured at hatch failure, before{" "}
+            <code>vellum retire</code> removed the container. Each block is the
+            full <code>docker inspect</code> /{" "}
+            <code>docker logs --tail 200</code> for a sibling container (
+            <code>assistant</code> / <code>gateway</code> /{" "}
+            <code>credential-executor</code>), inlined here so port collisions
+            and crash exits land in the same scroll as the subprocess logs
+            below.
+          </p>
+          {run.dockerArtifacts.map((artifact) => (
+            <div key={artifact.name} className="subprocess-log-block">
+              <div className="subprocess-log-head">
+                <strong>{artifact.name}</strong>
+                <a
+                  className="raw-link"
+                  href={`/api/runs/${encodeURIComponent(run.runId)}/files/${encodeURIComponent(artifact.name)}`}
+                  target="_blank"
+                  rel="noopener"
+                >
+                  raw
+                </a>
+              </div>
+              <DockerArtifact artifact={artifact} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {run.subprocessLogs.length > 0 && (
+        <div className="log-group">
+          <h3>Subprocess logs</h3>
+          <p className="section-subtle">
+            Stdout/stderr from every CLI subprocess the adapter spawned — useful
+            when a hatch or setup step failed silently and the error message
+            alone doesn't tell you why. Each line is timestamped and tagged in
+            the same format as the test runner log so they line up
+            column-for-column when read side by side.
+          </p>
+          {run.subprocessLogs.map((log) => (
+            <div key={log.name} className="subprocess-log-block">
+              <div className="subprocess-log-head">
+                <strong>{log.name}</strong>
+                <a
+                  className="raw-link"
+                  href={`/api/runs/${encodeURIComponent(run.runId)}/files/${encodeURIComponent(log.name)}`}
+                  target="_blank"
+                  rel="noopener"
+                >
+                  raw
+                </a>
+              </div>
+              <SubprocessLog log={log} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="log-group">
+        <h3>Memory-formation events</h3>
+        <p className="section-subtle">
+          V2 only: typed event stream from the agent&apos;s ingest turn —
+          consuming the haystack sessions to form memory before the question is
+          asked. Empty for V1 runs and for V2 runs whose adapter doesn&apos;t
+          expose ingest-side events.
+        </p>
+        <ContainerLogs
+          events={run.ingestAssistantEvents}
+          emptyLabel="No memory-formation events recorded."
+        />
+      </div>
+
+      <div className="log-group">
+        <h3>Container logs</h3>
+        <p className="section-subtle">
+          Typed event stream emitted by the assistant inside the container
+          during the question turn — what the agent said in response to the
+          question.
+        </p>
+        <ContainerLogs events={run.assistantEvents} />
+      </div>
+
+      <div className="log-group">
+        <h3>Test runner logs</h3>
+        <p className="section-subtle">
+          Step-by-step trace from the eval runner: hatching, setup, simulator
+          turns, metric scoring, shutdown.
+        </p>
+        <RunnerLogs events={run.progressEvents} />
+      </div>
+    </>
+  );
+}
+
+/**
+ * Tabbed body of the per-execution page. The four pills double as both the
+ * run's headline stats (score / turn count / cost / log count) and the tab
+ * controls — clicking one swaps the panel below. Implemented with hidden
+ * radio inputs + `:checked` sibling selectors so it stays fully interactive
+ * in the static, no-JS report bundle. Score is selected by default.
+ */
+function ExecutionTabs({ run }: { run: ReportRunDetail }) {
+  const logCount = run.subprocessLogs.length + run.dockerArtifacts.length;
+  return (
+    <div className="tabs">
+      <input
+        className="tab-input"
+        type="radio"
+        name="exec-tab"
+        id="exec-tab-score"
+        defaultChecked
+      />
+      <input
+        className="tab-input"
+        type="radio"
+        name="exec-tab"
+        id="exec-tab-turns"
+      />
+      <input
+        className="tab-input"
+        type="radio"
+        name="exec-tab"
+        id="exec-tab-cost"
+      />
+      <input
+        className="tab-input"
+        type="radio"
+        name="exec-tab"
+        id="exec-tab-logs"
+      />
+      <div className="tablist" role="tablist">
+        <label className="tab-pill" htmlFor="exec-tab-score">
+          <span className="tab-pill-label">Score</span>
+          <span className="tab-pill-value">
+            {formatAggregateScore(run.scoreTotal)}
+          </span>
+        </label>
+        <label className="tab-pill" htmlFor="exec-tab-turns">
+          <span className="tab-pill-label">Turns</span>
+          <span className="tab-pill-value">{run.transcriptTurns}</span>
+        </label>
+        <label className="tab-pill" htmlFor="exec-tab-cost">
+          <span className="tab-pill-label">Cost</span>
+          <span className="tab-pill-value">{formatCost(run.totalCostUsd)}</span>
+        </label>
+        <label className="tab-pill" htmlFor="exec-tab-logs">
+          <span className="tab-pill-label">Logs</span>
+          <span className="tab-pill-value">{logCount}</span>
+        </label>
+      </div>
+      <div className="tabpanels">
+        <section className="tabpanel panel-score">
+          <h2>Metric report card</h2>
+          <p className="section-subtle">
+            Every metric scored for this run. Expand a metric for its scoring
+            reason and any structured metadata.
+          </p>
+          <MetricReportCard metrics={run.metrics} />
+        </section>
+
+        <section className="tabpanel panel-turns">
+          <h2>Transcript</h2>
+          <p className="section-subtle">
+            The conversation between the simulated user and the assistant, turn
+            by turn.
+          </p>
+          <Transcript turns={run.transcript} />
+        </section>
+
+        <section className="tabpanel panel-cost">
+          <h2>Cost breakdown</h2>
+          <p className="section-subtle">
+            Token usage and dollar cost for this run, metered from the egress
+            jail&apos;s observed model traffic.
+          </p>
+          <div className="cards">
+            <StatCard label="Cost" value={formatCost(run.totalCostUsd)} />
+            <StatCard
+              label="Input tokens"
+              value={formatNumber(run.totalInputTokens, 0)}
+            />
+            <StatCard
+              label="Output tokens"
+              value={formatNumber(run.totalOutputTokens, 0)}
+            />
+            <StatCard label="Requests" value={run.usage.requests.length} />
+          </div>
+          <CostDiagnosticsPanel usage={run.usage} />
+        </section>
+
+        <section className="tabpanel panel-logs">
+          <h2>Process logs</h2>
+          <p className="section-subtle">
+            Every log stream captured for this run — container forensics,
+            subprocess stdout/stderr, agent event streams, and the test-runner
+            trace.
+          </p>
+          <LogsPanel run={run} />
+        </section>
+      </div>
+    </div>
+  );
+}
+
 function ExecutionPage({
   run,
   readOnly,
@@ -1189,13 +1462,6 @@ function ExecutionPage({
       </div>
 
       <CliCommandSection argv={run.cliArgv} />
-
-      <div className="cards">
-        <StatCard label="Score" value={formatAggregateScore(run.scoreTotal)} />
-        <StatCard label="Metrics" value={run.metricCount} />
-        <StatCard label="Turns" value={run.transcriptTurns} />
-        <StatCard label="Cost" value={formatCost(run.totalCostUsd)} />
-      </div>
 
       {(run.status === "abandoned" ||
         run.status === "failed" ||
@@ -1243,125 +1509,7 @@ function ExecutionPage({
         </section>
       )}
 
-      {run.dockerArtifacts.length > 0 && (
-        <section className="section debug-section">
-          <h2>Docker snapshot</h2>
-          <p className="section-subtle">
-            Container forensics captured at hatch failure, before{" "}
-            <code>vellum retire</code> removed the container. Each block is the
-            full <code>docker inspect</code> /{" "}
-            <code>docker logs --tail 200</code> for a sibling container (
-            <code>assistant</code> / <code>gateway</code> /{" "}
-            <code>credential-executor</code>), inlined here so port collisions
-            and crash exits land in the same scroll as the subprocess logs
-            below.
-          </p>
-          {run.dockerArtifacts.map((artifact) => (
-            <div key={artifact.name} className="subprocess-log-block">
-              <div className="subprocess-log-head">
-                <strong>{artifact.name}</strong>
-                <a
-                  className="raw-link"
-                  href={`/api/runs/${encodeURIComponent(run.runId)}/files/${encodeURIComponent(artifact.name)}`}
-                  target="_blank"
-                  rel="noopener"
-                >
-                  raw
-                </a>
-              </div>
-              <DockerArtifact artifact={artifact} />
-            </div>
-          ))}
-        </section>
-      )}
-
-      {run.subprocessLogs.length > 0 && (
-        <section className="section">
-          <h2>Subprocess logs</h2>
-          <p className="section-subtle">
-            Stdout/stderr from every CLI subprocess the adapter spawned — useful
-            when a hatch or setup step failed silently and the error message
-            alone doesn't tell you why. Each line is timestamped and tagged in
-            the same format as the test runner log so they line up
-            column-for-column when read side by side.
-          </p>
-          {run.subprocessLogs.map((log) => (
-            <div key={log.name} className="subprocess-log-block">
-              <div className="subprocess-log-head">
-                <strong>{log.name}</strong>
-                <a
-                  className="raw-link"
-                  href={`/api/runs/${encodeURIComponent(run.runId)}/files/${encodeURIComponent(log.name)}`}
-                  target="_blank"
-                  rel="noopener"
-                >
-                  raw
-                </a>
-              </div>
-              <SubprocessLog log={log} />
-            </div>
-          ))}
-        </section>
-      )}
-
-      <section className="section">
-        <h2>Metric card</h2>
-        <MetricTable metrics={run.metrics} />
-      </section>
-
-      <section className="section">
-        <h2>Transcript</h2>
-        <Transcript turns={run.transcript} />
-      </section>
-
-      <section className="section">
-        <h2>Memory-formation events</h2>
-        <p className="section-subtle">
-          V2 only: typed event stream from the agent&apos;s ingest turn —
-          consuming the haystack sessions to form memory before the question is
-          asked. Empty for V1 runs and for V2 runs whose adapter doesn&apos;t
-          expose ingest-side events.
-        </p>
-        <ContainerLogs
-          events={run.ingestAssistantEvents}
-          emptyLabel="No memory-formation events recorded."
-        />
-      </section>
-
-      <section className="section">
-        <h2>Container logs</h2>
-        <p className="section-subtle">
-          Typed event stream emitted by the assistant inside the container
-          during the question turn — what the agent said in response to the
-          question.
-        </p>
-        <ContainerLogs events={run.assistantEvents} />
-      </section>
-
-      <section className="section">
-        <h2>Test runner logs</h2>
-        <p className="section-subtle">
-          Step-by-step trace from the eval runner: hatching, setup, simulator
-          turns, metric scoring, shutdown.
-        </p>
-        <RunnerLogs events={run.progressEvents} />
-      </section>
-
-      <section className="section">
-        <h2>Usage</h2>
-        <div className="cards usage-cards">
-          <StatCard
-            label="Input tokens"
-            value={formatNumber(run.totalInputTokens, 0)}
-          />
-          <StatCard
-            label="Output tokens"
-            value={formatNumber(run.totalOutputTokens, 0)}
-          />
-          <StatCard label="Requests" value={run.usage.requests.length} />
-        </div>
-        <CostDiagnosticsPanel usage={run.usage} />
-      </section>
+      <ExecutionTabs run={run} />
     </>
   );
 }

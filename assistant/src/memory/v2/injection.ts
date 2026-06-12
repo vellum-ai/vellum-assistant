@@ -44,6 +44,7 @@ import {
 } from "./cli-command-store.js";
 import { getEdgeIndex } from "./edge-index.js";
 import { recordInjectionEvents } from "./injection-events.js";
+import { getPageIndex } from "./page-index.js";
 import { readPage, renderPageContent } from "./page-store.js";
 import { type RouterTurnPair, runRouter } from "./router.js";
 import { getSkillCapability, isSkillSlug } from "./skill-store.js";
@@ -552,6 +553,58 @@ async function injectViaRouter(args: {
 
   const priorEverInjected: readonly EverInjectedEntry[] =
     priorState?.everInjected ?? [];
+
+  // Saturated-index bypass: when every page in the index has already been
+  // injected on a prior turn of this conversation, the router LLM call is
+  // provably useless — whatever it selected would be deduped against
+  // `priorEverInjected` below and render nothing. Small workspaces reach
+  // this state within the first few turns, after which the per-message
+  // router call is pure cost. Skip the call and finalize directly with
+  // carry-over telemetry, mirroring the success path's "all selections
+  // already injected" outcome. (Trade-off: re-pick EMA events are not
+  // recorded from this state; with the whole index attached, injection-
+  // score ranking has nothing left to decide for this conversation.)
+  const everInjectedSlugSet = new Set(priorEverInjected.map((e) => e.slug));
+  const pageIndexForBypass = await getPageIndex(workspaceDir);
+  if (
+    pageIndexForBypass.entries.length > 0 &&
+    pageIndexForBypass.entries.every((e) => everInjectedSlugSet.has(e.slug))
+  ) {
+    log.info(
+      {
+        conversationId,
+        indexSize: pageIndexForBypass.entries.length,
+      },
+      "memory v2 router skipped — every index page already injected",
+    );
+    return finalizeInjection({
+      workspaceDir,
+      database,
+      conversationId,
+      mode: "router",
+      currentTurn,
+      messageId,
+      priorEverInjected,
+      slugsToRender: [],
+      telemetryRows: priorEverInjected.map((entry) => ({
+        slug: entry.slug,
+        finalActivation: 0,
+        ownActivation: 0,
+        priorActivation: 0,
+        simUser: 0,
+        simAssistant: 0,
+        simNow: 0,
+        simUserRerankBoost: 0,
+        simAssistantRerankBoost: 0,
+        inRerankPool: false,
+        spreadContribution: 0,
+        source: "carry_over",
+        status: "not_injected",
+      })),
+      config,
+      nextStateMap: {},
+    });
+  }
 
   const routerResult = await runRouter({
     workspaceDir,

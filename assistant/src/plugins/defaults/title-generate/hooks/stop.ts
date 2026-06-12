@@ -21,6 +21,7 @@
 import type { PluginHookFn, StopContext } from "@vellumai/plugin-api";
 
 import { getConfig } from "../../../../config/loader.js";
+import { getConversation } from "../../../../memory/conversation-crud.js";
 import { queueRegenerateConversationTitle } from "../../../../memory/conversation-title-service.js";
 import type { Message } from "../../../../providers/types.js";
 
@@ -58,6 +59,18 @@ const stop: PluginHookFn<StopContext> = async (ctx) => {
   if (getConfig().conversations.skipAutoRetitling) return;
 
   if (countUserTurns(ctx.messages) !== SECOND_PASS_USER_TURN) return;
+
+  // System conversations (background/scheduled) keep their deterministic
+  // bootstrap title — multi-prompt background jobs can reach three user-role
+  // turns with no human present, and a refined LLM title isn't worth the
+  // tokens there. The lookup fails open: on a read error the hook behaves as
+  // before (queues regeneration; the service re-checks isAutoTitle).
+  try {
+    const conversation = getConversation(ctx.conversationId);
+    if (conversation && conversation.conversationType !== "standard") return;
+  } catch {
+    // Fall through to queueing.
+  }
 
   const { conversationId } = ctx;
   // Deferred to a later macrotask so the just-completed turn's persistence

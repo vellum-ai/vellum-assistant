@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 
+import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
@@ -809,6 +810,12 @@ export class AnthropicProvider implements Provider {
     const mutableLatestUserMessage =
       (config as Record<string, unknown> | undefined)
         ?.mutableLatestUserMessage === true;
+    // Full prompt-caching opt-out: send no cache breakpoints at all and strip
+    // caller-stamped block-level markers. Resolved per call site (see
+    // `disableCache` in the LLM config schema) for one-shot prompts where
+    // every breakpoint is a paid cache write with no future read.
+    const disableCache =
+      (config as Record<string, unknown> | undefined)?.disableCache === true;
     let sentMessages: Anthropic.MessageParam[] | undefined;
     const startedAt = Date.now();
     // Hoisted so the catch block can distinguish our inner stream timeout
@@ -998,6 +1005,7 @@ export class AnthropicProvider implements Provider {
         cacheTtl: _cacheTtl,
         disableTurnStartCache: _disableTurnStartCache,
         mutableLatestUserMessage: _mutableLatestUserMessage,
+        disableCache: _disableCache,
         max_tokens: callerMaxTokens,
         usageAttributionHeaders,
         ...restConfig
@@ -1054,18 +1062,33 @@ export class AnthropicProvider implements Provider {
       };
 
       if (systemPrompt) {
-        // The whole system prompt is rendered as a single cached
-        // block.  A 1-hour cache TTL is used (when supported by the
-        // model) so the breakpoint survives turn gaps that exceed the
-        // default 5-minute window.
-        params.system = [
-          {
+        // The system prompt may carry a cache boundary (placed by the
+        // section pipeline — see `prompts/sections.ts`) splitting it into
+        // a stable-prefix block and a volatile-suffix block, each with
+        // its own breakpoint so a volatile-section change doesn't
+        // re-create the stable prefix.  A 1-hour cache TTL is used (when
+        // supported by the model) so the breakpoints survive turn gaps
+        // that exceed the default 5-minute window.
+        params.system = systemPrompt
+          .split(SYSTEM_PROMPT_CACHE_BOUNDARY)
+          .filter((text) => text.length > 0)
+          .map((text) => ({
             type: "text" as const,
-            text: systemPrompt,
-            cache_control: cacheControl,
-          },
-        ];
+            text,
+            ...(disableCache ? {} : { cache_control: cacheControl }),
+          }));
+        if (params.system.length === 0) delete params.system;
       }
+
+      // Tools precede the system blocks in the cached prefix, so the first
+      // system breakpoint already covers the tool definitions.  When the
+      // system prompt is split into two blocks, skip the explicit last-tool
+      // breakpoint to stay within Anthropic's 4-breakpoint budget; with a
+      // single (or no) system block the tool breakpoint is kept.
+      const systemBlockCount = Array.isArray(params.system)
+        ? params.system.length
+        : 0;
+      const applyToolCacheControl = systemBlockCount < 2;
 
       if (tools && tools.length > 0) {
         if (
@@ -1077,7 +1100,9 @@ export class AnthropicProvider implements Provider {
             name: t.name,
             description: t.description,
             input_schema: t.input_schema as Anthropic.Tool["input_schema"],
-            ...(i === otherTools.length - 1
+            ...(applyToolCacheControl &&
+            !disableCache &&
+            i === otherTools.length - 1
               ? { cache_control: cacheControl }
               : {}),
           }));
@@ -1092,7 +1117,9 @@ export class AnthropicProvider implements Provider {
             name: t.name,
             description: t.description,
             input_schema: t.input_schema as Anthropic.Tool["input_schema"],
-            ...(i === tools.length - 1 ? { cache_control: cacheControl } : {}),
+            ...(applyToolCacheControl && !disableCache && i === tools.length - 1
+              ? { cache_control: cacheControl }
+              : {}),
           }));
         }
       }
@@ -1140,6 +1167,7 @@ export class AnthropicProvider implements Provider {
         mutableLatestUserMessage && turnStartIdx === msgs.length - 1;
       if (
         turnStartIdx >= 0 &&
+        !disableCache &&
         !disableTurnStartCache &&
         !skipVolatileTurnStartAnchor
       ) {
@@ -1156,7 +1184,11 @@ export class AnthropicProvider implements Provider {
       // cache_creation tokens per new turn). Skipped during tool-use loops
       // where the current turn-start already covers the same prefix and a
       // second anchor would blow the 4-breakpoint budget.
-      if (turnStartIdx === msgs.length - 1 && turnStartIdx > 0) {
+      if (
+        !disableCache &&
+        turnStartIdx === msgs.length - 1 &&
+        turnStartIdx > 0
+      ) {
         const prevTurnAnchorIdx = findUserTextMsgIdx(turnStartIdx - 1);
         if (prevTurnAnchorIdx >= 0)
           applyCacheControlToLastBlock(prevTurnAnchorIdx);
@@ -1168,7 +1200,11 @@ export class AnthropicProvider implements Provider {
       // cheaply without conflicting with the 1h breakpoints above.
       // Skip thinking/redacted_thinking blocks — Anthropic doesn't allow
       // cache_control on those types.
-      if (turnStartIdx >= 0 && turnStartIdx < sentMessages.length - 1) {
+      if (
+        !disableCache &&
+        turnStartIdx >= 0 &&
+        turnStartIdx < sentMessages.length - 1
+      ) {
         const lastMsg = sentMessages[sentMessages.length - 1];
         if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
           const NON_CACHEABLE_TYPES = new Set([
@@ -1193,11 +1229,12 @@ export class AnthropicProvider implements Provider {
         }
       }
 
-      // Cache-breakpoint accounting: system(1) + tools(1) + turn-start(1) +
-      // (tail OR prev-turn-anchor)(1) = 4 — exactly Anthropic's per-request
-      // cap.  Tail and prev-turn-anchor are mutually exclusive (the latter
-      // only fires when turn-start is the last message, which suppresses
-      // the tail), so the total can't drift past 4.
+      // Cache-breakpoint accounting: system(≤2) + tools(1, only when the
+      // system is a single block or absent) + turn-start(1) +
+      // (tail OR prev-turn-anchor)(1) ≤ 4 — Anthropic's per-request cap.
+      // Tail and prev-turn-anchor are mutually exclusive (the latter only
+      // fires when turn-start is the last message, which suppresses the
+      // tail), so the total can't drift past 4.
 
       // Strip orphaned UTF-16 surrogates so the Anthropic JSON parser never
       // sees invalid strings produced by upstream surrogate-splitting `.slice()` calls.
@@ -1208,19 +1245,28 @@ export class AnthropicProvider implements Provider {
         sentMessages = params.messages;
       }
 
-      // Haiku does not support the extended-cache-ttl beta, so it must never
-      // receive a `ttl` on any cache_control. The client's own breakpoints
-      // already omit it for Haiku, but a caller can stamp a `ttl` on message
-      // blocks before the provider sees them — strip it here so the request
-      // stays valid on Haiku models.
-      if (isHaiku) {
+      // Callers can stamp `cache_control` on message blocks before the
+      // provider sees them. Two repairs apply:
+      // - `disableCache`: strip the marker entirely — this call opted out of
+      //   prompt caching, and a leftover block-level marker would still incur
+      //   a cache write.
+      // - Haiku: strip only the `ttl` field — Haiku does not support the
+      //   extended-cache-ttl beta, so a `ttl` would make the request invalid.
+      //   The client's own breakpoints already omit it for Haiku.
+      if (disableCache || isHaiku) {
         for (const msg of sentMessages) {
           if (!Array.isArray(msg.content)) continue;
           for (const block of msg.content) {
             if (typeof block === "string") continue;
-            const cc = (block as { cache_control?: { ttl?: unknown } })
-              .cache_control;
-            if (cc && "ttl" in cc) delete cc.ttl;
+            const blockRecord = block as {
+              cache_control?: { ttl?: unknown };
+            };
+            if (!blockRecord.cache_control) continue;
+            if (disableCache) {
+              delete blockRecord.cache_control;
+            } else if ("ttl" in blockRecord.cache_control) {
+              delete blockRecord.cache_control.ttl;
+            }
           }
         }
       }
