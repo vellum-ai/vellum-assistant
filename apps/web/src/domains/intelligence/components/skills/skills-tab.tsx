@@ -29,9 +29,9 @@ import {
 import { useSkillCategories } from "@/domains/intelligence/skills/use-skill-categories";
 import { resolveFilterParams, sortSkills } from "@/domains/intelligence/skills/utils";
 import {
-    skillsByIdDeleteMutation,
     skillsGetOptions,
     skillsGetQueryKey,
+    useSkillsByIdDeleteMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { type Options } from "@/generated/daemon/sdk.gen";
 import type { SkillsGetData } from "@/generated/daemon/types.gen";
@@ -127,8 +127,7 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
     },
   });
 
-  const uninstallMutation = useMutation({
-    ...skillsByIdDeleteMutation(),
+  const uninstallMutation = useSkillsByIdDeleteMutation({
     onMutate: (variables) => setRemovingSkillId(variables.path.id),
     onSettled: () => {
       setRemovingSkillId(null);
