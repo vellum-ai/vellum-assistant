@@ -2469,6 +2469,8 @@ jobs:
           rm -rf daemon-bin/node_modules
           rm -rf daemon-bin/bundled-skills
           cp -R "$ASSISTANT_SRC_DIR/src/config/bundled-skills" daemon-bin/bundled-skills
+          rm -rf daemon-bin/preloaded-apps
+          cp -R "$ASSISTANT_SRC_DIR/src/config/preloaded-apps" daemon-bin/preloaded-apps
           rm -rf daemon-bin/templates
           cp -R "$ASSISTANT_SRC_DIR/src/prompts/templates" daemon-bin/templates
           rm -rf daemon-bin/brain-graph

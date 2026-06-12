@@ -11,6 +11,12 @@ import {
   updateHeartbeatConfig,
 } from "@/domains/settings/api/schedules";
 import {
+  heartbeatConfigGetQueryKey,
+  heartbeatConfigGetSetQueryData,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import type { Options } from "@/generated/daemon/sdk.gen";
+import type { HeartbeatConfigGetData } from "@/generated/daemon/types.gen";
+import {
   type ScheduleRowUsage,
   SYSTEM_TASK_STATS_RUN_LIMIT,
   SYSTEM_TASK_URL_IDS,
@@ -35,13 +41,17 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
   // Config queries
   // -------------------------------------------------------------------------
 
+  const heartbeatConfigOpts = {
+    path: { assistant_id: assistantId ?? "" },
+  } as Options<HeartbeatConfigGetData>;
+
   const {
     data: heartbeatConfig,
     isLoading: isHeartbeatLoading,
     isError: isHeartbeatError,
     refetch: refetchHeartbeat,
   } = useQuery({
-    queryKey: ["heartbeat-config", assistantId],
+    queryKey: heartbeatConfigGetQueryKey(heartbeatConfigOpts),
     queryFn: () => fetchHeartbeatConfig(assistantId!),
     enabled: !!assistantId,
     staleTime: 10_000,
@@ -220,12 +230,15 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
     async (kind: SystemTaskKind, enabled: boolean) => {
       if (!assistantId) return;
       if (kind !== "heartbeat") return;
-      const queryKey = [`${kind}-config`, assistantId];
       const label = "Heartbeat";
 
       try {
         const updated = await updateHeartbeatConfig(assistantId, { enabled });
-        queryClient.setQueryData(queryKey, updated);
+        heartbeatConfigGetSetQueryData(
+          queryClient,
+          { path: { assistant_id: assistantId } } as Options<HeartbeatConfigGetData>,
+          updated,
+        );
         toast.success(enabled ? `${label} enabled.` : `${label} disabled.`);
       } catch (error) {
         captureError(error, { context: `${kind}_toggle` });
