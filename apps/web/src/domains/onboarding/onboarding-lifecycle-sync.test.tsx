@@ -316,7 +316,6 @@ mock.module("@tanstack/react-query", () => ({
 mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   assistantsActiveRetrieveOptions: () => ({}),
   assistantsOauthConnectionsListOptions: () => ({}),
-  assistantsOauthStartCreateMutation: () => ({}),
   useAssistantsOauthStartCreateMutation: () => ({
     mutate: mock(() => {}),
     isPending: false,
