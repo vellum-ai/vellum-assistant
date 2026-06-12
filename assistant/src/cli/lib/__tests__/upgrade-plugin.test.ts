@@ -117,8 +117,9 @@ function installCopy(
   );
   if (sidecar !== null) {
     writeFileSync(
-      join(dir, ".vellum-plugin.json"),
+      join(dir, "install-meta.json"),
       JSON.stringify({
+        origin: "vellum",
         name,
         source: {
           kind: "github",
@@ -135,7 +136,7 @@ function installCopy(
 
 /** Read the commit recorded in a copy's provenance sidecar, if present. */
 function sidecarCommit(pluginsDir: string, name: string): string | null {
-  const path = join(pluginsDir, name, ".vellum-plugin.json");
+  const path = join(pluginsDir, name, "install-meta.json");
   if (!existsSync(path)) return null;
   return JSON.parse(readFileSync(path, "utf-8")).commit ?? null;
 }
