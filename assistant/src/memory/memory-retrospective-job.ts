@@ -35,6 +35,11 @@
 // conversations left by a mid-run crash are swept by
 // `memory-retrospective-startup-cleanup.ts`.
 
+import {
+  type InterfaceId,
+  isInteractiveInterface,
+  parseInterfaceId,
+} from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/types.js";
 import { extractTurnContextTimestamp } from "../context/compactor.js";
@@ -47,6 +52,7 @@ import {
   getAssistantName,
   resolveUserName,
 } from "../daemon/identity-helpers.js";
+import type { WakeToolContextPin } from "../daemon/tool-setup-types.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 import { formatMessageSliceForTranscript } from "../export/transcript-formatter.js";
 import { resolveUserSlug } from "../prompts/persona-resolver.js";
@@ -438,22 +444,17 @@ async function runForkBasedRetrospective(
     ? resolveOverrideProfile(sourceConversation)
     : undefined;
 
-  // Render the fork's system prompt under the SOURCE conversation's persona
-  // and channel — the same sections its live turns rendered. Passed
-  // unconditionally (not gated on matchConversationProfile): the correct
-  // persona is a review-quality fix on its own; with profile matching it
-  // additionally preserves the source's cached system-prompt prefix.
-  // An empty slug resolution (identity not recoverable) keeps today's
-  // persona behavior. `hasNoClient` is pinned to the live-turn value
-  // unconditionally: the fork is hydrated clientless
-  // (`getOrCreateConversation` → `updateClient(_, true)`), but the source's
-  // live turns ran with `hasNoClient = false`, and the prompt's
-  // `05-access-preference` section renders different text under the flag —
-  // early enough to break byte-parity with the source's cached prefix.
-  const personaOverride: SystemPromptPersonaOverride = {
-    ...resolveSourcePersonaOverride(sourceConversation),
-    hasNoClient: false,
-  };
+  // Persona + tool-context parity pins derived from the source conversation
+  // (see `resolveSourceParityPins`). The persona override is passed
+  // unconditionally — the correct persona is a review-quality fix on its
+  // own; with profile matching it additionally preserves the source's
+  // cached system-prompt prefix. The tool-context pin rides only with
+  // execution gate mode below: it exists purely for wire tool-surface
+  // cache parity.
+  const { personaOverride, toolContextPin } = resolveSourceParityPins(
+    sourceConversation,
+    newMessages,
+  );
 
   // `skipHintInjection: true` because the instruction is already a
   // persisted message — the wake's hint sandwich would only duplicate it.
@@ -468,20 +469,18 @@ async function runForkBasedRetrospective(
       trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
       callSite: "memoryRetrospective",
       allowedTools: ["remember"],
-      // When the profile match actually resolved (cache parity is in play),
-      // also keep the source's full tool surface on the wire: the provider
-      // cache prefix is `tools → system → messages`, so wire-filtering the
-      // tool array to ["remember"] would invalidate the cached prefix the
-      // profile match just preserved. The allowlist still holds —
-      // non-`remember` calls are rejected at execution time. When the match
-      // resolves to nothing (no pinned profile / expired session) the wake
-      // runs the call-site default model, so there is no source cache to
-      // preserve and the smaller wire-filtered request is cheaper — keyed on
-      // `matchedProfile`, not the bare config flag.
+      // When the profile match resolved (cache parity is in play), keep the
+      // source's full tool surface on the wire AND resolve it under the
+      // source's client context — see {@link SubagentToolGateMode} and
+      // {@link WakeToolContextPin} for the rationale; the allowlist still
+      // holds at execution time. No match ⇒ no source cache to preserve, so
+      // the smaller wire-filtered request wins (keyed on `matchedProfile`,
+      // not the bare config flag).
       ...(matchedProfile !== undefined
         ? {
             toolGateMode: "execution" as const,
             forceOverrideProfile: matchedProfile,
+            toolContextPin,
           }
         : {}),
       personaOverride,
@@ -550,34 +549,117 @@ function enqueueFollowUpJobs(): string[] {
 }
 
 /**
- * Resolve the persona/channel override the fork wake should render — the
- * same user and channel persona sections a live turn on the SOURCE
- * conversation rendered.
- *
- * Local/desktop sources (`originChannel` null or `"vellum"`): live turns
- * resolve the guardian contact's userFile — either via the
- * undefined-trust-context branch of `resolveUserFilename` (desktop/native,
- * no gateway) or via its guardian-class `findGuardianForChannel("vellum")`
- * fallback (managed desktop, whose JWT-principal `requesterExternalUserId`
- * never matches a contact channel row). `resolveUserSlug(undefined)`
- * reproduces both, falling back to `"default"` exactly as the live prompt
- * build does when no guardian resolves. Channel persona is `"vellum"`.
- *
- * Channel-routed sources: live-turn persona resolution keys off the
- * requester's `requesterExternalUserId` (contact lookup per actor, possibly
- * different across turns), which is not stored on the conversation row —
- * the live-turn result is not recoverable here. Return `undefined` so the
- * wake keeps today's behavior.
+ * The source-derived parity pins the fork wake runs under: the system-prompt
+ * persona override and the tool-resolution context pin. Both exist so the
+ * fork's provider request matches what the SOURCE conversation's live turns
+ * sent (prompt-cache prefix is `tools → system → messages`).
  */
-function resolveSourcePersonaOverride(
-  source: Pick<ConversationRow, "originChannel">,
-): SystemPromptPersonaOverride | undefined {
+interface SourceParityPins {
+  personaOverride: SystemPromptPersonaOverride;
+  toolContextPin: WakeToolContextPin;
+}
+
+/**
+ * Derive the fork wake's parity pins from the source conversation.
+ *
+ * Persona slugs — local/desktop sources (`originChannel` null or
+ * `"vellum"`): live turns resolve the guardian contact's userFile — either
+ * via the undefined-trust-context branch of `resolveUserFilename`
+ * (desktop/native, no gateway) or via its guardian-class
+ * `findGuardianForChannel("vellum")` fallback (managed desktop, whose
+ * JWT-principal `requesterExternalUserId` never matches a contact channel
+ * row). `resolveUserSlug(undefined)` reproduces both, falling back to
+ * `"default"` exactly as the live prompt build does when no guardian
+ * resolves. Channel persona is `"vellum"`. Channel-routed sources: live-turn
+ * persona resolution keys off the requester's `requesterExternalUserId`
+ * (contact lookup per actor, possibly different across turns), which is not
+ * stored on the conversation row — the slugs are omitted so the wake keeps
+ * today's persona derivation for them.
+ *
+ * `hasNoClient` — pinned on BOTH the persona override (the prompt's
+ * `05-access-preference` section renders different text under the flag) and
+ * the tool-context pin, using the live-turn derivation: interactive
+ * interfaces run `updateClient(_, false)` (`hasNoClient = false`), while
+ * channel-routed and chrome-extension turns stay clientless (`true`) — the
+ * exact `isInteractiveInterface` predicate `conversation-routes.ts` /
+ * `process-message.ts` apply. Pinned explicitly even when it matches the
+ * fork's hydrated value (`true`) so the parity contract doesn't depend on
+ * hydration defaults.
+ *
+ * `toolContextPin.transportInterface` — the interface the source's most
+ * recent live turns ran on (see {@link resolveSourceLiveInterface}).
+ * `channelCapabilities` is left unset: desktop/web HTTP turns never set
+ * channel capabilities, and for channel-routed sources (whose live turns do
+ * carry them) every tool gate resolves identically under
+ * `hasNoClient = true` with or without capabilities — so unset is parity
+ * for the former and outcome-equal for the latter.
+ */
+function resolveSourceParityPins(
+  source: Pick<ConversationRow, "originChannel" | "originInterface">,
+  sliceMessages: Array<{ role: string; metadata: string | null }>,
+): SourceParityPins {
   const channel = source.originChannel;
-  if (channel != null && channel !== "vellum") return undefined;
+  const channelRouted = channel != null && channel !== "vellum";
+  const recovered = resolveSourceLiveInterface(source, sliceMessages);
+  // Non-channel-routed sources always have a client-connected interface;
+  // when none is recoverable, default to "web" — the same terminal fallback
+  // `resolveTurnInterface` applies to live turns. Channel-routed sources
+  // with an unmappable channel stay undefined (their live turns were
+  // clientless either way).
+  const transportInterface = recovered ?? (channelRouted ? undefined : "web");
+  const hasNoClient =
+    transportInterface == null || !isInteractiveInterface(transportInterface);
+  const personaOverride: SystemPromptPersonaOverride = channelRouted
+    ? { hasNoClient }
+    : {
+        userSlug: resolveUserSlug(undefined) ?? "default",
+        channelSlug: "vellum",
+        hasNoClient,
+      };
   return {
-    userSlug: resolveUserSlug(undefined) ?? "default",
-    channelSlug: "vellum",
+    personaOverride,
+    toolContextPin: { hasNoClient, transportInterface },
   };
+}
+
+/**
+ * Recover the interface the source conversation's most recent live turns ran
+ * on — the transport whose provider requests the fork wants cache parity
+ * with.
+ *
+ * Scans the new-message slice newest-first for a user message stamped with
+ * `userMessageInterface` (the same per-message metadata live turns persist),
+ * then falls back to the conversation row's `originInterface` (sticky
+ * first-interface column), then to the origin channel id where it doubles as
+ * an interface id (telegram/slack/whatsapp/email/phone; the legacy
+ * `"vellum"` alias maps to `"web"`). Every input is persisted state, so for
+ * a given cutoff the result is deterministic — it cannot flap between
+ * retries of the same slice.
+ */
+function resolveSourceLiveInterface(
+  source: Pick<ConversationRow, "originChannel" | "originInterface">,
+  sliceMessages: Array<{ role: string; metadata: string | null }>,
+): InterfaceId | undefined {
+  for (let i = sliceMessages.length - 1; i >= 0; i--) {
+    const row = sliceMessages[i]!;
+    if (row.role !== "user" || !row.metadata) continue;
+    let meta: unknown;
+    try {
+      meta = JSON.parse(row.metadata);
+    } catch {
+      continue;
+    }
+    if (!meta || typeof meta !== "object") continue;
+    const iface = parseInterfaceId(
+      (meta as Record<string, unknown>).userMessageInterface,
+    );
+    if (iface) return iface;
+  }
+  return (
+    parseInterfaceId(source.originInterface) ??
+    parseInterfaceId(source.originChannel) ??
+    undefined
+  );
 }
 
 type PriorRetrospective = NonNullable<

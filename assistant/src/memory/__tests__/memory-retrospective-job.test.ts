@@ -84,6 +84,7 @@ type ConversationStub = {
   inferenceProfile?: string | null;
   inferenceProfileExpiresAt?: number | null;
   originChannel?: string | null;
+  originInterface?: string | null;
 };
 let conversationOverrides: Record<string, ConversationStub> = {};
 
@@ -842,7 +843,7 @@ describe("memoryRetrospectiveJob", () => {
     });
   });
 
-  test("fork path: channel-routed source → no persona slugs (identity not recoverable), hasNoClient still pinned", async () => {
+  test("fork path: channel-routed source → no persona slugs (identity not recoverable), hasNoClient pinned to the live-turn value (true)", async () => {
     forkFlagEnabled = true;
     conversationOverrides["src-conv-1"] = {
       source: "user",
@@ -854,10 +855,12 @@ describe("memoryRetrospectiveJob", () => {
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 
     expect(wakeCalls).toHaveLength(1);
-    // The slugs are unrecoverable for a channel-routed source, but the
-    // hasNoClient pin is unconditional: the fork hydrates clientless while
-    // the source's live turns ran with hasNoClient = false.
-    expect(wakeCalls[0]!.opts.personaOverride).toEqual({ hasNoClient: false });
+    // The slugs are unrecoverable for a channel-routed source, and the
+    // hasNoClient pin mirrors the source's live turns: channel-routed turns
+    // run clientless (process-message never calls updateClient(_, false)),
+    // so the live-turn value is TRUE — pinned explicitly rather than left to
+    // the fork's hydration default.
+    expect(wakeCalls[0]!.opts.personaOverride).toEqual({ hasNoClient: true });
     expect(resolveUserSlugCalls).toEqual([]);
   });
 
@@ -889,6 +892,138 @@ describe("memoryRetrospectiveJob", () => {
       channelSlug: "vellum",
       hasNoClient: false,
     });
+  });
+
+  test("fork path: execution mode → toolContextPin derived from the source (desktop default = web, hasNoClient false)", async () => {
+    forkFlagEnabled = true;
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+      conversationType: "standard",
+      inferenceProfile: "profile-x",
+    };
+
+    await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ matchConversationProfile: true }),
+    );
+
+    expect(wakeCalls).toHaveLength(1);
+    // No slice metadata, no originInterface → the non-channel-routed
+    // terminal fallback is "web" (mirroring resolveTurnInterface).
+    expect(wakeCalls[0]!.opts.toolContextPin).toEqual({
+      hasNoClient: false,
+      transportInterface: "web",
+    });
+  });
+
+  test("fork path: wire mode (no resolved profile) → no toolContextPin on the wake", async () => {
+    forkFlagEnabled = true;
+
+    await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ matchConversationProfile: true }),
+    );
+
+    expect(wakeCalls).toHaveLength(1);
+    // The pin exists purely for wire tool-surface cache parity, which is
+    // only in play in execution gate mode.
+    expect("toolContextPin" in wakeCalls[0]!.opts).toBe(false);
+  });
+
+  test("fork path: toolContextPin recovers the interface from the NEWEST stamped user message in the slice", async () => {
+    forkFlagEnabled = true;
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+      conversationType: "standard",
+      inferenceProfile: "profile-x",
+    };
+    newMessages = [
+      {
+        id: "m1",
+        createdAt: Date.parse("2026-05-11T10:00:00Z"),
+        role: "user",
+        metadata: JSON.stringify({ userMessageInterface: "web" }),
+      },
+      {
+        id: "m2",
+        createdAt: Date.parse("2026-05-11T10:05:00Z"),
+        role: "user",
+        metadata: JSON.stringify({ userMessageInterface: "macos" }),
+      },
+      {
+        id: "m3",
+        createdAt: Date.parse("2026-05-11T10:10:00Z"),
+        role: "assistant",
+        metadata: null,
+      },
+    ];
+
+    await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ matchConversationProfile: true }),
+    );
+
+    expect(wakeCalls).toHaveLength(1);
+    // Newest stamped USER message wins (m2's "macos", not m1's "web"); the
+    // assistant row is skipped.
+    expect(wakeCalls[0]!.opts.toolContextPin).toEqual({
+      hasNoClient: false,
+      transportInterface: "macos",
+    });
+  });
+
+  test("fork path: toolContextPin falls back to the row's originInterface when the slice carries no stamp", async () => {
+    forkFlagEnabled = true;
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+      conversationType: "standard",
+      inferenceProfile: "profile-x",
+      originInterface: "macos",
+    };
+
+    await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ matchConversationProfile: true }),
+    );
+
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.opts.toolContextPin).toEqual({
+      hasNoClient: false,
+      transportInterface: "macos",
+    });
+  });
+
+  test("fork path: channel-routed source → toolContextPin pins clientless with the channel's interface", async () => {
+    forkFlagEnabled = true;
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+      conversationType: "standard",
+      inferenceProfile: "profile-x",
+      originChannel: "telegram",
+    };
+
+    await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ matchConversationProfile: true }),
+    );
+
+    expect(wakeCalls).toHaveLength(1);
+    // Channel-routed live turns ran clientless; the channel id doubles as
+    // the interface id when nothing else is recoverable.
+    expect(wakeCalls[0]!.opts.toolContextPin).toEqual({
+      hasNoClient: true,
+      transportInterface: "telegram",
+    });
+    // The persona pin carries the same live-turn hasNoClient value.
+    expect(wakeCalls[0]!.opts.personaOverride).toEqual({ hasNoClient: true });
   });
 
   test("legacy path: wake carries no persona override", async () => {

@@ -25,7 +25,10 @@ import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import type { ServerMessage } from "./message-protocol.js";
-import type { SubagentToolGateMode } from "./tool-setup-types.js";
+import type {
+  SubagentToolGateMode,
+  WakeToolContextPin,
+} from "./tool-setup-types.js";
 
 const log = getLogger("wake-conversation-ops");
 
@@ -258,24 +261,27 @@ export async function persistWakeTailMessage(
  * callback that reinstates the previous allowlist so the wake can release
  * the scope before any queued user turn is drained.
  *
- * `gateMode` controls how the allowlist is enforced (see
- * {@link SubagentToolGateMode}): `"wire"` (default) filters the tool
- * definitions sent to the provider — the historical behavior — while
- * `"execution"` keeps the conversation's full tool surface on the wire for
- * provider prompt-cache parity and rejects non-allowlisted calls at
- * execution time. The gate mode is restored alongside the allowlist.
+ * `gateMode` controls how the allowlist is enforced — see
+ * {@link SubagentToolGateMode}. `toolContextPin`, when provided
+ * (execution-gate-mode cache-parity wakes), freezes the client-context
+ * inputs for tool-definition resolution — see {@link WakeToolContextPin}.
+ * Both are set and restored alongside the allowlist.
  */
 export function scopeWakeAllowedTools(
   conversation: Conversation,
   tools: ReadonlySet<string>,
   gateMode: SubagentToolGateMode = "wire",
+  toolContextPin?: WakeToolContextPin,
 ): () => void {
   const previous = conversation.subagentAllowedTools;
   const previousGateMode = conversation.subagentToolGateMode;
+  const previousToolContextPin = conversation.toolContextPin;
   conversation.setSubagentAllowedTools(new Set(tools));
   conversation.subagentToolGateMode = gateMode;
+  conversation.toolContextPin = toolContextPin;
   return () => {
     conversation.setSubagentAllowedTools(previous);
     conversation.subagentToolGateMode = previousGateMode;
+    conversation.toolContextPin = previousToolContextPin;
   };
 }

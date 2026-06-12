@@ -858,6 +858,41 @@ describe("wakeAgentForOpportunity", () => {
     expect(conversation.subagentToolGateMode).toBeUndefined();
   });
 
+  test("applies toolContextPin alongside the allowlist and restores it after the wake", async () => {
+    let pinDuringRun: unknown;
+    const conversation = makeWakeConversation({
+      runImpl: async (input) => {
+        pinDuringRun = conversation.toolContextPin;
+        return runResult([
+          ...input,
+          { role: "assistant", content: [{ type: "text", text: "Saved." }] },
+        ]);
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "review for memories",
+        source: "memory-retrospective",
+        allowedTools: ["remember"],
+        toolGateMode: "execution",
+        toolContextPin: { hasNoClient: false, transportInterface: "macos" },
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    // The pin is live on the conversation for the duration of the run (the
+    // tool resolver reads it there for wire-definition parity)...
+    expect(pinDuringRun).toEqual({
+      hasNoClient: false,
+      transportInterface: "macos",
+    });
+    // ...and restored alongside the allowlist + gate mode after the wake.
+    expect(conversation.toolContextPin).toBeUndefined();
+  });
+
   test("defaults to the wire gate mode when toolGateMode is absent", async () => {
     let gateModeDuringRun: string | undefined;
     const conversation = makeWakeConversation({
