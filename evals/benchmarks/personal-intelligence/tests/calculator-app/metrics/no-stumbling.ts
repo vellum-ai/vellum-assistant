@@ -16,10 +16,18 @@ export default async function scoreNoStumbling(
   input: MetricInput,
 ): Promise<MetricResult> {
   const transcript = await readTranscript(input.runId);
-  const assistantText = transcript
-    .filter((turn) => turn.role === "assistant")
-    .map((turn) => turn.content)
-    .join("\n");
+  const assistantTurns = transcript.filter(
+    (turn) => turn.role === "assistant",
+  );
+  if (assistantTurns.length === 0) {
+    return {
+      name: "no-stumbling",
+      score: 0,
+      reason: "No assistant responses to evaluate.",
+      metadata: { matchedPatterns: [] },
+    };
+  }
+  const assistantText = assistantTurns.map((turn) => turn.content).join("\n");
   const stumbles = STUMBLE_PATTERNS.filter((p) => p.test(assistantText));
   const score = stumbles.length === 0 ? 1 : 0;
   return {
