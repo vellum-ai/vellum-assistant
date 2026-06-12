@@ -21,7 +21,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import type { FetchLike, GitRunner } from "../install-from-github.js";
+import {
+  type FetchLike,
+  type GitRunner,
+  PluginSourceUnavailableError,
+} from "../install-from-github.js";
 import { PluginNotInstalledError } from "../uninstall-plugin.js";
 import { PluginNotUpgradableError, upgradePlugin } from "../upgrade-plugin.js";
 
@@ -262,19 +266,21 @@ describe("upgradePlugin", () => {
     ).rejects.toBeInstanceOf(PluginNotUpgradableError);
   });
 
-  test("throws PluginNotUpgradableError when the marketplace is unreachable", async () => {
+  test("throws PluginSourceUnavailableError when the marketplace is unreachable", async () => {
     // GIVEN an installed copy and a marketplace fetch that fails transiently
     installCopy(pluginsDir, "level-up", { commit: SHA_A });
     const fetch = makeFetch({ manifestStatus: 500 });
 
     // WHEN an upgrade is attempted
-    // THEN the latest pin cannot be determined, so it refuses
+    // THEN the outage is surfaced as a retryable source-unavailable error
+    // (distinct from the permanent no-marketplace-entry conflict), since the
+    // same request can succeed once the catalog recovers
     await expect(
       upgradePlugin(
         { name: "level-up" },
         { fetch, runGit: unusedGitRunner, workspacePluginsDir: pluginsDir },
       ),
-    ).rejects.toBeInstanceOf(PluginNotUpgradableError);
+    ).rejects.toBeInstanceOf(PluginSourceUnavailableError);
   });
 
   test("preserves the existing install when the re-install clone fails", async () => {

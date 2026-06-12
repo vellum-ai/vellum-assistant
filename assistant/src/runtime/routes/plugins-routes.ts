@@ -756,13 +756,14 @@ async function handleUpgradePlugin({
     if (err instanceof PluginNotFoundError) {
       throw new NotFoundError(err.message);
     }
-    // No marketplace entry / unreachable catalog: the install exists but
-    // cannot be advanced. 409 marks the request as well-formed but not
-    // actionable in the current state.
+    // The install exists but has no marketplace entry to advance to — a
+    // permanent state the caller cannot resolve by retrying. 409 marks the
+    // request as well-formed but not actionable in the current state.
     if (err instanceof PluginNotUpgradableError) {
       throw new ConflictError(err.message);
     }
-    // A rate-limited or temporarily-down GitHub source is retryable.
+    // A rate-limited or temporarily-down source (the plugin repo or the
+    // marketplace catalog) is a retryable outage, not a conflict — 503.
     if (err instanceof PluginSourceUnavailableError) {
       throw new ServiceUnavailableError(err.message);
     }
