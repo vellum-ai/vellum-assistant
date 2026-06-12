@@ -76,7 +76,7 @@ import { recordUsageEvent } from "../memory/llm-usage-store.js";
 import { rawRun } from "../memory/raw-query.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import { BadRequestError } from "../runtime/routes/errors.js";
+import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
 import { ROUTES as HEARTBEAT_ROUTES } from "../runtime/routes/heartbeat-routes.js";
 import { ROUTES as SCHEDULE_ROUTES } from "../runtime/routes/schedule-routes.js";
 import type { RouteDefinition } from "../runtime/routes/types.js";
@@ -584,6 +584,71 @@ describe("GET /schedules — default defer exclusion", () => {
     } finally {
       subscription.dispose();
     }
+  });
+});
+
+// ── GET /schedules/:id ────────────────────────────────────────────────────
+
+describe("GET /schedules/:id", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  test("returns the full schedule by ID", () => {
+    const source = createConversation("Schedule source");
+    const schedule = createSchedule({
+      name: "Single schedule",
+      description: "Fetch me by ID",
+      cronExpression: "0 9 * * *",
+      message: "review queue",
+      syntax: "cron",
+      createdFromConversationId: source.id,
+    });
+
+    const route = findRoute("schedules/:id", "GET");
+    const result = route.handler({ pathParams: { id: schedule.id } }) as {
+      schedule: Record<string, unknown>;
+    };
+
+    expect(result.schedule).toMatchObject({
+      id: schedule.id,
+      name: "Single schedule",
+      description: "Fetch me by ID",
+      cadenceDescription: "Every day at 9:00 AM",
+      message: "review queue",
+      mode: "execute",
+      enabled: true,
+      isOneShot: false,
+      createdFromConversationId: source.id,
+      createdFromConversationExists: true,
+      createdFromConversationArchivedAt: null,
+    });
+  });
+
+  test("returns deferred schedules that the list hides by default", () => {
+    const deferred = createSchedule({
+      name: "Deferred wake",
+      cronExpression: "0 9 * * *",
+      message: "wake up",
+      syntax: "cron",
+      createdBy: "defer",
+    });
+
+    const route = findRoute("schedules/:id", "GET");
+    const result = route.handler({ pathParams: { id: deferred.id } }) as {
+      schedule: { id: string };
+    };
+    expect(result.schedule.id).toBe(deferred.id);
+  });
+
+  test("throws NotFoundError for a missing schedule", () => {
+    const route = findRoute("schedules/:id", "GET");
+    expect(() =>
+      route.handler({ pathParams: { id: "missing-schedule" } }),
+    ).toThrow(NotFoundError);
+    expect(() =>
+      route.handler({ pathParams: { id: "missing-schedule" } }),
+    ).toThrow("Schedule not found");
   });
 });
 
@@ -1232,6 +1297,45 @@ describe("PATCH /schedules/:id — description", () => {
       description: "Updated description",
     });
     expect(listSchedules()[0].description).toBe("Updated description");
+  });
+
+  test("re-derives syntax when the expression switches cron to rrule", () => {
+    const schedule = createSchedule({
+      name: "Syntax switch",
+      description: "Cron schedule",
+      cronExpression: "0 9 * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+
+    const route = findRoute("schedules/:id", "PATCH");
+    const rrule = "DTSTART:20260101T000000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO";
+    route.handler({
+      pathParams: { id: schedule.id },
+      body: { expression: rrule },
+    });
+
+    const updated = listSchedules()[0];
+    expect(updated.syntax).toBe("rrule");
+    expect(updated.cronExpression).toBe(rrule);
+  });
+
+  test("rejects an expression that parses as neither cron nor rrule", () => {
+    const schedule = createSchedule({
+      name: "Bad expression",
+      description: "Cron schedule",
+      cronExpression: "0 9 * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+
+    const route = findRoute("schedules/:id", "PATCH");
+    expect(() =>
+      route.handler({
+        pathParams: { id: schedule.id },
+        body: { expression: "not a schedule" },
+      }),
+    ).toThrow(BadRequestError);
   });
 });
 

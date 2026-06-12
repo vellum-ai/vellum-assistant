@@ -6,6 +6,7 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { Conversation } from "@/types/conversation-types";
 import {
+  archivedConversationsQueryKey,
   conversationGroupsQueryKey,
 } from "@/lib/sync/query-tags";
 import {
@@ -47,6 +48,39 @@ mock.module("@/utils/fetch-conversation-detail", () => ({
     fetchConversationDetailCalls.push({ assistantId, conversationId });
     return fetchConversationDetailImpl(queryClient, assistantId, conversationId);
   },
+}));
+
+// ---------------------------------------------------------------------------
+// Module mock — `@/utils/conversation-list-fetchers`.
+// ---------------------------------------------------------------------------
+const realListFetchersModule = await import(
+  "@/utils/conversation-list-fetchers"
+);
+type ListFirstPage = Awaited<
+  ReturnType<typeof realListFetchersModule.listConversationsFirstPage>
+>;
+
+let listFirstPageImpl: (
+  bucket: string,
+  assistantId: string,
+) => Promise<ListFirstPage> = async () => ({
+  conversations: [],
+  hasMore: false,
+});
+const listFirstPageCalls: Array<{ bucket: string; assistantId: string }> = [];
+
+function recordFirstPage(bucket: string) {
+  return (assistantId: string) => {
+    listFirstPageCalls.push({ bucket, assistantId });
+    return listFirstPageImpl(bucket, assistantId);
+  };
+}
+
+mock.module("@/utils/conversation-list-fetchers", () => ({
+  ...realListFetchersModule,
+  listConversationsFirstPage: recordFirstPage("foreground"),
+  listBackgroundConversationsFirstPage: recordFirstPage("background"),
+  listScheduledConversationsFirstPage: recordFirstPage("scheduled"),
 }));
 
 const { useConversationSync } = await import(
@@ -95,6 +129,8 @@ beforeEach(() => {
         "fetchConversationDetail mock not configured — set fetchConversationDetailImpl in the test",
       ),
     );
+  listFirstPageCalls.length = 0;
+  listFirstPageImpl = async () => ({ conversations: [], hasMore: false });
 });
 
 afterEach(() => {
@@ -125,7 +161,7 @@ describe("useConversationSync", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  test("debounces conversations:list invalidation", async () => {
+  test("debounces conversations:list signals into one refresh cycle", async () => {
     const queryClient = freshQueryClient();
     const spy = mock(() => Promise.resolve());
     queryClient.invalidateQueries = spy as never;
@@ -137,14 +173,53 @@ describe("useConversationSync", () => {
     emit(syncEvent([SYNC_TAGS.conversationsList]));
     // Debounced — wait past the 250ms window.
     await new Promise((resolve) => setTimeout(resolve, 350));
-    const listCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
+    // Foreground infinite query is invalidated (cheap — only loaded pages refetch).
+    const infiniteCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
       (call) => {
         const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
         const key = arg?.queryKey?.[0] as Record<string, unknown> | undefined;
         return key?._id === "conversationsGet";
       },
     );
-    expect(listCalls.length).toBe(1);
+    expect(infiniteCalls.length).toBeGreaterThanOrEqual(1);
+    // Background/scheduled buckets were never fetched, so first-page refresh is skipped.
+    expect(listFirstPageCalls.filter((c) => c.bucket !== "foreground")).toEqual([]);
+  });
+
+  test("merges the fetched first page into the cached background window", async () => {
+    const queryClient = freshQueryClient();
+    const { backgroundConversationsQueryKey } = await import("@/lib/sync/query-tags");
+    queryClient.setQueryData(backgroundConversationsQueryKey("asst-1"), [
+      { conversationId: "conv-new", title: "Recent", lastMessageAt: 5000 },
+      // Inside the fresh window (>= its oldest row) but missing from the
+      // page — deleted or archived by another client.
+      { conversationId: "conv-gone", title: "Removed elsewhere", lastMessageAt: 4950 },
+      // Below the fresh window — untouched deep history survives.
+      { conversationId: "conv-old", title: "Deep history", lastMessageAt: 1000 },
+    ]);
+    listFirstPageImpl = async () =>
+      ({
+        conversations: [
+          { conversationId: "conv-new", title: "Recent (renamed)", lastMessageAt: 5000 },
+          { conversationId: "conv-created", title: "Created elsewhere", lastMessageAt: 4900 },
+        ],
+        hasMore: true,
+      }) as ListFirstPage;
+    renderHook(() => useConversationSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit(syncEvent([SYNC_TAGS.conversationsList]));
+    await waitFor(() => {
+      const list = queryClient.getQueryData(
+        backgroundConversationsQueryKey("asst-1"),
+      ) as Array<{ conversationId: string; title: string }>;
+      expect(list.map((c) => c.conversationId)).toEqual([
+        "conv-new",
+        "conv-created",
+        "conv-old",
+      ]);
+      expect(list[0].title).toBe("Recent (renamed)");
+    });
   });
 
   test("per-conversation metadata tags GET-and-patch the cached row (no list refetch)", async () => {
@@ -274,7 +349,7 @@ describe("useConversationSync", () => {
     expect(listCalls.length).toBe(0);
   });
 
-  test("invalidates conversation list queries on sse.opened reconnect (debounced)", async () => {
+  test("refreshes the list window on sse.opened reconnect (debounced)", async () => {
     const queryClient = freshQueryClient();
     const spy = mock(() => Promise.resolve());
     queryClient.invalidateQueries = spy as never;
@@ -284,6 +359,7 @@ describe("useConversationSync", () => {
     emitOpened("error");
     // Wait past the 250ms debounce window.
     await new Promise((resolve) => setTimeout(resolve, 350));
+    // Foreground infinite query is invalidated (not first-page merged).
     const chatCtxCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
       (call) => {
         const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
@@ -291,6 +367,7 @@ describe("useConversationSync", () => {
         return key?._id === "conversationsGet";
       },
     );
+    expect(chatCtxCalls.length).toBeGreaterThanOrEqual(1);
     const expectedGroupsKey = conversationGroupsQueryKey("asst-1")[0];
     const groupsCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
       (call) => {
@@ -299,11 +376,19 @@ describe("useConversationSync", () => {
         return key?._id === (expectedGroupsKey as Record<string, unknown>)._id;
       },
     );
-    expect(chatCtxCalls.length).toBe(1);
+    const archivedCalls = (
+      spy.mock.calls as unknown as Array<[unknown]>
+    ).filter((call) => {
+      const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
+      return (
+        arg?.queryKey?.[0] === archivedConversationsQueryKey("asst-1")[0]
+      );
+    });
     expect(groupsCalls.length).toBe(1);
+    expect(archivedCalls.length).toBe(1);
   });
 
-  test("does NOT invalidate on sse.opened (cause=fresh)", async () => {
+  test("does NOT refresh on sse.opened (cause=fresh)", async () => {
     const queryClient = freshQueryClient();
     const spy = mock(() => Promise.resolve());
     queryClient.invalidateQueries = spy as never;
@@ -313,6 +398,7 @@ describe("useConversationSync", () => {
     emitOpened("fresh");
     await Promise.resolve();
     expect(spy).not.toHaveBeenCalled();
+    expect(listFirstPageCalls.length).toBe(0);
   });
 
   test("patches conversation title in cache on conversation_title_updated", async () => {

@@ -16,6 +16,7 @@ import {
 
 import {
   markConversationSeenLocal,
+  mergeListFirstPage,
   prependConversation,
   removeConversation,
   shouldSurfaceConversationOnUserSend,
@@ -641,5 +642,92 @@ describe("deleteGroupAndResetConversations", () => {
     deleteGroupAndResetConversations(qc, ASSISTANT_ID, "g1");
 
     expect(qc.getQueryData<InfiniteData<ConversationPage>>(queryKey)).toBe(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mergeListFirstPage
+// ---------------------------------------------------------------------------
+
+describe("mergeListFirstPage", () => {
+  test("replaces the cache when the page is the complete list", () => {
+    const prev = [
+      makeConversation({ conversationId: "c1", lastMessageAt: 5000 }),
+      makeConversation({ conversationId: "c2", lastMessageAt: 1000 }),
+    ];
+    const page = {
+      conversations: [
+        makeConversation({ conversationId: "c1", lastMessageAt: 5000 }),
+      ],
+      hasMore: false,
+    };
+
+    expect(mergeListFirstPage(prev, page)).toBe(page.conversations);
+  });
+
+  test("drops cached rows inside the window that vanished from the page, keeps older rows", () => {
+    const prev = [
+      makeConversation({ conversationId: "c-new", lastMessageAt: 5000 }),
+      makeConversation({ conversationId: "c-gone", lastMessageAt: 4950 }),
+      makeConversation({ conversationId: "c-old", lastMessageAt: 1000 }),
+    ];
+    const fresh = [
+      makeConversation({ conversationId: "c-new", lastMessageAt: 5000, title: "Renamed" }),
+      makeConversation({ conversationId: "c-created", lastMessageAt: 4900 }),
+    ];
+
+    const merged = mergeListFirstPage(prev, { conversations: fresh, hasMore: true });
+
+    expect(merged.map((c) => c.conversationId)).toEqual([
+      "c-new",
+      "c-created",
+      "c-old",
+    ]);
+    expect(merged[0].title).toBe("Renamed");
+  });
+
+  test("excludes pinned rows from the window cutoff", () => {
+    // The daemon appends every pinned conversation to page 1 regardless of
+    // age. An ancient pinned row must not collapse the cutoff and drop
+    // live cached rows.
+    const prev = [
+      makeConversation({ conversationId: "c-live", lastMessageAt: 4000 }),
+    ];
+    const fresh = [
+      makeConversation({ conversationId: "c-top", lastMessageAt: 5000 }),
+      makeConversation({ conversationId: "c-pinned", lastMessageAt: 100, isPinned: true }),
+    ];
+
+    const merged = mergeListFirstPage(prev, { conversations: fresh, hasMore: true });
+
+    expect(merged.map((c) => c.conversationId)).toEqual([
+      "c-top",
+      "c-pinned",
+      "c-live",
+    ]);
+  });
+
+  test("always keeps client-local draft rows", () => {
+    const prev = [
+      makeConversation({ conversationId: "c-draft", lastMessageAt: 6000, draft: true }),
+    ];
+    const fresh = [
+      makeConversation({ conversationId: "c-top", lastMessageAt: 5000 }),
+    ];
+
+    const merged = mergeListFirstPage(prev, { conversations: fresh, hasMore: true });
+
+    expect(merged.map((c) => c.conversationId)).toEqual(["c-top", "c-draft"]);
+  });
+
+  test("returns the cache unchanged when every fresh row is pinned", () => {
+    const prev = [
+      makeConversation({ conversationId: "c1", lastMessageAt: 4000 }),
+    ];
+    const fresh = [
+      makeConversation({ conversationId: "c-pinned", lastMessageAt: 100, isPinned: true }),
+    ];
+
+    expect(mergeListFirstPage(prev, { conversations: fresh, hasMore: true })).toBe(prev);
   });
 });
