@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import type { ChannelId } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
+import { findGuardianForChannel } from "../../contacts/contact-store.js";
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -123,15 +124,27 @@ async function handleSurfaceAction({
   // that route through the canonical guardian decision primitive.
   const aprDecision = parseCallbackData(actionId, "vellum");
   if (aprDecision) {
-    const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
+    // Resolve the actor's guardian principal ID. In dev mode the synthetic
+    // "dev-bypass" principal won't match the real guardian binding, so fall
+    // back to the local guardian binding — mirrors guardian-action-routes.ts.
+    let guardianPrincipalId: string | undefined =
+      headers?.["x-vellum-actor-principal-id"] ?? undefined;
+    if (
+      isHttpAuthDisabled() &&
+      headers?.["x-vellum-actor-principal-id"] === "dev-bypass"
+    ) {
+      const binding = findGuardianForChannel("vellum");
+      guardianPrincipalId = binding?.contact.principalId ?? undefined;
+    }
+
     const result = await processGuardianDecision({
       requestId: aprDecision.requestId!,
       action: aprDecision.action,
       conversationId: conversationId ?? undefined,
       channel: "vellum",
       actorContext: {
-        actorPrincipalId: actorPrincipalId,
-        guardianPrincipalId: actorPrincipalId,
+        actorPrincipalId: guardianPrincipalId,
+        guardianPrincipalId,
       },
     });
 
