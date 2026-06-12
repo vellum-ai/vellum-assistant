@@ -3,6 +3,10 @@ import { z } from "zod";
 import { getConfig } from "../../config/loader.js";
 import { resolveImageGenCredentials } from "../../media/image-credentials.js";
 import {
+  describeImageModels,
+  resolveImageModel,
+} from "../../media/image-models.js";
+import {
   generateImage,
   mapImageGenError,
   providerForModel,
@@ -77,8 +81,22 @@ async function handleImageGenerationGenerate(
   const config = getConfig();
   const svc = config.services["image-generation"];
 
+  // Resolve tier aliases (fast, quality, openai) to concrete model IDs via
+  // the registry; reject unknown values with the current catalog so the
+  // error is self-describing rather than a stale enum.
+  let resolvedModel = model as string | undefined;
+  if (typeof resolvedModel === "string" && resolvedModel) {
+    const entry = resolveImageModel(resolvedModel);
+    if (!entry) {
+      throw new BadRequestError(
+        `Unknown model "${resolvedModel}". Available models and aliases:\n${describeImageModels()}`,
+      );
+    }
+    resolvedModel = entry.id;
+  }
+
   // Derive provider from explicit model override when supplied
-  const provider = providerForModel(model, svc.provider);
+  const provider = providerForModel(resolvedModel, svc.provider);
 
   // Resolve credentials
   const { credentials, errorHint } = await resolveImageGenCredentials({
@@ -103,7 +121,7 @@ async function handleImageGenerationGenerate(
       sourceImages: sourceImages as
         | Array<{ mimeType: string; dataBase64: string }>
         | undefined,
-      model: (model as string | undefined) ?? svc.model,
+      model: resolvedModel ?? svc.model,
       variants: clampedVariants,
     });
 
