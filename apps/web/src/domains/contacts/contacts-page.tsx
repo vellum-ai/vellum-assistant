@@ -32,6 +32,7 @@ import {
     channelsReadinessGetQueryKey,
     contactsGetOptions,
     contactsGetQueryKey,
+    contactsGetSetQueryData,
     useContactchannelsByContactChannelIdPatchMutation,
     useContactsMergePostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
@@ -46,7 +47,6 @@ import {
 } from "@/generated/daemon/sdk.gen";
 import type {
     ChannelsAvailableGetResponse,
-    ContactsGetResponse,
 } from "@/generated/daemon/types.gen";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
@@ -239,12 +239,10 @@ export function ContactsPage({
       await queryClient.cancelQueries({ queryKey: contactsQueryKey });
     },
     onSuccess: (contact) => {
-      queryClient.setQueryData<ContactsGetResponse>(
-        contactsQueryKey,
-        (prev) =>
-          prev
-            ? { ...prev, contacts: [...prev.contacts, contact] }
-            : undefined,
+      contactsGetSetQueryData(queryClient, contactsPathOpts, (prev) =>
+        prev
+          ? { ...prev, contacts: [...prev.contacts, contact] }
+          : undefined,
       );
       setSelection({ kind: "contact", contactId: contact.id });
     },
@@ -255,15 +253,13 @@ export function ContactsPage({
     mutationFn: (contactId: string) =>
       gatewayDeleteContact(assistantId, contactId),
     onSuccess: (_data, contactId) => {
-      queryClient.setQueryData<ContactsGetResponse>(
-        contactsQueryKey,
-        (prev) =>
-          prev
-            ? {
-                ...prev,
-                contacts: prev.contacts.filter((c) => c.id !== contactId),
-              }
-            : undefined,
+      contactsGetSetQueryData(queryClient, contactsPathOpts, (prev) =>
+        prev
+          ? {
+              ...prev,
+              contacts: prev.contacts.filter((c) => c.id !== contactId),
+            }
+          : undefined,
       );
       setSelection({ kind: "assistant" });
     },
@@ -284,17 +280,15 @@ export function ContactsPage({
         notes: patch.notes,
       }),
     onSuccess: (updatedContact) => {
-      queryClient.setQueryData<ContactsGetResponse>(
-        contactsQueryKey,
-        (prev) =>
-          prev
-            ? {
-                ...prev,
-                contacts: prev.contacts.map((c) =>
-                  c.id === updatedContact.id ? updatedContact : c,
-                ),
-              }
-            : undefined,
+      contactsGetSetQueryData(queryClient, contactsPathOpts, (prev) =>
+        prev
+          ? {
+              ...prev,
+              contacts: prev.contacts.map((c) =>
+                c.id === updatedContact.id ? updatedContact : c,
+              ),
+            }
+          : undefined,
       );
     },
     onSettled: () => invalidateContacts(),
@@ -308,19 +302,17 @@ export function ContactsPage({
       const mergedContact = mergedData.contact;
       const mergeId = variables.body.mergeId;
       if (mergedContact) {
-        queryClient.setQueryData<ContactsGetResponse>(
-          contactsQueryKey,
-          (prev) =>
-            prev
-              ? {
-                  ...prev,
-                  contacts: prev.contacts
-                    .filter((c) => c.id !== mergeId)
-                    .map((c) =>
-                      c.id === mergedContact.id ? mergedContact : c,
-                    ),
-                }
-              : undefined,
+        contactsGetSetQueryData(queryClient, contactsPathOpts, (prev) =>
+          prev
+            ? {
+                ...prev,
+                contacts: prev.contacts
+                  .filter((c) => c.id !== mergeId)
+                  .map((c) =>
+                    c.id === mergedContact.id ? mergedContact : c,
+                  ),
+              }
+            : undefined,
         );
         setSelection({ kind: "contact", contactId: mergedContact.id });
       }
