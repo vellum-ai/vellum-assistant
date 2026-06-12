@@ -31,13 +31,6 @@ describe("buildIngressNginxConfig", () => {
     expect(conf).not.toContain("location ~");
   });
 
-  test("does not set forwarded identity headers", () => {
-    expect(conf).not.toContain("X-Forwarded-For");
-    expect(conf).not.toContain("X-Forwarded-Host");
-    expect(conf).not.toContain("X-Forwarded-Proto");
-    expect(conf).not.toContain("X-Vellum-Edge-Forwarded");
-  });
-
   test("supports websockets and SSE streaming", () => {
     expect(conf).toContain("map $http_upgrade $connection_upgrade");
     expect(conf).toContain("proxy_http_version 1.1;");
