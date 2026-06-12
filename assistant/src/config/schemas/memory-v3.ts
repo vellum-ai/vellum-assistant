@@ -182,6 +182,14 @@ export const MemoryV3ConfigSchema = z
       .describe(
         "Number of dense-lane articles folded into the candidate pool each turn.",
       ),
+    replyQueryK: z
+      .number({ error: "memory.v3.replyQueryK must be a number" })
+      .int("memory.v3.replyQueryK must be an integer")
+      .nonnegative("memory.v3.replyQueryK must be a non-negative integer")
+      .default(12)
+      .describe(
+        "Per-lane article budget for the reply-query finder pass: needle and dense each re-run over the assistant's previous message as separate queries (never concatenated with the user's message). 0 disables the pass. Deliberately small next to needleK/denseK — the pass adds the assistant-side retrieval signal, not a second full sweep.",
+      ),
     edge: MemoryV3EdgeSchema.default(MemoryV3EdgeSchema.parse({})),
   })
   .describe("Memory v3 — section-grain lane retrieval");

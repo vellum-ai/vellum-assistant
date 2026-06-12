@@ -12,6 +12,7 @@ describe("MemoryV3ConfigSchema", () => {
       spotlight: { n: 6, windowTurns: 2 },
       needleK: 100,
       denseK: 100,
+      replyQueryK: 12,
       edge: { hubDegree: 30, seedCount: 18, perSeed: 6, cap: 45 },
     });
   });

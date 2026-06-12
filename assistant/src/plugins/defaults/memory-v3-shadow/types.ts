@@ -73,6 +73,17 @@ export interface MemoryRoutingTurn {
    * render nothing for an undefined value.
    */
   situationalContext?: string;
+  /**
+   * Tail of the assistant's previous reply (the message before
+   * `currentMessage`), fed to the reply-query finder pass as its OWN needle +
+   * dense queries — never concatenated onto `currentMessage`, which would
+   * average two speakers' retrieval intents into a vector that matches
+   * neither. The assistant's prose carries the threads it is actively
+   * developing, which the user's next message often references without
+   * naming. Omitted on a conversation's first turn (no prior reply) or when
+   * the reply lane is disabled.
+   */
+  previousAssistantMessage?: string;
 }
 
 /**
@@ -83,7 +94,9 @@ export interface MemoryRoutingTurn {
  *
  * `core` / `hot` / `fresh` are the stable-prefix lanes (curated core set,
  * frecency hot set, modification-recency fresh set); `needle` / `dense` /
- * `edge` are the per-turn finder lanes.
+ * `edge` are the per-turn finder lanes over the user's message; `reply` marks
+ * finder candidates first surfaced by the reply-query pass (needle + dense
+ * re-run over the assistant's previous message).
  *
  * The `memory_v3_selections.source` column is free-text, so tightening this set
  * needs no migration: any historical rows with retired labels (e.g. the old
@@ -97,6 +110,7 @@ export const SELECTION_SOURCES = [
   "needle",
   "dense",
   "edge",
+  "reply",
 ] as const;
 
 export type SelectionSource = (typeof SELECTION_SOURCES)[number];
