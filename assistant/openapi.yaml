@@ -4339,6 +4339,8 @@ paths:
                             type: string
                             enum:
                               - suppress-cjk
+                          disableCache:
+                            type: boolean
                           provider_connection:
                             type: string
                         additionalProperties: false
@@ -4469,6 +4471,8 @@ paths:
                               type: string
                               enum:
                                 - suppress-cjk
+                            disableCache:
+                              type: boolean
                             source:
                               type: string
                               enum:
@@ -4644,6 +4648,8 @@ paths:
                                   type: string
                                   enum:
                                     - suppress-cjk
+                                disableCache:
+                                  type: boolean
                                 profile:
                                   type: string
                               additionalProperties: false
