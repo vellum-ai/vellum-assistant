@@ -482,6 +482,16 @@ async function runForkBasedRetrospective(
       trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
       callSite: "memoryRetrospective",
       allowedTools: ["remember"],
+      // When matching the source's profile for cache parity, also keep the
+      // source's full tool surface on the wire: the provider cache prefix is
+      // `tools → system → messages`, so wire-filtering the tool array to
+      // ["remember"] would invalidate the cached prefix the profile match
+      // just preserved. The allowlist still holds — non-`remember` calls are
+      // rejected at execution time. Without profile matching there is no
+      // cache to preserve, and the smaller wire-filtered request is cheaper.
+      ...(config.memory.retrospective.matchConversationProfile
+        ? { toolGateMode: "execution" as const }
+        : {}),
       ...(matchedProfile !== undefined
         ? { forceOverrideProfile: matchedProfile }
         : {}),

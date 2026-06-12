@@ -719,6 +719,10 @@ describe("memoryRetrospectiveJob", () => {
     expect(wakeCalls[0]!.opts.forceOverrideProfile).toBe("profile-x");
     // Attribution bucket is unchanged — only the resolved profile floats.
     expect(wakeCalls[0]!.opts.callSite).toBe("memoryRetrospective");
+    // Cache parity also requires the conversation's full tool surface on the
+    // wire (tool defs lead the provider cache prefix) — the allowlist is
+    // enforced at execution time instead.
+    expect(wakeCalls[0]!.opts.toolGateMode).toBe("execution");
   });
 
   test("fork path: matchConversationProfile off (default) → wake carries no forceOverrideProfile", async () => {
@@ -735,6 +739,9 @@ describe("memoryRetrospectiveJob", () => {
 
     expect(wakeCalls).toHaveLength(1);
     expect("forceOverrideProfile" in wakeCalls[0]!.opts).toBe(false);
+    // Wire mode (default) when not matching the profile — there is no cache
+    // to preserve, so the smaller filtered request wins.
+    expect("toolGateMode" in wakeCalls[0]!.opts).toBe(false);
   });
 
   test("fork path: matchConversationProfile on but source has no inferenceProfile → wake carries no forceOverrideProfile", async () => {
@@ -747,6 +754,10 @@ describe("memoryRetrospectiveJob", () => {
 
     expect(wakeCalls).toHaveLength(1);
     expect("forceOverrideProfile" in wakeCalls[0]!.opts).toBe(false);
+    // toolGateMode is gated on the config flag, not on a resolved profile:
+    // without a pinned profile the source's turns ran the call-site default,
+    // and keeping the full tool surface still preserves that cached prefix.
+    expect(wakeCalls[0]!.opts.toolGateMode).toBe("execution");
   });
 
   test("fork path: matchConversationProfile on but the profile session expired → wake carries no forceOverrideProfile", async () => {

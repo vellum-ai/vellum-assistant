@@ -6,6 +6,7 @@ import {
     organizationsBillingAutoTopUpRemovePaymentMethodCreateMutation,
     organizationsBillingAutoTopUpRetrieveOptions,
     organizationsBillingAutoTopUpRetrieveQueryKey,
+    organizationsBillingAutoTopUpRetrieveSetQueryData,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
 import { Button } from "@vellumai/design-library/components/button";
@@ -214,8 +215,9 @@ export function PaymentMethodsCard() {
                 // without re-entering them. Merge from the prior cache so
                 // the AutoTopUpCard sibling (same query key) doesn't render
                 // an empty config until the next refetch lands.
-                queryClient.setQueryData<AutoTopUpConfigResponse | undefined>(
-                  organizationsBillingAutoTopUpRetrieveQueryKey(),
+                organizationsBillingAutoTopUpRetrieveSetQueryData(
+                  queryClient,
+                  undefined,
                   (prior) =>
                     prior
                       ? {
