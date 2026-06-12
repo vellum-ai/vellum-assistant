@@ -978,6 +978,7 @@ export function updateContactPrincipalAndChannel(
     db.update(contactChannels)
       .set({
         address: normalizedAddress,
+        externalUserId: normalizedAddress,
         updatedAt: now,
       })
       .where(eq(contactChannels.id, channelId))

@@ -1,16 +1,14 @@
 /**
- * Tests for the address-fallback path in resolveActorTrust.
+ * Tests for address-based member resolution in resolveActorTrust.
  *
- * Phone channels registered by the inbound name-capture flow have `address`
- * set (E.164) but `externalUserId` = NULL until DTMF verification completes.
- * The primary `findContactByChannelExternalId` lookup misses these channels,
- * which historically caused the relay router to fall into the name-capture
- * ("I don't recognize this number") path instead of the unverified-caller
- * guidance path.
+ * All member lookups use the canonical (type, address) path — the address
+ * column is the sole identity for all channel types. Phone channels
+ * registered by the inbound name-capture flow have `address` set (E.164)
+ * and are discovered through the same path as every other channel.
  *
- * This suite verifies that the address-based fallback fires correctly and
- * that the returned `memberRecord` carries the right channel/status so
- * relay-setup-router can emit the `unverified_caller` outcome.
+ * This suite verifies that address-based lookup returns the correct
+ * `memberRecord` with the right channel/status so relay-setup-router
+ * can emit the appropriate outcome (e.g. `unverified_caller`).
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -23,13 +21,13 @@ mock.module("../util/logger.js", () => ({
 
 // ── Contact store stubs — filled in per test ─────────────────────────────────
 let _byExternalId: ReturnType<
-  typeof import("../contacts/contact-store.js")["findContactByChannelExternalId"]
+  (typeof import("../contacts/contact-store.js"))["findContactByChannelExternalId"]
 > = null;
 let _byAddress: ReturnType<
-  typeof import("../contacts/contact-store.js")["findContactByAddress"]
+  (typeof import("../contacts/contact-store.js"))["findContactByAddress"]
 > = null;
 let _guardian: ReturnType<
-  typeof import("../contacts/contact-store.js")["findGuardianForChannel"]
+  (typeof import("../contacts/contact-store.js"))["findGuardianForChannel"]
 > = null;
 
 mock.module("../contacts/contact-store.js", () => ({
@@ -117,12 +115,10 @@ describe("resolveActorTrust — address fallback", () => {
     expect(result.trustClass).toBe("unknown");
   });
 
-  test("externalUserId path takes priority over address path", () => {
-    // Both lookups return a contact; the externalUserId one should win.
-    const primaryContact = makeContact("contact", "active", PHONE);
-    const addressContact = makeContact("contact", "unverified", null);
-    _byExternalId = primaryContact;
-    _byAddress = addressContact;
+  test("address lookup is the sole member resolution path", () => {
+    // Only the address-based lookup is used — externalUserId is not consulted.
+    _byExternalId = makeContact("contact", "active", PHONE);
+    _byAddress = makeContact("contact", "active", null);
 
     const result = resolveActorTrust({
       assistantId: "asst-1",
@@ -132,7 +128,7 @@ describe("resolveActorTrust — address fallback", () => {
     });
 
     expect(result.memberRecord?.channel.status).toBe("active");
-    expect(result.memberRecord?.channel.externalUserId).toBe(PHONE);
+    expect(result.memberRecord?.channel.address).toBe(PHONE.toLowerCase());
   });
 
   test("returns null memberRecord when neither lookup finds the number", () => {
