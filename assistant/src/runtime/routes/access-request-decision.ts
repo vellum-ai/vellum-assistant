@@ -19,7 +19,10 @@ const log = getLogger("access-request-decision");
 // Types
 // ---------------------------------------------------------------------------
 
-export type AccessRequestDecisionAction = "approve" | "deny";
+export type AccessRequestDecisionAction =
+  | "approve"
+  | "approve_trusted"
+  | "deny";
 
 export type DeliveryResult = { ok: true } | { ok: false; reason: string };
 
@@ -56,7 +59,7 @@ export function handleAccessRequestDecision(
   // if already resolved with the same decision, returns the existing record
   // unchanged. Returns null when already resolved with a *different* decision
   // or when the record doesn't exist.
-  const decision = action === "approve" ? "approved" : "denied";
+  const decision = action === "deny" ? "denied" : "approved";
   const resolved = resolveApprovalRequest(
     approval.id,
     decision,
@@ -81,10 +84,16 @@ export function handleAccessRequestDecision(
     return { handled: true, type: "denied" };
   }
 
-  // On approve: create an identity-bound outbound verification session.
-  // The session is bound to the requester's identity on the same channel
-  // so only the original requester can consume the code. Mark as
-  // trusted_contact so the consume path skips guardian binding creation.
+  // Direct trust: guardian explicitly chose to mark the requester as trusted
+  // without a code-exchange handshake. No verification session needed.
+  if (action === "approve_trusted") {
+    return { handled: true, type: "approved" };
+  }
+
+  // On approve (with handshake): create an identity-bound outbound
+  // verification session. The session is bound to the requester's identity
+  // on the same channel so only the original requester can consume the code.
+  // Mark as trusted_contact so the consume path skips guardian binding creation.
   const session = createOutboundSession({
     channel: approval.channel,
     expectedExternalUserId: approval.requesterExternalUserId,
@@ -129,6 +138,68 @@ export async function deliverVerificationCodeToGuardian(params: {
     log.error(
       { err, guardianChatId: params.guardianChatId },
       "Failed to deliver verification code to guardian",
+    );
+    const reason = err instanceof Error ? err.message : String(err);
+    return { ok: false, reason };
+  }
+}
+
+/**
+ * Notify the requester that the guardian has approved them as a trusted
+ * contact — no verification code needed.
+ */
+export async function notifyRequesterOfDirectApproval(params: {
+  replyCallbackUrl: string;
+  requesterChatId: string;
+  assistantId: string;
+  channel?: string;
+  requesterExternalUserId?: string;
+}): Promise<void> {
+  const text =
+    "Great news — your access request was approved! " +
+    "You can now message the assistant directly.";
+
+  const target = resolveRequesterTarget(params);
+
+  try {
+    await deliverChannelReply(target.callbackUrl, {
+      chatId: target.chatId,
+      text,
+      assistantId: params.assistantId,
+    });
+  } catch (err) {
+    log.error(
+      { err, requesterChatId: params.requesterChatId },
+      "Failed to notify requester of direct approval",
+    );
+  }
+}
+
+/**
+ * Deliver a confirmation to the guardian after a direct-trust approval
+ * (no verification code).
+ */
+export async function deliverDirectApprovalConfirmation(params: {
+  replyCallbackUrl: string;
+  guardianChatId: string;
+  requesterIdentifier: string;
+  assistantId: string;
+}): Promise<DeliveryResult> {
+  const text =
+    `You approved access for ${params.requesterIdentifier}. ` +
+    `They've been added as a trusted contact and can now message the assistant directly.`;
+
+  try {
+    await deliverChannelReply(params.replyCallbackUrl, {
+      chatId: params.guardianChatId,
+      text,
+      assistantId: params.assistantId,
+    });
+    return { ok: true };
+  } catch (err) {
+    log.error(
+      { err, guardianChatId: params.guardianChatId },
+      "Failed to deliver direct approval confirmation to guardian",
     );
     const reason = err instanceof Error ? err.message : String(err);
     return { ok: false, reason };

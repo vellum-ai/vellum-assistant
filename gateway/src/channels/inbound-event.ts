@@ -40,6 +40,8 @@ interface InboundEventBase<C extends InboundChannelId> {
     lastName?: string;
     languageCode?: string;
     isBot?: boolean;
+    isStranger?: boolean;
+    isRestricted?: boolean;
     timezone?: string;
     timezoneLabel?: string;
     timezoneOffsetSeconds?: number;

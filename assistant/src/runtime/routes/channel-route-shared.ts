@@ -37,6 +37,7 @@ export function requiredDecisionKeywords(
 
 const VALID_ACTIONS: ReadonlySet<string> = new Set<string>([
   "approve_once",
+  "approve_trusted",
   "reject",
 ]);
 

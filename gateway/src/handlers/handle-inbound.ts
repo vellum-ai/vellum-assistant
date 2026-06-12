@@ -150,6 +150,8 @@ export async function handleInbound(
           ...(sourceChannelName ? { channelName: sourceChannelName } : {}),
           languageCode: event.actor.languageCode,
           isBot: event.actor.isBot,
+          isStranger: event.actor.isStranger,
+          isRestricted: event.actor.isRestricted,
           timezone: event.actor.timezone,
           timezoneLabel: event.actor.timezoneLabel,
           timezoneOffsetSeconds: event.actor.timezoneOffsetSeconds,
@@ -175,7 +177,9 @@ export async function handleInbound(
         duplicate: response.duplicate,
         hasReply: !!response.assistantMessage,
         denied: response.denied ?? false,
-        deniedReason: response.denied ? (response.reason ?? "unknown") : undefined,
+        deniedReason: response.denied
+          ? (response.reason ?? "unknown")
+          : undefined,
       },
       response.denied
         ? "Inbound event denied by runtime"

@@ -43,11 +43,13 @@ import {
 } from "../memory/guardian-approvals.js";
 import { findActiveSession } from "../runtime/channel-verification-service.js";
 import {
+  deliverDirectApprovalConfirmation,
   deliverVerificationCodeToGuardian,
   handleAccessRequestDecision,
   notifyRequesterOfApproval,
   notifyRequesterOfDeliveryFailure,
   notifyRequesterOfDenial,
+  notifyRequesterOfDirectApproval,
 } from "../runtime/routes/access-request-decision.js";
 
 initializeDb();
@@ -371,5 +373,99 @@ describe("access request notification delivery", () => {
 
     expect(deliverReplyCalls.length).toBe(1);
     expect(deliverReplyCalls[0].payload.chatId).toBe("C12345-channel");
+  });
+});
+
+describe("approve_trusted (direct trust) path", () => {
+  beforeEach(() => {
+    resetState();
+  });
+
+  test("approve_trusted marks approval as approved without creating a verification session", () => {
+    const approval = createTestApproval();
+
+    const result = handleAccessRequestDecision(
+      approval,
+      "approve_trusted",
+      "guardian-user-789",
+    );
+
+    expect(result.handled).toBe(true);
+    expect(result.type).toBe("approved");
+    expect(result.verificationSessionId).toBeUndefined();
+    expect(result.verificationCode).toBeUndefined();
+
+    // Approval record should be updated to 'approved'
+    const updated = getApprovalRequestById(approval.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe("approved");
+    expect(updated!.decidedByExternalUserId).toBe("guardian-user-789");
+
+    // No verification session should exist
+    const session = findActiveSession("telegram");
+    expect(session).toBeNull();
+  });
+
+  test("approve_trusted on already-resolved approval returns stale", () => {
+    const approval = createTestApproval();
+
+    // Approve first via direct trust
+    handleAccessRequestDecision(
+      approval,
+      "approve_trusted",
+      "guardian-user-789",
+    );
+
+    // Try to deny the same approval — should be stale
+    const result = handleAccessRequestDecision(
+      approval,
+      "deny",
+      "guardian-user-789",
+    );
+
+    expect(result.handled).toBe(true);
+    expect(result.type).toBe("stale");
+  });
+
+  test("delivers direct approval confirmation to guardian", async () => {
+    deliverReplyCalls.length = 0;
+
+    const result = await deliverDirectApprovalConfirmation({
+      replyCallbackUrl: "http://localhost:7830/deliver/slack",
+      guardianChatId: "guardian-chat-789",
+      requesterIdentifier: "Alice",
+      assistantId: "self",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(deliverReplyCalls.length).toBe(1);
+    const call = deliverReplyCalls[0];
+    expect(call.payload.chatId).toBe("guardian-chat-789");
+    const text = call.payload.text as string;
+    expect(text).toContain("Alice");
+    expect(text).toContain("trusted contact");
+  });
+
+  test("notifies requester of direct approval", async () => {
+    deliverReplyCalls.length = 0;
+
+    await notifyRequesterOfDirectApproval({
+      replyCallbackUrl:
+        "http://localhost:7830/deliver/slack?threadTs=1234.5678",
+      requesterChatId: "C12345-channel",
+      requesterExternalUserId: "U98765-user",
+      channel: "slack",
+      assistantId: "self",
+    });
+
+    expect(deliverReplyCalls.length).toBe(1);
+    const call = deliverReplyCalls[0];
+    // Should target the user ID (DM) on Slack
+    expect(call.payload.chatId).toBe("U98765-user");
+    // threadTs should be stripped
+    expect(call.url).not.toContain("threadTs");
+    const text = call.payload.text as string;
+    expect(text).toContain("approved");
+    expect(text).toContain("message the assistant directly");
   });
 });

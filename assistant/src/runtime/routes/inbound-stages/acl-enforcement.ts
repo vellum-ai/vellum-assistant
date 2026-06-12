@@ -139,6 +139,16 @@ export async function enforceIngressAcl(
 
   let resolvedMember: ResolvedMember | null = null;
 
+  // Extract Slack trust signals from sourceMetadata for access request cards.
+  const isStranger =
+    typeof sourceMetadata?.isStranger === "boolean"
+      ? sourceMetadata.isStranger
+      : undefined;
+  const isRestricted =
+    typeof sourceMetadata?.isRestricted === "boolean"
+      ? sourceMetadata.isRestricted
+      : undefined;
+
   // /start gv_<token> bootstrap commands must also bypass ACL — the user
   // hasn't been verified yet and needs to complete the bootstrap handshake.
   const rawCommandIntentForAcl = sourceMetadata?.commandIntent;
@@ -293,6 +303,8 @@ export async function enforceIngressAcl(
                   trimmedContent,
                   MESSAGE_PREVIEW_MAX_LENGTH,
                 ),
+                isStranger,
+                isRestricted,
               });
             } catch (err) {
               log.error(
@@ -365,6 +377,8 @@ export async function enforceIngressAcl(
                   trimmedContent,
                   MESSAGE_PREVIEW_MAX_LENGTH,
                 ),
+                isStranger,
+                isRestricted,
               });
             } catch (err) {
               log.error(
@@ -401,6 +415,8 @@ export async function enforceIngressAcl(
               trimmedContent,
               MESSAGE_PREVIEW_MAX_LENGTH,
             ),
+            isStranger,
+            isRestricted,
           });
           guardianNotified = accessResult.notified;
         } catch (err) {
@@ -575,6 +591,8 @@ export async function enforceIngressAcl(
                     trimmedContent,
                     MESSAGE_PREVIEW_MAX_LENGTH,
                   ),
+                  isStranger,
+                  isRestricted,
                 });
               } catch (err) {
                 log.error(
@@ -640,6 +658,8 @@ export async function enforceIngressAcl(
                   trimmedContent,
                   MESSAGE_PREVIEW_MAX_LENGTH,
                 ),
+                isStranger,
+                isRestricted,
               });
               guardianNotified = accessResult.notified;
             } catch (err) {

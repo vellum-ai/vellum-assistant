@@ -133,22 +133,84 @@ function buildAccessRequestBlocks(payload: Record<string, unknown>): unknown[] {
     });
   }
 
-  // Divider before instructions
+  // Trust signal warnings
+  const isStranger = payload.isStranger === true;
+  const isRestricted = payload.isRestricted === true;
+  if (isStranger || isRestricted) {
+    const warnings: string[] = [];
+    if (isStranger) {
+      warnings.push(":warning: External Slack user (not in this workspace)");
+    }
+    if (isRestricted) {
+      warnings.push(":warning: Guest / restricted account");
+    }
+    blocks.push({
+      type: "context",
+      elements: warnings.map((w) => ({ type: "mrkdwn", text: w })),
+    });
+  }
+
+  // Divider before action buttons
   blocks.push({ type: "divider" });
 
-  // Approval code instructions
-  const requestCode = nonEmpty(
-    typeof payload.requestCode === "string" ? payload.requestCode : undefined,
+  // Interactive approval buttons (replaces text-based code instructions)
+  const requestId = nonEmpty(
+    typeof payload.requestId === "string" ? payload.requestId : undefined,
   );
-  if (requestCode) {
-    const code = requestCode.toUpperCase();
+  if (requestId) {
     blocks.push({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `Reply *${code} approve* to grant access or *${code} reject* to deny.`,
-      },
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Approve", emoji: true },
+          style: "primary",
+          action_id: `apr:${requestId}:approve_trusted`,
+          value: `apr:${requestId}:approve_trusted`,
+        },
+        {
+          type: "button",
+          text: {
+            type: "plain_text",
+            text: "Require handshake",
+            emoji: true,
+          },
+          action_id: `apr:${requestId}:approve_once`,
+          value: `apr:${requestId}:approve_once`,
+        },
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Reject", emoji: true },
+          style: "danger",
+          action_id: `apr:${requestId}:reject`,
+          value: `apr:${requestId}:reject`,
+        },
+      ],
     });
+    blocks.push({
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: "_Approve = mark trusted, immediate access. Require handshake = send them a code they must reply with to verify._",
+        },
+      ],
+    });
+  } else {
+    // Fallback to text instructions when requestId is unavailable
+    const requestCode = nonEmpty(
+      typeof payload.requestCode === "string" ? payload.requestCode : undefined,
+    );
+    if (requestCode) {
+      const code = requestCode.toUpperCase();
+      blocks.push({
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `Reply *${code} approve* to grant access or *${code} reject* to deny.`,
+        },
+      });
+    }
   }
 
   // Invite directive

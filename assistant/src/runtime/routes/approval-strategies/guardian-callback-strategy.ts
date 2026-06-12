@@ -6,6 +6,7 @@
 import { applyGuardianDecision } from "../../../approvals/guardian-decision-primitive.js";
 import type { ChannelId } from "../../../channels/types.js";
 import { findContactChannel } from "../../../contacts/contact-store.js";
+import { upsertContactChannel } from "../../../contacts/contacts-write.js";
 import {
   getAllPendingApprovalsByGuardianChat,
   getApprovalRequestById,
@@ -28,6 +29,7 @@ import type {
   ApprovalCopyGenerator,
 } from "../../http-types.js";
 import {
+  deliverDirectApprovalConfirmation,
   deliverVerificationCodeToGuardian,
   deliverVerificationCodeToRequester,
   type DeliveryResult,
@@ -35,6 +37,7 @@ import {
   notifyRequesterOfApproval,
   notifyRequesterOfDeliveryFailure,
   notifyRequesterOfDenial,
+  notifyRequesterOfDirectApproval,
 } from "../access-request-decision.js";
 import { parseCallbackData } from "../channel-route-shared.js";
 import {
@@ -325,9 +328,15 @@ async function handleCallbackDecision(params: {
   // session tracker, so they need a separate decision path that creates
   // a verification session instead of resuming an agent loop.
   if (guardianApproval.toolName === "ingress_access_request") {
+    const accessAction =
+      callbackDecision.action === "reject"
+        ? ("deny" as const)
+        : callbackDecision.action === "approve_trusted"
+          ? ("approve_trusted" as const)
+          : ("approve" as const);
     const accessResult = await handleAccessRequestApproval(
       guardianApproval,
-      callbackDecision.action === "reject" ? "deny" : "approve",
+      accessAction,
       actorExternalId,
       replyCallbackUrl,
       assistantId,
@@ -744,7 +753,7 @@ function editSlackApprovalMessage(params: {
  */
 async function handleAccessRequestApproval(
   approval: GuardianApprovalRequest,
-  action: "approve" | "deny",
+  action: "approve" | "approve_trusted" | "deny",
   decidedByExternalUserId: string,
   replyCallbackUrl: string,
   assistantId: string,
@@ -830,9 +839,68 @@ async function handleAccessRequestApproval(
     return { handled: true, type: "guardian_decision_applied" };
   }
 
-  // Approved: deliver the verification code to the guardian and notify the requester.
-  const requesterIdentifier = approval.requesterExternalUserId;
+  // Display name with UID fallback for guardian-facing messages.
+  const requesterIdentifier =
+    requesterDisplayName ?? approval.requesterExternalUserId;
 
+  // ── Direct trust path (approve_trusted) ──
+  // Guardian chose "Approve" — skip code exchange, create contact directly.
+  if (
+    !decisionResult.verificationSessionId &&
+    !decisionResult.verificationCode
+  ) {
+    upsertContactChannel({
+      sourceChannel: approval.channel,
+      externalUserId: approval.requesterExternalUserId,
+      externalChatId: approval.requesterChatId,
+      displayName: requesterDisplayName ?? undefined,
+      status: "active",
+      verifiedAt: Date.now(),
+      verifiedVia: "guardian_direct_approve",
+    });
+
+    await deliverDirectApprovalConfirmation({
+      replyCallbackUrl,
+      guardianChatId: approval.guardianChatId,
+      requesterIdentifier,
+      assistantId,
+    });
+
+    await notifyRequesterOfDirectApproval({
+      replyCallbackUrl,
+      requesterChatId: approval.requesterChatId,
+      assistantId,
+      channel: approval.channel,
+      requesterExternalUserId: approval.requesterExternalUserId,
+    });
+
+    void emitNotificationSignal({
+      sourceEventName: "ingress.trusted_contact.guardian_decision",
+      sourceChannel: approval.channel as NotificationSourceChannel,
+      sourceContextId: approval.conversationId,
+      attentionHints: {
+        requiresAction: false,
+        urgency: "medium",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      contextPayload: {
+        sourceChannel: approval.channel as NotificationSourceChannel,
+        requesterExternalUserId: approval.requesterExternalUserId,
+        requesterChatId: approval.requesterChatId,
+        decidedByExternalUserId,
+        requesterDisplayName,
+        decidedByDisplayName,
+        decision: "approved",
+      },
+      dedupeKey: `trusted-contact:guardian-decision:${approval.id}`,
+    });
+
+    return { handled: true, type: "guardian_decision_applied" };
+  }
+
+  // ── Handshake path (approve_once / legacy approve) ──
+  // Guardian chose "Require handshake" — deliver verification code.
   let codeDelivered = true;
   if (decisionResult.verificationCode) {
     const deliveryResult: DeliveryResult =
