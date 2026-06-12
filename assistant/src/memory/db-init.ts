@@ -214,6 +214,7 @@ import {
   migrateUsageLlmCallCount,
   migrateVoiceInviteColumns,
   migrateVoiceInviteDisplayMetadata,
+  migrateWorkflowRuns,
   recoverCrashedMigrations,
   runComplexMigrations,
   runLateMigrations,
@@ -498,6 +499,7 @@ export function initializeDb(): void {
     migrateToolInvocationsTelemetryColumns,
     createSkillLoadedEventsTable,
     migrateConversationsSurfacedAt,
+    migrateWorkflowRuns,
   ];
 
   // Run each migration step, catching and logging individual failures so one
