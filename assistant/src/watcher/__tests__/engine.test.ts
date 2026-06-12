@@ -105,6 +105,21 @@ mock.module("../../runtime/background-job-runner.js", () => ({
   },
 }));
 
+const inventoryCalls: number[] = [];
+const llmProcessedCalls: Array<{
+  providerId: string;
+  conversationId: string;
+}> = [];
+
+mock.module("../telemetry.js", () => ({
+  recordWatcherInventoryIfDue: (now: number) => {
+    inventoryCalls.push(now);
+  },
+  recordWatcherLlmProcessed: (providerId: string, conversationId: string) => {
+    llmProcessedCalls.push({ providerId, conversationId });
+  },
+}));
+
 // Import after mocks are in place.
 const { runWatchersOnce } = await import("../engine.js");
 
@@ -156,6 +171,8 @@ beforeEach(() => {
   setConvCalls.length = 0;
   dispositionCalls.length = 0;
   runJobCalls.length = 0;
+  inventoryCalls.length = 0;
+  llmProcessedCalls.length = 0;
   runJobImpl = async () => ({ conversationId: "conv-stub", ok: true });
 });
 
@@ -223,6 +240,9 @@ describe("runWatchersOnce — Phase 2 runBackgroundJob integration", () => {
     expect(setConvCalls).toEqual([
       { watcherId: "watcher-1", conversationId: "conv-success" },
     ]);
+    expect(llmProcessedCalls).toEqual([
+      { providerId: "linear", conversationId: "conv-success" },
+    ]);
     expect(dispositionCalls).toHaveLength(2);
     for (const call of dispositionCalls) {
       expect(call.disposition).toBe("silent");
@@ -267,6 +287,8 @@ describe("runWatchersOnce — Phase 2 runBackgroundJob integration", () => {
     // Critical: we must NOT have called setWatcherConversationId with "",
     // which would clobber a valid prior conversation id in the DB.
     expect(setConvCalls).toEqual([]);
+    // No conversation was bootstrapped, so no usage breadcrumb either.
+    expect(llmProcessedCalls).toEqual([]);
     // Failure path still updates event dispositions.
     expect(dispositionCalls).toHaveLength(1);
     expect(dispositionCalls[0].disposition).toBe("error");
@@ -280,6 +302,8 @@ describe("runWatchersOnce — Phase 2 runBackgroundJob integration", () => {
 
     expect(runJobCalls).toHaveLength(0);
     expect(setConvCalls).toHaveLength(0);
+    // Inventory telemetry runs on every tick regardless of pending work.
+    expect(inventoryCalls).toHaveLength(1);
   });
 
   test("malicious payload reaches the runner only inside assistant-role sandwich.content", async () => {
