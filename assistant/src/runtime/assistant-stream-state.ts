@@ -20,10 +20,16 @@
  * - Total size: 256 KB
  * - Age: 30 seconds
  *
- * The ring is in-memory and per-daemon-process. After a daemon restart
- * the seq resets and reconnecting clients fall through to the snapshot
- * path. The ring is sized generously enough that a typical refresh
- * round-trip (~1-3s) is well within window.
+ * The ring is in-memory and per-daemon-process, but the seq counter
+ * itself survives restarts: blocks of seq values are reserved ahead of
+ * use and the reserved ceiling is persisted to the workspace
+ * (`data/stream-seq.json`), so a restarted daemon resumes stamping
+ * above every seq the previous process could have emitted. Clients
+ * therefore never observe the counter moving backwards — a restart
+ * shows up as (at most) a bounded forward gap, which the normal
+ * gap-reconcile / snapshot-resync path already handles. The ring is
+ * sized generously enough that a typical refresh round-trip (~1-3s)
+ * is well within window.
  *
  * Persisted-seq map: alongside the live counter and ring, this module
  * tracks, per conversation, the `seq` of the last event whose content is
@@ -34,12 +40,17 @@
  * persistence flush (assistant rows persist incrementally, debounced, so
  * the snapshot can lag the live counter) -- never the live counter
  * itself, which would over-claim events that have streamed but not yet
- * been written. It shares the live counter's lifetime by design: both
- * are in-memory and reset together on restart, so a stored value can
- * never dangle against a fresh counter. The map is LRU-bounded; an
+ * been written. The map is in-memory and clears on restart; because the
+ * counter resumes above the persisted reservation, a value recorded by
+ * a previous process could only ever be lower than any seq the new
+ * process assigns -- never ambiguous against it. The map is LRU-bounded; an
  * evicted conversation reports no seq and the client cold-starts.
  */
 
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+import { getWorkspaceDir } from "../util/platform.js";
 import type { AssistantEvent } from "./assistant-event.js";
 
 // ── Tunables ─────────────────────────────────────────────────────────
@@ -57,6 +68,15 @@ const RING_AGE_LIMIT_MS = 30_000;
  * client cold-starts, which is harmless.
  */
 const PERSISTED_SEQ_CONVERSATION_LIMIT = 1024;
+
+/**
+ * How many seq values are reserved per persisted write. The counter can
+ * hand out seqs up to the persisted ceiling without touching disk, so
+ * the file is written once per block rather than once per event. A
+ * restart skips at most one block's worth of unused seqs — a bounded
+ * forward gap that clients already treat as a missed-events signal.
+ */
+const SEQ_RESERVATION_BLOCK = 1024;
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -97,6 +117,21 @@ interface RingEntry {
 
 interface AssistantStreamState {
   nextSeq: number;
+  /**
+   * Highest seq this process may assign without persisting a new
+   * reservation. `0` until the first stamp loads (or creates) the
+   * persisted reservation.
+   */
+  reservedSeqCeiling: number;
+  /** Whether the persisted reservation has been loaded this process. */
+  seqReservationLoaded: boolean;
+  /**
+   * Seq of the first event stamped by this process, or `0` before any
+   * stamp. Distinguishes a reservation skip (seqs below this value were
+   * never assigned by this process, so nothing is missing from the
+   * ring) from genuine ring eviction when judging replay validity.
+   */
+  firstStampedSeq: number;
   ring: RingEntry[];
   totalSizeBytes: number;
   /**
@@ -112,6 +147,9 @@ interface AssistantStreamState {
 
 const state: AssistantStreamState = {
   nextSeq: 1,
+  reservedSeqCeiling: 0,
+  seqReservationLoaded: false,
+  firstStampedSeq: 0,
   ring: [],
   totalSizeBytes: 0,
   persistedSeqByConversation: new Map(),
@@ -138,7 +176,9 @@ export function stampAndBuffer(
 ): void {
   if (event.conversationId == null) return;
 
+  reserveSeqCapacity();
   event.seq = state.nextSeq++;
+  if (state.firstStampedSeq === 0) state.firstStampedSeq = event.seq;
 
   // Approximate size by serialized JSON length. This is the same
   // bytes-on-wire we'll send, so it tracks ring memory pressure
@@ -187,8 +227,16 @@ export function getReplayWindow(
 
   if (state.ring.length === 0) return [];
 
+  // A cursor from before this process started can skip over the
+  // reservation gap: seqs below `firstStampedSeq` were never assigned
+  // by this process, so as long as the ring still holds everything
+  // this process stamped, no replayable event is missing. (Events from
+  // the previous process are unrecoverable either way — clients catch
+  // up on those via the snapshot path, triggered by the seq jump.)
   const oldest = state.ring[0]?.seq ?? Infinity;
-  if (lastSeenSeq < oldest - 1) return null;
+  const coversRestartGap =
+    lastSeenSeq < state.firstStampedSeq && oldest === state.firstStampedSeq;
+  if (lastSeenSeq < oldest - 1 && !coversRestartGap) return null;
 
   return state.ring
     .filter(
@@ -260,6 +308,26 @@ export function getPersistedSeq(conversationId: string): number | null {
  */
 export function _resetStreamStateForTesting(): void {
   state.nextSeq = 1;
+  // Mark the reservation as loaded with no ceiling so the next stamp
+  // re-reserves from 1, ignoring any reservation file a previous test
+  // wrote into the (per-process temp) workspace.
+  state.reservedSeqCeiling = 0;
+  state.seqReservationLoaded = true;
+  state.firstStampedSeq = 0;
+  state.ring = [];
+  state.totalSizeBytes = 0;
+  state.persistedSeqByConversation.clear();
+}
+
+/**
+ * Simulate a daemon restart: clear all in-memory state and force the
+ * next stamp to reload the persisted seq reservation. Test-only.
+ */
+export function _simulateRestartForTesting(): void {
+  state.nextSeq = 1;
+  state.reservedSeqCeiling = 0;
+  state.seqReservationLoaded = false;
+  state.firstStampedSeq = 0;
   state.ring = [];
   state.totalSizeBytes = 0;
   state.persistedSeqByConversation.clear();
@@ -285,6 +353,71 @@ export function _peekStreamForTesting(): {
 }
 
 // ── Internals ────────────────────────────────────────────────────────
+
+function seqReservationPath(): string {
+  return join(getWorkspaceDir(), "data", "stream-seq.json");
+}
+
+/**
+ * Ensure `state.nextSeq` is covered by the persisted reservation,
+ * loading the reservation file on the first stamp of the process and
+ * extending it by {@link SEQ_RESERVATION_BLOCK} whenever the counter
+ * reaches the ceiling.
+ *
+ * Persistence is best-effort: if the file cannot be read or written
+ * the counter falls back to in-memory-only behavior (the ceiling is
+ * still advanced so the write is retried at most once per block, not
+ * per event), matching the daemon's degraded-mode philosophy.
+ */
+function reserveSeqCapacity(): void {
+  if (!state.seqReservationLoaded) {
+    state.seqReservationLoaded = true;
+    state.reservedSeqCeiling = readReservedCeiling();
+    if (state.reservedSeqCeiling >= state.nextSeq) {
+      state.nextSeq = state.reservedSeqCeiling + 1;
+    }
+  }
+
+  if (state.nextSeq <= state.reservedSeqCeiling) return;
+
+  const ceiling = state.nextSeq + SEQ_RESERVATION_BLOCK - 1;
+  try {
+    const path = seqReservationPath();
+    mkdirSync(dirname(path), { recursive: true });
+    const tmp = `${path}.tmp`;
+    writeFileSync(tmp, JSON.stringify({ reservedSeqCeiling: ceiling }));
+    renameSync(tmp, path);
+  } catch {
+    // Degraded mode: keep stamping from memory.
+  }
+  state.reservedSeqCeiling = ceiling;
+}
+
+function readReservedCeiling(): number {
+  try {
+    const parsed: unknown = JSON.parse(
+      readFileSync(seqReservationPath(), "utf8"),
+    );
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "reservedSeqCeiling" in parsed
+    ) {
+      const ceiling = (parsed as { reservedSeqCeiling: unknown })
+        .reservedSeqCeiling;
+      if (
+        typeof ceiling === "number" &&
+        Number.isFinite(ceiling) &&
+        ceiling > 0
+      ) {
+        return Math.floor(ceiling);
+      }
+    }
+  } catch {
+    // Missing or unreadable file: cold start from seq 1.
+  }
+  return 0;
+}
 
 /**
  * Mirrors the delivery logic in `AssistantEventHub.publish()`. Returns
