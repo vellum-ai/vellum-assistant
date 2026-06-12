@@ -148,7 +148,10 @@ export interface VellumBridge {
       organizationId?: string,
     ): Promise<LockfileWriteResult>;
     retire(assistantId: string): Promise<{ ok: boolean; error?: string }>;
-    wake(assistantId: string): Promise<{ ok: boolean; error?: string }>;
+    wake(
+      assistantId: string,
+      options?: { repairGuardian?: boolean },
+    ): Promise<{ ok: boolean; error?: string }>;
     guardianToken(
       assistantId: string,
     ): Promise<
