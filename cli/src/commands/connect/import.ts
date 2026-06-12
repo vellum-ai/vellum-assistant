@@ -5,12 +5,13 @@
  * register it locally so `vellum client`/`message`/`events <name>` work against
  * the remote assistant.
  *
- * The bundle is base64(JSON.stringify({ gatewayUrl, assistantId, token,
- * deviceId })). We store the entry under a UNIQUE LOCAL id (not the bundle's
- * assistantId, which is typically "self" and would collide across hosts). This
- * is safe because the gateway's runtime proxy strips the `/v1/assistants/<id>/`
- * segment before forwarding, so the local id never has to match the remote one
- * — the token (validated by signature/audience) is what authorizes requests.
+ * The bundle is base64(JSON.stringify({ gatewayUrl, assistantId, token, ... })).
+ * We store the entry under a UNIQUE LOCAL id (not the bundle's assistantId,
+ * which is typically "self" and would collide across hosts). This is safe
+ * because the gateway's runtime proxy strips the `/v1/assistants/<id>/`
+ * segment before forwarding, so the local id never has to match the remote
+ * one — the token (validated by signature/audience) is what authorizes
+ * requests.
  */
 
 import { nanoid } from "nanoid";
@@ -33,7 +34,7 @@ ARGUMENTS:
 
 OPTIONS:
     --name <name>   Local name to register the assistant under
-                    (default: paired-<deviceId>)
+                    (default: paired-<generated-id>)
 
 EXAMPLES:
     vellum connect import eyJnYXRld2F5...
@@ -45,9 +46,8 @@ interface PairBundle {
   gatewayUrl: string;
   token: string;
   assistantId?: string;
-  deviceId?: string;
   // Optional refresh credential. Present when the host's gateway issued a
-  // device-bound token pair; absent for older access-only bundles (which remain
+  // refreshable token pair; absent for older access-only bundles (which remain
   // importable, just without auto-renewal). `refreshTokenExpiresAt` mirrors
   // GuardianTokenData (ISO string OR epoch-ms number) so a numeric expiry isn't
   // silently dropped on import.
@@ -84,7 +84,6 @@ function decodeBundle(blob: string): PairBundle | null {
     gatewayUrl: b.gatewayUrl,
     token: b.token,
     assistantId: typeof b.assistantId === "string" ? b.assistantId : undefined,
-    deviceId: typeof b.deviceId === "string" ? b.deviceId : undefined,
     refreshToken:
       typeof b.refreshToken === "string" ? b.refreshToken : undefined,
     refreshTokenExpiresAt:
@@ -144,14 +143,9 @@ export async function connectImport(): Promise<void> {
     process.exit(1);
   }
 
-  // Unique local id: a --name slug, or paired-<deviceId> (deviceId is unique
-  // per pairing). Never the bundle's "self" assistantId — that would collide.
-  // The deviceId comes from an untrusted bundle and is used as a path component
-  // by saveGuardianToken, so it MUST be slugified (no `../` traversal); fall
-  // back to a random id if it sanitizes to empty.
-  const localId = nameFlag
-    ? slugify(nameFlag)
-    : `paired-${slugify(bundle.deviceId ?? "") || nanoid()}`;
+  // Unique local id: a --name slug, or a generated paired-* id. Never the
+  // bundle's "self" assistantId — that would collide across remote hosts.
+  const localId = nameFlag ? slugify(nameFlag) : `paired-${nanoid()}`;
   if (!localId) {
     console.error(
       "Error: --name must contain at least one alphanumeric character.",
@@ -199,7 +193,6 @@ export async function connectImport(): Promise<void> {
     refreshTokenExpiresAt: bundle.refreshTokenExpiresAt ?? 0,
     refreshAfter: bundle.refreshAfter ?? "",
     isNew: false,
-    deviceId: bundle.deviceId ?? "",
     leasedAt: new Date(now).toISOString(),
   });
 

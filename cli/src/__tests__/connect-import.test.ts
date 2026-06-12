@@ -32,10 +32,15 @@ function bundleFor(overrides: Record<string, unknown> = {}): string {
     gatewayUrl: "http://10.0.0.5:7830",
     assistantId: "self",
     token: "test-token",
-    deviceId: "dev-aaa",
     ...overrides,
   };
   return Buffer.from(JSON.stringify(obj)).toString("base64");
+}
+
+function importedIdsFromLogs(logs: string[]): string[] {
+  return [...logs.join("\n").matchAll(/paired assistant '([^']+)'/g)].map(
+    (m) => m[1],
+  );
 }
 
 describe("connect import", () => {
@@ -59,20 +64,29 @@ describe("connect import", () => {
 
   test("writes a lockfile entry + guardian token from a valid bundle", async () => {
     process.argv = ["bun", "vellum", "connect", "import", bundleFor()];
-    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    const logs: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation(
+      (...a: unknown[]) => {
+        logs.push(a.join(" "));
+      },
+    );
     try {
       await connectImport();
     } finally {
       logSpy.mockRestore();
     }
 
-    const entry = findAssistantByName("paired-dev-aaa");
+    const [localId] = importedIdsFromLogs(logs);
+    expect(localId).toBeDefined();
+    const id = localId!;
+    expect(id).toMatch(/^paired-/);
+    const entry = findAssistantByName(id);
     expect(entry).not.toBeNull();
     expect(entry!.runtimeUrl).toBe("http://10.0.0.5:7830");
     expect(entry!.cloud).toBe("paired");
-    expect(loadGuardianToken("paired-dev-aaa")?.accessToken).toBe("test-token");
+    expect(loadGuardianToken(id)?.accessToken).toBe("test-token");
     // Back-compat: a bundle without refresh fields imports access-only.
-    expect(loadGuardianToken("paired-dev-aaa")?.refreshToken).toBe("");
+    expect(loadGuardianToken(id)?.refreshToken).toBe("");
   });
 
   test("persists the refresh credential when the bundle carries one", async () => {
@@ -82,12 +96,13 @@ describe("connect import", () => {
       "connect",
       "import",
       bundleFor({
-        deviceId: "dev-refresh",
         token: "acc-tok",
         refreshToken: "refresh-tok",
         refreshTokenExpiresAt: "2027-01-01T00:00:00.000Z",
         refreshAfter: "2026-07-01T00:00:00.000Z",
       }),
+      "--name",
+      "refresh-box",
     ];
     const logSpy = spyOn(console, "log").mockImplementation(() => {});
     try {
@@ -96,7 +111,7 @@ describe("connect import", () => {
       logSpy.mockRestore();
     }
 
-    const tok = loadGuardianToken("paired-dev-refresh");
+    const tok = loadGuardianToken("refresh-box");
     expect(tok?.accessToken).toBe("acc-tok");
     expect(tok?.refreshToken).toBe("refresh-tok");
     expect(tok?.refreshTokenExpiresAt).toBe("2027-01-01T00:00:00.000Z");
@@ -113,10 +128,11 @@ describe("connect import", () => {
       "connect",
       "import",
       bundleFor({
-        deviceId: "dev-num",
         refreshToken: "refresh-tok",
         refreshTokenExpiresAt: expiresMs,
       }),
+      "--name",
+      "num-box",
     ];
     const logSpy = spyOn(console, "log").mockImplementation(() => {});
     try {
@@ -125,9 +141,7 @@ describe("connect import", () => {
       logSpy.mockRestore();
     }
 
-    expect(loadGuardianToken("paired-dev-num")?.refreshTokenExpiresAt).toBe(
-      expiresMs,
-    );
+    expect(loadGuardianToken("num-box")?.refreshTokenExpiresAt).toBe(expiresMs);
   });
 
   test("two different bundles (both assistantId 'self') do not collide", async () => {
@@ -136,9 +150,14 @@ describe("connect import", () => {
       "vellum",
       "connect",
       "import",
-      bundleFor({ deviceId: "dev-one", token: "tok1" }),
+      bundleFor({ token: "tok1" }),
     ];
-    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    const logs: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation(
+      (...a: unknown[]) => {
+        logs.push(a.join(" "));
+      },
+    );
     try {
       await connectImport();
       process.argv = [
@@ -146,17 +165,22 @@ describe("connect import", () => {
         "vellum",
         "connect",
         "import",
-        bundleFor({ deviceId: "dev-two", token: "tok2" }),
+        bundleFor({ token: "tok2" }),
       ];
       await connectImport();
     } finally {
       logSpy.mockRestore();
     }
 
-    expect(findAssistantByName("paired-dev-one")).not.toBeNull();
-    expect(findAssistantByName("paired-dev-two")).not.toBeNull();
-    expect(loadGuardianToken("paired-dev-one")?.accessToken).toBe("tok1");
-    expect(loadGuardianToken("paired-dev-two")?.accessToken).toBe("tok2");
+    const ids = importedIdsFromLogs(logs);
+    expect(ids).toHaveLength(2);
+    const firstId = ids[0]!;
+    const secondId = ids[1]!;
+    expect(firstId).not.toBe(secondId);
+    expect(findAssistantByName(firstId)).not.toBeNull();
+    expect(findAssistantByName(secondId)).not.toBeNull();
+    expect(loadGuardianToken(firstId)?.accessToken).toBe("tok1");
+    expect(loadGuardianToken(secondId)?.accessToken).toBe("tok2");
   });
 
   test("--name registers the entry under that name", async () => {
@@ -165,7 +189,7 @@ describe("connect import", () => {
       "vellum",
       "connect",
       "import",
-      bundleFor({ deviceId: "dev-named" }),
+      bundleFor(),
       "--name",
       "Desk Box",
     ];
@@ -179,7 +203,7 @@ describe("connect import", () => {
     expect(findAssistantByName("desk-box")).not.toBeNull();
   });
 
-  test("sanitizes a malicious bundle deviceId (no path traversal in the local id)", async () => {
+  test("ignores a legacy bundle deviceId when choosing the generated local id", async () => {
     process.argv = [
       "bun",
       "vellum",
@@ -199,13 +223,13 @@ describe("connect import", () => {
       logSpy.mockRestore();
     }
 
-    // The registered id must contain no path separators or `..`.
-    const m = logs.join("\n").match(/paired assistant '([^']+)'/);
-    expect(m).not.toBeNull();
-    const id = m![1];
-    expect(id).not.toContain("/");
-    expect(id).not.toContain("..");
-    expect(loadGuardianToken(id)?.accessToken).toBe("tokX");
+    const [id] = importedIdsFromLogs(logs);
+    expect(id).toBeDefined();
+    const localId = id!;
+    expect(localId).toMatch(/^paired-/);
+    expect(localId).not.toContain("/");
+    expect(localId).not.toContain("..");
+    expect(loadGuardianToken(localId)?.accessToken).toBe("tokX");
   });
 
   test("does not overwrite an existing non-paired assistant", async () => {
@@ -221,7 +245,7 @@ describe("connect import", () => {
       "vellum",
       "connect",
       "import",
-      bundleFor({ deviceId: "dx" }),
+      bundleFor(),
       "--name",
       "desk",
     ];
@@ -245,7 +269,7 @@ describe("connect import", () => {
     expect(e!.paired).toBeUndefined();
   });
 
-  test("re-importing the same pairing updates in place", async () => {
+  test("re-importing with the same --name updates in place", async () => {
     const logSpy = spyOn(console, "log").mockImplementation(() => {});
     try {
       process.argv = [
@@ -253,7 +277,9 @@ describe("connect import", () => {
         "vellum",
         "connect",
         "import",
-        bundleFor({ deviceId: "dev-re", token: "t1" }),
+        bundleFor({ token: "t1" }),
+        "--name",
+        "remote-desk",
       ];
       await connectImport();
       process.argv = [
@@ -261,13 +287,15 @@ describe("connect import", () => {
         "vellum",
         "connect",
         "import",
-        bundleFor({ deviceId: "dev-re", token: "t2" }),
+        bundleFor({ token: "t2" }),
+        "--name",
+        "remote-desk",
       ];
       await connectImport();
     } finally {
       logSpy.mockRestore();
     }
-    expect(loadGuardianToken("paired-dev-re")?.accessToken).toBe("t2");
+    expect(loadGuardianToken("remote-desk")?.accessToken).toBe("t2");
   });
 
   test("rejects a bundle whose gatewayUrl is not http(s)", async () => {
@@ -276,7 +304,9 @@ describe("connect import", () => {
       "vellum",
       "connect",
       "import",
-      bundleFor({ gatewayUrl: "ftp://nope", deviceId: "dz" }),
+      bundleFor({ gatewayUrl: "ftp://nope" }),
+      "--name",
+      "bad-url",
     ];
     const errSpy = spyOn(console, "error").mockImplementation(() => {});
     const exitSpy = spyOn(process, "exit").mockImplementation(((c?: number) => {
@@ -292,7 +322,7 @@ describe("connect import", () => {
       exitSpy.mockRestore();
     }
     expect(exited).toBe(true);
-    expect(findAssistantByName("paired-dz")).toBeNull();
+    expect(findAssistantByName("bad-url")).toBeNull();
   });
 
   test("a malformed bundle exits 1 and registers nothing", async () => {
@@ -311,7 +341,7 @@ describe("connect import", () => {
       exitSpy.mockRestore();
     }
     expect(exited).toBe(true);
-    // A malformed bundle has no deviceId, so no `paired-*` entry is created.
+    // A malformed bundle has no generated id, so no `paired-*` entry is created.
     expect(findAssistantByName("paired-")).toBeNull();
   });
 });

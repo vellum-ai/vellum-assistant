@@ -32,7 +32,7 @@ export type RefreshErrorCode =
   | "refresh_invalid"
   | "refresh_expired"
   | "refresh_reuse_detected"
-  | "device_binding_mismatch"
+  | "principal_mismatch"
   | "revoked";
 
 export interface RotateResult {
@@ -215,16 +215,15 @@ function mintRefreshTokenInFamily(params: {
  *
  * All token operations run against the gateway's SQLite database.
  *
- * The refresh token is bound to the device it was issued to: the caller must
- * supply the hashed device id, and it must match the record's stored binding.
- * This ensures a leaked refresh token cannot be redeemed from a different
- * device. The binding is checked before any side effects (rotation, family
- * revocation) so a request from a non-matching device cannot disturb the
- * legitimate token family.
+ * The refresh token record owns its credential binding. Callers no longer
+ * supply a raw device id during refresh; after auth principal validation, the
+ * stored binding is reused to revoke the old access token and mint the next
+ * credential pair. Principal validation happens before side effects so a
+ * mismatched bearer token cannot disturb the legitimate token family.
  */
 export function rotateCredentials(params: {
   refreshToken: string;
-  hashedDeviceId: string;
+  authorizedGuardianPrincipalId: string;
 }):
   | { ok: true; result: RotateResult }
   | { ok: false; error: RefreshErrorCode } {
@@ -236,12 +235,12 @@ export function rotateCredentials(params: {
     return { ok: false, error: "refresh_invalid" };
   }
 
-  if (record.hashedDeviceId !== params.hashedDeviceId) {
+  if (record.guardianPrincipalId !== params.authorizedGuardianPrincipalId) {
     log.warn(
       { familyId: record.familyId },
-      "Refresh rejected — device binding mismatch",
+      "Refresh rejected — bearer principal mismatch",
     );
-    return { ok: false, error: "device_binding_mismatch" };
+    return { ok: false, error: "principal_mismatch" };
   }
 
   if (record.status === "rotated") {

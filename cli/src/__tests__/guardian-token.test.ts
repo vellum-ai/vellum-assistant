@@ -284,8 +284,13 @@ describe("refreshGuardianToken", () => {
   test("refreshes, persists the rotated token, sends an abort signal, releases the lock", async () => {
     seed(future());
     let sawSignal = false;
+    let refreshBody: Record<string, unknown> | undefined;
     globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
       sawSignal = init?.signal instanceof AbortSignal;
+      refreshBody =
+        typeof init?.body === "string"
+          ? (JSON.parse(init.body) as Record<string, unknown>)
+          : undefined;
       return new Response(
         JSON.stringify({
           accessToken: "new-acc",
@@ -303,6 +308,7 @@ describe("refreshGuardianToken", () => {
     expect(result?.accessToken).toBe("new-acc");
     expect(loadGuardianToken("px")?.accessToken).toBe("new-acc");
     expect(sawSignal).toBe(true); // fetch carries a timeout AbortSignal
+    expect(refreshBody).toEqual({ refreshToken: "old-ref" });
     expect(existsSync(lockPath("px"))).toBe(false); // lock released
   });
 

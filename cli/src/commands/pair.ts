@@ -1,16 +1,12 @@
 /**
  * `vellum pair [assistant] [--label <name>]`
  *
- * Mint a device-scoped token for another machine and print a pairing bundle.
+ * Mint a refreshable token for another machine and print a pairing bundle.
  * Runs on the machine hosting the assistant: it calls the local gateway's
- * loopback-only `POST /v1/pair` (cli interface) with a freshly generated
- * deviceId, then prints the credentials to hand to a second device.
- *
- * Each invocation generates a NEW random deviceId, so each pairing is an
- * independent, separately-revocable device (see `vellum unpair`, forthcoming).
+ * loopback-only `POST /v1/pair` (cli interface), then prints the credentials
+ * to hand to a second device. The gateway creates the revocation binding
+ * internally; the bundle only carries the token material needed by the client.
  */
-
-import { nanoid } from "nanoid";
 
 import { extractFlag } from "../lib/arg-utils.js";
 import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
@@ -38,7 +34,7 @@ function isLoopbackHost(url: string): boolean {
 }
 
 function printUsage(): void {
-  console.log(`vellum pair [beta] - Mint a device-scoped token for another machine
+  console.log(`vellum pair [beta] - Mint a refreshable token for another machine
 
 USAGE:
     vellum pair [assistant] [options]
@@ -65,7 +61,7 @@ interface PairResponse {
   expiresAt: string;
   guardianId: string;
   assistantId: string;
-  // Present on the device-bound path: a long-lived refresh credential the
+  // Present on refreshable responses: a long-lived refresh credential the
   // imported client uses to renew its access token (ISO-8601 strings).
   refreshToken?: string;
   refreshTokenExpiresAt?: string;
@@ -149,10 +145,6 @@ export async function pair(): Promise<void> {
     process.exit(1);
   }
 
-  // Fresh per-pairing device identity — each `vellum pair` is independently
-  // revocable.
-  const deviceId = nanoid();
-
   let response: Response;
   try {
     response = await loopbackSafeFetch(`${mintUrl}/v1/pair`, {
@@ -161,7 +153,7 @@ export async function pair(): Promise<void> {
         "Content-Type": "application/json",
         ...getClientRegistrationHeaders(CLI_INTERFACE_ID),
       },
-      body: JSON.stringify({ deviceId, platform: "cli" }),
+      body: JSON.stringify({ platform: "cli" }),
     });
   } catch (err) {
     console.error(
@@ -188,7 +180,6 @@ export async function pair(): Promise<void> {
     gatewayUrl: advertisedUrl,
     assistantId: result.assistantId,
     token: result.token,
-    deviceId,
     // Carry the refresh credential through when the gateway issued one, so the
     // imported client can renew without re-pairing. Omitted entirely for an
     // access-only (older gateway) response so the bundle stays clean.

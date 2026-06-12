@@ -10,7 +10,7 @@ import { join } from "node:path";
 
 import { proxyForwardToResponse } from "@vellumai/assistant-client";
 
-import { bootstrapGuardian, hashToken } from "../../auth/guardian-bootstrap.js";
+import { bootstrapGuardian } from "../../auth/guardian-bootstrap.js";
 import { rotateCredentials } from "../../auth/guardian-refresh.js";
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
@@ -420,12 +420,14 @@ export function createChannelVerificationSessionProxyHandler(
       }
     },
 
-    async handleGuardianRefresh(req: Request): Promise<Response> {
+    async handleGuardianRefresh(
+      req: Request,
+      auth: { guardianPrincipalId: string },
+    ): Promise<Response> {
       try {
         const body = (await req.json()) as Record<string, unknown>;
         const refreshToken =
           typeof body.refreshToken === "string" ? body.refreshToken : "";
-        const deviceId = typeof body.deviceId === "string" ? body.deviceId : "";
 
         if (!refreshToken) {
           return Response.json(
@@ -439,32 +441,17 @@ export function createChannelVerificationSessionProxyHandler(
           );
         }
 
-        // The refresh token is bound to the device it was issued to. Require
-        // the caller to prove the device so a leaked refresh token cannot be
-        // redeemed from a different device.
-        if (!deviceId) {
-          return Response.json(
-            {
-              error: {
-                code: "BAD_REQUEST",
-                message: "Missing required field: deviceId",
-              },
-            },
-            { status: 400 },
-          );
-        }
-
         const result = rotateCredentials({
           refreshToken,
-          hashedDeviceId: hashToken(deviceId),
+          authorizedGuardianPrincipalId: auth.guardianPrincipalId,
         });
 
         if (!result.ok) {
           // 403 for tokens that are valid-but-forbidden (revoked, reused, or
-          // presented from the wrong device); 401 for invalid/expired tokens.
+          // presented by the wrong principal); 401 for invalid/expired tokens.
           const forbidden: Array<typeof result.error> = [
             "refresh_reuse_detected",
-            "device_binding_mismatch",
+            "principal_mismatch",
             "revoked",
           ];
           const statusCode = forbidden.includes(result.error) ? 403 : 401;
@@ -523,7 +510,7 @@ export function createChannelVerificationSessionProxyHandler(
       }
 
       // Refuse while an init request is awaiting an upstream response —
-      // bootstrapGuardian revokes existing device-bound tokens before
+      // bootstrapGuardian revokes existing binding-scoped tokens before
       // minting, so allowing a concurrent init would invalidate whatever
       // the in-flight one returns.
       if (guardianInitPending) {

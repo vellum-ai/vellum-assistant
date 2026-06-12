@@ -27,7 +27,7 @@ public enum GuardianTokenFileReader {
         let refreshTokenExpiresAt: StringOrNumber
         let refreshAfter: StringOrNumber
         let isNew: Bool
-        let deviceId: String
+        let deviceId: String?
         let leasedAt: String
     }
 

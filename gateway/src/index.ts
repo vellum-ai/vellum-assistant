@@ -16,7 +16,9 @@ import {
   initSigningKey,
 } from "./auth/token-service.js";
 import { validateEdgeToken, mintServiceToken } from "./auth/token-exchange.js";
+import { isActorTokenRevoked } from "./auth/actor-token-revocation.js";
 import { findGuardianForChannelActor } from "./auth/guardian-bootstrap.js";
+import { parseSub } from "./auth/subject.js";
 import { AuthFallbackReporter } from "./auth-fallback-reporter.js";
 import { loopbackFallbackCountTracker } from "./http/middleware/auth.js";
 import { ConfigFileCache } from "./config-file-cache.js";
@@ -931,7 +933,44 @@ async function main() {
           );
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
-        return channelVerificationSessionProxy.handleGuardianRefresh(req);
+        if (result.claims.scope_profile !== "actor_client_v1") {
+          authRateLimiter.recordFailure(getClientIp());
+          log.warn(
+            {
+              path: new URL(req.url).pathname,
+              scope: result.claims.scope_profile,
+            },
+            "Guardian refresh auth rejected: insufficient scope",
+          );
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
+        const parsedSub = parseSub(result.claims.sub);
+        if (
+          !parsedSub.ok ||
+          parsedSub.principalType !== "actor" ||
+          !parsedSub.actorPrincipalId
+        ) {
+          authRateLimiter.recordFailure(getClientIp());
+          log.warn(
+            {
+              path: new URL(req.url).pathname,
+              reason: parsedSub.ok ? "non_actor_sub" : parsedSub.reason,
+            },
+            "Guardian refresh auth rejected: non-actor token",
+          );
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
+        if (isActorTokenRevoked(token, result.claims)) {
+          authRateLimiter.recordFailure(getClientIp());
+          log.warn(
+            { path: new URL(req.url).pathname },
+            "Guardian refresh auth rejected: actor token revoked",
+          );
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
+        return channelVerificationSessionProxy.handleGuardianRefresh(req, {
+          guardianPrincipalId: parsedSub.actorPrincipalId,
+        });
       },
     },
 

@@ -1981,7 +1981,7 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Refresh guardian access token",
           description:
-            "Refreshes an expired guardian access token. Accepts expired JWTs (signature, audience, and policy epoch are still verified — only the expiration check is relaxed). Requires `refreshToken` and the `deviceId` the token was issued to; the refresh token is device-bound and is rejected if the device does not match.",
+            "Refreshes an expired guardian access token. Accepts expired JWTs (signature, audience, and policy epoch are still verified — only the expiration check is relaxed). Requires `refreshToken`; the refresh token record's stored credential binding is reused when rotating credentials.",
           operationId: "guardianRefresh",
           security: [{ BearerAuth: [] }],
           requestBody: {
@@ -1995,12 +1995,12 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": { description: "New access token returned" },
             "400": {
-              description: "Missing required field (refreshToken or deviceId)",
+              description: "Missing required field (refreshToken)",
             },
             "401": { description: "Unauthorized — invalid token" },
             "403": {
               description:
-                "Refresh token revoked, reused, or presented from a non-matching device",
+                "Refresh token revoked, reused, or presented by a non-matching principal",
             },
             "502": { description: "Failed to reach assistant runtime" },
           },

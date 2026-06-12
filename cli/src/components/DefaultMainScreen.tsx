@@ -203,7 +203,7 @@ function friendlyErrorMessage(status: number, body: string): string {
  * `vellum client` lets `--url`/`-u` override the runtime URL while still using
  * the selected paired entry's stored guardian token, so a victim pointed at an
  * attacker-controlled (or poisoned/redirected) URL that returns 401 must NOT
- * cause us to POST the long-lived refreshToken + deviceId to that origin. We
+ * cause us to POST the long-lived refresh token to that origin. We
  * therefore (a) refuse to refresh unless `baseUrl` normalizes to one of the
  * entry's persisted URLs, and (b) send the refresh to the persisted URL rather
  * than the caller-supplied `baseUrl` — defense in depth if the gate is ever

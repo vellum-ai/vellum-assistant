@@ -1,7 +1,6 @@
 /**
- * Tests for device-scoped /v1/pair minting: when a request supplies a deviceId,
- * pair mints a DB-recorded, revocable, refreshable token pair (instead of the
- * legacy stateless token).
+ * Tests for refreshable /v1/pair minting: pair can mint a DB-recorded,
+ * revocable, refreshable token pair instead of the legacy stateless token.
  */
 import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
@@ -15,7 +14,7 @@ import { initSigningKey } from "../auth/token-service.js";
 initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long-xx"));
 
 // pair.ts → resolveLocalGuardianPrincipalId() queries the assistant DB; mock it
-// to return a stable principal. The device-bound token records live in the
+// to return a stable principal. The credential-bound token records live in the
 // (real) gateway DB initialized below.
 const mockQuery = mock();
 mock.module("../db/assistant-db-proxy.js", () => ({
@@ -80,8 +79,8 @@ afterEach(() => {
   }
 });
 
-describe("/v1/pair device-bound minting", () => {
-  test("records a device-bound access token AND a refresh token", async () => {
+describe("/v1/pair refreshable minting", () => {
+  test("records an access token AND a refresh token when a deviceId is supplied", async () => {
     const res = await handlePair(
       makePairRequest({ deviceId: "device-A", platform: "web" }),
       LOOPBACK_IP,
@@ -90,7 +89,7 @@ describe("/v1/pair device-bound minting", () => {
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(typeof body.token).toBe("string");
-    // A device-scoped refresh token is now issued so the client can renew
+    // A refresh token is now issued so the client can renew
     // without re-pairing (safe now that hot-path revocation is enforced).
     expect(typeof body.refreshToken).toBe("string");
     expect((body.refreshToken as string).length).toBeGreaterThan(0);
@@ -124,7 +123,7 @@ describe("/v1/pair device-bound minting", () => {
 
     const rotated = rotateCredentials({
       refreshToken: body.refreshToken,
-      hashedDeviceId: hashToken("device-A"),
+      authorizedGuardianPrincipalId: GUARDIAN_ID,
     });
     expect(rotated.ok).toBe(true);
     if (rotated.ok) {
@@ -142,7 +141,7 @@ describe("/v1/pair device-bound minting", () => {
 
     const DAY_MS = 24 * 60 * 60 * 1000;
     const [token] = activeTokens();
-    // The device-bound access token uses the standard ~30-day TTL (NOT a short
+    // The refreshable access token uses the standard ~30-day TTL (NOT a short
     // pair-specific TTL): a refresh token + hot-path revocation bound a leaked
     // token's reach, and the TTL stays consistent with what /v1/guardian/refresh
     // mints on rotation (rather than 24h at mint then 30d after the first
@@ -198,9 +197,9 @@ describe("/v1/pair cli interface", () => {
     });
   }
 
-  test("mints a device-bound token pair (no Origin header required)", async () => {
+  test("mints a credential-bound token pair without a client deviceId", async () => {
     const res = await handlePair(
-      makeCliRequest({ deviceId: "device-cli" }),
+      makeCliRequest({ platform: "cli" }),
       LOOPBACK_IP,
     );
     expect(res.status).toBe(200);
@@ -213,19 +212,20 @@ describe("/v1/pair cli interface", () => {
 
     const tokens = activeTokens();
     expect(tokens).toHaveLength(1);
-    expect(tokens[0].hashedDeviceId).toBe(hashToken("device-cli"));
+    expect(tokens[0].hashedDeviceId).toMatch(/^[0-9a-f]{64}$/);
+    expect(tokens[0].hashedDeviceId).not.toBe(hashToken("device-cli"));
     expect(tokens[0].platform).toBe("cli");
   });
 
-  test("rejects a cli pair request without a deviceId (400)", async () => {
+  test("accepts a cli pair request without a body", async () => {
     const res = await handlePair(makeCliRequest(), LOOPBACK_IP);
-    expect(res.status).toBe(400);
-    expect(activeTokens()).toHaveLength(0);
+    expect(res.status).toBe(200);
+    expect(activeTokens()).toHaveLength(1);
   });
 
   test("still rejects non-loopback cli callers", async () => {
     const res = await handlePair(
-      makeCliRequest({ deviceId: "device-cli" }),
+      makeCliRequest({ platform: "cli" }),
       "8.8.8.8",
     );
     expect(res.status).toBe(403);
@@ -246,7 +246,7 @@ describe("/v1/pair cli interface", () => {
         "x-vellum-interface-id": "cli",
         origin: "https://app.vellum.local",
       },
-      body: JSON.stringify({ deviceId: "device-cli", platform: "webview" }),
+      body: JSON.stringify({ platform: "webview" }),
     });
     const res = await handlePair(req, LOOPBACK_IP);
     expect(res.status).toBe(403);

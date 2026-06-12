@@ -101,7 +101,7 @@ function printHelp(): void {
   console.log("  logout   Log out of the Vellum platform");
   console.log("  message  Send a message to a running assistant");
   console.log(
-    "  pair     Mint a device-scoped token to connect another machine [beta]",
+    "  pair     Mint a refreshable token to connect another machine [beta]",
   );
   console.log(
     "  ps       List assistants (or processes for a specific assistant)",

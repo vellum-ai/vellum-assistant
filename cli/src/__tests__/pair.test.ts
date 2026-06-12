@@ -57,7 +57,7 @@ describe("pair command", () => {
     delete process.env.VELLUM_LOCKFILE_DIR;
   });
 
-  test("POSTs a cli device-bound pair request and prints a decodable bundle", async () => {
+  test("POSTs a cli pair request without deviceId and prints a decodable bundle", async () => {
     const calls: Array<[string, RequestInit]> = [];
     const origFetch = globalThis.fetch;
     globalThis.fetch = (async (url: string, init: RequestInit) => {
@@ -101,8 +101,7 @@ describe("pair command", () => {
     );
     expect(headers["x-vellum-interface-id"]).toBe("cli");
     const body = JSON.parse(init.body as string);
-    expect(typeof body.deviceId).toBe("string");
-    expect(body.deviceId.length).toBeGreaterThan(0);
+    expect(body.deviceId).toBeUndefined();
     expect(body.platform).toBe("cli");
 
     // The bundle advertises the REACHABLE runtime URL, not loopback.
@@ -110,7 +109,7 @@ describe("pair command", () => {
     expect(out.gatewayUrl).toBe(RUNTIME_URL);
     expect(out.assistantId).toBe("self");
     expect(out.token).toBe("test-access-token");
-    expect(out.deviceId).toBe(body.deviceId);
+    expect(out.deviceId).toBeUndefined();
   });
 
   test("resolves an unquoted multi-word display name", async () => {

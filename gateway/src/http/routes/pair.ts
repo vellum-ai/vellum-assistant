@@ -21,10 +21,10 @@
  * as a gateway edge token — send it as `Authorization: Bearer <token>` on
  * subsequent runtime requests.
  *
- * Response body: `{ token, expiresAt, guardianId, assistantId }`. The
- * device-bound path (a `deviceId` is supplied) additionally returns
- * `{ refreshToken, refreshTokenExpiresAt, refreshAfter }` so the client can
- * renew via `/v1/guardian/refresh` instead of re-pairing.
+ * Response body: `{ token, expiresAt, guardianId, assistantId }`. Refreshable
+ * pairings additionally return `{ refreshToken, refreshTokenExpiresAt,
+ * refreshAfter }` so the client can renew via `/v1/guardian/refresh` instead
+ * of re-pairing.
  */
 
 import { mintAndRecordDeviceBoundTokenPair } from "../../auth/guardian-bootstrap.js";
@@ -217,10 +217,9 @@ export async function handlePair(
   const guardianPrincipalId = await resolveLocalGuardianPrincipalId();
   const assistantId = getExternalAssistantId();
 
-  // Optionally, a client may supply a deviceId to receive a device-bound,
-  // DB-recorded, refreshable token pair (revocable per device) instead of the
-  // legacy stateless token. The body is optional — a malformed or absent body
-  // simply leaves deviceId undefined and preserves the stateless path.
+  // Chrome extension clients may still supply a deviceId to receive a
+  // DB-recorded, refreshable token pair. CLI pairings are always refreshable
+  // and use a server-generated credential binding instead.
   let deviceId: string | undefined;
   let bodyPlatform: string | undefined;
   if ((req.headers.get("content-type") ?? "").includes("json")) {
@@ -265,12 +264,12 @@ export async function handlePair(
       );
     }
 
-    // Device-bound path: mint a recorded, per-device-revocable access token.
+    // Client-supplied binding path: mint a recorded, refreshable access token.
     if (deviceId) {
-      return mintDeviceBoundPairResponse({
+      return mintCredentialBoundPairResponse({
         guardianPrincipalId,
         assistantId,
-        deviceId,
+        credentialBindingId: deviceId,
         platform: bodyPlatform ?? interfaceId,
         interfaceId,
         clientId,
@@ -301,9 +300,10 @@ export async function handlePair(
   }
 
   // CLI pairing (e.g. `vellum pair`): a loopback-local caller mints a
-  // device-bound token for another machine. The loopback / X-Forwarded-For /
-  // edge-marker guards above are the boundary. A deviceId is required — CLI
-  // pairing is always device-scoped (and thus revocable).
+  // refreshable credential for another machine. The loopback /
+  // X-Forwarded-For / edge-marker guards above are the boundary. The gateway
+  // generates the credential binding internally so the pairing bundle only
+  // contains the token material the remote client actually needs.
   if (interfaceId === "cli") {
     // A real `vellum pair` is a terminal process and never sends an Origin
     // header; any Origin means a browser/WebView is calling (e.g. dynamic
@@ -317,17 +317,9 @@ export async function handlePair(
       auditDeny(req, clientIp, "cli_browser_origin", { origin });
       return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
     }
-    if (!deviceId) {
-      return errorResponse(
-        "BAD_REQUEST",
-        "cli interface requires a deviceId",
-        400,
-      );
-    }
-    return mintDeviceBoundPairResponse({
+    return mintCredentialBoundPairResponse({
       guardianPrincipalId,
       assistantId,
-      deviceId,
       platform: bodyPlatform ?? "cli",
       interfaceId,
       clientId,
@@ -343,30 +335,29 @@ export async function handlePair(
 }
 
 /**
- * Mint a device-bound, recorded, per-device-revocable credential and build the
- * pair response. Shared by the chrome-extension (deviceId) and cli pairing
- * paths.
+ * Mint a recorded refreshable credential and build the pair response. Shared
+ * by the chrome-extension (client-supplied binding) and cli pairing
+ * (server-generated binding) paths.
  *
- * Issues the standard access + long-lived device-scoped refresh token pair, so
- * a paired client renews via `/v1/guardian/refresh` instead of re-pairing.
- * Both are revocable per device on the hot path (actor-token revocation is
- * enforced on live requests), and the refresh endpoint rejects revoked/rotated
- * tokens — so revocation, not a short TTL, bounds a leaked token's reach. The
- * access TTL matches what `/v1/guardian/refresh` mints on rotation, so it stays
- * consistent across the token's life (rather than 24h at mint then 30d after
- * the first refresh).
+ * Issues the standard access + long-lived refresh token pair, so a paired
+ * client renews via `/v1/guardian/refresh` instead of re-pairing. Tokens remain
+ * revocable through the stored credential binding, and the refresh endpoint
+ * rejects revoked/rotated tokens — so revocation, not a short TTL, bounds a
+ * leaked token's reach. The access TTL matches what `/v1/guardian/refresh`
+ * mints on rotation, so it stays consistent across the token's life.
  */
-function mintDeviceBoundPairResponse(opts: {
+function mintCredentialBoundPairResponse(opts: {
   guardianPrincipalId: string;
   assistantId: string;
-  deviceId: string;
+  credentialBindingId?: string;
   platform: string;
   interfaceId: string;
   clientId: string | null;
 }): Response {
+  const credentialBindingId = opts.credentialBindingId ?? crypto.randomUUID();
   const pair = mintAndRecordDeviceBoundTokenPair({
     guardianPrincipalId: opts.guardianPrincipalId,
-    deviceId: opts.deviceId,
+    deviceId: credentialBindingId,
     platform: opts.platform,
   });
 
@@ -377,7 +368,7 @@ function mintDeviceBoundPairResponse(opts: {
       guardianPrincipalId: opts.guardianPrincipalId,
       platform: opts.platform,
     },
-    "Client paired successfully via loopback (device-bound)",
+    "Client paired successfully via loopback (credential-bound)",
   );
 
   return Response.json({

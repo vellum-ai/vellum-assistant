@@ -77,7 +77,7 @@ public class ActorCredentialRefresher {
             // "refresh_unauthorized" from the 401 status check below.
             if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
                let error = json["error"] as? String {
-                let terminalErrors = ["refresh_reuse_detected", "revoked", "device_binding_mismatch", "refresh_invalid", "refresh_expired"]
+                let terminalErrors = ["refresh_reuse_detected", "revoked", "principal_mismatch", "device_binding_mismatch", "refresh_invalid", "refresh_expired"]
                 if terminalErrors.contains(error) {
                     return .terminalError(reason: error)
                 }

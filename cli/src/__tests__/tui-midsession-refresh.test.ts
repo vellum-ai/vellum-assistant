@@ -115,7 +115,7 @@ describe("maybeRefreshAuthHeaders", () => {
   test("does NOT refresh against an overridden/poisoned baseUrl (no credential leak)", async () => {
     // The CLI lets --url override the runtime URL while still using the stored
     // paired guardian token. A 401 from that attacker origin must NOT cause us
-    // to POST the refreshToken + deviceId there.
+    // to POST the refreshToken there.
     seedEntry("paired"); // persisted runtimeUrl = RUNTIME
     seedToken("old-acc", "ref");
     const refresh = stubRefresh(true);

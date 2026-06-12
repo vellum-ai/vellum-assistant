@@ -111,7 +111,7 @@ export function normalizeRuntimeUrl(url: string): string {
  * `vellum client` lets `--url`/`-u` override the runtime URL while still reusing
  * the selected entry's stored guardian token, so a victim pointed at an
  * attacker-controlled (or poisoned/redirected) URL must NOT cause us to POST the
- * long-lived refreshToken + deviceId there. Refresh is permitted only when
+ * long-lived refresh token there. Refresh is permitted only when
  * `candidateUrl` normalizes to one of the entry's persisted URLs (`localUrl`,
  * which the CLI prefers when present, or `runtimeUrl`).
  *
