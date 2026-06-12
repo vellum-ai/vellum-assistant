@@ -3,10 +3,39 @@
 #
 # Reads ELECTRON_TARGET_ARCH (arm64 | x64, default arm64) and maps it to
 # the correct --arch value for fetch-bun.sh.
+#
+# Flags:
+#   --environment, --env <name>  Set VELLUM_ENVIRONMENT (default: local)
+#   --open                       Launch the built .app when done
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+OPEN_AFTER_BUILD=false
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --environment|--env)
+      [ $# -ge 2 ] || { echo "ERROR: $1 requires a value" >&2; exit 1; }
+      export VELLUM_ENVIRONMENT="$2"
+      shift 2
+      ;;
+    --environment=*|--env=*)
+      export VELLUM_ENVIRONMENT="${1#*=}"
+      shift
+      ;;
+    --open)
+      OPEN_AFTER_BUILD=true
+      shift
+      ;;
+    *)
+      echo "ERROR: unknown argument: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+export VELLUM_ENVIRONMENT="${VELLUM_ENVIRONMENT:-local}"
 
 ARCH="${ELECTRON_TARGET_ARCH:-arm64}"
 case "$ARCH" in
@@ -27,3 +56,15 @@ bun run build:web
 bash scripts/generate-cli-lockfile.sh
 electron-vite build
 electron-builder --config electron-builder.config.cjs --publish always
+
+if [ "$OPEN_AFTER_BUILD" = true ]; then
+  # Newest .app wins — dist/ may hold stale apps from prior envs.
+  APP_PATH="$(ls -dt "$APP_DIR"/dist/mac*/*.app 2>/dev/null | head -n 1 || true)"
+  if [ -n "$APP_PATH" ]; then
+    echo "Launching $APP_PATH"
+    open "$APP_PATH"
+  else
+    echo "ERROR: no .app found under $APP_DIR/dist" >&2
+    exit 1
+  fi
+fi
