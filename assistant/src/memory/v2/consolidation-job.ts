@@ -367,10 +367,19 @@ function readBufferContent(bufferPath: string): string {
  * (`- [Mon D, h:mm AM/PM] …`, see `formatBufferEntry`). Returned verbatim so
  * it can serve directly as a consolidation cutoff — both sides of the agent's
  * "timestamp ≥ cutoff" comparison then share the exact `formatBufferTimestamp`
- * shape. Returns `null` for lines that don't carry the bracketed prefix.
+ * shape.
+ *
+ * The bracket contents must match that shape exactly: a remembered fact's
+ * continuation lines can themselves start with `- [` (markdown checklists
+ * `- [ ] …`, wikilink bullets `- [[…]]`), and counting those as entries
+ * would inflate the per-run budget — or worse, hand the agent a garbage
+ * cutoff like a blank string. Returns `null` for anything that isn't a real
+ * timestamped entry start.
  */
 function extractBufferEntryTimestamp(line: string): string | null {
-  const match = /^\s*-\s*\[([^\]]+)\]/.exec(line);
+  const match = /^\s*-\s*\[([A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} [AP]M)\]/.exec(
+    line,
+  );
   return match ? match[1] : null;
 }
 

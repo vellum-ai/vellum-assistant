@@ -336,6 +336,33 @@ describe("memoryV2ConsolidateJob — chunked cutoff (consolidation_max_entries_p
     expect(outcome.deferredEntries).toBe(1);
   });
 
+  test("bracketed continuation lines (checklists, wikilinks) are not counted as entries", async () => {
+    // Continuation lines that START with "- [" but don't carry the
+    // formatBufferTimestamp shape must not count toward the cap or become
+    // the cutoff — "- [ ] task" would otherwise yield a blank-string cutoff.
+    writeFileSync(
+      bufferPath(),
+      [
+        "- [Apr 27, 9:00 AM] Alice's project plan:",
+        "- [ ] follow up with Bob",
+        "- [[meeting-notes]] referenced doc",
+        "- [Apr 27, 9:01 AM] Carol loves jazz.",
+      ].join("\n") + "\n",
+    );
+
+    const outcome = await memoryV2ConsolidateJob(
+      makeJob(),
+      configWithMaxEntries(2),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    if (outcome.kind !== "invoked") throw new Error("unreachable");
+    // Two real entries, cap 2 → no chunking, full-buffer cutoff.
+    expect(outcome.deferredEntries).toBe(0);
+    expect(outcome.cutoff).not.toBe(" ");
+    expect(outcome.cutoff).not.toBe("[meeting-notes]");
+  });
+
   test("multi-line entries under the cap → full-buffer cutoff even when raw line count exceeds it", async () => {
     writeFileSync(
       bufferPath(),
