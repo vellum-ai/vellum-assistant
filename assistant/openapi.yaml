@@ -4686,6 +4686,9 @@ paths:
                         properties:
                           mode:
                             type: string
+                            enum:
+                              - managed
+                              - your-own
                           provider:
                             type: string
                         additionalProperties: {}
@@ -4694,12 +4697,18 @@ paths:
                         properties:
                           mode:
                             type: string
+                            enum:
+                              - managed
+                              - your-own
                         additionalProperties: {}
                       inference:
                         type: object
                         properties:
                           mode:
                             type: string
+                            enum:
+                              - managed
+                              - your-own
                         additionalProperties: {}
                     additionalProperties: {}
                 additionalProperties: {}
@@ -5190,6 +5199,9 @@ paths:
                         properties:
                           mode:
                             type: string
+                            enum:
+                              - managed
+                              - your-own
                           provider:
                             type: string
                         additionalProperties: {}
@@ -5198,12 +5210,18 @@ paths:
                         properties:
                           mode:
                             type: string
+                            enum:
+                              - managed
+                              - your-own
                         additionalProperties: {}
                       inference:
                         type: object
                         properties:
                           mode:
                             type: string
+                            enum:
+                              - managed
+                              - your-own
                         additionalProperties: {}
                     additionalProperties: {}
                 additionalProperties: {}
@@ -5781,6 +5799,9 @@ paths:
                           properties:
                             mode:
                               type: string
+                              enum:
+                                - managed
+                                - your-own
                             provider:
                               type: string
                           additionalProperties: {}
@@ -5791,6 +5812,9 @@ paths:
                           properties:
                             mode:
                               type: string
+                              enum:
+                                - managed
+                                - your-own
                           additionalProperties: {}
                         - type: "null"
                     inference:
@@ -5799,6 +5823,9 @@ paths:
                           properties:
                             mode:
                               type: string
+                              enum:
+                                - managed
+                                - your-own
                           additionalProperties: {}
                         - type: "null"
                   additionalProperties: {}
