@@ -9,6 +9,11 @@ type MockSessionUser = {
 let sessionUser: MockSessionUser | null = null;
 let getSessionCallCount = 0;
 let getSessionFailFirstCall = false;
+// Transport-failure controls: `getSessionThrows` simulates a fetch
+// rejection; `getSessionFailStatus` sets the status of the !sessionUser
+// failure result (401 = settled "no session", 502 = proxy network 502).
+let getSessionThrows = false;
+let getSessionFailStatus: number | undefined = 401;
 // When set to an array, each `getSession` call blocks until its release fn
 // (pushed here in call order) is invoked, so a test can hold one or more
 // probes in flight and settle them in a chosen order.
@@ -66,15 +71,25 @@ mock.module("@/lib/auth/allauth-client", () => ({
         getSessionGates!.push(resolve);
       });
     }
+    if (getSessionThrows) {
+      throw new TypeError("Failed to fetch");
+    }
     if (getSessionFailFirstCall && getSessionCallCount === 1) {
       return { ok: false, status: 401, error: { detail: "Unauthorized" } };
     }
     if (!sessionUser) {
-      return { ok: false, status: 401, error: { detail: "Unauthorized" } };
+      return { ok: false, status: getSessionFailStatus, error: { detail: "Unauthorized" } };
     }
     return { ok: true, data: { user: sessionUser } };
   },
   logout: logoutMock,
+}));
+
+let mockElectronSessionToken: string | null = null;
+mock.module("@/runtime/session-token", () => ({
+  getElectronSessionToken: () => mockElectronSessionToken,
+  primeElectronSessionToken: () => {},
+  __resetForTesting: () => {},
 }));
 
 mock.module("@/lib/auth/gateway-session", () => ({
@@ -205,7 +220,11 @@ beforeEach(() => {
   sessionUser = null;
   getSessionCallCount = 0;
   getSessionFailFirstCall = false;
+  getSessionThrows = false;
+  getSessionFailStatus = 401;
   getSessionGates = null;
+  mockElectronSessionToken = null;
+  localStorage.removeItem("vellum:auth:userSnapshot");
   mockIsGatewayAuth = false;
   mockIsLocalMode = false;
   mockPlatformAssistants = [];
@@ -602,5 +621,165 @@ describe("connectLocalAssistant", () => {
     // A failed connect leaves the previous selection in place.
     expect(setSelectedAssistantMock).not.toHaveBeenCalled();
     expect(useAuthStore.getState().sessionStatus).not.toBe("authenticated");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Offline session restore (LUM-2412)
+//
+// A transport-failed session probe (offline boot, tray reopen before
+// Wi-Fi reassociates, platform outage) says nothing about the session.
+// With a local credential (Electron session token) and a persisted user
+// snapshot, the store settles authenticated instead of bouncing a
+// logged-in user to the login screen. Only a settled "no session"
+// answer (401, or 2xx without user) ends the session — and it also
+// invalidates the snapshot so a revoked session can't be resurrected.
+// ---------------------------------------------------------------------------
+
+const SNAPSHOT_KEY = "vellum:auth:userSnapshot";
+
+function seedSnapshot(): void {
+  localStorage.setItem(
+    SNAPSHOT_KEY,
+    JSON.stringify({
+      id: "user-cached",
+      username: "cached",
+      email: "cached@example.com",
+      isStaff: false,
+      firstName: "Cached",
+      lastName: "User",
+    }),
+  );
+}
+
+describe("offline session restore (LUM-2412)", () => {
+  test("transport-failed boot (thrown fetch) with token + snapshot settles authenticated from cache", async () => {
+    getSessionThrows = true;
+    mockElectronSessionToken = "tok-1";
+    seedSnapshot();
+
+    await useAuthStore.getState().initSession();
+
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("user-cached");
+    // Believed, not confirmed — platformSession stays unsettled until a
+    // real probe answers.
+    expect(useAuthStore.getState().platformSession).toBe("unknown");
+  });
+
+  test("transport-failed boot (proxy 502) with token + snapshot settles authenticated from cache", async () => {
+    getSessionFailStatus = 502;
+    mockElectronSessionToken = "tok-1";
+    seedSnapshot();
+
+    await useAuthStore.getState().initSession();
+
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("user-cached");
+  });
+
+  test("transport-failed boot without a local credential stays unauthenticated (web behavior)", async () => {
+    getSessionThrows = true;
+    mockElectronSessionToken = null;
+    seedSnapshot();
+
+    await useAuthStore.getState().initSession();
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    // Transport failure must not invalidate the snapshot.
+    expect(localStorage.getItem(SNAPSHOT_KEY)).not.toBeNull();
+  });
+
+  test("transport-failed boot with token but no snapshot stays unauthenticated", async () => {
+    getSessionThrows = true;
+    mockElectronSessionToken = "tok-1";
+
+    await useAuthStore.getState().initSession();
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+  });
+
+  test("settled 401 boot stays unauthenticated and invalidates the snapshot", async () => {
+    getSessionFailStatus = 401;
+    mockElectronSessionToken = "tok-1";
+    seedSnapshot();
+
+    await useAuthStore.getState().initSession();
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(localStorage.getItem(SNAPSHOT_KEY)).toBeNull();
+  });
+
+  test("successful boot persists the snapshot for later offline restores", async () => {
+    sessionUser = { id: "user-9", username: "nine", email: "nine@example.com" };
+
+    await useAuthStore.getState().initSession();
+
+    const raw = localStorage.getItem(SNAPSHOT_KEY);
+    expect(raw).not.toBeNull();
+    expect(JSON.parse(raw!)).toMatchObject({ id: "user-9", email: "nine@example.com" });
+  });
+
+  test("local-mode platform-assistants boot also restores from cache on transport failure", async () => {
+    mockIsLocalMode = true;
+    mockPlatformAssistants = [{ assistantId: "p1", cloud: "vellum" }];
+    getSessionThrows = true;
+    mockElectronSessionToken = "tok-1";
+    seedSnapshot();
+
+    await useAuthStore.getState().initSession();
+
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("user-cached");
+  });
+
+  test("refreshSession transport failure keeps the authenticated session (offline resume)", async () => {
+    // Boot online…
+    sessionUser = { id: "user-9", username: "nine", email: "nine@example.com" };
+    await useAuthStore.getState().initSession();
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+
+    // …then the resume-driven refresh fires while offline.
+    getSessionThrows = true;
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("user-9");
+  });
+
+  test("refreshSession transport failure while unauthenticated reports false without state churn", async () => {
+    getSessionThrows = true;
+    useAuthStore.setState({ sessionStatus: "unauthenticated", user: null });
+
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(false);
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+  });
+
+  test("refreshSession settled 401 ends the session and invalidates the snapshot (reconnect revalidation)", async () => {
+    // Boot from cache while offline…
+    getSessionThrows = true;
+    mockElectronSessionToken = "tok-1";
+    seedSnapshot();
+    await useAuthStore.getState().initSession();
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+
+    // …network returns, the platform says the session was revoked.
+    getSessionThrows = false;
+    getSessionFailStatus = 401;
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(false);
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
+    expect(localStorage.getItem(SNAPSHOT_KEY)).toBeNull();
+  });
+
+  test("a corrupt snapshot is ignored — transport-failed boot stays unauthenticated", async () => {
+    getSessionThrows = true;
+    mockElectronSessionToken = "tok-1";
+    localStorage.setItem(SNAPSHOT_KEY, "{not json");
+
+    await useAuthStore.getState().initSession();
+
+    expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
   });
 });

@@ -19,6 +19,7 @@ import { createSelectors } from "@/utils/create-selectors";
 import {
   isAuthenticated,
   isSessionSettled,
+  isTransportFailure,
   hasLivePlatformSession,
   type PlatformSessionStatus,
   type SessionStatus,
@@ -28,6 +29,12 @@ import {
   getSession,
   logout as allauthLogout,
 } from "@/lib/auth/allauth-client";
+import {
+  clearUserSnapshot,
+  persistUserSnapshot,
+  readUserSnapshot,
+} from "@/lib/auth/user-snapshot";
+import { getElectronSessionToken } from "@/runtime/session-token";
 import {
   isGatewayAuthEnabled,
   isGatewayAuthMode,
@@ -136,11 +143,18 @@ const GATEWAY_LOCAL_USER: AuthUser = {
  * `platformSession` is left untouched by transitions that don't know it yet
  * (a follow-up probe settles it); transitions that do know it set it inline.
  */
-const authenticatedPlatformUser = (user: AuthUser | null): Partial<AuthState> => ({
-  sessionStatus: "authenticated",
-  user,
-  platformSession: "present",
-});
+const authenticatedPlatformUser = (user: AuthUser | null): Partial<AuthState> => {
+  // Entering this state is the one place a platform session is freshly
+  // confirmed — persist the snapshot here so every confirmation path
+  // (boot, refresh, connect, biometric retry) feeds the offline restore
+  // (LUM-2412) without each call site remembering to.
+  persistUserSnapshot(user);
+  return {
+    sessionStatus: "authenticated",
+    user,
+    platformSession: "present",
+  };
+};
 
 const authenticatedLocalUser = (): Partial<AuthState> => ({
   sessionStatus: "authenticated",
@@ -152,6 +166,42 @@ const sessionEnded = (): Partial<AuthState> => ({
   user: null,
   platformSession: "absent",
 });
+
+/**
+ * A `getSession()` outcome that says nothing about the session itself —
+ * the request threw (fetch rejection) or failed at the transport layer
+ * (no response / 5xx, including the Electron proxy's offline 502).
+ * Distinct from a settled "no session" answer (2xx without user,
+ * 401/403), which is the only thing allowed to end the session.
+ */
+const isTransportFailedProbe = (
+  result: Awaited<ReturnType<typeof getSession>> | null,
+): boolean => result === null || isTransportFailure(result);
+
+/**
+ * Settle the session from the persisted user snapshot after a
+ * transport-failed boot probe (offline launch, tray reopen before Wi-Fi
+ * reassociates — LUM-2412). Requires a local credential: the Electron
+ * session token lives in the main process, so its presence means the
+ * user never signed out — the probe merely couldn't reach the platform.
+ * Web builds have no readable credential (cookie sessions), so they
+ * keep the conservative login-screen behavior.
+ *
+ * `platformSession` is deliberately left untouched: the session is
+ * believed, not confirmed. The app-resume/online refresh revalidates
+ * once the network returns; a settled "no session" answer there ends
+ * the session (and drops the snapshot) through the normal path.
+ */
+async function restoreOfflineSession(set: AuthSet): Promise<boolean> {
+  if (!getElectronSessionToken()) return false;
+  const cached = readUserSnapshot();
+  if (!cached) return false;
+  // Consent/org sync falls back to device-cached keys when the server
+  // fetch fails (it will, offline) — same continuity as an online boot.
+  await syncUserScopedState(cached.id);
+  set({ sessionStatus: "authenticated", user: cached });
+  return true;
+}
 
 function syncOrganizationState(nextUserId: string | null): void {
   if (!nextUserId || (previousUserId && previousUserId !== nextUserId)) {
@@ -257,9 +307,12 @@ function probePlatformSession(
     .then(async (result) => {
       if (isStale()) return;
       if (result.ok && result.data.user) {
-        const userUpdate = options.setUserOnSuccess
-          ? { user: toAuthUser(result.data.user) }
-          : {};
+        const probedUser = toAuthUser(result.data.user);
+        const userUpdate = options.setUserOnSuccess ? { user: probedUser } : {};
+        // Adopting the probed user confirms a platform session outside the
+        // `authenticatedPlatformUser` transition — persist here too so the
+        // local-mode path feeds the offline restore (LUM-2412).
+        if (options.setUserOnSuccess) persistUserSnapshot(probedUser);
         // Sync platform assistants to the lockfile BEFORE setting
         // platformSession to "present". The auth middleware unblocks on
         // `platformSession !== "unknown"`, and hasAssistants() must
@@ -366,7 +419,7 @@ function probePlatformSessionIfReachable(
   }
 }
 
-const useAuthStoreBase = create<AuthStore>()((set) => ({
+const useAuthStoreBase = create<AuthStore>()((set, get) => ({
   sessionStatus: "initializing",
   user: null,
   platformSession: "unknown",
@@ -390,8 +443,9 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       if (hasPlatformAssistants) {
         // Platform assistants require a valid session — await the check
         // so the auth middleware can redirect to login if it fails.
+        let result: Awaited<ReturnType<typeof getSession>> | null = null;
         try {
-          const result = await getSession();
+          result = await getSession();
           if (result.ok && result.data.user) {
             const user = toAuthUser(result.data.user);
             await syncUserScopedState(user?.id ?? null);
@@ -412,7 +466,15 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
             return;
           }
         } catch {
-          // Session check failed — fall through to unauthenticated
+          // Thrown fetch — classified as a transport failure below.
+        }
+        // Offline boot with a still-valid local credential must not bounce
+        // to the login screen (LUM-2412); only a settled "no session"
+        // answer ends the session (and invalidates the snapshot).
+        if (isTransportFailedProbe(result)) {
+          if (await restoreOfflineSession(set)) return;
+        } else {
+          clearUserSnapshot();
         }
         set(sessionEnded());
         return;
@@ -427,8 +489,9 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       return;
     }
 
+    let result: Awaited<ReturnType<typeof getSession>> | null = null;
     try {
-      const result = await getSession();
+      result = await getSession();
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
         await syncUserScopedState(user?.id ?? null);
@@ -444,6 +507,14 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       }
     } catch (err) {
       console.error("auth.initSession failed", err);
+    }
+
+    // Offline boot (tray reopen recreating the window, app launch before
+    // Wi-Fi reassociates): a transport-failed probe says nothing about
+    // the session, so restore it from the snapshot instead of bouncing a
+    // logged-in user to the login screen (LUM-2412).
+    if (isTransportFailedProbe(result) && (await restoreOfflineSession(set))) {
+      return;
     }
 
     // Biometric recovery: on iOS, the session cookie may have been lost
@@ -475,6 +546,11 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     }
 
     await syncUserScopedState(null);
+    // Only a settled "no session" answer invalidates the snapshot — a
+    // revoked session must not be resurrected by a later offline boot.
+    // Transport failures keep it (web builds land here too; without a
+    // readable credential they stay on the login-screen behavior).
+    if (!isTransportFailedProbe(result)) clearUserSnapshot();
     set(sessionEnded());
   },
 
@@ -543,8 +619,9 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       return true;
     }
 
+    let result: Awaited<ReturnType<typeof getSession>> | null = null;
     try {
-      const result = await getSession();
+      result = await getSession();
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
         await syncUserScopedState(user?.id ?? null);
@@ -574,6 +651,15 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     } catch (err) {
       console.warn("auth.refreshSession failed", err);
     }
+    // Offline resume (un-minimizing fires visibilitychange → app.resume →
+    // this refresh): a transport-failed probe must not tear a logged-in
+    // surface down to the login screen (LUM-2412). Keep the current state;
+    // the next resume/online refresh revalidates for real, and a settled
+    // "no session" answer below still ends the session normally.
+    if (isTransportFailedProbe(result)) {
+      return isAuthenticated(get().sessionStatus);
+    }
+    clearUserSnapshot();
     await syncUserScopedState(null);
     set(sessionEnded());
     return false;

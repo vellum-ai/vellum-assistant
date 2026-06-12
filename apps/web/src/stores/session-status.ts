@@ -65,3 +65,22 @@ export const isSessionSettled = (status: SessionStatus): boolean =>
 export const hasLivePlatformSession = (
   status: PlatformSessionStatus,
 ): boolean => status === "present";
+
+/**
+ * Transport-shaped failure of a session check: the request never produced
+ * a settled server answer about the session. `status` undefined means the
+ * request never completed; 5xx covers the Electron platform proxy's
+ * synthesized 502 (`proxy_network_error` — see
+ * `apps/macos/src/main/platform-forward.ts`) and genuine gateway/outage
+ * errors. None of these say anything about the session itself, so callers
+ * must not treat them as "signed out" (LUM-2412). A session check that
+ * throws outright (fetch rejection) is classified the same way by callers.
+ *
+ * Structural parameter type (not `AllauthResult`) keeps this module
+ * dependency-free per the header note.
+ */
+export const isTransportFailure = (result: {
+  ok: boolean;
+  status?: number;
+}): boolean =>
+  !result.ok && (result.status === undefined || result.status >= 500);
