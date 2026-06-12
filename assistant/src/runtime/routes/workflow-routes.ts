@@ -1,0 +1,265 @@
+/**
+ * Route handlers for workflow-run management.
+ *
+ * All routes are served by both the HTTP server and the IPC server via the
+ * shared ROUTES array. They are read/abort surfaces over the workflow run
+ * manager and the saved-workflow library — a human (via the `vellum workflows`
+ * CLI or the app) can inspect runs and abort an in-flight one.
+ *
+ * Every handler is gated on the `workflows` feature flag: when it is off, the
+ * routes behave as if they do not exist (404), so disabling the flag fully
+ * hides the surface.
+ */
+
+import { z } from "zod";
+
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
+import { getConfig } from "../../config/loader.js";
+import type { AssistantConfig } from "../../config/schema.js";
+import type { WorkflowRun } from "../../workflows/journal-store.js";
+import { listWorkflows } from "../../workflows/library.js";
+import {
+  getWorkflowRunManager,
+  type WorkflowRunManager,
+} from "../../workflows/run-manager.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { NotFoundError } from "./errors.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Injectable dependencies (production defaults; tests override)
+// ---------------------------------------------------------------------------
+
+export interface WorkflowRoutesDeps {
+  getManager: () => Pick<WorkflowRunManager, "list" | "status" | "abort">;
+  listWorkflows: typeof listWorkflows;
+  getConfig: () => AssistantConfig;
+  isFlagEnabled: (config: AssistantConfig) => boolean;
+}
+
+function defaultDeps(): WorkflowRoutesDeps {
+  return {
+    getManager: getWorkflowRunManager,
+    listWorkflows,
+    getConfig,
+    isFlagEnabled: (config) =>
+      isAssistantFeatureFlagEnabled("workflows", config),
+  };
+}
+
+let deps: WorkflowRoutesDeps = defaultDeps();
+
+/** Test seam: override the route dependencies. Pass no arg to restore defaults. */
+export function __setWorkflowRoutesDeps(
+  overrides?: Partial<WorkflowRoutesDeps>,
+): void {
+  deps = overrides ? { ...defaultDeps(), ...overrides } : defaultDeps();
+}
+
+// ---------------------------------------------------------------------------
+// Response schemas
+// ---------------------------------------------------------------------------
+
+const VALID_RUN_STATUSES = [
+  "running",
+  "completed",
+  "failed",
+  "aborted",
+  "cap_exceeded",
+] as const;
+
+const workflowRunSchema = z.object({
+  id: z.string(),
+  name: z.string().nullable(),
+  scriptHash: z.string(),
+  status: z.enum(VALID_RUN_STATUSES),
+  conversationId: z.string().nullable(),
+  agentsSpawned: z.number(),
+  inputTokens: z.number(),
+  outputTokens: z.number(),
+  error: z.string().nullable(),
+  createdAt: z.number().nullable(),
+  updatedAt: z.number().nullable(),
+  finishedAt: z.number().nullable(),
+});
+
+const savedWorkflowSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  path: z.string(),
+});
+
+// ---------------------------------------------------------------------------
+// Handlers (transport-agnostic)
+// ---------------------------------------------------------------------------
+
+/**
+ * Throw a 404 when the `workflows` flag is off, hiding the whole surface. The
+ * NotFoundError (rather than a 403) keeps a disabled-flag indistinguishable
+ * from a route that does not exist.
+ */
+function assertFlagEnabled(): void {
+  if (!deps.isFlagEnabled(deps.getConfig())) {
+    throw new NotFoundError("Workflows are not enabled.");
+  }
+}
+
+/** Project a stored run into the wire shape (drops bulky source/args/result). */
+function toWireRun(run: WorkflowRun) {
+  return {
+    id: run.id,
+    name: run.name,
+    scriptHash: run.scriptHash,
+    status: run.status,
+    conversationId: run.conversationId,
+    agentsSpawned: run.agentsSpawned,
+    inputTokens: run.inputTokens,
+    outputTokens: run.outputTokens,
+    error: run.error,
+    createdAt: run.createdAt,
+    updatedAt: run.updatedAt,
+    finishedAt: run.finishedAt,
+  };
+}
+
+function parseLimit(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return undefined;
+  return Math.min(Math.max(Math.floor(n), 1), 200);
+}
+
+function parseStatus(
+  raw: string | undefined,
+): WorkflowRun["status"] | undefined {
+  if (raw === undefined) return undefined;
+  return (VALID_RUN_STATUSES as readonly string[]).includes(raw)
+    ? (raw as WorkflowRun["status"])
+    : undefined;
+}
+
+function handleListRuns(queryParams: Record<string, string>) {
+  assertFlagEnabled();
+  const limit = parseLimit(queryParams.limit);
+  const status = parseStatus(queryParams.status);
+  const runs = deps.getManager().list({
+    ...(limit !== undefined ? { limit } : {}),
+    ...(status !== undefined ? { status } : {}),
+  });
+  return { runs: runs.map(toWireRun) };
+}
+
+function handleGetRun(id: string) {
+  assertFlagEnabled();
+  const run = deps.getManager().status(id);
+  if (!run) {
+    throw new NotFoundError(`Workflow run ${id} not found`);
+  }
+  return toWireRun(run);
+}
+
+function handleAbortRun(id: string) {
+  assertFlagEnabled();
+  // status() is the source of truth for existence; abort() itself is a no-op
+  // for unknown/finished runs, so 404 on an unknown id is surfaced here.
+  const manager = deps.getManager();
+  if (!manager.status(id)) {
+    throw new NotFoundError(`Workflow run ${id} not found`);
+  }
+  manager.abort(id);
+  return { ok: true, runId: id };
+}
+
+function handleListSavedWorkflows() {
+  assertFlagEnabled();
+  return { workflows: deps.listWorkflows() };
+}
+
+// ---------------------------------------------------------------------------
+// Shared route definitions (HTTP + IPC)
+// ---------------------------------------------------------------------------
+
+export const ROUTES: RouteDefinition[] = [
+  {
+    operationId: "listWorkflowRuns",
+    endpoint: "workflows/runs",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "List workflow runs",
+    description: "Return recent workflow runs, newest first.",
+    tags: ["workflows"],
+    queryParams: [
+      {
+        name: "limit",
+        schema: { type: "integer" },
+        description: "Max runs to return (default 50, max 200)",
+      },
+      {
+        name: "status",
+        schema: { type: "string" },
+        description:
+          "Filter by run status (running, completed, failed, aborted, cap_exceeded).",
+      },
+    ],
+    responseBody: z.object({
+      runs: z.array(workflowRunSchema).describe("Workflow run objects"),
+    }),
+    handler: ({ queryParams }: RouteHandlerArgs) =>
+      handleListRuns(queryParams ?? {}),
+  },
+  {
+    operationId: "getWorkflowRun",
+    endpoint: "workflows/runs/:id",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Get workflow run",
+    description: "Return a single workflow run by ID.",
+    tags: ["workflows"],
+    responseBody: workflowRunSchema,
+    additionalResponses: { "404": { description: "Run not found" } },
+    handler: ({ pathParams }: RouteHandlerArgs) => handleGetRun(pathParams!.id),
+  },
+  {
+    operationId: "abortWorkflowRun",
+    endpoint: "workflows/runs/:id/abort",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Abort workflow run",
+    description: "Signal an in-flight workflow run to abort.",
+    tags: ["workflows"],
+    responseBody: z.object({
+      ok: z.boolean(),
+      runId: z.string(),
+    }),
+    additionalResponses: { "404": { description: "Run not found" } },
+    handler: ({ pathParams }: RouteHandlerArgs) =>
+      handleAbortRun(pathParams!.id),
+  },
+  {
+    operationId: "listSavedWorkflows",
+    endpoint: "workflows",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "List saved workflows",
+    description: "Return the saved (named) workflows the assistant can run.",
+    tags: ["workflows"],
+    responseBody: z.object({
+      workflows: z
+        .array(savedWorkflowSchema)
+        .describe("Saved workflow entries"),
+    }),
+    handler: () => handleListSavedWorkflows(),
+  },
+];
