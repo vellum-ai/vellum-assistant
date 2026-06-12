@@ -655,6 +655,17 @@ export class VellumAgent implements BaseAgent {
     );
   }
 
+  /**
+   * The Vellum daemon closes every turn with a `message_complete` SSE
+   * event — including turns truncated by a response limit — and emits
+   * `error` when the turn aborts. Either one means the daemon is done
+   * responding to the message.
+   */
+  isTurnComplete(event: AgentEvent): boolean {
+    const type = event.message?.type;
+    return type === "message_complete" || type === "error";
+  }
+
   async readUsageRecords(): Promise<Array<Record<string, unknown>>> {
     return this.jail?.readUsageRecords() ?? [];
   }

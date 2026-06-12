@@ -132,6 +132,24 @@ function toolUseEvent(): AgentEvent {
   return { message: { type: "tool_use_start" } };
 }
 
+function messageCompleteEvent(): AgentEvent {
+  return { message: { type: "message_complete" } };
+}
+
+/**
+ * Shared turn-completion args for `collectAndPersistEvents` calls. The
+ * finite `streamIterator` streams used here end on `{done: true}`, so
+ * collection returns as soon as the stream drains regardless of whether
+ * a `message_complete` event appeared.
+ */
+function turnCompletionArgs() {
+  return {
+    isTurnComplete: (event: AgentEvent) =>
+      event.message.type === "message_complete",
+    maxMs: 1_000,
+  };
+}
+
 /**
  * Behaviour tests for the cross-turn persistence shape of
  * `collectAndPersistEvents`. These pin the bug fixes from PR #31348
@@ -145,8 +163,8 @@ function toolUseEvent(): AgentEvent {
  *   - Devin bot: a zero-`transcriptTurnCount` window is NOT a hard error
  *     on its own. Tool-use-only responses produce events without text
  *     deltas and must continue to drive the run. Only `eventCount === 0`
- *     (the stream went silent through the full quiet/max window) is a
- *     real pipeline failure — and that's enforced one layer up in
+ *     (the stream delivered nothing within the run budget) is a real
+ *     pipeline failure — and that's enforced one layer up in
  *     `runEvalOnce`, by reading the `eventCount` field this function
  *     returns.
  */
@@ -171,6 +189,7 @@ describe("collectAndPersistEvents", () => {
       collector: turn1,
       assistantEvents,
       includeInTranscript: true,
+      ...turnCompletionArgs(),
     });
     const afterTurn1 = await readUsage(runId);
 
@@ -199,6 +218,7 @@ describe("collectAndPersistEvents", () => {
       collector: turn2,
       assistantEvents,
       includeInTranscript: true,
+      ...turnCompletionArgs(),
     });
     const afterTurn2 = await readUsage(runId);
 
@@ -224,6 +244,7 @@ describe("collectAndPersistEvents", () => {
       collector: turn3,
       assistantEvents,
       includeInTranscript: true,
+      ...turnCompletionArgs(),
     });
     const afterTurn3 = await readUsage(runId);
 
@@ -244,6 +265,7 @@ describe("collectAndPersistEvents", () => {
       collector,
       assistantEvents,
       includeInTranscript: true,
+      ...turnCompletionArgs(),
     });
 
     expect(result.eventCount).toBe(2);
@@ -269,6 +291,7 @@ describe("collectAndPersistEvents", () => {
       collector,
       assistantEvents,
       includeInTranscript: true,
+      ...turnCompletionArgs(),
     });
 
     expect(result.eventCount).toBe(3);
@@ -289,10 +312,49 @@ describe("collectAndPersistEvents", () => {
       collector,
       assistantEvents,
       includeInTranscript: true,
+      ...turnCompletionArgs(),
     });
 
     expect(result.eventCount).toBe(0);
+    expect(result.turnCompleted).toBe(false);
     expect(result.transcriptTurnCount).toBe(0);
+  });
+
+  test("reports turnCompleted and persists events trailing the completion signal", async () => {
+    // GIVEN a stream where the turn-completion event is followed by a
+    // trailing usage record (the daemon emits usage after
+    // message_complete)
+    const runId = await freshRunId("turn-complete");
+    const assistantEvents: AgentEvent[] = [];
+    const collector = new AgentEventCollector(
+      streamIterator([
+        textEvent("done!"),
+        messageCompleteEvent(),
+        usageEvent({
+          provider: "anthropic",
+          model: "claude-haiku-4-5",
+          input_tokens: 10,
+          output_tokens: 5,
+        }),
+      ]),
+    );
+
+    // WHEN the turn is collected
+    const result = await collectAndPersistEvents({
+      runId,
+      collector,
+      assistantEvents,
+      includeInTranscript: true,
+      ...turnCompletionArgs(),
+    });
+
+    // THEN the completion signal is reported AND the trailing usage
+    // event is still captured and summarized
+    expect(result.turnCompleted).toBe(true);
+    expect(result.eventCount).toBe(3);
+    const usage = await readUsage(runId);
+    expect(usage.totalInputTokens).toBe(10);
+    expect(usage.totalOutputTokens).toBe(5);
   });
 
   test("skips transcript writes when includeInTranscript is false", async () => {
@@ -307,6 +369,7 @@ describe("collectAndPersistEvents", () => {
       collector,
       assistantEvents,
       includeInTranscript: false,
+      ...turnCompletionArgs(),
     });
 
     expect(result.eventCount).toBe(1);
@@ -339,6 +402,9 @@ function throwingHatchAgent(input: AgentHatchInput): {
       throw new Error("unreachable: hatch already threw");
     },
     events(): AsyncIterable<AgentEvent> {
+      throw new Error("unreachable: hatch already threw");
+    },
+    isTurnComplete(): boolean {
       throw new Error("unreachable: hatch already threw");
     },
     async shutdown(): Promise<void> {
