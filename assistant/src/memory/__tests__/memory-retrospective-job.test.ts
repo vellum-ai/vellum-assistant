@@ -35,8 +35,13 @@ let newMessages: Array<{
   metadata?: string | null;
 }> = [];
 
-// Prior retrospective conversation + messages.
+// Prior retrospective conversation + messages. `priorRetroOwnerId` is the
+// fork-chain conversation the prior is rooted at — `findMostRecentRetrospectiveFor`
+// returns it so the GC ownership check can tell "this source's own prior"
+// (default: the job's source conversation) from an ANCESTOR's preserved
+// baseline reached by the chain walk.
 let priorRetroId: string | null = null;
+let priorRetroOwnerId = "src-conv-1";
 let priorRetroMessages: Array<{ role: string; content: string }> = [];
 
 let mockWakeResult: { invoked: boolean; reason?: string } = { invoked: true };
@@ -136,7 +141,9 @@ mock.module("../conversation-crud.js", () => ({
     return [];
   },
   findMostRecentRetrospectiveFor: (_id: string) =>
-    priorRetroId ? { id: priorRetroId } : null,
+    priorRetroId
+      ? { id: priorRetroId, forkParentConversationId: priorRetroOwnerId }
+      : null,
   // The fork path calls `getConversation(sourceConversationId)` to read the
   // source's title for the fork title. `collectPriorRetrospectiveRemembers`
   // also calls it with the prior retro id to discriminate legacy vs fork
@@ -379,6 +386,7 @@ describe("memoryRetrospectiveJob", () => {
       { id: "m3", createdAt: Date.parse("2026-05-11T10:10:00Z") },
     ];
     priorRetroId = null;
+    priorRetroOwnerId = "src-conv-1";
     priorRetroMessages = [];
     mockWakeResult = { invoked: true };
     mockWakeThrows = null;
@@ -760,7 +768,7 @@ describe("memoryRetrospectiveJob", () => {
     expect("toolGateMode" in wakeCalls[0]!.opts).toBe(false);
   });
 
-  test("fork path: matchConversationProfile on but source has no inferenceProfile → wake carries no forceOverrideProfile", async () => {
+  test("fork path: matchConversationProfile on but source has no inferenceProfile → wire mode, no forceOverrideProfile", async () => {
     forkFlagEnabled = true;
 
     await memoryRetrospectiveJob(
@@ -770,13 +778,15 @@ describe("memoryRetrospectiveJob", () => {
 
     expect(wakeCalls).toHaveLength(1);
     expect("forceOverrideProfile" in wakeCalls[0]!.opts).toBe(false);
-    // toolGateMode is gated on the config flag, not on a resolved profile:
-    // without a pinned profile the source's turns ran the call-site default,
-    // and keeping the full tool surface still preserves that cached prefix.
-    expect(wakeCalls[0]!.opts.toolGateMode).toBe("execution");
+    // toolGateMode keys on the RESOLVED profile match, not the bare config
+    // flag: with no pinned profile the wake runs the call-site default
+    // model, so there is no source cache to preserve — shipping the full
+    // tool surface would pay wire cost for nothing. Wire mode (absent
+    // toolGateMode) keeps the smaller filtered request.
+    expect("toolGateMode" in wakeCalls[0]!.opts).toBe(false);
   });
 
-  test("fork path: matchConversationProfile on but the profile session expired → wake carries no forceOverrideProfile", async () => {
+  test("fork path: matchConversationProfile on but the profile session expired → wire mode, no forceOverrideProfile", async () => {
     forkFlagEnabled = true;
     conversationOverrides["src-conv-1"] = {
       source: "user",
@@ -794,6 +804,7 @@ describe("memoryRetrospectiveJob", () => {
 
     expect(wakeCalls).toHaveLength(1);
     expect("forceOverrideProfile" in wakeCalls[0]!.opts).toBe(false);
+    expect("toolGateMode" in wakeCalls[0]!.opts).toBe(false);
   });
 
   test("fork path: local/vellum source → wake carries the guardian persona + vellum channel override", async () => {
@@ -1183,6 +1194,32 @@ describe("memoryRetrospectiveJob", () => {
 
     expect(outcome.kind).toBe("wake_failed");
     expect(deletedConversationIds).toEqual(["fork-conv-1"]);
+  });
+
+  // Regression test: `findMostRecentRetrospectiveFor` walks up the fork
+  // chain, so when the source is a user-created fork with no retrospectives
+  // of its own, the prior resolves to the PARENT conversation's most-recent
+  // retrospective. GC must not delete it — it is the parent's preserved
+  // dedup baseline, and destroying it would force the parent's next
+  // retrospective to re-save everything.
+  test("success does NOT delete a prior owned by an ancestor conversation, but still seeds dedup from it (both kinds)", async () => {
+    priorRetroId = "parent-retro-conv-1";
+    priorRetroOwnerId = "parent-conv-0"; // not the job's source ("src-conv-1")
+    priorRetroMessages = [priorRetroMessage(["parent's preserved save"])];
+
+    // Legacy kind.
+    let outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+    expect(outcome.kind).toBe("invoked");
+    expect(deletedConversationIds).toEqual([]);
+    // Dedup still seeds from the ancestor's retro.
+    expect(wakeCalls[0]!.hint).toContain("- parent's preserved save");
+
+    // Fork kind.
+    forkFlagEnabled = true;
+    outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+    expect(outcome.kind).toBe("invoked");
+    expect(deletedConversationIds).toEqual([]);
+    expect(persistedInstructionText()).toContain("- parent's preserved save");
   });
 
   test("keepSupersededRuns=true retains the prior retrospective on success (both kinds)", async () => {

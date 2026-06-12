@@ -19,11 +19,8 @@ import {
 } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
 import { getConversationSource } from "./conversation-crud.js";
-import {
-  isMemoryEnabled,
-  upsertMemoryRetrospectiveJob,
-} from "./jobs-store.js";
-import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
+import { isMemoryEnabled, upsertMemoryRetrospectiveJob } from "./jobs-store.js";
+import { isMemoryRetrospectiveSource } from "./memory-retrospective-constants.js";
 
 const log = getLogger("memory-retrospective-enqueue");
 
@@ -75,7 +72,7 @@ export function isMemoryRetrospectiveConversation(
   conversationId: string,
 ): boolean {
   const source = getConversationSource(conversationId);
-  return source !== null && MEMORY_RETROSPECTIVE_SOURCES.includes(source);
+  return source !== null && isMemoryRetrospectiveSource(source);
 }
 
 /**
