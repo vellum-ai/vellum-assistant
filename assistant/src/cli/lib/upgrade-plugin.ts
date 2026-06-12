@@ -37,6 +37,7 @@ import {
   type FetchLike,
   type GitRunner,
   installPlugin,
+  PluginSourceUnavailableError,
   type PostinstallRunner,
   sanitizePluginName,
 } from "./install-from-github.js";
@@ -116,10 +117,11 @@ function pluginTarget(name: string, deps: UpgradePluginDeps): string {
  * Move an installed plugin to the marketplace's current pin.
  *
  * Throws {@link PluginNotInstalledError} when no copy is installed,
- * {@link PluginNotUpgradableError} when the install has no marketplace pin to
- * advance to (no catalog entry, or the catalog was unreachable), and
- * propagates {@link installPlugin}'s errors (e.g. source unavailable,
- * postinstall failure) when the re-install itself fails.
+ * {@link PluginNotUpgradableError} when the install has no marketplace entry to
+ * advance to, {@link PluginSourceUnavailableError} when the marketplace catalog
+ * is temporarily unreachable (a retryable outage, distinct from the permanent
+ * no-entry case), and propagates {@link installPlugin}'s errors (e.g. source
+ * unavailable, postinstall failure) when the re-install itself fails.
  */
 export async function upgradePlugin(
   opts: UpgradePluginOptions,
@@ -150,9 +152,13 @@ export async function upgradePlugin(
         "it has no marketplace entry to upgrade from",
       );
     case "remote-unavailable":
-      throw new PluginNotUpgradableError(
-        name,
-        `the marketplace could not be reached (${inspection.remoteError ?? "unknown error"})`,
+      // A transient catalog outage is not a permanent "cannot upgrade" state:
+      // the same request can succeed once the marketplace source recovers, so
+      // surface it as a retryable source-unavailable error rather than a
+      // conflict.
+      throw new PluginSourceUnavailableError(
+        `Plugin "${name}" cannot be upgraded: the marketplace could not be reached (${inspection.remoteError ?? "unknown error"}).`,
+        503,
       );
   }
 

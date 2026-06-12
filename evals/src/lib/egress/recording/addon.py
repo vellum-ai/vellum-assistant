@@ -69,6 +69,14 @@ RECORDING_OUTPUT_PATH = os.environ.get(
     "RECORDING_OUTPUT_PATH", "/recording/egress-usage.ndjson"
 )
 
+# Upper bound on the request/response payload text stored per usage record.
+# The report inlines these so a reviewer can see exactly what each priced
+# request sent and received — invaluable when the cost figure looks wrong.
+# Capped so a large SSE completion can't bloat `egress-usage.ndjson` (and
+# therefore the static report bundle) without bound; the full byte length
+# is always recorded alongside so the report can flag truncation.
+MAX_PAYLOAD_CHARS = int(os.environ.get("RECORDING_MAX_PAYLOAD_CHARS", "32768"))
+
 # When set, the request hook serves plugin install traffic from this
 # directory instead of letting it egress. Unset = mocking disabled,
 # requests fall through to the iptables DROP-default policy.
@@ -168,6 +176,24 @@ def _decoded_body(message) -> bytes:  # type: ignore[no-untyped-def]
         return message.raw_content or b""
 
 
+def _payload_fields(prefix: str, body: bytes) -> dict:
+    """Build the inlined-payload fields for one HTTP message body.
+
+    Returns `{<prefix>_body, <prefix>_body_bytes, <prefix>_body_truncated}`.
+    The body is decoded as UTF-8 (replacing undecodable bytes) and capped at
+    `MAX_PAYLOAD_CHARS`; the full byte length is preserved so the report can
+    show "showing first N of M bytes" when the text was truncated.
+    """
+    full_bytes = len(body)
+    text = body.decode("utf-8", errors="replace")
+    truncated = len(text) > MAX_PAYLOAD_CHARS
+    return {
+        f"{prefix}_body": text[:MAX_PAYLOAD_CHARS],
+        f"{prefix}_body_bytes": full_bytes,
+        f"{prefix}_body_truncated": truncated,
+    }
+
+
 def response(flow) -> None:  # type: ignore[no-untyped-def]
     """mitmproxy hook fired after the full response body is available."""
     try:
@@ -197,6 +223,8 @@ def response(flow) -> None:  # type: ignore[no-untyped-def]
         record["recorded_at"] = datetime.now(timezone.utc).isoformat()
         record["request_path"] = request.path
         record["status_code"] = response.status_code
+        record.update(_payload_fields("request", request_body))
+        record.update(_payload_fields("response", response_body))
         _append_ndjson(record)
         _log_info(
             f"recording: anthropic usage {record.get('input_tokens')}/"

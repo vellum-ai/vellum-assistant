@@ -319,13 +319,13 @@ const useOrgStoreBase = create<OrgStore>()((set) => ({
   },
 }));
 
-// Domain data — React Query (used only in components)
-const { data } = useQuery(assistantsListOptions());
+// Domain data — generated hook (used in components)
+const { data } = useAssistantsListQuery();
 ```
 
 ### Why React Query (not SWR or others)
 
-- [HeyAPI `@tanstack/react-query` plugin](https://heyapi.dev/openapi-ts/plugins/tanstack-query) auto-generates type-safe query/mutation/infinite-query hooks from the OpenAPI spec. No equivalent plugin exists for SWR (still in proposal stage) or other libraries — this alone is decisive given our HeyAPI codegen pipeline.
+- [HeyAPI `@tanstack/react-query` plugin](https://heyapi.dev/openapi-ts/plugins/tanstack-query) auto-generates ready-to-use hooks (`useXxxQuery()`, `useXxxMutation()`), factory functions (`xxxOptions()`, `xxxMutation()`), and typed cache helpers (`setXxxQueryData()`) from the OpenAPI spec. No equivalent plugin exists for SWR (still in proposal stage) or other libraries — this alone is decisive given our HeyAPI codegen pipeline. See [`CONVENTIONS.md` — Generated hooks vs factory functions](./CONVENTIONS.md#generated-hooks-vs-factory-functions) for when to use each layer.
 - First-class mutation support, optimistic updates, and Redux-DevTools-style query inspection.
 - 12M+ weekly downloads (2026), the most feature-complete option in the React server-state space.
 - Boundary with Zustand is documented explicitly — see the section above. React Query handles server state; Zustand handles client state; they do not overlap.
@@ -370,8 +370,7 @@ manual rollback. Use this when the mutation and query live in the
 **same component**.
 
 ```ts
-const deleteMutation = useMutation({
-  mutationFn: (id: string) => deleteContact(id),
+const deleteMutation = useDeleteContactMutation({
   onSettled: () => invalidateContacts(),
 });
 
@@ -403,27 +402,26 @@ about to change, and in `onError` use an updater function to patch
 only those fields back. This keeps the rest of the cache intact.
 
 ```ts
-const mutation = useMutation({
-  mutationFn: (vars: { id: string; isActive: boolean }) =>
-    patchItem(vars),
+const mutation = usePatchItemMutation({
   onMutate: async (vars) => {
-    await queryClient.cancelQueries({ queryKey });
+    await queryClient.cancelQueries({ queryKey: getItemQueryKey(vars.id) });
     // Snapshot only the field we're changing
-    const previousIsActive = queryClient.getQueryData<Item>(queryKey)?.isActive;
-    // Optimistic update via updater function (always reads latest cache)
-    queryClient.setQueryData<Item>(queryKey, (old) =>
+    const previous = queryClient.getQueryData(getItemQueryKey(vars.id));
+    // Optimistic update via the generated typed setter
+    setItemQueryData(queryClient, vars.id, (old) =>
       old ? { ...old, isActive: vars.isActive } : old,
     );
-    return { previousIsActive };
+    return { previousIsActive: previous?.isActive };
   },
-  onError: (_err, _vars, ctx) => {
+  onError: (_err, vars, ctx) => {
     // Roll back only the changed field — concurrent updates to other
     // fields stay intact
-    queryClient.setQueryData<Item>(queryKey, (old) =>
+    setItemQueryData(queryClient, vars.id, (old) =>
       old ? { ...old, isActive: ctx?.previousIsActive } : old,
     );
   },
-  onSettled: () => queryClient.invalidateQueries({ queryKey }),
+  onSettled: (_data, _err, vars) =>
+    queryClient.invalidateQueries({ queryKey: getItemQueryKey(vars.id) }),
 });
 ```
 
@@ -445,13 +443,12 @@ instead of duplicating it in a `useState`.
 ```ts
 // Avoid — duplicates mutation error state
 const [error, setError] = useState<string | null>(null);
-const mutation = useMutation({
-  mutationFn: doThing,
+const mutation = useDoThingMutation({
   onError: (err) => setError(err.message),
 });
 
 // Prefer — derive from mutation
-const mutation = useMutation({ mutationFn: doThing });
+const mutation = useDoThingMutation();
 const errorMessage = mutation.error?.message ?? null;
 // Clear with mutation.reset() instead of setError(null)
 ```
@@ -467,8 +464,9 @@ the eager `ChatPage` path) must gate on `useIsOrgReady()`:
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 
 const isOrgReady = useIsOrgReady();
-const query = useQuery({
-  ...queryOptions,
+const query = useAssistantsListQuery({
+  query: { hosting: "platform" },
+  // generated hooks accept the same options as useQuery
   enabled: enabled && Boolean(assistantId) && isOrgReady,
 });
 ```
@@ -598,9 +596,24 @@ approach.
 
 ```ts
 // Good — Zustand-idiomatic direct actions
+interface TurnState {
+  phase: TurnPhase;
+  activeTurnId: string | null;
+  activeToolCallCount: number;
+}
+
+interface TurnActions {
+  startTurn: (turnId: string) => void;
+  startStreaming: () => void;
+  completeTurn: () => void;
+  incrementToolCalls: () => void;
+}
+
+type TurnStore = TurnState & TurnActions;
+
 export const useTurnStore = create<TurnStore>()((set, get) => ({
-  phase: "idle" as TurnPhase,
-  activeTurnId: null as string | null,
+  phase: "idle",
+  activeTurnId: null,
   activeToolCallCount: 0,
 
   startTurn: (turnId: string) =>
