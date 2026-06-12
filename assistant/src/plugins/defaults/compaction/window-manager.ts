@@ -627,6 +627,28 @@ export class ContextWindowManager {
     return Math.floor(this.config.maxInputTokens * (1 - safetyMargin));
   }
 
+  /**
+   * Low-watermark token budget a compaction pass aims to land the rebuilt
+   * history at or below. Derived from `contextWindow.targetBudgetRatio` (the
+   * fraction of the window to retain after compaction) minus the summary's own
+   * reserve (`summaryBudgetRatio`), so the post-compaction total — summary plus
+   * verbatim tail — fits the target. Clamped meaningfully below the
+   * auto-threshold success gate: a target at or above the gate would defeat the
+   * purpose (a pass could "succeed" while landing a hair under the trigger and
+   * thrash on the next tick), so it is pulled down to at most 80% of the gate.
+   */
+  private resolveCompactionTargetTokens(thresholdTokens: number): number {
+    const { maxInputTokens, targetBudgetRatio, summaryBudgetRatio } =
+      this.config;
+    const verbatimRatio = Math.max(
+      0,
+      targetBudgetRatio - (summaryBudgetRatio ?? 0),
+    );
+    const raw = Math.floor(maxInputTokens * verbatimRatio);
+    const ceiling = Math.floor(thresholdTokens * 0.8);
+    return Math.max(1, Math.min(raw, ceiling));
+  }
+
   private async _maybeCompact(
     messages: Message[],
     signal?: AbortSignal,
@@ -642,6 +664,7 @@ export class ContextWindowManager {
     const thresholdTokens = Math.floor(
       this.config.maxInputTokens * compaction.autoThreshold,
     );
+    const targetTokens = this.resolveCompactionTargetTokens(thresholdTokens);
 
     if (!compaction.enabled) {
       return noopResult(messages, previousEstimatedInputTokens, {
@@ -681,6 +704,7 @@ export class ContextWindowManager {
       tools: this.resolveTools?.(),
       compaction,
       maxInputTokens: this.config.maxInputTokens,
+      targetTokens,
       previousEstimatedInputTokens,
       force: options?.force,
       signal,

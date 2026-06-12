@@ -43,7 +43,10 @@ import {
 } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
 import { stripInjectionsForCompaction } from "./strip-injections.js";
-import { estimatePromptTokens } from "./token-estimator.js";
+import {
+  estimatePromptTokens,
+  estimateToolsTokens,
+} from "./token-estimator.js";
 
 const log = getLogger("compactor");
 
@@ -134,7 +137,8 @@ Compress aggressively:
 For picking where to cut between summary and preserved tail:
 - Find the last major topic shift or energy change
 - Keep the active thread of conversation fully intact
-- When in doubt, preserve more rather than less
+- Keep the verbatim tail within roughly {tail_budget} tokens so the
+  compacted conversation has room to breathe before the next pass
 - Never cut in the middle of an ongoing discussion
 
 IMAGE MANIFEST (images in this conversation):
@@ -181,6 +185,14 @@ export interface CompactionRunArgs {
   compaction: CompactionConfig;
   /** Effective context window for the conversation (in tokens). */
   maxInputTokens: number;
+  /**
+   * Low-watermark token budget the rebuilt history (summary + verbatim tail)
+   * should land at or below after a successful pass. Drives the deterministic
+   * forward-cut that advances the model's tail choice until the estimate fits,
+   * so one pass buys a long quiet period instead of landing a hair under the
+   * trigger. When omitted the forward-cut is skipped (legacy/emergency paths).
+   */
+  targetTokens?: number;
   /** Pre-computed estimated input tokens for the live history. */
   previousEstimatedInputTokens: number;
   /** Skip the autoThreshold check — fire compaction unconditionally. */
@@ -551,6 +563,81 @@ export function adjustTailIndexForToolPairing(
   return 0;
 }
 
+/**
+ * Whether keeping `messages[index..]` as the verbatim tail lands on a clean
+ * boundary: the tail must open on a user turn that does not lead with a
+ * client-side `tool_result` (which would orphan its matching `tool_use` in the
+ * summarized prefix). This is the forward-walk dual of
+ * {@link adjustTailIndexForToolPairing}'s backward walk — the deterministic
+ * budget enforcement only advances the cut to indices that satisfy it.
+ */
+function isForwardCutBoundary(messages: Message[], index: number): boolean {
+  const m = messages[index];
+  if (m == null || m.role !== "user") return false;
+  // guard:allow-tool-result-only — server-side web_search_tool_result is
+  // self-paired inside its assistant message and never spans user turns.
+  return !m.content.some((block) => block.type === "tool_result");
+}
+
+/**
+ * Deterministic low-watermark enforcement. Given the model's tail choice
+ * (already resolved + back-walked for tool pairing), advance the cut FORWARD —
+ * dropping more leading messages into the summarized region, keeping a smaller
+ * verbatim tail — until the rebuilt-history estimate fits `targetTokens` or a
+ * minimum-tail floor is hit.
+ *
+ * The floor preserves conversational integrity: it never advances past
+ * `floorIndex`, which the caller anchors to the start of the most recent
+ * complete user→assistant exchange so the current in-flight turn is never cut.
+ * Every candidate cut must pass {@link isForwardCutBoundary} so tool pairs are
+ * never orphaned. Returns the original `startIndex` unchanged when no forward
+ * boundary improves on it.
+ */
+function advanceTailForBudget(args: {
+  messages: Message[];
+  startIndex: number;
+  floorIndex: number;
+  targetTokens: number;
+  estimateTail: (tail: Message[]) => number;
+}): number {
+  const { messages, startIndex, floorIndex, targetTokens, estimateTail } = args;
+  let chosen = startIndex;
+  for (let i = startIndex + 1; i <= floorIndex; i++) {
+    if (!isForwardCutBoundary(messages, i)) continue;
+    chosen = i;
+    const estimate = estimateTail(messages.slice(i));
+    if (estimate <= targetTokens) break;
+  }
+  return chosen;
+}
+
+/**
+ * Anchor index for the forward-cut floor: the start of the most recent
+ * complete user→assistant exchange. The deterministic budget enforcement never
+ * advances the cut past this point, so a single pass always preserves at least
+ * the latest finished exchange and never bites into the current in-flight turn.
+ *
+ * Walks back from the end to the last assistant message, then back to the user
+ * message that opens its exchange (the nearest preceding clean user boundary).
+ * Falls back to the model's chosen `tailIndex` when no such exchange exists
+ * (e.g. the tail is a single in-flight turn), which makes the enforcement a
+ * no-op rather than cutting too aggressively.
+ */
+function resolveTailFloorIndex(messages: Message[], tailIndex: number): number {
+  let lastAssistant = -1;
+  for (let i = messages.length - 1; i > tailIndex; i--) {
+    if (messages[i].role === "assistant") {
+      lastAssistant = i;
+      break;
+    }
+  }
+  if (lastAssistant < 0) return tailIndex;
+  for (let i = lastAssistant - 1; i > tailIndex; i--) {
+    if (isForwardCutBoundary(messages, i)) return i;
+  }
+  return tailIndex;
+}
+
 // ---------------------------------------------------------------------------
 // Retained-image hydration
 // ---------------------------------------------------------------------------
@@ -618,12 +705,22 @@ function guessMimeFromFilename(filename: string): string {
 export function buildInstructionMessage(
   customPrompt: string | null | undefined,
   imageManifest: string,
+  tailBudgetTokens?: number,
 ): Message {
   const template =
     customPrompt && customPrompt.trim().length > 0
       ? customPrompt
       : DEFAULT_COMPACTION_PROMPT;
-  const text = template.replace("{image_manifest}", imageManifest);
+  // `{tail_budget}` is a soft nudge — the deterministic forward-cut downstream
+  // is what actually enforces the budget. Custom prompts without the
+  // placeholder render unchanged; the default prompt always carries it.
+  const tailBudgetText =
+    tailBudgetTokens != null && tailBudgetTokens > 0
+      ? String(tailBudgetTokens)
+      : "as few as needed";
+  const text = template
+    .replace("{image_manifest}", imageManifest)
+    .replace("{tail_budget}", tailBudgetText);
   return {
     role: "user",
     content: [{ type: "text", text }],
@@ -736,6 +833,7 @@ export async function runAssistantDrivenCompaction(
   const instruction = buildInstructionMessage(
     args.compaction.prompt ?? null,
     manifestText,
+    args.targetTokens,
   );
 
   const requestMessages = buildCompactionRequest(args.messages, instruction);
@@ -826,20 +924,102 @@ export async function runAssistantDrivenCompaction(
     };
   }
 
-  const tailIndex = adjustTailIndexForToolPairing(
+  const pairedTailIndex = adjustTailIndexForToolPairing(
     args.messages,
     resolvedTailIndex,
   );
-  if (tailIndex !== resolvedTailIndex) {
+  if (pairedTailIndex !== resolvedTailIndex) {
     log.info(
       {
         conversationId: args.conversationId,
         originalTailIndex: resolvedTailIndex,
-        tailIndex,
-        walkedBy: resolvedTailIndex - tailIndex,
+        tailIndex: pairedTailIndex,
+        walkedBy: resolvedTailIndex - pairedTailIndex,
       },
       "Adjusted compaction tail backward to preserve tool_use/tool_result pairing",
     );
+  }
+
+  const summaryText = buildSummaryMemoryText(parsed.summary, parsed.keyState);
+  const summaryMessage: Message = {
+    role: "assistant",
+    content: [{ type: "text", text: summaryText }],
+  };
+
+  const {
+    blocks: retainedImageBlocks,
+    resolved,
+    missing,
+  } = buildRetainedImageBlocks(parsed.retainedImageFilenames, manifest);
+  if (missing.length > 0) {
+    log.warn(
+      { missing },
+      "Compaction referenced images that could not be resolved against attachments — dropping",
+    );
+  }
+
+  const retainedImageMessage: Message | null =
+    retainedImageBlocks.length > 0
+      ? {
+          role: "user",
+          content: [
+            {
+              type: "text" as const,
+              text: "Images retained from the compacted portion of the conversation:",
+            },
+            ...retainedImageBlocks,
+          ],
+        }
+      : null;
+
+  // Deterministic low-watermark enforcement. The model was asked to keep the
+  // tail within the budget, but it routinely keeps a fat tail in repetitive
+  // conversations, so each pass would otherwise free almost nothing and the
+  // history bounces back over the trigger within a tick or two. When the
+  // rebuilt history (summary + retained images + verbatim tail) still exceeds
+  // `targetTokens`, advance the cut forward — onto clean user-turn boundaries
+  // only — until it fits or the most-recent-complete-exchange floor is hit.
+  // The summary text already covers everything before the tail semantically,
+  // so growing the summarized region after the fact stays coherent without a
+  // second LLM call.
+  let tailIndex = pairedTailIndex;
+  if (args.targetTokens != null && pairedTailIndex > 0) {
+    const providerName =
+      args.provider.tokenEstimationProvider ?? args.provider.name;
+    // Mirror the window-manager's post-compaction estimate (system prompt +
+    // tools + messages) so the forward-cut targets the same number the manager
+    // recomputes on return — otherwise the cut would under-count by the tool
+    // budget and land short of the real low-watermark.
+    const toolTokenBudget = args.tools ? estimateToolsTokens(args.tools) : 0;
+    const fixedPrefix: Message[] = [summaryMessage];
+    if (retainedImageMessage) fixedPrefix.push(retainedImageMessage);
+    const estimateRebuilt = (tail: Message[]): number =>
+      estimatePromptTokens(
+        [...fixedPrefix, ...stripInjectionsForCompaction(tail)],
+        args.systemPrompt,
+        { providerName, toolTokenBudget },
+      );
+    const floorIndex = resolveTailFloorIndex(args.messages, pairedTailIndex);
+    const advanced = advanceTailForBudget({
+      messages: args.messages,
+      startIndex: pairedTailIndex,
+      floorIndex,
+      targetTokens: args.targetTokens,
+      estimateTail: estimateRebuilt,
+    });
+    if (advanced !== pairedTailIndex) {
+      tailIndex = advanced;
+      log.info(
+        {
+          conversationId: args.conversationId,
+          modelTailIndex: pairedTailIndex,
+          tailIndex,
+          floorIndex,
+          targetTokens: args.targetTokens,
+        },
+        "Advanced compaction tail forward to meet low-watermark token budget",
+      );
+    }
   }
 
   if (tailIndex === 0) {
@@ -876,37 +1056,8 @@ export async function runAssistantDrivenCompaction(
     args.messages.slice(tailIndex),
   );
 
-  const summaryText = buildSummaryMemoryText(parsed.summary, parsed.keyState);
-  const summaryMessage: Message = {
-    role: "assistant",
-    content: [{ type: "text", text: summaryText }],
-  };
-
-  const {
-    blocks: retainedImageBlocks,
-    resolved,
-    missing,
-  } = buildRetainedImageBlocks(parsed.retainedImageFilenames, manifest);
-  if (missing.length > 0) {
-    log.warn(
-      { missing },
-      "Compaction referenced images that could not be resolved against attachments — dropping",
-    );
-  }
-
   const compactedMessages: Message[] = [summaryMessage];
-  if (retainedImageBlocks.length > 0) {
-    compactedMessages.push({
-      role: "user",
-      content: [
-        {
-          type: "text" as const,
-          text: "Images retained from the compacted portion of the conversation:",
-        },
-        ...retainedImageBlocks,
-      ],
-    });
-  }
+  if (retainedImageMessage) compactedMessages.push(retainedImageMessage);
   compactedMessages.push(...tailMessages);
 
   const nonPersistedCompactedAway = Math.min(

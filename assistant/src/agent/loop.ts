@@ -60,6 +60,28 @@ const MID_LOOP_YIELD_THRESHOLD_RATIO = 0.85;
 const LONG_HISTORY_MESSAGE_THRESHOLD = 50;
 const LONG_HISTORY_SAFETY_MARGIN_FLOOR = 0.15;
 
+/**
+ * Minimum token regrowth, measured from the post-compaction watermark, before
+ * the budget gate will compact again. A compaction pass that just ran already
+ * proved how far the history can shrink; if the estimate has not climbed at
+ * least this far past that watermark, another pass cannot free more than it
+ * already did and would only thrash (the production failure mode: each pass
+ * lands a hair under the trigger, one tick pushes it back over, repeat).
+ *
+ * Sized as `max(2048, 2% of maxInputTokens)` so it scales with the window but
+ * never collapses to a trivial value on small budgets. Overflow-driven
+ * compaction bypasses this guard entirely — a provider-confirmed overflow must
+ * always be allowed to compact.
+ */
+const MIN_REGROWTH_FLOOR_TOKENS = 2048;
+const MIN_REGROWTH_WINDOW_RATIO = 0.02;
+function minRegrowthTokens(maxInputTokens: number): number {
+  return Math.max(
+    MIN_REGROWTH_FLOOR_TOKENS,
+    Math.floor(maxInputTokens * MIN_REGROWTH_WINDOW_RATIO),
+  );
+}
+
 export interface AgentLoopConfig {
   maxTokens: number;
   maxInputTokens?: number; // context window size for tool result truncation
@@ -1063,7 +1085,29 @@ export class AgentLoop {
               overflowDriven ||
               !isFirstCallGate ||
               !(await this.compactionCircuit.isOpen());
-            if (shouldCompact && compactionAllowed) {
+            // Regrowth hysteresis: a proactive pass that just ran proved how
+            // far this history can shrink. If the estimate has not climbed at
+            // least `minRegrowth` past that watermark, another pass cannot free
+            // more and would only thrash — skip it and let the provider call
+            // proceed (overflow recovery remains the safety net). Overflow-
+            // driven compaction always bypasses the guard.
+            const watermark = this.compactionCircuit.lastPostCompactionEstimate;
+            const minRegrowth = minRegrowthTokens(maxInputTokens);
+            const regrowthGuardSkip =
+              !overflowDriven &&
+              watermark !== null &&
+              estimated - watermark < minRegrowth;
+            if (shouldCompact && compactionAllowed && regrowthGuardSkip) {
+              rlog.info(
+                {
+                  turn: toolUseTurns,
+                  estimated,
+                  postCompactionWatermark: watermark,
+                  minRegrowth,
+                },
+                "Skipping compaction: history has not regrown past the post-compaction watermark — re-compacting would not free more",
+              );
+            } else if (shouldCompact && compactionAllowed) {
               rlog.info(
                 {
                   turn: toolUseTurns,
@@ -1089,6 +1133,11 @@ export class AgentLoop {
                 // The compacted, re-injected array is the new base; output
                 // produced after this point is what the wrapper persists.
                 newMessagesStart = history.length;
+                // Record the post-compaction estimate so the regrowth guard can
+                // tell, on a later gate crossing, whether the history has grown
+                // enough to be worth compacting again.
+                this.compactionCircuit.lastPostCompactionEstimate =
+                  this.estimateTokens(history);
               }
               if (overflowDriven) {
                 // Carry the ladder's terminal state to the catch: if the
