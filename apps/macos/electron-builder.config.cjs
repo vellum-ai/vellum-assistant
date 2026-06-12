@@ -1,6 +1,6 @@
 // @ts-check
 
-const env = process.env.VELLUM_ENVIRONMENT || "production";
+const env = process.env.VELLUM_ENVIRONMENT || "local";
 const bucketEnv = env === "production" ? "prod" : env;
 const targetArch = process.env.ELECTRON_TARGET_ARCH || "arm64";
 
