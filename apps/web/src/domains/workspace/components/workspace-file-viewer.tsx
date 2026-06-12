@@ -34,6 +34,7 @@ import {
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { isJson, prettifyJson } from "@/domains/workspace/utils/file-json";
 import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
+import { isHiddenPath } from "@/domains/workspace/utils/is-hidden-path";
 import {
     workspaceFileContentGet,
     workspaceFileGet,
@@ -256,10 +257,6 @@ function BinaryContentViewer({
   }
 
   return null;
-}
-
-function isHiddenPath(path: string): boolean {
-  return path.split("/").some((segment) => segment.startsWith("."));
 }
 
 function EditFooter({

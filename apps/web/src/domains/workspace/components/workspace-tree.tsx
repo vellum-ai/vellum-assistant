@@ -38,6 +38,7 @@ import {
 import { createPortal } from "react-dom";
 
 import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
+import { isHiddenPath } from "@/domains/workspace/utils/is-hidden-path";
 import {
     sortEntries,
     type WorkspaceSortMode,
@@ -165,6 +166,9 @@ function TreeNode({
   const isExpanded = expandedPaths.has(entryPath);
   const isSelected = selectedPath === entryPath;
   const isHidden = entryName.startsWith(".");
+  // The daemon rejects deletes on paths with hidden segments, so don't offer
+  // the action for them.
+  const canDelete = !isHiddenPath(entryPath);
 
   // Expand directories whose names match during search so their children are visible.
   const effectivelyExpanded =
@@ -242,30 +246,32 @@ function TreeNode({
           <span className="min-w-0 flex-1 truncate">{entryName}</span>
           {entry.size != null && (
             <span
-              className="shrink-0 text-label-medium-default tabular-nums group-hover:invisible group-focus-within:invisible"
+              className={`shrink-0 text-label-medium-default tabular-nums${canDelete ? " group-hover:invisible group-focus-within:invisible" : ""}`}
               style={{ color: "var(--content-tertiary)" }}
             >
               {formatFileSize(entry.size)}
             </span>
           )}
         </button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="compact"
-          iconOnly={<Trash2 aria-hidden />}
-          onClick={() =>
-            onRequestDelete({
-              path: entryPath,
-              name: entryName,
-              isDirectory,
-            })
-          }
-          aria-label={`Delete ${entryName}`}
-          title="Delete"
-          className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
-          tintColor="var(--content-tertiary)"
-        />
+        {canDelete && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="compact"
+            iconOnly={<Trash2 aria-hidden />}
+            onClick={() =>
+              onRequestDelete({
+                path: entryPath,
+                name: entryName,
+                isDirectory,
+              })
+            }
+            aria-label={`Delete ${entryName}`}
+            title="Delete"
+            className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+            tintColor="var(--content-tertiary)"
+          />
+        )}
       </div>
       {isDirectory && effectivelyExpanded && children.length > 0 && (
         <div>
