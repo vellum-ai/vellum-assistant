@@ -844,33 +844,49 @@ References:
 - [HeyAPI — Configuration](https://heyapi.dev/openapi-ts/configuration)
 - [HeyAPI — TanStack Query plugin](https://heyapi.dev/openapi-ts/plugins/tanstack-query)
 
-### Generated hooks vs factory functions
+### Generated artifacts and when to use each
 
-The TanStack Query plugin generates two layers per endpoint:
+The TanStack Query plugin generates several layers per endpoint:
 
 | Generated artifact | Example | Use when |
 |---|---|---|
-| **Hook** (`useXxxQuery`, `useXxxMutation`) | `useAssistantsListQuery()` | Default — inside React components |
-| **Factory** (`xxxOptions`, `xxxMutation`) | `assistantsListOptions()` | Outside React — `prefetchQuery()`, `fetchQuery()`, `ensureQueryData()`, route loaders |
+| **Query factory** (`xxxOptions`) | `assistantsListOptions()` | Queries — spread into `useQuery()` with any TQ options (`enabled`, `select`, `staleTime`, etc.) |
+| **Mutation hook** (`useXxxMutation`) | `useAssistantsDoctorSessionsCreateMutation()` | Mutations — accepts all TQ mutation options (`onSuccess`, `onError`, `onMutate`, `onSettled`) |
+| **Mutation factory** (`xxxMutation`) | `assistantsDoctorSessionsCreateMutation()` | Outside React — `queryClient.executeMutation()`, or when you need the raw options object |
 | **Cache helper** (`setXxxQueryData`) | `setAssistantsListQueryData()` | Typed optimistic writes to the query cache |
+| **Query key** (`xxxQueryKey`) | `assistantsListQueryKey()` | Cache invalidation, `queryClient.invalidateQueries()` |
 
-**Use the generated hooks by default.** They handle query key
-construction, type inference, and the `useQuery`/`useMutation` wiring
-internally:
+**Queries use the factory pattern.** The generated `useXxxQuery()`
+hooks only accept SDK parameters (`path`, `query`, `body`) — they do
+**not** accept TanStack Query options like `enabled`, `select`, or
+`staleTime`. Since almost every query in the codebase needs at least
+`enabled` (for org-readiness gating, conditional fetching, etc.), use
+the factory + `useQuery()` pattern:
 
 ```ts
-// Preferred — generated hook, no manual wiring
-const { data } = useAssistantsListQuery({ query: { hosting: "platform" } });
+// Queries — spread factory into useQuery() so you can pass TQ options
+const { data } = useQuery({
+  ...assistantsListOptions({ query: { hosting: "platform" } }),
+  enabled: isOrgReady,
+});
+
+// Mutations — generated hooks work, they accept TQ callbacks
 const mutation = useAssistantsDoctorSessionsCreateMutation({
   onSuccess(data) { /* ... */ },
 });
 
-// Only when you need the options object outside a hook:
+// Outside React — factory directly
 await queryClient.prefetchQuery(assistantsListOptions());
+
+// Optimistic writes — typed cache helper
+setAssistantsListQueryData(queryClient, undefined, (old) => /* ... */);
 ```
 
-Do not spread factory functions into `useQuery()`/`useMutation()` in
-new code — that's the legacy pattern being migrated away.
+This is a [known limitation](https://github.com/hey-api/openapi-ts/pull/3528)
+in HeyAPI's TanStack Query plugin — the generated mutation hooks
+accept TQ options via a spread, but the generated query hooks do not.
+We are tracking the upstream fix and will update this guidance when
+the limitation is resolved.
 
 ### Prefer generated clients over hand-written fetch
 
