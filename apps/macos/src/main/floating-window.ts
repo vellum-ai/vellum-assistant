@@ -117,7 +117,10 @@ export const createFloatingWindow = ({
 
   win.setAlwaysOnTop(true, alwaysOnTopLevel);
   if (ignoreMouseEvents) {
-    win.setIgnoreMouseEvents(true);
+    // `forward: true` keeps the window click-through while still delivering
+    // mousemove to the page, so hoverable controls (the dictation overlay's
+    // stop button) can flip interactivity on via mouseenter/mouseleave.
+    win.setIgnoreMouseEvents(true, { forward: true });
   }
   if (visibleOnAllWorkspaces) {
     win.setVisibleOnAllWorkspaces(true, {

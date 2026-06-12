@@ -120,6 +120,10 @@ export const COMMAND_PALETTE_SELECT = "vellum:commandPalette:select";
 export const DICTATION_OVERLAY_SET_STATE = "vellum:dictationOverlay:setState";
 export const DICTATION_OVERLAY_STATE_EVENT = "vellum:dictationOverlay:state";
 export const DICTATION_OVERLAY_GET_STATE = "vellum:dictationOverlay:getState";
+export const DICTATION_OVERLAY_REQUEST_STOP =
+  "vellum:dictationOverlay:requestStop";
+export const DICTATION_OVERLAY_SET_INTERACTIVE =
+  "vellum:dictationOverlay:setInteractive";
 
 // Popout
 export const POPOUT_OPEN = "vellum:popout:open";

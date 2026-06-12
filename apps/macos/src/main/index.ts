@@ -53,6 +53,7 @@ import { installHostProxyBridge } from "./host-proxy-router";
 import "./executors/host-bash-executor"; // side-effect: registers host_bash executor
 import log from "./logger";
 import {
+  dispatchToMain,
   ensureVisible as ensureMainWindowVisible,
   installMainWindow,
   toggleVisibility as toggleMainWindowVisibility,
@@ -353,7 +354,13 @@ app
     installCommandPaletteWindow();
     installApplicationMenu();
     installQuickInput();
-    installDictationOverlay({ onRecordingLifecycle: setDictationRecording });
+    installDictationOverlay({
+      onRecordingLifecycle: setDictationRecording,
+      // The recording session lives in the main window's renderer (chat
+      // composer or the push-to-talk fallback), so relay the overlay's stop
+      // click there as a command.
+      onStopRequested: () => dispatchToMain({ kind: "stopDictation" }),
+    });
     installPopoutWindows();
     installGlobalShortcuts();
     // Register the avatar channel before the Dock and Tray install so their

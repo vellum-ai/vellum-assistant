@@ -501,6 +501,21 @@ export const VoiceInputButton = forwardRef<
     };
   }, [recording, cancelRecording]);
 
+  /**
+   * Abandon an in-flight transcription (the dictation overlay's stop
+   * button during "Processing…"). Bumping the session id makes the async
+   * STT completion drop its result, the abort cancels the batch POST, and
+   * `discardedRef` covers the window where the store is already
+   * "processing" but `recorder.onstop` hasn't run yet.
+   */
+  const abortProcessing = useCallback(() => {
+    sessionIdRef.current += 1;
+    discardedRef.current = true;
+    transcribeAbortRef.current?.abort();
+    transcribeAbortRef.current = null;
+    vsReset();
+  }, [vsReset]);
+
   // The DOM listener above only sees Escape while a Vellum window has
   // focus. During system-wide push-to-talk dictation into another app the
   // Electron escape monitor owns Escape and relays it as a command; the
@@ -509,6 +524,18 @@ export const VoiceInputButton = forwardRef<
     cancelDictation: () => {
       if (!mediaRecorderRef.current) return;
       cancelRecording();
+    },
+    // The dictation overlay's stop button. While recording it ends the
+    // session the normal way (capture stops, audio goes to STT); while
+    // processing it abandons the transcription outright.
+    stopDictation: () => {
+      const { phase } = useVoiceRecordingStore.getState();
+      if (phase === "recording") {
+        if (!mediaRecorderRef.current) return;
+        stopRecording();
+      } else if (phase === "processing") {
+        abortProcessing();
+      }
     },
   });
 
