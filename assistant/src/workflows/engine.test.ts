@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Silence the logger.
 mock.module("../util/logger.js", () => ({
@@ -418,5 +421,148 @@ describe("executeWorkflow — agent cap", () => {
     expect(res.status).toBe("completed");
     expect(res.result).toBe("out:c");
     expect(second.prompts).toEqual([]);
+  });
+});
+
+describe("executeWorkflow — nested workflow()", () => {
+  // Saved workflows live at `<workspace>/workflows/*.workflow.ts`; point the
+  // workspace at a temp dir so `workflow(name)` resolves a fixture we control.
+  let workspaceDir: string;
+  let prevOverride: string | undefined;
+
+  beforeEach(() => {
+    resetTables();
+    workspaceDir = mkdtempSync(join(tmpdir(), "wf-nest-"));
+    prevOverride = process.env.VELLUM_WORKSPACE_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+  });
+
+  afterEach(() => {
+    if (prevOverride === undefined) delete process.env.VELLUM_WORKSPACE_DIR;
+    else process.env.VELLUM_WORKSPACE_DIR = prevOverride;
+    rmSync(workspaceDir, { recursive: true, force: true });
+  });
+
+  function writeSaved(file: string, source: string): void {
+    const dir = join(workspaceDir, "workflows");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, file), source, "utf8");
+  }
+
+  test("workflow() runs a saved child inline and returns its result", async () => {
+    writeSaved(
+      "child.workflow.ts",
+      `export const meta = { name: "child", description: "c" };
+       return agent("child-task");`,
+    );
+
+    const fake = makeFakeRunner();
+    const res = await execute(
+      "wf-nest-basic",
+      `const c = workflow("child", {});
+       const p = agent("parent-task");
+       return [c, p];`,
+      fake.runner,
+    );
+
+    expect(res.status).toBe("completed");
+    // The child's agent() result threads back into the parent script.
+    expect(res.result).toEqual(["out:child-task", "out:parent-task"]);
+    // Child leaf ran before the parent's own leaf (inline, same run).
+    expect(fake.prompts).toEqual(["child-task", "parent-task"]);
+  });
+
+  test("nested leaves draw seq from the SAME run-scoped counter", async () => {
+    writeSaved(
+      "child.workflow.ts",
+      `export const meta = { name: "child", description: "c" };
+       return parallel([leaf("c0"), leaf("c1")]);`,
+    );
+
+    const fake = makeFakeRunner();
+    await execute(
+      "wf-nest-seq",
+      `agent("p0");
+       workflow("child", {});
+       return agent("p2");`,
+      fake.runner,
+    );
+
+    // One contiguous seq sequence across the parent + child boundary.
+    const journal = journalStore.getJournal("wf-nest-seq");
+    expect(journal.map((e) => e.seq)).toEqual([0, 1, 2, 3]);
+    // Child leaf labels are attributed to the child workflow.
+    const childEntries = journal.filter((e) =>
+      ["c0", "c1"].includes((e.request as { prompt: string }).prompt),
+    );
+    expect(
+      childEntries.map(
+        (e) => (e.request as { opts: { label?: string } }).opts.label,
+      ),
+    ).toEqual(["child", "child"]);
+  });
+
+  test("parent + child spawns share the agent cap (counted together)", async () => {
+    // Child spawns 2 leaves; parent spawns 2 before + would spawn more after.
+    // With cap=3, the run trips while running the child's second leaf.
+    writeSaved(
+      "child.workflow.ts",
+      `export const meta = { name: "child", description: "c" };
+       return parallel([leaf("c0"), leaf("c1")]);`,
+    );
+
+    const fake = makeFakeRunner();
+    const res = await execute(
+      "wf-nest-cap",
+      `agent("p0");
+       agent("p1");
+       workflow("child", {});
+       return agent("never");`,
+      fake.runner,
+      configWith({ maxAgentsPerRun: 3, maxConcurrentLeaves: 1 }),
+    );
+
+    expect(res.status).toBe("cap_exceeded");
+    // Exactly the cap's worth ran across BOTH levels: p0, p1, then the child's
+    // first leaf — the child's second leaf trips the shared cap.
+    expect(res.agentsSpawned).toBe(3);
+    expect(fake.prompts).toEqual(["p0", "p1", "c0"]);
+  });
+
+  test("calling workflow() from inside a child throws (depth-1 only)", async () => {
+    writeSaved(
+      "grandchild.workflow.ts",
+      `export const meta = { name: "grandchild", description: "g" };
+       return agent("gc");`,
+    );
+    // The child illegally nests another workflow() — depth would be 2.
+    writeSaved(
+      "child.workflow.ts",
+      `export const meta = { name: "child", description: "c" };
+       return workflow("grandchild", {});`,
+    );
+
+    const fake = makeFakeRunner();
+    const res = await execute(
+      "wf-nest-depth",
+      `return workflow("child", {});`,
+      fake.runner,
+    );
+
+    // The depth guard fires inside the child; uncaught, it fails the run.
+    expect(res.status).toBe("failed");
+    // The grandchild never ran.
+    expect(fake.prompts).toEqual([]);
+  });
+
+  test("workflow() with an unknown name fails the run", async () => {
+    const fake = makeFakeRunner();
+    const res = await execute(
+      "wf-nest-missing",
+      `return workflow("ghost", {});`,
+      fake.runner,
+    );
+    expect(res.status).toBe("failed");
+    expect(fake.prompts).toEqual([]);
   });
 });

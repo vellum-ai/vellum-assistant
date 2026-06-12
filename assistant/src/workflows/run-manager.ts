@@ -37,10 +37,15 @@ import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
 import type { CapabilityManifest } from "./capabilities.js";
 import { resolveCapabilities } from "./capabilities.js";
-import { executeWorkflow, extractWorkflowMeta } from "./engine.js";
+import {
+  executeWorkflow,
+  extractWorkflowMeta,
+  WorkflowNotFoundError,
+} from "./engine.js";
 import type { WorkflowRun } from "./journal-store.js";
 import * as journalStore from "./journal-store.js";
 import { runLeaf } from "./leaf-runner.js";
+import * as library from "./library.js";
 
 const log = getLogger("workflow-run-manager");
 
@@ -68,9 +73,18 @@ export class WorkflowRunCapError extends Error {
   }
 }
 
-export interface StartWorkflowOptions {
-  /** The workflow script source (JS or TS). */
-  scriptSource: string;
+/**
+ * Start a run from EITHER an inline `scriptSource` OR a saved workflow `name`
+ * (exactly one). When `name` is given the source is resolved from the saved
+ * workflow library; an unknown name throws {@link WorkflowNotFoundError}.
+ */
+export type StartWorkflowOptions = StartWorkflowCommon &
+  (
+    | { scriptSource: string; name?: undefined }
+    | { name: string; scriptSource?: undefined }
+  );
+
+interface StartWorkflowCommon {
   /** Verbatim run input, exposed to the script as `args`. */
   args: unknown;
   /** Per-run capability declaration (the single consent point). */
@@ -100,6 +114,8 @@ export interface WorkflowRunManagerDeps {
   wake: typeof wakeAgentForOpportunity;
   broadcast: typeof broadcastMessage;
   newRunId: () => string;
+  /** Resolve a saved workflow's source by name (for `start({ name })`). */
+  getWorkflow: typeof library.getWorkflow;
 }
 
 function defaultDeps(): WorkflowRunManagerDeps {
@@ -113,6 +129,7 @@ function defaultDeps(): WorkflowRunManagerDeps {
     wake: wakeAgentForOpportunity,
     broadcast: broadcastMessage,
     newRunId: () => randomUUID(),
+    getWorkflow: library.getWorkflow,
   };
 }
 
@@ -147,12 +164,17 @@ export class WorkflowRunManager {
       throw new WorkflowRunCapError(limit);
     }
 
+    // Resolve the script source: either inline (`scriptSource`) or by name from
+    // the saved-workflow library (`name`). An unknown saved name throws
+    // synchronously, leaving no orphaned `running` row behind.
+    const scriptSource = this.resolveScriptSource(opts);
+
     // Resolve capabilities and extract meta BEFORE creating the run row so a
     // manifest authoring error (unknown/forbidden tool) or a malformed script
     // `meta` surfaces synchronously to the caller and leaves no orphaned
     // `running` row behind.
     const capabilities = resolveCapabilities(opts.manifest);
-    const meta = extractWorkflowMeta(opts.scriptSource);
+    const meta = extractWorkflowMeta(scriptSource);
 
     const runId = this.deps.newRunId();
     const label = opts.label ?? meta.name;
@@ -164,8 +186,8 @@ export class WorkflowRunManager {
     this.deps.journal.createRun({
       id: runId,
       name: meta.name,
-      scriptSource: opts.scriptSource,
-      scriptHash: createHash("sha256").update(opts.scriptSource).digest("hex"),
+      scriptSource,
+      scriptHash: createHash("sha256").update(scriptSource).digest("hex"),
       args: opts.args,
       capabilities,
       status: "running",
@@ -177,9 +199,29 @@ export class WorkflowRunManager {
 
     // Fire-and-forget: the engine owns its own try/catch and always finishes
     // the run row. We never await it — `start` must return synchronously.
-    void this.runToCompletion(runId, label, opts, capabilities, controller);
+    void this.runToCompletion(
+      runId,
+      label,
+      scriptSource,
+      opts,
+      capabilities,
+      controller,
+    );
 
     return { runId };
+  }
+
+  /**
+   * Resolve the run's script source from `StartWorkflowOptions`: returns
+   * `opts.scriptSource` verbatim, or — when `name` is given — the source of the
+   * matching saved workflow. Throws {@link WorkflowNotFoundError} if the name
+   * does not resolve.
+   */
+  private resolveScriptSource(opts: StartWorkflowOptions): string {
+    if (opts.scriptSource !== undefined) return opts.scriptSource;
+    const saved = this.deps.getWorkflow(opts.name);
+    if (!saved) throw new WorkflowNotFoundError(opts.name);
+    return saved.source;
   }
 
   /** Abort an in-flight run by signalling its {@link AbortController}. No-op for unknown/finished runs. */
@@ -218,6 +260,7 @@ export class WorkflowRunManager {
   private async runToCompletion(
     runId: string,
     label: string,
+    scriptSource: string,
     opts: StartWorkflowOptions,
     capabilities: ReturnType<typeof resolveCapabilities>,
     controller: AbortController,
@@ -226,7 +269,7 @@ export class WorkflowRunManager {
     try {
       const result = await this.deps.executeWorkflow({
         runId,
-        scriptSource: opts.scriptSource,
+        scriptSource,
         args: opts.args,
         capabilities,
         config: config.workflows,
