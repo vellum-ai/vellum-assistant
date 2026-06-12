@@ -453,10 +453,10 @@ final class MacHelper: @unchecked Sendable {
         dictationSawActivity = false
         let emitPartial: @Sendable (String) -> Void = { [weak self] text in
             DispatchQueue.main.async {
-                guard let self else { return }
-                if generation == self.dictationGeneration {
-                    self.dictationSawActivity = true
+                guard let self, generation == self.dictationGeneration else {
+                    return
                 }
+                self.dictationSawActivity = true
                 self.writeNotification(
                     method: "dictation.partial",
                     params: ["text": text]
