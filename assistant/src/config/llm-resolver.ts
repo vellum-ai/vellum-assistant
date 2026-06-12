@@ -32,6 +32,19 @@ import {
  *   4. `llm.profiles[llm.activeProfile]`
  *   5. `llm.profiles[opts.overrideProfile]`
  *
+ * `opts.forceOverrideProfile` is an explicit escape hatch for non-main-agent
+ * call sites: when true (and `opts.overrideProfile` resolves to a defined
+ * profile), the override profile floats ABOVE the call-site layers — the
+ * non-main ordering becomes default → activeProfile → site profile →
+ * call-site override → overrideProfile. This mirrors how `mainAgent` treats
+ * the user's chat-model selection as authoritative, and exists for callers
+ * that must run a background call site under a specific conversation's
+ * inference profile (e.g. fork-based memory retrospectives matching the
+ * source conversation for provider prompt-cache reuse). When the referenced
+ * profile is missing, the flag is inert and the normal precedence applies
+ * (same silent fall-through as any `overrideProfile` reference); for
+ * `mainAgent` the flag is a no-op because the override already sits on top.
+ *
  * Nested objects (`thinking`, `contextWindow`, and
  * `contextWindow.overflowRecovery`) are deep-merged so partial overrides at
  * any nesting level merge into — rather than replace — the corresponding
@@ -54,6 +67,14 @@ import {
  */
 export interface ResolveCallSiteOpts {
   overrideProfile?: string;
+  /**
+   * Float `overrideProfile` above the call-site layers (named site profile +
+   * call-site override) for non-main-agent call sites. See the
+   * `resolveCallSiteConfig` docstring for the resulting precedence and the
+   * use case. Inert when `overrideProfile` is absent or references a missing
+   * profile, and a no-op for `mainAgent`.
+   */
+  forceOverrideProfile?: boolean;
   /**
    * Per-conversation seed for expanding `mix` profiles. The chosen constituent
    * is a deterministic function of `selectionSeed` + the mix profile's own
@@ -100,6 +121,15 @@ export function resolveCallSiteConfig(
   if (callSite === "mainAgent") {
     appendCallSiteLayers(layers, callSite, llm, site, opts, biasRef);
     appendProfileLayer(layers, activeFragment, biasRef);
+    appendProfileLayer(layers, overrideFragment, biasRef);
+  } else if (opts.forceOverrideProfile === true && overrideFragment != null) {
+    // Escape hatch: float the override profile above the call-site layers,
+    // mirroring mainAgent's treatment of the user's chat-model selection.
+    // Guarded on a resolved fragment so a missing profile reference degrades
+    // to the normal precedence below instead of silently dropping the
+    // call-site layers' standing.
+    appendProfileLayer(layers, activeFragment, biasRef);
+    appendCallSiteLayers(layers, callSite, llm, site, opts, biasRef);
     appendProfileLayer(layers, overrideFragment, biasRef);
   } else {
     appendProfileLayer(layers, activeFragment, biasRef);

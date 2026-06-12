@@ -76,6 +76,7 @@ import { filterPrunedCardSections } from "../plugins/defaults/memory-v3-shadow/p
 import {
   applyBootstrapTemplate,
   buildSystemPrompt,
+  type SystemPromptPersonaOverride,
 } from "../prompts/system-prompt.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
@@ -146,7 +147,10 @@ import {
   handleSurfaceUndo as handleSurfaceUndoImpl,
   type SurfaceActionResult,
 } from "./conversation-surfaces.js";
-import type { ToolSetupContext } from "./conversation-tool-setup.js";
+import type {
+  SubagentToolGateMode,
+  ToolSetupContext,
+} from "./conversation-tool-setup.js";
 import {
   createResolveToolsCallback,
   createToolExecutor,
@@ -220,6 +224,15 @@ export class Conversation {
   /** @internal */ toolsDisabledDepth = 0;
   /** @internal */ preactivatedSkillIds?: string[];
   /** @internal */ subagentAllowedTools?: Set<string>;
+  /**
+   * How {@link subagentAllowedTools} is enforced — absent/`"wire"` filters
+   * the provider tool definitions (historical behavior); `"execution"`
+   * keeps the full tool surface on the wire for prompt-cache parity and
+   * rejects non-allowlisted calls at execution time. Set and restored
+   * alongside the allowlist by `scopeWakeAllowedTools`.
+   * @internal
+   */
+  subagentToolGateMode?: SubagentToolGateMode;
   /** @internal */ coreToolNames: Set<string>;
   /** @internal */ readonly skillProjectionState = new Map<string, string>();
   /** @internal */ readonly skillProjectionCache: SkillProjectionCache = {};
@@ -295,6 +308,18 @@ export class Conversation {
    */
   currentTurnInboundActorContext?: InboundActorContext | null;
   /** @internal */ currentTurnChannelCapabilities?: ChannelCapabilities;
+  /**
+   * Explicit persona/channel slugs for the system-prompt build, set (and
+   * cleared) by `wakeAgentForOpportunity` around a wake's agent-loop run.
+   * Wakes bypass the orchestrator's turn-start snapshots above, so without
+   * this their prompt is built from whatever snapshot the conversation
+   * already holds (for a freshly hydrated conversation: the no-trust-context
+   * persona derivation) regardless of which actor/channel the conversation
+   * belongs to. Takes precedence over the trust-context derivation when set.
+   * Persona selection only — never read for trust/approval decisions.
+   * @internal
+   */
+  wakePersonaOverride?: SystemPromptPersonaOverride;
   /** @internal */ currentTurnOverrideProfile?: string;
   /** @internal */ toolRoutedProfile?: string;
   /** @internal */ authContext?: AuthContext;
@@ -594,6 +619,7 @@ export class Conversation {
               hasNoClient: this.hasNoClient,
               trustContext: this.currentTurnTrustContext,
               channelCapabilities: this.currentTurnChannelCapabilities,
+              personaOverride: this.wakePersonaOverride,
               onboardingContext: this.getOnboardingContext(),
               conversationId: this.conversationId,
             }),
@@ -729,6 +755,7 @@ export class Conversation {
           hasNoClient: this.hasNoClient,
           trustContext: this.currentTurnTrustContext,
           channelCapabilities: this.currentTurnChannelCapabilities,
+          personaOverride: this.wakePersonaOverride,
           onboardingContext: this.getOnboardingContext(),
           conversationId: this.conversationId,
         });

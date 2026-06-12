@@ -11,5 +11,5 @@
  */
 export * from "./types";
 export * from "./schemas";
-export { type VellumBridge } from "./bridge";
+export { type LocalWakeOptions, type VellumBridge } from "./bridge";
 export * from "./channels";

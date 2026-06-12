@@ -316,6 +316,12 @@ const replacePlatformAssistants = (platformAssistants: unknown): WriteResult =>
   ) as WriteResult;
 const retire = (assistantId?: unknown): Promise<unknown> =>
   handlers["vellum:localMode:retire"](allowedEvent, assistantId) as Promise<unknown>;
+const wake = (assistantId?: unknown, options?: unknown): Promise<unknown> =>
+  handlers["vellum:localMode:wake"](
+    allowedEvent,
+    assistantId,
+    options,
+  ) as Promise<unknown>;
 
 describe("lockfile IPC handlers", () => {
   beforeEach(() => {
@@ -486,6 +492,52 @@ describe("vellum:localMode:retire handler", () => {
     const result = (await retire("asst-1")) as { ok: boolean; error: string };
     expect(result.ok).toBe(false);
     expect(result.error).toBe("disk full");
+    expect(spawnArgs).toHaveLength(0);
+  });
+});
+
+describe("vellum:localMode:wake handler", () => {
+  test("forwards repairGuardian to runWake, appending --repair-guardian", async () => {
+    const pending = wake("asst-1", { repairGuardian: true });
+    await tick();
+    expect(spawnArgs[0]).toEqual([
+      "bun",
+      [
+        "run",
+        path.join("/repo", "cli", "src", "index.ts"),
+        "wake",
+        "asst-1",
+        "--repair-guardian",
+      ],
+    ]);
+    lastChild.emit("close", 0);
+    expect(await pending).toEqual({ ok: true });
+  });
+
+  test("a single-argument invoke still resolves ok with no options forwarded", async () => {
+    const pending = handlers["vellum:localMode:wake"](
+      allowedEvent,
+      "asst-1",
+    ) as Promise<unknown>;
+    await tick();
+    expect(spawnArgs[0]).toEqual([
+      "bun",
+      ["run", path.join("/repo", "cli", "src", "index.ts"), "wake", "asst-1"],
+    ]);
+    lastChild.emit("close", 0);
+    expect(await pending).toEqual({ ok: true });
+  });
+
+  test("rejects malformed options without spawning", async () => {
+    expect(() => wake("asst-1", "repair-please")).toThrow();
+    expect(spawnArgs).toHaveLength(0);
+  });
+
+  test("rejects a missing assistant id without spawning", async () => {
+    expect(await wake(undefined, { repairGuardian: true })).toEqual({
+      ok: false,
+      error: "Missing assistantId",
+    });
     expect(spawnArgs).toHaveLength(0);
   });
 });

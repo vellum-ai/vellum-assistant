@@ -38,6 +38,7 @@
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/types.js";
 import { extractTurnContextTimestamp } from "../context/compactor.js";
+import { findConversation } from "../daemon/conversation-registry.js";
 import {
   formatLocalTimestamp,
   resolveTurnTimezoneContext,
@@ -48,18 +49,22 @@ import {
 } from "../daemon/identity-helpers.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 import { formatMessageSliceForTranscript } from "../export/transcript-formatter.js";
+import { resolveUserSlug } from "../prompts/persona-resolver.js";
+import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { bootstrapConversation } from "./conversation-bootstrap.js";
 import {
   addMessage,
+  type ConversationRow,
   deleteConversation,
   findMostRecentRetrospectiveFor,
   forkConversation,
   getConversation,
   getMessages,
   getMessagesAfter,
+  resolveOverrideProfile,
 } from "./conversation-crud.js";
 import {
   enqueueMemoryJob,
@@ -103,6 +108,7 @@ const FOLLOW_UP_JOB_TYPES: readonly MemoryJobType[] = [] as const;
 export type MemoryRetrospectiveOutcome =
   | { kind: "disabled" }
   | { kind: "no_new_messages" }
+  | { kind: "source_processing" }
   | { kind: "wake_failed"; reason?: string; conversationId?: string }
   | {
       kind: "invoked";
@@ -329,6 +335,24 @@ async function runForkBasedRetrospective(
     return { kind: "no_new_messages" };
   }
 
+  // Forking mid-turn would capture a half-finished display turn — incremental
+  // checkpoint persistence writes complete tool turns to the DB while the
+  // agent loop is still running. Peek the in-memory registry only (an
+  // unloaded conversation is by definition not processing); never load the
+  // conversation just to check. Bump `lastRunAt` so the cooldown gate
+  // applies, leave `lastProcessedMessageId` untouched so the next
+  // interval/message-count trigger re-processes the same messages — nothing
+  // is lost. Returning (not throwing) keeps the jobs-worker from
+  // retry-with-backoff.
+  if (findConversation(sourceConversationId)?.isProcessing()) {
+    bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
+    log.info(
+      { sourceConversationId },
+      "memory-retrospective (fork): source conversation is mid-turn; skipping",
+    );
+    return { kind: "source_processing" };
+  }
+
   const state = getRetrospectiveState(sourceConversationId);
   const lastProcessedMessageId = state?.lastProcessedMessageId ?? null;
   const newMessages = getMessagesAfter(
@@ -433,6 +457,29 @@ async function runForkBasedRetrospective(
     throw err;
   }
 
+  // Run the retrospective under the source conversation's inference profile
+  // (when configured): provider prompt caches are byte-exact prefix matches
+  // scoped per model, and a thinking enable/disable mismatch invalidates the
+  // messages cache tier — so the fork's cached prefix is only reusable when
+  // the retro resolves the SAME model/thinking/effort as the source's own
+  // turns. `resolveOverrideProfile` applies the same expiry/conversation-type
+  // semantics live turns use, so a missing, expired, or non-interactive
+  // profile yields undefined and the wake keeps today's call-site default —
+  // as does a profile name that no longer exists in `llm.profiles` (the
+  // resolver's standard silent fall-through). The wake's `callSite` stays
+  // `memoryRetrospective`, so logging/attribution buckets are unchanged.
+  const matchedProfile = config.memory.retrospective.matchConversationProfile
+    ? resolveOverrideProfile(sourceConversation)
+    : undefined;
+
+  // Render the fork's system prompt under the SOURCE conversation's persona
+  // and channel — the same sections its live turns rendered. Passed
+  // unconditionally (not gated on matchConversationProfile): the correct
+  // persona is a review-quality fix on its own; with profile matching it
+  // additionally preserves the source's cached system-prompt prefix.
+  // `undefined` (identity not recoverable) keeps today's behavior.
+  const personaOverride = resolveSourcePersonaOverride(sourceConversation);
+
   // `skipHintInjection: true` because the instruction is already a
   // persisted message — the wake's hint sandwich would only duplicate it.
   let wakeSucceeded = false;
@@ -446,6 +493,20 @@ async function runForkBasedRetrospective(
       trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
       callSite: "memoryRetrospective",
       allowedTools: ["remember"],
+      // When matching the source's profile for cache parity, also keep the
+      // source's full tool surface on the wire: the provider cache prefix is
+      // `tools → system → messages`, so wire-filtering the tool array to
+      // ["remember"] would invalidate the cached prefix the profile match
+      // just preserved. The allowlist still holds — non-`remember` calls are
+      // rejected at execution time. Without profile matching there is no
+      // cache to preserve, and the smaller wire-filtered request is cheaper.
+      ...(config.memory.retrospective.matchConversationProfile
+        ? { toolGateMode: "execution" as const }
+        : {}),
+      ...(matchedProfile !== undefined
+        ? { forceOverrideProfile: matchedProfile }
+        : {}),
+      ...(personaOverride !== undefined ? { personaOverride } : {}),
       hintRole: "user",
       skipHintInjection: true,
       suppressAutoCompaction: true,
@@ -531,6 +592,37 @@ function enqueueFollowUpJobs(): string[] {
     }
   }
   return followUpJobIds;
+}
+
+/**
+ * Resolve the persona/channel override the fork wake should render — the
+ * same user and channel persona sections a live turn on the SOURCE
+ * conversation rendered.
+ *
+ * Local/desktop sources (`originChannel` null or `"vellum"`): live turns
+ * resolve the guardian contact's userFile — either via the
+ * undefined-trust-context branch of `resolveUserFilename` (desktop/native,
+ * no gateway) or via its guardian-class `findGuardianForChannel("vellum")`
+ * fallback (managed desktop, whose JWT-principal `requesterExternalUserId`
+ * never matches a contact channel row). `resolveUserSlug(undefined)`
+ * reproduces both, falling back to `"default"` exactly as the live prompt
+ * build does when no guardian resolves. Channel persona is `"vellum"`.
+ *
+ * Channel-routed sources: live-turn persona resolution keys off the
+ * requester's `requesterExternalUserId` (contact lookup per actor, possibly
+ * different across turns), which is not stored on the conversation row —
+ * the live-turn result is not recoverable here. Return `undefined` so the
+ * wake keeps today's behavior.
+ */
+function resolveSourcePersonaOverride(
+  source: Pick<ConversationRow, "originChannel">,
+): SystemPromptPersonaOverride | undefined {
+  const channel = source.originChannel;
+  if (channel != null && channel !== "vellum") return undefined;
+  return {
+    userSlug: resolveUserSlug(undefined) ?? "default",
+    channelSlug: "vellum",
+  };
 }
 
 function safeDeleteForkOnFailure(forkId: string): void {

@@ -175,9 +175,11 @@ mock.module("@/stores/organization-store", () => ({
 // `app.resume`.
 
 const lifecycleResetForLogoutMock = mock(() => {});
+const lifecycleCheckAssistantMock = mock(async () => {});
 mock.module("@/assistant/lifecycle-service", () => ({
   lifecycleService: {
     resetForLogout: lifecycleResetForLogoutMock,
+    checkAssistant: lifecycleCheckAssistantMock,
   },
 }));
 
@@ -229,6 +231,7 @@ beforeEach(() => {
   installSessionCookiesMock.mockClear();
   retrieveBiometricTokenMock.mockClear();
   lifecycleResetForLogoutMock.mockClear();
+  lifecycleCheckAssistantMock.mockClear();
   mockListAssistantsResult = [];
   listAssistantsMock.mockClear();
   syncPlatformAssistantsToLockfileMock.mockClear();
@@ -569,6 +572,23 @@ describe("connectLocalAssistant", () => {
     // No platform assistants — nothing to probe, so the status settles
     // directly to "absent" rather than staying "unknown".
     expect(useAuthStore.getState().platformSession).toBe("absent");
+  });
+
+  test("drives the lifecycle to publish active state, even when the selection is unchanged", async () => {
+    // The lifecycle's selection subscription only republishes
+    // `activeAssistantId` when `selectedAssistantId` changes. Reconnecting to
+    // the already-selected assistant — the common case after guardian-token
+    // repair retries the same assistant — would otherwise leave the active id
+    // stale, so `connectLocalAssistant` must drive `checkAssistant()` itself.
+    mockIsLocalMode = true;
+    mockPlatformAssistants = [];
+    // setSelectedAssistant is a no-op write here (already selected); the only
+    // thing that publishes active state is the explicit checkAssistant call.
+    setSelectedAssistantMock.mockImplementationOnce(async () => {});
+
+    await useAuthStore.getState().connectLocalAssistant("local-a");
+
+    expect(lifecycleCheckAssistantMock).toHaveBeenCalledTimes(1);
   });
 
   test("rethrows the prime failure without selecting or marking the session logged in", async () => {

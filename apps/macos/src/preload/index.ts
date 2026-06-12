@@ -15,6 +15,7 @@ import type {
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
+  LocalWakeOptions,
   NotificationActionEvent,
   PowerEvent,
   ResolvedHotkey,
@@ -294,8 +295,8 @@ const bridge: VellumBridge = {
         platformAssistants,
         organizationId,
       ) as Promise<LockfileWriteResult>,
-    wake: (assistantId: string) =>
-      ipcRenderer.invoke("vellum:localMode:wake", assistantId) as Promise<{
+    wake: (assistantId: string, options?: LocalWakeOptions) =>
+      ipcRenderer.invoke("vellum:localMode:wake", assistantId, options) as Promise<{
         ok: boolean;
         error?: string;
       }>,

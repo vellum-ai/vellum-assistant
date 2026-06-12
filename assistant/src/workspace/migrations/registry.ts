@@ -97,6 +97,7 @@ import { reduceQualityProfileEffortMigration } from "./096-reduce-quality-profil
 import { enableAdaptiveThinkingManagedProfilesMigration } from "./097-enable-adaptive-thinking-managed-profiles.js";
 import { removeStaleUpdatesBulletinFileMigration } from "./098-remove-stale-updates-bulletin-file.js";
 import { disableCacheOneShotCallsitesMigration } from "./099-disable-cache-one-shot-callsites.js";
+import { upgradeQualityProfileToFable5Migration } from "./100-upgrade-quality-profile-to-fable-5.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -205,4 +206,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   enableAdaptiveThinkingManagedProfilesMigration,
   removeStaleUpdatesBulletinFileMigration,
   disableCacheOneShotCallsitesMigration,
+  upgradeQualityProfileToFable5Migration,
 ];
