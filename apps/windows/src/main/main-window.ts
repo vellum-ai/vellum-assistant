@@ -1,7 +1,9 @@
 import { BrowserWindow, app, shell } from "electron";
+import { z } from "zod";
 
 import { getRendererRootUrl } from "./app-config";
 import { isAllowedOrigin, resolveAllowedOrigin } from "./app-origin";
+import { handle } from "./ipc";
 import log from "./logger";
 import { createWindow } from "./windows";
 
@@ -83,5 +85,12 @@ export const ensureVisible = (): void => {
 
 /** Create the initial main window. Call once from `whenReady`. */
 export const installMainWindow = (): void => {
+  // Renderer-driven "bring the window forward" — used by feature consumers
+  // reacting to inbound signals (deep links, notification clicks) once those
+  // land here. Mirrors `apps/macos/src/main/main-window.ts`.
+  handle("vellum:mainWindow:ensureVisible", z.tuple([]), () => {
+    ensureVisible();
+  });
+
   ensureVisible();
 };

@@ -13,9 +13,12 @@ it serves a bundled `resources/web-dist` over a privileged `app://` protocol.
   OAuth-style `window.open` popups allowed with the hardened baseline.
 - Sender-validated IPC seam (`src/main/ipc.ts`) with a minimal bridge:
   `window.vellum.app` (version info, open website), `window.vellum.commands`,
-  plus the `__VELLUM_CONFIG__` / `__VELLUM_FLAG_OVERRIDES__` globals. The
-  renderer's runtime wrappers feature-detect each namespace, so everything
-  not yet ported degrades to web behavior.
+  `mainWindow.ensureVisible`, plus the `__VELLUM_CONFIG__` /
+  `__VELLUM_FLAG_OVERRIDES__` globals. Namespaces the renderer dereferences
+  unguarded when `platform` is `"electron"` (`power`, `deepLinks`, `dock`,
+  `menu`, `localMode`, `mainWindow.setOnboarding`) ship as documented no-op
+  stubs; the rest are feature-detected by the renderer's runtime wrappers and
+  degrade to web behavior until ported.
 - Packaged static serving of the renderer with path-traversal protection
   (`src/main/app-protocol.ts`), single-instance lock, per-environment
   `userData` separation, `electron-log` file logging.
