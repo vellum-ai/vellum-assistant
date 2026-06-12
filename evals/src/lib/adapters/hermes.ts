@@ -209,11 +209,10 @@ export const HERMES_DISABLE_LAZY_INSTALLS_ENV_FLAGS = [
  * that needs warming — without it Hermes tries to install `anthropic` on
  * its first model call, after the jail has already blocked PyPI.
  */
-export const HERMES_PROVIDER_WARMUP_FEATURES: Readonly<
-  Record<string, string>
-> = {
-  ANTHROPIC_API_KEY: "provider.anthropic",
-};
+export const HERMES_PROVIDER_WARMUP_FEATURES: Readonly<Record<string, string>> =
+  {
+    ANTHROPIC_API_KEY: "provider.anthropic",
+  };
 
 /**
  * The lazy-install feature names to warm up before the jail closes, given
