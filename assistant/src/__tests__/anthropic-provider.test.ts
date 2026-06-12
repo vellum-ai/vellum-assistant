@@ -106,6 +106,7 @@ mock.module("@anthropic-ai/sdk", () => ({
 }));
 
 // Import after mocking
+import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../prompts/cache-boundary.js";
 import { AnthropicProvider } from "../providers/anthropic/client.js";
 import {
   isPlaceholderSentinelText,
@@ -305,6 +306,91 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(lastMsg.content[lastMsg.content.length - 1].cache_control).toEqual({
       type: "ephemeral",
       ttl: "5m",
+    });
+  });
+
+  test("splits a boundary-carrying system prompt into two cached blocks and drops the tool breakpoint", async () => {
+    /**
+     * Tests that the SYSTEM_PROMPT_CACHE_BOUNDARY marker yields two
+     * independently cached system blocks, and that the explicit
+     * last-tool breakpoint is suppressed (the first system breakpoint
+     * already covers tools) so the total stays within Anthropic's
+     * 4-breakpoint budget.
+     */
+    // GIVEN a system prompt carrying a cache boundary, plus tools and a
+    // tool-use loop (so turn-start and tail breakpoints also apply)
+    const prompt = `stable sections${SYSTEM_PROMPT_CACHE_BOUNDARY}volatile sections`;
+    const messages: Message[] = [
+      userMsg("Do something"),
+      toolUseMsg("tu_1", "bash"),
+      toolResultMsg("tu_1", "output"),
+    ];
+
+    // WHEN the message is sent
+    await provider.sendMessage(messages, {
+      tools: sampleTools,
+      systemPrompt: prompt,
+    });
+
+    // THEN the system prompt is split into two blocks, each 1h-cached
+    const system = lastStreamParams!.system as Array<{
+      type: string;
+      text: string;
+      cache_control?: { type: string; ttl?: string };
+    }>;
+    expect(system).toHaveLength(2);
+    expect(system[0].text).toBe("stable sections");
+    expect(system[1].text).toBe("volatile sections");
+    expect(system[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    expect(system[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+
+    // AND no tool carries a breakpoint (system block 1 covers them)
+    const tools = lastStreamParams!.tools as Array<{
+      cache_control?: { type: string; ttl?: string };
+    }>;
+    for (const tool of tools) {
+      expect(tool.cache_control).toBeUndefined();
+    }
+
+    // AND the turn-start and tail message breakpoints are unchanged,
+    // keeping the total at the 4-breakpoint cap
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
+    }>;
+    const turnStart = sent[0];
+    expect(
+      turnStart.content[turnStart.content.length - 1].cache_control,
+    ).toEqual({ type: "ephemeral", ttl: "1h" });
+    const lastMsg = sent[sent.length - 1];
+    expect(lastMsg.content[lastMsg.content.length - 1].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "5m",
+    });
+  });
+
+  test("keeps the last-tool breakpoint when the system prompt has no boundary", async () => {
+    /**
+     * Tests that a boundary-free system prompt preserves the explicit
+     * tool breakpoint (single system block leaves budget for it).
+     */
+    // GIVEN a system prompt without a cache boundary and tools
+    // WHEN the message is sent
+    await provider.sendMessage([userMsg("Hi")], {
+      tools: sampleTools,
+      systemPrompt: "You are helpful.",
+    });
+
+    // THEN the last tool keeps its breakpoint
+    const tools = lastStreamParams!.tools as Array<{
+      cache_control?: { type: string; ttl?: string };
+    }>;
+    expect(tools[tools.length - 1].cache_control).toEqual({
+      type: "ephemeral",
+      ttl: "1h",
     });
   });
 

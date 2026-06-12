@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 
+import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
@@ -1054,18 +1055,33 @@ export class AnthropicProvider implements Provider {
       };
 
       if (systemPrompt) {
-        // The whole system prompt is rendered as a single cached
-        // block.  A 1-hour cache TTL is used (when supported by the
-        // model) so the breakpoint survives turn gaps that exceed the
-        // default 5-minute window.
-        params.system = [
-          {
+        // The system prompt may carry a cache boundary (placed by the
+        // section pipeline — see `prompts/sections.ts`) splitting it into
+        // a stable-prefix block and a volatile-suffix block, each with
+        // its own breakpoint so a volatile-section change doesn't
+        // re-create the stable prefix.  A 1-hour cache TTL is used (when
+        // supported by the model) so the breakpoints survive turn gaps
+        // that exceed the default 5-minute window.
+        params.system = systemPrompt
+          .split(SYSTEM_PROMPT_CACHE_BOUNDARY)
+          .filter((text) => text.length > 0)
+          .map((text) => ({
             type: "text" as const,
-            text: systemPrompt,
+            text,
             cache_control: cacheControl,
-          },
-        ];
+          }));
+        if (params.system.length === 0) delete params.system;
       }
+
+      // Tools precede the system blocks in the cached prefix, so the first
+      // system breakpoint already covers the tool definitions.  When the
+      // system prompt is split into two blocks, skip the explicit last-tool
+      // breakpoint to stay within Anthropic's 4-breakpoint budget; with a
+      // single (or no) system block the tool breakpoint is kept.
+      const systemBlockCount = Array.isArray(params.system)
+        ? params.system.length
+        : 0;
+      const applyToolCacheControl = systemBlockCount < 2;
 
       if (tools && tools.length > 0) {
         if (
@@ -1077,7 +1093,7 @@ export class AnthropicProvider implements Provider {
             name: t.name,
             description: t.description,
             input_schema: t.input_schema as Anthropic.Tool["input_schema"],
-            ...(i === otherTools.length - 1
+            ...(applyToolCacheControl && i === otherTools.length - 1
               ? { cache_control: cacheControl }
               : {}),
           }));
@@ -1092,7 +1108,9 @@ export class AnthropicProvider implements Provider {
             name: t.name,
             description: t.description,
             input_schema: t.input_schema as Anthropic.Tool["input_schema"],
-            ...(i === tools.length - 1 ? { cache_control: cacheControl } : {}),
+            ...(applyToolCacheControl && i === tools.length - 1
+              ? { cache_control: cacheControl }
+              : {}),
           }));
         }
       }
@@ -1193,11 +1211,12 @@ export class AnthropicProvider implements Provider {
         }
       }
 
-      // Cache-breakpoint accounting: system(1) + tools(1) + turn-start(1) +
-      // (tail OR prev-turn-anchor)(1) = 4 — exactly Anthropic's per-request
-      // cap.  Tail and prev-turn-anchor are mutually exclusive (the latter
-      // only fires when turn-start is the last message, which suppresses
-      // the tail), so the total can't drift past 4.
+      // Cache-breakpoint accounting: system(≤2) + tools(1, only when the
+      // system is a single block or absent) + turn-start(1) +
+      // (tail OR prev-turn-anchor)(1) ≤ 4 — Anthropic's per-request cap.
+      // Tail and prev-turn-anchor are mutually exclusive (the latter only
+      // fires when turn-start is the last message, which suppresses the
+      // tail), so the total can't drift past 4.
 
       // Strip orphaned UTF-16 surrogates so the Anthropic JSON parser never
       // sees invalid strings produced by upstream surrogate-splitting `.slice()` calls.

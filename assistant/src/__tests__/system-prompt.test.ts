@@ -110,6 +110,8 @@ mock.module("../credential-execution/managed-catalog.js", () => ({
 // Import after mock
 const { buildSystemPrompt, ensurePromptFiles, stripCommentLines } =
   await import("../prompts/system-prompt.js");
+const { SYSTEM_PROMPT_CACHE_BOUNDARY } =
+  await import("../prompts/cache-boundary.js");
 
 describe("buildSystemPrompt", () => {
   beforeEach(() => {
@@ -877,6 +879,113 @@ describe("buildSystemPrompt", () => {
       const orgIdx = ordered.indexOf("Unique workspace-only marker A1B2C3.");
       expect(parallelIdx).toBeGreaterThan(-1);
       expect(orgIdx).toBeGreaterThan(parallelIdx);
+    });
+
+    describe("cache breakpoints", () => {
+      test("default breakpoint splits the prompt after 11-channel-persona", () => {
+        /**
+         * Tests that the bundled `cacheBreakpoint` on 11-channel-persona
+         * places the boundary marker between the stable sections and the
+         * volatile 12-voice section.
+         */
+        // GIVEN a workspace where a volatile section (12-voice) renders
+        writeFileSync(join(TEST_DIR, "VOICE.md"), "- Prefers lowercase.");
+
+        // WHEN the system prompt is built
+        const result = buildSystemPrompt();
+
+        // THEN the boundary marker sits before the voice content and
+        // after the stable instruction sections
+        const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+        expect(boundaryIdx).toBeGreaterThan(-1);
+        expect(result.indexOf("## Communication")).toBeLessThan(boundaryIdx);
+        expect(result.indexOf("# Voice Profile")).toBeGreaterThan(boundaryIdx);
+      });
+
+      test("breakpoint splits even when the declaring section gates off", () => {
+        /**
+         * Tests that the split is resolved against the section ordering,
+         * not the rendered output — an absent channel persona must not
+         * merge the blocks around it.
+         */
+        // GIVEN no channel persona file exists but a volatile section renders
+        writeFileSync(join(TEST_DIR, "VOICE.md"), "- Prefers lowercase.");
+
+        // WHEN the system prompt is built
+        const result = buildSystemPrompt();
+
+        // THEN the boundary marker is still present
+        expect(result).toContain(SYSTEM_PROMPT_CACHE_BOUNDARY);
+      });
+
+      test("no boundary marker when nothing renders after the breakpoint", () => {
+        /**
+         * Tests that empty trailing blocks are dropped so the marker
+         * never dangles at the end of the prompt.
+         */
+        // GIVEN a fresh workspace with no volatile sections (no VOICE.md,
+        // no BOOTSTRAP.md, no connections)
+        // WHEN the system prompt is built
+        const result = buildSystemPrompt();
+
+        // THEN no boundary marker appears
+        expect(result).not.toContain(SYSTEM_PROMPT_CACHE_BOUNDARY);
+      });
+
+      test("workspace override of 11-channel-persona without cache_breakpoint clears the default", () => {
+        /**
+         * Tests that a workspace override takes full control of the
+         * section, including its breakpoint declaration.
+         */
+        // GIVEN a workspace override of 11-channel-persona with no
+        // cache_breakpoint frontmatter, and a volatile section that renders
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          join(SYSTEM_PROMPTS_DIR, "11-channel-persona.md"),
+          "Override channel persona.\n",
+        );
+        writeFileSync(join(TEST_DIR, "VOICE.md"), "- Prefers lowercase.");
+
+        // WHEN the system prompt is built
+        const result = buildSystemPrompt();
+
+        // THEN the override body renders but no boundary marker appears
+        expect(result).toContain("Override channel persona.");
+        expect(result).not.toContain(SYSTEM_PROMPT_CACHE_BOUNDARY);
+      });
+
+      test("frontmatter cache_breakpoint on a workspace section places the boundary there", () => {
+        /**
+         * Tests that users can declare the breakpoint position via
+         * `cache_breakpoint: true` frontmatter, and that only the first
+         * declaration (in id-sort order) is honored.
+         */
+        // GIVEN a custom workspace section declaring a cache breakpoint
+        // ahead of the bundled default on 11-channel-persona
+        mkdirSync(SYSTEM_PROMPTS_DIR, { recursive: true });
+        writeFileSync(
+          join(SYSTEM_PROMPTS_DIR, "00-aaa-custom.md"),
+          "---\ncache_breakpoint: true\n---\nCustom head section.\n",
+        );
+        writeFileSync(join(TEST_DIR, "VOICE.md"), "- Prefers lowercase.");
+
+        // WHEN the system prompt is built
+        const result = buildSystemPrompt();
+
+        // THEN exactly one boundary appears, right after the custom section
+        const boundaryIdx = result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY);
+        expect(boundaryIdx).toBeGreaterThan(-1);
+        expect(result.indexOf("Custom head section.")).toBeLessThan(
+          boundaryIdx,
+        );
+        expect(result.indexOf("## Communication")).toBeGreaterThan(boundaryIdx);
+
+        // AND the bundled default declaration on 11-channel-persona is
+        // ignored — no second marker
+        expect(
+          result.indexOf(SYSTEM_PROMPT_CACHE_BOUNDARY, boundaryIdx + 1),
+        ).toBe(-1);
+      });
     });
 
     describe("containerized section (slot 02)", () => {
