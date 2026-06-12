@@ -725,14 +725,15 @@
     {
       "id": "slack-app-setup",
       "name": "slack-app-setup",
-      "description": "Connect a Slack app to the Vellum Assistant via Socket Mode. Use whenever the user wants to set up Slack for their assistant, connect a workspace, or get the assistant talking in Slack — the skill generates a one-click manifest URL so they only have to name, save, and copy three tokens.",
+      "description": "Connect a Slack app to the Vellum Assistant via Socket Mode. Use whenever the user wants to set up Slack for their assistant, connect a workspace, or get the assistant talking in Slack — the skill generates a one-click manifest URL so they only have to name, save, and copy two tokens.",
       "metadata": {
         "emoji": "💬",
         "vellum": {
           "category": "messaging",
           "display-name": "Slack App Setup",
           "includes": [
-            "guardian-verify-setup"
+            "guardian-verify-setup",
+            "slack"
           ],
           "activation-hints": [
             "set up Slack",
@@ -745,7 +746,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-12T17:59:33.000Z"
+      "updatedAt": "2026-06-12T22:20:58.000Z"
     },
     {
       "id": "start-the-day",
