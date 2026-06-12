@@ -505,10 +505,17 @@ export function WorkspaceTree({
     [data?.entries, sortMode],
   );
 
-  const invalidateTree = useCallback(() => {
-    queryClient.invalidateQueries({
-      queryKey: ["assistantsWorkspaceTreeRetrieve"],
-    });
+  // Invalidate the file metadata/content caches too: deleting or renaming
+  // foo.md and then recreating it must not serve the old file's cached
+  // contents from the viewer.
+  const invalidateWorkspace = useCallback(() => {
+    for (const key of [
+      "assistantsWorkspaceTreeRetrieve",
+      "assistantsWorkspaceFileRetrieve",
+      "assistantsWorkspaceFileContentRetrieve",
+    ]) {
+      queryClient.invalidateQueries({ queryKey: [key] });
+    }
   }, [queryClient]);
 
   const createMutation = useMutation({
@@ -543,7 +550,7 @@ export function WorkspaceTree({
     },
     onSuccess: (input) => {
       closeDialog();
-      invalidateTree();
+      invalidateWorkspace();
       if (input.parentPath) {
         onExpandPath(input.parentPath);
       }
@@ -581,7 +588,7 @@ export function WorkspaceTree({
     },
     onSuccess: ({ oldPath, newPath }) => {
       closeDialog();
-      invalidateTree();
+      invalidateWorkspace();
       onPathRenamed(oldPath, newPath);
     },
     onError: (err: unknown) => {
@@ -620,7 +627,7 @@ export function WorkspaceTree({
     },
     onSuccess: (target) => {
       setDeleteTarget(null);
-      invalidateTree();
+      invalidateWorkspace();
       onPathDeleted(target.path);
     },
   });
