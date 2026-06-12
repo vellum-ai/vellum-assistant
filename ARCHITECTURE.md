@@ -22,6 +22,9 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Multi-local instance isolation              | [Multi-Local Instance Isolation](#multi-local-instance-isolation) (this file)                      |
 | Docker volume architecture                  | [Docker Volume Architecture](#docker-volume-architecture) (this file)                              |
 | Web search failure normalization            | [Web Search Failure Normalization](#web-search-failure-normalization) (this file)                  |
+| Workflow orchestration engine               | [Workflow Orchestration Engine](#workflow-orchestration-engine) (this file)                        |
+| Workflow authoring guide                    | [`assistant/docs/workflows.md`](assistant/docs/workflows.md)                                       |
+| Workflow manual testing runbook             | [`assistant/docs/workflows-testing.md`](assistant/docs/workflows-testing.md)                       |
 | Service communication matrix                | [`docs/service-communication-matrix.md`](docs/service-communication-matrix.md)                     |
 
 ## Cross-Cutting Invariants
@@ -47,6 +50,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 - **Assistant feature flags** control skill availability at runtime. The canonical key format is simple kebab-case (e.g., `browser`, `ces-tools`); the legacy `feature_flags.<id>.enabled` and `skills.<id>.enabled` formats are no longer supported. All declared flags live in the unified registry at `meta/feature-flags/feature-flag-registry.json`, scoped by `scope` (`assistant` or `client`). Labels come from the registry. Bundled copies exist at `assistant/src/config/feature-flag-registry.json` and `gateway/src/feature-flag-registry.json`. The gateway owns the `/v1/feature-flags` REST API and the IPC `get_feature_flags` method (see [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md)); the assistant resolves effective flag state via IPC to the gateway socket (`gateway.sock`) — see [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md). When a flag is OFF, the corresponding skill is excluded from all exposure surfaces: client skill lists, system prompt catalog, `skill_load`, runtime tool projection, and included child skills. Guard tests enforce that all flag keys in code use the canonical format and that all referenced flags are declared in the unified registry.
 - **Safe storage limits** protect the workspace volume. When workspace disk usage reaches the critical 95% threshold, the assistant enters storage cleanup mode: background work is skipped, remote ingress including trusted-contact messages is blocked, local guardian turns get cleanup-specific runtime instructions, and clients must show acknowledgement/status UI until enough space is freed or the guardian explicitly overrides the lock. See [Safe Storage Limits](#safe-storage-limits).
 - **Permission controls v2** removes deterministic tool-by-tool approval friction for assistant-owned actions. Under `permission-controls-v2`, the only built-in deterministic approval surface is conversation-scoped host computer access for `host_*` / host-target tools. All other assistant-owned tool usage relies on model-mediated consent, not temporary approvals, wildcard scopes, per-tool persistence, or network/side-effect approval cards. Cross-principal identity checks (for example unknown actors) still fail closed deterministically.
+- **Workflow orchestration** (gated by the `workflows` flag, default off): the assistant authors JS/TS scripts that run in a QuickJS-WASM sandbox and fan out to parallel ephemeral leaf agents. Scripts get **hooks only** — no filesystem, network, process, or ambient capabilities — because a script may be authored after the assistant has read untrusted content. The per-run **capability declaration is the single consent point** (no per-call approval prompts inside a run), and the only runaway guard is the per-run **agent cap** (`maxAgentsPerRun`, default 500) — there is no dollar kill-switch by design. Scripts must be deterministic (no `Date.now`/`Math.random`/argless `new Date()`) so a journaled run can resume after a restart by replaying the unchanged call prefix. See [Workflow Orchestration Engine](#workflow-orchestration-engine) and [`assistant/docs/workflows.md`](assistant/docs/workflows.md).
 - **Context overflow resilience**: The session loop implements a deterministic overflow convergence pipeline that recovers from context-too-large failures without surfacing errors to users. A preflight budget check catches overflow before provider calls; a tiered reducer (forced compaction, tool-result truncation, media stubbing, injection downgrade) iteratively shrinks the payload; and when all tiers are exhausted the overflow policy resolver auto-compresses the latest turn with no user prompt — this applies equally to interactive and non-interactive sessions. Setting `contextWindow.overflowRecovery.interactiveLatestTurnCompression` to `"drop"` opts interactive sessions out, and `contextWindow.overflowRecovery.nonInteractiveLatestTurnCompression: "drop"` opts non-interactive/background sessions out independently — either short-circuits to a graceful failure for that session type; setting `contextWindow.overflowRecovery.enabled: false` also yields a graceful failure. Config lives under `contextWindow.overflowRecovery`. See [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md#context-overflow-recovery) for the full design and [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md#context-compaction-and-overflow-recovery-interaction) for compaction interaction details.
 
 ## Environment and Data Layout
@@ -648,6 +652,60 @@ Every `web_search` failure path funnels through a single classification layer so
 - **No conflation with `web_fetch`.** The normalization layer keys exclusively on `web_search` (native server-tool web_search and the app-side search tool). It never inspects `WebFetchMetadata`, so a `web_fetch` DNS failure (e.g. an unresolved host) keeps its own `webFetch.errorMessage` and is never rewritten to the search backend copy.
 
 End-to-end coverage lives in `assistant/src/__tests__/web-search-backend-failure.test.ts`.
+
+## Workflow Orchestration Engine
+
+The workflow engine lets the assistant author a short JS/TS script that runs in a sandbox and fans work out across many parallel, ephemeral **leaf agents** — for example: score every option in a list in parallel, then synthesize the winner. It is gated by the `workflows` feature flag (default off) and lives under `assistant/src/workflows/` with the launching tools at `assistant/src/tools/workflows/`. The authoring guide and a manual e2e runbook are at [`assistant/docs/workflows.md`](assistant/docs/workflows.md) and [`assistant/docs/workflows-testing.md`](assistant/docs/workflows-testing.md).
+
+### Modules
+
+- **`run-manager.ts`** (`WorkflowRunManager`) — the lifecycle surface the tool, scheduler, and routes drive. Gates on the feature flag and the concurrent-run cap, resolves the capability manifest, creates the journal run row, launches `executeWorkflow` **without awaiting it** (returns the `runId` immediately), and republishes engine progress/completion as `workflow_progress` / `workflow_completed` events. On completion it wakes the originating conversation with a human-readable summary via the same `wakeAgentForOpportunity` path scheduled tasks and background shell jobs use.
+- **`engine.ts`** (`executeWorkflow`) — runs the script in the sandbox and owns the host API (`agent`, `leaf`, `parallel`, `map`, `pipeline`, `phase`, `log`, `usage`, `workflow`, `args`), the deterministic `seq` assignment, the agent cap, and journaled resume. `map`/`pipeline` are JS-prelude helpers over the `parallel` host function (the single-threaded VM cannot re-enter itself mid-call); `pipeline` has a per-stage barrier.
+- **`sandbox.ts`** (`createWorkflowSandbox`) — a fresh QuickJS-WASM VM per run with **no** `fetch`/`process`/`Bun`/`require`/network/filesystem and a banned `Date.now`/`Math.random`/argless `new Date()`. Host functions are *asyncified*: a host call suspends the whole VM until its promise settles, so from the script's view host calls are **synchronous** (authors write `const r = agent(...)`, never `await`). An interrupt handler enforces a CPU deadline and cooperative abort.
+- **`capabilities.ts`** (`resolveCapabilities`) — resolves the per-run manifest into the concrete allow-set: a read-only baseline (`file_read`, `file_list`, `recall`, `web_search`, `web_fetch`) unioned with declared `tools`, with a forbidden set always denied. This is the single consent point; the leaf runner hard-denies anything outside it.
+- **`leaf-runner.ts`** (`runLeaf`) — the single-leaf primitive. A *schema* leaf makes one forced-`tool_choice` provider call returning structured output (no tools); a *tool* leaf runs a restricted agent loop. Leaves are anonymous by default (minimal task prompt, no identity, no memory); `persona: true` injects the assistant identity + memory pipeline. No leaf ever creates a conversation row, jsonl mirror, title job, or turn broadcast. Every leaf call resolves through the `workflowLeaf` call site (cost-optimized profile by default).
+- **`journal-store.ts`** — typed persistence over the `workflow_runs` and `workflow_journal` tables (migration 281). The journal is an append-only `(run_id, seq)` log; on resume the engine replays cached results for the unchanged call prefix instead of re-spawning agents.
+- **`library.ts`** — saved workflows at `<workspace>/workflows/*.workflow.ts`, resolvable by name (by `meta.name`, then filename base) for `run_workflow({ name })`, `workflow(name)`, and the scheduler's `workflow` mode.
+
+### Data flow
+
+```mermaid
+graph TB
+    TOOL["run_workflow tool<br/>(flag-gated)"]
+    SCHED["Scheduler<br/>(workflow mode)"]
+    RM["WorkflowRunManager<br/>flag + run-cap gate<br/>async launch"]
+    CAPS["resolveCapabilities<br/>baseline ∪ declared − forbidden"]
+    ENGINE["executeWorkflow<br/>host API + seq + agent cap"]
+    SANDBOX["QuickJS-WASM sandbox<br/>synchronous host calls<br/>no fs/net/process"]
+    LEAVES["Leaf agents (parallel)<br/>schema | tool · anon | persona"]
+    JOURNAL["workflow_runs +<br/>workflow_journal<br/>(journaled resume)"]
+    USAGE["llm_usage_events<br/>call_site = workflowLeaf"]
+    HUB["assistant event hub<br/>workflow_progress / _completed"]
+    WAKE["Conversation wake<br/>completion summary"]
+    ROUTES["GET /v1/workflows*<br/>+ vellum workflows CLI"]
+
+    TOOL --> RM
+    SCHED --> RM
+    RM --> CAPS
+    CAPS --> ENGINE
+    RM --> ENGINE
+    ENGINE --> SANDBOX
+    SANDBOX -->|"agent / parallel / map / pipeline"| LEAVES
+    LEAVES -->|"results back into the VM"| SANDBOX
+    ENGINE --> JOURNAL
+    LEAVES --> USAGE
+    ENGINE -->|"phase / log"| HUB
+    RM --> HUB
+    RM --> WAKE
+    JOURNAL --> ROUTES
+```
+
+### Tables, routes, and CLI
+
+- **Tables** (migration 281): `workflow_runs` (one row per run — status, agent/token counts, script source/hash, capabilities, originating conversation) and `workflow_journal` (append-only `(run_id, seq)` leaf-call log). Leaf cost is attributed in `llm_usage_events` under `call_site = 'workflowLeaf'`.
+- **Routes** (read/abort surfaces, all 404 when the flag is off): `GET /v1/workflows`, `GET /v1/workflows/runs`, `GET /v1/workflows/runs/:id`, `POST /v1/workflows/runs/:id/abort`.
+- **CLI**: `vellum workflows list | runs | show <id> | abort <id>`.
+- **Config** (`workflows.*`): `maxAgentsPerRun` (500), `maxConcurrentLeaves` (6), `maxConcurrentRuns` (3), `journalRetentionDays` (30).
 
 ## Maintenance Rule
 
