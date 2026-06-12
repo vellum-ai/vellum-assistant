@@ -25,12 +25,27 @@ export default async function scoreAssistantCost(
   const usage = await readUsage(input.runId);
   const totalCostUsd = usage.totalCostUsd;
 
-  if (totalCostUsd === undefined) {
+  // A partial/missing cost figure can't be scored against the baseline: it
+  // reflects only the requests we managed to price, so an under-baseline
+  // subtotal would falsely award full marks while the unmetered traffic
+  // (e.g. main-agent inference routed off the parsed host) is exactly what
+  // would push spend over budget. Score those 0 and surface why.
+  const unreliable =
+    usage.costStatus === "partial" || usage.costStatus === "missing";
+  if (totalCostUsd === undefined || unreliable) {
+    const unpriced = usage.costDiagnostics?.length ?? 0;
+    const reason =
+      totalCostUsd === undefined
+        ? "Assistant cost unavailable from current usage artifacts; scored as 0 until egress metering records priced usage."
+        : `Assistant cost only partially metered (${unpriced} request${
+            unpriced === 1 ? "" : "s"
+          } unpriced); scored as 0 because a partial subtotal ($${totalCostUsd.toFixed(
+            6,
+          )}) can't be trusted against the baseline.`;
     return {
       name: "assistant-cost-usd",
       score: 0,
-      reason:
-        "Assistant cost unavailable from current usage artifacts; scored as 0 until egress metering records priced usage.",
+      reason,
       metadata: { baselineUsd: COST_BASELINE_USD, ...usage },
     };
   }

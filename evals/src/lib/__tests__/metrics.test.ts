@@ -83,6 +83,26 @@ describe("timeline-recall metrics", () => {
     });
   });
 
+  test("cost metric scores 0 when metering is only partial, even if the priced subtotal is under budget", async () => {
+    // GIVEN a run whose priced subtotal ($0.0007) is well under the $0.02
+    // baseline, but some model traffic went unpriced (costStatus "partial")
+    const runId = await freshRunId("cost-partial");
+    await writeUsage(runId, {
+      requests: [],
+      totalCostUsd: 0.0007,
+      costStatus: "partial",
+      costDiagnostics: [{ requestIndex: 0, reason: "unpriced_model" }],
+    });
+
+    // WHEN the cost metric scores it
+    const result = await scoreAssistantCost({ runId });
+
+    // THEN it refuses to award full credit for an incomplete figure and
+    // flags the unpriced traffic instead of inflating the aggregate
+    expect(result.score).toBe(0);
+    expect(result.reason).toContain("partially metered");
+  });
+
   test("cost metric decays toward zero as spend exceeds the baseline", async () => {
     // GIVEN a run that spent 1.5× the $0.02 baseline
     const runId = await freshRunId("cost-over");
