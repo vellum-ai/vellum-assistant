@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import {
     assistantsOauthConnectionsListQueryKey,
+    assistantsOauthConnectionsListSetQueryData,
     useAssistantsOauthDisconnectByConnectionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { OAuthConnection } from "@/generated/api/types.gen";
@@ -62,14 +63,16 @@ export function IntegrationRow({
     path: { assistant_id: assistantId },
   });
 
+  const connectionsOpts = { path: { assistant_id: assistantId } };
+
   const disconnectOAuth = useAssistantsOauthDisconnectByConnectionCreateMutation({
     onSuccess(_data, variables) {
       toast.success(`${displayName} account disconnected.`);
       const connectionId = variables.path.connection_id;
-      queryClient.setQueryData(
-        connectionsQueryKey,
-        (old: OAuthConnection[] | undefined) =>
-          old?.filter((c) => c.id !== connectionId),
+      assistantsOauthConnectionsListSetQueryData(
+        queryClient,
+        connectionsOpts,
+        (old) => old?.filter((c) => c.id !== connectionId),
       );
       queryClient.invalidateQueries({ queryKey: connectionsQueryKey });
     },

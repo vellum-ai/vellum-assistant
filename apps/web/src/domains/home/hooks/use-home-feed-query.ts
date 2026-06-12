@@ -8,6 +8,7 @@ import {
 } from "@/generated/daemon/sdk.gen";
 import {
   homeFeedGetQueryKey,
+  homeFeedGetSetQueryData,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type {
   HomeFeedGetResponse,
@@ -34,13 +35,13 @@ export function useHomeFeedQuery(assistantId: string | null) {
   // Stable query key — timeAwaySeconds is a fetch-time side-channel
   // (passed via ref), not a cache dimension, so the key uses a fixed
   // placeholder to keep a single cache entry per assistant.
-  const feedQueryKey = useMemo(
-    () =>
-      homeFeedGetQueryKey({
-        path: { assistant_id: assistantId ?? "" },
-        query: { timeAwaySeconds: 0 },
-      }),
+  const feedOpts = useMemo(
+    () => ({ path: { assistant_id: assistantId ?? "" }, query: { timeAwaySeconds: 0 } }),
     [assistantId],
+  );
+  const feedQueryKey = useMemo(
+    () => homeFeedGetQueryKey(feedOpts),
+    [feedOpts],
   );
 
   useBusSubscription("app.hidden", () => {
@@ -95,7 +96,7 @@ export function useHomeFeedQuery(assistantId: string | null) {
 
       const previous = queryClient.getQueryData<HomeFeedGetResponse>(feedQueryKey);
 
-      queryClient.setQueryData<HomeFeedGetResponse>(feedQueryKey, (old) => {
+      homeFeedGetSetQueryData(queryClient, feedOpts, (old) => {
         if (!old) return old;
         return {
           ...old,
@@ -110,7 +111,7 @@ export function useHomeFeedQuery(assistantId: string | null) {
 
     onError: (_err, _vars, context) => {
       if (context?.previous) {
-        queryClient.setQueryData(feedQueryKey, context.previous);
+        homeFeedGetSetQueryData(queryClient, feedOpts, context.previous);
       }
     },
 
@@ -143,7 +144,7 @@ export function useHomeFeedQuery(assistantId: string | null) {
 
       const previous = queryClient.getQueryData<HomeFeedGetResponse>(feedQueryKey);
 
-      queryClient.setQueryData<HomeFeedGetResponse>(feedQueryKey, (old) => {
+      homeFeedGetSetQueryData(queryClient, feedOpts, (old) => {
         if (!old) return old;
         return {
           ...old,
@@ -160,7 +161,7 @@ export function useHomeFeedQuery(assistantId: string | null) {
 
     onError: (_err, _vars, context) => {
       if (context?.previous) {
-        queryClient.setQueryData(feedQueryKey, context.previous);
+        homeFeedGetSetQueryData(queryClient, feedOpts, context.previous);
       }
     },
 
