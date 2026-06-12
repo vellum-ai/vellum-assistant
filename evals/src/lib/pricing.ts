@@ -17,14 +17,35 @@
  * exactly which provider/model pair lacks coverage instead of silently
  * counting it as $0.
  *
- * Cache reads/writes are folded into base input pricing — evals doesn't
- * yet attribute cache tiers separately and the cost figure is a
- * "good-enough for ranking profiles" estimate, not a billing source of
- * truth. Real billing comes from the daemon-side pricing module that
- * the assistant uses for its own usage-event ledger.
+ * Cache reads/writes are priced off the base input rate using
+ * Anthropic's standard prompt-cache multipliers (read = 0.1x, 5-minute
+ * write = 1.25x, 1-hour write = 2x), mirroring the daemon-side pricing
+ * module (`assistant/src/util/pricing.ts`). Skipping them would drop the
+ * bulk of a cached agentic turn's cost — the main agent loop reuses a
+ * large cached system/context prefix, so `cache_read_input_tokens`
+ * typically dwarfs the uncached `input_tokens`. The two write tiers are
+ * attributed from the `cache_creation` breakdown the egress recorder
+ * forwards. This remains a "good-enough for ranking profiles" estimate
+ * (e.g. Anthropic fast-mode's 6x multiplier isn't modeled), not a
+ * billing source of truth.
  */
 
 import type { CostDiagnostic, CostDiagnosticReason } from "./metrics";
+
+/**
+ * Anthropic prompt-cache rates as multipliers on the base input rate,
+ * mirroring `ANTHROPIC_PROMPT_CACHE_MULTIPLIERS` in the daemon's
+ * `assistant/src/util/pricing.ts`. The two cache-write tiers are priced
+ * distinctly: a 5-minute ephemeral write costs 1.25x base input, a
+ * 1-hour write 2x. The egress recorder forwards Anthropic's
+ * `cache_creation` breakdown so the tiers can be attributed correctly
+ * instead of being collapsed into one rate.
+ */
+const ANTHROPIC_CACHE_MULTIPLIERS = {
+  read: 0.1,
+  write5m: 1.25,
+  write1h: 2,
+} as const;
 
 interface ModelRow {
   /** USD per 1,000,000 input tokens. */
@@ -69,10 +90,9 @@ const PRICING_TABLE: Record<string, ModelRow> = {
   // OpenAI — published rates, USD per 1M tokens. The gpt-5.x rows
   // mirror the base (non-long-context) tier in
   // `assistant/src/providers/model-catalog.ts`. Evals doesn't model
-  // OpenAI's long-context tier multiplier yet — same simplification
-  // we make for Anthropic cache tiers (see the file-level docstring).
-  // The catalog is the source of truth; drift is acceptable until a
-  // programmatic sync exists.
+  // OpenAI's long-context tier multiplier yet. The catalog is the
+  // source of truth; drift is acceptable until a programmatic sync
+  // exists.
   "openai:gpt-5.5-pro": { inputPer1M: 30.0, outputPer1M: 180.0 },
   "openai:gpt-5.5": { inputPer1M: 5.0, outputPer1M: 30.0 },
   "openai:gpt-5.4": { inputPer1M: 2.5, outputPer1M: 15.0 },
@@ -166,6 +186,47 @@ function readNumber(value: unknown): number | undefined {
     : undefined;
 }
 
+/**
+ * Split Anthropic cache-creation tokens into 5-minute and 1-hour
+ * ephemeral tiers, mirroring the daemon's `getAnthropicCacheWriteTokens`
+ * (`assistant/src/util/pricing.ts`). The breakdown lives on the
+ * `cache_creation` object the egress recorder forwards; the daemon's
+ * own usage events expose the same numbers under `anthropicCacheCreation`.
+ * When neither is present the aggregate is attributed to the 5-minute
+ * tier — the default TTL the agent loop writes with.
+ */
+function splitAnthropicCacheWriteTokens(record: Record<string, unknown>): {
+  ephemeral5m: number;
+  ephemeral1h: number;
+} {
+  const total = Math.max(
+    readNumber(
+      record.cache_creation_input_tokens ?? record.cacheCreationInputTokens,
+    ) ?? 0,
+    0,
+  );
+  const breakdownRaw = record.cache_creation ?? record.anthropicCacheCreation;
+  const breakdown: Record<string, unknown> =
+    typeof breakdownRaw === "object" && breakdownRaw !== null
+      ? (breakdownRaw as Record<string, unknown>)
+      : {};
+  const explicit5m = Math.max(
+    readNumber(breakdown.ephemeral_5m_input_tokens) ?? 0,
+    0,
+  );
+  const explicit1h = Math.max(
+    readNumber(breakdown.ephemeral_1h_input_tokens) ?? 0,
+    0,
+  );
+
+  if (explicit5m === 0 && explicit1h === 0) {
+    return { ephemeral5m: total, ephemeral1h: 0 };
+  }
+
+  const remaining5m = Math.max(total - explicit5m - explicit1h, 0);
+  return { ephemeral5m: explicit5m + remaining5m, ephemeral1h: explicit1h };
+}
+
 export interface PriceUsageResult {
   /** Computed cost in USD, or undefined when the record was unpriceable. */
   costUsd?: number;
@@ -224,9 +285,34 @@ export function priceUsageRecord(
     return { diagnostic: { reason: "unpriced_model", provider, model } };
   }
 
-  const cost =
+  let cost =
     ((inputTokens ?? 0) / 1_000_000) * pricing.inputPer1M +
     ((outputTokens ?? 0) / 1_000_000) * pricing.outputPer1M;
+
+  // Anthropic reports `input_tokens` as the *uncached* count, with cache
+  // reads/writes as separate, non-overlapping buckets — so they must be
+  // priced additively off the base input rate via Anthropic's prompt-cache
+  // multipliers, else the bulk of a cached agentic turn's cost is dropped.
+  // Other providers (e.g. OpenAI) fold the cached subset *into*
+  // `input_tokens`, so it's already priced above; adding it again would
+  // double-bill. Evals only points at Anthropic for caching today.
+  if (provider === "anthropic") {
+    const { ephemeral5m, ephemeral1h } = splitAnthropicCacheWriteTokens(record);
+    const cacheReadTokens = readNumber(
+      record.cache_read_input_tokens ?? record.cacheReadInputTokens,
+    );
+    cost +=
+      (ephemeral5m / 1_000_000) *
+        pricing.inputPer1M *
+        ANTHROPIC_CACHE_MULTIPLIERS.write5m +
+      (ephemeral1h / 1_000_000) *
+        pricing.inputPer1M *
+        ANTHROPIC_CACHE_MULTIPLIERS.write1h +
+      ((cacheReadTokens ?? 0) / 1_000_000) *
+        pricing.inputPer1M *
+        ANTHROPIC_CACHE_MULTIPLIERS.read;
+  }
+
   return { costUsd: cost };
 }
 

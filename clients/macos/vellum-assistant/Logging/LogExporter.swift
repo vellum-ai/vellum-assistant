@@ -1160,18 +1160,34 @@ enum LogExporter {
         return val == nil ? "(empty)" : "(set)"
     }
 
+    /// Returns a copy of the dictionary with every value replaced by its presence flag.
+    private nonisolated static func redactAllValues(_ dict: [String: Any]) -> [String: Any] {
+        dict.mapValues { redactValue($0) }
+    }
+
     /// Fetches the workspace config from the daemon and writes a sanitized copy
     /// with sensitive values replaced by presence flags.
     private nonisolated static func writeSanitizedWorkspaceConfig(to url: URL) async {
-        var config = await SettingsClient().fetchConfig() ?? [:]
+        let config = await SettingsClient().fetchConfig() ?? [:]
         guard !config.isEmpty else { return }
 
+        let sanitized = sanitizeWorkspaceConfig(config)
+
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: sanitized,
+            options: [.prettyPrinted, .sortedKeys]
+        ) else { return }
+        try? data.write(to: url)
+    }
+
+    /// Returns a copy of the workspace config with sensitive values replaced
+    /// by presence flags ("(set)" / "(empty)").
+    nonisolated static func sanitizeWorkspaceConfig(_ config: [String: Any]) -> [String: Any] {
+        var config = config
+
         // Strip API key values — preserve which providers have keys configured
-        if var apiKeys = config["apiKeys"] as? [String: Any] {
-            for key in apiKeys.keys {
-                apiKeys[key] = redactValue(apiKeys[key])
-            }
-            config["apiKeys"] = apiKeys
+        if let apiKeys = config["apiKeys"] as? [String: Any] {
+            config["apiKeys"] = redactAllValues(apiKeys)
         }
 
         // Strip ingress webhook secret
@@ -1190,11 +1206,8 @@ enum LogExporter {
                 if entry["apiKey"] != nil {
                     entry["apiKey"] = redactValue(entry["apiKey"])
                 }
-                if var env = entry["env"] as? [String: Any] {
-                    for envKey in env.keys {
-                        env[envKey] = redactValue(env[envKey])
-                    }
-                    entry["env"] = env
+                if let env = entry["env"] as? [String: Any] {
+                    entry["env"] = redactAllValues(env)
                 }
                 entries[name] = entry
             }
@@ -1214,17 +1227,11 @@ enum LogExporter {
             for name in servers.keys {
                 var server = servers[name]!
                 if var transport = server["transport"] as? [String: Any] {
-                    if var headers = transport["headers"] as? [String: Any] {
-                        for key in headers.keys {
-                            headers[key] = redactValue(headers[key])
-                        }
-                        transport["headers"] = headers
+                    if let headers = transport["headers"] as? [String: Any] {
+                        transport["headers"] = redactAllValues(headers)
                     }
-                    if var env = transport["env"] as? [String: Any] {
-                        for key in env.keys {
-                            env[key] = redactValue(env[key])
-                        }
-                        transport["env"] = env
+                    if let env = transport["env"] as? [String: Any] {
+                        transport["env"] = redactAllValues(env)
                     }
                     server["transport"] = transport
                 }
@@ -1234,11 +1241,23 @@ enum LogExporter {
             config["mcp"] = mcp
         }
 
-        guard let data = try? JSONSerialization.data(
-            withJSONObject: config,
-            options: [.prettyPrinted, .sortedKeys]
-        ) else { return }
-        try? data.write(to: url)
+        // Strip ACP agent env vars. Sanitize per-entry (mirroring the daemon-side
+        // sanitizer) so a single malformed agent value can't skip redaction for
+        // every well-formed agent.
+        if var acp = config["acp"] as? [String: Any],
+           var agents = acp["agents"] as? [String: Any] {
+            for (name, value) in agents {
+                guard var agent = value as? [String: Any] else { continue }
+                if let env = agent["env"] as? [String: Any] {
+                    agent["env"] = redactAllValues(env)
+                }
+                agents[name] = agent
+            }
+            acp["agents"] = agents
+            config["acp"] = acp
+        }
+
+        return config
     }
 
     /// Writes a human-readable error log file for a failed export API call.

@@ -86,8 +86,8 @@ describe("buildAuthorizeUrl", () => {
   });
 
   test("login hint is forwarded", () => {
-    const url = new URL(buildAuthorizeUrl({ ...base, loginHint: "a@b.co" }));
-    expect(url.searchParams.get("login_hint")).toBe("a@b.co");
+    const url = new URL(buildAuthorizeUrl({ ...base, loginHint: "user@example.com" }));
+    expect(url.searchParams.get("login_hint")).toBe("user@example.com");
   });
 });
 

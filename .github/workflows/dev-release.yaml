@@ -1940,9 +1940,8 @@ jobs:
 
       - name: Build and package Electron app
         env:
-          VELLUM_ENVIRONMENT: dev
           CSC_NAME: Developer ID Application
-        run: bun run pack
+        run: bun run pack --environment dev
 
       - name: Rename DMG for release
         id: dmg

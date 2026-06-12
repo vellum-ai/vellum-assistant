@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { DEFAULT_IMAGE_MODEL } from "../../media/image-models.js";
 import { SEARCH_PROVIDER_IDS } from "../../providers/search-provider-catalog.js";
 import { SttServiceSchema } from "./stt.js";
 import { TtsServiceSchema } from "./tts.js";
@@ -42,7 +43,7 @@ const InferenceServiceSchema = z.object({});
 
 const ImageGenerationServiceSchema = BaseServiceSchema.extend({
   provider: z.enum(VALID_IMAGE_GEN_PROVIDERS).default("gemini"),
-  model: z.string().default("gemini-3.1-flash-image-preview"),
+  model: z.string().default(DEFAULT_IMAGE_MODEL),
 });
 
 const WebSearchServiceSchema = BaseServiceSchema.extend({

@@ -506,18 +506,18 @@ export type NormalizedSlackEvent = {
  * code replies and direct conversations with the bot.
  *
  * Returns null if the event cannot be routed or should be ignored
- * (e.g. bot's own messages, subtypes like message_changed).
+ * (e.g. subtypes like message_changed, missing user).
+ *
+ * Bot's own messages are dropped by `processEventPayload` before
+ * normalization.
  */
 export function normalizeSlackDirectMessage(
   event: SlackDirectMessageEvent,
   eventId: string,
   config: GatewayConfig,
-  botUserId?: string,
   botToken?: string,
   renderContext?: SlackTextRenderContext,
 ): NormalizedSlackEvent | null {
-  // Ignore messages from the bot itself
-  if (botUserId && event.user === botUserId) return null;
   // Ignore message subtypes (edits, deletions, etc.) — only handle plain user messages.
   // message_changed is handled separately by normalizeSlackMessageEdit.
   // file_share is allowed so image/file uploads are delivered to the assistant.
@@ -587,18 +587,19 @@ export function normalizeSlackDirectMessage(
  * Normalize a Slack channel `message` event (thread reply in an active bot
  * thread) into the gateway's canonical inbound event shape.
  *
- * Returns null if the event should be ignored (bot's own messages, subtypes,
- * missing user, or unroutable channels).
+ * Returns null if the event should be ignored (subtypes, missing user,
+ * or unroutable channels).
+ *
+ * Bot's own messages are dropped by `processEventPayload` before
+ * normalization.
  */
 export function normalizeSlackChannelMessage(
   event: SlackChannelMessageEvent,
   eventId: string,
   config: GatewayConfig,
-  botUserId?: string,
   botToken?: string,
   renderContext?: SlackTextRenderContext,
 ): NormalizedSlackEvent | null {
-  if (botUserId && event.user === botUserId) return null;
   // file_share is allowed so image/file uploads are delivered to the assistant.
   if (event.subtype && event.subtype !== "file_share") return null;
   if (!event.user) return null;
@@ -659,7 +660,6 @@ export function normalizeSlackAppMention(
   event: SlackAppMentionEvent,
   eventId: string,
   config: GatewayConfig,
-  botUserId?: string,
   botToken?: string,
   renderContext?: SlackTextRenderContext,
 ): NormalizedSlackEvent | null {
@@ -839,11 +839,8 @@ function normalizeSlackReaction(
   eventId: string,
   config: GatewayConfig,
   op: "added" | "removed",
-  botUserId?: string,
 ): NormalizedSlackEvent | null {
   if (!event.user || !event.item?.channel || !event.item?.ts) return null;
-  // Ignore reactions from the bot itself
-  if (botUserId && event.user === botUserId) return null;
 
   const channel = event.item.channel;
 
@@ -913,9 +910,8 @@ export function normalizeSlackReactionAdded(
   event: SlackReactionAddedEvent,
   eventId: string,
   config: GatewayConfig,
-  botUserId?: string,
 ): NormalizedSlackEvent | null {
-  return normalizeSlackReaction(event, eventId, config, "added", botUserId);
+  return normalizeSlackReaction(event, eventId, config, "added");
 }
 
 /**
@@ -930,9 +926,8 @@ export function normalizeSlackReactionRemoved(
   event: SlackReactionRemovedEvent,
   eventId: string,
   config: GatewayConfig,
-  botUserId?: string,
 ): NormalizedSlackEvent | null {
-  return normalizeSlackReaction(event, eventId, config, "removed", botUserId);
+  return normalizeSlackReaction(event, eventId, config, "removed");
 }
 
 /**
@@ -944,14 +939,16 @@ export function normalizeSlackReactionRemoved(
  * the edit with the original message. The `externalMessageId` is unique per
  * edit (eventId) to avoid dedup collisions across successive edits.
  *
- * Returns null if the event should be ignored (bot's own edits, missing user,
- * or unroutable channels).
+ * Returns null if the event should be ignored (missing user, unroutable
+ * channels, or unchanged edit timestamps).
+ *
+ * Bot's own edits are dropped by `processEventPayload` before
+ * normalization.
  */
 export function normalizeSlackMessageEdit(
   event: SlackMessageChangedEvent,
   eventId: string,
   config: GatewayConfig,
-  botUserId?: string,
   renderContext?: SlackTextRenderContext,
 ): NormalizedSlackEvent | null {
   const edited = event.message;
@@ -962,8 +959,6 @@ export function normalizeSlackMessageEdit(
     event.previous_message.edited?.ts === edited.edited?.ts;
   if (editTimestampUnchanged) return null;
 
-  // Ignore edits from the bot itself
-  if (botUserId && edited.user === botUserId) return null;
   // user is required for routing
   if (!edited.user) return null;
 
@@ -1042,16 +1037,8 @@ export function normalizeSlackMessageDelete(
   event: SlackMessageDeletedEvent,
   eventId: string,
   config: GatewayConfig,
-  botUserId?: string,
 ): NormalizedSlackEvent | null {
   if (!event.deleted_ts) return null;
-
-  // Drop deletions of the bot's own messages. Slack echoes self-deletes back
-  // via Socket Mode; without this filter the bot's user ID flows into the
-  // assistant's ACL as the actor, fails member lookup (the bot is never its
-  // own trusted contact), and triggers a spurious access-request notification
-  // to the guardian. Mirrors the bot-self filter on the edit path above.
-  if (botUserId && event.previous_message?.user === botUserId) return null;
 
   // Use the previous author for actor identity when available; otherwise fall
   // back to a synthetic identifier so routing/trust still has something to key on.

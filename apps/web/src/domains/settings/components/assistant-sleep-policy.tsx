@@ -1,11 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import {
-    assistantsSleepPolicyDetailPartialUpdateMutation,
     assistantsSleepPolicyDetailReadOptions,
     assistantsSleepPolicyDetailReadQueryKey,
+    useAssistantsSleepPolicyDetailPartialUpdateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { Button } from "@vellumai/design-library/components/button";
@@ -70,8 +70,7 @@ export function AssistantSleepPolicy({
   const idleTimeoutSeconds = localTimeout ?? baseTimeout;
   const dirty = localTimeout !== null;
 
-  const policyUpdate = useMutation({
-    ...assistantsSleepPolicyDetailPartialUpdateMutation(),
+  const policyUpdate = useAssistantsSleepPolicyDetailPartialUpdateMutation({
     onSuccess: () => {
       toast.success("Sleep policy saved.");
       setLocalTimeout(null);

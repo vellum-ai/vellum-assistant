@@ -47,8 +47,7 @@ mock.module("../../tools/credentials/metadata-store.js", () => ({
     const existing = metadataStore.get(key);
     metadataStore.set(key, {
       allowedTools: policy?.allowedTools ?? existing?.allowedTools ?? [],
-      usageDescription:
-        policy?.usageDescription ?? existing?.usageDescription,
+      usageDescription: policy?.usageDescription ?? existing?.usageDescription,
     });
     return {
       credentialId: `cred-${key}`,
@@ -331,16 +330,91 @@ describe("prepareAgentEnv - gemini gating", () => {
   });
 });
 
-describe("prepareAgentEnv — non-claude commands", () => {
-  test("returns the config unchanged for codex-acp (no required env vars today)", async () => {
+describe("prepareAgentEnv - codex-acp gating", () => {
+  function seedVaultOpenaiKey(key: string): void {
+    vaultStore.set("acp/openai_api_key", key);
+  }
+
+  function seedVaultCodexKey(key: string): void {
+    vaultStore.set("acp/codex_api_key", key);
+  }
+
+  test("injects OPENAI_API_KEY from the vault via the broker when agent.env has no override", async () => {
+    seedVaultOpenaiKey("vault-fake-openai-AAA");
+
     const prepared = await prepareAgentEnv({
       command: "codex-acp",
       args: [],
     });
 
-    expect(prepared.env).toEqual({});
+    expect(prepared.env?.OPENAI_API_KEY).toBe("vault-fake-openai-AAA");
   });
 
+  test("agent.env override wins over the vault entry and skips the broker (precedence pin)", async () => {
+    // Seed a vault value but no metadata: if the override path consulted the
+    // broker anyway, ensureAcpCredentialPolicy would create metadata here.
+    seedVaultOpenaiKey("vault-fake-openai-BBB");
+
+    const prepared = await prepareAgentEnv({
+      command: "codex-acp",
+      args: [],
+      env: { OPENAI_API_KEY: "config-fake-openai-CCC" },
+    });
+
+    expect(prepared.env?.OPENAI_API_KEY).toBe("config-fake-openai-CCC");
+    expect(metadataStore.has("acp/openai_api_key")).toBe(false);
+  });
+
+  test("a vault miss for both fields does NOT throw and spawns with env unchanged (keys are optional)", async () => {
+    const prepared = await prepareAgentEnv({
+      command: "codex-acp",
+      args: [],
+      env: { NO_COLOR: "1" },
+    });
+
+    expect(prepared.env).toEqual({ NO_COLOR: "1" });
+    expect(prepared.env).not.toHaveProperty("OPENAI_API_KEY");
+    expect(prepared.env).not.toHaveProperty("CODEX_API_KEY");
+  });
+
+  test("injects CODEX_API_KEY independently of OPENAI_API_KEY", async () => {
+    seedVaultCodexKey("vault-fake-codex-DDD");
+
+    const prepared = await prepareAgentEnv({
+      command: "codex-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.CODEX_API_KEY).toBe("vault-fake-codex-DDD");
+    expect(prepared.env).not.toHaveProperty("OPENAI_API_KEY");
+  });
+
+  test("injects both keys when both vault fields are present", async () => {
+    seedVaultOpenaiKey("vault-fake-openai-EEE");
+    seedVaultCodexKey("vault-fake-codex-FFF");
+
+    const prepared = await prepareAgentEnv({
+      command: "codex-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.OPENAI_API_KEY).toBe("vault-fake-openai-EEE");
+    expect(prepared.env?.CODEX_API_KEY).toBe("vault-fake-codex-FFF");
+  });
+
+  test("gates on the resolved command BASENAME (custom agent id with full path still gets injection)", async () => {
+    seedVaultOpenaiKey("vault-fake-openai-GGG");
+
+    const prepared = await prepareAgentEnv({
+      command: "/data/.bun/bin/codex-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.OPENAI_API_KEY).toBe("vault-fake-openai-GGG");
+  });
+});
+
+describe("prepareAgentEnv — non-claude commands", () => {
   test("returns the config unchanged for an unrecognized command basename", async () => {
     seedVaultToken("vault-HHH");
 

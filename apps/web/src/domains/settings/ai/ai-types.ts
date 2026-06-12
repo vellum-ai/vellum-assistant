@@ -101,8 +101,20 @@ export interface STTProvider {
   id: string;
   displayName: string;
   subtitle: string;
-  apiKeyPlaceholder: string;
-  credentialsGuide: ProviderCredentialsGuide;
+  /**
+   * Only offered when the renderer can reach the mac helper's
+   * `SFSpeechRecognizer` (the macOS Electron shell) — see
+   * `isNativeDictationSupported()` in `@/runtime/native-dictation-partials`.
+   */
+  requiresNativeDictation?: boolean;
+  /**
+   * Prerequisite the user must complete before the provider works. Shown
+   * below the provider dropdown in place of a credentials guide.
+   */
+  setupWarning?: string;
+  /** Absent for keyless providers (on-device recognition needs no API key). */
+  apiKeyPlaceholder?: string;
+  credentialsGuide?: ProviderCredentialsGuide;
 }
 
 export interface EmailByoProvider {
@@ -128,8 +140,10 @@ export const IMAGE_GEN_MODEL_DISPLAY_NAMES: Record<string, string> = {
 
 /**
  * Providers that have entries in the LLM model catalog and can be used in
- * call-site overrides. Keep this list in sync with MODELS_BY_PROVIDER in
- * llm-model-catalog.ts.
+ * call-site overrides. Must list exactly the MODELS_BY_PROVIDER keys in
+ * llm-model-catalog.ts (minus openai-compatible, whose models are
+ * per-connection); parity is enforced by llm-model-catalog.test.ts. Array
+ * order is the picker's display order, with index 0 as the default fallback.
  */
 export const INFERENCE_PROVIDERS = [
   "anthropic",
@@ -137,6 +151,7 @@ export const INFERENCE_PROVIDERS = [
   "fireworks",
   "openrouter",
   "gemini",
+  "minimax",
 ] as const;
 
 export const INFERENCE_PROVIDER_DISPLAY_NAMES = PROVIDER_DISPLAY_NAMES;
@@ -208,6 +223,15 @@ export const TTS_PROVIDERS: readonly TTSProvider[] = [
   },
 ];
 
+/**
+ * STT provider id for Apple's on-device recognition. Not a daemon provider:
+ * when selected, dictation routes through the mac helper's recognizer and
+ * never calls `/v1/stt/transcribe`. Duplicated as a literal in
+ * `@/domains/chat/voice/stt-api.ts` (`prefersMacosNativeStt`) — cross-domain
+ * constants stay duplicated there, like the `LS_STT_*` keys.
+ */
+export const MACOS_NATIVE_STT_PROVIDER_ID = "macos-native";
+
 export const STT_PROVIDERS: readonly STTProvider[] = [
   {
     id: "deepgram",
@@ -233,6 +257,15 @@ export const STT_PROVIDERS: readonly STTProvider[] = [
       url: "https://platform.openai.com/api-keys",
       linkLabel: "Open OpenAI API Keys",
     },
+  },
+  {
+    id: MACOS_NATIVE_STT_PROVIDER_ID,
+    displayName: "macOS Native Dictation",
+    subtitle:
+      "Apple's on-device speech recognition, running locally through the macOS helper. Works offline and needs no API key.",
+    requiresNativeDictation: true,
+    setupWarning:
+      "Requires macOS Dictation to be turned on: open System Settings → Keyboard, then enable Dictation. macOS downloads the on-device speech model the first time Dictation is enabled — without it, voice input produces no transcript.",
   },
 ];
 

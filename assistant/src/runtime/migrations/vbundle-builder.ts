@@ -3,7 +3,7 @@
  *
  * A .vbundle is a gzip-compressed tar archive containing:
  * - manifest.json: metadata with schema_version, checksums, and bundle info
- * - workspace/: the entire ~/.vellum/workspace/ directory tree (DB, config,
+ * - workspace/: the entire $VELLUM_WORKSPACE_DIR/ directory tree (DB, config,
  *   skills, prompts, attachments, etc.) — excluding large/regenerable
  *   dirs (embedding-models/, data/qdrant/)
  */
@@ -668,7 +668,7 @@ export interface BuildExportVBundleOptions {
   /** Whether secrets were stripped from the bundle before archiving. */
   secretsRedacted: boolean;
   /**
-   * Absolute path to the workspace directory (~/.vellum/workspace/).
+   * Absolute path to the workspace directory ($VELLUM_WORKSPACE_DIR/).
    * When provided and exists, the entire directory tree is walked and
    * included in the archive under the "workspace/" prefix, skipping
    * large/regenerable dirs (embedding-models/, data/qdrant/).
@@ -696,7 +696,7 @@ export interface BuildExportVBundleOptions {
 /**
  * Build a .vbundle archive populated with real assistant data.
  *
- * Walks the entire workspace directory (~/.vellum/workspace/) and includes
+ * Walks the entire workspace directory ($VELLUM_WORKSPACE_DIR/) and includes
  * all files in the archive, skipping only large/regenerable directories
  * (embedding-models/, data/qdrant/). Binary files (SQLite DB, attachments)
  * are included.

@@ -3,7 +3,7 @@
  *
  * Previously, `~/.vellum/hooks/` lived directly under the Vellum root. This
  * migration moves existing hook directories and files into
- * `~/.vellum/workspace/hooks/` so that getWorkspaceHooksDir() resolves
+ * `$VELLUM_WORKSPACE_DIR/hooks/` so that getWorkspaceHooksDir() resolves
  * correctly under the workspace.
  *
  * Hooks are persistent user-installed scripts (manifests, config, executables),

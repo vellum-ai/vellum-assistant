@@ -41,12 +41,29 @@ import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { createTarGz } from "./archive-utils.js";
 import { InternalError } from "./errors.js";
 import { collectWorkspaceData } from "./log-export/workspace-allowlist.js";
+import { redactStagedExportFiles } from "./redact-staged-export.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("log-export-routes");
 
 /** Maximum total payload size for log file contents (10 MB). */
 const MAX_LOG_PAYLOAD_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Row caps for the conversation-data table dumps (`messages.json`,
+ * `llm-request-logs.json`, `llm-usage-events.json`). Without them, a
+ * `full: true` export dumps entire tables — for long-tenured users the only
+ * realistic way to blow past the sweep's `MAX_SWEEP_FILE_BYTES` cap, which
+ * fails closed by replacing the whole file with an omission note. Bounding
+ * at the source keeps the most recent (and most useful) rows instead,
+ * mirroring the `auditLimit` pattern: order by createdAt desc, newest rows
+ * first. Truncated sections are logged and surfaced in both the export log
+ * line and `export-manifest.json` (`truncatedSections`), so a capped bundle
+ * is distinguishable from a complete one.
+ */
+const MAX_EXPORT_MESSAGE_ROWS = 10_000;
+export const MAX_EXPORT_LLM_REQUEST_LOG_ROWS = 2_000;
+const MAX_EXPORT_LLM_USAGE_EVENT_ROWS = 10_000;
 
 interface ExportRequestBody {
   auditLimit?: number;
@@ -102,23 +119,44 @@ async function handleExport({
     );
 
     // --- Conversation data tables ---
+    // Sections truncated by a row cap, surfaced in the export log line and
+    // the export manifest.
+    const truncatedSections: string[] = [];
+    /**
+     * Keep the newest `limit` rows of a section dump. Callers fetch
+     * `limit + 1` rows so truncation is detectable without a COUNT query.
+     */
+    const capRows = <T>(rows: T[], limit: number, section: string): T[] => {
+      if (rows.length <= limit) return rows;
+      truncatedSections.push(section);
+      log.warn(
+        { section, limit },
+        "Export section exceeded its row cap; keeping only the most recent rows",
+      );
+      return rows.slice(0, limit);
+    };
     if (conversationId || full) {
       const conversationFilter = conversationId
         ? [eq(messages.conversationId, conversationId)]
         : [];
 
-      const messageRows = db
-        .select()
-        .from(messages)
-        .where(
-          and(
-            ...conversationFilter,
-            startTime ? gte(messages.createdAt, startTime) : undefined,
-            endTime ? lte(messages.createdAt, endTime) : undefined,
-          ),
-        )
-        .orderBy(messages.createdAt)
-        .all();
+      const messageRows = capRows(
+        db
+          .select()
+          .from(messages)
+          .where(
+            and(
+              ...conversationFilter,
+              startTime ? gte(messages.createdAt, startTime) : undefined,
+              endTime ? lte(messages.createdAt, endTime) : undefined,
+            ),
+          )
+          .orderBy(desc(messages.createdAt))
+          .limit(MAX_EXPORT_MESSAGE_ROWS + 1)
+          .all(),
+        MAX_EXPORT_MESSAGE_ROWS,
+        "messages",
+      );
       writeFileSync(
         join(staging, "messages.json"),
         JSON.stringify(messageRows, null, 2),
@@ -129,18 +167,23 @@ async function handleExport({
         ? [eq(llmRequestLogs.conversationId, conversationId)]
         : [];
 
-      const llmLogRows = db
-        .select()
-        .from(llmRequestLogs)
-        .where(
-          and(
-            ...llmConversationFilter,
-            startTime ? gte(llmRequestLogs.createdAt, startTime) : undefined,
-            endTime ? lte(llmRequestLogs.createdAt, endTime) : undefined,
-          ),
-        )
-        .orderBy(llmRequestLogs.createdAt)
-        .all();
+      const llmLogRows = capRows(
+        db
+          .select()
+          .from(llmRequestLogs)
+          .where(
+            and(
+              ...llmConversationFilter,
+              startTime ? gte(llmRequestLogs.createdAt, startTime) : undefined,
+              endTime ? lte(llmRequestLogs.createdAt, endTime) : undefined,
+            ),
+          )
+          .orderBy(desc(llmRequestLogs.createdAt))
+          .limit(MAX_EXPORT_LLM_REQUEST_LOG_ROWS + 1)
+          .all(),
+        MAX_EXPORT_LLM_REQUEST_LOG_ROWS,
+        "llm-request-logs",
+      );
       writeFileSync(
         join(staging, "llm-request-logs.json"),
         JSON.stringify(llmLogRows, null, 2),
@@ -151,18 +194,23 @@ async function handleExport({
         ? [eq(llmUsageEvents.conversationId, conversationId)]
         : [];
 
-      const usageRows = db
-        .select()
-        .from(llmUsageEvents)
-        .where(
-          and(
-            ...usageConversationFilter,
-            startTime ? gte(llmUsageEvents.createdAt, startTime) : undefined,
-            endTime ? lte(llmUsageEvents.createdAt, endTime) : undefined,
-          ),
-        )
-        .orderBy(llmUsageEvents.createdAt)
-        .all();
+      const usageRows = capRows(
+        db
+          .select()
+          .from(llmUsageEvents)
+          .where(
+            and(
+              ...usageConversationFilter,
+              startTime ? gte(llmUsageEvents.createdAt, startTime) : undefined,
+              endTime ? lte(llmUsageEvents.createdAt, endTime) : undefined,
+            ),
+          )
+          .orderBy(desc(llmUsageEvents.createdAt))
+          .limit(MAX_EXPORT_LLM_USAGE_EVENT_ROWS + 1)
+          .all(),
+        MAX_EXPORT_LLM_USAGE_EVENT_ROWS,
+        "llm-usage-events",
+      );
       writeFileSync(
         join(staging, "llm-usage-events.json"),
         JSON.stringify(usageRows, null, 2),
@@ -335,6 +383,7 @@ async function handleExport({
       commitSha: COMMIT_SHA,
       ...(startTime !== undefined ? { startTime } : {}),
       ...(endTime !== undefined ? { endTime } : {}),
+      ...(truncatedSections.length > 0 ? { truncatedSections } : {}),
       exportedAt: new Date().toISOString(),
     };
     writeFileSync(
@@ -342,6 +391,13 @@ async function handleExport({
       JSON.stringify(manifest, null, 2),
       "utf-8",
     );
+
+    // --- Secret-redaction sweep over every staged text file ---
+    // Belt-and-suspenders over the structural sanitizers above: catches
+    // legacy audit rows persisted with plaintext inputs (written before
+    // write-time redaction existed) and secrets sitting in copied workspace
+    // conversation files.
+    const redactionResult = redactStagedExportFiles(staging);
 
     log.info(
       {
@@ -353,6 +409,10 @@ async function handleExport({
         full: full ?? false,
         workspaceEntries: workspaceResult.entries.length,
         workspaceBytes: workspaceResult.totalBytes,
+        truncatedSections,
+        redactionScanned: redactionResult.filesScanned,
+        redactionRedacted: redactionResult.filesRedacted,
+        redactionOmitted: redactionResult.filesOmitted,
       },
       "Export collected, creating tar.gz archive",
     );
@@ -386,6 +446,25 @@ function redactStringValue(val: unknown): string {
   return val ? "(set)" : "(empty)";
 }
 
+/**
+ * Narrow an unknown value to a mutable record, or undefined if not an object.
+ * Deliberately looser than `isPlainObject` (`util/object.ts`): arrays are
+ * admitted on purpose so sanitization stays fail-closed — a malformed config
+ * shape must redact more, never less.
+ */
+function asRecord(v: unknown): Record<string, unknown> | undefined {
+  return v && typeof v === "object"
+    ? (v as Record<string, unknown>)
+    : undefined;
+}
+
+/** Replace every value in a map with its (set)/(empty) presence flag. */
+function redactValueMap(obj: Record<string, unknown>): Record<string, string> {
+  return Object.fromEntries(
+    Object.keys(obj).map((k) => [k, redactStringValue(obj[k])]),
+  );
+}
+
 function readSanitizedConfig(): Record<string, unknown> | undefined {
   const configPath = getWorkspaceConfigPath();
   if (!existsSync(configPath)) return undefined;
@@ -396,71 +475,39 @@ function readSanitizedConfig(): Record<string, unknown> | undefined {
 
     delete config.apiKeys;
 
-    if (config.ingress && typeof config.ingress === "object") {
-      const ingress = config.ingress as Record<string, unknown>;
-      if (ingress.webhook && typeof ingress.webhook === "object") {
-        const webhook = ingress.webhook as Record<string, unknown>;
-        webhook.secret = redactStringValue(webhook.secret);
-        ingress.webhook = webhook;
-      }
-      config.ingress = ingress;
+    const webhook = asRecord(asRecord(config.ingress)?.webhook);
+    if (webhook) webhook.secret = redactStringValue(webhook.secret);
+
+    const skillEntries = asRecord(asRecord(config.skills)?.entries);
+    for (const entry of Object.values(skillEntries ?? {})) {
+      const e = asRecord(entry);
+      if (!e) continue;
+      if ("apiKey" in e) e.apiKey = redactStringValue(e.apiKey);
+      const env = asRecord(e.env);
+      if (env) e.env = redactValueMap(env);
     }
 
-    if (config.skills && typeof config.skills === "object") {
-      const skills = config.skills as Record<string, unknown>;
-      if (skills.entries && typeof skills.entries === "object") {
-        const entries = skills.entries as Record<string, unknown>;
-        for (const name of Object.keys(entries)) {
-          const entry = entries[name];
-          if (entry && typeof entry === "object") {
-            const e = entry as Record<string, unknown>;
-            if ("apiKey" in e) e.apiKey = redactStringValue(e.apiKey);
-            if (e.env && typeof e.env === "object") {
-              const env = e.env as Record<string, unknown>;
-              e.env = Object.fromEntries(
-                Object.keys(env).map((k) => [k, redactStringValue(env[k])]),
-              );
-            }
-          }
-        }
-      }
+    const twilio = asRecord(config.twilio);
+    if (twilio) twilio.accountSid = redactStringValue(twilio.accountSid);
+
+    const acpAgents = asRecord(asRecord(config.acp)?.agents);
+    for (const agent of Object.values(acpAgents ?? {})) {
+      const a = asRecord(agent);
+      if (!a) continue;
+      // Agent env is an arbitrary user-supplied map (often API keys);
+      // redact every value and keep only the key names.
+      const env = asRecord(a.env);
+      if (env) a.env = redactValueMap(env);
     }
 
-    if (config.twilio && typeof config.twilio === "object") {
-      const twilio = config.twilio as Record<string, unknown>;
-      twilio.accountSid = redactStringValue(twilio.accountSid);
-      config.twilio = twilio;
-    }
-
-    if (config.mcp && typeof config.mcp === "object") {
-      const mcp = config.mcp as Record<string, unknown>;
-      if (mcp.servers && typeof mcp.servers === "object") {
-        const servers = mcp.servers as Record<string, unknown>;
-        for (const name of Object.keys(servers)) {
-          const server = servers[name];
-          if (server && typeof server === "object") {
-            const s = server as Record<string, unknown>;
-            if (s.transport && typeof s.transport === "object") {
-              const transport = s.transport as Record<string, unknown>;
-              if (transport.headers && typeof transport.headers === "object") {
-                const headers = transport.headers as Record<string, unknown>;
-                transport.headers = Object.fromEntries(
-                  Object.keys(headers).map((k) => [
-                    k,
-                    redactStringValue(headers[k]),
-                  ]),
-                );
-              }
-              if (transport.env && typeof transport.env === "object") {
-                const env = transport.env as Record<string, unknown>;
-                transport.env = Object.fromEntries(
-                  Object.keys(env).map((k) => [k, redactStringValue(env[k])]),
-                );
-              }
-            }
-          }
-        }
-      }
+    const mcpServers = asRecord(asRecord(config.mcp)?.servers);
+    for (const server of Object.values(mcpServers ?? {})) {
+      const transport = asRecord(asRecord(server)?.transport);
+      if (!transport) continue;
+      const headers = asRecord(transport.headers);
+      if (headers) transport.headers = redactValueMap(headers);
+      const env = asRecord(transport.env);
+      if (env) transport.env = redactValueMap(env);
     }
 
     return config;

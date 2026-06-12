@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { and, eq, gt, isNotNull, isNull, like } from "drizzle-orm";
 import { type GatewayDb, getGatewayDb } from "./connection.js";
 import {
+  channelBotIdentity,
   contactChannels,
   slackActiveThreads,
   slackLastSeenTs,
@@ -9,6 +10,22 @@ import {
 } from "./schema.js";
 
 const LAST_SEEN_KEY = "global";
+const SLACK_CHANNEL_TYPE = "slack";
+
+/** Drizzle-inferred row type for the channel_bot_identity table. */
+type ChannelBotIdentityRow = typeof channelBotIdentity.$inferSelect;
+
+/**
+ * Parsed bot identity with deserialized metadata. The raw DB row stores
+ * metadata as a JSON text column; this type represents the parsed shape
+ * returned by `getBotIdentity` and accepted by `setBotIdentity`.
+ */
+export type ChannelBotIdentity = Omit<
+  ChannelBotIdentityRow,
+  "channelType" | "updatedAt" | "metadata"
+> & {
+  metadata: Record<string, unknown> | null;
+};
 
 /**
  * Lifetime of an explicit-detach (mute) marker row. While the marker is
@@ -259,6 +276,68 @@ export class SlackStore {
     return raw
       .prepare("DELETE FROM slack_seen_events WHERE expires_at < ?")
       .run(now).changes;
+  }
+
+  // -- Bot identity --
+
+  /**
+   * Load the persisted bot identity for a channel type. Returns undefined
+   * on first-ever start (before any successful identity resolution).
+   */
+  getBotIdentity(
+    channelType: string = SLACK_CHANNEL_TYPE,
+  ): ChannelBotIdentity | undefined {
+    const row = this.db
+      .select({
+        userId: channelBotIdentity.userId,
+        username: channelBotIdentity.username,
+        metadata: channelBotIdentity.metadata,
+      })
+      .from(channelBotIdentity)
+      .where(eq(channelBotIdentity.channelType, channelType))
+      .get();
+    if (!row) return undefined;
+    return {
+      userId: row.userId,
+      username: row.username,
+      metadata: row.metadata
+        ? (JSON.parse(row.metadata) as Record<string, unknown>)
+        : null,
+    };
+  }
+
+  /**
+   * Persist the bot identity after a successful resolution.
+   * Upserts so the first write creates the row and subsequent writes
+   * update it (e.g. after a bot token rotation).
+   */
+  setBotIdentity(
+    identity: ChannelBotIdentity,
+    channelType: string = SLACK_CHANNEL_TYPE,
+  ): void {
+    const now = Date.now();
+    const metadataJson = identity.metadata
+      ? JSON.stringify(identity.metadata)
+      : null;
+    this.db
+      .insert(channelBotIdentity)
+      .values({
+        channelType,
+        userId: identity.userId,
+        username: identity.username,
+        metadata: metadataJson,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: channelBotIdentity.channelType,
+        set: {
+          userId: identity.userId,
+          username: identity.username,
+          metadata: metadataJson,
+          updatedAt: now,
+        },
+      })
+      .run();
   }
 
   // -- Catch-up watermark --

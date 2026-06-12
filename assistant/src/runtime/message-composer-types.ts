@@ -123,12 +123,3 @@ export interface ComposeGuardianActionMessageOptions {
   maxTokens?: number;
   timeoutMs?: number;
 }
-
-/**
- * Daemon-injected function that generates guardian action copy using a provider.
- * Returns generated text or `null` on failure (caller falls back to deterministic text).
- */
-export type GuardianActionCopyGenerator = (
-  context: GuardianActionMessageContext,
-  options?: ComposeGuardianActionMessageOptions,
-) => Promise<string | null>;

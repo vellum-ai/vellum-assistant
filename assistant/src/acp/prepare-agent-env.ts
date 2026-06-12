@@ -94,6 +94,32 @@ async function injectCredential(
 }
 
 /**
+ * Inject an OPTIONAL credential: skip when the env var is already set
+ * (config.json override wins), and treat a vault miss as non-fatal — the
+ * adapter has its own login fallback, so spawning without the key is fine.
+ */
+async function injectOptionalCredential(
+  env: Record<string, string>,
+  field: string,
+  envVar: string,
+  usageDescription: string,
+): Promise<void> {
+  if (env[envVar]) return;
+  const missReason = await injectCredential(
+    env,
+    field,
+    envVar,
+    usageDescription,
+  );
+  if (missReason !== undefined) {
+    log.debug(
+      { reason: missReason },
+      `${envVar} unavailable from the vault; spawning without it`,
+    );
+  }
+}
+
+/**
  * Returns a NEW config with any required credentials merged into `env`.
  * Does NOT mutate the input. Throws `FailedDependencyError` if a required
  * credential is missing from both the user-supplied env override and the
@@ -123,6 +149,13 @@ async function injectCredential(
  * ways (config.json override wins, vault field `gemini_api_key` second),
  * but it is OPTIONAL: the Gemini CLI supports its own OAuth login, so a
  * vault miss proceeds without the key instead of failing the spawn.
+ *
+ * For `codex-acp` the env vars are `OPENAI_API_KEY` (vault field
+ * `acp/openai_api_key`) and `CODEX_API_KEY` (vault field
+ * `acp/codex_api_key`), provisioned the same two ways (config.json
+ * override wins, vault second). Both are OPTIONAL: codex also supports
+ * ChatGPT login (`codex login` pre-seeding `auth.json` in the workspace),
+ * so a vault miss proceeds without the key instead of failing the spawn.
  */
 export async function prepareAgentEnv(
   agentConfig: AcpAgentConfig,
@@ -150,22 +183,29 @@ export async function prepareAgentEnv(
       );
     }
   } else if (adapterCommand === "gemini") {
-    if (!env.GEMINI_API_KEY) {
-      const missReason = await injectCredential(
+    await injectOptionalCredential(
+      env,
+      "gemini_api_key",
+      "GEMINI_API_KEY",
+      "Gemini API key for ACP agent authentication",
+    );
+  } else if (adapterCommand === "codex-acp") {
+    // The two reads target independent vault fields and write disjoint env
+    // keys, so running them concurrently is safe.
+    await Promise.all([
+      injectOptionalCredential(
         env,
-        "gemini_api_key",
-        "GEMINI_API_KEY",
-        "Gemini API key for ACP agent authentication",
-      );
-      if (missReason !== undefined) {
-        // Optional credential: Gemini CLI can authenticate via its own
-        // OAuth login, so a vault miss must not fail the spawn.
-        log.debug(
-          { reason: missReason },
-          "Gemini API key unavailable from the vault; spawning without GEMINI_API_KEY",
-        );
-      }
-    }
+        "openai_api_key",
+        "OPENAI_API_KEY",
+        "OpenAI API key for Codex ACP agent authentication",
+      ),
+      injectOptionalCredential(
+        env,
+        "codex_api_key",
+        "CODEX_API_KEY",
+        "Codex API key for Codex ACP agent authentication",
+      ),
+    ]);
   }
 
   return { ...agentConfig, env };

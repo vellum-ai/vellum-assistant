@@ -51,7 +51,7 @@ echo/
 ## Install locally
 
 The assistant scans `<workspaceDir>/plugins/*` (e.g.
-`~/.vellum/workspace/plugins/`) for subdirectories containing a `package.json`
+`$VELLUM_WORKSPACE_DIR/plugins/`) for subdirectories containing a `package.json`
 and loads each one during assistant startup. Dropping (or symlinking) this
 directory in place is enough to enable it.
 
@@ -60,8 +60,8 @@ directory in place is enough to enable it.
 From the repo root:
 
 ```bash
-mkdir -p ~/.vellum/workspace/plugins
-ln -s "$(pwd)/assistant/examples/plugins/echo" ~/.vellum/workspace/plugins/echo
+mkdir -p "$VELLUM_WORKSPACE_DIR"/plugins
+ln -s "$(pwd)/assistant/examples/plugins/echo" "$VELLUM_WORKSPACE_DIR"/plugins/echo
 ```
 
 Symlinks let you edit the plugin in-place and restart the assistant to
@@ -69,7 +69,7 @@ pick up changes.
 
 ### Option 2 — standalone copy
 
-A plain `cp -R` of this directory into `~/.vellum/workspace/plugins/echo/`
+A plain `cp -R` of this directory into `$VELLUM_WORKSPACE_DIR/plugins/echo/`
 works as-is. The hooks import their types from the public `@vellumai/plugin-api`
 specifier, which the daemon materializes as a workspace-level shim before it
 loads any plugin — so the copied directory resolves it without any path
@@ -109,7 +109,7 @@ You should see one line per hook invocation, similar to:
 Remove the symlink (or the copied directory) and restart the assistant:
 
 ```bash
-rm ~/.vellum/workspace/plugins/echo
+rm "$VELLUM_WORKSPACE_DIR"/plugins/echo
 vellum restart
 ```
 
