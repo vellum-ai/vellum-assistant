@@ -10,12 +10,14 @@
  * journal DB round-trips on resume.
  *
  * Most leaves run the REAL **tool path**: the engine forwards `capabilities.tools`
- * to every leaf, the leaf runner spins up an `AgentLoop`, and the mocked
+ * to tool leaves, the leaf runner spins up an `AgentLoop`, and the mocked
  * provider returns a single `end_turn` message whose text echoes the prompt
- * (so each leaf's `output` is distinguishable and order-checkable). A leaf with
- * an empty toolset routes to the leaf runner's SCHEMA path; a sandboxed script
- * passes a JSON Schema object (it can't hold a host-side Zod object), which the
- * leaf runner duck-types — see the schema-path test below.
+ * (so each leaf's `output` is distinguishable and order-checkable). A leaf that
+ * declares a `schema` routes to the leaf runner's SCHEMA path; the engine omits
+ * `tools` for it (a schema + tools is a hard error in `runLeaf`), so the schema
+ * path works even when the run carries the read-only baseline. A sandboxed
+ * script passes a JSON Schema object (it can't hold a host-side Zod object),
+ * which the leaf runner duck-types — see the schema-path test below.
  *
  * Covered:
  *  - `map`/`parallel` fan-out: each leaf returns its echoed output, aggregated
@@ -215,17 +217,6 @@ registerTool({
 
 const capabilities = resolveCapabilities({
   tools: [ECHO_TOOL_NAME],
-  hostFunctions: [],
-  persona: false,
-});
-
-/**
- * Capabilities with NO tools. A schema leaf must route to the leaf runner's
- * SCHEMA path, which requires an empty toolset (a schema + tools is a hard
- * error in `runLeaf`). Used by the schema-path integration test.
- */
-const schemaCapabilities = resolveCapabilities({
-  tools: [],
   hostFunctions: [],
   persona: false,
 });
@@ -469,17 +460,22 @@ return { results, tail };
   });
 
   // ---------------------------------------------------------------------------
-  // FIXED ENGINE↔LEAF-RUNNER GAP (schema-path marshaling).
+  // FIXED ENGINE↔LEAF-RUNNER GAP (schema-path marshaling + tool forwarding).
   //
   // A workflow script declares a per-leaf output `schema` via
   // `leaf(prompt, { schema })`. That schema crosses the QuickJS sandbox boundary
   // as a JSON-marshaled plain object (a JSON Schema). The leaf runner's schema
   // path now duck-types its input: a plain JSON Schema object is used directly as
   // the forced-tool `input_schema` and validated via `z.fromJSONSchema`, while a
-  // host-side Zod schema keeps the original behavior. A schema leaf must route to
-  // the schema path, which requires an empty toolset (`schemaCapabilities`).
+  // host-side Zod schema keeps the original behavior.
+  //
+  // This run uses the FULL capability set (non-empty `capabilities.tools`, which
+  // every real run carries via the read-only baseline). A schema leaf must NOT
+  // receive those tools — `runLeaf` hard-errors on `schema` + non-empty `tools`.
+  // The engine now omits `tools` for schema leaves, so the structured-output path
+  // works end-to-end even when the run carries baseline tools (the real case).
   // ---------------------------------------------------------------------------
-  test("schema-path leaves: a script-provided JSON Schema drives the forced-tool path", async () => {
+  test("schema-path leaves run with the read-only baseline present (tools not forwarded)", async () => {
     // The script passes a JSON Schema OBJECT LITERAL (the only shape a sandbox
     // script can produce — Zod is host-side). It marshals across the boundary
     // and reaches the leaf runner verbatim.
@@ -495,8 +491,12 @@ const items = args.items;
 const results = map(items, (it) => leaf("item-" + it, { schema }));
 return results;
 `;
+    // `capabilities` carries a non-empty toolset (the echo tool); a real run's
+    // resolved baseline is likewise non-empty. The schema leaf still succeeds,
+    // proving the engine omits `tools` on the schema path.
+    expect(capabilities.tools.length).toBeGreaterThan(0);
     const result = await executeWorkflow({
-      ...baseOptions("wf-schema", scriptSource, schemaCapabilities),
+      ...baseOptions("wf-schema", scriptSource, capabilities),
       args: { items: ["a", "b"] },
       config: makeConfig(),
     });
