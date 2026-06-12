@@ -35,6 +35,8 @@ export const cronJobs = sqliteTable("cron_jobs", {
     .default(false), // reuse the same conversation across runs
   script: text("script"), // shell command for script mode (nullable, only used when mode = 'script')
   wakeConversationId: text("wake_conversation_id"), // target conversation for wake mode (nullable)
+  workflowName: text("workflow_name"), // saved workflow to trigger (nullable, only used when mode = 'workflow')
+  workflowArgsJson: text("workflow_args_json"), // JSON-encoded args passed to the workflow run (nullable)
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });

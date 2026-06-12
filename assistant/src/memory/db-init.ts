@@ -198,6 +198,7 @@ import {
   migrateScheduleScriptTimeout,
   migrateScheduleSourceConversation,
   migrateScheduleWakeConversationId,
+  migrateScheduleWorkflowMode,
   migrateSchemaIndexesAndColumns,
   migrateScrubCorruptedImageAttachments,
   migrateSlackCompactionWatermark,
@@ -500,6 +501,7 @@ export function initializeDb(): void {
     createSkillLoadedEventsTable,
     migrateConversationsSurfacedAt,
     migrateWorkflowRuns,
+    migrateScheduleWorkflowMode,
   ];
 
   // Run each migration step, catching and logging individual failures so one

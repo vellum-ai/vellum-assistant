@@ -26,7 +26,12 @@ function notifySchedulesChanged(): void {
     );
 }
 
-export type ScheduleMode = "notify" | "execute" | "script" | "wake";
+export type ScheduleMode =
+  | "notify"
+  | "execute"
+  | "script"
+  | "wake"
+  | "workflow";
 export type RoutingIntent = "single_channel" | "multi_channel" | "all_channels";
 export type ScheduleStatus = "active" | "firing" | "fired" | "cancelled";
 
@@ -42,6 +47,10 @@ export interface ScheduleJob {
   message: string;
   script: string | null;
   wakeConversationId: string | null;
+  /** Saved workflow to trigger; only used when mode = 'workflow'. */
+  workflowName: string | null;
+  /** Args passed verbatim to the workflow run; only used when mode = 'workflow'. */
+  workflowArgs: unknown;
   nextRunAt: number;
   lastRunAt: number | null;
   lastStatus: string | null;
@@ -92,6 +101,8 @@ export function createSchedule(params: {
   message: string;
   script?: string | null;
   wakeConversationId?: string | null;
+  workflowName?: string | null;
+  workflowArgs?: unknown;
   enabled?: boolean;
   createdBy?: string;
   syntax?: ScheduleSyntax;
@@ -168,6 +179,11 @@ export function createSchedule(params: {
     message: params.message,
     script: params.script ?? null,
     wakeConversationId: params.wakeConversationId ?? null,
+    workflowName: params.workflowName ?? null,
+    workflowArgsJson:
+      params.workflowArgs === undefined
+        ? null
+        : JSON.stringify(params.workflowArgs),
     nextRunAt,
     lastRunAt: null as number | null,
     lastStatus: null as string | null,
@@ -273,6 +289,8 @@ export function updateSchedule(
     quiet?: boolean;
     reuseConversation?: boolean;
     wakeConversationId?: string | null;
+    workflowName?: string | null;
+    workflowArgs?: unknown;
     maxRetries?: number;
     retryBackoffMs?: number;
     timeoutMs?: number | null;
@@ -340,6 +358,15 @@ export function updateSchedule(
     set.reuseConversation = updates.reuseConversation;
   if (updates.wakeConversationId !== undefined)
     set.wakeConversationId = updates.wakeConversationId;
+  if (updates.workflowName !== undefined)
+    set.workflowName = updates.workflowName;
+  // `workflowArgs` may legitimately be any JSON value (including null), so
+  // detect presence by key rather than `!== undefined`.
+  if ("workflowArgs" in updates)
+    set.workflowArgsJson =
+      updates.workflowArgs === undefined
+        ? null
+        : JSON.stringify(updates.workflowArgs);
   if (updates.maxRetries !== undefined) set.maxRetries = updates.maxRetries;
   if (updates.retryBackoffMs !== undefined)
     set.retryBackoffMs = updates.retryBackoffMs;
@@ -999,6 +1026,8 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
     message: row.message,
     script: row.script ?? null,
     wakeConversationId: row.wakeConversationId ?? null,
+    workflowName: row.workflowName ?? null,
+    workflowArgs: parseOptionalJson(row.workflowArgsJson),
     nextRunAt: row.nextRunAt,
     lastRunAt: row.lastRunAt,
     lastStatus: row.lastStatus,
@@ -1035,6 +1064,20 @@ function safeParseJson(
     return JSON.parse(json) as Record<string, unknown>;
   } catch {
     return {};
+  }
+}
+
+/**
+ * Parse a nullable JSON column into an arbitrary value. Unlike
+ * {@link safeParseJson}, the result is not coerced to an object — workflow
+ * args may be any JSON value — and an absent/unparseable column yields null.
+ */
+function parseOptionalJson(json: string | null | undefined): unknown {
+  if (json == null) return null;
+  try {
+    return JSON.parse(json);
+  } catch {
+    return null;
   }
 }
 
