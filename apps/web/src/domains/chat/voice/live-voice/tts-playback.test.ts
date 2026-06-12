@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   LiveVoiceAudioPlayer,
+  STOP_FADE_OUT_SECONDS,
   decodePcm16Base64,
   type AudioContextLike,
+  type GainNodeLike,
 } from "@/domains/chat/voice/live-voice/tts-playback";
 
 // ---------------------------------------------------------------------------
@@ -18,16 +20,55 @@ interface MockSource {
   buffer: AudioBuffer | null;
   startedAt: number | null;
   stopped: boolean;
+  /** Time passed to stop(when), or currentTime for a bare stop(). */
+  stoppedAt: number | null;
   disconnected: boolean;
+  /** Node the source was connected to (the master gain, normally). */
+  connectedTo: unknown;
   onended: (() => void) | null;
   /** Fire the ended handler as the engine would when the buffer finishes. */
   finish(): void;
+}
+
+/** A single scheduled AudioParam automation call, in call order. */
+interface MockParamEvent {
+  method: "setValueAtTime" | "linearRampToValueAtTime" | "cancelScheduledValues";
+  value?: number;
+  time: number;
+}
+
+class MockGainNode implements GainNodeLike {
+  connectedTo: unknown = null;
+  readonly events: MockParamEvent[] = [];
+  readonly gain = {
+    value: 1,
+    setValueAtTime: (value: number, time: number) => {
+      this.events.push({ method: "setValueAtTime", value, time });
+      this.gain.value = value;
+    },
+    linearRampToValueAtTime: (value: number, time: number) => {
+      this.events.push({ method: "linearRampToValueAtTime", value, time });
+      this.gain.value = value;
+    },
+    cancelScheduledValues: (time: number) => {
+      this.events.push({ method: "cancelScheduledValues", time });
+    },
+  };
+
+  connect(destination: AudioNode): void {
+    this.connectedTo = destination;
+  }
+
+  disconnect(): void {
+    this.connectedTo = null;
+  }
 }
 
 class MockAudioContext {
   currentTime = 0;
   closed = false;
   readonly sources: MockSource[] = [];
+  readonly gains: MockGainNode[] = [];
 
   /** ArrayBuffers passed to decodeAudioData, in call order. */
   readonly decodedInputs: ArrayBuffer[] = [];
@@ -68,7 +109,9 @@ class MockAudioContext {
       buffer: null,
       startedAt: null,
       stopped: false,
+      stoppedAt: null,
       disconnected: false,
+      connectedTo: null,
       onended: null,
       finish() {
         this.stopped = true;
@@ -88,19 +131,34 @@ class MockAudioContext {
       set onended(cb: (() => void) | null) {
         source.onended = cb;
       },
-      connect() {},
+      connect(destination: unknown) {
+        source.connectedTo = destination;
+      },
       disconnect() {
         source.disconnected = true;
       },
       start(when?: number) {
         source.startedAt = when ?? getCurrentTime();
       },
-      stop() {
+      stop(when?: number) {
         source.stopped = true;
+        source.stoppedAt = when ?? getCurrentTime();
       },
     } as unknown as AudioBufferSourceNode;
     this.sources.push(source);
     return node;
+  }
+
+  createGain(): GainNodeLike {
+    const gain = new MockGainNode();
+    this.gains.push(gain);
+    return gain;
+  }
+
+  /** The master gain node the player created (lazily, with the context). */
+  get masterGain(): MockGainNode {
+    if (!this.gains[0]) throw new Error("no gain node created yet");
+    return this.gains[0];
   }
 
   async close(): Promise<void> {
@@ -230,15 +288,57 @@ describe("LiveVoiceAudioPlayer", () => {
     expect(player.isPlaying).toBe(false);
   });
 
-  test("stop() halts every source immediately and clears the queue", () => {
+  test("stop() halts every source at the end of the fade and clears the queue", () => {
     player.enqueue(chunk(new Array(24000).fill(1)));
     player.enqueue(chunk(new Array(24000).fill(1)));
 
     player.stop();
 
+    // Sources are scheduled to halt when the 20ms gain fade completes — an
+    // immediate stop would produce an audible click.
     expect(ctx.sources.every((s) => s.stopped)).toBe(true);
-    expect(ctx.sources.every((s) => s.disconnected)).toBe(true);
+    expect(
+      ctx.sources.every((s) => s.stoppedAt === STOP_FADE_OUT_SECONDS),
+    ).toBe(true);
     expect(player.isPlaying).toBe(false);
+  });
+
+  test("stop() ramps the master gain to silence over the fade window", () => {
+    player.enqueue(chunk(new Array(24000).fill(1)));
+    ctx.currentTime = 0.5;
+
+    player.stop();
+
+    const ramp = ctx.masterGain.events.find(
+      (e) => e.method === "linearRampToValueAtTime",
+    );
+    expect(ramp).toEqual({
+      method: "linearRampToValueAtTime",
+      value: 0,
+      time: 0.5 + STOP_FADE_OUT_SECONDS,
+    });
+  });
+
+  test("enqueue after stop() restores the gain to the user's level", () => {
+    player.setVolume(0.4);
+    player.enqueue(chunk(new Array(24000).fill(1)));
+    player.stop();
+    expect(ctx.masterGain.gain.value).toBe(0);
+
+    player.enqueue(chunk(new Array(24000).fill(1)));
+    expect(ctx.masterGain.gain.value).toBe(0.4);
+  });
+
+  test("stop() without active sources leaves the gain untouched", () => {
+    player.enqueue(chunk(new Array(12000).fill(1)));
+    ctx.sources[0]!.finish();
+
+    player.stop();
+
+    const ramp = ctx.masterGain.events.find(
+      (e) => e.method === "linearRampToValueAtTime",
+    );
+    expect(ramp).toBeUndefined();
   });
 
   test("playhead resets after stop so the next enqueue starts fresh", () => {
@@ -283,6 +383,57 @@ describe("LiveVoiceAudioPlayer", () => {
     player.enqueue(chunk([]));
     expect(ctx.sources.length).toBe(0);
     expect(player.isPlaying).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // master gain: routing, volume, mute
+  // -------------------------------------------------------------------------
+
+  test("sources play through the master gain, which feeds the destination", () => {
+    player.enqueue(chunk(new Array(24000).fill(1)));
+
+    expect(ctx.gains.length).toBe(1);
+    expect(ctx.masterGain.connectedTo).toBe(ctx.destination);
+    expect(ctx.sources[0]!.connectedTo).toBe(ctx.masterGain);
+  });
+
+  test("constructor volume/muted seed the master gain", () => {
+    const seeded = new LiveVoiceAudioPlayer({
+      audioContextFactory: () => ctx as unknown as AudioContextLike,
+      volume: 0.6,
+      muted: true,
+    });
+    seeded.enqueue(chunk(new Array(24000).fill(1)));
+
+    // Muted wins: the gain starts silent even with a non-zero volume.
+    expect(ctx.masterGain.gain.value).toBe(0);
+
+    seeded.setMuted(false);
+    expect(ctx.masterGain.gain.value).toBe(0.6);
+  });
+
+  test("setVolume applies live to playing audio and clamps to [0, 1]", () => {
+    player.enqueue(chunk(new Array(24000).fill(1)));
+
+    player.setVolume(0.25);
+    expect(ctx.masterGain.gain.value).toBe(0.25);
+
+    player.setVolume(7);
+    expect(ctx.masterGain.gain.value).toBe(1);
+
+    player.setVolume(-3);
+    expect(ctx.masterGain.gain.value).toBe(0);
+  });
+
+  test("setMuted silences and restores without touching the volume", () => {
+    player.setVolume(0.8);
+    player.enqueue(chunk(new Array(24000).fill(1)));
+
+    player.setMuted(true);
+    expect(ctx.masterGain.gain.value).toBe(0);
+
+    player.setMuted(false);
+    expect(ctx.masterGain.gain.value).toBe(0.8);
   });
 
   // -------------------------------------------------------------------------

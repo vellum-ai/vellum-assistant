@@ -169,6 +169,23 @@ export const CONNECTIVITY_STATES = [
 
 export type ConnectivityState = (typeof CONNECTIVITY_STATES)[number];
 
+/**
+ * Voice mode (live-voice conversation) state, published renderer → main so
+ * the tray can reflect an active voice conversation. Mirrors the Swift app's
+ * `VoiceModeManager.State` enum: `off` (mode disabled), `idle` (mode on,
+ * between turns), `listening` (mic streaming), `processing` (transcribing /
+ * assistant thinking), `speaking` (TTS playing).
+ */
+export const VOICE_MODE_STATES = [
+  "off",
+  "idle",
+  "listening",
+  "processing",
+  "speaking",
+] as const;
+
+export type VoiceModeState = (typeof VOICE_MODE_STATES)[number];
+
 // ---------------------------------------------------------------------------
 // Power events
 // ---------------------------------------------------------------------------

@@ -1,10 +1,12 @@
 /**
  * Tests for `LiveVoiceButton`.
  *
- * The button is gated behind the `voice-mode` assistant flag and toggles a
- * {@link useLiveVoice} session. We mock both so the component renders in
- * isolation: the flag store via a mutable `mockVoiceMode`, and `useLiveVoice`
- * via spies for `start`/`stop` plus a mutable `mockState`/`mockInputAmplitude`.
+ * The button is gated behind the `voice-mode` assistant flag and drives the
+ * {@link useVoiceMode} conversation loop. We mock both so the component
+ * renders in isolation: the flag store via a mutable `mockVoiceModeFlag`, and
+ * `useVoiceMode` via spies for `activate`/`deactivate`/`interrupt` plus a
+ * mutable `mockState`/`mockInputAmplitude`. The session-level store supplies
+ * the `connecting` busy phase.
  *
  * Uses happy-dom via the bun:test preload configured in `web/bunfig.toml`.
  */
@@ -20,31 +22,46 @@ import {
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
 import type { LiveVoiceSessionState } from "@/domains/chat/voice/live-voice/live-voice-store";
+import type { VoiceModeState } from "@/domains/chat/voice/live-voice/voice-mode-store";
 
-let mockVoiceMode = false;
+let mockVoiceModeFlag = false;
 mock.module("@/stores/assistant-feature-flag-store", () => ({
   useAssistantFeatureFlagStore: {
     use: {
-      voiceMode: () => mockVoiceMode,
+      voiceMode: () => mockVoiceModeFlag,
     },
   },
 }));
 
-const startSpy = mock(async (_assistantId: string, _conversationId?: string) => {});
-const stopSpy = mock(async () => {});
-let mockState: LiveVoiceSessionState = "idle";
+const activateSpy = mock(async () => {});
+const deactivateSpy = mock(async () => {});
+const interruptSpy = mock(() => {});
+let mockState: VoiceModeState = "off";
 let mockInputAmplitude = 0;
-mock.module("@/domains/chat/voice/live-voice/use-live-voice", () => ({
-  useLiveVoice: () => ({
-    state: mockState,
-    partialTranscript: "",
-    finalTranscript: "",
-    assistantTranscript: "",
-    inputAmplitude: mockInputAmplitude,
-    error: null,
-    start: startSpy,
-    stop: stopSpy,
-  }),
+let lastVoiceModeOptions: { assistantId: string; conversationId?: string } | null =
+  null;
+mock.module("@/domains/chat/voice/live-voice/use-voice-mode", () => ({
+  useVoiceMode: (options: { assistantId: string; conversationId?: string }) => {
+    lastVoiceModeOptions = options;
+    return {
+      state: mockState,
+      error: null,
+      autoDeactivated: false,
+      inputAmplitude: mockInputAmplitude,
+      activate: activateSpy,
+      deactivate: deactivateSpy,
+      interrupt: interruptSpy,
+    };
+  },
+}));
+
+let mockSessionState: LiveVoiceSessionState = "idle";
+mock.module("@/domains/chat/voice/live-voice/live-voice-store", () => ({
+  useLiveVoiceStore: {
+    use: {
+      state: () => mockSessionState,
+    },
+  },
 }));
 
 // Imported after the mocks so the component picks up the mocked modules.
@@ -53,11 +70,14 @@ const { LiveVoiceButton } = await import(
 );
 
 beforeEach(() => {
-  mockVoiceMode = false;
-  mockState = "idle";
+  mockVoiceModeFlag = false;
+  mockState = "off";
+  mockSessionState = "idle";
   mockInputAmplitude = 0;
-  startSpy.mockClear();
-  stopSpy.mockClear();
+  lastVoiceModeOptions = null;
+  activateSpy.mockClear();
+  deactivateSpy.mockClear();
+  interruptSpy.mockClear();
 });
 
 afterEach(() => {
@@ -66,126 +86,128 @@ afterEach(() => {
 
 describe("LiveVoiceButton", () => {
   test("renders nothing when the voice-mode flag is off", () => {
-    // GIVEN the voice-mode flag is disabled
-    mockVoiceMode = false;
+    mockVoiceModeFlag = false;
 
-    // WHEN the button renders
     const { container } = render(<LiveVoiceButton assistantId="a1" />);
 
-    // THEN nothing is painted
     expect(container.firstChild).toBeNull();
   });
 
-  test("renders a start control when the flag is on and idle", () => {
-    // GIVEN the flag is enabled and no session is active
-    mockVoiceMode = true;
-    mockState = "idle";
+  test("renders a start control when the flag is on and the mode is off", () => {
+    mockVoiceModeFlag = true;
+    mockState = "off";
 
-    // WHEN the button renders
-    const { getByLabelText } = render(<LiveVoiceButton assistantId="a1" />);
-
-    // THEN it offers to start voice mode and is not pressed
-    const button = getByLabelText("Start voice mode");
-    expect(button).toBeTruthy();
-    expect(button.getAttribute("aria-pressed")).toBe("false");
-  });
-
-  test("starts a session on click when idle", () => {
-    // GIVEN an idle, flag-enabled button with a conversation
-    mockVoiceMode = true;
-    mockState = "idle";
     const { getByLabelText } = render(
       <LiveVoiceButton assistantId="a1" conversationId="c1" />,
     );
 
-    // WHEN the user clicks it
-    fireEvent.click(getByLabelText("Start voice mode"));
-
-    // THEN it starts a live-voice session for the assistant + conversation
-    expect(startSpy).toHaveBeenCalledTimes(1);
-    expect(startSpy).toHaveBeenCalledWith("a1", "c1");
-    expect(stopSpy).not.toHaveBeenCalled();
+    const button = getByLabelText("Start voice mode");
+    expect(button).toBeTruthy();
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+    // The conversation loop is parameterized with the composer's identifiers.
+    expect(lastVoiceModeOptions).toEqual({
+      assistantId: "a1",
+      conversationId: "c1",
+    });
   });
 
-  test("stops the session on click when active", () => {
-    // GIVEN an active session (listening)
-    mockVoiceMode = true;
-    mockState = "listening";
+  test("activates the mode on click when off", () => {
+    mockVoiceModeFlag = true;
+    mockState = "off";
     const { getByLabelText } = render(<LiveVoiceButton assistantId="a1" />);
 
-    // THEN the control reflects the live session
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    expect(activateSpy).toHaveBeenCalledTimes(1);
+    expect(deactivateSpy).not.toHaveBeenCalled();
+    expect(interruptSpy).not.toHaveBeenCalled();
+  });
+
+  test("deactivates on click while listening", () => {
+    mockVoiceModeFlag = true;
+    mockState = "listening";
+    mockSessionState = "listening";
+    const { getByLabelText } = render(<LiveVoiceButton assistantId="a1" />);
+
     const button = getByLabelText("Stop voice mode");
     expect(button.getAttribute("aria-pressed")).toBe("true");
 
-    // WHEN the user clicks it
     fireEvent.click(button);
 
-    // THEN it stops the session
-    expect(stopSpy).toHaveBeenCalledTimes(1);
-    expect(startSpy).not.toHaveBeenCalled();
+    expect(deactivateSpy).toHaveBeenCalledTimes(1);
+    expect(activateSpy).not.toHaveBeenCalled();
+    expect(interruptSpy).not.toHaveBeenCalled();
+  });
+
+  test("interrupts (not stops) on click while speaking", () => {
+    // The LUM-1969 acceptance path: pressing the mic button mid-playback
+    // stops playback and the mode goes back to listening.
+    mockVoiceModeFlag = true;
+    mockState = "speaking";
+    mockSessionState = "speaking";
+    const { getByLabelText } = render(<LiveVoiceButton assistantId="a1" />);
+
+    fireEvent.click(getByLabelText("Interrupt and speak"));
+
+    expect(interruptSpy).toHaveBeenCalledTimes(1);
+    expect(deactivateSpy).not.toHaveBeenCalled();
+    expect(activateSpy).not.toHaveBeenCalled();
   });
 
   test("reflects connecting as a busy, non-toggling state", () => {
-    // GIVEN a session that is still connecting
-    mockVoiceMode = true;
-    mockState = "connecting";
+    mockVoiceModeFlag = true;
+    mockState = "listening"; // mode already on…
+    mockSessionState = "connecting"; // …but the socket is still opening
     const { getByLabelText } = render(<LiveVoiceButton assistantId="a1" />);
 
-    // THEN the control is busy and disabled
-    const button = getByLabelText("Connecting live voice") as HTMLButtonElement;
+    const button = getByLabelText("Connecting voice mode") as HTMLButtonElement;
     expect(button.getAttribute("aria-busy")).toBe("true");
     expect(button.disabled).toBe(true);
 
-    // WHEN the user clicks it, neither start nor stop fire
     fireEvent.click(button);
-    expect(startSpy).not.toHaveBeenCalled();
-    expect(stopSpy).not.toHaveBeenCalled();
+    expect(activateSpy).not.toHaveBeenCalled();
+    expect(deactivateSpy).not.toHaveBeenCalled();
+    expect(interruptSpy).not.toHaveBeenCalled();
   });
 
-  test("stays stoppable when disabled while a session is active", () => {
-    // GIVEN an active session and a parent that has raised `disabled`
-    mockVoiceMode = true;
+  test("stays stoppable when disabled while the mode is on", () => {
+    mockVoiceModeFlag = true;
     mockState = "listening";
+    mockSessionState = "listening";
     const { getByLabelText } = render(
       <LiveVoiceButton assistantId="a1" disabled />,
     );
 
-    // THEN the stop control remains enabled despite the external disabled prop
     const button = getByLabelText("Stop voice mode") as HTMLButtonElement;
     expect(button.disabled).toBe(false);
 
-    // WHEN the user clicks it, the session is stopped
     fireEvent.click(button);
-    expect(stopSpy).toHaveBeenCalledTimes(1);
-    expect(startSpy).not.toHaveBeenCalled();
+    expect(deactivateSpy).toHaveBeenCalledTimes(1);
+    expect(activateSpy).not.toHaveBeenCalled();
   });
 
-  test("prevents starting a session when disabled while idle", () => {
-    // GIVEN an idle, flag-enabled button that the parent has disabled
-    mockVoiceMode = true;
-    mockState = "idle";
+  test("prevents activating when disabled while off", () => {
+    mockVoiceModeFlag = true;
+    mockState = "off";
     const { getByLabelText } = render(
       <LiveVoiceButton assistantId="a1" disabled />,
     );
 
-    // THEN the start control is disabled
     const button = getByLabelText("Start voice mode") as HTMLButtonElement;
     expect(button.disabled).toBe(true);
 
-    // WHEN the user clicks it, no session is started
     fireEvent.click(button);
-    expect(startSpy).not.toHaveBeenCalled();
-    expect(stopSpy).not.toHaveBeenCalled();
+    expect(activateSpy).not.toHaveBeenCalled();
+    expect(deactivateSpy).not.toHaveBeenCalled();
   });
 
   test("scales the icon with live amplitude while active", () => {
-    // GIVEN an active session with non-zero mic amplitude
-    mockVoiceMode = true;
+    mockVoiceModeFlag = true;
     mockState = "listening";
+    mockSessionState = "listening";
     mockInputAmplitude = 1;
     const { getByLabelText } = render(<LiveVoiceButton assistantId="a1" />);
 
-    // THEN the control carries an amplitude-driven transform
     const button = getByLabelText("Stop voice mode");
     expect(button.style.transform).toContain("scale(");
   });

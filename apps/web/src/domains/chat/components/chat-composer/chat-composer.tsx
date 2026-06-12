@@ -27,6 +27,7 @@ import {
 } from "@/domains/chat/components/voice-input-button";
 import { type TurnPhase, useTurnStore } from "@/domains/chat/turn-store";
 import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { useVoiceModeStore } from "@/domains/chat/voice/live-voice/voice-mode-store";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -225,19 +226,15 @@ export function ChatComposer({
   // effect); the composer only ever *reads* the projected state, so two
   // controllers with competing teardown effects on the same store would be a
   // footgun. These atomic selectors re-render only on the fields they read.
-  const liveVoiceState = useLiveVoiceStore.use.state();
   const liveVoicePartial = useLiveVoiceStore.use.partialTranscript();
   const liveVoiceFinal = useLiveVoiceStore.use.finalTranscript();
   const liveVoiceAssistant = useLiveVoiceStore.use.assistantTranscript();
-  // Anything but idle/failed counts as an active session; while active the
-  // dictation mic is disabled so the two capture flows never run at once.
-  // `failed` is a retryable/inactive state in `useLiveVoice`/`LiveVoiceButton`,
-  // so we must treat it as inactive — otherwise dictation stays disabled and
-  // the (empty) transcript surface stays mounted after a failed start.
-  const isLiveVoiceActive =
-    liveVoiceEligible &&
-    liveVoiceState !== "idle" &&
-    liveVoiceState !== "failed";
+  // Voice mode (the conversation loop in `useVoiceMode`) is the activity
+  // signal, not the underlying session: the loop briefly tears a session down
+  // between turns (and during retry backoff), and those gaps must not flash
+  // the transcript surface away or re-enable the dictation mic mid-loop.
+  const voiceModeState = useVoiceModeStore.use.state();
+  const isLiveVoiceActive = liveVoiceEligible && voiceModeState !== "off";
 
   const pointerCoarse = useMemo(() => isPointerCoarse(), []);
   const isMobile = useIsMobile();

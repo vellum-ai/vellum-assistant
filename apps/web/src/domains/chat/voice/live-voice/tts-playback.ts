@@ -26,9 +26,15 @@
  * previous buffer finishes — rather than relying on `onended` callbacks, which
  * fire too late to avoid audible gaps between buffers.
  *
- * {@link LiveVoiceAudioPlayer.stop} flushes the queue immediately for
- * barge-in/interrupt: it stops every scheduled source, drops queued chunks, and
- * resets the playhead so the next `enqueue` starts fresh.
+ * {@link LiveVoiceAudioPlayer.stop} flushes the queue for barge-in/interrupt:
+ * it fades the master gain to silence over {@link STOP_FADE_OUT_SECONDS} (a
+ * hard cut produces an audible click), schedules every source to halt at the
+ * end of the fade, drops queued chunks, and resets the playhead so the next
+ * `enqueue` starts fresh.
+ *
+ * All sources play through a single master {@link GainNodeLike} which also
+ * carries the user's TTS volume/mute preference
+ * ({@link LiveVoiceAudioPlayer.setVolume} / {@link LiveVoiceAudioPlayer.setMuted}).
  *
  * No audio playback infrastructure exists elsewhere in `apps/web`; this module
  * owns its own `AudioContext` lifecycle.
@@ -70,6 +76,12 @@ function normalizeMimeType(mimeType: string): string {
   return mimeType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
 }
 
+/** Clamp a volume preference into the valid [0, 1] gain range. */
+function clampVolume(volume: number): number {
+  if (!Number.isFinite(volume)) return 1;
+  return Math.min(1, Math.max(0, volume));
+}
+
 /** Decode a base64 string into a fresh `ArrayBuffer` of its raw bytes. */
 function base64ToArrayBuffer(dataBase64: string): ArrayBuffer {
   const binary = atob(dataBase64);
@@ -78,6 +90,28 @@ function base64ToArrayBuffer(dataBase64: string): ArrayBuffer {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes.buffer;
+}
+
+/**
+ * Duration of the gain ramp applied on {@link LiveVoiceAudioPlayer.stop}. An
+ * immediate cut produces an audible click; 20ms is short enough that an
+ * interrupt still feels instant.
+ */
+export const STOP_FADE_OUT_SECONDS = 0.02;
+
+/** Minimal structural type for the `AudioParam` surface the player drives. */
+export interface AudioParamLike {
+  value: number;
+  setValueAtTime(value: number, startTime: number): unknown;
+  linearRampToValueAtTime(value: number, endTime: number): unknown;
+  cancelScheduledValues(startTime: number): unknown;
+}
+
+/** Minimal structural type for the master `GainNode`. */
+export interface GainNodeLike {
+  readonly gain: AudioParamLike;
+  connect(destination: AudioNode): unknown;
+  disconnect(): unknown;
 }
 
 /**
@@ -95,6 +129,7 @@ export interface AudioContextLike {
     sampleRate: number,
   ): AudioBuffer;
   createBufferSource(): AudioBufferSourceNode;
+  createGain(): GainNodeLike;
   /**
    * Decode an encoded container (wav/mp3/opus) into an `AudioBuffer`, deriving
    * sample rate and channel layout from the container header.
@@ -138,6 +173,28 @@ export class LiveVoiceAudioPlayer {
   private readonly createContext: AudioContextFactory;
   private context: AudioContextLike | null = null;
 
+  /** Master gain between every source and the destination (volume/mute/fade). */
+  private gainNode: GainNodeLike | null = null;
+
+  /** User TTS volume preference in [0, 1]; applied through the master gain. */
+  private volume: number;
+
+  /** User TTS mute preference; mutes the master gain without pausing playback. */
+  private muted: boolean;
+
+  /**
+   * Set when {@link stop} ramped the gain to silence; the next scheduled
+   * buffer restores the gain to the user's level before starting.
+   */
+  private fadePending = false;
+
+  /**
+   * Wall-clock time (ms) at which the stop-fade finishes. {@link dispose}
+   * waits this out before closing the context so an interrupt's fade is
+   * actually heard instead of being cut by the context teardown.
+   */
+  private fadeEndsAtMs = 0;
+
   /** Sources currently scheduled (playing or pending). */
   private activeSources = new Set<AudioBufferSourceNode>();
 
@@ -177,13 +234,50 @@ export class LiveVoiceAudioPlayer {
    */
   private containerDecodeChain: Promise<void> = Promise.resolve();
 
-  constructor(options?: { audioContextFactory?: AudioContextFactory }) {
+  constructor(options?: {
+    audioContextFactory?: AudioContextFactory;
+    /** Initial TTS volume in [0, 1]. Defaults to full volume. */
+    volume?: number;
+    /** Initial mute state. Defaults to unmuted. */
+    muted?: boolean;
+  }) {
     this.createContext = options?.audioContextFactory ?? defaultAudioContextFactory;
+    this.volume = clampVolume(options?.volume ?? 1);
+    this.muted = options?.muted ?? false;
   }
 
   /** Whether any audio is scheduled, playing, or still decoding. */
   get isPlaying(): boolean {
     return this.playingState || this.pendingContainerDecodes > 0;
+  }
+
+  /** Gain the master node should sit at outside of a stop-fade. */
+  private get effectiveGain(): number {
+    return this.muted ? 0 : this.volume;
+  }
+
+  /** Set the TTS volume (clamped to [0, 1]); applies live to playing audio. */
+  setVolume(volume: number): void {
+    this.volume = clampVolume(volume);
+    this.applyGain();
+  }
+
+  /** Mute/unmute TTS output without pausing the scheduled timeline. */
+  setMuted(muted: boolean): void {
+    this.muted = muted;
+    this.applyGain();
+  }
+
+  /**
+   * Snap the master gain to the user's level. A pending stop-fade is left
+   * untouched — cancelling its ramp would un-silence sources that are about
+   * to halt — the new level lands when the next buffer is scheduled.
+   */
+  private applyGain(): void {
+    if (!this.context || !this.gainNode || this.fadePending) return;
+    const now = this.context.currentTime;
+    this.gainNode.gain.cancelScheduledValues(now);
+    this.gainNode.gain.setValueAtTime(this.effectiveGain, now);
   }
 
   /**
@@ -292,11 +386,18 @@ export class LiveVoiceAudioPlayer {
     });
   }
 
-  /** Connect a decoded buffer to the destination and start it gaplessly. */
+  /** Connect a decoded buffer through the master gain and start it gaplessly. */
   private scheduleBuffer(context: AudioContextLike, buffer: AudioBuffer): void {
     const source = context.createBufferSource();
     source.buffer = buffer;
-    source.connect(context.destination);
+    source.connect(this.gainNode as unknown as AudioNode);
+
+    // A previous stop() faded the gain to silence; bring it back to the
+    // user's level for the new utterance.
+    if (this.fadePending) {
+      this.fadePending = false;
+      this.applyGain();
+    }
 
     // Chain start time from the running playhead. Never schedule in the past:
     // if the queue drained the playhead may lag behind currentTime.
@@ -313,10 +414,14 @@ export class LiveVoiceAudioPlayer {
   }
 
   /**
-   * Immediately halt playback and clear the queue (barge-in / interrupt).
+   * Halt playback and clear the queue (barge-in / interrupt).
    *
-   * Stops every scheduled source, drops the playhead, and resolves any pending
-   * `waitUntilDrained()` callers — a flushed queue counts as drained.
+   * The master gain ramps to silence over {@link STOP_FADE_OUT_SECONDS} and
+   * every scheduled source is halted at the end of the ramp — an immediate
+   * `stop()`/`disconnect()` produces an audible click. Sources whose start
+   * time lies beyond the fade window simply never sound. The queue is
+   * dropped, the playhead reset, and any pending `waitUntilDrained()` callers
+   * resolve — a flushed queue counts as drained.
    *
    * Bumping {@link generation} invalidates any in-flight container decode so a
    * later-resolving `decodeAudioData` is discarded instead of scheduling the
@@ -326,16 +431,28 @@ export class LiveVoiceAudioPlayer {
    */
   stop(): void {
     this.generation += 1;
-    for (const source of this.activeSources) {
-      // Detach the handler first so stop() doesn't re-enter handleSourceEnded
-      // mid-iteration as we mutate the set.
-      source.onended = null;
-      try {
-        source.stop();
-      } catch {
-        // Already stopped or never started — safe to ignore.
+    const context = this.context;
+    if (context && this.gainNode && this.activeSources.size > 0) {
+      const now = context.currentTime;
+      const stopAt = now + STOP_FADE_OUT_SECONDS;
+      const gain = this.gainNode.gain;
+      // Pin the ramp's start value first — linearRampToValueAtTime ramps from
+      // the previous scheduled event, which may be far in the past.
+      gain.cancelScheduledValues(now);
+      gain.setValueAtTime(this.effectiveGain, now);
+      gain.linearRampToValueAtTime(0, stopAt);
+      this.fadePending = true;
+      this.fadeEndsAtMs = Date.now() + STOP_FADE_OUT_SECONDS * 1000;
+      for (const source of this.activeSources) {
+        // Detach the handler first so stop() doesn't re-enter
+        // handleSourceEnded mid-iteration as we mutate the set.
+        source.onended = null;
+        try {
+          source.stop(stopAt);
+        } catch {
+          // Already stopped or never started — safe to ignore.
+        }
       }
-      source.disconnect();
     }
     this.activeSources.clear();
     this.pendingContainerDecodes = 0;
@@ -362,6 +479,10 @@ export class LiveVoiceAudioPlayer {
   /**
    * Release the underlying `AudioContext`. Implicitly stops playback first.
    *
+   * If a stop-fade is still in flight, closing is deferred until it finishes —
+   * closing the context hard-cuts output, which is exactly the click the fade
+   * exists to avoid.
+   *
    * Idempotent and safe to call when the context was never created or is
    * already closed: only a context this player owns is closed, and the field is
    * cleared before awaiting so re-entrant/repeat calls are no-ops. The player
@@ -371,13 +492,25 @@ export class LiveVoiceAudioPlayer {
     this.stop();
     const context = this.context;
     this.context = null;
-    if (context) await context.close();
+    this.gainNode = null;
+    this.fadePending = false;
+    if (!context) return;
+    const fadeRemainingMs = this.fadeEndsAtMs - Date.now();
+    if (fadeRemainingMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, fadeRemainingMs));
+    }
+    await context.close();
   }
 
   private ensureContext(): AudioContextLike {
     if (!this.context) {
       this.context = this.createContext();
       this.playheadTime = 0;
+      this.fadePending = false;
+      const gainNode = this.context.createGain();
+      gainNode.gain.value = this.effectiveGain;
+      gainNode.connect(this.context.destination);
+      this.gainNode = gainNode;
     }
     return this.context;
   }

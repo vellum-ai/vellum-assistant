@@ -51,6 +51,9 @@ export const COMMAND_EVENT = "vellum:command";
 // Status
 export const STATUS_CONNECTION = "vellum:status:connection";
 
+// Voice mode
+export const VOICE_SET_STATE = "vellum:voice:state";
+
 // Icon / avatar
 export const ICON_SET_AVATAR = "vellum:icon:setAvatar";
 

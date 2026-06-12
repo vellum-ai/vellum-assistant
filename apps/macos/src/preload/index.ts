@@ -26,6 +26,7 @@ import type {
   UpdateState,
   VellumBridge,
   VellumCommand,
+  VoiceModeState,
 } from "@vellumai/ipc-contract";
 
 export type {
@@ -53,6 +54,7 @@ export type {
   UpdateState,
   VellumBridge,
   VellumCommand,
+  VoiceModeState,
 };
 
 const notImplemented = (name: string) => (): Promise<never> =>
@@ -252,6 +254,11 @@ const bridge: VellumBridge = {
   status: {
     setConnection: (status: AssistantStatus): void => {
       ipcRenderer.send("vellum:status:connection", status);
+    },
+  },
+  voice: {
+    setState: (state: VoiceModeState): void => {
+      ipcRenderer.send("vellum:voice:state", state);
     },
   },
   icon: {

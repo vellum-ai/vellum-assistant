@@ -1,20 +1,23 @@
 /**
- * `LiveVoiceButton` — composer control that toggles a live-voice conversation.
+ * `LiveVoiceButton` — composer control that toggles voice mode.
  *
  * Distinct from the dictation {@link import("./voice-input-button").VoiceInputButton}:
  * that one records a single utterance and drops a transcript into the composer,
- * while this one opens a full-duplex live-voice session via {@link useLiveVoice}
- * (mic streaming + TTS playback + barge-in). The button is gated behind the
- * `voice-mode` assistant flag and renders nothing when the flag is off.
+ * while this one runs the voice-mode conversation loop via {@link useVoiceMode}
+ * (mic streaming + TTS playback + barge-in + auto-listen between turns). The
+ * button is gated behind the `voice-mode` assistant flag and renders nothing
+ * when the flag is off.
  *
- * Appearance reflects the {@link useLiveVoice} session phase:
- *   - `idle`/`failed`     → mic icon, click to start
- *   - `connecting`        → spinning loader, disabled (token mint / socket open)
- *   - any other (active)  → stop-circle icon, click to stop; the live
- *                           `inputAmplitude` drives a subtle pulse so the user
- *                           sees the mic is hearing them.
+ * Appearance / click behavior follow the mode state:
+ *   - `off`          → mic icon, click activates the mode (idle → listening)
+ *   - `speaking`     → mic icon, click interrupts the response and listens
+ *                      again (the LUM-1969 "mic button mid-playback" path)
+ *   - any other      → stop-circle icon, click turns the mode off; while
+ *                      listening the live `inputAmplitude` drives a subtle
+ *                      pulse so the user sees the mic is hearing them.
  *
- * Wiring into the composer happens in a later PR; this is the standalone control.
+ * The session-level `connecting` phase (sub-second token mint / socket open)
+ * shows a spinner so a click can't race the handshake.
  */
 
 import { Loader2, Mic, StopCircle } from "lucide-react";
@@ -22,13 +25,14 @@ import { useCallback } from "react";
 
 import { Button } from "@vellumai/design-library";
 
-import { useLiveVoice } from "@/domains/chat/voice/live-voice/use-live-voice";
+import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { useVoiceMode } from "@/domains/chat/voice/live-voice/use-voice-mode";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 interface LiveVoiceButtonProps {
-  /** Assistant whose live-voice channel the session attaches to. */
+  /** Assistant whose live-voice channel the conversation attaches to. */
   assistantId: string;
-  /** Optional conversation to continue inside the session. */
+  /** Optional conversation to continue inside the voice conversation. */
   conversationId?: string;
   /** Disable the control (e.g. while the composer is otherwise busy). */
   disabled?: boolean;
@@ -39,36 +43,47 @@ export function LiveVoiceButton({
   conversationId,
   disabled = false,
 }: LiveVoiceButtonProps) {
-  const voiceMode = useAssistantFeatureFlagStore.use.voiceMode();
-  const { state, inputAmplitude, start, stop } = useLiveVoice();
+  const voiceModeFlag = useAssistantFeatureFlagStore.use.voiceMode();
+  const { state, inputAmplitude, activate, deactivate, interrupt } =
+    useVoiceMode({ assistantId, conversationId });
 
-  const connecting = state === "connecting";
-  // Anything past connecting (listening/transcribing/thinking/speaking/ending)
-  // means a session is live and the button acts as a stop control.
-  const active =
-    state !== "idle" && state !== "failed" && state !== "connecting";
+  // The session-level connecting phase is the only window where a click has
+  // nothing meaningful to do (the mode is on but the socket isn't up yet).
+  const sessionState = useLiveVoiceStore.use.state();
+  const connecting = state !== "off" && sessionState === "connecting";
+
+  const active = state !== "off";
+  const speaking = state === "speaking";
 
   const handleClick = useCallback(() => {
     if (connecting) return;
-    if (active) {
-      // An active session must always be stoppable, even if the parent has
-      // raised `disabled` in the meantime — otherwise the user is stuck with a
-      // live mic/socket until some automatic teardown.
-      void stop();
-    } else {
-      // Only the start path honours the external `disabled` prop.
-      if (disabled) return;
-      void start(assistantId, conversationId);
+    if (speaking) {
+      // Mid-playback the mic button is the interrupt: playback stops and the
+      // mode goes straight back to listening.
+      interrupt();
+      return;
     }
-  }, [active, connecting, disabled, start, stop, assistantId, conversationId]);
+    if (active) {
+      // An active mode must always be stoppable, even if the parent has
+      // raised `disabled` in the meantime — otherwise the user is stuck with
+      // a live mic until some automatic teardown.
+      void deactivate();
+      return;
+    }
+    // Only the start path honours the external `disabled` prop.
+    if (disabled) return;
+    void activate();
+  }, [active, connecting, deactivate, disabled, interrupt, activate, speaking]);
 
-  if (!voiceMode) return null;
+  if (!voiceModeFlag) return null;
 
   const label = connecting
-    ? "Connecting live voice"
-    : active
-      ? "Stop voice mode"
-      : "Start voice mode";
+    ? "Connecting voice mode"
+    : speaking
+      ? "Interrupt and speak"
+      : active
+        ? "Stop voice mode"
+        : "Start voice mode";
 
   return (
     <Button
@@ -76,14 +91,14 @@ export function LiveVoiceButton({
       iconOnly={
         connecting ? (
           <Loader2 className="animate-spin" strokeWidth={2} />
-        ) : active ? (
+        ) : active && !speaking ? (
           <StopCircle strokeWidth={2} />
         ) : (
           <Mic strokeWidth={2} />
         )
       }
       onClick={handleClick}
-      // An active session is always stoppable; the external `disabled` prop
+      // An active mode is always stoppable; the external `disabled` prop
       // only gates the start path. `connecting` stays disabled/busy.
       disabled={connecting || (!active && disabled)}
       aria-label={label}

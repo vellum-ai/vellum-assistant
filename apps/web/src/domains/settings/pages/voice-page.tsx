@@ -38,8 +38,13 @@ import {
     getPreferredInputDeviceId,
 } from "@/utils/voice-input-device";
 import { canConfigureFnPushToTalk } from "@/runtime/hotkey";
-
-const LS_CONVERSATION_TIMEOUT = "vellum:voice:conversationTimeoutSeconds";
+import { LS_CONVERSATION_TIMEOUT } from "@/utils/voice-conversation-timeout";
+import {
+    getTtsMuted,
+    getTtsVolume,
+    setTtsMuted,
+    setTtsVolume,
+} from "@/utils/tts-output-settings";
 
 const PTT_PRESETS: ReadonlyArray<{ label: string; activator: PTTActivator }> = [
   {
@@ -82,6 +87,7 @@ export function VoicePage() {
     <div className="flex flex-col gap-6">
       <SpeechServicesBanner />
       <MicrophoneCard />
+      <SpeechOutputCard />
       <PushToTalkCard />
       <ConversationTimeoutCard />
     </div>
@@ -216,6 +222,54 @@ function MicrophoneCard() {
             </span>
           </div>
         )}
+      </div>
+    </DetailCard>
+  );
+}
+
+function SpeechOutputCard() {
+  const [volume, setVolume] = useState<number>(() => getTtsVolume());
+  const [muted, setMuted] = useState<boolean>(() => getTtsMuted());
+
+  // Writes go through the shared setters so an active voice conversation
+  // hears the change live (the playback path watches these keys).
+  const handleVolumeChange = useCallback((next: number) => {
+    setVolume(next);
+    setTtsVolume(next);
+  }, []);
+
+  const handleMutedChange = useCallback((next: boolean) => {
+    setMuted(next);
+    setTtsMuted(next);
+  }, []);
+
+  return (
+    <DetailCard
+      title="Speech Output"
+      subtitle="Volume of the assistant's spoken responses in voice conversations."
+    >
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-3">
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={volume}
+            onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
+            className="h-1 w-48 cursor-pointer"
+            disabled={muted}
+            aria-label="Speech output volume"
+          />
+          <span className="tabular-nums text-body-small-default text-[var(--content-tertiary)]">
+            {Math.round(volume * 100)}%
+          </span>
+        </div>
+        <Toggle
+          checked={muted}
+          onChange={handleMutedChange}
+          label="Mute spoken responses"
+        />
       </div>
     </DetailCard>
   );

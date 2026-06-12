@@ -54,24 +54,25 @@ mock.module("@/stores/assistant-feature-flag-store", () => ({
   },
 }));
 
-// Local mirror of the live-voice session phases this test exercises. Kept as a
-// narrow union (not an import from the `voice` domain) so the `chat` test stays
-// free of cross-domain coupling — the composer only ever distinguishes idle
-// from non-idle, so the precise phase taxonomy is irrelevant here.
+// Local mirrors of the live-voice session phases / voice-mode states this
+// test exercises. Kept as narrow unions (not imports from the `voice` domain)
+// so the `chat` test stays free of cross-domain coupling — the composer only
+// ever distinguishes off from non-off, so the precise taxonomy is irrelevant
+// here.
 type MockLiveVoiceState = "idle" | "connecting" | "listening" | "failed";
+type MockVoiceModeState = "off" | "idle" | "listening" | "speaking";
 
 let mockLiveVoiceState: MockLiveVoiceState = "idle";
+let mockVoiceModeState: MockVoiceModeState = "off";
 let mockLivePartial = "";
 let mockLiveFinal = "";
 let mockLiveAssistant = "";
-const liveStartSpy = mock(
-  async (_assistantId: string, _conversationId?: string) => {},
-);
-const liveStopSpy = mock(async () => {});
-// The composer reads session state through the store's per-field selectors
-// (`useLiveVoiceStore.use.state()` etc.), so mock the store rather than the
-// `useLiveVoice` controller. `LiveVoiceButton` is the only `useLiveVoice`
-// consumer, and it is mocked separately below.
+const voiceModeActivateSpy = mock(async () => {});
+const voiceModeDeactivateSpy = mock(async () => {});
+const voiceModeInterruptSpy = mock(() => {});
+// The composer reads transcripts through the session store's per-field
+// selectors and activity through the voice-mode store, so mock both stores.
+// `LiveVoiceButton` consumes the `useVoiceMode` controller, mocked below.
 mock.module("@/domains/chat/voice/live-voice/live-voice-store", () => ({
   useLiveVoiceStore: {
     use: {
@@ -82,16 +83,22 @@ mock.module("@/domains/chat/voice/live-voice/live-voice-store", () => ({
     },
   },
 }));
-mock.module("@/domains/chat/voice/live-voice/use-live-voice", () => ({
-  useLiveVoice: () => ({
-    state: mockLiveVoiceState,
-    partialTranscript: mockLivePartial,
-    finalTranscript: mockLiveFinal,
-    assistantTranscript: mockLiveAssistant,
-    inputAmplitude: 0,
+mock.module("@/domains/chat/voice/live-voice/voice-mode-store", () => ({
+  useVoiceModeStore: {
+    use: {
+      state: () => mockVoiceModeState,
+    },
+  },
+}));
+mock.module("@/domains/chat/voice/live-voice/use-voice-mode", () => ({
+  useVoiceMode: () => ({
+    state: mockVoiceModeState,
     error: null,
-    start: liveStartSpy,
-    stop: liveStopSpy,
+    autoDeactivated: false,
+    inputAmplitude: 0,
+    activate: voiceModeActivateSpy,
+    deactivate: voiceModeDeactivateSpy,
+    interrupt: voiceModeInterruptSpy,
   }),
 }));
 
@@ -130,13 +137,15 @@ function resetLiveVoiceMocks() {
   mockIsElectron = false;
   mockVoiceMode = false;
   mockLiveVoiceState = "idle";
+  mockVoiceModeState = "off";
   mockLivePartial = "";
   mockLiveFinal = "";
   mockLiveAssistant = "";
   mockVoicePhase = "idle";
   setAudioLevelSpy.mockClear();
-  liveStartSpy.mockClear();
-  liveStopSpy.mockClear();
+  voiceModeActivateSpy.mockClear();
+  voiceModeDeactivateSpy.mockClear();
+  voiceModeInterruptSpy.mockClear();
 }
 
 // Imported after the mocks so the component (and its transitive flag-store /
@@ -705,9 +714,10 @@ describe("ChatComposer — live-voice integration", () => {
   });
 
   test("active session disables dictation (mutual exclusion)", () => {
-    // GIVEN a live-voice session is listening
+    // GIVEN voice mode is listening
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockVoiceMode = true;
+    mockVoiceModeState = "listening";
     mockLiveVoiceState = "listening";
 
     // WHEN the composer renders
@@ -723,9 +733,10 @@ describe("ChatComposer — live-voice integration", () => {
   });
 
   test("active session surfaces user + assistant transcripts", () => {
-    // GIVEN a listening session with partial speech and a streaming reply
+    // GIVEN a listening conversation with partial speech and a streaming reply
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockVoiceMode = true;
+    mockVoiceModeState = "listening";
     mockLiveVoiceState = "listening";
     mockLivePartial = "what is the";
     mockLiveAssistant = "Let me check";
@@ -740,19 +751,20 @@ describe("ChatComposer — live-voice integration", () => {
   });
 
   test("active session stays stoppable even when the composer is busy", () => {
-    // GIVEN a live session AND the composer is otherwise disabled
+    // GIVEN an active voice conversation AND the composer is otherwise disabled
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockVoiceMode = true;
+    mockVoiceModeState = "listening";
     mockLiveVoiceState = "listening";
 
     // WHEN the composer renders with typingDisabled raised
     const { getByLabelText } = renderVoiceComposer({ typingDisabled: true });
 
-    // THEN the stop control is still actionable and clicking it stops
+    // THEN the stop control is still actionable and clicking it deactivates
     const stop = getByLabelText("Stop voice mode") as HTMLButtonElement;
     expect(stop.disabled).toBe(false);
     fireEvent.click(stop);
-    expect(liveStopSpy).toHaveBeenCalledTimes(1);
+    expect(voiceModeDeactivateSpy).toHaveBeenCalledTimes(1);
   });
 
   test("flag ON but no transcript content: surface stays empty when idle", () => {
@@ -808,9 +820,11 @@ describe("ChatComposer — live-voice integration", () => {
   });
 
   test("failed live-voice state is inactive: dictation re-enabled, no transcript surface", () => {
-    // GIVEN the flag is on and a live-voice start attempt has failed
+    // GIVEN the flag is on and a voice-mode start attempt has failed (the
+    // mode turned itself off; the session store is left in `failed`)
     useTurnStore.setState(INITIAL_TURN_STATE);
     mockVoiceMode = true;
+    mockVoiceModeState = "off";
     mockLiveVoiceState = "failed";
 
     // WHEN the composer renders (dictation idle)

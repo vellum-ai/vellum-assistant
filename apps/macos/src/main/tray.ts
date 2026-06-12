@@ -26,6 +26,7 @@ import {
   type AssistantStatus,
 } from "./status";
 import { invalidateIconCache, statusFrames } from "./status-icon";
+import { getVoiceState, onVoiceStateChange, voiceMenuTitle } from "./voice-state";
 import { readOnboardingActive } from "./window-state";
 
 /**
@@ -119,8 +120,9 @@ const buildTrayMenu = (handlers: TrayHandlers, status: AssistantStatus): Menu =>
   const items: Electron.MenuItemConstructorOptions[] = [
     {
       // Status line, matching the Swift status menu's header. Disabled so
-      // it reads as a label, not an action.
-      label: statusMenuTitle(status),
+      // it reads as a label, not an action. An active voice conversation
+      // takes over the line (listening / thinking / speaking).
+      label: tooltipTitle(status),
       enabled: false,
     },
   ];
@@ -343,12 +345,17 @@ const stopPulse = (): void => {
  * (see `installTray`), so it reflects the current status without rebuilding
  * here on every tick.
  */
+// An active voice conversation owns the tooltip / menu header; otherwise the
+// assistant connection status does.
+const tooltipTitle = (status: AssistantStatus): string =>
+  voiceMenuTitle(getVoiceState()) ?? statusMenuTitle(status);
+
 const applyStatus = (status: AssistantStatus): void => {
   const tray = trayInstance;
   if (!tray) return;
 
   stopPulse();
-  tray.setToolTip(statusMenuTitle(status));
+  tray.setToolTip(tooltipTitle(status));
 
   const frames = statusFrames(status);
   tray.setImage(frames[0]!);
@@ -410,6 +417,11 @@ export const installTray = (handlers: TrayHandlers): void => {
   applyStatus(initialStatus);
   const unsubscribeStatus = onStatusChange(applyStatus);
   const unsubscribeAvatar = onAvatarChange(refreshIcon);
+  // Voice-mode transitions refresh only the tooltip line — going through
+  // applyStatus would needlessly restart the thinking pulse mid-cycle.
+  const unsubscribeVoice = onVoiceStateChange(() => {
+    trayInstance?.setToolTip(tooltipTitle(getStatus()));
+  });
   nativeTheme.on("updated", refreshIcon);
 
   // Explicit destroy on quit. In production the OS releases the
@@ -421,6 +433,7 @@ export const installTray = (handlers: TrayHandlers): void => {
     stopPulse();
     unsubscribeStatus();
     unsubscribeAvatar();
+    unsubscribeVoice();
     nativeTheme.removeListener("updated", refreshIcon);
     trayInstance?.destroy();
     trayInstance = null;

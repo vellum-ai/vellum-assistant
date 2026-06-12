@@ -43,6 +43,7 @@ import type {
   UpdateState,
   UpdateStatus,
   VellumCommand,
+  VoiceModeState,
 } from "@vellumai/ipc-contract";
 
 export type {
@@ -72,6 +73,7 @@ export type {
   UpdateState,
   UpdateStatus,
   VellumCommand,
+  VoiceModeState,
 };
 
 // Legacy aliases — existing consumers import these `Electron`-prefixed names.
@@ -158,6 +160,9 @@ declare global {
       };
       status?: {
         setConnection(status: AssistantStatus): void;
+      };
+      voice?: {
+        setState(state: VoiceModeState): void;
       };
       icon?: {
         setAvatar(png: Uint8Array | null): void;

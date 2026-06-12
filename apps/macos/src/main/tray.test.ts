@@ -167,7 +167,19 @@ mock.module("./status", () => ({
   PULSE_FRAME_INTERVAL_MS: 80,
 }));
 
+// The real `./voice-state` is used (its state machine is the integration
+// under test for the tooltip override); only its `./ipc` boundary is stubbed
+// so importing it never touches `ipcMain`. The stub matches the shape
+// `status.test.ts` leaks when co-run, keeping the registry consistent.
+mock.module("./ipc", () => ({
+  on: () => {},
+  handle: () => {},
+}));
+
 const { installTray, __resetForTesting } = await import("./tray");
+const { setVoiceState, __resetForTesting: resetVoiceState } = await import(
+  "./voice-state"
+);
 
 const handlers = {
   toggleMainWindow: mock(() => undefined),
@@ -194,6 +206,7 @@ beforeEach(() => {
   appQuitMock.mockClear();
   currentStatus = "idle";
   statusListeners.clear();
+  resetVoiceState();
   intervalCallback = null;
   clearIntervalMock.mockClear();
   globalThis.setInterval = ((cb: () => void) => {
@@ -225,6 +238,23 @@ describe("installTray", () => {
     const tray = trays[0];
     // Constructed with the idle frame; tooltip reflects the idle title.
     expect(statusFramesMock).toHaveBeenCalledWith("idle");
+    expect(tray?.setToolTip).toHaveBeenLastCalledWith("title:idle");
+  });
+
+  test("an active voice conversation owns the tooltip until it turns off", () => {
+    installTray(handlers);
+    const tray = trays[0];
+
+    setVoiceState("listening");
+    expect(tray?.setToolTip).toHaveBeenLastCalledWith(
+      "Assistant is listening…",
+    );
+
+    setVoiceState("speaking");
+    expect(tray?.setToolTip).toHaveBeenLastCalledWith("Assistant is speaking…");
+
+    // Voice mode off → the assistant status line takes the tooltip back.
+    setVoiceState("off");
     expect(tray?.setToolTip).toHaveBeenLastCalledWith("title:idle");
   });
 

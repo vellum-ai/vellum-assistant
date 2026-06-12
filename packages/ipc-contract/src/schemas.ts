@@ -15,13 +15,23 @@
  */
 import { z } from "zod";
 
-import { ASSISTANT_STATUSES, NOTIFICATION_CATEGORIES } from "./types";
+import {
+  ASSISTANT_STATUSES,
+  NOTIFICATION_CATEGORIES,
+  VOICE_MODE_STATES,
+} from "./types";
 
 // ---------------------------------------------------------------------------
 // Status
 // ---------------------------------------------------------------------------
 
 export const assistantStatusSchema = z.enum(ASSISTANT_STATUSES);
+
+// ---------------------------------------------------------------------------
+// Voice mode
+// ---------------------------------------------------------------------------
+
+export const voiceModeStateSchema = z.enum(VOICE_MODE_STATES);
 
 // ---------------------------------------------------------------------------
 // Notifications

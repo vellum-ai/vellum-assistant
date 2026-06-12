@@ -65,6 +65,7 @@ import { installPermissionHandler } from "./permissions";
 import { installPermissionsService } from "./permissions-service";
 import { installPowerEvents } from "./power-events";
 import { installConnectivityIpc, installStatusIpc } from "./status";
+import { installVoiceStateIpc } from "./voice-state";
 import { installTextInsertionIpc } from "./textInsertion";
 import { installTray } from "./tray";
 import { hardenedWebPreferences } from "./windows";
@@ -121,6 +122,11 @@ if (app.isPackaged) {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 }
+
+// Voice-mode TTS playback is triggered by live-voice frames, not a user
+// gesture, so Chromium's autoplay policy would block the AudioContext from
+// starting. Must be set before app.whenReady().
+app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 
 // In prod, register `app://` as a "standard" + "secure" scheme so that fetch,
 // service workers, and same-origin policy treat it like https://.
@@ -367,6 +373,7 @@ app
     // initial render reflects any status the renderer publishes during
     // bootstrap rather than briefly showing the default idle dot.
     installStatusIpc();
+    installVoiceStateIpc();
     installEscapeMonitor();
     const lockfilePaths = resolveLockfilePaths(process.env);
     const runProbe = installConnectivityProbe(lockfilePaths);

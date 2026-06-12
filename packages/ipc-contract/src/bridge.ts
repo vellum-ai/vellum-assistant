@@ -39,6 +39,7 @@ import type {
   TextInsertionResult,
   UpdateState,
   VellumCommand,
+  VoiceModeState,
 } from "./types";
 
 export interface VellumBridge {
@@ -125,6 +126,9 @@ export interface VellumBridge {
   };
   status: {
     setConnection(status: AssistantStatus): void;
+  };
+  voice: {
+    setState(state: VoiceModeState): void;
   };
   icon: {
     setAvatar(png: Uint8Array | null): void;

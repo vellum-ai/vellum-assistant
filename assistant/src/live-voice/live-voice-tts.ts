@@ -6,6 +6,7 @@ import type {
   TtsSynthesisRequest,
   TtsUseCase,
 } from "../tts/types.js";
+import { redactTextForTts } from "./tts-redactor.js";
 
 export const DEFAULT_LIVE_VOICE_TTS_SAMPLE_RATE = 24_000;
 
@@ -98,7 +99,9 @@ export async function streamLiveVoiceTtsAudio(
   try {
     const result = await provider.synthesizeStream!(
       {
-        text: options.text,
+        // Strip credentials/PII before the text leaves the runtime — the TTS
+        // backend must never receive (or speak) unredacted secrets.
+        text: redactTextForTts(options.text),
         useCase: options.useCase ?? "phone-call",
         voiceId: options.voiceId,
         signal: options.signal,

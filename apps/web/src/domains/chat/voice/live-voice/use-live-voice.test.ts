@@ -25,15 +25,15 @@ mock.module("@/domains/chat/voice/live-voice/connection", () => ({
 import type {
   LiveVoiceChannelClient,
   LiveVoiceClientError,
-  LiveVoiceClientEventMap,
-  LiveVoiceClientEventName,
 } from "@/domains/chat/voice/live-voice/live-voice-client";
-import type {
-  LiveVoiceAudioCapture,
-  LiveVoiceAudioCaptureOptions,
-  LiveVoiceCaptureResult,
-} from "@/domains/chat/voice/live-voice/pcm-capture";
+import type { LiveVoiceAudioCapture } from "@/domains/chat/voice/live-voice/pcm-capture";
 import type { LiveVoiceAudioPlayer } from "@/domains/chat/voice/live-voice/tts-playback";
+import {
+  FakeCapture,
+  FakeClient,
+  FakePlayer,
+  pcmChunk,
+} from "@/domains/chat/voice/live-voice/test-fakes";
 
 // Import the controller + store *after* the connection mock is registered, so
 // the real connection.ts (which imports the generated SDK) never enters the
@@ -46,158 +46,23 @@ const { useLiveVoiceStore } = await import(
 );
 
 // ---------------------------------------------------------------------------
-// Fakes
-// ---------------------------------------------------------------------------
-
-class FakeClient {
-  connectArgs: { assistantId: string; conversationId?: string } | null = null;
-  sentAudio: ArrayBuffer[] = [];
-  pttReleaseCount = 0;
-  interruptCount = 0;
-  ended = false;
-  closed = false;
-
-  private handlers = new Map<
-    LiveVoiceClientEventName,
-    Set<(payload: never) => void>
-  >();
-
-  on<E extends LiveVoiceClientEventName>(
-    event: E,
-    handler: (payload: LiveVoiceClientEventMap[E]) => void,
-  ): () => void {
-    let set = this.handlers.get(event);
-    if (!set) {
-      set = new Set();
-      this.handlers.set(event, set);
-    }
-    set.add(handler as (payload: never) => void);
-    return () => set?.delete(handler as (payload: never) => void);
-  }
-
-  async connect(args: {
-    assistantId: string;
-    conversationId?: string;
-  }): Promise<void> {
-    this.connectArgs = args;
-  }
-
-  sendAudio(pcm: ArrayBuffer): void {
-    this.sentAudio.push(pcm);
-  }
-  pttRelease(): void {
-    this.pttReleaseCount++;
-  }
-  interrupt(): void {
-    this.interruptCount++;
-  }
-  end(): void {
-    this.ended = true;
-  }
-  close(): void {
-    this.closed = true;
-  }
-
-  /** Drive a server event to the controller's subscribed handlers. */
-  emit<E extends LiveVoiceClientEventName>(
-    event: E,
-    payload: LiveVoiceClientEventMap[E],
-  ): void {
-    for (const handler of this.handlers.get(event) ?? []) {
-      (handler as (payload: LiveVoiceClientEventMap[E]) => void)(payload);
-    }
-  }
-}
-
-class FakeCapture {
-  readonly onChunk: (buf: ArrayBuffer) => void;
-  readonly onAmplitude?: (amplitude: number) => void;
-
-  startCount = 0;
-  stopCount = 0;
-  shutdownCount = 0;
-  startResult: LiveVoiceCaptureResult = { ok: true };
-
-  constructor(options: LiveVoiceAudioCaptureOptions) {
-    this.onChunk = options.onChunk;
-    this.onAmplitude = options.onAmplitude;
-  }
-
-  async start(): Promise<LiveVoiceCaptureResult> {
-    this.startCount++;
-    return this.startResult;
-  }
-  async stop(): Promise<void> {
-    this.stopCount++;
-  }
-  async shutdown(): Promise<void> {
-    this.shutdownCount++;
-  }
-
-  /** Feed a captured PCM chunk to the controller. */
-  pushChunk(buf: ArrayBuffer): void {
-    this.onChunk(buf);
-  }
-  /** Feed an amplitude reading to the controller. */
-  pushAmplitude(amplitude: number): void {
-    this.onAmplitude?.(amplitude);
-  }
-}
-
-class FakePlayer {
-  enqueued: unknown[] = [];
-  stopCount = 0;
-  disposeCount = 0;
-  isPlaying = false;
-  private drainResolvers: Array<() => void> = [];
-
-  enqueue(chunk: unknown): void {
-    this.enqueued.push(chunk);
-    this.isPlaying = true;
-  }
-  stop(): void {
-    this.stopCount++;
-    this.isPlaying = false;
-    this.resolveDrain();
-  }
-  async dispose(): Promise<void> {
-    this.disposeCount++;
-    this.stop();
-  }
-  async waitUntilDrained(): Promise<void> {
-    if (!this.isPlaying) return;
-    await new Promise<void>((resolve) => this.drainResolvers.push(resolve));
-  }
-
-  /** Simulate playback finishing naturally. */
-  finishPlayback(): void {
-    this.isPlaying = false;
-    this.resolveDrain();
-  }
-  private resolveDrain(): void {
-    const resolvers = this.drainResolvers;
-    this.drainResolvers = [];
-    for (const resolve of resolvers) resolve();
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Harness
 // ---------------------------------------------------------------------------
 
-/** A PCM chunk of `ms` milliseconds at 16 kHz mono Int16. */
-function pcmChunk(ms: number): ArrayBuffer {
-  const samples = Math.round((16000 * ms) / 1000);
-  return new Int16Array(samples).buffer;
-}
 
-function renderController() {
+function renderController(
+  extraOptions: Omit<
+    Parameters<typeof useLiveVoice>[0] & object,
+    "createClient" | "createPlayer" | "createCapture"
+  > = {},
+) {
   const client = new FakeClient();
   const player = new FakePlayer();
   let capture!: FakeCapture;
 
   const view = renderHook(() =>
     useLiveVoice({
+      ...extraOptions,
       createClient: () => client as unknown as LiveVoiceChannelClient,
       createPlayer: () => player as unknown as LiveVoiceAudioPlayer,
       createCapture: (options) => {
@@ -589,5 +454,106 @@ describe("teardown", () => {
       await h.view.result.current.stop();
     });
     expect(h.view.result.current.state).toBe("idle");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Session end reporting (consumed by the voice-mode conversation loop)
+// ---------------------------------------------------------------------------
+
+describe("onSessionEnd", () => {
+  function recordingEnds() {
+    const ends: Array<{ reason: string; conversationId: string | null }> = [];
+    const h = renderController({
+      onSessionEnd: (reason, info) =>
+        ends.push({ reason, conversationId: info.conversationId }),
+    });
+    return { h, ends };
+  }
+
+  test("a completed turn reports 'completed' with the session's conversation", async () => {
+    const { h, ends } = recordingEnds();
+    await startListening(h);
+
+    await act(async () => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 3,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+      h.client.emit("ttsDone", { type: "tts_done", seq: 4, turnId: "t1" });
+      h.player.finishPlayback();
+      await Promise.resolve();
+    });
+
+    expect(ends).toEqual([{ reason: "completed", conversationId: "conv-1" }]);
+  });
+
+  test("the server-issued conversation id from `ready` is reported when start() had none", async () => {
+    const { h, ends } = recordingEnds();
+    await act(async () => {
+      await h.view.result.current.start("assistant-1");
+    });
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s1",
+        conversationId: "conv-from-server",
+      });
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await h.view.result.current.stop();
+    });
+    expect(ends).toEqual([
+      { reason: "stopped", conversationId: "conv-from-server" },
+    ]);
+  });
+
+  test("barge-in reports 'interrupted' exactly once", async () => {
+    const { h, ends } = recordingEnds();
+    await startListening(h);
+
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 3,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+      h.getCapture().pushAmplitude(0.2);
+    });
+
+    expect(ends).toEqual([{ reason: "interrupted", conversationId: "conv-1" }]);
+  });
+
+  test("a server error reports 'failed'", async () => {
+    const { h, ends } = recordingEnds();
+    await startListening(h);
+
+    act(() => {
+      h.client.emit("error", {
+        code: "stt_unavailable",
+        message: "no STT provider",
+      } as LiveVoiceClientError);
+    });
+
+    expect(ends).toEqual([{ reason: "failed", conversationId: "conv-1" }]);
+  });
+
+  test("unmount mid-session does not report an end", async () => {
+    const { h, ends } = recordingEnds();
+    await startListening(h);
+
+    h.view.unmount();
+
+    expect(ends).toEqual([]);
   });
 });

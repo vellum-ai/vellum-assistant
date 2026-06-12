@@ -18,9 +18,12 @@
  * (and the macOS reference) treat `ptt_release` as terminal: once released, the
  * session never re-accepts audio (sending more yields `invalid_audio_payload`).
  * So this controller does NOT keep one socket open across turns — after the
- * assistant finishes speaking it ends the session (→ idle), and the user starts
- * a fresh one for the next turn. Barge-in is the one case that reconnects
- * automatically (see below).
+ * assistant finishes speaking it ends the session (→ idle), and the user (or a
+ * higher-level controller) starts a fresh one for the next turn. Every ended
+ * session is reported through {@link UseLiveVoiceOptions.onSessionEnd} with a
+ * reason and the server-issued conversation id, which is how the voice-mode
+ * conversation loop (`useVoiceMode`) chains turns and reconnects after a
+ * barge-in.
  *
  * ## State transitions (one session = one turn)
  * `idle → connecting` (start) → `listening` (ready + capture started) →
@@ -39,10 +42,11 @@
  *
  * ## Barge-in
  * While `speaking`, a captured amplitude over {@link BARGE_IN_AMPLITUDE_THRESHOLD}
- * stops playback, sends `interrupt` (once per response), and ends the session
- * (→ idle) — the interrupted session is terminal on the runtime, so the user
- * starts a fresh session to respond. (Seamless reconnect-on-barge-in is a
- * follow-up.)
+ * stops playback (20ms fade), sends `interrupt` (once per response), and ends
+ * the session (→ idle) — the interrupted session is terminal on the runtime, so
+ * a fresh session is needed to respond. The end is reported as
+ * `onSessionEnd("interrupted", …)`; voice mode uses that to immediately open
+ * the next session so `speaking → listening` feels seamless.
  *
  * ## Automatic push-to-talk release
  * While `listening`, sustained speech (≥ {@link MINIMUM_SPEECH_DURATION_BEFORE_RELEASE_MS})
@@ -68,6 +72,11 @@ import {
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import {
+  getTtsMuted,
+  getTtsVolume,
+  watchTtsOutputSettings,
+} from "@/utils/tts-output-settings";
 
 // ---------------------------------------------------------------------------
 // Thresholds (mirror the macOS LiveVoiceChannelManager defaults)
@@ -89,6 +98,30 @@ const MINIMUM_SPEECH_DURATION_BEFORE_RELEASE_MS = 120;
 // Public API
 // ---------------------------------------------------------------------------
 
+/**
+ * Why a live-voice session ended. Lets a higher-level controller (voice mode)
+ * decide whether to chain a follow-up session:
+ *
+ * - `completed` — the assistant finished speaking and playback drained.
+ * - `interrupted` — barge-in stopped playback and interrupted the server.
+ * - `stopped` — the consumer called `stop()`.
+ * - `failed` — an error, `busy`, or unexpected transport close ended it.
+ */
+export type LiveVoiceSessionEndReason =
+  | "completed"
+  | "interrupted"
+  | "stopped"
+  | "failed";
+
+export interface LiveVoiceSessionEndInfo {
+  /**
+   * Conversation the session was attached to (from the server `ready` /
+   * `archived` frames), so a follow-up session can continue the same
+   * conversation. `null` when the session never reached `ready`.
+   */
+  conversationId: string | null;
+}
+
 export interface UseLiveVoiceResult {
   /** Current session phase. */
   state: LiveVoiceSessionState;
@@ -106,6 +139,12 @@ export interface UseLiveVoiceResult {
   start: (assistantId: string, conversationId?: string) => Promise<void>;
   /** End the session and release the mic, socket, and audio context. */
   stop: () => Promise<void>;
+  /**
+   * Interrupt the assistant mid-`speaking` (button-triggered barge-in): same
+   * path as the amplitude trigger — stop playback, send `interrupt`, end the
+   * session, report `onSessionEnd("interrupted")`. No-op outside `speaking`.
+   */
+  interrupt: () => void;
 }
 
 /** Injectable factories so tests can supply mock primitives. */
@@ -115,6 +154,15 @@ export interface UseLiveVoiceOptions {
     options: ConstructorParameters<typeof LiveVoiceAudioCapture>[0],
   ) => LiveVoiceAudioCapture;
   createPlayer?: () => LiveVoiceAudioPlayer;
+  /**
+   * Invoked exactly once per session, after the session's primitives are torn
+   * down, with the reason it ended. Read fresh from the latest options at
+   * fire time, so consumers may pass an inline function.
+   */
+  onSessionEnd?: (
+    reason: LiveVoiceSessionEndReason,
+    info: LiveVoiceSessionEndInfo,
+  ) => void;
 }
 
 /**
@@ -151,6 +199,16 @@ interface SessionContext {
   speechMs: number;
   /** Accumulated trailing silence (ms) after speech in the current utterance. */
   silenceMs: number;
+  /** Conversation id from the server `ready`/`archived` frames, if any. */
+  conversationId: string | null;
+  /**
+   * Report why this session ended to the consumer's `onSessionEnd`. At most
+   * one report fires per session (teardown paths can overlap, e.g. an
+   * interrupt racing a transport close).
+   */
+  notifySessionEnd: (reason: LiveVoiceSessionEndReason) => void;
+  /** Whether `notifySessionEnd` already fired for this session. */
+  endNotified: boolean;
 }
 
 /** Number of bytes per Int16 PCM sample. */
@@ -225,6 +283,7 @@ export function useLiveVoice(
     await session.player.dispose();
     await session.capture.shutdown();
     useLiveVoiceStore.getState().reset();
+    session.notifySessionEnd("stopped");
   }, []);
 
   const start = useCallback(
@@ -241,7 +300,16 @@ export function useLiveVoice(
 
       const opts = optionsRef.current;
       const client = (opts.createClient ?? (() => new LiveVoiceChannelClient()))();
-      const player = (opts.createPlayer ?? (() => new LiveVoiceAudioPlayer()))();
+      // The default player starts at the user's persisted TTS output
+      // preference; the watcher below keeps it live for the session.
+      const player = (
+        opts.createPlayer ??
+        (() =>
+          new LiveVoiceAudioPlayer({
+            volume: getTtsVolume(),
+            muted: getTtsMuted(),
+          }))
+      )();
 
       const session: SessionContext = {
         client,
@@ -256,7 +324,24 @@ export function useLiveVoice(
         releaseInFlight: false,
         speechMs: 0,
         silenceMs: 0,
+        conversationId: conversationId ?? null,
+        endNotified: false,
+        notifySessionEnd: (reason) => {
+          if (session.endNotified) return;
+          session.endNotified = true;
+          // Read the callback fresh so inline option objects stay current.
+          optionsRef.current.onSessionEnd?.(reason, {
+            conversationId: session.conversationId,
+          });
+        },
       };
+
+      session.unsubscribes.push(
+        watchTtsOutputSettings(() => {
+          player.setVolume(getTtsVolume());
+          player.setMuted(getTtsMuted());
+        }),
+      );
 
       const capture = (opts.createCapture ?? ((o) => new LiveVoiceAudioCapture(o)))({
         onChunk: (buf) => handleChunk(session, buf),
@@ -270,8 +355,11 @@ export function useLiveVoice(
         sessionRef.current === session && session.generation === generation;
 
       session.unsubscribes.push(
-        client.on("ready", () => {
+        client.on("ready", (frame) => {
           if (!live()) return;
+          // Capture the conversation the server attached/created so a
+          // follow-up session (voice mode's next turn) can continue it.
+          session.conversationId = frame.conversationId || session.conversationId;
           void startCapture(session, teardown);
         }),
         client.on("sttPartial", (frame) => {
@@ -324,9 +412,10 @@ export function useLiveVoice(
           if (!live()) return;
           void finishResponseAfterPlayback(session, teardown);
         }),
-        client.on("archived", () => {
+        client.on("archived", (frame) => {
           if (!live()) return;
-          // Persisted; nothing user-visible to do here.
+          // Persisted; keep the conversation id current for follow-up turns.
+          session.conversationId = frame.conversationId || session.conversationId;
         }),
         client.on("busy", () => {
           if (!live()) return;
@@ -342,6 +431,7 @@ export function useLiveVoice(
           // resets the store to idle.
           if (!live()) return;
           teardown();
+          session.notifySessionEnd("failed");
         }),
       );
 
@@ -349,6 +439,12 @@ export function useLiveVoice(
     },
     [teardown],
   );
+
+  const interrupt = useCallback(() => {
+    const session = sessionRef.current;
+    if (!session) return;
+    interruptIfSpeaking(session, teardown);
+  }, [teardown]);
 
   // Release everything if the consumer unmounts mid-session. teardown() also
   // resets the store to idle so a mid-session unmount doesn't strand it in a
@@ -364,6 +460,7 @@ export function useLiveVoice(
     error,
     start,
     stop,
+    interrupt,
   };
 }
 
@@ -487,6 +584,7 @@ function interruptIfSpeaking(
   session.player.stop();
   session.client.interrupt();
   teardown();
+  session.notifySessionEnd("interrupted");
 }
 
 /** First TTS frame of a response: reset playback flags for the new utterance. */
@@ -522,6 +620,7 @@ async function finishResponseAfterPlayback(
   // A barge-in mid-drain already reconnected a fresh session; don't tear it down.
   if (useLiveVoiceStore.getState().state !== "speaking") return;
   teardown();
+  session.notifySessionEnd("completed");
 }
 
 /** Fail the session: tear down primitives and surface the message. */
@@ -532,4 +631,5 @@ function finishWithError(
 ): void {
   teardown();
   useLiveVoiceStore.getState().fail(message);
+  session.notifySessionEnd("failed");
 }
