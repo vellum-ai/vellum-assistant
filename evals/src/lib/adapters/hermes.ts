@@ -139,6 +139,168 @@ export function selectProviderEnvFlags(
   return flags;
 }
 
+/**
+ * System CA bundle inside the Debian-based Hermes container. The egress
+ * jail copies the mitmproxy recording CA into
+ * `/usr/local/share/ca-certificates/` and runs `update-ca-certificates`,
+ * which regenerates this file to contain the public CA set **plus** the
+ * mitmproxy CA.
+ */
+export const HERMES_SYSTEM_CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt";
+
+/**
+ * Env flags pointing Hermes's Python TLS stack at the system CA bundle.
+ *
+ * Hermes is Python: the Anthropic/OpenAI SDKs use httpx, whose default
+ * verify context loads **certifi's** bundle and ignores the system trust
+ * store that the egress jail updates via `update-ca-certificates`. Without
+ * this, every model call fails the mitmproxy TLS handshake and Hermes
+ * retries until it times out (surfacing as "API call failed after N
+ * retries: Request timed out"). httpx honors `SSL_CERT_FILE`, so pointing
+ * it at the jail-augmented system bundle restores trust for both public
+ * hosts and the recording proxy; `SSL_CERT_DIR` covers OpenSSL-based
+ * tooling for the same reason.
+ *
+ * Set as `-e NAME=VALUE` on the daemon `docker run`. Each `hermes -z` turn
+ * runs via `docker exec`, which inherits the container's run-time env, and
+ * the bundle is read when the SSL context is built at request time — after
+ * the jail has installed the CA.
+ */
+export const HERMES_CA_TRUST_ENV_FLAGS = [
+  "-e",
+  `SSL_CERT_FILE=${HERMES_SYSTEM_CA_BUNDLE}`,
+  "-e",
+  "SSL_CERT_DIR=/etc/ssl/certs",
+] as const;
+
+/**
+ * Env var that disables Hermes's runtime "lazy dependency" installs
+ * (`/opt/hermes/tools/lazy_deps.py`). Hermes ships optional backends (web
+ * search, extra providers, messaging platforms) without their Python deps
+ * and `uv pip install`s them in-venv the first time a feature is used.
+ *
+ * That is fatal under the egress jail. The jail is fail-closed — iptables
+ * defaults to DROP and only the model + `platform.vellum.ai` hosts are
+ * allowlisted — so a runtime install's connections to PyPI
+ * (`files.pythonhosted.org`/`www.python.org`) and GitHub are silently
+ * dropped and hang on dead TCP for minutes. The turn that triggered the
+ * install hangs with them and eventually fails its retry budget,
+ * surfacing as "API call failed after N retries: Request timed out".
+ *
+ * Set on the daemon run-time env so every jailed `docker exec` turn
+ * inherits it: a lazy install then fails fast as `FeatureUnavailable`
+ * instead of hanging, so an unmet optional dep degrades gracefully rather
+ * than wedging the whole run. Provider SDKs the run genuinely needs are
+ * pre-installed before the jail closes — see `HERMES_PROVIDER_WARMUP_FEATURES`.
+ */
+export const HERMES_DISABLE_LAZY_INSTALLS_ENV_FLAGS = [
+  "-e",
+  "HERMES_DISABLE_LAZY_INSTALLS=1",
+] as const;
+
+/**
+ * Forwarded provider keys whose Hermes provider backend ships as a lazy
+ * dependency (not baked into the base image), mapped to the
+ * `lazy_deps.LAZY_DEPS` feature name we warm up while egress is still open.
+ *
+ * Only the native Anthropic SDK is lazy in `nousresearch/hermes-agent`;
+ * the OpenAI SDK (used for OpenAI and the OpenAI-compatible Google path)
+ * is pre-installed. So a forwarded `ANTHROPIC_API_KEY` is the one case
+ * that needs warming — without it Hermes tries to install `anthropic` on
+ * its first model call, after the jail has already blocked PyPI.
+ */
+export const HERMES_PROVIDER_WARMUP_FEATURES: Readonly<
+  Record<string, string>
+> = {
+  ANTHROPIC_API_KEY: "provider.anthropic",
+};
+
+/**
+ * The lazy-install feature names to warm up before the jail closes, given
+ * the set of provider keys this run forwards into the container. Mirrors
+ * `selectProviderEnvFlags` so warm-up and forwarding stay in lockstep.
+ */
+export function selectProviderWarmupFeatures(
+  env: Record<string, string | undefined>,
+  names: ReadonlyArray<string> = HERMES_PROVIDER_ENV_VARS,
+): string[] {
+  const features: string[] = [];
+  for (const name of names) {
+    const feature = HERMES_PROVIDER_WARMUP_FEATURES[name];
+    if (feature && env[name]) features.push(feature);
+  }
+  return features;
+}
+
+export interface HermesInferenceSelection {
+  provider: string;
+  model: string;
+}
+
+/**
+ * Inference provider + model to pin per forwarded provider key.
+ *
+ * Hermes's provider auto-resolution (`hermes_cli/auth.py::resolve_provider`)
+ * does **not** key off `ANTHROPIC_API_KEY`. With only that key present it
+ * falls through its priority list to the `"openrouter"` fallback and tries
+ * to reach `openrouter.ai` (plus a `models.dev` catalog probe) on every
+ * turn. The egress jail allowlists only the native provider hosts in
+ * `DEFAULT_MODEL_ALLOW_HOSTS` (api.anthropic.com / api.openai.com /
+ * generativelanguage.googleapis.com), so the Cloudflare-fronted openrouter
+ * probe is dropped and the turn hangs on dead TCP until it exhausts its
+ * retry budget — surfacing as "API call failed after N retries: Request
+ * timed out".
+ *
+ * Pinning the provider to the forwarded key's native backend keeps every
+ * call on an allowlisted host. Hermes requires a model alongside an explicit
+ * provider, so we pin one too; the values are the current flagship for each
+ * provider, matching the model the stock Vellum daemon uses, so vellum-bare
+ * and hermes-bare compare on the same model.
+ */
+export const HERMES_PROVIDER_INFERENCE: Readonly<
+  Record<string, HermesInferenceSelection>
+> = {
+  ANTHROPIC_API_KEY: { provider: "anthropic", model: "claude-sonnet-4-6" },
+  OPENAI_API_KEY: { provider: "openai", model: "gpt-5" },
+  GOOGLE_API_KEY: { provider: "gemini", model: "gemini-2.5-pro" },
+  GEMINI_API_KEY: { provider: "gemini", model: "gemini-2.5-pro" },
+};
+
+/**
+ * Resolve which provider + model to pin from the forwarded provider keys,
+ * returning the first match in `names` priority order (mirroring
+ * `selectProviderEnvFlags`). Returns `undefined` when no recognized key is
+ * set — Hermes then keeps its own configured defaults.
+ */
+export function selectInferenceSelection(
+  env: Record<string, string | undefined>,
+  names: ReadonlyArray<string> = HERMES_PROVIDER_ENV_VARS,
+): HermesInferenceSelection | undefined {
+  for (const name of names) {
+    const selection = HERMES_PROVIDER_INFERENCE[name];
+    if (selection && env[name]) return selection;
+  }
+  return undefined;
+}
+
+/**
+ * `-e` flags pinning Hermes's inference provider + model on the daemon
+ * `docker run` (read by every `hermes -z` turn, which inherits the
+ * container env). Both must be set together — Hermes rejects a provider
+ * override without an accompanying model.
+ */
+export function inferenceEnvFlags(
+  selection: HermesInferenceSelection | undefined,
+): string[] {
+  if (!selection) return [];
+  return [
+    "-e",
+    `HERMES_INFERENCE_PROVIDER=${selection.provider}`,
+    "-e",
+    `HERMES_INFERENCE_MODEL=${selection.model}`,
+  ];
+}
+
 export interface HermesAgentOptions {
   profile: Profile;
   testId: string;
@@ -277,6 +439,8 @@ export class HermesAgent implements BaseAgent {
   private readonly dockerImage: string;
   private readonly daemonArgs: ReadonlyArray<string>;
   private readonly providerEnvFlags: string[];
+  private readonly providerWarmupFeatures: string[];
+  private readonly inferenceSelection: HermesInferenceSelection | undefined;
   private readonly testId: string;
   private readonly containerName: string;
   private eventSink?: HermesEventQueue;
@@ -292,6 +456,14 @@ export class HermesAgent implements BaseAgent {
     this.dockerImage = opts.dockerImage ?? DEFAULT_HERMES_IMAGE;
     this.daemonArgs = opts.daemonArgs ?? DEFAULT_HERMES_DAEMON_ARGS;
     this.providerEnvFlags = selectProviderEnvFlags(
+      opts.processEnv ?? process.env,
+      opts.providerEnvNames,
+    );
+    this.providerWarmupFeatures = selectProviderWarmupFeatures(
+      opts.processEnv ?? process.env,
+      opts.providerEnvNames,
+    );
+    this.inferenceSelection = selectInferenceSelection(
       opts.processEnv ?? process.env,
       opts.providerEnvNames,
     );
@@ -329,6 +501,9 @@ export class HermesAgent implements BaseAgent {
           "--label",
           "evals.vellum.ai/species=hermes",
           ...this.providerEnvFlags,
+          ...inferenceEnvFlags(this.inferenceSelection),
+          ...HERMES_CA_TRUST_ENV_FLAGS,
+          ...HERMES_DISABLE_LAZY_INSTALLS_ENV_FLAGS,
           this.dockerImage,
           ...this.daemonArgs,
         ],
@@ -339,6 +514,8 @@ export class HermesAgent implements BaseAgent {
       );
       assertSuccess(create, `start Hermes container for ${this.profile.id}`);
       containerStarted = true;
+
+      await this.warmUpProviderDeps();
 
       this.jail = await applyDockerEgressJail(this.runner, {
         containerName: this.containerName,
@@ -375,6 +552,53 @@ export class HermesAgent implements BaseAgent {
           .catch(() => undefined);
       }
       throw err;
+    }
+  }
+
+  /**
+   * Install the provider SDKs this run needs before the egress jail closes.
+   *
+   * Hermes installs provider/tool backends lazily on first use via an
+   * in-venv install (`tools.lazy_deps.ensure`). The native Anthropic SDK is
+   * one such lazy dep, so a `hermes-bare` run keyed on `ANTHROPIC_API_KEY`
+   * would otherwise reach for PyPI on its first model call — which the
+   * fail-closed jail blocks, hanging the turn until it times out. We invoke
+   * Hermes's own installer here, while egress is still open, so it resolves
+   * the version Hermes pins itself (no hardcoding) into the hermes-owned
+   * venv. We run as `--user hermes` (the same unprivileged user `send`
+   * uses) so the installed files are owned by the user that imports them,
+   * and override the daemon's `HERMES_DISABLE_LAZY_INSTALLS=1` for just
+   * this exec so the warm-up install is permitted while jailed turns stay
+   * locked down.
+   */
+  private async warmUpProviderDeps(): Promise<void> {
+    for (const feature of this.providerWarmupFeatures) {
+      const warm = await this.runner.run(
+        "docker",
+        [
+          "exec",
+          "--user",
+          "hermes",
+          "--env",
+          `PATH=${EXEC_PATH}`,
+          "--env",
+          "PYTHONPATH=/opt/hermes",
+          "--env",
+          "HERMES_DISABLE_LAZY_INSTALLS=0",
+          this.containerName,
+          "/opt/hermes/.venv/bin/python3",
+          "-c",
+          `from tools.lazy_deps import ensure; ensure(${JSON.stringify(feature)})`,
+        ],
+        {
+          logPath: join(
+            runArtifacts(this.id).runDir,
+            `subprocess-warmup-${feature.replace(/\W+/g, "-")}.log`,
+          ),
+          logStep: `warmup-${feature}`,
+        },
+      );
+      assertSuccess(warm, `warm up Hermes provider dependency '${feature}'`);
     }
   }
 
