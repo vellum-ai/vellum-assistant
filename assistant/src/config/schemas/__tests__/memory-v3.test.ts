@@ -8,7 +8,7 @@ describe("MemoryV3ConfigSchema", () => {
     expect(parsed).toEqual({
       prune: { maxResidentBytes: 393216, targetResidentBytes: 262144 },
       hotSet: { k: 40, halfLifeDays: 14 },
-      freshSet: { k: 50 },
+      freshSet: { k: 100 },
       learnedEdges: {
         halfLifeDays: 30,
         minCount: 3,

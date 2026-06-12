@@ -76,7 +76,7 @@ export const MemoryV3FreshSetSchema = z
       .number({ error: "memory.v3.freshSet.k must be a number" })
       .int("memory.v3.freshSet.k must be an integer")
       .nonnegative("memory.v3.freshSet.k must be a non-negative integer")
-      .default(50)
+      .default(100)
       .describe(
         "Number of most-recently-modified pages included in the fresh-set lane (0 disables the lane). Sized to cover roughly the last day or two of page writes — the recency window conversations reference most.",
       ),
