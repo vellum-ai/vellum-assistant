@@ -254,7 +254,23 @@ describe("wakeLocalAssistantHost", () => {
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("/assistant/__local/wake");
     expect(init.method).toBe("POST");
-    expect(JSON.parse(init.body as string)).toEqual({ assistantId: "a-1" });
+    expect(JSON.parse(init.body as string)).toEqual({
+      assistantId: "a-1",
+      repairGuardian: false,
+    });
+  });
+
+  test("web/dev host forwards repairGuardian when the caller opts in", async () => {
+    const fetchMock = mock(async () => ({ json: async () => ({ ok: true }) }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await wakeLocalAssistantHost("a-1", { repairGuardian: true });
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({
+      assistantId: "a-1",
+      repairGuardian: true,
+    });
   });
 
   test("Electron host wakes through the bridge and never touches fetch", async () => {
@@ -266,7 +282,22 @@ describe("wakeLocalAssistantHost", () => {
     setElectronBridge({ wake });
 
     expect(await wakeLocalAssistantHost("a-1")).toEqual({ ok: true });
-    expect(wake).toHaveBeenCalledWith("a-1");
+    expect(wake).toHaveBeenCalledWith("a-1", undefined);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("Electron host forwards repairGuardian to the bridge", async () => {
+    const wake = mock(async () => ({ ok: true }));
+    const fetchMock = mock(async () => {
+      throw new Error("fetch must not run on the Electron branch");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    setElectronBridge({ wake });
+
+    expect(
+      await wakeLocalAssistantHost("a-1", { repairGuardian: true }),
+    ).toEqual({ ok: true });
+    expect(wake).toHaveBeenCalledWith("a-1", { repairGuardian: true });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
