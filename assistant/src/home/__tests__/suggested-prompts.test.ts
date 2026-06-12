@@ -9,10 +9,14 @@ let sidechainCalls = 0;
 // In-memory stand-in for the memory_checkpoints table so the cache
 // round-trips without a real database.
 const checkpointStore = new Map<string, string>();
+let checkpointWritesShouldThrow = false;
 
 mock.module("../../memory/checkpoints.js", () => ({
   getMemoryCheckpoint: (key: string) => checkpointStore.get(key) ?? null,
   setMemoryCheckpoint: (key: string, value: string) => {
+    if (checkpointWritesShouldThrow) {
+      throw new Error("synthetic checkpoint write failure");
+    }
     checkpointStore.set(key, value);
   },
   deleteMemoryCheckpoint: (key: string) => {
@@ -80,6 +84,7 @@ const {
 
 describe("getSuggestedPrompts", () => {
   afterEach(() => {
+    checkpointWritesShouldThrow = false;
     invalidateAssistantSuggestedPromptsCache();
     mockSidechainText = "";
     sidechainCalls = 0;
@@ -142,6 +147,19 @@ describe("getSuggestedPrompts", () => {
     // Cache is fresh — second refresh must not hit the LLM again.
     expect(await refreshAssistantSuggestedPrompts()).toBe(false);
     expect(sidechainCalls).toBe(1);
+  });
+
+  test("refresh reports false when the cache write fails", async () => {
+    mockSidechainText = JSON.stringify([
+      { label: "Do stuff", prompt: "Do stuff for me" },
+    ]);
+    checkpointWritesShouldThrow = true;
+
+    // The generation succeeded but nothing was cached, so the caller must
+    // not announce fresh content (clients would refetch into a cache miss
+    // and re-trigger generation on every Home load).
+    expect(await refreshAssistantSuggestedPrompts()).toBe(false);
+    expect(await getSuggestedPrompts()).toEqual([]);
   });
 
   test("refresh regenerates after invalidation", async () => {

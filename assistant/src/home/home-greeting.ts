@@ -80,8 +80,7 @@ export async function refreshPersonalizedGreeting(): Promise<boolean> {
 
     const text = result.text.trim();
     if (text) {
-      setCachedHomeGreeting(text);
-      return true;
+      return setCachedHomeGreeting(text);
     }
   } catch (err) {
     log.warn({ err }, "Failed to generate personalized home greeting");

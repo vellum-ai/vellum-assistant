@@ -64,12 +64,14 @@ function readCachedPrompts(): SuggestedPrompt[] | null {
   }
 }
 
-function writeCachedPrompts(prompts: SuggestedPrompt[]): void {
+function writeCachedPrompts(prompts: SuggestedPrompt[]): boolean {
   try {
     setMemoryCheckpoint(CHECKPOINT_KEY_JSON, JSON.stringify(prompts));
     setMemoryCheckpoint(CHECKPOINT_KEY_TIMESTAMP, String(Date.now()));
+    return true;
   } catch {
     // Cache write failure is non-fatal — the next refresh regenerates.
+    return false;
   }
 }
 
@@ -128,8 +130,10 @@ export async function refreshAssistantSuggestedPrompts(): Promise<boolean> {
     if (llmPrompts.length === 0) {
       return false;
     }
-    writeCachedPrompts(llmPrompts);
-    return true;
+    // Only report success when the cache write landed — otherwise the
+    // coordinator would publish home_feed_updated for content the next
+    // GET cannot serve, and every Home load would regenerate.
+    return writeCachedPrompts(llmPrompts);
   } catch (err) {
     log.warn({ err }, "Failed to refresh assistant suggested prompts");
     return false;
