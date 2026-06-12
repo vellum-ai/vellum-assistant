@@ -2934,7 +2934,9 @@ jobs:
 
   upload-electron-updates:
     needs: [extract-version, build-electron]
-    if: ${{ needs.build-electron.result == 'success' }}
+    # always() disables the implicit success(), which would always skip this
+    # job: one of build-electron's needs (publish-meta-prod/-staging) is skipped.
+    if: ${{ always() && !cancelled() && needs.build-electron.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
