@@ -159,6 +159,10 @@ export interface AccessRequestContextPayload {
   previousMemberStatus: string | null;
   /** Preview of the requester's original message (first ~200 chars). */
   messagePreview: string | null;
+  /** Slack-specific: user is from an external workspace (Slack Connect). */
+  isStranger?: boolean;
+  /** Slack-specific: user is a guest / restricted account. */
+  isRestricted?: boolean;
 }
 
 export interface GuardianChannelActivationPayload {

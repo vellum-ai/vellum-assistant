@@ -97,7 +97,22 @@ function buildAccessRequestBlocks(payload: Record<string, unknown>): unknown[] {
       : undefined,
   );
   if (sourceChannel) {
-    fields.push({ type: "mrkdwn", text: `*Channel:*\n${sourceChannel}` });
+    // For Slack, show the conversation context (DM vs channel link).
+    const conversationExternalId =
+      typeof payload.conversationExternalId === "string"
+        ? payload.conversationExternalId
+        : undefined;
+    let channelDisplay = sourceChannel;
+    if (sourceChannel === "slack" && conversationExternalId) {
+      // Slack channel IDs starting with C are public/private channels;
+      // D-prefixed IDs are DMs. Use <#C...> mrkdwn for clickable channel links.
+      if (/^C[A-Z0-9]+$/i.test(conversationExternalId)) {
+        channelDisplay = `Slack — <#${conversationExternalId}>`;
+      } else {
+        channelDisplay = "Slack — Direct message";
+      }
+    }
+    fields.push({ type: "mrkdwn", text: `*Source:*\n${channelDisplay}` });
   }
 
   const actorExternalId = nonEmpty(
@@ -130,6 +145,21 @@ function buildAccessRequestBlocks(payload: Record<string, unknown>): unknown[] {
           text: ":warning: This user was previously revoked.",
         },
       ],
+    });
+  }
+
+  // Trust signal warnings (Slack-specific)
+  const trustWarnings: string[] = [];
+  if (payload.isStranger === true) {
+    trustWarnings.push(":warning: External Slack user (not in this workspace)");
+  }
+  if (payload.isRestricted === true) {
+    trustWarnings.push(":warning: Guest / restricted account");
+  }
+  if (trustWarnings.length > 0) {
+    blocks.push({
+      type: "context",
+      elements: trustWarnings.map((text) => ({ type: "mrkdwn", text })),
     });
   }
 

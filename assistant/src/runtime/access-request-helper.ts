@@ -56,6 +56,10 @@ export interface AccessRequestParams {
   previousMemberStatus?: Exclude<ChannelStatus, "unverified">;
   /** Preview of the requester's original message, shown to the guardian. */
   messagePreview?: string;
+  /** Slack-specific: user is from an external workspace (Slack Connect). */
+  isStranger?: boolean;
+  /** Slack-specific: user is a guest / restricted account. */
+  isRestricted?: boolean;
 }
 
 export type AccessRequestResult =
@@ -92,6 +96,8 @@ export function notifyGuardianOfAccessRequest(
     actorUsername,
     previousMemberStatus,
     messagePreview,
+    isStranger,
+    isRestricted,
   } = params;
 
   if (!actorExternalId) {
@@ -238,6 +244,8 @@ export function notifyGuardianOfAccessRequest(
       guardianResolutionSource,
       previousMemberStatus: previousMemberStatus ?? null,
       messagePreview: messagePreview ?? null,
+      ...(isStranger !== undefined ? { isStranger } : {}),
+      ...(isRestricted !== undefined ? { isRestricted } : {}),
     },
     dedupeKey: `access-request:${canonicalRequest.id}`,
     onConversationCreated: (info) => {

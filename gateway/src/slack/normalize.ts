@@ -15,6 +15,8 @@ interface SlackUserInfo {
   timezone?: string;
   timezoneLabel?: string;
   timezoneOffsetSeconds?: number;
+  isStranger?: boolean;
+  isRestricted?: boolean;
 }
 
 export type SlackUserActorFields = Pick<
@@ -24,6 +26,8 @@ export type SlackUserActorFields = Pick<
   | "timezone"
   | "timezoneLabel"
   | "timezoneOffsetSeconds"
+  | "isStranger"
+  | "isRestricted"
 >;
 
 interface SlackChannelInfo {
@@ -156,6 +160,8 @@ export async function resolveSlackUser(
           tz?: string;
           tz_label?: string;
           tz_offset?: number;
+          is_stranger?: boolean;
+          is_restricted?: boolean;
           profile?: { display_name?: string; real_name?: string };
         };
       };
@@ -177,6 +183,9 @@ export async function resolveSlackUser(
           ? data.user.tz_offset
           : undefined;
 
+      const isStranger = data.user.is_stranger === true ? true : undefined;
+      const isRestricted = data.user.is_restricted === true ? true : undefined;
+
       const info: SlackUserInfo = {
         displayName,
         username,
@@ -185,6 +194,8 @@ export async function resolveSlackUser(
         ...(timezoneOffsetSeconds !== undefined
           ? { timezoneOffsetSeconds }
           : {}),
+        ...(isStranger !== undefined ? { isStranger } : {}),
+        ...(isRestricted !== undefined ? { isRestricted } : {}),
       };
       cacheSet(
         userInfoCache,
@@ -452,6 +463,12 @@ export function slackUserActorFields(
       : {}),
     ...(userInfo.timezoneOffsetSeconds !== undefined
       ? { timezoneOffsetSeconds: userInfo.timezoneOffsetSeconds }
+      : {}),
+    ...(userInfo.isStranger !== undefined
+      ? { isStranger: userInfo.isStranger }
+      : {}),
+    ...(userInfo.isRestricted !== undefined
+      ? { isRestricted: userInfo.isRestricted }
       : {}),
   };
 }
