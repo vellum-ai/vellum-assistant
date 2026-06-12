@@ -11,7 +11,9 @@
 
 import type { QueryClient } from "@tanstack/react-query";
 
-import type { GroupsGetResponse } from "@/generated/daemon/types.gen";
+import type { GroupsGetData } from "@/generated/daemon/types.gen";
+import { groupsGetSetQueryData } from "@/generated/daemon/@tanstack/react-query.gen";
+import type { Options } from "@/generated/daemon/sdk.gen";
 import type { Conversation, ConversationGroup } from "@/types/conversation-types";
 import {
   isBackgroundConversation,
@@ -28,7 +30,6 @@ import {
   ConversationNotFoundError,
   fetchConversationDetail,
 } from "@/utils/fetch-conversation-detail";
-import { conversationGroupsQueryKey } from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------
 // Conversation cache helpers
@@ -250,15 +251,13 @@ function updateGroupsCache(
   assistantId: string | null,
   updater: (groups: ConversationGroup[]) => ConversationGroup[],
 ): void {
-  queryClient.setQueryData<GroupsGetResponse>(
-    conversationGroupsQueryKey(assistantId),
-    (prev) => {
-      const list = prev?.groups ?? [];
-      const next = updater(list);
-      if (next === list) return prev;
-      return { ...prev, groups: next };
-    },
-  );
+  const opts: Options<GroupsGetData> = { path: { assistant_id: assistantId ?? "" } };
+  groupsGetSetQueryData(queryClient, opts, (prev) => {
+    const list = prev?.groups ?? [];
+    const next = updater(list);
+    if (next === list) return prev;
+    return { ...prev, groups: next };
+  });
 }
 
 export function appendGroup(

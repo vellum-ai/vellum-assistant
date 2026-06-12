@@ -35,6 +35,11 @@
 // conversations left by a mid-run crash are swept by
 // `memory-retrospective-startup-cleanup.ts`.
 
+import {
+  type InterfaceId,
+  isInteractiveInterface,
+  parseInterfaceId,
+} from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/types.js";
 import { extractTurnContextTimestamp } from "../context/compactor.js";
@@ -47,6 +52,7 @@ import {
   getAssistantName,
   resolveUserName,
 } from "../daemon/identity-helpers.js";
+import type { WakeToolContextPin } from "../daemon/tool-setup-types.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 import { formatMessageSliceForTranscript } from "../export/transcript-formatter.js";
 import { resolveUserSlug } from "../prompts/persona-resolver.js";
@@ -62,7 +68,6 @@ import {
   findMostRecentRetrospectiveFor,
   forkConversation,
   getConversation,
-  getMessages,
   getMessagesAfter,
   resolveOverrideProfile,
 } from "./conversation-crud.js";
@@ -77,7 +82,7 @@ import {
   MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
   MEMORY_RETROSPECTIVE_SOURCE,
 } from "./memory-retrospective-constants.js";
-import { findForkBoundaryCreatedAt } from "./memory-retrospective-fork-boundary.js";
+import { loadRetrospectiveRunMessages } from "./memory-retrospective-fork-boundary.js";
 import {
   appendToRememberedLog,
   bumpRetrospectiveLastRunAt,
@@ -90,9 +95,12 @@ import {
  * transcript-based path (renders the new-message slice into a `<transcript>`
  * block and wakes an empty background conversation) and the new fork-based
  * path (forks the source through its latest message, persists a user-role
- * instruction, and wakes the fork). The fork path lets the retrospective hit
- * the provider prompt cache and read compaction summary + tail messages
- * natively.
+ * instruction, and wakes the fork). The fork path reads the conversation
+ * natively — including any inherited compaction summary + tail messages —
+ * instead of a lossy transcript render. Provider prompt-cache reuse
+ * additionally requires `memory.retrospective.matchConversationProfile`
+ * (cache parity: same model/thinking/tools/system as the source's own
+ * turns).
  */
 const MEMORY_RETROSPECTIVE_FORK_FLAG = "memory-retrospective-fork" as const;
 
@@ -173,13 +181,10 @@ async function runLegacyRetrospective(
   const cutoffMessageId = cutoffMessage.id;
 
   // 3. Locate the most recent prior retrospective and assemble the dedup
-  // baseline (persisted cumulative log, falling back to scanning the prior).
-  // Done BEFORE bootstrapping the new background conversation so the lookup
-  // doesn't accidentally include this run's own conversation. The prior's id
-  // is kept so the success path can GC it once this run supersedes it.
-  const prior = findMostRecentRetrospectiveFor(sourceConversationId);
-  const priorRemembers = collectPriorRetrospectiveRemembers(
-    prior,
+  // baseline. Done BEFORE bootstrapping the new background conversation so
+  // the lookup doesn't accidentally include this run's own conversation.
+  const { prior, priorRemembers } = resolvePriorRetrospective(
+    sourceConversationId,
     state?.rememberedLog ?? [],
   );
 
@@ -244,61 +249,28 @@ async function runLegacyRetrospective(
     );
   }
 
-  // 6. Update pointers. Extract this run's saves from its own background
-  // conversation FIRST — the wake's tail (including `remember` tool_use
-  // blocks) is persisted by the time `wakeAgentForOpportunity` returns, and
-  // extraction must precede any cleanup. `priorRemembers` (cumulative log,
-  // or the prior-conversation scan that seeds it) is the base so the prior's
-  // saves survive its GC below.
+  // 6. Update pointers + shared success bookkeeping.
   if (wakeSucceeded) {
-    const runRemembers = extractRetrospectiveRunRemembers(
-      backgroundConversation.id,
-    );
-    upsertRetrospectiveState({
-      conversationId: sourceConversationId,
-      lastProcessedMessageId: cutoffMessageId,
-      lastRunAt: Date.now(),
-      rememberedLog: appendToRememberedLog(priorRemembers, runRemembers),
-    });
-
-    deleteSupersededPriorRetrospective(config, prior);
-
-    const followUpJobIds = enqueueFollowUpJobs();
-
-    log.info(
-      {
-        sourceConversationId,
-        backgroundConversationId: backgroundConversation.id,
-        cutoffMessageId,
-        newMessageCount: newMessages.length,
-        priorRememberCount: priorRemembers.length,
-        kind: "legacy",
-      },
-      "memory-retrospective invoked",
-    );
-    return {
-      kind: "invoked",
-      backgroundConversationId: backgroundConversation.id,
+    return finalizeSuccessfulRetrospective({
+      config,
+      sourceConversationId,
+      retrospectiveConversationId: backgroundConversation.id,
       cutoffMessageId,
       newMessageCount: newMessages.length,
-      followUpJobIds,
-    };
+      prior,
+      priorRemembers,
+      logFields: { kind: "legacy" },
+    });
   }
 
   // Wake failed. Bump `lastRunAt` only so the cooldown gate applies, leave
   // `lastProcessedMessageId` alone so the next attempt re-processes the
-  // same messages.
+  // same messages. Then clean up the orphan background conversation.
   bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
-
-  // Clean up the orphan background conversation. Best-effort.
-  try {
-    deleteConversation(backgroundConversation.id);
-  } catch (err) {
-    log.warn(
-      { err, conversationId: backgroundConversation.id },
-      "memory-retrospective: failed to delete orphan background conversation; continuing",
-    );
-  }
+  safeDeleteRetrospectiveConversation(
+    backgroundConversation.id,
+    "memory-retrospective: failed to delete orphan background conversation; continuing",
+  );
 
   if (threw !== undefined) {
     // Rethrow for jobs-worker retry-with-backoff. `lastRunAt` is already
@@ -318,8 +290,11 @@ async function runLegacyRetrospective(
 // Fork-based path — fork the source through its latest message, persist a
 // user-role retrospective instruction at the tail, and wake the fork. The
 // fork inherits compaction state (summary + tail messages) via the existing
-// `forkConversation` machinery, and its prefix matches the source's prefix
-// so provider prompt caching hits.
+// `forkConversation` machinery, so the agent reads the conversation
+// natively. Provider prompt-cache reuse of the source's prefix additionally
+// requires `memory.retrospective.matchConversationProfile` — without it the
+// wake resolves the call-site default model, which never shares a cache with
+// the source's turns.
 // ---------------------------------------------------------------------------
 
 async function runForkBasedRetrospective(
@@ -388,14 +363,11 @@ async function runForkBasedRetrospective(
       timezoneContext.effectiveTimezone,
     );
 
-  // Locate the prior retrospective and assemble the dedup baseline
-  // (persisted cumulative log, falling back to scanning the prior) BEFORE
+  // Locate the prior retrospective and assemble the dedup baseline BEFORE
   // forking — otherwise `findMostRecentRetrospectiveFor` could locate this
-  // run's own fork. The prior's id is kept so the success path can GC it
-  // once this run supersedes it.
-  const prior = findMostRecentRetrospectiveFor(sourceConversationId);
-  const priorRemembers = collectPriorRetrospectiveRemembers(
-    prior,
+  // run's own fork.
+  const { prior, priorRemembers } = resolvePriorRetrospective(
+    sourceConversationId,
     state?.rememberedLog ?? [],
   );
 
@@ -452,7 +424,7 @@ async function runForkBasedRetrospective(
       { err, forkId, sourceConversationId },
       "memory-retrospective (fork): failed to persist instruction message",
     );
-    safeDeleteForkOnFailure(forkId);
+    safeDeleteRetrospectiveConversation(forkId, FORK_DELETE_FAILURE_WARNING);
     bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
     throw err;
   }
@@ -472,13 +444,17 @@ async function runForkBasedRetrospective(
     ? resolveOverrideProfile(sourceConversation)
     : undefined;
 
-  // Render the fork's system prompt under the SOURCE conversation's persona
-  // and channel — the same sections its live turns rendered. Passed
-  // unconditionally (not gated on matchConversationProfile): the correct
-  // persona is a review-quality fix on its own; with profile matching it
-  // additionally preserves the source's cached system-prompt prefix.
-  // `undefined` (identity not recoverable) keeps today's behavior.
-  const personaOverride = resolveSourcePersonaOverride(sourceConversation);
+  // Persona + tool-context parity pins derived from the source conversation
+  // (see `resolveSourceParityPins`). The persona override is passed
+  // unconditionally — the correct persona is a review-quality fix on its
+  // own; with profile matching it additionally preserves the source's
+  // cached system-prompt prefix. The tool-context pin rides only with
+  // execution gate mode below: it exists purely for wire tool-surface
+  // cache parity.
+  const { personaOverride, toolContextPin } = resolveSourceParityPins(
+    sourceConversation,
+    newMessages,
+  );
 
   // `skipHintInjection: true` because the instruction is already a
   // persisted message — the wake's hint sandwich would only duplicate it.
@@ -493,20 +469,21 @@ async function runForkBasedRetrospective(
       trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
       callSite: "memoryRetrospective",
       allowedTools: ["remember"],
-      // When matching the source's profile for cache parity, also keep the
-      // source's full tool surface on the wire: the provider cache prefix is
-      // `tools → system → messages`, so wire-filtering the tool array to
-      // ["remember"] would invalidate the cached prefix the profile match
-      // just preserved. The allowlist still holds — non-`remember` calls are
-      // rejected at execution time. Without profile matching there is no
-      // cache to preserve, and the smaller wire-filtered request is cheaper.
-      ...(config.memory.retrospective.matchConversationProfile
-        ? { toolGateMode: "execution" as const }
-        : {}),
+      // When the profile match resolved (cache parity is in play), keep the
+      // source's full tool surface on the wire AND resolve it under the
+      // source's client context — see {@link SubagentToolGateMode} and
+      // {@link WakeToolContextPin} for the rationale; the allowlist still
+      // holds at execution time. No match ⇒ no source cache to preserve, so
+      // the smaller wire-filtered request wins (keyed on `matchedProfile`,
+      // not the bare config flag).
       ...(matchedProfile !== undefined
-        ? { forceOverrideProfile: matchedProfile }
+        ? {
+            toolGateMode: "execution" as const,
+            forceOverrideProfile: matchedProfile,
+            toolContextPin,
+          }
         : {}),
-      ...(personaOverride !== undefined ? { personaOverride } : {}),
+      personaOverride,
       hintRole: "user",
       skipHintInjection: true,
       suppressAutoCompaction: true,
@@ -527,46 +504,23 @@ async function runForkBasedRetrospective(
   }
 
   if (wakeSucceeded) {
-    // Extract this run's saves from the fork's post-fork tail FIRST — the
-    // wake's tail messages are persisted by the time `wakeAgentForOpportunity`
-    // returns, and extraction must precede any cleanup. `priorRemembers`
-    // (cumulative log, or the prior-conversation scan that seeds it) is the
-    // base so the prior's saves survive its GC below.
-    const runRemembers = extractRetrospectiveRunRemembers(forkId);
-    upsertRetrospectiveState({
-      conversationId: sourceConversationId,
-      lastProcessedMessageId: cutoffMessageId,
-      lastRunAt: Date.now(),
-      rememberedLog: appendToRememberedLog(priorRemembers, runRemembers),
-    });
-
-    deleteSupersededPriorRetrospective(config, prior);
-
-    const followUpJobIds = enqueueFollowUpJobs();
-
-    log.info(
-      {
-        sourceConversationId,
-        backgroundConversationId: forkId,
-        cutoffMessageId,
-        newMessageCount: newMessages.length,
-        priorRememberCount: priorRemembers.length,
-        windowStartTimestamp,
-        kind: "fork",
-      },
-      "memory-retrospective invoked",
-    );
-    return {
-      kind: "invoked",
-      backgroundConversationId: forkId,
+    return finalizeSuccessfulRetrospective({
+      config,
+      sourceConversationId,
+      retrospectiveConversationId: forkId,
       cutoffMessageId,
       newMessageCount: newMessages.length,
-      followUpJobIds,
-    };
+      prior,
+      priorRemembers,
+      logFields: { kind: "fork", windowStartTimestamp },
+    });
   }
 
+  // Wake failed. Bump `lastRunAt` only so the cooldown gate applies, leave
+  // `lastProcessedMessageId` alone so the next attempt re-processes the
+  // same messages. Then clean up the orphan fork.
   bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
-  safeDeleteForkOnFailure(forkId);
+  safeDeleteRetrospectiveConversation(forkId, FORK_DELETE_FAILURE_WARNING);
 
   if (threw !== undefined) {
     throw threw;
@@ -595,54 +549,241 @@ function enqueueFollowUpJobs(): string[] {
 }
 
 /**
- * Resolve the persona/channel override the fork wake should render — the
- * same user and channel persona sections a live turn on the SOURCE
- * conversation rendered.
- *
- * Local/desktop sources (`originChannel` null or `"vellum"`): live turns
- * resolve the guardian contact's userFile — either via the
- * undefined-trust-context branch of `resolveUserFilename` (desktop/native,
- * no gateway) or via its guardian-class `findGuardianForChannel("vellum")`
- * fallback (managed desktop, whose JWT-principal `requesterExternalUserId`
- * never matches a contact channel row). `resolveUserSlug(undefined)`
- * reproduces both, falling back to `"default"` exactly as the live prompt
- * build does when no guardian resolves. Channel persona is `"vellum"`.
- *
- * Channel-routed sources: live-turn persona resolution keys off the
- * requester's `requesterExternalUserId` (contact lookup per actor, possibly
- * different across turns), which is not stored on the conversation row —
- * the live-turn result is not recoverable here. Return `undefined` so the
- * wake keeps today's behavior.
+ * The source-derived parity pins the fork wake runs under: the system-prompt
+ * persona override and the tool-resolution context pin. Both exist so the
+ * fork's provider request matches what the SOURCE conversation's live turns
+ * sent (prompt-cache prefix is `tools → system → messages`).
  */
-function resolveSourcePersonaOverride(
-  source: Pick<ConversationRow, "originChannel">,
-): SystemPromptPersonaOverride | undefined {
+interface SourceParityPins {
+  personaOverride: SystemPromptPersonaOverride;
+  toolContextPin: WakeToolContextPin;
+}
+
+/**
+ * Derive the fork wake's parity pins from the source conversation.
+ *
+ * Persona slugs — local/desktop sources (`originChannel` null or
+ * `"vellum"`): live turns resolve the guardian contact's userFile — either
+ * via the undefined-trust-context branch of `resolveUserFilename`
+ * (desktop/native, no gateway) or via its guardian-class
+ * `findGuardianForChannel("vellum")` fallback (managed desktop, whose
+ * JWT-principal `requesterExternalUserId` never matches a contact channel
+ * row). `resolveUserSlug(undefined)` reproduces both, falling back to
+ * `"default"` exactly as the live prompt build does when no guardian
+ * resolves. Channel persona is `"vellum"`. Channel-routed sources: live-turn
+ * persona resolution keys off the requester's `requesterExternalUserId`
+ * (contact lookup per actor, possibly different across turns), which is not
+ * stored on the conversation row — the slugs are omitted so the wake keeps
+ * today's persona derivation for them.
+ *
+ * `hasNoClient` — pinned on BOTH the persona override (the prompt's
+ * `05-access-preference` section renders different text under the flag) and
+ * the tool-context pin, using the live-turn derivation: interactive
+ * interfaces run `updateClient(_, false)` (`hasNoClient = false`), while
+ * channel-routed and chrome-extension turns stay clientless (`true`) — the
+ * exact `isInteractiveInterface` predicate `conversation-routes.ts` /
+ * `process-message.ts` apply. Pinned explicitly even when it matches the
+ * fork's hydrated value (`true`) so the parity contract doesn't depend on
+ * hydration defaults.
+ *
+ * `toolContextPin.transportInterface` — the interface the source's most
+ * recent live turns ran on (see {@link resolveSourceLiveInterface}).
+ * `channelCapabilities` is left unset: desktop/web HTTP turns never set
+ * channel capabilities, and for channel-routed sources (whose live turns do
+ * carry them) every tool gate resolves identically under
+ * `hasNoClient = true` with or without capabilities — so unset is parity
+ * for the former and outcome-equal for the latter.
+ */
+function resolveSourceParityPins(
+  source: Pick<ConversationRow, "originChannel" | "originInterface">,
+  sliceMessages: Array<{ role: string; metadata: string | null }>,
+): SourceParityPins {
   const channel = source.originChannel;
-  if (channel != null && channel !== "vellum") return undefined;
+  const channelRouted = channel != null && channel !== "vellum";
+  const recovered = resolveSourceLiveInterface(source, sliceMessages);
+  // Non-channel-routed sources always have a client-connected interface;
+  // when none is recoverable, default to "web" — the same terminal fallback
+  // `resolveTurnInterface` applies to live turns. Channel-routed sources
+  // with an unmappable channel stay undefined (their live turns were
+  // clientless either way).
+  const transportInterface = recovered ?? (channelRouted ? undefined : "web");
+  const hasNoClient =
+    transportInterface == null || !isInteractiveInterface(transportInterface);
+  const personaOverride: SystemPromptPersonaOverride = channelRouted
+    ? { hasNoClient }
+    : {
+        userSlug: resolveUserSlug(undefined) ?? "default",
+        channelSlug: "vellum",
+        hasNoClient,
+      };
   return {
-    userSlug: resolveUserSlug(undefined) ?? "default",
-    channelSlug: "vellum",
+    personaOverride,
+    toolContextPin: { hasNoClient, transportInterface },
   };
 }
 
-function safeDeleteForkOnFailure(forkId: string): void {
-  try {
-    deleteConversation(forkId);
-  } catch (err) {
-    log.warn(
-      { err, forkId },
-      "memory-retrospective (fork): failed to delete fork on wake failure; continuing",
+/**
+ * Recover the interface the source conversation's most recent live turns ran
+ * on — the transport whose provider requests the fork wants cache parity
+ * with.
+ *
+ * Scans the new-message slice newest-first for a user message stamped with
+ * `userMessageInterface` (the same per-message metadata live turns persist),
+ * then falls back to the conversation row's `originInterface` (sticky
+ * first-interface column), then to the origin channel id where it doubles as
+ * an interface id (telegram/slack/whatsapp/email/phone; the legacy
+ * `"vellum"` alias maps to `"web"`). Every input is persisted state, so for
+ * a given cutoff the result is deterministic — it cannot flap between
+ * retries of the same slice.
+ */
+function resolveSourceLiveInterface(
+  source: Pick<ConversationRow, "originChannel" | "originInterface">,
+  sliceMessages: Array<{ role: string; metadata: string | null }>,
+): InterfaceId | undefined {
+  for (let i = sliceMessages.length - 1; i >= 0; i--) {
+    const row = sliceMessages[i]!;
+    if (row.role !== "user" || !row.metadata) continue;
+    let meta: unknown;
+    try {
+      meta = JSON.parse(row.metadata);
+    } catch {
+      continue;
+    }
+    if (!meta || typeof meta !== "object") continue;
+    const iface = parseInterfaceId(
+      (meta as Record<string, unknown>).userMessageInterface,
     );
+    if (iface) return iface;
+  }
+  return (
+    parseInterfaceId(source.originInterface) ??
+    parseInterfaceId(source.originChannel) ??
+    undefined
+  );
+}
+
+type PriorRetrospective = NonNullable<
+  ReturnType<typeof findMostRecentRetrospectiveFor>
+>;
+
+/**
+ * Locate the most recent prior retrospective and assemble the
+ * `<already_remembered>` dedup baseline (persisted cumulative log, falling
+ * back to scanning the prior). Callers must invoke this BEFORE creating this
+ * run's own retrospective conversation — otherwise the lookup could locate
+ * it. The prior row is returned so the success path can GC it once this run
+ * supersedes it.
+ */
+function resolvePriorRetrospective(
+  sourceConversationId: string,
+  rememberedLog: string[],
+): { prior: PriorRetrospective | null; priorRemembers: string[] } {
+  const prior = findMostRecentRetrospectiveFor(sourceConversationId);
+  return {
+    prior,
+    priorRemembers: collectPriorRetrospectiveRemembers(prior, rememberedLog),
+  };
+}
+
+/**
+ * Success bookkeeping shared by both handlers. Extracts this run's saves
+ * from its own retrospective conversation FIRST — the wake's tail (including
+ * `remember` tool_use blocks) is persisted by the time
+ * `wakeAgentForOpportunity` returns, and extraction must precede any
+ * cleanup. `priorRemembers` (cumulative log, or the prior-conversation scan
+ * that seeds it) is the base so the prior's saves survive its GC below.
+ */
+function finalizeSuccessfulRetrospective(args: {
+  config: AssistantConfig;
+  sourceConversationId: string;
+  retrospectiveConversationId: string;
+  cutoffMessageId: string;
+  newMessageCount: number;
+  prior: PriorRetrospective | null;
+  priorRemembers: string[];
+  /** Per-kind extras for the success log line (e.g. `kind`, fork anchor). */
+  logFields: Record<string, unknown>;
+}): MemoryRetrospectiveOutcome {
+  const {
+    config,
+    sourceConversationId,
+    retrospectiveConversationId,
+    cutoffMessageId,
+    newMessageCount,
+    prior,
+    priorRemembers,
+    logFields,
+  } = args;
+
+  const runRemembers = extractRetrospectiveRunRemembers(
+    retrospectiveConversationId,
+  );
+  upsertRetrospectiveState({
+    conversationId: sourceConversationId,
+    lastProcessedMessageId: cutoffMessageId,
+    lastRunAt: Date.now(),
+    rememberedLog: appendToRememberedLog(priorRemembers, runRemembers),
+  });
+
+  deleteSupersededPriorRetrospective(config, prior, sourceConversationId);
+
+  const followUpJobIds = enqueueFollowUpJobs();
+
+  log.info(
+    {
+      sourceConversationId,
+      backgroundConversationId: retrospectiveConversationId,
+      cutoffMessageId,
+      newMessageCount,
+      priorRememberCount: priorRemembers.length,
+      ...logFields,
+    },
+    "memory-retrospective invoked",
+  );
+  return {
+    kind: "invoked",
+    backgroundConversationId: retrospectiveConversationId,
+    cutoffMessageId,
+    newMessageCount,
+    followUpJobIds,
+  };
+}
+
+const FORK_DELETE_FAILURE_WARNING =
+  "memory-retrospective (fork): failed to delete fork on failure; continuing";
+
+/**
+ * Best-effort cleanup of this run's own retrospective conversation on a
+ * failure path. Deletion failure is logged with the caller-supplied warning
+ * and never escalates.
+ */
+function safeDeleteRetrospectiveConversation(
+  conversationId: string,
+  warnMessage: string,
+): void {
+  try {
+    deleteConversation(conversationId);
+  } catch (err) {
+    log.warn({ err, conversationId }, warnMessage);
   }
 }
 
 /**
  * GC the prior retrospective conversation once a newer run has succeeded.
- * Dedup only ever reads the most recent retrospective per source
- * (`findMostRecentRetrospectiveFor`), so the superseded run is dead weight —
- * and fork-kind runs each materialize a full copy of the source
+ * The persisted `remembered_log` on `memory_retrospective_state` is the
+ * dedup baseline (the most-recent run is scanned only as a fallback for
+ * state rows that predate the log column), and the success path has already
+ * folded the prior's saves into the log — so the superseded run is dead
+ * weight. Fork-kind runs each materialize a full copy of the source
  * conversation's message rows, so without GC a long-lived daemon accumulates
  * one full-history copy per retrospective interval per active conversation.
+ *
+ * Only deletes a prior the source conversation actually owns:
+ * `findMostRecentRetrospectiveFor` walks up the fork chain, so when the
+ * source is a user-created fork with no retrospectives of its own, the prior
+ * belongs to an ANCESTOR conversation. That row is the ancestor's preserved
+ * dedup-baseline fallback — deleting it could force the ancestor's next
+ * retrospective to re-save facts its prior passes already captured.
  *
  * Called only AFTER `upsertRetrospectiveState` on the success path: deleting
  * on failure would break the dedup chain (the failed run's conversation is
@@ -653,10 +794,12 @@ function safeDeleteForkOnFailure(forkId: string): void {
  */
 function deleteSupersededPriorRetrospective(
   config: AssistantConfig,
-  prior: { id: string } | null,
+  prior: PriorRetrospective | null,
+  sourceConversationId: string,
 ): void {
   if (!prior) return;
   if (config.memory.retrospective.keepSupersededRuns) return;
+  if (prior.forkParentConversationId !== sourceConversationId) return;
   try {
     deleteConversation(prior.id);
   } catch (err) {
@@ -730,60 +873,20 @@ function collectPriorRetrospectiveRemembers(
 /**
  * Pull the `content` strings out of every `remember` tool call made by a
  * retrospective run's own work in the given retrospective conversation.
- * Empty array when the run had no `remember` calls (it found nothing to
- * save) or on load failure (logged, never fatal).
- *
- * Two artifact shapes exist depending on which path produced the
- * retrospective:
- *
- *   - **Legacy** (`source === MEMORY_RETROSPECTIVE_SOURCE`): empty bg
- *     conversation containing only the wake's tail (`remember` tool_use
- *     blocks). Scan everything.
- *   - **Fork** (`source === MEMORY_RETROSPECTIVE_FORK_SOURCE`): full source
- *     prefix forked in, followed by the retrospective's post-fork tail.
- *     The forked prefix contains the source conversation's own inline
- *     `remember` calls — scanning the whole row would dump source-inline
- *     saves into the dedup baseline and inflate it dramatically. Restrict
- *     to messages created **after** `forkParentMessageId` (the last copied
- *     message); only messages after that boundary came from this
- *     retrospective's own work.
+ * `loadRetrospectiveRunMessages` scopes fork-kind rows to the post-fork tail
+ * (the copied prefix contains the source conversation's own inline
+ * `remember` calls, which must not pollute the dedup baseline) and returns
+ * `null` on load failure or an undetectable fork boundary (logged, never
+ * fatal) — treated here as "the run saved nothing".
  */
 function extractRetrospectiveRunRemembers(conversationId: string): string[] {
-  let messages: ReturnType<typeof getMessages>;
-  try {
-    messages = getMessages(conversationId);
-  } catch (err) {
-    log.warn(
-      { err, retrospectiveConversationId: conversationId },
-      "memory-retrospective: failed to load retrospective messages; treating as empty",
-    );
-    return [];
-  }
-
   const conv = getConversation(conversationId);
-  if (conv?.source === MEMORY_RETROSPECTIVE_FORK_SOURCE) {
-    // For fork-kind rows, the run's `remember` calls live in the post-fork
-    // tail. `cloneForkMessageMetadata` stamps every copied message with
-    // `forkSourceMessageId` (preserving any existing value when the source
-    // was itself a fork), so the LAST message in the fork carrying
-    // `forkSourceMessageId` is the boundary — its value can point to any
-    // ancestor when the source was a nested fork, so we can't match it
-    // against `forkParentMessageId`. Everything strictly past that
-    // timestamp is post-fork.
-    const boundaryCreatedAt = findForkBoundaryCreatedAt(messages);
-    if (boundaryCreatedAt == null) {
-      log.warn(
-        { retrospectiveConversationId: conversationId },
-        "memory-retrospective: fork-kind retrospective has no message with forkSourceMessageId metadata; treating remembers as empty",
-      );
-      return [];
-    }
-    return extractRememberContents(
-      messages.filter((m) => m.createdAt > boundaryCreatedAt),
-    );
-  }
-
-  return extractRememberContents(messages);
+  const runMessages = loadRetrospectiveRunMessages(
+    conversationId,
+    conv?.source ?? null,
+  );
+  if (runMessages == null) return [];
+  return extractRememberContents(runMessages);
 }
 
 interface MessageLike {
