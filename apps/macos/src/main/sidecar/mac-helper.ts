@@ -91,6 +91,8 @@ export interface MacHelperClientOptions {
   };
   responseTimeoutMs?: number;
   spawnArgs?: string[];
+  /** Extra environment merged over process.env for the spawned helper. */
+  spawnEnv?: Record<string, string>;
   platform?: NodeJS.Platform;
   initialBackoffMs?: number;
   maxBackoffMs?: number;
@@ -125,6 +127,7 @@ export class MacHelperClient {
   private readonly logger: MacHelperClientOptions["logger"];
   private readonly responseTimeoutMs: number;
   private readonly spawnArgs: string[];
+  private readonly spawnEnv?: Record<string, string>;
   private readonly platform: NodeJS.Platform;
   private readonly supervisor: SidecarSupervisor;
   private stdoutBuffer = "";
@@ -144,6 +147,7 @@ export class MacHelperClient {
     this.responseTimeoutMs =
       options.responseTimeoutMs ?? DEFAULT_RESPONSE_TIMEOUT_MS;
     this.spawnArgs = options.spawnArgs ?? [];
+    if (options.spawnEnv) this.spawnEnv = options.spawnEnv;
     this.platform = options.platform ?? process.platform;
     this.supervisor = new SidecarSupervisor({
       name: this.name,
@@ -325,6 +329,9 @@ export class MacHelperClient {
     }
     return spawn(helperPath, this.spawnArgs, {
       stdio: ["pipe", "pipe", "pipe"],
+      env: this.spawnEnv
+        ? { ...process.env, ...this.spawnEnv }
+        : undefined,
     });
   }
 

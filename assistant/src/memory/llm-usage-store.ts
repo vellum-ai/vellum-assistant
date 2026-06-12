@@ -43,6 +43,7 @@ export function recordUsageEvent(
     createdAt: Date.now(),
     ...input,
     callSite: input.callSite ?? null,
+    llmCallCount: input.llmCallCount ?? 1,
     inferenceProfile: input.inferenceProfile ?? null,
     inferenceProfileSource: input.inferenceProfileSource ?? null,
     estimatedCostUsd: pricing.estimatedCostUsd,
@@ -69,7 +70,7 @@ export function recordUsageEvent(
       rawUsage: event.rawUsage === null ? null : JSON.stringify(event.rawUsage),
       estimatedCostUsd: event.estimatedCostUsd,
       pricingStatus: event.pricingStatus,
-      llmCallCount: event.llmCallCount ?? 1,
+      llmCallCount: event.llmCallCount,
       metadataJson: null,
       // Capture the assistant's version at RECORD time so a batch flush
       // days later doesn't mis-attribute this row to whatever version
@@ -105,6 +106,7 @@ function rowToUsageEvent(row: {
   rawUsage: string | null;
   estimatedCostUsd: number | null;
   pricingStatus: string;
+  llmCallCount: number | null;
   assistantVersion: string | null;
 }): UsageEvent {
   return {
@@ -127,6 +129,7 @@ function rowToUsageEvent(row: {
     rawUsage: parseRawUsage(row.rawUsage),
     estimatedCostUsd: row.estimatedCostUsd,
     pricingStatus: row.pricingStatus as "priced" | "unpriced",
+    llmCallCount: row.llmCallCount,
     assistantVersion: row.assistantVersion,
   };
 }
@@ -230,6 +233,7 @@ export function queryUnreportedUsageEvents(
       estimatedCostUsd: llmUsageEvents.estimatedCostUsd,
       pricingStatus: llmUsageEvents.pricingStatus,
       assistantVersion: llmUsageEvents.assistantVersion,
+      llmCallCount: llmUsageEvents.llmCallCount,
       conversationType: conversations.conversationType,
       // Null when conversationId is null (no parent conversation).
       // Otherwise the count of eligible user turns up to and including

@@ -79,14 +79,21 @@ export function getCachedHomeGreeting(): string | null {
   }
 }
 
-export function setCachedHomeGreeting(text: string): void {
+/**
+ * Persist a freshly generated greeting. Returns `true` when the cache
+ * write landed; `false` on failure so callers don't report fresh content
+ * that the next read cannot serve.
+ */
+export function setCachedHomeGreeting(text: string): boolean {
   try {
     const hash = computeIdentityContentHash();
     const now = String(Date.now());
     setMemoryCheckpoint(CHECKPOINT_KEY_TEXT, text);
     setMemoryCheckpoint(CHECKPOINT_KEY_HASH, hash);
     setMemoryCheckpoint(CHECKPOINT_KEY_TIMESTAMP, now);
+    return true;
   } catch {
     // Cache write failure is non-fatal — next request will regenerate.
+    return false;
   }
 }

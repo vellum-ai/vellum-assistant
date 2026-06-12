@@ -76,14 +76,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "system-schedule-toggles",
-      "scope": "assistant",
-      "key": "system-schedule-toggles",
-      "label": "System Schedule Toggles",
-      "description": "Show the Heartbeat pause toggle on the schedules settings page. The toggle only pauses automatic runs; manual Run now remains available.",
-      "defaultEnabled": false
-    },
-    {
       "id": "developer-menu-items",
       "scope": "client",
       "key": "developer-menu-items",
@@ -361,6 +353,14 @@
       "key": "self-hosted-assistant",
       "label": "Self-Hosted Assistant",
       "description": "Enable self-hosted assistant configuration.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "web-remote-ingress",
+      "scope": "assistant",
+      "key": "web-remote-ingress",
+      "label": "Web Remote Ingress",
+      "description": "Serve the web client over a public tunnel and enable browser pairing for self-hosted assistants.",
       "defaultEnabled": false
     },
     {

@@ -41,6 +41,23 @@ mock.module("@/domains/chat/voice/use-push-to-talk", () => ({
   usePushToTalk: () => undefined,
 }));
 
+let systemPermissionsSupported = false;
+let nextSystemPermissionStatus: "granted" | "denied" | "not-determined" =
+  "denied";
+const openedSettingsKinds: string[] = [];
+
+mock.module("@/runtime/system-permissions", () => ({
+  supportsSystemPermissions: () => systemPermissionsSupported,
+  requestSystemPermission: async (kind: string) => ({
+    kind,
+    status: nextSystemPermissionStatus,
+  }),
+  openSystemPermissionSettings: async (kind: string) => {
+    openedSettingsKinds.push(kind);
+    return null;
+  },
+}));
+
 const { useVoiceInput } = await import("./use-voice-input");
 
 const renderVoiceInput = (assistantId: string | null = null) => {
@@ -74,6 +91,9 @@ afterEach(() => {
   nextTextInsertionStatus = "unavailable";
   nextDictationResult = null;
   insertedTexts.length = 0;
+  systemPermissionsSupported = false;
+  nextSystemPermissionStatus = "denied";
+  openedSettingsKinds.length = 0;
 });
 
 describe("useVoiceInput", () => {
@@ -118,6 +138,35 @@ describe("useVoiceInput", () => {
     expect(getInput()).toBe("open settings please");
     expect(getFocusCount()).toBe(1);
     expect(hook.result.current.voiceError).toBe("dictation-automation-denied");
+  });
+
+  test("omits handleOpenMicSettings when no OS settings deep-link exists", () => {
+    const { hook } = renderVoiceInput();
+
+    expect(hook.result.current.handleOpenMicSettings).toBeUndefined();
+  });
+
+  test("opens the OS microphone settings pane when supported", async () => {
+    systemPermissionsSupported = true;
+    const { hook } = renderVoiceInput();
+
+    await act(async () => {
+      await hook.result.current.handleOpenMicSettings?.();
+    });
+
+    expect(openedSettingsKinds).toEqual(["microphone"]);
+  });
+
+  test("maps a recorded OS denial to not-allowed-permanent on retry", async () => {
+    systemPermissionsSupported = true;
+    nextSystemPermissionStatus = "denied";
+    const { hook } = renderVoiceInput();
+
+    await act(async () => {
+      await hook.result.current.handleRetryMicPermission();
+    });
+
+    expect(hook.result.current.voiceError).toBe("not-allowed-permanent");
   });
 
 });

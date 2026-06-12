@@ -49,6 +49,18 @@ describe("setFromLockfile", () => {
     expect(entry.organizationId).toBe("org-1");
   });
 
+  it("copies version from lockfile entries", () => {
+    const lockfile: Lockfile = {
+      assistants: [{ ...localAssistant, version: "0.7.0" }],
+      activeAssistant: null,
+    };
+    useResolvedAssistantsStore.getState().setFromLockfile(lockfile);
+
+    expect(useResolvedAssistantsStore.getState().assistants[0].version).toBe(
+      "0.7.0",
+    );
+  });
+
   it("leaves organizationId undefined for local entries", () => {
     const lockfile: Lockfile = {
       assistants: [localAssistant],
@@ -76,6 +88,7 @@ describe("upsertFromApi", () => {
       name: "Platform (refreshed)",
       created: "2026-01-01T00:00:00Z",
       is_local: false,
+      current_release_version: "0.7.0",
     } as Parameters<
       ReturnType<typeof useResolvedAssistantsStore.getState>["upsertFromApi"]
     >[0]);
@@ -84,6 +97,7 @@ describe("upsertFromApi", () => {
     expect(entry.id).toBe("asst-platform");
     expect(entry.name).toBe("Platform (refreshed)");
     expect(entry.organizationId).toBe("org-1");
+    expect(entry.version).toBe("0.7.0");
   });
 
   it("seeds organizationId from the lockfile cache when inserting a new entry", () => {

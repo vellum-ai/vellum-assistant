@@ -8,9 +8,8 @@
  * - Request:  `{ "id": string, "method": string, "params"?: object }`
  * - Response: `{ "id": string, "result"?: unknown, "error"?: string }`
  *
- * The gateway does not depend on @vellumai/gateway-client, so the one-shot
- * IPC client is implemented inline here following the same pattern as
- * packages/gateway-client/src/ipc-client.ts.
+ * This reverse client stays inline because @vellumai/gateway-client models
+ * assistant-to-gateway calls; this path calls the assistant from the gateway.
  */
 
 import { connect, type Socket } from "node:net";

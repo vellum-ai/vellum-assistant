@@ -333,6 +333,15 @@ export const LLMConfigBase = z.object({
   // `profileConfigFragment`, which strips it from the merge), so a preset
   // can't bleed from a lower-precedence profile into one that didn't opt in.
   logitBias: LogitBiasPresetSchema.optional(),
+  /**
+   * Opt this config out of prompt caching. Providers send no cache
+   * breakpoints and strip caller-stamped `cache_control` markers. Intended
+   * for one-shot call sites whose prompts never repeat (or repeat slower
+   * than the cache TTL), where every breakpoint is a paid cache write with
+   * no future read. Optional (no schema default) so it only appears in
+   * resolved configs when a layer sets it.
+   */
+  disableCache: z.boolean().optional(),
 });
 export type LLMConfigBase = z.infer<typeof LLMConfigBase>;
 
@@ -354,6 +363,7 @@ const LLMConfigFragment = z.object({
   contextWindow: ContextWindowDeepPartialSchema.optional(),
   openrouter: OpenRouterDeepPartialSchema.optional(),
   logitBias: LogitBiasPresetSchema.optional(),
+  disableCache: z.boolean().optional(),
 });
 type LLMConfigFragment = z.infer<typeof LLMConfigFragment>;
 

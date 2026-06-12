@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     ArrowDownToLine,
     ArrowLeft,
+    Download,
     ExternalLink,
     Loader2,
     Trash2,
@@ -197,6 +198,7 @@ function Header({
 }: HeaderProps) {
   const installed = plugin?.installed ?? false;
   const isExternal = plugin?.source?.kind === "github";
+  const artifact = plugin?.artifact ?? null;
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center">
@@ -245,21 +247,30 @@ function Header({
 
       {plugin ? (
         installed ? (
-          <Button
-            type="button"
-            variant="dangerOutline"
-            onClick={onRemove}
-            disabled={isRemoving}
-            leftIcon={
-              isRemoving ? (
-                <Loader2 className="animate-spin" aria-hidden />
-              ) : (
-                <Trash2 aria-hidden />
-              )
-            }
-          >
-            Remove
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            {artifact ? (
+              <Button asChild leftIcon={<Download aria-hidden />}>
+                <a href={artifact.url} download>
+                  {artifact.label ?? "Download"}
+                </a>
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="dangerOutline"
+              onClick={onRemove}
+              disabled={isRemoving}
+              leftIcon={
+                isRemoving ? (
+                  <Loader2 className="animate-spin" aria-hidden />
+                ) : (
+                  <Trash2 aria-hidden />
+                )
+              }
+            >
+              Remove
+            </Button>
+          </div>
         ) : (
           <Button
             type="button"

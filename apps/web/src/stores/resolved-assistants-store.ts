@@ -44,6 +44,9 @@ export interface ResolvedAssistant {
   id: string;
   name?: string;
   hatchedAt?: string;
+  /** Installed release version — `version` from the lockfile or
+   *  `current_release_version` from the API. */
+  version?: string;
   isLocal: boolean;
   isPlatformHosted: boolean;
   /** Owning org for platform entries; only the lockfile carries it, so
@@ -108,6 +111,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
         id: a.assistantId,
         name: a.name,
         hatchedAt: a.hatchedAt,
+        version: a.version,
         isLocal: isLocalAssistant(a),
         isPlatformHosted: isPlatformAssistant(a),
         organizationId: a.organizationId,
@@ -130,6 +134,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
           id: a.id,
           name: a.name,
           hatchedAt: a.created,
+          version: a.current_release_version ?? undefined,
           isLocal: a.is_local,
           isPlatformHosted: !a.is_local,
         })),
@@ -141,6 +146,7 @@ const useResolvedAssistantsStoreBase = create<ResolvedAssistantsStore>(
           id: assistant.id,
           name: assistant.name,
           hatchedAt: assistant.created,
+          version: assistant.current_release_version ?? undefined,
           isLocal: assistant.is_local,
           isPlatformHosted: !assistant.is_local,
         };

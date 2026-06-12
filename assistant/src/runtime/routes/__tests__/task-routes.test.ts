@@ -206,6 +206,8 @@ mock.module("../../../util/platform.js", () => {
     getPlatformName: () => "linux",
     normalizeAssistantId: (id: string) => id,
     getDataDir: stub,
+    getConfigQuarantineNoticePath: () =>
+      "/mock/workspace/data/config-quarantine-notice.json",
     getEmbeddingModelsDir: stub,
     getSandboxRootDir: stub,
     getSandboxWorkingDir: stub,
@@ -414,9 +416,7 @@ describe("task_delete route", () => {
 
   test("throws Zod validation error for empty task_ids array", async () => {
     const route = findRoute("task_delete");
-    await expect(
-      route.handler({ body: { task_ids: [] } }),
-    ).rejects.toThrow();
+    await expect(route.handler({ body: { task_ids: [] } })).rejects.toThrow();
 
     expect(mockTaskDeleteCalls).toHaveLength(0);
   });

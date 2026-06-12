@@ -1,5 +1,5 @@
 
-import { type Dispatch, type RefObject, type SetStateAction, useCallback, useEffect, useRef, useState } from "react";
+import { type Dispatch, type RefObject, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   type VoiceInputButtonHandle,
@@ -15,6 +15,11 @@ import {
   insertTextIntoFrontApp,
   openTextInsertionSettings,
 } from "@/runtime/text-insertion";
+import {
+  openSystemPermissionSettings,
+  requestSystemPermission,
+  supportsSystemPermissions,
+} from "@/runtime/system-permissions";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -70,6 +75,14 @@ export interface UseVoiceInputReturn {
    * `not-allowed-permanent`. Otherwise calls `getUserMedia` to re-prompt.
    */
   handleRetryMicPermission: () => Promise<void>;
+  /**
+   * Opens the OS microphone privacy pane (System Settings → Privacy &
+   * Security → Microphone on macOS) for recovering from a recorded TCC
+   * denial, which the OS never re-prompts for. `undefined` when no
+   * settings deep-link is available (plain browser), so callers can hide
+   * the affordance entirely.
+   */
+  handleOpenMicSettings: (() => Promise<void>) | undefined;
 }
 
 /**
@@ -203,6 +216,16 @@ export function useVoiceInput({
   }, []);
 
   const handleRetryMicPermission = useCallback(async () => {
+    if (supportsSystemPermissions()) {
+      const item = await requestSystemPermission("microphone");
+      if (item?.status === "granted") {
+        setVoiceError(null);
+      } else if (item?.status === "denied") {
+        setVoiceError("not-allowed-permanent");
+      }
+      return;
+    }
+
     try {
       // Check permission state via Permissions API when available.
       // If the user permanently denied access, skip getUserMedia
@@ -242,6 +265,16 @@ export function useVoiceInput({
     }
   }, []);
 
+  const handleOpenMicSettings = useMemo(
+    () =>
+      supportsSystemPermissions()
+        ? async () => {
+            await openSystemPermissionSettings("microphone");
+          }
+        : undefined,
+    [],
+  );
+
   return {
     voiceInputRef,
     voiceInterim,
@@ -256,5 +289,6 @@ export function useVoiceInput({
     handlePrimerContinue,
     handlePrimerCancel,
     handleRetryMicPermission,
+    handleOpenMicSettings,
   };
 }

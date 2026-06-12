@@ -10,6 +10,7 @@
 import {
   lazy,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -58,7 +59,6 @@ import { useDeepLinkConsumer } from "@/domains/chat/hooks/use-deep-link-consumer
 import { useChatDebugRegistration } from "@/domains/chat/hooks/use-chat-debug-registration";
 import { useDeepLinkApp } from "@/domains/chat/hooks/use-deep-link-app";
 import { lifecycleService } from "@/assistant/lifecycle-service";
-import { ConnectingToAssistant } from "@/domains/chat/components/connecting-to-assistant";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { Button } from "@vellumai/design-library/components/button";
 
@@ -295,6 +295,13 @@ export function ActiveChatView() {
     getPendingInitialMessage: () => peekPendingPreChatContext()?.initialMessage ?? undefined,
   });
 
+  useEffect(() => {
+    if (reachability.state.phase !== "failed") return;
+    useChatSessionStore.getState().setError({
+      message: "Connection lost. Please try again.",
+    });
+  }, [reachability.state.phase]);
+
   // Post-hatch "Connecting…" overlay lifecycle — pre-chat detector,
   // messages-arrived clear, safety timer, conversation-switch clear.
   const autoGreet = useAutoGreetGate(
@@ -457,11 +464,6 @@ export function ActiveChatView() {
           />
         </LazyBoundary>
       ) : null}
-      <ConnectingToAssistant
-        state={reachability.state}
-        onRetry={() => reachability.probe({ showConnectingImmediately: true })}
-        onDismiss={reachability.reset}
-      />
 
       {assistantId && (isTokenDialogOpen || complexDeployApp) ? (
         <LazyBoundary>

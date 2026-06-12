@@ -66,7 +66,7 @@ import {
 import {
   recordCompactionEndBestEffort,
   recordCompactionStartBestEffort,
-} from "../memory/compaction-log-writer-clickhouse.js";
+} from "../memory/compaction-log-store-clickhouse.js";
 import { getConversationOverrideProfile } from "../memory/conversation-crud.js";
 import {
   buildProviderErrorResponsePayload,
@@ -167,10 +167,10 @@ export interface WakeOptions {
 }
 
 /**
- * Reason a wake returned `invoked: false`. Callers (CLI, update-bulletin
- * job) need to distinguish "conversation doesn't exist" from "conversation
- * exists but stayed busy past the wait-until-idle timeout" — the former is
- * a user-visible error, the latter is an expected transient condition.
+ * Reason a wake returned `invoked: false`. Callers (e.g. the CLI) need to
+ * distinguish "conversation doesn't exist" from "conversation exists but
+ * stayed busy past the wait-until-idle timeout" — the former is a
+ * user-visible error, the latter is an expected transient condition.
  */
 export type WakeSkipReason =
   | "not_found"

@@ -52,6 +52,8 @@ mock.module("../util/platform.js", () => ({
   getWorkspaceRoutesDir: () => workspacePath("routes"),
   vellumRoot: () => testWorkspaceDir,
   getDataDir: () => workspacePath("data"),
+  getConfigQuarantineNoticePath: () =>
+    workspacePath("data", "config-quarantine-notice.json"),
   getDbPath: () => workspacePath("data", "db", "assistant.db"),
   ensureDataDir: () => {
     mkdirSync(workspacePath("data", "db"), { recursive: true });

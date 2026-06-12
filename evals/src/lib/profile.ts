@@ -25,6 +25,13 @@ export const ProfileManifestSchema = z.object({
   /** Agent species — the adapter selector. */
   species: z.enum(SPECIES),
   /**
+   * Human-readable summary of what this profile is — its agent, what setup
+   * shapes it, and what it's for. Surfaced verbatim in the report's
+   * per-profile info panel so a reader comparing profiles understands what
+   * each one represents without cross-referencing the directory.
+   */
+  description: z.string().optional(),
+  /**
    * Optional version pin. Useful for comparing different versions of the
    * same species side-by-side (e.g. two Vellum builds, two Hermes releases).
    */

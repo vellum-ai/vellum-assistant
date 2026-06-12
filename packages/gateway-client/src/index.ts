@@ -15,11 +15,9 @@ export {
   deliverChannelReply,
 } from "./http-delivery.js";
 
-export {
-  ipcCall,
-  IpcCallError,
-  PersistentIpcClient,
-} from "./ipc-client.js";
+export * from "./gateway-ipc-contracts.js";
+
+export { ipcCall, IpcCallError, PersistentIpcClient } from "./ipc-client.js";
 
 export type {
   ApprovalActionOption,

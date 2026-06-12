@@ -62,10 +62,12 @@ const log = getLogger("memory-v3-pool-select");
 
 /** A dynamic-tail (finder) candidate: the slug plus the descriptor that
  *  justifies it — a matched section for a needle/dense hit, or a curated link
- *  description for an edge page. Rendered as a one-line snippet. */
+ *  description for an edge page. Rendered as a one-line snippet, prefixed
+ *  with the surfacing lane when one is supplied. */
 export interface PoolCandidate {
   slug: Slug;
   descriptor: string;
+  lane?: string;
 }
 
 /** A stable-prefix candidate: the slug plus its pre-rendered FULL card
@@ -127,13 +129,13 @@ const SELECT_PAGES_TOOL: ToolDefinition = {
   },
 };
 
-const SYSTEM_PROMPT = `You are given the candidate memory pages for an assistant's next reply, in two segments that share one numbering: full page cards first (the curated core and recently-recurring pages, shown every turn), then this turn's search hits as one-line snippets.
+const SYSTEM_PROMPT = `You are given the candidate memory pages for an assistant's next reply, in two segments that share one numbering: full page cards first (the curated core, recently-recurring, and recently-modified pages, shown every turn), then this turn's search hits as one-line snippets. Cards carry a \`[lane: …]\` annotation — core is curated, hot recurs by selection frequency, fresh was recently modified (with its last-update time) — and search hits are tagged with the lane that surfaced them.
 
-Select EVERY candidate whose content the upcoming reply would draw on. That includes facts the reply needs, but equally register, established framing, calibration rules, and relationship/person/project texture — pages that shape HOW to reply, not only what to say. There is no limit on how many you may select; recall matters more than precision, so when a candidate could plausibly inform the reply, keep it. For a list or an "all of X" request, keep EVERY candidate that belongs to X rather than guessing a representative subset.
+Select EVERY candidate whose content the upcoming reply would draw on. That includes facts the reply needs, current task and event state (open items, deadlines, schedules, recent activity), and equally register, established framing, calibration rules, and relationship/person/project texture — pages that shape HOW to reply, not only what to say. There is no limit on how many you may select; recall matters more than precision, so when a candidate could plausibly inform the reply, keep it. For a list or an "all of X" request, keep EVERY candidate that belongs to X rather than guessing a representative subset.
 
 Pages you select persist in the conversation automatically, and re-selecting a page that is already in context is harmless (duplicates are removed downstream) — so never withhold a candidate because it might have been selected before. Judge each candidate only by whether the upcoming reply would draw on it.
 
-A page can be relevant because of the current situation — the date or the live scratchpad — not only the message: keep a page the situation makes pertinent (e.g. a person whose anniversary is today).
+A page can be relevant because of the current situation — the date or the live scratchpad — not only the message: keep a page the situation makes pertinent (e.g. a person whose anniversary is today). When the message asks about status, plans, schedule, or what's pending, treat pages carrying current task/event state — especially recently-updated (fresh) ones — as first-class candidates.
 
 If the conversation is centrally ABOUT a page (rather than only peripherally relevant to it), mark that page as pinned. Call \`select_pages\` with the chosen IDs. Omit \`ids\` only as a recall-safe fallback when you cannot judge the pool (keeps every candidate); return \`[]\` when candidates are present but none are relevant.`;
 
@@ -153,17 +155,19 @@ function renderCardSegment(stable: StableCandidate[]): string {
 }
 
 /**
- * Render the finder tail: one `[m+i] slug — snippet` line per candidate,
- * numbered continuing after the `offset` stable-prefix cards. A candidate
- * with an empty descriptor renders without the dash.
+ * Render the finder tail: one `[m+i] (lane) slug — snippet` line per
+ * candidate, numbered continuing after the `offset` stable-prefix cards. The
+ * lane tag is omitted for a candidate without one; a candidate with an empty
+ * descriptor renders without the dash.
  */
 function renderFinderSegment(finder: PoolCandidate[], offset: number): string {
   const lines = finder.map((c, i) => {
     const snippet = renderSnippet(c.descriptor);
     const id = offset + i + 1;
+    const lane = c.lane !== undefined ? `(${c.lane}) ` : "";
     return snippet.length > 0
-      ? `[${id}] ${c.slug} — ${snippet}`
-      : `[${id}] ${c.slug}`;
+      ? `[${id}] ${lane}${c.slug} — ${snippet}`
+      : `[${id}] ${lane}${c.slug}`;
   });
   return `<candidates>\n${lines.join("\n")}\n</candidates>`;
 }

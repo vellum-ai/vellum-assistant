@@ -183,6 +183,11 @@ jobs:
         with:
           bun-version: '1.3.11'
 
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/service-contracts packages/ces-client packages/assistant-client packages/gateway-client
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
         working-directory: gateway
@@ -1246,6 +1251,9 @@ jobs:
     steps:
       - name: Build Slack payload
         id: build
+        # A payload-building bug must not prevent the notification from going
+        # out — the fallback step below sends a minimal message instead.
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           WEBHOOK: ${{ secrets.SLACK_DEV_RELEASES_WEBHOOK_URL }}
@@ -1368,7 +1376,9 @@ jobs:
           # surfaces the failure instead of looking fully green.
           if [ "${ELECTRON_RESULT}" != "success" ]; then
             HEADER_EMOJI="⚠️"
-            ELECTRON_WARNING='{ type: "section", text: { type: "mrkdwn", text: "⚠️ *Electron build failed* — the release was published but the desktop app was not built. See the workflow run for details." } }'
+            # Build with jq so the value is real JSON — --argjson rejects
+            # jq-program syntax like unquoted object keys.
+            ELECTRON_WARNING=$(jq -n '{ type: "section", text: { type: "mrkdwn", text: "⚠️ *Electron build failed* — the release was published but the desktop app was not built. See the workflow run for details." } }')
           else
             HEADER_EMOJI="🚀"
             ELECTRON_WARNING=""
@@ -1444,6 +1454,33 @@ jobs:
                else {} end)' > "${RUNNER_TEMP}/dev-release-slack-payload.json"
 
           echo "Built Slack payload (${COUNT} commits listed)."
+
+      - name: Fall back to a minimal payload if the build step failed
+        if: steps.build.outputs.skip != 'true'
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          VERSION: ${{ needs.compute-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -s "${RUNNER_TEMP}/dev-release-slack-payload.json" ]; then
+            exit 0
+          fi
+          echo "::warning::Slack payload build failed — sending a minimal fallback notification."
+          jq -n \
+            --arg version "$VERSION" \
+            --arg run_url "$RUN_URL" \
+            '{
+              unfurl_links: false,
+              unfurl_media: false,
+              text: ("Dev Release " + $version),
+              blocks: [
+                { type: "header", text: { type: "plain_text", text: ("⚠️ Dev Release " + $version), emoji: true } },
+                { type: "section", text: { type: "mrkdwn", text: "A new dev release was published, but building the full changelog notification failed. See the workflow run for details." } },
+                { type: "actions", elements: [
+                  { type: "button", text: { type: "plain_text", text: "View workflow run" }, url: $run_url }
+                ] }
+              ]
+            }' > "${RUNNER_TEMP}/dev-release-slack-payload.json"
 
       - name: Notify Slack
         id: slack

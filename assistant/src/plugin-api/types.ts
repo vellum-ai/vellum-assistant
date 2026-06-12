@@ -315,6 +315,13 @@ export interface PostToolUseContext {
    */
   additionalContext: string | null;
   /**
+   * Model id reported by the provider for the assistant turn that issued
+   * this tool call (e.g. `claude-opus-4-8`,
+   * `accounts/fireworks/models/kimi-k2p6`). Hooks use it to vary coaching by
+   * model family — some models need earlier or firmer steering than others.
+   */
+  readonly model: string;
+  /**
    * The model's context-window size in tokens. Plugins derive their own
    * character budget from this (e.g. a share of the window) rather than
    * receiving a precomputed limit.

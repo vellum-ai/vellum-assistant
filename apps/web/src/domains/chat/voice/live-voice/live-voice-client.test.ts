@@ -10,8 +10,6 @@
  * Coverage: start-frame on open, every server frame -> typed event, binary
  * audio passthrough, connect timeout when no `ready`, `busy` handling, mint
  * failure, and clean `end()` / `close()` teardown.
- *
- * @jest-environment happy-dom
  */
 
 import {

@@ -189,7 +189,7 @@ function candidateSlugs(messages: Message[]): Slug[] {
       );
       if (finder) {
         for (const line of finder[1].split("\n")) {
-          const m = /^\[(\d+)\] (\S+)(?: — |$)/.exec(line);
+          const m = /^\[(\d+)\] (?:\([^)]*\) )?(\S+)(?: — |$)/.exec(line);
           if (m) entries.push({ id: Number(m[1]), slug: m[2]! });
         }
       }
@@ -235,6 +235,7 @@ async function runTurn(
     edgeGraph: deps.lanes.edgeGraph,
     coreSlugs: [],
     hotSlugs: [],
+    freshSlugs: [],
     prefixCards: new Map(),
   });
   const active = getActiveSlugs(conversationId);

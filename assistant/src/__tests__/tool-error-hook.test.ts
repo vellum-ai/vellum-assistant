@@ -79,6 +79,7 @@ function makeCtx(
     toolResponse,
     messages,
     additionalContext: null,
+    model: "claude-test-model",
     maxInputTokens: 10_000,
     logger: noopLogger,
   };

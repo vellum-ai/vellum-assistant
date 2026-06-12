@@ -83,6 +83,7 @@ import { migrateProviderConnectionBaseUrlAndModels } from "../memory/migrations/
 import * as schema from "../memory/schema.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 import { getConnection } from "../providers/inference/connections.js";
+import { getConfigQuarantineNoticePath } from "../util/platform.js";
 import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -328,8 +329,9 @@ describe("loadConfig startup behavior", () => {
         }
       }
     }
-    const updatesPath = join(WORKSPACE_DIR, "UPDATES.md");
-    if (existsSync(updatesPath)) rmSync(updatesPath, { force: true });
+    // Clear any leftover config-quarantine notice sentinel from prior runs.
+    const noticePath = getConfigQuarantineNoticePath();
+    if (existsSync(noticePath)) rmSync(noticePath, { force: true });
     ensureTestDir();
     setStorePathForTesting(join(WORKSPACE_DIR, "keys.enc"));
     delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;
@@ -666,8 +668,8 @@ describe("loadConfig startup behavior", () => {
     // Simulate a pre-migration install whose previous boots materialized
     // managed profiles into config.json. The seeder no longer touches them;
     // the loader treats the entry as transition state (template fields
-    // authoritative, label/status honored) until workspace migration 098
-    // collapses it into profileOverrides.
+    // authoritative, label/status honored) until the collapse migration
+    // folds it into profileOverrides.
     writeConfig({
       llm: {
         profiles: {

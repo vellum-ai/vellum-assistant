@@ -8,9 +8,19 @@ describe("MemoryV3ConfigSchema", () => {
     expect(parsed).toEqual({
       prune: { maxResidentBytes: 393216, targetResidentBytes: 262144 },
       hotSet: { k: 40, halfLifeDays: 14 },
+      freshSet: { k: 100 },
+      learnedEdges: {
+        halfLifeDays: 30,
+        minCount: 3,
+        npmiFloor: 0.2,
+        maxPerPage: 6,
+        perSeed: 3,
+        cap: 20,
+      },
       spotlight: { n: 6, windowTurns: 2 },
       needleK: 100,
       denseK: 100,
+      replyQueryK: 12,
       edge: { hubDegree: 30, seedCount: 18, perSeed: 6, cap: 45 },
     });
   });

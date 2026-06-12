@@ -7,8 +7,6 @@
  * (`emit`, `pushChunk`, `pushAmplitude`) so a test can drive a full turn and
  * assert the state-machine transitions, barge-in, automatic ptt_release, and
  * teardown.
- *
- * @jest-environment happy-dom
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";

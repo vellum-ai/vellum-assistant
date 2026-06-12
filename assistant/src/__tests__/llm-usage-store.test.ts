@@ -1653,6 +1653,17 @@ describe("queryUnreportedUsageEvents", () => {
     expect(events[0].turnIndex).toBe(0);
   });
 
+  test("surfaces llmCallCount on unreported events", () => {
+    insertEventAt(1000, { llmCallCount: 4 });
+    insertEventAt(2000, {});
+
+    const events = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(events).toHaveLength(2);
+    expect(events[0].llmCallCount).toBe(4);
+    // recordUsageEvent defaults llmCallCount to 1 when unset.
+    expect(events[1].llmCallCount).toBe(1);
+  });
+
   test("surfaces raw_usage on unreported events", () => {
     // The telemetry reporter consumes `queryUnreportedUsageEvents` output
     // directly and forwards it to BigQuery. If the SELECT projection

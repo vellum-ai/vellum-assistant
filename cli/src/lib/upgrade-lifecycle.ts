@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 
 import type { AssistantEntry } from "./assistant-config.js";
-import { saveAssistantEntry } from "./assistant-config.js";
+import { normalizeVersion, saveAssistantEntry } from "./assistant-config.js";
 import { createBackup, pruneOldBackups, restoreBackup } from "./backup-ops.js";
 import { emitCliError } from "./cli-error.js";
 import { getOrCreateHostDeviceId } from "./device-id.js";
@@ -19,14 +19,14 @@ import {
 import { getStateDir } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
 import { loadGuardianToken } from "./guardian-token.js";
-import { resolveImageRefs } from "./platform-releases.js";
+import { fetchReleases, resolveImageRefs } from "./platform-releases.js";
 import {
   getBuilderManagedEnvKeys,
   type DockerStatefulSetSpec,
   type ServiceName,
 } from "./statefulset.js";
 import { exec, execOutput } from "./step-runner.js";
-import { compareVersions } from "./version-compat.js";
+import { compareVersions, stripVersionPrefix } from "./version-compat.js";
 import { loopbackSafeFetch } from "./loopback-fetch.js";
 
 // ---------------------------------------------------------------------------
@@ -339,27 +339,18 @@ export async function fetchPreviousVersion(
 
   // 2. Derive from releases list
   if (!currentVersion) return undefined;
-  try {
-    const { getPlatformUrl } = await import("./platform-client.js");
-    const platformUrl = getPlatformUrl();
-    const resp = await loopbackSafeFetch(`${platformUrl}/v1/releases/?stable=true`, {
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!resp.ok) return undefined;
+  const releases = await fetchReleases();
+  if (!releases) return undefined;
 
-    const releases = (await resp.json()) as Array<{ version?: string }>;
-    const normalizedCurrent = currentVersion.replace(/^v/, "");
+  const normalizedCurrent = stripVersionPrefix(currentVersion);
 
-    // Releases are ordered newest-first; find the entry right after the
-    // current version (i.e. the one that was running before the upgrade).
-    const idx = releases.findIndex(
-      (r) => (r.version ?? "").replace(/^v/, "") === normalizedCurrent,
-    );
-    if (idx >= 0 && idx + 1 < releases.length) {
-      return releases[idx + 1].version;
-    }
-  } catch {
-    // Best-effort
+  // Releases are ordered newest-first; find the entry right after the
+  // current version (i.e. the one that was running before the upgrade).
+  const idx = releases.findIndex(
+    (r) => stripVersionPrefix(r.version ?? "") === normalizedCurrent,
+  );
+  if (idx >= 0 && idx + 1 < releases.length) {
+    return releases[idx + 1].version;
   }
   return undefined;
 }
@@ -788,6 +779,7 @@ export async function performDockerRollback(
       previousContainerInfo: entry.containerInfo,
       previousDbMigrationVersion: preMigrationState.dbVersion,
       previousWorkspaceMigrationId: preMigrationState.lastWorkspaceMigrationId,
+      version: normalizeVersion(targetVersion),
       preUpgradeBackupPath: undefined,
     };
     saveAssistantEntry(updatedEntry);

@@ -247,13 +247,18 @@ describe("session-manager", () => {
       await startSession(session.id);
       expect(getActiveSession(CONV_ID)).toBeDefined();
 
-      // Wait for the idle timeout to fire
-      await new Promise((r) => setTimeout(r, 200));
+      // Wait for the idle timeout to fire and the async stop to finish.
+      // The session passes through "stopping" while the server closes, so
+      // poll for the terminal state rather than sleeping a fixed interval.
+      const deadline = Date.now() + 5000;
+      const findSession = () =>
+        getSessionsForConversation(CONV_ID).find((x) => x.id === session.id);
+      while (findSession()?.status !== "stopped" && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 20));
+      }
 
       expect(getActiveSession(CONV_ID)).toBeUndefined();
-      const all = getSessionsForConversation(CONV_ID);
-      const s = all.find((x) => x.id === session.id);
-      expect(s?.status).toBe("stopped");
+      expect(findSession()?.status).toBe("stopped");
     });
   });
 

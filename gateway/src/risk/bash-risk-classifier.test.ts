@@ -1319,23 +1319,6 @@ describe("rm safe-file downgrade", () => {
     expect(result.riskLevel).toBe("high");
   });
 
-  test("rm UPDATES.md with toolName bash → medium", async () => {
-    const result = await classifier.classify({
-      command: "rm UPDATES.md",
-      toolName: "bash",
-    });
-    expect(result.riskLevel).toBe("medium");
-    expect(result.reason).toContain("UPDATES.md");
-  });
-
-  test("rm UPDATES.md with toolName host_bash → high (no downgrade on host)", async () => {
-    const result = await classifier.classify({
-      command: "rm UPDATES.md",
-      toolName: "host_bash",
-    });
-    expect(result.riskLevel).toBe("high");
-  });
-
   test("rm BOOTSTRAP.md other.txt with toolName bash → high (multiple args, no downgrade)", async () => {
     const result = await classifier.classify({
       command: "rm BOOTSTRAP.md other.txt",
@@ -1353,13 +1336,13 @@ describe("rm safe-file downgrade", () => {
     expect(result.reason).toContain("BOOTSTRAP.md");
   });
 
-  test("rm -v UPDATES.md with toolName bash → medium (benign flag)", async () => {
+  test("rm -v BOOTSTRAP.md with toolName bash → medium (benign flag)", async () => {
     const result = await classifier.classify({
-      command: "rm -v UPDATES.md",
+      command: "rm -v BOOTSTRAP.md",
       toolName: "bash",
     });
     expect(result.riskLevel).toBe("medium");
-    expect(result.reason).toContain("UPDATES.md");
+    expect(result.reason).toContain("BOOTSTRAP.md");
   });
 
   test("rm -fi BOOTSTRAP.md with toolName bash → high (combined flag not in benign set)", async () => {

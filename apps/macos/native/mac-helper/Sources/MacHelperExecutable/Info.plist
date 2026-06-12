@@ -12,8 +12,18 @@
     -->
     <key>CFBundleIdentifier</key>
     <string>ai.vellum.assistant.mac-helper</string>
+    <key>CFBundleExecutable</key>
+    <string>vellum-mac-helper</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
     <key>CFBundleName</key>
     <string>vellum-mac-helper</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Vellum uses the microphone to transcribe dictated voice input.</string>
     <key>NSSpeechRecognitionUsageDescription</key>

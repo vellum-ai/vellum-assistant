@@ -1,21 +1,21 @@
 /**
  * React hook managing the doctor panel SSE connection lifecycle.
  *
- * Owns the AbortController for stream cancellation, entry ID generation,
- * and dispatching parsed events to the appropriate handler. The Zod
- * schema and pure handlers live in sibling modules for independent
- * testability.
+ * Owns the AbortController for stream cancellation. Reads/writes state
+ * via the doctor panel Zustand store — no setter callbacks are needed.
+ * The Zod schema and pure handlers live in sibling modules for
+ * independent testability.
  */
 
 import { useCallback, useRef } from "react";
 
-import type { ChatEntry, NewChatEntry } from "@/domains/settings/components/panels/doctor-history";
+import type { DoctorPanelContext } from "@/domains/settings/components/panels/doctor-panel-store";
+import { useDoctorPanelStore } from "@/domains/settings/components/panels/doctor-panel-store";
 import {
   type DoctorEvent,
   parseDoctorEvent,
 } from "@/domains/settings/components/panels/doctor-event-schema";
 import {
-  type StreamContext,
   handleApprovalRequired,
   handleBackupPrompt,
   handleError,
@@ -31,63 +31,13 @@ import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import { toError } from "@/utils/to-error";
 
 // ---------------------------------------------------------------------------
-// Re-exports for existing consumers
-// ---------------------------------------------------------------------------
-
-export type { DoctorEvent, StreamContext };
-export { parseDoctorEvent };
-export {
-  handleApprovalRequired,
-  handleBackupPrompt,
-  handleError,
-  handleMessageComplete,
-  handleMessageDelta,
-  handleStatus,
-  handleToolCall,
-  handleToolResult,
-};
-export { DoctorEventSchema } from "@/domains/settings/components/panels/doctor-event-schema";
-
-// ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
 
 const SESSION_EXPIRED_STATUSES = new Set([404, 410]);
 
-export interface DoctorSSECallbacks {
-  setEntries: React.Dispatch<React.SetStateAction<ChatEntry[]>>;
-  setThinking: (v: boolean) => void;
-  setPendingApproval: (v: boolean) => void;
-  setPendingBackup: (v: boolean) => void;
-  setSessionStatus: (s: "idle" | "active" | "completed" | "error") => void;
-}
-
-export function useDoctorSSE(callbacks: DoctorSSECallbacks) {
-  const {
-    setEntries,
-    setThinking,
-    setPendingApproval,
-    setPendingBackup,
-    setSessionStatus,
-  } = callbacks;
-
+export function useDoctorSSE() {
   const controllerRef = useRef<AbortController | null>(null);
-  const streamingEntryIdRef = useRef<string | null>(null);
-  const entryCounterRef = useRef(0);
-
-  const nextId = useCallback(() => {
-    return `entry-${++entryCounterRef.current}`;
-  }, []);
-
-  const appendEntry = useCallback(
-    (entry: NewChatEntry) => {
-      setEntries((prev) => [
-        ...prev,
-        { ...entry, id: nextId(), timestamp: Date.now() } as ChatEntry,
-      ]);
-    },
-    [nextId, setEntries],
-  );
 
   const connectSSE = useCallback(
     (assistantId: string, sessionId: string) => {
@@ -98,26 +48,27 @@ export function useDoctorSSE(callbacks: DoctorSSECallbacks) {
 
       const isCurrentStream = () => controllerRef.current === controller;
 
-      const ctx: StreamContext = {
-        setEntries,
-        setThinking,
-        setPendingApproval,
-        setPendingBackup,
-        setSessionStatus,
-        appendEntry,
-        nextId,
-        getStreamingEntryId: () => streamingEntryIdRef.current,
-        setStreamingEntryId: (id) => { streamingEntryIdRef.current = id; },
+      const ctx: DoctorPanelContext = {
+        updateEntries: (updater) => useDoctorPanelStore.getState().updateEntries(updater),
+        setThinking: (v) => useDoctorPanelStore.getState().setThinking(v),
+        setPendingApproval: (v) => useDoctorPanelStore.getState().setPendingApproval(v),
+        setPendingBackup: (v) => useDoctorPanelStore.getState().setPendingBackup(v),
+        setSessionStatus: (s) => useDoctorPanelStore.getState().setSessionStatus(s),
+        appendEntry: (entry) => useDoctorPanelStore.getState().appendEntry(entry),
+        nextId: () => useDoctorPanelStore.getState().nextId(),
+        getStreamingEntryId: () => useDoctorPanelStore.getState().streamingEntryId,
+        setStreamingEntryId: (id) => useDoctorPanelStore.getState().setStreamingEntryId(id),
       };
 
       const failStream = (content: string) => {
         if (!isCurrentStream()) return;
         controllerRef.current = null;
-        ctx.setThinking(false);
-        ctx.setPendingApproval(false);
-        ctx.setStreamingEntryId(null);
-        ctx.setSessionStatus("error");
-        ctx.appendEntry({ kind: "error", content });
+        const s = useDoctorPanelStore.getState();
+        s.setThinking(false);
+        s.setPendingApproval(false);
+        s.setStreamingEntryId(null);
+        s.setSessionStatus("error");
+        s.appendEntry({ kind: "error", content });
       };
 
       function dispatchEvent(event: DoctorEvent): void {
@@ -196,11 +147,12 @@ export function useDoctorSSE(callbacks: DoctorSSECallbacks) {
 
           if (sessionExpired) {
             streamEndedTerminally = true;
-            ctx.setThinking(false);
-            ctx.setStreamingEntryId(null);
-            ctx.setSessionStatus("completed");
-            ctx.setPendingApproval(false);
-            ctx.appendEntry({
+            const s = useDoctorPanelStore.getState();
+            s.setThinking(false);
+            s.setStreamingEntryId(null);
+            s.setSessionStatus("completed");
+            s.setPendingApproval(false);
+            s.appendEntry({
               kind: "status",
               content:
                 "Previous session expired. Start a new session to continue.",
@@ -232,15 +184,7 @@ export function useDoctorSSE(callbacks: DoctorSSECallbacks) {
         }
       })();
     },
-    [
-      appendEntry,
-      nextId,
-      setEntries,
-      setPendingApproval,
-      setPendingBackup,
-      setSessionStatus,
-      setThinking,
-    ],
+    [],
   );
 
   const abort = useCallback(() => {
@@ -248,5 +192,5 @@ export function useDoctorSSE(callbacks: DoctorSSECallbacks) {
     controllerRef.current = null;
   }, []);
 
-  return { connectSSE, abort, nextId, appendEntry };
+  return { connectSSE, abort };
 }

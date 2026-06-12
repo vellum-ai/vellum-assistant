@@ -201,6 +201,12 @@ const pluginDetailsResponseSchema = z.object({
         .describe(
           "Lowercase 64-char hex SHA-256 the download is verified against.",
         ),
+      label: z
+        .string()
+        .optional()
+        .describe(
+          'Optional human label for the download (e.g. "Download for macOS"); absent when the plugin doesn\'t name it.',
+        ),
     })
     .nullable()
     .describe(

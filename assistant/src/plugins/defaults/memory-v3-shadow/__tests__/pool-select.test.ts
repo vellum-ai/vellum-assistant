@@ -316,6 +316,23 @@ describe("selectPool — request shape", () => {
     expect(tail.text).not.toContain("<candidate_cards>");
   });
 
+  test("finder lines render the surfacing lane tag when one is supplied", async () => {
+    providerStub = makeProvider(toolUseResponse({ ids: [] }));
+    const pool = makePool();
+    pool.finder = [
+      { slug: "topic-x", descriptor: "section: about topic x", lane: "needle" },
+      { slug: "page-a", descriptor: "", lane: "learned" },
+    ];
+    await selectPool(pool, makeTurn("rollout?"));
+
+    const [, tail] = sentBlocks();
+    expect(tail.text).toContain(
+      "[3] (needle) topic-x — section: about topic x",
+    );
+    // Empty descriptor: lane tag still renders, dash omitted.
+    expect(tail.text).toContain("[4] (learned) page-a");
+  });
+
   test("the rendered prefix is byte-identical across turns; only the tail varies", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: [1] }));
     await selectPool(makePool(), makeTurn("first question"));

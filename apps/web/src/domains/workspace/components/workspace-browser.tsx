@@ -5,6 +5,8 @@
 
 import { useCallback, useState } from "react";
 
+import { useSearchParams } from "react-router";
+
 import {
   MobileSidebarDrawer,
   MobileSidebarTrigger,
@@ -21,7 +23,10 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
-  const [sortMode, setSortMode] = useState<WorkspaceSortMode>("name");
+  const [searchParams] = useSearchParams();
+  const [sortMode, setSortMode] = useState<WorkspaceSortMode>(() =>
+    searchParams.get("sort") === "size" ? "size" : "name",
+  );
   const [viewMode, setViewMode] = useState<WorkspaceViewMode>("preview");
 
   const handleToggleExpand = useCallback((path: string) => {

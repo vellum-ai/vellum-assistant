@@ -62,6 +62,7 @@ import { installNativeAuth } from "./native-auth";
 import { installConnectivityProbe } from "./connectivity-probe";
 import { installNotifications } from "./notifications";
 import { installPermissionHandler } from "./permissions";
+import { installPermissionsService } from "./permissions-service";
 import { installPowerEvents } from "./power-events";
 import { installConnectivityIpc, installStatusIpc } from "./status";
 import { installTextInsertionIpc } from "./textInsertion";
@@ -344,6 +345,7 @@ app
     installLoginItem();
     installLoginItemIpc();
     installHotkeyHelper();
+    installPermissionsService();
     installAbout();
     installAutoUpdate();
     installFeedbackIpc();
@@ -423,6 +425,22 @@ app.on("web-contents-created", (_event, contents) => {
   // exceed the default 10-listener cap per WebContents, triggering a spurious
   // MaxListenersExceededWarning. Bump the limit to silence it.
   contents.setMaxListeners(20);
+
+  // Mirror renderer console output (info and up) into the main log file.
+  // The packaged app has no devtools, so without this the renderer's
+  // diagnostics — voice/dictation fallback decisions especially — are
+  // invisible in the field; `vellum.log` is the only artifact a debugging
+  // session can read.
+  contents.on("console-message", (event) => {
+    if (event.level === "debug") return;
+    // wc id disambiguates which window a line came from — dictation partials
+    // route to a single owner window, so cross-window confusion is invisible
+    // without it.
+    const line = `[renderer wc=${contents.id}] ${event.message}`;
+    if (event.level === "error") log.error(line);
+    else if (event.level === "warning") log.warn(line);
+    else log.info(line);
+  });
 
   contents.setWindowOpenHandler(({ url, disposition }) => {
     // Only http(s) is ever opened — file:, javascript:, custom schemes are
