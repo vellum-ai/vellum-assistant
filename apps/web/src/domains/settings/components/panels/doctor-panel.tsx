@@ -191,7 +191,9 @@ export function DoctorPanel() {
       if (!(error instanceof ApiError && error.status === 429)) {
         captureError(error, { context: "start_doctor_session" });
       }
-      useDoctorPanelStore.getState().appendEntry({
+      const store = useDoctorPanelStore.getState();
+      store.setSessionStatus("error");
+      store.appendEntry({
         kind: "error",
         content: error instanceof ApiError
           ? error.message
@@ -296,6 +298,11 @@ export function DoctorPanel() {
       store.sessionId
     ) {
       store.reset();
+    }
+    // Clear historyDismissed on remount so history queries re-discover new
+    // sessions that may have completed while the panel was unmounted.
+    if (store.historyDismissed && !store.sessionId) {
+      useDoctorPanelStore.setState({ historyDismissed: false });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: assistantId is stable at mount time
   }, []);
