@@ -7,8 +7,12 @@ import {
   HermesAgent,
   DEFAULT_HERMES_IMAGE,
   EXEC_PATH,
+  HERMES_CA_TRUST_ENV_FLAGS,
   HERMES_TRANSCRIPT_EVENT_TYPE,
   selectProviderEnvFlags,
+  selectProviderWarmupFeatures,
+  selectInferenceSelection,
+  inferenceEnvFlags,
   synthesizeHermesTurnEvent,
 } from "../adapters/hermes";
 import { AgentEventCollector } from "../runner/event-collector";
@@ -135,6 +139,12 @@ describe("HermesAgent", () => {
       "eval-hermes-1-hermes",
       "--label",
       "evals.vellum.ai/species=hermes",
+      "-e",
+      "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt",
+      "-e",
+      "SSL_CERT_DIR=/etc/ssl/certs",
+      "-e",
+      "HERMES_DISABLE_LAZY_INSTALLS=1",
       DEFAULT_HERMES_IMAGE,
       "gateway",
       "run",
@@ -489,6 +499,12 @@ describe("HermesAgent", () => {
         "image-missing-hermes",
         "--label",
         "evals.vellum.ai/species=hermes",
+        "-e",
+        "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt",
+        "-e",
+        "SSL_CERT_DIR=/etc/ssl/certs",
+        "-e",
+        "HERMES_DISABLE_LAZY_INSTALLS=1",
         DEFAULT_HERMES_IMAGE,
         "gateway",
         "run",
@@ -552,6 +568,252 @@ describe("HermesAgent", () => {
     const imageIdx = dockerRun.args.indexOf(DEFAULT_HERMES_IMAGE);
     expect(imageIdx).toBeGreaterThan(dockerRun.args.lastIndexOf("-e"));
     expect(dockerRun.args.slice(imageIdx + 1)).toEqual(["gateway", "run"]);
+  });
+
+  test("points Hermes's Python TLS stack at the jail-augmented system CA bundle", async () => {
+    // GIVEN a Hermes agent (Python httpx trusts certifi, not the system store
+    // the egress jail writes the mitmproxy CA into).
+    const runner = new FakeRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "timeline-recall",
+      runId: "eval-hermes-ca",
+      processEnv: { ANTHROPIC_API_KEY: "anthropic-test-value" },
+    });
+
+    // WHEN it hatches the daemon container.
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+
+    // THEN the daemon `docker run` sets SSL_CERT_FILE/SSL_CERT_DIR so httpx
+    // loads the jail-augmented system bundle (public CAs + mitmproxy CA)
+    // instead of certifi, and the flags sit before the image so they apply
+    // to the container (and every inheriting `docker exec` turn).
+    const dockerRun = runner.runs.find(
+      (r) =>
+        r.command === "docker" && r.args[0] === "run" && r.args[1] === "-d",
+    )!;
+    const flat = dockerRun.args.join(" ");
+    expect(flat).toContain(HERMES_CA_TRUST_ENV_FLAGS.join(" "));
+    expect(flat).toContain("SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt");
+    const lastCaEnvIdx = dockerRun.args.lastIndexOf(
+      "SSL_CERT_DIR=/etc/ssl/certs",
+    );
+    expect(dockerRun.args.indexOf(DEFAULT_HERMES_IMAGE)).toBeGreaterThan(
+      lastCaEnvIdx,
+    );
+  });
+
+  test("warms up the lazy Anthropic SDK before the jail, and disables lazy installs on the daemon", async () => {
+    // GIVEN a Hermes agent keyed on ANTHROPIC_API_KEY (the native Anthropic
+    // SDK is a Hermes lazy-install, not baked into the image).
+    const runner = new FakeRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "timeline-recall",
+      runId: "eval-hermes-warmup",
+      processEnv: { ANTHROPIC_API_KEY: "anthropic-test-value" },
+    });
+
+    // WHEN it hatches.
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+
+    const calls = runner.runs.map((r) => [r.command, ...r.args]);
+    const runIdx = calls.findIndex(
+      (c) => c[0] === "docker" && c[1] === "run" && c[2] === "-d",
+    );
+    const warmupIdx = calls.findIndex((c) =>
+      c.some((a) => a.includes("from tools.lazy_deps import ensure")),
+    );
+    const jailApplyIdx = calls.findIndex(
+      (c) => c[0] === "docker" && c[1] === "build",
+    );
+
+    // THEN the daemon `docker run` disables Hermes's runtime lazy installs
+    // so a jailed turn can't hang on a blocked PyPI fetch.
+    expect(calls[runIdx]).toContain("HERMES_DISABLE_LAZY_INSTALLS=1");
+
+    // AND a warm-up exec pre-installs the provider SDK via Hermes's own
+    // installer, as the unprivileged `hermes` user, with lazy installs
+    // re-enabled for just that exec — and it runs after the container
+    // starts but BEFORE the egress jail closes the network.
+    expect(warmupIdx).toBeGreaterThan(runIdx);
+    expect(jailApplyIdx).toBeGreaterThan(warmupIdx);
+    expect(calls[warmupIdx]).toEqual([
+      "docker",
+      "exec",
+      "--user",
+      "hermes",
+      "--env",
+      `PATH=${EXEC_PATH}`,
+      "--env",
+      "PYTHONPATH=/opt/hermes",
+      "--env",
+      "HERMES_DISABLE_LAZY_INSTALLS=0",
+      "eval-hermes-warmup-hermes",
+      "/opt/hermes/.venv/bin/python3",
+      "-c",
+      'from tools.lazy_deps import ensure; ensure("provider.anthropic")',
+    ]);
+  });
+
+  test("skips provider warm-up when no lazy-shipped provider key is forwarded", async () => {
+    // GIVEN a Hermes agent with only OPENAI_API_KEY (the OpenAI SDK ships
+    // pre-installed, so nothing needs warming).
+    const runner = new FakeRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "timeline-recall",
+      runId: "eval-hermes-no-warmup",
+      processEnv: { OPENAI_API_KEY: "openai-test-value" },
+    });
+
+    // WHEN it hatches.
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+
+    // THEN no lazy-install warm-up exec is issued, but the daemon still
+    // disables runtime lazy installs.
+    const calls = runner.runs.map((r) => [r.command, ...r.args]);
+    expect(
+      calls.some((c) =>
+        c.some((a) => a.includes("from tools.lazy_deps import ensure")),
+      ),
+    ).toBe(false);
+    const dockerRun = calls.find(
+      (c) => c[0] === "docker" && c[1] === "run" && c[2] === "-d",
+    )!;
+    expect(dockerRun).toContain("HERMES_DISABLE_LAZY_INSTALLS=1");
+  });
+
+  test("pins the inference provider + model to the forwarded key's native backend", async () => {
+    // GIVEN a Hermes agent keyed on ANTHROPIC_API_KEY. Hermes's provider
+    // auto-resolution ignores that key and would fall back to openrouter (a
+    // blocked host under the egress jail).
+    const runner = new FakeRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "timeline-recall",
+      runId: "eval-hermes-pin",
+      processEnv: { ANTHROPIC_API_KEY: "anthropic-test-value" },
+    });
+
+    // WHEN it hatches.
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+
+    // THEN the daemon `docker run` pins provider + model to the native
+    // Anthropic backend (an allowlisted host), so no turn probes openrouter,
+    // and both flags sit before the image so they apply to every `hermes -z`.
+    const dockerRun = runner.runs.find(
+      (r) =>
+        r.command === "docker" && r.args[0] === "run" && r.args[1] === "-d",
+    )!;
+    const flat = dockerRun.args.join(" ");
+    expect(flat).toContain("HERMES_INFERENCE_PROVIDER=anthropic");
+    expect(flat).toContain("HERMES_INFERENCE_MODEL=claude-sonnet-4-6");
+    const lastInferenceIdx = dockerRun.args.lastIndexOf(
+      "HERMES_INFERENCE_MODEL=claude-sonnet-4-6",
+    );
+    expect(dockerRun.args.indexOf(DEFAULT_HERMES_IMAGE)).toBeGreaterThan(
+      lastInferenceIdx,
+    );
+  });
+
+  test("omits the inference pin when no recognized provider key is forwarded", async () => {
+    // GIVEN a Hermes agent with no forwarded provider key.
+    const runner = new FakeRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "timeline-recall",
+      runId: "eval-hermes-no-pin",
+      processEnv: {},
+    });
+
+    // WHEN it hatches.
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+
+    // THEN no HERMES_INFERENCE_* flags are set — Hermes keeps its own
+    // configured defaults rather than being forced onto a provider with no
+    // matching key.
+    const dockerRun = runner.runs.find(
+      (r) =>
+        r.command === "docker" && r.args[0] === "run" && r.args[1] === "-d",
+    )!;
+    expect(dockerRun.args.join(" ")).not.toContain("HERMES_INFERENCE_");
+  });
+
+  test("selectInferenceSelection picks the first forwarded key in priority order", () => {
+    // Anthropic wins when present, even alongside other keys.
+    expect(
+      selectInferenceSelection({
+        ANTHROPIC_API_KEY: "present",
+        GEMINI_API_KEY: "present",
+      }),
+    ).toEqual({ provider: "anthropic", model: "claude-sonnet-4-6" });
+
+    // Falls through to the next forwarded provider when Anthropic is absent.
+    expect(selectInferenceSelection({ GEMINI_API_KEY: "present" })).toEqual({
+      provider: "gemini",
+      model: "gemini-2.5-pro",
+    });
+    expect(selectInferenceSelection({ GOOGLE_API_KEY: "present" })).toEqual({
+      provider: "gemini",
+      model: "gemini-2.5-pro",
+    });
+
+    // OPENAI_API_KEY has no native API-key backend in the pinned Hermes
+    // image (only the OAuth-based openai-codex provider), so it is not
+    // pinnable — selection falls through and Hermes resolves normally.
+    expect(
+      selectInferenceSelection({ OPENAI_API_KEY: "present" }),
+    ).toBeUndefined();
+
+    // No recognized key → undefined (Hermes keeps its defaults).
+    expect(selectInferenceSelection({})).toBeUndefined();
+    expect(selectInferenceSelection({ ANTHROPIC_API_KEY: "" })).toBeUndefined();
+
+    // inferenceEnvFlags renders both flags together, or nothing.
+    expect(
+      inferenceEnvFlags({ provider: "anthropic", model: "claude-sonnet-4-6" }),
+    ).toEqual([
+      "-e",
+      "HERMES_INFERENCE_PROVIDER=anthropic",
+      "-e",
+      "HERMES_INFERENCE_MODEL=claude-sonnet-4-6",
+    ]);
+    expect(inferenceEnvFlags(undefined)).toEqual([]);
+  });
+
+  test("selectProviderWarmupFeatures maps only lazy-shipped provider keys to features", () => {
+    // Anthropic is the one lazy provider SDK; OpenAI/Google ship preinstalled.
+    expect(
+      selectProviderWarmupFeatures({
+        ANTHROPIC_API_KEY: "present",
+        OPENAI_API_KEY: "present",
+        GEMINI_API_KEY: "present",
+      }),
+    ).toEqual(["provider.anthropic"]);
+
+    // Absent/empty Anthropic key → nothing to warm.
+    expect(selectProviderWarmupFeatures({ ANTHROPIC_API_KEY: "" })).toEqual([]);
+    expect(selectProviderWarmupFeatures({ OPENAI_API_KEY: "present" })).toEqual(
+      [],
+    );
+
+    // Custom allow-list that excludes Anthropic → no warm-up even if set.
+    expect(
+      selectProviderWarmupFeatures({ ANTHROPIC_API_KEY: "present" }, [
+        "OPENAI_API_KEY",
+      ]),
+    ).toEqual([]);
   });
 
   test("selectProviderEnvFlags emits -e flags only for present, allow-listed vars", () => {
