@@ -305,17 +305,28 @@ export function applyBootstrapTemplate(
 }
 
 /**
- * Explicit persona-selection override for prompt builds that run outside the
- * inbound-turn pipeline (agent wakes). Each slug, when present, takes
- * precedence over the corresponding trust-context/channel-capabilities
- * derivation in {@link buildSystemPrompt}. Persona selection only — trust
- * class and approval semantics are unaffected.
+ * Explicit prompt-build override for builds that run outside the
+ * inbound-turn pipeline (agent wakes). Each field, when present, takes
+ * precedence over the corresponding derivation in {@link buildSystemPrompt}.
+ * Prompt-build selection only — trust class and approval semantics are
+ * unaffected.
  */
 export interface SystemPromptPersonaOverride {
   /** Renders `users/<slug>.md` as the user persona section. */
   userSlug?: string;
   /** Renders `channels/<slug>.md` as the channel persona section. */
   channelSlug?: string;
+  /**
+   * Pins the `hasNoClient` flag for the prompt build, taking precedence over
+   * the top-level `BuildSystemPromptOptions.hasNoClient` (which mirrors the
+   * conversation's live client state). The `05-access-preference` section
+   * renders different text under the flag — early in the prompt, so a
+   * mismatch breaks byte-parity with a cached prefix even when persona and
+   * profile match. Used by fork-based memory retrospectives: the fork is
+   * hydrated clientless (`hasNoClient = true`) while the source's live turns
+   * ran with `hasNoClient = false`.
+   */
+  hasNoClient?: boolean;
 }
 
 export interface BuildSystemPromptOptions {
@@ -376,6 +387,11 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
     options?.personaOverride?.channelSlug ??
     options?.channelCapabilities?.channel ??
     "vellum";
+  // The override's `hasNoClient` pin wins over the conversation-derived
+  // top-level option (see the interface doc); placed after the `...options`
+  // spread below so it overrides the spread-in value.
+  const hasNoClient =
+    options?.personaOverride?.hasNoClient ?? options?.hasNoClient;
 
   // Section render context.  Workspace section frontmatter `enabled:`
   // predicates, `{{key}}` / `{{#flag}}...{{/flag}}` body interpolation,
@@ -388,6 +404,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // no explicit normalization needed; `...options` is enough.
   const ctx = {
     ...options,
+    hasNoClient,
     isContainerized: getIsContainerized(),
     workspaceDir: getWorkspaceDir(),
     userSlug,
