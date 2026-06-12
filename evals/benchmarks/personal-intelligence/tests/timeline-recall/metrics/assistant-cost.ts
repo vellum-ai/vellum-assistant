@@ -7,10 +7,11 @@ import { scoreCostAgainstBaseline } from "../../../../../src/lib/cost-score";
 
 /**
  * Target assistant spend for a good timeline-recall run, in USD. A run at or
- * under this baseline scores 100%; the score decays linearly to 0% at twice
- * the baseline. Tune this as the captured-cost picture firms up.
+ * under this baseline scores 100%; past it the score decays as the inverse
+ * cost ratio (see `scoreCostAgainstBaseline`). Sized to a realistic cached
+ * agentic turn so the metric keeps a wide range rather than flooring at 0%.
  */
-const COST_BASELINE_USD = 0.02;
+const COST_BASELINE_USD = 0.05;
 
 /**
  * Score the run's assistant cost as a 0-1 quality fraction measuring how far
@@ -46,7 +47,14 @@ export default async function scoreAssistantCost(
       name: "assistant-cost-usd",
       score: 0,
       reason,
-      metadata: { baselineUsd: COST_BASELINE_USD, ...usage },
+      metadata: {
+        baselineUsd: COST_BASELINE_USD,
+        costUsd: totalCostUsd,
+        totalInputTokens: usage.totalInputTokens,
+        totalOutputTokens: usage.totalOutputTokens,
+        costStatus: usage.costStatus,
+        unpricedRequests: usage.costDiagnostics?.length ?? 0,
+      },
     };
   }
 
@@ -58,11 +66,13 @@ export default async function scoreAssistantCost(
       2,
     )} baseline → ${(score * 100).toFixed(
       0,
-    )}% (100% at or under the baseline, 0% at 2× the baseline).`,
+    )}% (100% at or under the baseline; the score then decays as the inverse cost ratio).`,
     metadata: {
       baselineUsd: COST_BASELINE_USD,
       costUsd: totalCostUsd,
-      ...usage,
+      totalInputTokens: usage.totalInputTokens,
+      totalOutputTokens: usage.totalOutputTokens,
+      costStatus: usage.costStatus,
     },
   };
 }
