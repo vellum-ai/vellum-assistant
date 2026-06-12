@@ -5,7 +5,7 @@ metadata:
   emoji: "✨"
   vellum:
     display-name: "Personal Page"
-    category: "personal"
+    category: "content"
     activation-hints:
       - "User asks for a personal page, profile page, or landing page about themselves"
       - "User asks to change, refresh, or add something to their personal page"

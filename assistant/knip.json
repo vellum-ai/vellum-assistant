@@ -8,6 +8,7 @@
     "src/api/index.ts!"
   ],
   "project": ["src/**/*.ts!", "src/**/*.tsx!", "scripts/**/*.ts"],
+  "ignore": ["src/config/preloaded-apps/**"],
   "ignoreDependencies": [
     "@microsoft/api-extractor",
     "@vellumai/ces-client",
