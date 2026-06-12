@@ -1,15 +1,18 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, type InfiniteData } from "@tanstack/react-query";
 
 import type { Conversation, ConversationGroup } from "@/types/conversation-types";
 import type { GroupsGetResponse } from "@/generated/daemon/types.gen";
 import {
-  conversationsQueryKey,
   backgroundConversationsQueryKey,
   scheduledConversationsQueryKey,
   archivedConversationsQueryKey,
   conversationGroupsQueryKey,
 } from "@/lib/sync/query-tags";
+import {
+  conversationListInfiniteQueryKey,
+  type ConversationPage,
+} from "@/utils/conversation-list-fetchers";
 
 import {
   markConversationSeenLocal,
@@ -53,7 +56,12 @@ function makeGroup(
 }
 
 function seedForeground(qc: QueryClient, conversations: Conversation[]) {
-  qc.setQueryData(conversationsQueryKey(ASSISTANT_ID), conversations);
+  const queryKey = conversationListInfiniteQueryKey(ASSISTANT_ID);
+  const infiniteData: InfiniteData<ConversationPage> = {
+    pages: [{ conversations, hasMore: false, nextOffset: conversations.length }],
+    pageParams: [0],
+  };
+  qc.setQueryData(queryKey, infiniteData);
 }
 
 function seedBackground(qc: QueryClient, conversations: Conversation[]) {
@@ -76,7 +84,9 @@ function seedGroups(qc: QueryClient, groups: ConversationGroup[]) {
 }
 
 function getForeground(qc: QueryClient): Conversation[] {
-  return qc.getQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID)) ?? [];
+  const queryKey = conversationListInfiniteQueryKey(ASSISTANT_ID);
+  const data = qc.getQueryData<InfiniteData<ConversationPage>>(queryKey);
+  return data?.pages.flatMap((p) => p.conversations) ?? [];
 }
 
 function getBackground(qc: QueryClient): Conversation[] {
@@ -177,12 +187,13 @@ describe("markConversationSeenLocal", () => {
   });
 
   test("no-op when conversation not found", () => {
-    const original = [makeConversation({ conversationId: "c1" })];
-    seedForeground(qc, original);
+    seedForeground(qc, [makeConversation({ conversationId: "c1" })]);
+    const queryKey = conversationListInfiniteQueryKey(ASSISTANT_ID);
+    const before = qc.getQueryData<InfiniteData<ConversationPage>>(queryKey);
 
     markConversationSeenLocal(qc, ASSISTANT_ID, "nonexistent");
 
-    expect(getForeground(qc)).toBe(original);
+    expect(qc.getQueryData<InfiniteData<ConversationPage>>(queryKey)).toBe(before);
   });
 
   test("no-op when assistantId is null", () => {
@@ -271,12 +282,13 @@ describe("removeConversation", () => {
   });
 
   test("returns same reference when conversation not found", () => {
-    const original = [makeConversation({ conversationId: "c1" })];
-    seedForeground(qc, original);
+    seedForeground(qc, [makeConversation({ conversationId: "c1" })]);
+    const queryKey = conversationListInfiniteQueryKey(ASSISTANT_ID);
+    const before = qc.getQueryData<InfiniteData<ConversationPage>>(queryKey);
 
     removeConversation(qc, ASSISTANT_ID, "nonexistent");
 
-    expect(getForeground(qc)).toBe(original);
+    expect(qc.getQueryData<InfiniteData<ConversationPage>>(queryKey)).toBe(before);
   });
 });
 
@@ -458,12 +470,13 @@ describe("resolveDraftKey", () => {
   });
 
   test("no-op when draft key not found", () => {
-    const original = [makeConversation({ conversationId: "c1" })];
-    seedForeground(qc, original);
+    seedForeground(qc, [makeConversation({ conversationId: "c1" })]);
+    const queryKey = conversationListInfiniteQueryKey(ASSISTANT_ID);
+    const before = qc.getQueryData<InfiniteData<ConversationPage>>(queryKey);
 
     resolveDraftKey(qc, ASSISTANT_ID, "nonexistent", "real-456");
 
-    expect(getForeground(qc)).toBe(original);
+    expect(qc.getQueryData<InfiniteData<ConversationPage>>(queryKey)).toBe(before);
   });
 });
 
@@ -619,11 +632,12 @@ describe("deleteGroupAndResetConversations", () => {
 
   test("no-op on conversations when no conversations have the groupId", () => {
     seedGroups(qc, [makeGroup({ id: "g1", name: "Delete" })]);
-    const original = [makeConversation({ conversationId: "c1", groupId: "other" })];
-    seedForeground(qc, original);
+    seedForeground(qc, [makeConversation({ conversationId: "c1", groupId: "other" })]);
+    const queryKey = conversationListInfiniteQueryKey(ASSISTANT_ID);
+    const before = qc.getQueryData<InfiniteData<ConversationPage>>(queryKey);
 
     deleteGroupAndResetConversations(qc, ASSISTANT_ID, "g1");
 
-    expect(getForeground(qc)).toBe(original);
+    expect(qc.getQueryData<InfiniteData<ConversationPage>>(queryKey)).toBe(before);
   });
 });

@@ -97,6 +97,10 @@ export interface UseSidebarStateParams {
   conversations: Conversation[];
   conversationGroups?: ConversationGroup[];
   attentionConversationIds?: Set<string>;
+  /** Trigger loading of the next page from the server. */
+  fetchNextPage?: () => void;
+  /** Whether the server has more pages to load. */
+  hasNextPage?: boolean;
 }
 
 export function useSidebarState({
@@ -104,6 +108,8 @@ export function useSidebarState({
   conversations,
   conversationGroups,
   attentionConversationIds,
+  fetchNextPage,
+  hasNextPage,
 }: UseSidebarStateParams): SidebarState {
   const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
   const isAssistantActive = useAssistantLifecycleStore(
@@ -213,20 +219,20 @@ export function useSidebarState({
       all: grouped.recents,
       items: grouped.recents.slice(0, effectiveVisibleCount),
       totalCount: grouped.recents.length,
-      showMore: effectiveVisibleCount < grouped.recents.length,
+      showMore: effectiveVisibleCount < grouped.recents.length || (hasNextPage ?? false),
       showLess:
         visibleRecentsCount > SIDEBAR_CONVERSATION_LIMIT &&
         grouped.recents.length > SIDEBAR_CONVERSATION_LIMIT,
-      onShowMore: () =>
-        setVisibleRecentsCount((prev) =>
-          Math.min(
-            grouped.recents.length,
-            Math.max(prev, effectiveVisibleCount) + SIDEBAR_CONVERSATION_LIMIT,
-          ),
-        ),
+      onShowMore: () => {
+        const nextCount = Math.max(visibleRecentsCount, effectiveVisibleCount) + SIDEBAR_CONVERSATION_LIMIT;
+        if (nextCount >= grouped.recents.length && hasNextPage) {
+          fetchNextPage?.();
+        }
+        setVisibleRecentsCount(Math.min(grouped.recents.length + SIDEBAR_CONVERSATION_LIMIT, nextCount));
+      },
       onShowLess: () => setVisibleRecentsCount(SIDEBAR_CONVERSATION_LIMIT),
     };
-  }, [grouped.recents, visibleRecentsCount, attentionConversationIds]);
+  }, [grouped.recents, visibleRecentsCount, attentionConversationIds, fetchNextPage, hasNextPage]);
 
   const slackSection = useMemo((): PaginatedSection => {
     const attentionIndex = attentionConversationIds

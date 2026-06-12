@@ -118,6 +118,8 @@ export function AssistantSideMenu({
   width,
   onWidthChange,
   conversations,
+  fetchNextPage,
+  hasNextPage,
   activeConversationId,
   onSelectConversation,
   isIntelligenceActive = false,
@@ -153,6 +155,8 @@ export function AssistantSideMenu({
     conversations,
     conversationGroups,
     attentionConversationIds,
+    fetchNextPage,
+    hasNextPage,
   });
 
   const pinnedApps = usePinnedAppsStore.use.pinnedApps();

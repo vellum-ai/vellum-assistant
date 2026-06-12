@@ -1,13 +1,16 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, type InfiniteData } from "@tanstack/react-query";
 
 import type { Conversation } from "@/types/conversation-types";
 import {
-  conversationsQueryKey,
   backgroundConversationsQueryKey,
   scheduledConversationsQueryKey,
   archivedConversationsQueryKey,
 } from "@/lib/sync/query-tags";
+import {
+  conversationListInfiniteQueryKey,
+  type ConversationPage,
+} from "@/utils/conversation-list-fetchers";
 
 import {
   cancelConversationQueries,
@@ -43,7 +46,12 @@ function makeConversation(
 }
 
 function seedForeground(qc: QueryClient, conversations: Conversation[]) {
-  qc.setQueryData(conversationsQueryKey(ASSISTANT_ID), conversations);
+  const queryKey = conversationListInfiniteQueryKey(ASSISTANT_ID);
+  const infiniteData: InfiniteData<ConversationPage> = {
+    pages: [{ conversations, hasMore: false, nextOffset: conversations.length }],
+    pageParams: [0],
+  };
+  qc.setQueryData(queryKey, infiniteData);
 }
 
 function seedBackground(qc: QueryClient, conversations: Conversation[]) {
@@ -59,7 +67,9 @@ function seedArchived(qc: QueryClient, conversations: Conversation[]) {
 }
 
 function getForeground(qc: QueryClient): Conversation[] {
-  return qc.getQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID)) ?? [];
+  const queryKey = conversationListInfiniteQueryKey(ASSISTANT_ID);
+  const data = qc.getQueryData<InfiniteData<ConversationPage>>(queryKey);
+  return data?.pages.flatMap((p) => p.conversations) ?? [];
 }
 
 function getBackground(qc: QueryClient): Conversation[] {
@@ -114,8 +124,8 @@ describe("snapshotConversationCaches + restoreConversationCaches", () => {
   test("snapshot captures undefined for uninitialized caches", () => {
     const snapshot = snapshotConversationCaches(qc, ASSISTANT_ID);
 
-    expect(snapshot).toHaveLength(4);
-    for (const [, data] of snapshot) {
+    expect(snapshot.infiniteData).toBeUndefined();
+    for (const [, data] of snapshot.flatCaches) {
       expect(data).toBeUndefined();
     }
   });
@@ -148,22 +158,23 @@ describe("updateConversationsCache", () => {
     expect(getForeground(qc)).toHaveLength(2);
   });
 
-  test("preserves reference when updater returns same array", () => {
-    const original = [makeConversation({ conversationId: "c1" })];
-    seedForeground(qc, original);
+  test("preserves InfiniteData reference when updater returns same array", () => {
+    seedForeground(qc, [makeConversation({ conversationId: "c1" })]);
+    const queryKey = conversationListInfiniteQueryKey(ASSISTANT_ID);
+    const before = qc.getQueryData<InfiniteData<ConversationPage>>(queryKey);
 
     updateConversationsCache(qc, ASSISTANT_ID, (list) => list);
 
-    expect(getForeground(qc)).toBe(original);
+    expect(qc.getQueryData<InfiniteData<ConversationPage>>(queryKey)).toBe(before);
   });
 
-  test("initializes from empty when cache is unset", () => {
-    updateConversationsCache(qc, ASSISTANT_ID, (list) => {
-      expect(list).toEqual([]);
-      return [makeConversation({ conversationId: "c1" })];
-    });
+  test("no-op when cache is unset", () => {
+    updateConversationsCache(qc, ASSISTANT_ID, () => [
+      makeConversation({ conversationId: "c1" }),
+    ]);
 
-    expect(getForeground(qc)).toHaveLength(1);
+    // When there is no existing infinite query data, the updater is not applied.
+    expect(getForeground(qc)).toHaveLength(0);
   });
 });
 
@@ -387,12 +398,14 @@ describe("patchConversation", () => {
   });
 
   test("no-op when key not found", () => {
-    const original = [makeConversation({ conversationId: "c1" })];
-    seedForeground(qc, original);
+    seedForeground(qc, [makeConversation({ conversationId: "c1" })]);
+    const queryKey = conversationListInfiniteQueryKey(ASSISTANT_ID);
+    const before = qc.getQueryData<InfiniteData<ConversationPage>>(queryKey);
 
     patchConversation(qc, ASSISTANT_ID, "nonexistent", { title: "Nope" });
 
-    expect(getForeground(qc)).toBe(original);
+    // InfiniteData reference is unchanged when no conversation matches.
+    expect(qc.getQueryData<InfiniteData<ConversationPage>>(queryKey)).toBe(before);
   });
 });
 

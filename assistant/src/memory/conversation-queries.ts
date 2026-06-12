@@ -13,7 +13,7 @@ import { ensureDisplayOrderMigration } from "./conversation-display-order-migrat
 import { ensureGroupMigration } from "./conversation-group-migration.js";
 import type { ConversationType } from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
-import { rawAll } from "./raw-query.js";
+import { rawAll, rawGet } from "./raw-query.js";
 import { conversations, messages } from "./schema.js";
 
 const log = getLogger("conversation-store");
@@ -373,6 +373,34 @@ export function countConversations(
     .where(where)
     .all();
   return total;
+}
+
+/**
+ * Count foreground (standard), non-archived conversations that have an unseen
+ * assistant message. This is the server-authoritative replacement for the
+ * client-side `conversations.reduce(contributesToUnreadCount)` pattern that
+ * required eagerly loading every conversation.
+ *
+ * The predicate mirrors `contributesToUnreadCount` on the web app:
+ * - `hasUnseenLatestAssistantMessage === true`
+ * - NOT a background/scheduled conversation
+ * - NOT archived
+ */
+export function countUnreadConversations(): number {
+  ensureGroupMigration();
+  const visibility = standardListingVisibilitySql();
+  const row = rawGet<{ total: number }>(
+    `SELECT COUNT(*) AS total
+     FROM conversations
+     JOIN conversation_assistant_attention_state AS attn
+       ON attn.conversation_id = conversations.id
+     WHERE ${visibility}
+       AND conversations.archived_at IS NULL
+       AND attn.latest_assistant_message_at IS NOT NULL
+       AND (attn.last_seen_assistant_message_at IS NULL
+            OR attn.last_seen_assistant_message_at < attn.latest_assistant_message_at)`,
+  );
+  return row?.total ?? 0;
 }
 
 /**

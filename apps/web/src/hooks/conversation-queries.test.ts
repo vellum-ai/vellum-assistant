@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, type InfiniteData } from "@tanstack/react-query";
 
 import {
   appendGroup,
@@ -16,9 +16,12 @@ import {
 import {
   backgroundConversationsQueryKey,
   conversationGroupsQueryKey,
-  conversationsQueryKey,
   scheduledConversationsQueryKey,
 } from "@/lib/sync/query-tags";
+import {
+  conversationListInfiniteQueryKey,
+  type ConversationPage,
+} from "@/utils/conversation-list-fetchers";
 import { patchConversation } from "@/utils/conversation-cache";
 import type {
   Conversation,
@@ -54,16 +57,18 @@ function seedConversations(
   qc: QueryClient,
   conversations: Conversation[],
 ): void {
-  qc.setQueryData<Conversation[]>(
-    conversationsQueryKey(ASSISTANT_ID),
-    conversations,
-  );
+  const queryKey = conversationListInfiniteQueryKey(ASSISTANT_ID);
+  const infiniteData: InfiniteData<ConversationPage> = {
+    pages: [{ conversations, hasMore: false, nextOffset: conversations.length }],
+    pageParams: [0],
+  };
+  qc.setQueryData(queryKey, infiniteData);
 }
 
 function getConversations(qc: QueryClient): Conversation[] {
-  return (
-    qc.getQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID)) ?? []
-  );
+  const queryKey = conversationListInfiniteQueryKey(ASSISTANT_ID);
+  const data = qc.getQueryData<InfiniteData<ConversationPage>>(queryKey);
+  return data?.pages.flatMap((p) => p.conversations) ?? [];
 }
 
 function seedBackgroundConversations(
@@ -136,7 +141,7 @@ describe("patchConversation", () => {
     const qc = new QueryClient();
     patchConversation(qc, ASSISTANT_ID, "a", { title: "x" });
     expect(
-      qc.getQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID)),
+      qc.getQueryData(conversationListInfiniteQueryKey(ASSISTANT_ID)),
     ).toBeUndefined();
   });
 });

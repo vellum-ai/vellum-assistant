@@ -2,6 +2,7 @@
  * Route handlers for conversation listing, detail, and seen/unread state.
  *
  * GET    /v1/conversations              — paginated conversation list
+ * GET    /v1/conversations/unread-count — unread foreground conversation count
  * POST   /v1/conversations/seen         — record a seen signal (single)
  * POST   /v1/conversations/seen/bulk    — record seen signals (batch)
  * POST   /v1/conversations/unread       — mark a conversation unread
@@ -25,6 +26,7 @@ import {
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
 import {
   countConversations,
+  countUnreadConversations,
   listConversations,
   listPinnedConversations,
 } from "../../memory/conversation-queries.js";
@@ -406,6 +408,10 @@ function handleGetConversation({ pathParams = {} }: RouteHandlerArgs) {
   return detail;
 }
 
+function handleGetUnreadCount() {
+  return { count: countUnreadConversations() };
+}
+
 // ---------------------------------------------------------------------------
 // Transport-agnostic route definitions
 // ---------------------------------------------------------------------------
@@ -514,6 +520,22 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseBody: z.object({ ok: z.boolean() }),
     handler: handleMarkUnread,
+  },
+  {
+    operationId: "conversationsUnreadCount",
+    endpoint: "conversations/unread-count",
+    method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Get unread conversation count",
+    description:
+      "Count of foreground conversations with unseen assistant messages. " +
+      "Excludes background, scheduled, and archived conversations.",
+    tags: ["conversations"],
+    responseBody: z.object({ count: z.number() }),
+    handler: handleGetUnreadCount,
   },
   {
     operationId: "getConversation",

@@ -1,10 +1,12 @@
 /**
  * Low-level read/write helpers over the conversation query caches.
  *
- * Conversations are split across three flat `Conversation[]` caches:
+ * Conversations are split across multiple caches:
  *
- * - **Foreground** under `conversationsQueryKey` — the primary list that
- *   gates the initial chat render. Always fetched.
+ * - **Foreground** (infinite query) — the primary list that gates the initial
+ *   chat render. Stored as `InfiniteData<ConversationPage>` under the
+ *   generated infinite query key. Loads one page on mount; additional pages
+ *   load on demand.
  * - **Background** under `backgroundConversationsQueryKey` — background jobs
  *   only. Fetched lazily, only once the user reveals the Background sidebar
  *   section, so a large backlog never blocks the first paint.
@@ -17,48 +19,45 @@
  * A conversation lives in exactly one cache, so the cross-cache helpers
  * (`findConversation`, `getConversations`, `patchConversation`) read from
  * all four and write to all four — the caches that don't hold the row are
- * a no-op. This lets every mutation, stream handler, and attention sweep
- * keep a single call site regardless of which bucket a conversation
- * belongs to.
- *
- * These primitives are shared cross-domain; `queryClient.setQueryData` /
- * `getQueryData` is an implementation detail callers shouldn't repeat.
+ * a no-op.
  *
  * References:
- * - https://tanstack.com/query/latest/docs/framework/react/guides/updates-from-mutation-responses
+ * - https://tanstack.com/query/latest/docs/framework/react/guides/optimistic-updates
+ * - https://tanstack.com/query/latest/docs/framework/react/guides/infinite-queries
  */
 
-import type { QueryClient } from "@tanstack/react-query";
+import type { InfiniteData, QueryClient } from "@tanstack/react-query";
 
 import {
   archivedConversationsQueryKey,
   backgroundConversationsQueryKey,
-  conversationsQueryKey,
   scheduledConversationsQueryKey,
 } from "@/lib/sync/query-tags";
+import {
+  conversationListInfiniteQueryKey,
+  flattenConversationPages,
+  type ConversationPage,
+} from "@/utils/conversation-list-fetchers";
 import type { Conversation } from "@/types/conversation-types";
 
 // ---------------------------------------------------------------------------
-// Query lifecycle helpers — cancel, snapshot, restore, invalidate
-//
-// Optimistic updates require a three-step lifecycle:
-//   1. Cancel outgoing refetches so they don't overwrite the optimistic value
-//   2. Snapshot the current cache for rollback
-//   3. After the mutation settles, invalidate so TanStack Query refetches
-//
-// References:
-// - https://tanstack.com/query/latest/docs/framework/react/guides/optimistic-updates
+// Internal helpers
 // ---------------------------------------------------------------------------
 
-/** All conversation query keys for the given assistant. */
-function allConversationQueryKeys(assistantId: string | null) {
+type ConversationUpdater = (conversations: Conversation[]) => Conversation[];
+
+/** Background, scheduled, and archived query keys (flat Conversation[]). */
+function flatConversationQueryKeys(assistantId: string | null) {
   return [
-    conversationsQueryKey(assistantId),
     backgroundConversationsQueryKey(assistantId),
     scheduledConversationsQueryKey(assistantId),
     archivedConversationsQueryKey(assistantId),
   ] as const;
 }
+
+// ---------------------------------------------------------------------------
+// Query lifecycle helpers — cancel, snapshot, restore, invalidate
+// ---------------------------------------------------------------------------
 
 /**
  * Cancel any in-flight refetches for conversation caches. Call this before
@@ -69,20 +68,26 @@ export async function cancelConversationQueries(
   queryClient: QueryClient,
   assistantId: string,
 ): Promise<void> {
-  await Promise.all(
-    allConversationQueryKeys(assistantId).map((key) =>
+  const promises = [
+    queryClient.cancelQueries({
+      queryKey: conversationListInfiniteQueryKey(assistantId),
+    }),
+    ...flatConversationQueryKeys(assistantId).map((key) =>
       queryClient.cancelQueries({ queryKey: key }),
     ),
-  );
+  ];
+  await Promise.all(promises);
 }
 
 /**
  * Snapshot of all conversation caches for a given assistant, used for
  * rollback in `onError` after a failed optimistic mutation.
  */
-export type ConversationCacheSnapshot = Array<
-  [queryKey: readonly unknown[], data: Conversation[] | undefined]
->;
+export interface ConversationCacheSnapshot {
+  infiniteQueryKey: readonly unknown[];
+  infiniteData: InfiniteData<ConversationPage> | undefined;
+  flatCaches: Array<[queryKey: readonly unknown[], data: Conversation[] | undefined]>;
+}
 
 /**
  * Capture the current state of all conversation caches. The returned
@@ -93,10 +98,15 @@ export function snapshotConversationCaches(
   queryClient: QueryClient,
   assistantId: string,
 ): ConversationCacheSnapshot {
-  return allConversationQueryKeys(assistantId).map((key) => [
-    key,
-    queryClient.getQueryData<Conversation[]>(key),
-  ]);
+  const infiniteQueryKey = conversationListInfiniteQueryKey(assistantId);
+  return {
+    infiniteQueryKey,
+    infiniteData: queryClient.getQueryData<InfiniteData<ConversationPage>>(infiniteQueryKey),
+    flatCaches: flatConversationQueryKeys(assistantId).map((key) => [
+      key,
+      queryClient.getQueryData<Conversation[]>(key),
+    ]),
+  };
 }
 
 /**
@@ -106,7 +116,8 @@ export function restoreConversationCaches(
   queryClient: QueryClient,
   snapshot: ConversationCacheSnapshot,
 ): void {
-  for (const [key, data] of snapshot) {
+  queryClient.setQueryData(snapshot.infiniteQueryKey, snapshot.infiniteData);
+  for (const [key, data] of snapshot.flatCaches) {
     queryClient.setQueryData(key, data);
   }
 }
@@ -120,16 +131,79 @@ export async function invalidateConversationQueries(
   queryClient: QueryClient,
   assistantId: string,
 ): Promise<void> {
-  await Promise.all(
-    allConversationQueryKeys(assistantId).map((key) =>
+  const promises = [
+    queryClient.invalidateQueries({
+      queryKey: conversationListInfiniteQueryKey(assistantId),
+    }),
+    ...flatConversationQueryKeys(assistantId).map((key) =>
       queryClient.invalidateQueries({ queryKey: key }),
     ),
-  );
+  ];
+  await Promise.all(promises);
 }
 
-type ConversationUpdater = (conversations: Conversation[]) => Conversation[];
+// ---------------------------------------------------------------------------
+// Foreground cache mutations (infinite query)
+// ---------------------------------------------------------------------------
 
-function updateCache(
+/**
+ * Apply `updater` to each page's conversations in the foreground infinite
+ * query cache. Pages that aren't changed by the updater retain their
+ * reference (stable memoization).
+ */
+export function updateConversationsCache(
+  queryClient: QueryClient,
+  assistantId: string | null,
+  updater: ConversationUpdater,
+): void {
+  const queryKey = conversationListInfiniteQueryKey(assistantId);
+  queryClient.setQueryData<InfiniteData<ConversationPage>>(queryKey, (old) => {
+    if (!old) return old;
+    let anyPageChanged = false;
+    const nextPages = old.pages.map((page) => {
+      const updated = updater(page.conversations);
+      if (updated === page.conversations) return page;
+      anyPageChanged = true;
+      return { ...page, conversations: updated };
+    });
+    if (!anyPageChanged) return old;
+    return { ...old, pages: nextPages };
+  });
+}
+
+/**
+ * Prepend a conversation to the first page of the foreground infinite
+ * query cache. Used for new draft/conversation insertion.
+ */
+export function prependToConversationsCache(
+  queryClient: QueryClient,
+  assistantId: string | null,
+  conversation: Conversation,
+): void {
+  const queryKey = conversationListInfiniteQueryKey(assistantId);
+  queryClient.setQueryData<InfiniteData<ConversationPage>>(queryKey, (old) => {
+    if (!old || old.pages.length === 0) {
+      return {
+        pages: [{ conversations: [conversation], hasMore: false, nextOffset: 1 }],
+        pageParams: [0],
+      };
+    }
+    const [firstPage, ...rest] = old.pages;
+    return {
+      ...old,
+      pages: [
+        { ...firstPage, conversations: [conversation, ...firstPage.conversations] },
+        ...rest,
+      ],
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Flat cache mutations (background, scheduled, archived)
+// ---------------------------------------------------------------------------
+
+function updateFlatCache(
   queryClient: QueryClient,
   queryKey: readonly unknown[],
   updater: ConversationUpdater,
@@ -137,24 +211,9 @@ function updateCache(
   queryClient.setQueryData<Conversation[]>(queryKey, (prev) => {
     const list = prev ?? [];
     const next = updater(list);
-    if (next === list) {
-      return prev;
-    }
+    if (next === list) return prev;
     return next;
   });
-}
-
-/**
- * Apply `updater` to the foreground conversation cache. Used for writes
- * that only ever target foreground rows (draft creation, new-conversation
- * insertion).
- */
-export function updateConversationsCache(
-  queryClient: QueryClient,
-  assistantId: string | null,
-  updater: ConversationUpdater,
-): void {
-  updateCache(queryClient, conversationsQueryKey(assistantId), updater);
 }
 
 /**
@@ -165,7 +224,7 @@ export function updateBackgroundConversationsCache(
   assistantId: string | null,
   updater: ConversationUpdater,
 ): void {
-  updateCache(
+  updateFlatCache(
     queryClient,
     backgroundConversationsQueryKey(assistantId),
     updater,
@@ -180,7 +239,7 @@ export function updateScheduledConversationsCache(
   assistantId: string | null,
   updater: ConversationUpdater,
 ): void {
-  updateCache(
+  updateFlatCache(
     queryClient,
     scheduledConversationsQueryKey(assistantId),
     updater,
@@ -195,7 +254,7 @@ export function updateArchivedConversationsCache(
   assistantId: string | null,
   updater: ConversationUpdater,
 ): void {
-  updateCache(
+  updateFlatCache(
     queryClient,
     archivedConversationsQueryKey(assistantId),
     updater,
@@ -205,9 +264,7 @@ export function updateArchivedConversationsCache(
 /**
  * Apply `updater` to all conversation caches (foreground, background,
  * scheduled, and archived). The caches that don't contain the targeted row
- * return their list unchanged, so the write is a no-op there. Callers that
- * mutate a row by id without knowing which bucket a conversation belongs to
- * use this.
+ * return their list unchanged, so the write is a no-op there.
  */
 export function updateAllConversationCaches(
   queryClient: QueryClient,
@@ -220,6 +277,10 @@ export function updateAllConversationCaches(
   updateArchivedConversationsCache(queryClient, assistantId, updater);
 }
 
+// ---------------------------------------------------------------------------
+// Cross-cache readers
+// ---------------------------------------------------------------------------
+
 /**
  * Read a single conversation from any conversation cache. Used by
  * imperative callers (send pipeline, attention tracking, stream handlers)
@@ -230,14 +291,25 @@ export function findConversation(
   assistantId: string | null,
   key: string,
 ): Conversation | undefined {
-  for (const queryKey of allConversationQueryKeys(assistantId)) {
+  // Search the foreground infinite query cache
+  const infiniteData = queryClient.getQueryData<InfiniteData<ConversationPage>>(
+    conversationListInfiniteQueryKey(assistantId),
+  );
+  if (infiniteData) {
+    for (const page of infiniteData.pages) {
+      const match = page.conversations.find((c) => c.conversationId === key);
+      if (match) return match;
+    }
+  }
+
+  // Search flat caches (background, scheduled, archived)
+  for (const queryKey of flatConversationQueryKeys(assistantId)) {
     const match = queryClient
       .getQueryData<Conversation[]>(queryKey)
       ?.find((c) => c.conversationId === key);
-    if (match) {
-      return match;
-    }
+    if (match) return match;
   }
+
   return undefined;
 }
 
@@ -279,10 +351,19 @@ export function getConversations(
   queryClient: QueryClient,
   assistantId: string | null,
 ): Conversation[] {
-  const lists = allConversationQueryKeys(assistantId).map(
+  // Foreground from infinite query
+  const infiniteData = queryClient.getQueryData<InfiniteData<ConversationPage>>(
+    conversationListInfiniteQueryKey(assistantId),
+  );
+  const foreground = infiniteData
+    ? flattenConversationPages(infiniteData.pages)
+    : [];
+
+  // Flat caches
+  const flatLists = flatConversationQueryKeys(assistantId).map(
     (key) => queryClient.getQueryData<Conversation[]>(key) ?? [],
   );
-  return mergeConversationLists(...lists);
+  return mergeConversationLists(foreground, ...flatLists);
 }
 
 /**
