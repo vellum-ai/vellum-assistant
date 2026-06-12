@@ -215,6 +215,7 @@ function result(
     lanes: {
       core: [],
       hot: [],
+      fresh: [],
       finder: matched.map(([slug]) => ({
         slug,
         descriptor: "",

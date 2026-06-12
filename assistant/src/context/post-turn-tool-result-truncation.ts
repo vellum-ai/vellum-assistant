@@ -51,6 +51,27 @@ function buildToolNameById(messages: Message[]): Map<string, string> {
 }
 
 /**
+ * Shared eligibility rules for replacing an oversized tool result with the
+ * on-disk stub: string content over the size threshold, not an error result,
+ * not from an exempt tool (durable instructions like skill bodies), and not
+ * already truncated (idempotency marker). Used by both the post-turn pass and
+ * the result-time spool pass so the two converge on the same results.
+ */
+export function isTruncationEligible(
+  tr: ToolResultContent,
+  toolName: string | undefined,
+): boolean {
+  if (typeof tr.content !== "string") return false;
+  if (tr.content.length <= THRESHOLD_CHARS) return false;
+  if (tr.is_error) return false;
+  if (toolName !== undefined && TRUNCATION_EXEMPT_TOOLS.has(toolName)) {
+    return false;
+  }
+  if (tr.content.includes(TRUNCATION_MARKER)) return false;
+  return true;
+}
+
+/**
  * Deterministic file path for a tool result's full content on disk.
  * Uses the first 12 hex chars of the SHA-256 of the tool_use_id.
  */
@@ -58,7 +79,10 @@ export function getToolResultFilePath(
   conversationDir: string,
   toolUseId: string,
 ): string {
-  const hash = createHash("sha256").update(toolUseId).digest("hex").slice(0, 12);
+  const hash = createHash("sha256")
+    .update(toolUseId)
+    .digest("hex")
+    .slice(0, 12);
   return join(conversationDir, TOOL_RESULT_DIR, `${hash}.txt`);
 }
 
@@ -73,7 +97,11 @@ export function buildTruncatedContent(
 ): string {
   const half = Math.floor(TARGET_CHARS / 2);
   const prefix = safeStringSlice(original, 0, half);
-  const suffix = safeStringSlice(original, original.length - half, original.length);
+  const suffix = safeStringSlice(
+    original,
+    original.length - half,
+    original.length,
+  );
   const omittedChars = original.length - TARGET_CHARS;
   const estimatedTokens = Math.round(omittedChars / 4);
   return `${prefix}\n\n...(${estimatedTokens} tokens omitted ${TRUNCATION_MARKER} ${filePath})\n\n${suffix}`;
@@ -86,9 +114,7 @@ export function buildTruncatedContent(
  * - The full content is persisted to a deterministic file path on disk.
  * - The in-context content is replaced with a prefix/suffix stub.
  *
- * Results are skipped if they are below threshold, are error results,
- * have already been truncated (contain `TRUNCATION_MARKER`), or were produced
- * by a tool in `TRUNCATION_EXEMPT_TOOLS` (durable instructions like skill bodies).
+ * Results are skipped unless {@link isTruncationEligible} allows them.
  *
  * Returns a shallow-copied messages array (only modified messages are cloned)
  * and the count of results that were truncated.
@@ -107,21 +133,9 @@ export function postTurnTruncateToolResults(
       if (block.type !== "tool_result") return block;
       const tr = block as ToolResultContent;
 
-      // Skip short results.
-      if (tr.content.length <= THRESHOLD_CHARS) return block;
-
-      // Skip error results.
-      if (tr.is_error) return block;
-
-      // Skip results from tools whose output is durable operating instructions
-      // (e.g. skill_load); middle-truncating them strips the workflow.
-      const toolName = toolNameById.get(tr.tool_use_id);
-      if (toolName !== undefined && TRUNCATION_EXEMPT_TOOLS.has(toolName)) {
+      if (!isTruncationEligible(tr, toolNameById.get(tr.tool_use_id))) {
         return block;
       }
-
-      // Skip already-truncated results (idempotency).
-      if (tr.content.includes(TRUNCATION_MARKER)) return block;
 
       const filePath = getToolResultFilePath(
         options.conversationDir,

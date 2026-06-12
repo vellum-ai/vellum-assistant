@@ -50,13 +50,14 @@ function event(message: AgentEvent["message"]): AgentEvent {
 }
 
 /**
- * Species-specific event-type filtering moved to the adapter layer in PR
- * #31112 — `normalizeVellumEventStream` and `normalizeHermesEventStream`
- * own the "which events carry assistant transcript text" decision. By the
- * time an event reaches `assistantContent`, the adapter has either kept
- * `text`/`chunk` set (transcript) or cleared them (everything else), so
- * this getter is intentionally trivial. The adapter-side filtering is
- * covered in `lib/__tests__/vellum-adapter.test.ts` and
+ * Each adapter owns the "which events carry assistant transcript text"
+ * decision at its own boundary: the Vellum adapter normalizes its live SSE
+ * stream via `normalizeVellumEventStream`, while the Hermes adapter
+ * synthesizes a single `message_chunk` per single-shot turn. By the time an
+ * event reaches `assistantContent`, the adapter has either kept `text`/
+ * `chunk` set (transcript) or cleared them (everything else), so this getter
+ * is intentionally trivial. The adapter-side behavior is covered in
+ * `lib/__tests__/vellum-adapter.test.ts` and
  * `lib/__tests__/hermes-adapter.test.ts`.
  */
 describe("assistantContent (trivial getter)", () => {
@@ -355,7 +356,7 @@ function throwingHatchAgent(input: AgentHatchInput): {
 function fakeProfile(id: string): Profile {
   return {
     id,
-    manifest: { species: "vellum" },
+    manifest: { species: "vellum", description: `desc for ${id}` },
     workspaceDir: `/tmp/${id}`,
   };
 }
@@ -428,6 +429,13 @@ describe("runEvalOnce — hatch failure metadata", () => {
     expect(metadata?.status).toBe("failed");
     expect(metadata?.completedAt).toBeDefined();
     expect(metadata?.error ?? "").toContain("simulated post-hatch failure");
+    // The manifest snapshot is known at run start, so a run that fails
+    // must still carry it — the profile page and exported bundles render
+    // species/description/setup even when every run of a profile failed.
+    expect(metadata?.profileManifest).toEqual({
+      species: "vellum",
+      description: "desc for p-fake",
+    });
 
     // Finally block ran → shutdown was called even on the throw path.
     // This is the second leg of the bug fix: without it, hatch failures

@@ -67,6 +67,7 @@ mock.module("electron", () => ({
       handlers[channel] = handler;
     },
     on: mock(() => undefined),
+    removeAllListeners: mock(() => undefined),
   },
 }));
 

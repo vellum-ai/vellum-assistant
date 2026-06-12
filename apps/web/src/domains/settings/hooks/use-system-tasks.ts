@@ -270,8 +270,6 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
     consolidationUsage,
     isLoading: isHeartbeatLoading || isConsolidationLoading,
     hasError: isHeartbeatError || isConsolidationError,
-    hasAnySystemTask:
-      heartbeatConfig != null || consolidationConfig?.available === true,
     isHeartbeatRunning,
     isConsolidationRunning,
     isHeartbeatLoading,

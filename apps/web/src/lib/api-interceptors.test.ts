@@ -10,8 +10,6 @@
  * through the HeyAPI client. That way we don't depend on any private
  * interceptor-list internals; if the interceptor function gets the inputs
  * right, the registrations at the bottom of the module do the rest.
- *
- * @jest-environment happy-dom
  */
 
 import {

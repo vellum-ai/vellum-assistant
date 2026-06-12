@@ -122,8 +122,22 @@ declare global {
           onEvent(callback: (event: HotkeyEvent) => void): () => void;
         };
         dictation?: {
-          setPartials(enable: boolean): Promise<DictationPartialsResult>;
+          setPartials(
+            enable: boolean,
+            deviceName?: string,
+            pushAudio?: boolean,
+          ): Promise<DictationPartialsResult>;
+          pushAudioChunk?(chunk: ArrayBuffer): void;
           onPartial(
+            callback: (event: DictationPartialEvent) => void,
+          ): () => void;
+          onFinalized?(
+            callback: (event: DictationPartialEvent) => void,
+          ): () => void;
+          transcribe?(
+            audio: ArrayBuffer,
+          ): Promise<{ ok: boolean; reason?: string }>;
+          onTranscribed?(
             callback: (event: DictationPartialEvent) => void,
           ): () => void;
         };

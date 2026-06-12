@@ -268,6 +268,7 @@ export async function runLongMemEvalV2Unit(
       sessionLabel,
       cliArgv,
       profileId: input.profile.id,
+      profileManifest: input.profile.manifest,
       testId: input.item.questionId,
       status: "running",
       startedAt,

@@ -11,6 +11,7 @@ import {
   estimateToolsTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
+import { spoolAndStubOversizedToolResults } from "../context/tool-result-spool.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { parseActualTokensFromError } from "../daemon/parse-actual-tokens-from-error.js";
 import type { TrustContext } from "../daemon/trust-context.js";
@@ -595,6 +596,16 @@ export interface AgentLoopConstructorOptions {
    * post-compaction re-injection resolve the live conversation through.
    */
   conversationId: string;
+  /**
+   * Resolve the conversation's on-disk directory, used to spool oversized
+   * tool results to `.tool-results/` and swap the inline copy for the
+   * post-turn pass's stub at result time — before the result joins history,
+   * so the provider-bound prefix stays append-only for prompt caching.
+   * Returns `null` while the directory cannot be resolved (e.g. the
+   * conversation row is not yet persisted); the loop then skips the
+   * result-time pass and the post-turn truncation covers the turn instead.
+   */
+  resolveConversationDir?: () => string | null;
 }
 
 export class AgentLoop {
@@ -616,6 +627,9 @@ export class AgentLoop {
    */
   private readonly conversationId: string;
 
+  /** See {@link AgentLoopConstructorOptions.resolveConversationDir}. */
+  private readonly resolveConversationDir: (() => string | null) | null;
+
   /**
    * Loop-held compaction circuit breaker. The loop has a 1:1 lifetime with its
    * conversation, so it is the source of truth for the cross-turn failure
@@ -635,6 +649,7 @@ export class AgentLoop {
       resolveTools,
       resolveSystemPrompt,
       conversationId,
+      resolveConversationDir,
     } = options;
     this.provider = provider;
     this.systemPrompt = systemPrompt;
@@ -644,6 +659,7 @@ export class AgentLoop {
     this.resolveSystemPrompt = resolveSystemPrompt ?? null;
     this.toolExecutor = toolExecutor ?? null;
     this.conversationId = conversationId;
+    this.resolveConversationDir = resolveConversationDir ?? null;
     this.compactionCircuit = new CompactionCircuit(this.conversationId);
   }
 
@@ -884,6 +900,19 @@ export class AgentLoop {
     let overflowLadderExhausted = false;
     let overflowAutoCompressApplied = false;
     const rlog = log.child({ requestId });
+
+    // Conversation directory for the result-time tool-result spool/stub pass.
+    // Resolved once per run; `null` disables the pass for this run and the
+    // post-turn truncation covers the turn instead.
+    let conversationDir: string | null = null;
+    try {
+      conversationDir = this.resolveConversationDir?.() ?? null;
+    } catch (err) {
+      rlog.warn(
+        { err },
+        "Resolving conversation dir for tool-result spooling failed (non-fatal)",
+      );
+    }
 
     // Resolve the inference-profile override that applies right now. The
     // optional resolver lets a turn observe a confirmed mid-turn profile switch
@@ -1723,11 +1752,39 @@ export class AgentLoop {
           }),
         );
 
+        // Spool oversized results to `.tool-results/` and swap the inline
+        // copy for the post-turn pass's stub now — on the raw blocks, before
+        // the post-tool-use hooks, event emission, and history append. Running
+        // ahead of the hooks means the spooled file holds the tool's full
+        // output rather than the truncate plugin's tail-dropped copy, and the
+        // hooks then see the stub. Stubbing before the first send keeps the
+        // provider-bound history strictly append-only (rewriting an earlier
+        // message between calls would invalidate the prompt-cache prefix on
+        // every iteration).
+        if (conversationDir) {
+          const toolNameByUseId = new Map(
+            toolUseBlocks.map((tu) => [tu.id, tu.name]),
+          );
+          try {
+            spoolAndStubOversizedToolResults(rawResultBlocks, {
+              conversationDir,
+              toolNameById: (id) => toolNameByUseId.get(id),
+            });
+          } catch (err) {
+            rlog.warn(
+              { err, turn: toolUseTurns },
+              "Spooling oversized tool results to disk failed (non-fatal)",
+            );
+          }
+        }
+
         // Run the `post-tool-use` hook once per tool result, after the tool
         // returns and before the result joins the provider-bound history.
         // The default tool-result-truncate plugin tail-drops oversized output
-        // to fit the context window; user hooks can swap in a smarter strategy
-        // (e.g. a summariser) or observe results for side effects.
+        // to fit the context window (spool-stubbed results are already tiny;
+        // spool-exempt ones still rely on it); user hooks can swap in a
+        // smarter strategy (e.g. a summariser) or observe results for side
+        // effects.
         const contextWindowTokens =
           resolveContextWindow?.().maxInputTokens ??
           this.config.maxInputTokens ??

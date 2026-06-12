@@ -475,6 +475,49 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     ).not.toContain("extended-cache-ttl-2025-04-11");
   });
 
+  test("disableCache sends no cache_control anywhere and strips caller-stamped block markers", async () => {
+    // A one-shot call site that opted out of prompt caching: no breakpoint
+    // on system, tools, turn-start, or tail — and a caller-stamped block
+    // marker is removed rather than forwarded.
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          cachedPrefixBlock("stable pages block"),
+          { type: "text", text: "Do something" },
+        ],
+      },
+      toolUseMsg("tu_1", "bash"),
+      toolResultMsg("tu_1", "output"),
+    ];
+    await provider.sendMessage(messages, {
+      tools: sampleTools,
+      systemPrompt: "You are a helpful assistant.",
+      config: { disableCache: true },
+    });
+
+    const system = lastStreamParams!.system as Array<{
+      cache_control?: unknown;
+    }>;
+    expect(system[0].cache_control).toBeUndefined();
+
+    const tools = lastStreamParams!.tools as Array<{
+      cache_control?: unknown;
+    }>;
+    for (const tool of tools) {
+      expect(tool.cache_control).toBeUndefined();
+    }
+
+    const sent = lastStreamParams!.messages as Array<{
+      content: Array<{ cache_control?: unknown }>;
+    }>;
+    for (const message of sent) {
+      for (const block of message.content) {
+        expect(block.cache_control).toBeUndefined();
+      }
+    }
+  });
+
   test("v3-shape call (system + tools + cached prefix block) stays within the 4-breakpoint cap", async () => {
     // Mirrors a v3 L2 selector call: a system prompt, a forced tool, and a user
     // message whose stable <pages> block carries a cache_control breakpoint

@@ -39,12 +39,30 @@ BUILD_ARGS+=(
 )
 
 mkdir -p "$OUTPUT_DIR"
+# Legacy layouts (bare binary / old name) — always clear.
 rm -f "$OUTPUT_DIR/hotkey-helper" "$OUTPUT_DIR/vellum-mac-helper" "$OUTPUT_DIR/Info.plist"
-rm -rf "$OUTPUT_BUNDLE"
-mkdir -p "$OUTPUT_BUNDLE/Contents/MacOS"
 xcrun swift build "${BUILD_ARGS[@]}"
 BUILD_DIR="$(xcrun swift build "${BUILD_ARGS[@]}" --show-bin-path)"
-cp "$BUILD_DIR/vellum-mac-helper" "$OUTPUT"
-cp "$INFO_PLIST" "$OUTPUT_INFO_PLIST"
-chmod 755 "$OUTPUT"
-codesign --force --sign - --entitlements "$ROOT_DIR/scripts/entitlements/helper.plist" "$OUTPUT_BUNDLE"
+
+# Skip the install when the build output is unchanged: replacing and
+# re-signing churns nothing semantically, but a fresh bundle invalidates
+# the CDHash that TCC keys the helper's mic/speech grants on, so every
+# no-op rebuild (e.g. `bun run dev`'s postinstall) would re-prompt. The
+# signed binary never byte-matches the unsigned build output, so compare
+# against a hash marker of the inputs recorded at install time.
+SOURCE_HASH="$(cat "$BUILD_DIR/vellum-mac-helper" "$INFO_PLIST" "$ROOT_DIR/scripts/entitlements/helper.plist" | shasum -a 256 | cut -d' ' -f1)"
+HASH_MARKER="$OUTPUT_DIR/.vellum-mac-helper.source-hash"
+if [ -x "$OUTPUT" ] && [ -f "$HASH_MARKER" ] && [ "$(cat "$HASH_MARKER")" = "$SOURCE_HASH" ]; then
+  echo "build-mac-helper: bundle unchanged; keeping existing copy"
+else
+  # Remove before installing: overwriting a signed Mach-O in place reuses
+  # the inode, and the kernel's stale signature cache SIGKILLs the next
+  # spawn (exit 137). A fresh bundle sidesteps it.
+  rm -rf "$OUTPUT_BUNDLE"
+  mkdir -p "$OUTPUT_BUNDLE/Contents/MacOS"
+  cp "$BUILD_DIR/vellum-mac-helper" "$OUTPUT"
+  cp "$INFO_PLIST" "$OUTPUT_INFO_PLIST"
+  chmod 755 "$OUTPUT"
+  codesign --force --sign - --entitlements "$ROOT_DIR/scripts/entitlements/helper.plist" "$OUTPUT_BUNDLE"
+  printf '%s' "$SOURCE_HASH" > "$HASH_MARKER"
+fi

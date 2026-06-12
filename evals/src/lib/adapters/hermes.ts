@@ -17,9 +17,7 @@ import {
   assertSuccess,
   NodeCommandRunner,
   type CommandRunner,
-  type SpawnedProcess,
 } from "../runtime/command-runner";
-import { parseNdjson } from "../runtime/ndjson";
 import { generateHermesEvalSessionId, seedHermesSession } from "./hermes-seed";
 
 /**
@@ -41,20 +39,33 @@ import { generateHermesEvalSessionId, seedHermesSession } from "./hermes-seed";
  *   - `applyDockerEgressJail` to constrain outbound traffic to the same
  *     model-provider allowlist Vellum runs against. Keeps cross-species
  *     cost comparisons honest.
- *   - `docker exec --env PATH=...` for setup, send, events, and seed-
- *     conversation actions. The Hermes binary lives at
- *     `/opt/hermes/.venv/bin/hermes`; the official docs note it's NOT on
- *     PATH for `docker exec` sessions, so we set PATH explicitly.
+ *   - `docker exec --env PATH=...` for setup, send, and seed-conversation
+ *     actions. The Hermes binary lives at `/opt/hermes/.venv/bin/hermes`;
+ *     the official docs note it's NOT on PATH for `docker exec` sessions,
+ *     so we set PATH explicitly.
  *
- * The in-container CLI surface this adapter assumes for `message` and
- * `events` (`hermes message --conversation-key`, `hermes events --json`)
- * mirrors Vellum's `assistant` CLI shape so the evals harness contract
- * stays uniform across species. The exact Hermes subcommand names may
- * differ from what this adapter spells; the docker image, the daemon
- * command, and the in-container CLI command are constructor-overrideable
- * via `dockerImage`, `daemonArgs`, and `cliCommand` so the call surface
- * can be adjusted (or a thin shim CLI dropped into the image) without
- * rewriting the adapter.
+ * **A turn is a single-shot agent invocation.** Real Hermes has no
+ * persistent `message`/`events` CLI pair to stream a conversation through.
+ * Its non-interactive entrypoint is `hermes -z "<prompt>"`, which runs the
+ * full agentic loop (tools, thinking, etc.) to completion and prints only
+ * the final assistant text to stdout. So `send` runs one `hermes -z` per
+ * user message and `events` synthesizes a single `message_chunk` transcript
+ * event from that stdout — there is no live event subprocess to drain.
+ *
+ * **Cross-turn statefulness comes from Hermes's memory subsystem, not a
+ * resumed session.** Each `-z` invocation is a fresh, stateless session;
+ * `-z` ignores `--resume` entirely. Continuity instead flows through the
+ * memory files under `/opt/data/memories/` (e.g. `USER.md`), which every
+ * Hermes session auto-loads at start and auto-commits to at the end. The
+ * adapter therefore does NOT track or chain session ids between turns —
+ * memory is the system of record. (Known limitation: DB-injected seed rows
+ * are not auto-indexed into memory, so a seeded prior conversation is not
+ * reliably recalled unless the agent autonomously searches history. Tracked
+ * as a follow-up; not addressed here.)
+ *
+ * The docker image, the daemon command, and the in-container CLI command
+ * are constructor-overrideable via `dockerImage`, `daemonArgs`, and
+ * `cliCommand`.
  *
  * **Conversation seeding is implemented via direct SQLite injection** into
  * the Hermes state DB at `/opt/data/state.db` (post-hatch, while the
@@ -73,12 +84,6 @@ import { generateHermesEvalSessionId, seedHermesSession } from "./hermes-seed";
  * `send` / `events` calls target it.
  *
  * @see ./hermes-seed.ts  Seed helper + schema notes.
- *
- * Treat the per-subcommand call surface for `message` and `events` as a
- * structural scaffold against an unverified upstream CLI until we've run
- * against a real Hermes build end-to-end. The container-lifecycle bits
- * (image, daemon command, env forwarding, PATH) are verified against the
- * official Hermes Docker docs.
  */
 
 /**
@@ -175,50 +180,86 @@ function shellWords(command: string): string[] {
   return ["sh", "-c", command];
 }
 
-/** Container name suffix differentiates Hermes from Vellum runs side-by-side. */
 /**
- * The set of `hermes events --json` event types whose `text` or `chunk`
- * field carries assistant transcript content. Hermes streams a slightly
- * different taxonomy than Vellum — `message_chunk` is the cross-species
- * incremental-text event; `assistant_text_delta` is also accepted in
- * case a Hermes build adopts that naming. Everything else (user-message
- * echoes, tool events, thinking, errors, status) is preserved on the
- * stream but stripped of its stringy payload so it can't be misread as
- * transcript text.
+ * Transcript event type the adapter synthesizes from a single-shot
+ * `hermes -z` invocation. `message_chunk` is the cross-species
+ * incremental-text event the runner reads as assistant transcript via
+ * `assistantContent` (`message.text ?? message.chunk`).
+ *
+ * Exported so the runner/tests can reference the canonical event shape
+ * Hermes turns produce.
  */
-const HERMES_ASSISTANT_TRANSCRIPT_EVENT_TYPES = new Set([
-  "message_chunk",
-  "assistant_text_delta",
-]);
+export const HERMES_TRANSCRIPT_EVENT_TYPE = "message_chunk";
 
 /**
- * Wrap a raw `parseNdjson<AgentEvent>` stream from `hermes events --json`
- * with a normalization step that clears `text` and `chunk` on events
- * that aren't assistant transcript. Mirror of
- * `normalizeVellumEventStream` — same shape, species-specific allowlist.
+ * Build the single transcript event for a completed `hermes -z` turn. A
+ * one-shot prints only the final assistant text, so a turn maps to exactly
+ * one `message_chunk` carrying that text. Always produced (even for an
+ * empty answer) so the runner sees a non-empty event window and doesn't
+ * mistake a quiet turn for a dead event pipeline.
  *
  * Exported for unit tests.
  */
-export async function* normalizeHermesEventStream(
-  source: AsyncIterable<AgentEvent>,
-): AsyncIterable<AgentEvent> {
-  for await (const event of source) {
-    const type = event.message?.type;
-    if (
-      typeof type === "string" &&
-      HERMES_ASSISTANT_TRANSCRIPT_EVENT_TYPES.has(type)
-    ) {
-      yield event;
-      continue;
+export function synthesizeHermesTurnEvent(oneshotStdout: string): AgentEvent {
+  return {
+    message: {
+      type: HERMES_TRANSCRIPT_EVENT_TYPE,
+      chunk: oneshotStdout.replace(/\s+$/, ""),
+    },
+  };
+}
+
+/**
+ * Single-consumer async queue bridging the request/response `send` to the
+ * streaming `events()` contract the runner expects. `send` runs one
+ * `hermes -z` to completion and `push`es the synthesized turn event; the
+ * `AgentEventCollector` draining `events()` pulls one event at a time and
+ * stops on its own quiet-window timeout, so the queue never needs to signal
+ * "done" between turns — it only `close`s at shutdown to release a parked
+ * consumer.
+ *
+ * The runner guarantees a single outstanding `next()` at a time (it caches
+ * the pending promise), so one waiter slot suffices.
+ */
+class HermesEventQueue {
+  private readonly buffered: AgentEvent[] = [];
+  private waiting?: (result: IteratorResult<AgentEvent>) => void;
+  private closed = false;
+
+  push(event: AgentEvent): void {
+    if (this.closed) return;
+    const resolve = this.waiting;
+    if (resolve) {
+      this.waiting = undefined;
+      resolve({ value: event, done: false });
+    } else {
+      this.buffered.push(event);
     }
-    yield {
-      ...event,
-      message: {
-        ...event.message,
-        text: undefined,
-        chunk: undefined,
-      },
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    const resolve = this.waiting;
+    if (resolve) {
+      this.waiting = undefined;
+      resolve({ value: undefined as never, done: true });
+    }
+  }
+
+  iterable(): AsyncIterable<AgentEvent> {
+    const next = (): Promise<IteratorResult<AgentEvent>> => {
+      if (this.buffered.length > 0) {
+        return Promise.resolve({ value: this.buffered.shift()!, done: false });
+      }
+      if (this.closed) {
+        return Promise.resolve({ value: undefined as never, done: true });
+      }
+      return new Promise((resolve) => {
+        this.waiting = resolve;
+      });
     };
+    return { [Symbol.asyncIterator]: () => ({ next }) };
   }
 }
 
@@ -238,7 +279,7 @@ export class HermesAgent implements BaseAgent {
   private readonly providerEnvFlags: string[];
   private readonly testId: string;
   private readonly containerName: string;
-  private eventsProcess?: SpawnedProcess;
+  private eventSink?: HermesEventQueue;
   private jail?: DockerEgressJail;
   private hatched = false;
   private stopped = false;
@@ -337,20 +378,43 @@ export class HermesAgent implements BaseAgent {
     }
   }
 
+  /**
+   * Run one user turn as a single-shot `hermes -z "<prompt>"` and push the
+   * synthesized transcript event onto the active `events()` sink.
+   *
+   * The one-shot runs the full agentic loop to completion and prints only
+   * the final assistant text to stdout, so unlike a streaming `send` this
+   * call blocks for the whole turn and the response is fully known when it
+   * resolves. We run as `--user hermes` (the gateway's unprivileged user)
+   * so the memory files the turn writes under `/opt/data/memories/` stay
+   * gateway-owned — a root-written memory file would block subsequent
+   * hermes-user turns from updating it, the same ownership trap the seed
+   * step guards against.
+   */
   async send(message: AgentMessage): Promise<void> {
     this.assertHatched();
-    const result = await this.runner.run("docker", [
-      "exec",
-      "--env",
-      `PATH=${EXEC_PATH}`,
-      this.containerName,
-      this.cliCommand,
-      "message",
-      "--conversation-key",
-      this.conversationKey,
-      message.content,
-    ]);
+    const result = await this.runner.run(
+      "docker",
+      [
+        "exec",
+        "--user",
+        "hermes",
+        "--env",
+        `PATH=${EXEC_PATH}`,
+        this.containerName,
+        this.cliCommand,
+        "-z",
+        message.content,
+      ],
+      {
+        logPath: join(runArtifacts(this.id).runDir, "subprocess-send.log"),
+        logStep: "send",
+      },
+    );
     assertSuccess(result, `send message to ${this.id}`);
+    (this.eventSink ??= new HermesEventQueue()).push(
+      synthesizeHermesTurnEvent(result.stdout ?? ""),
+    );
   }
 
   async runSetupCommand(command: TestSetupCommand): Promise<void> {
@@ -376,26 +440,21 @@ export class HermesAgent implements BaseAgent {
     }
   }
 
+  /**
+   * Subscribe to the assistant transcript for the turns that follow.
+   *
+   * There is no live Hermes event subprocess to drain — a turn's events are
+   * synthesized in `send` from the one-shot's stdout. This returns an async
+   * iterable backed by a fresh queue and makes it the active sink, so each
+   * subsequent `send` pushes its turn event here. Re-subscribing (e.g. a new
+   * `AgentEventCollector` per turn) rotates to a new queue; the runner drains
+   * one queue at a time and stops each window on its own quiet timeout.
+   */
   events(): AsyncIterable<AgentEvent> {
     this.assertHatched();
-    this.eventsProcess ??= this.runner.spawn("docker", [
-      "exec",
-      "--env",
-      `PATH=${EXEC_PATH}`,
-      this.containerName,
-      this.cliCommand,
-      "events",
-      "--conversation-key",
-      this.conversationKey,
-      "--json",
-    ]);
-    // Normalize the species-specific event stream at the adapter
-    // boundary so the runner can treat `event.message.text` /
-    // `event.message.chunk` as "assistant transcript text, or
-    // undefined" without knowing the Hermes daemon's event taxonomy.
-    return normalizeHermesEventStream(
-      parseNdjson<AgentEvent>(this.eventsProcess.stdout),
-    );
+    const sink = new HermesEventQueue();
+    this.eventSink = sink;
+    return sink.iterable();
   }
 
   async readUsageRecords(): Promise<Array<Record<string, unknown>>> {
@@ -405,7 +464,7 @@ export class HermesAgent implements BaseAgent {
   async shutdown(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
-    this.eventsProcess?.kill();
+    this.eventSink?.close();
     await this.jail?.stop().catch(() => undefined);
     if (this.hatched) {
       await this.runner

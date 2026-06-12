@@ -67,6 +67,42 @@ function quoteList(values: readonly string[]): string {
 }
 
 /**
+ * Coerce string-encoded booleans (`"true"`/`"false"`) to real booleans for
+ * properties the schema declares as `type: "boolean"`.
+ *
+ * Some providers' models serialize booleans as JSON strings. Rejecting those
+ * loses the caller's intent: the model's typical recovery is to drop the field
+ * and retry, at which point the field's default silently inverts what it asked
+ * for (e.g. `app_create` with `auto_open: "false"` → retry omits the field →
+ * default `true` opens a half-built app). Accepting the unambiguous string
+ * forms preserves intent.
+ *
+ * Pure: returns a new object when a coercion applies, otherwise returns
+ * `input` unchanged. Never mutates `input` or `schema`.
+ */
+export function coerceStringBooleans(
+  input: Record<string, unknown>,
+  schema: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (!schema) return input;
+  const properties = schema.properties;
+  if (!isPlainObject(properties)) return input;
+
+  let coerced: Record<string, unknown> | undefined;
+  for (const [key, rawSubSchema] of Object.entries(properties)) {
+    if (!isPlainObject(rawSubSchema)) continue;
+    if (rawSubSchema.type !== "boolean") continue;
+    const value = input[key];
+    if (typeof value !== "string") continue;
+    const normalized = value.trim().toLowerCase();
+    if (normalized !== "true" && normalized !== "false") continue;
+    coerced ??= { ...input };
+    coerced[key] = normalized === "true";
+  }
+  return coerced ?? input;
+}
+
+/**
  * Validate a tool input object against the (optional) JSON-schema definition
  * declared on the tool entry. Returns `{ ok: true }` if the input is valid (or
  * if there is nothing actionable to validate); otherwise returns a list of
@@ -121,7 +157,11 @@ export function validateInputAgainstSchema(
     if (typeof declaredType === "string" && SUPPORTED_TYPES.has(declaredType)) {
       const type = declaredType as SupportedType;
       if (!matchesType(value, type)) {
-        errors.push(`${key} must be ${typeArticle(type)} ${type}`);
+        errors.push(
+          type === "boolean" && typeof value === "string"
+            ? `${key} must be a boolean — pass true or false as a JSON boolean, not a string`
+            : `${key} must be ${typeArticle(type)} ${type}`,
+        );
         // No point checking enum/items if the base type is wrong.
         continue;
       }

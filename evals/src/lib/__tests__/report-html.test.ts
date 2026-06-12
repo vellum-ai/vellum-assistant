@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { formatCliCommand, renderReportPage } from "../report-html";
 import type {
+  ReportProfileInSession,
   ReportRunDetail,
   ReportSessionDetail,
   ReportSessionSummary,
@@ -86,6 +87,30 @@ const testInSession: ReportTestInSession = {
       metrics: [{ name: "accuracy", score: 0.5 }],
       transcriptTurns: 2,
       totalCostUsd: 0.0012,
+    },
+  ],
+};
+
+const profileInSession: ReportProfileInSession = {
+  sessionId: "session-1",
+  sessionLabel: "first-comparison",
+  profileId: "p1",
+  info: {
+    species: "vellum",
+    description: "The bare baseline profile, no plugins.",
+    setup: ["assistant plugins install simple-memory"],
+  },
+  scoreTotal: 1,
+  tests: [
+    {
+      testId: "t1",
+      runId: "run-p1",
+      status: "completed",
+      scoreTotal: 1,
+      metricCount: 1,
+      metrics: [{ name: "accuracy", score: 1 }],
+      transcriptTurns: 2,
+      totalCostUsd: 0.001,
     },
   ],
 };
@@ -177,8 +202,29 @@ describe("report html", () => {
     expect(html).toContain("p2");
     // Tests list points at the test-in-session route.
     expect(html).toContain('href="/sessions/session-1/tests/t1"');
+    // Profile cards drill into the per-profile page.
+    expect(html).toContain('href="/sessions/session-1/profiles/p1"');
+    expect(html).toContain('href="/sessions/session-1/profiles/p2"');
     // Back navigation to the index.
     expect(html).toContain('href="/"');
+  });
+
+  test("profile-in-session page renders the info panel and per-test scores", () => {
+    // GIVEN a profile drill-in with a manifest and one test
+    // WHEN we render the profile page
+    const html = renderReportPage({
+      kind: "profile",
+      profile: profileInSession,
+    });
+    // THEN the info panel surfaces the manifest fields
+    expect(html).toContain("Species");
+    expect(html).toContain("The bare baseline profile, no plugins.");
+    expect(html).toContain("assistant plugins install simple-memory");
+    // AND the test scores link to the execution page for this profile
+    expect(html).toContain("Test scores");
+    expect(html).toContain('href="/sessions/session-1/tests/t1/profiles/p1"');
+    // AND breadcrumbs go back to the session
+    expect(html).toContain('href="/sessions/session-1"');
   });
 
   test("test-in-session page renders profile rows and a metric breakdown", () => {

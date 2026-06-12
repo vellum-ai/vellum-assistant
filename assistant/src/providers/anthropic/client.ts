@@ -810,6 +810,12 @@ export class AnthropicProvider implements Provider {
     const mutableLatestUserMessage =
       (config as Record<string, unknown> | undefined)
         ?.mutableLatestUserMessage === true;
+    // Full prompt-caching opt-out: send no cache breakpoints at all and strip
+    // caller-stamped block-level markers. Resolved per call site (see
+    // `disableCache` in the LLM config schema) for one-shot prompts where
+    // every breakpoint is a paid cache write with no future read.
+    const disableCache =
+      (config as Record<string, unknown> | undefined)?.disableCache === true;
     let sentMessages: Anthropic.MessageParam[] | undefined;
     const startedAt = Date.now();
     // Hoisted so the catch block can distinguish our inner stream timeout
@@ -999,6 +1005,7 @@ export class AnthropicProvider implements Provider {
         cacheTtl: _cacheTtl,
         disableTurnStartCache: _disableTurnStartCache,
         mutableLatestUserMessage: _mutableLatestUserMessage,
+        disableCache: _disableCache,
         max_tokens: callerMaxTokens,
         usageAttributionHeaders,
         ...restConfig
@@ -1068,7 +1075,7 @@ export class AnthropicProvider implements Provider {
           .map((text) => ({
             type: "text" as const,
             text,
-            cache_control: cacheControl,
+            ...(disableCache ? {} : { cache_control: cacheControl }),
           }));
         if (params.system.length === 0) delete params.system;
       }
@@ -1093,7 +1100,9 @@ export class AnthropicProvider implements Provider {
             name: t.name,
             description: t.description,
             input_schema: t.input_schema as Anthropic.Tool["input_schema"],
-            ...(applyToolCacheControl && i === otherTools.length - 1
+            ...(applyToolCacheControl &&
+            !disableCache &&
+            i === otherTools.length - 1
               ? { cache_control: cacheControl }
               : {}),
           }));
@@ -1108,7 +1117,7 @@ export class AnthropicProvider implements Provider {
             name: t.name,
             description: t.description,
             input_schema: t.input_schema as Anthropic.Tool["input_schema"],
-            ...(applyToolCacheControl && i === tools.length - 1
+            ...(applyToolCacheControl && !disableCache && i === tools.length - 1
               ? { cache_control: cacheControl }
               : {}),
           }));
@@ -1158,6 +1167,7 @@ export class AnthropicProvider implements Provider {
         mutableLatestUserMessage && turnStartIdx === msgs.length - 1;
       if (
         turnStartIdx >= 0 &&
+        !disableCache &&
         !disableTurnStartCache &&
         !skipVolatileTurnStartAnchor
       ) {
@@ -1174,7 +1184,11 @@ export class AnthropicProvider implements Provider {
       // cache_creation tokens per new turn). Skipped during tool-use loops
       // where the current turn-start already covers the same prefix and a
       // second anchor would blow the 4-breakpoint budget.
-      if (turnStartIdx === msgs.length - 1 && turnStartIdx > 0) {
+      if (
+        !disableCache &&
+        turnStartIdx === msgs.length - 1 &&
+        turnStartIdx > 0
+      ) {
         const prevTurnAnchorIdx = findUserTextMsgIdx(turnStartIdx - 1);
         if (prevTurnAnchorIdx >= 0)
           applyCacheControlToLastBlock(prevTurnAnchorIdx);
@@ -1186,7 +1200,11 @@ export class AnthropicProvider implements Provider {
       // cheaply without conflicting with the 1h breakpoints above.
       // Skip thinking/redacted_thinking blocks — Anthropic doesn't allow
       // cache_control on those types.
-      if (turnStartIdx >= 0 && turnStartIdx < sentMessages.length - 1) {
+      if (
+        !disableCache &&
+        turnStartIdx >= 0 &&
+        turnStartIdx < sentMessages.length - 1
+      ) {
         const lastMsg = sentMessages[sentMessages.length - 1];
         if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
           const NON_CACHEABLE_TYPES = new Set([
@@ -1227,19 +1245,28 @@ export class AnthropicProvider implements Provider {
         sentMessages = params.messages;
       }
 
-      // Haiku does not support the extended-cache-ttl beta, so it must never
-      // receive a `ttl` on any cache_control. The client's own breakpoints
-      // already omit it for Haiku, but a caller can stamp a `ttl` on message
-      // blocks before the provider sees them — strip it here so the request
-      // stays valid on Haiku models.
-      if (isHaiku) {
+      // Callers can stamp `cache_control` on message blocks before the
+      // provider sees them. Two repairs apply:
+      // - `disableCache`: strip the marker entirely — this call opted out of
+      //   prompt caching, and a leftover block-level marker would still incur
+      //   a cache write.
+      // - Haiku: strip only the `ttl` field — Haiku does not support the
+      //   extended-cache-ttl beta, so a `ttl` would make the request invalid.
+      //   The client's own breakpoints already omit it for Haiku.
+      if (disableCache || isHaiku) {
         for (const msg of sentMessages) {
           if (!Array.isArray(msg.content)) continue;
           for (const block of msg.content) {
             if (typeof block === "string") continue;
-            const cc = (block as { cache_control?: { ttl?: unknown } })
-              .cache_control;
-            if (cc && "ttl" in cc) delete cc.ttl;
+            const blockRecord = block as {
+              cache_control?: { ttl?: unknown };
+            };
+            if (!blockRecord.cache_control) continue;
+            if (disableCache) {
+              delete blockRecord.cache_control;
+            } else if ("ttl" in blockRecord.cache_control) {
+              delete blockRecord.cache_control.ttl;
+            }
           }
         }
       }

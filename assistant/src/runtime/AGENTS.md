@@ -20,7 +20,11 @@ SSE handlers built on `ReadableStream` shed slow subscribers when `controller.de
 
 GET handlers must be safe and side-effect-free — they must not enqueue background jobs, mutate database state, or trigger writes. If a feature needs server-initiated work in response to a client request, use an explicit POST endpoint or a push-based flow (SSE event → client refetch). See [RFC 9110 §9.2.1 — Safe Methods](https://httpwg.org/specs/rfc9110.html#safe.methods).
 
-Accepted exception: `GET /v1/identity/intro` may enqueue a bounded background refresh of the generated greeting cache when no fresh greeting cache exists. The handler must still return immediately with existing workspace/fallback copy, and the background prompt may only depend on static identity/soul context plus caller-supplied local hour/minute.
+Accepted exceptions (stale-while-revalidate caches): a GET handler may kick off a bounded, fire-and-forget background refresh of a generated-content cache when no fresh cache exists, provided the handler itself stays read-only and returns immediately with cached/fallback copy, the refresh is single-flight (concurrent GETs share one regeneration), and a TTL bounds regeneration frequency. Current instances:
+
+- `GET /v1/identity/intro` — refreshes the generated greeting cache; the background prompt may only depend on static identity/soul context plus caller-supplied local hour/minute.
+- `GET /v1/home/feed` — refreshes the personalized home greeting and suggested-prompt caches via `revalidateHomeContentInBackground()`, which publishes `home_feed_updated` when fresh content lands so clients refetch. This is intentional: home content is generated on demand (when a user actually views Home), never at daemon startup or on a timer.
+- `GET /v1/conversation-starters` — enqueues a `generate_conversation_starters` memory job when the starter set is stale, cooldown-gated and deduped against in-flight jobs.
 
 ### Approvals (confirmations, secrets, trust rules)
 

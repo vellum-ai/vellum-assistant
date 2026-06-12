@@ -174,6 +174,10 @@ export function isMicPermissionError(code: string | null): boolean {
   return code !== null && MIC_PERMISSION_ERROR_CODES.has(code);
 }
 
+export function isMicPermissionPermanentError(code: string | null): boolean {
+  return code === "not-allowed-permanent";
+}
+
 export function isTextInsertionPermissionError(code: string | null): boolean {
   return code === "dictation-automation-denied";
 }

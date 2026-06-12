@@ -2,7 +2,7 @@ import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { routes } from "@/utils/routes";
 
-export const PROVIDER_ID = "workos-oidc";
+export const PROVIDER_ID = "workos";
 export const PROVIDER_CALLBACK_URL = routes.account.providerCallback;
 export type AuthCallbackIntent = "login" | "signup";
 

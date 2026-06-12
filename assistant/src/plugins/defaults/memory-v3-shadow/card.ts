@@ -72,22 +72,61 @@ function renderTocLine(
   return `[sections: ${headings.map((h) => `§${h}`).join(" · ")}]`;
 }
 
+/** Max characters of a `current:` line carried onto the card. A `current:` is
+ * one line by contract; the cap keeps a runaway value from bloating every
+ * render of the card. */
+const CURRENT_MAX_CHARS = 280;
+
 /**
- * Render a page's compact card: header marker, head section (uncapped — the
- * corpus's rare long leads inject whole; a length cap is a deliberate
- * non-feature), and one-line TOC.
+ * Render a page's `current:` frontmatter (one-line live state) as a card
+ * annotation, or `null` when the page has none. Whitespace-collapsed and
+ * capped at {@link CURRENT_MAX_CHARS}.
+ */
+function renderCurrentLine(fields: Record<string, unknown>): string | null {
+  const current = fields.current;
+  if (typeof current !== "string") return null;
+  const collapsed = current.replace(/\s+/g, " ").trim();
+  if (collapsed.length === 0) return null;
+  const capped =
+    collapsed.length > CURRENT_MAX_CHARS
+      ? `${collapsed.slice(0, CURRENT_MAX_CHARS).trimEnd()}…`
+      : collapsed;
+  return `[current: ${capped}]`;
+}
+
+/**
+ * Render a page's compact card: header marker, optional annotation line, head
+ * section (uncapped — the corpus's rare long leads inject whole; a length cap
+ * is a deliberate non-feature), and one-line TOC.
  *
  * ```
  * # memory/concepts/<slug>.md
+ * [lane: fresh · updated 2026-06-10 14:23]
  * <head section verbatim>
  *
  * [sections: §… · §…]
  * ```
  *
+ * The annotation renders directly under the header: selector-visible metadata
+ * must sit on the always-rendered card surface (section-grain rendering can
+ * hide anything that lives only inside page content). Annotations must derive
+ * only from lane-init state (lane membership, page mtime) so the card stays
+ * byte-identical across turns between lane recomputes.
+ *
+ * A page's `current:` frontmatter (one-line live state — open items,
+ * deadlines, what's pending) renders the same way, first: it exists so
+ * state-shaped questions can select the page, which only works if the
+ * selector can see it on every card render. It changes only when the page is
+ * edited (consolidation), so it shares the lane annotation's cache story.
+ *
  * The TOC line is omitted when the page has no `## ` sections and no usable
- * `links:`. Deterministic for a given (slug, rawPageText).
+ * `links:`. Deterministic for a given (slug, rawPageText, annotation).
  */
-export function renderCard(slug: Slug, rawPageText: string): string {
+export function renderCard(
+  slug: Slug,
+  rawPageText: string,
+  annotation?: string,
+): string {
   const parsed = parseFrontmatterFields(rawPageText);
   // `parseFrontmatterFields` returns null both for "no frontmatter block" and
   // "block present but YAML failed to parse" — strip the block either way so a
@@ -101,6 +140,11 @@ export function renderCard(slug: Slug, rawPageText: string): string {
   const head = (firstHeading ? body.slice(0, firstHeading.index) : body).trim();
 
   let card = injectedConceptHeader(slug);
+  const current = renderCurrentLine(fields);
+  if (current !== null) card += `\n${current}`;
+  if (annotation !== undefined && annotation.length > 0) {
+    card += `\n${annotation}`;
+  }
   if (head.length > 0) card += `\n${head}`;
 
   const toc = renderTocLine(body, fields);

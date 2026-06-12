@@ -177,6 +177,7 @@ export interface HatchedAssistant {
   id: string;
   name: string;
   status: string;
+  current_release_version?: string | null;
 }
 
 export interface HatchAssistantResult {
@@ -598,6 +599,74 @@ export async function fetchPlatformAssistants(
     return (body.results ?? []).filter((a) => a.status === "active");
   } finally {
     clearTimeout(timeoutId);
+  }
+}
+
+export interface PlatformAssistantDetail {
+  currentReleaseVersion: string | null;
+  releaseChannel: "stable" | "preview";
+}
+
+/**
+ * Fetch a single assistant's upgrade-relevant fields from
+ * `GET /v1/assistants/{id}/`. Returns null on any failure (best-effort
+ * pre-flight / polling helper — never throws).
+ */
+export async function fetchAssistantDetail(
+  token: string,
+  assistantId: string,
+  platformUrl?: string,
+): Promise<PlatformAssistantDetail | null> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const url = `${resolvedUrl}/v1/assistants/${encodeURIComponent(assistantId)}/`;
+
+  try {
+    const response = await loopbackSafeFetch(url, {
+      signal: AbortSignal.timeout(PLATFORM_FETCH_TIMEOUT_MS),
+      headers: await authHeaders(token, platformUrl),
+    });
+
+    if (!response.ok) return null;
+
+    const body = (await response.json()) as {
+      current_release_version?: string | null;
+      release_channel?: string;
+    };
+    return {
+      currentReleaseVersion: body.current_release_version ?? null,
+      releaseChannel: body.release_channel === "preview" ? "preview" : "stable",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check whether the platform reports an upgrade in progress for the
+ * assistant via `GET /v1/assistants/{id}/upgrade-status/`. Returns null
+ * when the endpoint is unavailable (404 on older platforms, network
+ * error) so callers can skip the check. Never throws.
+ */
+export async function fetchUpgradeInProgress(
+  token: string,
+  assistantId: string,
+  platformUrl?: string,
+): Promise<boolean | null> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const url = `${resolvedUrl}/v1/assistants/${encodeURIComponent(assistantId)}/upgrade-status/`;
+
+  try {
+    const response = await loopbackSafeFetch(url, {
+      signal: AbortSignal.timeout(PLATFORM_FETCH_TIMEOUT_MS),
+      headers: await authHeaders(token, platformUrl),
+    });
+
+    if (!response.ok) return null;
+
+    const body = (await response.json()) as { in_progress?: boolean };
+    return typeof body.in_progress === "boolean" ? body.in_progress : null;
+  } catch {
+    return null;
   }
 }
 

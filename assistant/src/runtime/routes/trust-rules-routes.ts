@@ -1,83 +1,30 @@
 /**
- * Trust rule listing route — gateway HTTP proxy.
+ * Trust rule listing route — gateway IPC proxy.
  *
- * The handler makes a single HTTP call to the gateway's trust-rules REST API
- * and surfaces the body's `.error` message on non-OK responses.
+ * The handler calls the gateway over the local IPC socket because trust rule
+ * storage is gateway-owned in Docker mode.
  */
-import { z } from "zod";
+import {
+  TrustRulesListIpcParamsSchema,
+  type TrustRulesListIpcResponse,
+  TrustRulesListIpcResponseSchema,
+} from "@vellumai/gateway-client/gateway-ipc-contracts";
 
-import { getGatewayInternalBaseUrl } from "../../config/env.js";
+import { ipcCallPersistent } from "../../ipc/gateway-client.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
-
-// ── Shared helper ───────────────────────────────────────────────────────
-
-async function gatewayFetch(
-  path: string,
-  init?: RequestInit,
-): Promise<unknown> {
-  const base = getGatewayInternalBaseUrl();
-  const res = await fetch(`${base}${path}`, init);
-  if (!res.ok) {
-    let message = `Gateway request failed (${res.status})`;
-    try {
-      const body = (await res.json()) as { error?: unknown };
-      if (typeof body.error === "string") {
-        message = body.error;
-      }
-    } catch {
-      // ignore JSON parse failures
-    }
-    throw new Error(message);
-  }
-  return res.json();
-}
-
-// ── Schemas ─────────────────────────────────────────────────────────────
-
-const TrustRulesListParams = z
-  .object({
-    tool: z.string().optional(),
-    origin: z.string().optional(),
-    include_all: z.boolean().optional(),
-  })
-  .strict();
-
-const TrustRuleSchema = z.object({
-  id: z.string(),
-  tool: z.string(),
-  pattern: z.string(),
-  risk: z.enum(["low", "medium", "high"]),
-  description: z.string(),
-  origin: z.enum(["default", "user_defined"]),
-  userModified: z.boolean(),
-  deleted: z.boolean(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
-
-const TrustRulesListResponseSchema = z.object({
-  rules: z.array(TrustRuleSchema),
-});
-type TrustRulesListResponse = z.infer<typeof TrustRulesListResponseSchema>;
 
 // ── Handlers ────────────────────────────────────────────────────────────
 
 async function handleList({
   queryParams = {},
   body = {},
-}: RouteHandlerArgs): Promise<TrustRulesListResponse> {
+}: RouteHandlerArgs): Promise<TrustRulesListIpcResponse> {
   // HTTP GET delivers filters via queryParams; CLI IPC puts them in body.
   const source = Object.keys(queryParams).length > 0 ? queryParams : body;
-  const p = TrustRulesListParams.parse(source);
-  const qs = new URLSearchParams();
-  if (p.tool) qs.set("tool", p.tool);
-  if (p.origin) qs.set("origin", p.origin);
-  if (p.include_all) qs.set("include_all", "true");
-  const query = qs.toString();
-  return gatewayFetch(
-    `/v1/trust-rules${query ? `?${query}` : ""}`,
-  ) as Promise<TrustRulesListResponse>;
+  const p = TrustRulesListIpcParamsSchema.parse(source);
+  const result = await ipcCallPersistent("trust_rules_list", p);
+  return TrustRulesListIpcResponseSchema.parse(result);
 }
 
 // ── Route definitions ───────────────────────────────────────────────────
@@ -96,7 +43,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "List trust rules, optionally filtered by tool, origin, or include_all.",
     tags: ["trust-rules"],
-    responseBody: TrustRulesListResponseSchema,
+    responseBody: TrustRulesListIpcResponseSchema,
     queryParams: [
       { name: "tool", description: "Filter by tool name" },
       { name: "origin", description: "Filter by origin" },

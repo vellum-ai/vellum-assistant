@@ -222,6 +222,17 @@ export interface SendMessageConfig {
    * behavior.
    */
   mutableLatestUserMessage?: boolean;
+  /**
+   * When true, the provider sends no prompt-cache breakpoints at all (and
+   * strips any block-level `cache_control` markers callers stamped on
+   * messages). For one-shot call sites whose prompts are unique per call or
+   * whose call cadence exceeds the cache TTL, every breakpoint is a paid
+   * cache write that will never be read — opting out saves the write
+   * premium. Resolved per call site via `resolveCallSiteConfig` (see
+   * `disableCache` in the LLM config schema); a per-call explicit value
+   * wins. Default false — existing behavior.
+   */
+  disableCache?: boolean;
   [key: string]: unknown;
 }
 
