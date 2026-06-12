@@ -20,6 +20,51 @@
  * --------------------------------------------------------------------------- */
 
 /* ---------------------------------------------------------------------------
+ * Brand fonts — the same files the Swift macOS client bundles
+ * (clients/macos/vellum-assistant/Resources/Fonts), so text renders
+ * identically across the native and web/Electron clients.
+ *
+ * DM Sans ships as a single variable font; the Swift client drives its
+ * weights (300–700) through the `wght` axis of this same file, so one
+ * @font-face with a variable weight range mirrors that exactly. DM Mono and
+ * Instrument Serif are static cuts. Italic is intentionally not bundled —
+ * the Swift client synthesizes oblique too (TypographyTokens.swift), so
+ * browser-synthesized italics match.
+ * --------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: "DM Sans";
+  src: url("./fonts/DMSans-Regular.ttf") format("truetype-variations");
+  font-weight: 100 1000;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "DM Mono";
+  src: url("./fonts/DMMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "DM Mono";
+  src: url("./fonts/DMMono-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Instrument Serif";
+  src: url("./fonts/InstrumentSerif-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ---------------------------------------------------------------------------
  * Tailwind v4 dark variant — wired to the data-theme attribute.
  * Enables `dark:` utility prefixes (e.g. `dark:bg-white`) that activate
  * when any dark-family theme is set on an ancestor element.
@@ -144,11 +189,12 @@
   --color-amber-200: #FCF3DD;
   --color-amber-100: #FDF8EE;
 
-  /* Font tokens */
-  --font-sans: "Inter", system-ui, sans-serif;
+  /* Font tokens — DM Sans across the board, matching the Swift macOS
+   * client's VFont (TypographyTokens.swift). */
+  --font-sans: "DM Sans", system-ui, sans-serif;
   --font-mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-display: "Inter", system-ui, sans-serif;
-  --font-body: "Inter", system-ui, sans-serif;
+  --font-display: "DM Sans", system-ui, sans-serif;
+  --font-body: "DM Sans", system-ui, sans-serif;
   --font-serif: "Instrument Serif", serif;
 
   /* App spacing tokens. The `--app-spacing-*` prefix avoids collisions with
@@ -185,6 +231,19 @@
    * panel surfaces). The chat column is centered and clamped to this width
    * while the surrounding scroll container remains full-bleed. */
   --chat-max-width: 800px;
+
+  /* Motion tokens — mirror the Swift client's VAnimation presets
+   * (AnimationTokens.swift): snappy 0.12s easeOut · fast 0.15s easeOut ·
+   * standard 0.25s easeInOut · slow 0.4s easeInOut. The spring easing is a
+   * CSS approximation of SwiftUI spring(response: 0.3, dampingFraction: 0.8).
+   * Use these instead of ad-hoc durations so the two clients stay in sync. */
+  --anim-snappy: 120ms;
+  --anim-fast: 150ms;
+  --anim-standard: 250ms;
+  --anim-slow: 400ms;
+  --anim-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --anim-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --anim-spring: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* ===== Light mode (default) — Figma node 2674:20625 ===== */
@@ -625,10 +684,10 @@
   to { height: 0; }
 }
 .collapsible-content[data-state="open"] {
-  animation: collapsible-slide-down 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: collapsible-slide-down var(--anim-fast) var(--anim-spring);
 }
 .collapsible-content[data-state="closed"] {
-  animation: collapsible-slide-up 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: collapsible-slide-up var(--anim-fast) var(--anim-spring);
 }
 
 

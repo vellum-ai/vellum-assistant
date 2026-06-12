@@ -10,6 +10,10 @@ mock.module("../config/loader.js", () => ({
 
 import { createToolAuditListener } from "../events/tool-audit-listener.js";
 import type { ToolInvocationRecord } from "../memory/tool-usage-store.js";
+import {
+  OPENAI_PROJECT_KEY_REDACTION_MARKER,
+  SYNTHETIC_OPENAI_PROJECT_KEY,
+} from "./secret-fixtures.js";
 
 describe("tool audit listener", () => {
   beforeEach(() => {
@@ -99,6 +103,88 @@ describe("tool audit listener", () => {
     expect(records).toHaveLength(1);
     expect(records[0].result).not.toContain("sk-ant-api03-");
     expect(records[0].result).toContain("<redacted");
+  });
+
+  test("redacts known-pattern secrets in tool inputs before recording", () => {
+    const records: ToolInvocationRecord[] = [];
+    const listener = createToolAuditListener((record) => records.push(record));
+
+    const input = {
+      command: `export OPENAI_API_KEY="${SYNTHETIC_OPENAI_PROJECT_KEY}"`,
+    };
+
+    listener({
+      type: "executed",
+      toolName: "bash",
+      input,
+      workingDir: "/tmp",
+      conversationId: "conv-input-redact",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 5,
+      result: { content: "ok", isError: false },
+    });
+    listener({
+      type: "error",
+      toolName: "bash",
+      input,
+      workingDir: "/tmp",
+      conversationId: "conv-input-redact",
+      riskLevel: "low",
+      decision: "error",
+      durationMs: 5,
+      errorMessage: "boom",
+      isExpected: false,
+      errorCategory: "tool_failure",
+    });
+    listener({
+      type: "permission_denied",
+      toolName: "bash",
+      input,
+      workingDir: "/tmp",
+      conversationId: "conv-input-redact",
+      riskLevel: "high",
+      decision: "deny",
+      reason: "Permission denied by user",
+      durationMs: 5,
+    });
+
+    expect(records).toHaveLength(3);
+    for (const record of records) {
+      expect(record.input).not.toContain(SYNTHETIC_OPENAI_PROJECT_KEY);
+      // The stored input must remain parseable JSON: string leaves are
+      // redacted before stringification, so the marker lands inside a JSON
+      // string value (its quotes escaped) instead of corrupting the
+      // serialized form.
+      const parsed = JSON.parse(record.input) as { command: string };
+      expect(parsed.command).toContain(OPENAI_PROJECT_KEY_REDACTION_MARKER);
+    }
+  });
+
+  test("benign inputs round-trip byte-identical (no false-positive mangling)", () => {
+    const records: ToolInvocationRecord[] = [];
+    const listener = createToolAuditListener((record) => records.push(record));
+
+    const input = {
+      command: "git log --oneline -5 && echo done",
+      cwd: "/tmp/project",
+      env: { LANG: "en_US.UTF-8" },
+    };
+
+    listener({
+      type: "executed",
+      toolName: "bash",
+      input,
+      workingDir: "/tmp",
+      conversationId: "conv-benign-input",
+      riskLevel: "low",
+      decision: "allow",
+      durationMs: 2,
+      result: { content: "ok", isError: false },
+    });
+
+    expect(records).toHaveLength(1);
+    expect(records[0].input).toBe(JSON.stringify(input));
   });
 
   test("does not redact non-secret content like UUIDs or hashes", () => {

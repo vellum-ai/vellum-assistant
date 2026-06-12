@@ -34,7 +34,7 @@
       "source": {
         "source": "github",
         "repo": "AnitaKirkovska/dynamic-notch",
-        "ref": "25fd4db8e8eee493396f7206d7015099ec1af689"
+        "ref": "9729c3685d60d00d1de73a183b03122b9fa1f8f4"
       },
       "description": "Put your Vellum assistant inside your MacBook's notch: click to chat, hold Ctrl+Option to talk, and get a floating task bulb while it works, with live-streamed replies and per-sentence voice.",
       "category": "interface",
@@ -46,7 +46,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/level-up",
-        "ref": "60a392b7e7866589cac7ced5bd80fe1e2b2bc1b5"
+        "ref": "3eae182601c5a81c238ce348db1c2dbe44f2c730"
       },
       "description": "Surfaces a first-class \"Level Up\" diff card whenever the assistant edits its own skills or plugins, so you can see how it improved itself after the fact.",
       "category": "developer",

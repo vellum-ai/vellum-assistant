@@ -9,6 +9,7 @@ import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AgentEvent, AgentMessage } from "./adapter";
+import type { ProfileManifest } from "./profile";
 import type { EvalProgressEvent } from "./runner/progress";
 import type { TestDef } from "./test-def";
 import type { TranscriptTurn } from "./transcript";
@@ -133,6 +134,14 @@ export interface RunMetadata {
    */
   cliArgv?: string[];
   profileId: string;
+  /**
+   * Snapshot of the profile's `manifest.json` (species, description,
+   * version, setup) taken at run time. Persisted so the report's
+   * per-profile info panel survives in an exported bundle, where the
+   * `profiles/` directory the manifest was read from is no longer on disk.
+   * Optional because legacy run.json files predate the field.
+   */
+  profileManifest?: ProfileManifest;
   testId: string;
   status: "running" | "completed" | "failed" | "abandoned" | "unknown";
   startedAt?: string;
@@ -351,6 +360,57 @@ export async function readAssistantEvents(
   runId: string,
 ): Promise<AgentEvent[]> {
   return readJson<AgentEvent[]>(runArtifacts(runId).assistantEventsPath, []);
+}
+
+const ASSISTANT_RESPONSE_EVENT_TYPES = new Set([
+  "assistant_text_delta",
+  "assistant_thinking_delta",
+  "tool_use_start",
+  "tool_result",
+  "message_complete",
+  "message_chunk",
+]);
+
+/**
+ * Whether the assistant produced any substantive response in the run.
+ * Tool-use-only and thinking-only turns create assistant events but no
+ * transcript text, so an empty transcript alone does not mean the
+ * assistant never responded.
+ */
+export async function hasAssistantResponse(runId: string): Promise<boolean> {
+  const transcript = await readTranscript(runId);
+  if (transcript.some((turn) => turn.role === "assistant")) return true;
+  const events = await readAssistantEvents(runId);
+  return events.some((event) =>
+    ASSISTANT_RESPONSE_EVENT_TYPES.has(event.message.type),
+  );
+}
+
+/**
+ * All assistant-authored narration in the run: transcript text plus
+ * streamed text/thinking deltas. Lets text-matching metrics evaluate
+ * runs whose responses never made it into the persisted transcript.
+ */
+export async function readAssistantNarration(runId: string): Promise<string> {
+  const transcript = await readTranscript(runId);
+  const parts = transcript
+    .filter((turn) => turn.role === "assistant")
+    .map((turn) => turn.content);
+  const events = await readAssistantEvents(runId);
+  for (const event of events) {
+    const msg = event.message;
+    if (msg.type === "assistant_text_delta" && typeof msg.text === "string") {
+      parts.push(msg.text);
+    } else if (
+      msg.type === "assistant_thinking_delta" &&
+      typeof msg.thinking === "string"
+    ) {
+      parts.push(msg.thinking);
+    } else if (msg.type === "message_chunk" && typeof msg.chunk === "string") {
+      parts.push(msg.chunk);
+    }
+  }
+  return parts.join("\n");
 }
 
 export async function appendAssistantEvents(

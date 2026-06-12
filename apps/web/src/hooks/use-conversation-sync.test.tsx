@@ -21,9 +21,10 @@ import {
 const realFetchDetailModule = await import(
   "@/utils/fetch-conversation-detail"
 );
-const { CONVERSATION_NOT_FOUND } = realFetchDetailModule;
+const { ConversationNotFoundError } = realFetchDetailModule;
 
 let fetchConversationDetailImpl: (
+  queryClient: QueryClient,
   assistantId: string,
   conversationId: string,
 ) => Promise<unknown> = () =>
@@ -39,9 +40,9 @@ const fetchConversationDetailCalls: Array<{
 
 mock.module("@/utils/fetch-conversation-detail", () => ({
   ...realFetchDetailModule,
-  fetchConversationDetail: (assistantId: string, conversationId: string) => {
+  fetchConversationDetail: (queryClient: QueryClient, assistantId: string, conversationId: string) => {
     fetchConversationDetailCalls.push({ assistantId, conversationId });
-    return fetchConversationDetailImpl(assistantId, conversationId);
+    return fetchConversationDetailImpl(queryClient, assistantId, conversationId);
   },
 }));
 
@@ -157,7 +158,7 @@ describe("useConversationSync", () => {
         hasUnseenLatestAssistantMessage: true,
       },
     ]);
-    fetchConversationDetailImpl = async (_assistantId, conversationId) => ({
+    fetchConversationDetailImpl = async (_queryClient, _assistantId, conversationId) => ({
       conversationId,
       title: "Old title",
       hasUnseenLatestAssistantMessage: false,
@@ -217,7 +218,9 @@ describe("useConversationSync", () => {
       { conversationId: "conv-1", title: "Tombstone" },
       { conversationId: "conv-2", title: "Survivor" },
     ]);
-    fetchConversationDetailImpl = async () => CONVERSATION_NOT_FOUND;
+    fetchConversationDetailImpl = async () => {
+      throw new ConversationNotFoundError("conv-1");
+    };
 
     renderHook(() => useConversationSync("asst-1", true), {
       wrapper: createWrapper(queryClient),

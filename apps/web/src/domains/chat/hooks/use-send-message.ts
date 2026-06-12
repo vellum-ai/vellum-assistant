@@ -79,7 +79,7 @@ import { surfaceConversation } from "@/domains/chat/api/conversations";
 import type { ConversationMessage } from "@vellumai/assistant-api";
 import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
 import {
-  CONVERSATION_NOT_FOUND,
+  ConversationNotFoundError,
   fetchConversationDetail,
 } from "@/utils/fetch-conversation-detail";
 
@@ -222,12 +222,16 @@ export function useSendMessage({
         conversationId,
       );
       if (!conversation) {
-        const detail = await fetchConversationDetail(
-          assistantId,
-          conversationId,
-        );
-        if (detail === CONVERSATION_NOT_FOUND) return;
-        conversation = detail;
+        try {
+          conversation = await fetchConversationDetail(
+            queryClient,
+            assistantId,
+            conversationId,
+          );
+        } catch (err) {
+          if (err instanceof ConversationNotFoundError) return;
+          throw err;
+        }
       }
 
       if (!shouldSurfaceConversationOnUserSend(conversation)) return;

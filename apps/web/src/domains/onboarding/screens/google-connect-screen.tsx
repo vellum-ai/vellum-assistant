@@ -1,11 +1,11 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import {
     assistantsOauthConnectionsListOptions,
-    assistantsOauthStartCreateMutation,
+    useAssistantsOauthStartCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import { useOAuthCompleteDeepLinkListener } from "@/hooks/use-oauth-complete-deep-link-listener";
@@ -102,9 +102,7 @@ export function GoogleConnectScreen({
     }
   }, []);
 
-  const startOAuth = useMutation({
-    ...assistantsOauthStartCreateMutation(),
-  });
+  const startOAuth = useAssistantsOauthStartCreateMutation();
 
   useEffect(() => {
     return () => {
@@ -375,7 +373,7 @@ export function GoogleConnectScreen({
 
   return (
     <OnboardingLayout showCreatureFooter={false}>
-      <div className={`mx-auto flex w-full max-w-md flex-col items-center ${electron ? "min-h-full px-8 pt-11 pb-4 electron-prechat-type" : "px-6 pt-12 pb-40"} text-[var(--content-default)]`}>
+      <div className={`mx-auto flex w-full max-w-md flex-col items-center ${electron ? "min-h-full px-8 pt-11 pb-8 electron-prechat-type" : "px-6 pt-12 pb-40"} text-[var(--content-default)]`}>
         <div
           className="grid w-full grid-cols-[auto_1fr_auto] items-center"
           style={{ animation: "fadeInUp 0.3s ease-out 0.1s both" }}

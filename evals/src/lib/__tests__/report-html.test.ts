@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { formatCliCommand, renderReportPage } from "../report-html";
 import type {
+  ReportProfileInSession,
   ReportRunDetail,
   ReportSessionDetail,
   ReportSessionSummary,
@@ -90,6 +91,30 @@ const testInSession: ReportTestInSession = {
   ],
 };
 
+const profileInSession: ReportProfileInSession = {
+  sessionId: "session-1",
+  sessionLabel: "first-comparison",
+  profileId: "p1",
+  info: {
+    species: "vellum",
+    description: "The bare baseline profile, no plugins.",
+    setup: ["assistant plugins install simple-memory"],
+  },
+  scoreTotal: 1,
+  tests: [
+    {
+      testId: "t1",
+      runId: "run-p1",
+      status: "completed",
+      scoreTotal: 1,
+      metricCount: 1,
+      metrics: [{ name: "accuracy", score: 1 }],
+      transcriptTurns: 2,
+      totalCostUsd: 0.001,
+    },
+  ],
+};
+
 const executionDetail: ReportRunDetail = {
   runId: "run-p1",
   sessionId: "session-1",
@@ -133,7 +158,13 @@ const executionDetail: ReportRunDetail = {
     totalCostUsd: 0.001,
   },
   assistantEvents: [
-    { message: { type: "assistant_text_delta", text: "hello" } },
+    {
+      message: {
+        type: "assistant_text_delta",
+        text: "Remembered <b>the date</b>",
+      },
+      emittedAt: "2026-05-15T12:00:01.000Z",
+    },
   ],
   ingestAssistantEvents: [],
   simulatorMessages: [{ content: "hello" }],
@@ -177,8 +208,29 @@ describe("report html", () => {
     expect(html).toContain("p2");
     // Tests list points at the test-in-session route.
     expect(html).toContain('href="/sessions/session-1/tests/t1"');
+    // Profile cards drill into the per-profile page.
+    expect(html).toContain('href="/sessions/session-1/profiles/p1"');
+    expect(html).toContain('href="/sessions/session-1/profiles/p2"');
     // Back navigation to the index.
     expect(html).toContain('href="/"');
+  });
+
+  test("profile-in-session page renders the info panel and per-test scores", () => {
+    // GIVEN a profile drill-in with a manifest and one test
+    // WHEN we render the profile page
+    const html = renderReportPage({
+      kind: "profile",
+      profile: profileInSession,
+    });
+    // THEN the info panel surfaces the manifest fields
+    expect(html).toContain("Species");
+    expect(html).toContain("The bare baseline profile, no plugins.");
+    expect(html).toContain("assistant plugins install simple-memory");
+    // AND the test scores link to the execution page for this profile
+    expect(html).toContain("Test scores");
+    expect(html).toContain('href="/sessions/session-1/tests/t1/profiles/p1"');
+    // AND breadcrumbs go back to the session
+    expect(html).toContain('href="/sessions/session-1"');
   });
 
   test("test-in-session page renders profile rows and a metric breakdown", () => {
@@ -219,10 +271,10 @@ describe("report html", () => {
       },
     });
     // The Memory-formation section ships ingest events; the Container-logs
-    // section (question-turn) still ships the original "hello" event. Both
-    // strings appear, neither leaks across.
+    // section (question-turn) still ships the original question-turn event.
+    // Both strings appear, neither leaks across.
     expect(html).toContain("indexing-session-1");
-    expect(html).toContain("hello");
+    expect(html).toContain("Remembered");
     expect(html).not.toContain("No memory-formation events recorded.");
   });
 
@@ -264,7 +316,9 @@ describe("report html", () => {
       kind: "execution",
       run: executionDetail,
     });
-    expect(executionHtml).toContain(">100.00%</div>");
+    // The execution page renders the aggregate score in the Score tab pill
+    // and each metric's score in the report card — both as percentages.
+    expect(executionHtml).toContain(">100.00%</span>");
   });
 
   test("metrics with unit: 'raw' opt out of percent rendering", () => {
@@ -335,6 +389,91 @@ describe("report html", () => {
     expect(html).not.toContain("Cost pricing");
     expect(html).not.toContain("Partial pricing");
     expect(html).not.toContain("Cost unavailable");
+  });
+
+  test("execution page Logs pill shows the total log size, not a count", () => {
+    // GIVEN a run with a subprocess log of known size
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        subprocessLogs: [
+          { name: "subprocess-hatch.log", content: "x".repeat(2048) },
+        ],
+      },
+    });
+
+    // THEN the Logs pill reports a byte size (KB), never a bare block count
+    const logsPill = html.slice(html.indexOf(">Logs<"));
+    expect(logsPill).toContain("KB");
+  });
+
+  test("execution page renders a per-request cost breakdown with per-row cost", () => {
+    // GIVEN two priced Anthropic requests of different sizes
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        usage: {
+          requests: [
+            {
+              provider: "anthropic",
+              model: "claude-haiku-4-5",
+              input_tokens: 1000,
+              output_tokens: 1000,
+            },
+            {
+              provider: "anthropic",
+              model: "claude-sonnet-4-6",
+              input_tokens: 1_000_000,
+              output_tokens: 1_000_000,
+            },
+          ],
+          costStatus: "ok",
+        },
+      },
+    });
+
+    // THEN the breakdown lists each model and its individually-priced cost
+    expect(html).toContain("Per-request breakdown");
+    expect(html).toContain("claude-haiku-4-5");
+    expect(html).toContain("claude-sonnet-4-6");
+    // sonnet-4-6 at 1M in + 1M out = $3 + $15 = $18.000000
+    expect(html).toContain("$18.000000");
+  });
+
+  test("execution page inlines captured request/response payloads, noting truncation", () => {
+    // GIVEN a request whose response payload was truncated by the recorder
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        usage: {
+          requests: [
+            {
+              provider: "anthropic",
+              model: "claude-haiku-4-5",
+              input_tokens: 10,
+              output_tokens: 10,
+              request_body: '{"messages":[]}',
+              request_body_bytes: 15,
+              request_body_truncated: false,
+              response_body: "STREAM-CHUNK-PREFIX",
+              response_body_bytes: 100000,
+              response_body_truncated: true,
+            },
+          ],
+          costStatus: "ok",
+        },
+      },
+    });
+
+    // THEN both payloads render and the truncated one notes the full size
+    expect(html).toContain("Request &amp; response payloads");
+    // React escapes double quotes in text content (&quot;).
+    expect(html).toContain("{&quot;messages&quot;:[]}");
+    expect(html).toContain("STREAM-CHUNK-PREFIX");
+    expect(html).toContain("showing first");
   });
 
   // -- no-silent-stuck UI surfaces -------------------------------------------

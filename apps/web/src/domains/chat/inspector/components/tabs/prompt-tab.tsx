@@ -1,5 +1,5 @@
 import { Copy } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 
 import { FileMarkdown } from "@/components/file-markdown";
 import { ToolDefinitionsCard } from "@/domains/chat/inspector/components/tool-definitions-card";
@@ -8,25 +8,21 @@ import type {
     LLMContextSection,
     LLMRequestLogEntry,
 } from "@vellumai/assistant-api";
-import { Button, Card, SegmentControl } from "@vellumai/design-library";
+import { Button, Card } from "@vellumai/design-library";
 
 interface PromptTabProps {
   entry: LLMRequestLogEntry;
 }
 
-type ViewMode = "markdown" | "raw";
-
 /**
  * Prompt tab rendering each normalized request section as a card.
- * Text sections render as Markdown by default; a Markdown/Raw segmented
- * control flips the entire tab to plain `<pre>` text. Structured
- * payloads always render as `<pre>` regardless of mode, except tool
- * definitions, which render as an expandable per-tool breakdown —
- * the raw provider JSON lives on the Raw tab.
+ * Text sections render as Markdown; structured payloads and tool
+ * results render as code-style `<pre>` text — tool output is program
+ * output, not prose. Tool definitions render as an expandable per-tool
+ * breakdown. The raw provider JSON lives on the Raw tab.
  */
 export function PromptTab({ entry }: PromptTabProps): ReactNode {
   const sections = entry.requestSections ?? [];
-  const [viewMode, setViewMode] = useState<ViewMode>("markdown");
 
   const bannerText =
     sections.length === 0
@@ -36,33 +32,18 @@ export function PromptTab({ entry }: PromptTabProps): ReactNode {
   return (
     <div className="flex flex-col gap-4 p-4">
       <Card>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <p
-              className="text-body-medium-default"
-              style={{ color: "var(--content-default)" }}
-            >
-              Prompt sections
-            </p>
-            <p
-              className="mt-1 text-body-medium-lighter"
-              style={{ color: "var(--content-secondary)" }}
-            >
-              {bannerText}
-            </p>
-          </div>
-          {sections.length > 0 && (
-            <SegmentControl<ViewMode>
-              ariaLabel="Prompt rendering mode"
-              value={viewMode}
-              onChange={setViewMode}
-              items={[
-                { value: "markdown", label: "Markdown" },
-                { value: "raw", label: "Raw" },
-              ]}
-            />
-          )}
-        </div>
+        <p
+          className="text-body-medium-default"
+          style={{ color: "var(--content-default)" }}
+        >
+          Prompt sections
+        </p>
+        <p
+          className="mt-1 text-body-medium-lighter"
+          style={{ color: "var(--content-secondary)" }}
+        >
+          {bannerText}
+        </p>
       </Card>
 
       {sections.length === 0 ? (
@@ -75,14 +56,7 @@ export function PromptTab({ entry }: PromptTabProps): ReactNode {
               return <ToolDefinitionsCard key={i} tools={tools} />;
             }
           }
-          return (
-            <SectionCard
-              key={i}
-              section={section}
-              index={i}
-              viewMode={viewMode}
-            />
-          );
+          return <SectionCard key={i} section={section} index={i} />;
         })
       )}
     </div>
@@ -112,19 +86,14 @@ function EmptyState(): ReactNode {
 interface SectionCardProps {
   section: LLMContextSection;
   index: number;
-  viewMode: ViewMode;
 }
 
-function SectionCard({
-  section,
-  index,
-  viewMode,
-}: SectionCardProps): ReactNode {
+function SectionCard({ section, index }: SectionCardProps): ReactNode {
   const title = sectionTitle(section, index);
   const kind = humanKindLabel(section.kind);
   const formatLabel = languageFormatLabel(section.language ?? null);
   const { text, isStructured } = renderContent(section);
-  const renderAsMarkdown = !isStructured && viewMode === "markdown";
+  const renderAsCode = isStructured || isToolResultKind(section.kind);
 
   return (
     <Card>
@@ -163,9 +132,9 @@ function SectionCard({
         />
       </div>
 
-      {isStructured ? (
+      {renderAsCode ? (
         <pre
-          className="mt-3 overflow-auto rounded-md p-3 text-body-small-default"
+          className="mt-3 overflow-auto whitespace-pre-wrap break-words rounded-md p-3 text-body-small-default"
           style={{
             background: "var(--surface-base)",
             color: "var(--content-default)",
@@ -174,23 +143,24 @@ function SectionCard({
         >
           {text}
         </pre>
-      ) : renderAsMarkdown ? (
+      ) : (
         <div
           className="mt-3 min-w-0 break-words"
           style={{ color: "var(--content-default)" }}
         >
-          <FileMarkdown content={text} stripFrontmatter={false} />
+          <FileMarkdown
+            content={text}
+            stripFrontmatter={false}
+            parseHtml={false}
+          />
         </div>
-      ) : (
-        <p
-          className="mt-3 select-text whitespace-pre-wrap break-words text-body-medium-lighter"
-          style={{ color: "var(--content-default)" }}
-        >
-          {text}
-        </p>
       )}
     </Card>
   );
+}
+
+function isToolResultKind(kind: string): boolean {
+  return kind === "tool_result" || kind === "function_response";
 }
 
 function sectionTitle(section: LLMContextSection, index: number): string {

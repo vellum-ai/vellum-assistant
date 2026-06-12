@@ -1364,6 +1364,40 @@ describe("custom baseURL initialization", () => {
       timeout: DEFAULT_SDK_TIMEOUT_MS,
     });
   });
+
+  test("MinimaxProvider sends reasoning_split so reasoning never leaks into content as <think> tags", async () => {
+    fakeChunks = [textChunk("hello", "stop"), usageChunk(10, 5)];
+    const provider = new MinimaxProvider("mm-user-key", "MiniMax-M3");
+
+    await provider.sendMessage([userMsg("hi")]);
+
+    expect(lastCreateParams!.reasoning_split).toBe(true);
+  });
+
+  test("MinimaxProvider replays prior assistant thinking via reasoning_content", async () => {
+    fakeChunks = [textChunk("done", "stop"), usageChunk(10, 5)];
+    const provider = new MinimaxProvider("mm-user-key", "MiniMax-M3");
+
+    await provider.sendMessage([
+      userMsg("question"),
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "prior reasoning", signature: "" },
+          { type: "text", text: "prior answer" },
+        ],
+      },
+      userMsg("follow-up"),
+    ]);
+
+    const sent = lastCreateParams!.messages as Array<Record<string, unknown>>;
+    const assistantTurn = sent.find((m) => m.role === "assistant");
+    expect(assistantTurn).toEqual({
+      role: "assistant",
+      content: "prior answer",
+      reasoning_content: "prior reasoning",
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -14,9 +14,14 @@ import {
   startDictationStream,
   type DictationStreamHandle,
 } from "@/domains/chat/voice/dictation-stream";
-import { startNativeDictationPartials } from "@/runtime/native-dictation-partials";
+import {
+  startNativeDictationPartials,
+  transcribeNativeAudioBlob,
+  type StopNativeDictationPartials,
+} from "@/runtime/native-dictation-partials";
 import {
     postSttTranscribe,
+    prefersMacosNativeStt,
     type SttFailureReason,
 } from "@/domains/chat/voice/stt-api";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
@@ -311,8 +316,19 @@ export const VoiceInputButton = forwardRef<
   // gateway ingress; platform-managed assistants ride the platform proxy,
   // which has no WebSocket path). Same role the native recognizer played
   // in the legacy Swift client.
-  const nativePartialsStopRef = useRef<(() => void) | null>(null);
+  const nativePartialsStopRef = useRef<StopNativeDictationPartials | null>(
+    null,
+  );
   const nativePartialsTextRef = useRef("");
+  // Resolves with the recognizer's final transcript of the whole utterance
+  // after stopNativePartials — short dictations end before the first
+  // partial, so this is the only reliable native text source.
+  const nativeFinalPromiseRef = useRef<Promise<string | null> | null>(null);
+
+  // Latest running transcript from the daemon stream — kept through
+  // teardown so it can serve as the final-transcript fallback when batch
+  // STT fails and the native recognizer wasn't available.
+  const streamTranscriptRef = useRef("");
 
   const onStreamReadyRef = useRef(onStreamReady);
   onStreamReadyRef.current = onStreamReady;
@@ -358,10 +374,64 @@ export const VoiceInputButton = forwardRef<
   }, []);
 
   const stopNativePartials = useCallback(() => {
-    nativePartialsStopRef.current?.();
+    // Deliberately leaves nativePartialsTextRef intact: stopRecording runs
+    // this before recorder.onstop reads the text as the final-transcript
+    // fallback. startRecording resets it for the next session.
+    const stop = nativePartialsStopRef.current;
     nativePartialsStopRef.current = null;
-    nativePartialsTextRef.current = "";
+    if (!stop) return;
+    // The promise resolves once the helper's recognizer drains the session
+    // (dictation.finalized); recorder.onstop awaits it alongside batch STT.
+    const final = stop();
+    if (final) nativeFinalPromiseRef.current = final;
   }, []);
+
+  // Run the mac helper's local speech recognizer alongside the whole
+  // recording — the live-text source when no daemon stream goes live, and
+  // the offline final-transcript safety net when batch STT can't reach its
+  // provider. It runs for the full session rather than starting on stream
+  // failure because failure isn't a reliable signal: with a local daemon the
+  // stream looks healthy (localhost connects, `ready` arrives) while the
+  // provider behind it is unreachable, so it just stays silent. Same role
+  // the recognizer played in the legacy Swift client.
+  const startNativePartials = useCallback(() => {
+    if (!mediaRecorderRef.current || nativePartialsStopRef.current) {
+      console.info(
+        "dictation: native partials not started (session ended or already running)",
+      );
+      return;
+    }
+    let partialCount = 0;
+    void startNativeDictationPartials(
+      (text) => {
+        partialCount += 1;
+        if (partialCount === 1 || partialCount % 25 === 0) {
+          // Count/length only — transcript content must never be logged.
+          console.info(
+            `dictation: native partial #${partialCount} chars=${text.length}`,
+          );
+        }
+        nativePartialsTextRef.current = text;
+        if (!dictationStreamRef.current?.isLive()) {
+          publishInterim(text);
+        }
+      },
+      // Feed the helper the recording stream's own PCM — it must not open
+      // the device itself (a second capture client on the same device reads
+      // silence or kills this recording's stream).
+      { stream: streamRef.current ?? undefined },
+    ).then((stop) => {
+      // The unavailable case logs its reason in native-dictation-partials.
+      if (!stop) return;
+      console.info("dictation: native partials running");
+      // The session may have ended while the helper call was in flight.
+      if (!mediaRecorderRef.current) {
+        stop();
+        return;
+      }
+      nativePartialsStopRef.current = stop;
+    });
+  }, [publishInterim]);
 
   const stopRecording = useCallback(() => {
     cancelledStartRef.current = true;
@@ -445,9 +515,15 @@ export const VoiceInputButton = forwardRef<
 
   useEffect(() => {
     if (disabled && recording) {
-      stopRecording();
+      // Do NOT stop the recording here. `disabled` composes transient
+      // states — offline SSE recovery flips `isLoadingHistory` every few
+      // seconds, which used to kill an explicit user dictation ~50ms in,
+      // before the offline Apple Speech fallback could hear a single
+      // word. The press-to-stop lifecycle owns an in-flight session;
+      // `disabled` only gates starting new ones.
+      console.info("dictation: button disabled mid-recording (continuing)");
     }
-  }, [disabled, recording, stopRecording]);
+  }, [disabled, recording]);
 
   useEffect(() => {
     return () => {
@@ -478,6 +554,10 @@ export const VoiceInputButton = forwardRef<
     cancelledStartRef.current = false;
     discardedRef.current = false;
     const sessionId = ++sessionIdRef.current;
+    // Honor the explicit "macOS Native Dictation" provider choice for the
+    // whole session: no daemon stream, no batch upload — the helper's
+    // recognizer (already running for every session) is the authority.
+    const nativeSttForced = prefersMacosNativeStt();
 
     if (onBeforeStart) {
       let proceed: boolean;
@@ -502,6 +582,9 @@ export const VoiceInputButton = forwardRef<
     // pipeline first. Starting it after getUserMedia claims the mic causes
     // Chrome to silently starve SpeechRecognition of audio input.
     speechAccumulatorRef.current = "";
+    nativePartialsTextRef.current = "";
+    nativeFinalPromiseRef.current = null;
+    streamTranscriptRef.current = "";
     const Ctor = getSpeechRecognitionCtor();
     if (Ctor) {
       try {
@@ -573,6 +656,14 @@ export const VoiceInputButton = forwardRef<
     }
 
     streamRef.current = stream;
+    for (const track of stream.getAudioTracks?.() ?? []) {
+      track.onended = () => {
+        // Not a user stop: the OS revoked the capture (device unplugged,
+        // exclusive-claim contention). MediaRecorder will fire onstop on
+        // its own; this line is the field-debuggable distinction.
+        console.warn("dictation: audio track ended unexpectedly");
+      };
+    }
     onStreamReadyRef.current?.(stream);
 
     let recorder: MediaRecorder;
@@ -605,13 +696,19 @@ export const VoiceInputButton = forwardRef<
       releaseStream();
       stopSpeechRecognition();
       stopDictationStream();
+      const streamText = streamTranscriptRef.current;
+      const nativePartialText = nativePartialsTextRef.current;
       stopNativePartials();
+      const pendingNativeFinal = nativeFinalPromiseRef.current;
+      nativeFinalPromiseRef.current = null;
       publishInterim("");
 
       if (discardedRef.current) {
         discardedRef.current = false;
         chunksRef.current = [];
         speechAccumulatorRef.current = "";
+        nativePartialsTextRef.current = "";
+        streamTranscriptRef.current = "";
         // Re-assert idle: a stop() racing in between cancelRecording and
         // this handler (e.g. the push-to-talk key-up after Esc) can have
         // moved the store to "processing".
@@ -629,7 +726,13 @@ export const VoiceInputButton = forwardRef<
       chunksRef.current = [];
       const fallbackText = speechAccumulatorRef.current;
       speechAccumulatorRef.current = "";
-      if (chunks.length === 0 && !fallbackText) {
+      if (
+        chunks.length === 0 &&
+        !fallbackText &&
+        !nativePartialText &&
+        !streamText &&
+        !pendingNativeFinal
+      ) {
         addDictationSessionBreadcrumb("empty", durationMs, 0);
         vsReset();
         return;
@@ -640,19 +743,34 @@ export const VoiceInputButton = forwardRef<
       transcribeAbortRef.current = abortCtrl;
 
       void (async () => {
+        // Whole-recording native transcription starts concurrently with
+        // batch STT: it's local and takes a few seconds, while an offline
+        // batch attempt burns its full provider timeout before failing —
+        // sequencing them stacked into ~30s of "Processing".
+        const blobTextPromise: Promise<string | null> = audioBlob
+          ? transcribeNativeAudioBlob(audioBlob)
+          : Promise.resolve(null);
+
         let text = "";
         let daemonFailure: SttFailureReason | null = null;
         try {
-          if (audioBlob && assistantId) {
-            const result = await postSttTranscribe(
-              audioBlob,
-              assistantId,
-              abortCtrl.signal,
-            );
-            if (result.status === "ok") {
-              text = result.text.trim();
+          if (audioBlob && assistantId && !nativeSttForced) {
+            if (typeof navigator !== "undefined" && navigator.onLine === false) {
+              // Provably offline — don't burn the provider timeout to learn
+              // what we already know.
+              console.info("dictation: skipping batch STT (offline)");
+              daemonFailure = "network";
             } else {
-              daemonFailure = result.reason;
+              const result = await postSttTranscribe(
+                audioBlob,
+                assistantId,
+                abortCtrl.signal,
+              );
+              if (result.status === "ok") {
+                text = result.text.trim();
+              } else {
+                daemonFailure = result.reason;
+              }
             }
           }
         } catch (err) {
@@ -662,6 +780,44 @@ export const VoiceInputButton = forwardRef<
           daemonFailure = "unknown";
         }
 
+        // The recognizer keeps draining briefly after the recording ends —
+        // its final result is the complete utterance, where the live
+        // partials of a 1-2s dictation are usually still empty. The await
+        // overlaps the batch POST above, so it adds ~no wall-clock time.
+        let nativeText = nativePartialText;
+        if (pendingNativeFinal) {
+          const finalText = await pendingNativeFinal;
+          if (finalText) {
+            nativeText = finalText;
+          }
+        }
+
+        // Batch text is the authority. When it fails (offline, provider
+        // down), recognize the COMPLETE recorded audio natively — the
+        // streamed session races pump warmup and recognition latency on
+        // short dictations and can miss the leading words, so it is only
+        // the fallback's fallback. The Web Speech accumulator only matters
+        // in plain browsers — inside Electron the API ships without a
+        // speech service, so it stays empty.
+        let blobText = "";
+        if (!text) {
+          blobText = (await blobTextPromise) ?? "";
+        }
+
+        // Character counts only — transcript content must never be logged.
+        console.info(
+          `dictation: finalize batchChars=${text.length} blobChars=${blobText.length} nativeChars=${nativeText.length} streamChars=${streamText.length} webChars=${fallbackText.length} failure=${daemonFailure ?? "none"} forcedNative=${nativeSttForced}`,
+        );
+
+        if (!text && blobText) {
+          text = blobText;
+        }
+        if (!text && nativeText) {
+          text = nativeText;
+        }
+        if (!text && streamText) {
+          text = streamText;
+        }
         if (!text && fallbackText) {
           text = fallbackText;
         }
@@ -686,6 +842,15 @@ export const VoiceInputButton = forwardRef<
             const code = errorCodeForReason(daemonFailure);
             onError?.(code);
             vsFail(code);
+            return;
+          } else if (nativeSttForced && audioBlob) {
+            // Audio was captured but the forced-native recognizer produced
+            // nothing — most likely macOS Dictation (and its on-device
+            // model) isn't enabled. Surface that instead of resetting
+            // silently; there is no daemon failure to report here.
+            addDictationSessionBreadcrumb("error", durationMs, 0);
+            onError?.("native-stt-no-transcript");
+            vsFail("native-stt-no-transcript");
             return;
           } else {
             addDictationSessionBreadcrumb("empty", durationMs, 0);
@@ -738,31 +903,21 @@ export const VoiceInputButton = forwardRef<
 
     // Recording is live — open the daemon streaming session for interim
     // transcripts. Null / later failure means no live partials from that
-    // source; the recorder above is untouched either way.
+    // source; the recorder above is untouched either way. A forced-native
+    // session never opens the stream: the helper recognizer below is its
+    // only transcript source.
     stopDictationStream();
-    dictationStreamRef.current = startDictationStream({
-      onPartial: publishInterim,
-    });
-
-    // No stream possible (no self-hosted gateway ingress) — fall back to
-    // the mac helper's local speech recognizer for live text.
     stopNativePartials();
-    if (!dictationStreamRef.current) {
-      void startNativeDictationPartials((text) => {
-        nativePartialsTextRef.current = text;
-        if (!dictationStreamRef.current?.isLive()) {
+    if (!nativeSttForced) {
+      dictationStreamRef.current = startDictationStream({
+        onPartial: (text) => {
+          streamTranscriptRef.current = text;
           publishInterim(text);
-        }
-      }).then((stop) => {
-        if (!stop) return;
-        // The session may have ended while the helper call was in flight.
-        if (!mediaRecorderRef.current) {
-          stop();
-          return;
-        }
-        nativePartialsStopRef.current = stop;
+        },
       });
     }
+
+    startNativePartials();
   }, [
     assistantId,
     onBeforeStart,
@@ -770,6 +925,7 @@ export const VoiceInputButton = forwardRef<
     onTranscript,
     publishInterim,
     releaseStream,
+    startNativePartials,
     stopSpeechRecognition,
     stopDictationStream,
     stopNativePartials,

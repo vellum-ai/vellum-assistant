@@ -492,6 +492,40 @@ describe("GET /schedules — default defer exclusion", () => {
     });
   });
 
+  test("humanizes rrule cadences and flags single-fire rrules as one-shot", () => {
+    createSchedule({
+      name: "RRule single fire",
+      cronExpression: "DTSTART:20990612T080000\nRRULE:FREQ=DAILY;COUNT=1",
+      syntax: "rrule",
+      message: "brush teeth",
+    });
+    createSchedule({
+      name: "RRule weekly",
+      cronExpression: "DTSTART:20990612T080000\nRRULE:FREQ=WEEKLY;BYDAY=MO,WE",
+      syntax: "rrule",
+      message: "standup",
+    });
+
+    const route = findRoute("schedules", "GET");
+    const result = route.handler({}) as {
+      schedules: Array<{
+        name: string;
+        cadenceDescription: string;
+        isOneShot: boolean;
+      }>;
+    };
+    const byName = new Map(result.schedules.map((s) => [s.name, s]));
+
+    expect(byName.get("RRule single fire")).toMatchObject({
+      cadenceDescription: "One-time",
+      isOneShot: true,
+    });
+    expect(byName.get("RRule weekly")).toMatchObject({
+      cadenceDescription: "Every week on Monday, Wednesday",
+      isOneShot: false,
+    });
+  });
+
   test("mutation responses also exclude deferred wakes", () => {
     createSchedule({
       name: "Agent schedule",

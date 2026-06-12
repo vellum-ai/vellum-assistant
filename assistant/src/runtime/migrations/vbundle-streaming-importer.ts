@@ -695,9 +695,14 @@ export async function streamCommitImport(
           sha256: expectedEntry.sha256,
           backup_path: null,
         });
-        warnings.push(
-          `Skipped "${archivePath}": no known disk target for this archive path`,
-        );
+        // Retired-feature paths (see `policy.RETIRED_ARCHIVE_PATHS`) are
+        // expected in legacy bundles and skip silently so the import report
+        // matches preflight; anything else unresolvable earns a warning.
+        if (!policy.isRetiredArchivePath(archivePath)) {
+          warnings.push(
+            `Skipped "${archivePath}": no known disk target for this archive path`,
+          );
+        }
         seen.add(archivePath);
         onProgress?.({
           archivePath,

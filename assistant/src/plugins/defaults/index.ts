@@ -31,6 +31,10 @@ import emptyResponsePostModelCall from "./empty-response/hooks/post-model-call.j
 import emptyResponseStop from "./empty-response/hooks/stop.js";
 import { resetEmptyResponseNudgeStoreForTests } from "./empty-response/nudge-state-store.js";
 import emptyResponsePkg from "./empty-response/package.json" with { type: "json" };
+import explorationDriftPostToolUse, {
+  resetExplorationDriftStateForTests,
+} from "./exploration-drift/hooks/post-tool-use.js";
+import explorationDriftPkg from "./exploration-drift/package.json" with { type: "json" };
 import historyRepairPostModelCall from "./history-repair/hooks/post-model-call.js";
 import historyRepairStop from "./history-repair/hooks/stop.js";
 import historyRepairUserPromptSubmit from "./history-repair/hooks/user-prompt-submit.js";
@@ -40,6 +44,10 @@ import imageRecoveryPostModelCall from "./image-recovery/hooks/post-model-call.j
 import imageRecoveryStop from "./image-recovery/hooks/stop.js";
 import { resetImageRecoveryStoreForTests } from "./image-recovery/image-recovery-state-store.js";
 import imageRecoveryPkg from "./image-recovery/package.json" with { type: "json" };
+import { resetMaxTokensContinueStoreForTests } from "./max-tokens-continue/continue-state-store.js";
+import maxTokensContinuePostModelCall from "./max-tokens-continue/hooks/post-model-call.js";
+import maxTokensContinueStop from "./max-tokens-continue/hooks/stop.js";
+import maxTokensContinuePkg from "./max-tokens-continue/package.json" with { type: "json" };
 import memoryRetrievalPostCompact from "./memory-retrieval/hooks/post-compact.js";
 import memoryRetrievalUserPromptSubmit from "./memory-retrieval/hooks/user-prompt-submit.js";
 import memoryRetrievalPkg from "./memory-retrieval/package.json" with { type: "json" };
@@ -147,6 +155,24 @@ export const defaultImageRecoveryPlugin: Plugin = {
 };
 
 /**
+ * `max-tokens-continue` — a `post-model-call` hook that auto-resumes a
+ * user-facing turn the provider truncated at its output token limit, keeping
+ * the partial output and re-querying with a continuation nudge so long
+ * generations can finish without the user clicking the continuation card.
+ * Bounded per run; the `stop` hook clears the budget on a terminal stop.
+ */
+export const defaultMaxTokensContinuePlugin: Plugin = {
+  manifest: {
+    name: maxTokensContinuePkg.name,
+    version: maxTokensContinuePkg.version,
+  },
+  hooks: {
+    "post-model-call": maxTokensContinuePostModelCall,
+    stop: maxTokensContinueStop,
+  },
+};
+
+/**
  * `memory-v3-shadow` — houses the memory-v3 shadow/live orchestration engine
  * (`memory-v3-shadow/`) and its injector. The `user-prompt-submit` /
  * `post-compact` hooks are no-op scaffolding for the eventual convergence,
@@ -195,6 +221,25 @@ export const defaultToolErrorPlugin: Plugin = {
 };
 
 /**
+ * `exploration-drift` — a `post-tool-use` hook that detects exploration
+ * drift — a long unbroken run of exploration tool calls (bash, file_read,
+ * file_list) with no user-facing text, or (on loop-prone models such as Kimi
+ * K2.6 and MiniMax M3) the model re-issuing a byte-identical exploration call — and nudges
+ * the model via `additionalContext` to summarize progress for the user and
+ * delegate the remaining investigation to an `investigator` subagent rather
+ * than continuing inline.
+ */
+export const defaultExplorationDriftPlugin: Plugin = {
+  manifest: {
+    name: explorationDriftPkg.name,
+    version: explorationDriftPkg.version,
+  },
+  hooks: {
+    "post-tool-use": explorationDriftPostToolUse,
+  },
+};
+
+/**
  * `tool-result-truncate` — a `post-tool-use` hook that tail-drops an oversized
  * tool result down to a character budget derived from the model's context
  * window before the result is sent to the provider.
@@ -220,7 +265,9 @@ function getAllDefaultPlugins(): readonly Plugin[] {
     defaultMemoryRetrievalPlugin,
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
+    defaultMaxTokensContinuePlugin,
     defaultToolErrorPlugin,
+    defaultExplorationDriftPlugin,
     defaultHistoryRepairPlugin,
     defaultImageRecoveryPlugin,
     defaultCompactionPlugin,
@@ -266,7 +313,9 @@ export function registerDefaultPlugins(): void {
 export function resetPluginRegistryAndRegisterDefaults(): void {
   resetPluginRegistryForTests();
   resetEmptyResponseNudgeStoreForTests();
+  resetMaxTokensContinueStoreForTests();
   resetRepairStateStoreForTests();
   resetImageRecoveryStoreForTests();
+  resetExplorationDriftStateForTests();
   registerDefaultPlugins();
 }

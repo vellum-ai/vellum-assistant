@@ -27,11 +27,12 @@
   "dependencies": {
     "@vellumai/assistant-client": "file:../packages/assistant-client",
     "@vellumai/ces-client": "file:../packages/ces-client",
+    "@vellumai/gateway-client": "file:../packages/gateway-client",
     "@vellumai/ipc-server-utils": "file:../packages/ipc-server-utils",
     "@vellumai/service-contracts": "file:../packages/service-contracts",
     "@vellumai/slack-text": "file:../packages/slack-text",
     "@vellumai/twilio-client": "file:../packages/twilio-client",
-    "drizzle-kit": "0.30.6",
+    "drizzle-kit": "0.31.10",
     "drizzle-orm": "0.45.2",
     "file-type": "21.3.0",
     "pino": "9.14.0",
@@ -43,6 +44,7 @@
   "bundledDependencies": [
     "@vellumai/assistant-client",
     "@vellumai/ces-client",
+    "@vellumai/gateway-client",
     "@vellumai/ipc-server-utils",
     "@vellumai/service-contracts",
     "@vellumai/slack-text",

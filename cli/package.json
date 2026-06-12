@@ -23,6 +23,7 @@
     "lint": "eslint",
     "lint:unused": "knip --include files,dependencies,unlisted",
     "prepack": "node ../scripts/prepack-bundled-deps.mjs",
+    "compile:check": "bun build --compile --external react-devtools-core src/index.ts --outfile /dev/null",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit"
   },
@@ -34,8 +35,7 @@
     "chalk": "5.6.2",
     "ink": "6.8.0",
     "nanoid": "5.1.7",
-    "react": "19.2.4",
-    "react-devtools-core": "6.1.5"
+    "react": "19.2.4"
   },
   "bundledDependencies": [
     "@vellumai/environments",

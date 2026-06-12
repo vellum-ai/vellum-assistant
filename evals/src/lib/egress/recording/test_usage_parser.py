@@ -117,6 +117,13 @@ class NonStreamingTests(unittest.TestCase):
                 "output_tokens": 567,
                 "cache_creation_input_tokens": 100,
                 "cache_read_input_tokens": 50,
+                # The full usage object is forwarded verbatim for tracking.
+                "usage": {
+                    "input_tokens": 1234,
+                    "output_tokens": 567,
+                    "cache_creation_input_tokens": 100,
+                    "cache_read_input_tokens": 50,
+                },
             },
         )
 
@@ -136,6 +143,7 @@ class NonStreamingTests(unittest.TestCase):
                 "model": "claude-haiku-4-5",
                 "input_tokens": 100,
                 "output_tokens": 50,
+                "usage": {"input_tokens": 100, "output_tokens": 50},
             },
         )
 
@@ -160,6 +168,35 @@ class NonStreamingTests(unittest.TestCase):
         self.assertNotIn("input_tokens", record or {})
         self.assertEqual((record or {}).get("output_tokens"), 50)
 
+    def test_forwards_cache_creation_ttl_breakdown(self) -> None:
+        # Anthropic prices 5-minute vs 1-hour cache writes differently, so
+        # the `cache_creation` split must be preserved (both hoisted to the
+        # top level for the pricer and kept inside the full `usage` object).
+        body = json.dumps(
+            {
+                "model": "claude-sonnet-4-6",
+                "usage": {
+                    "input_tokens": 3,
+                    "output_tokens": 69,
+                    "cache_creation_input_tokens": 500,
+                    "cache_read_input_tokens": 100,
+                    "cache_creation": {
+                        "ephemeral_5m_input_tokens": 300,
+                        "ephemeral_1h_input_tokens": 200,
+                    },
+                },
+            }
+        ).encode("utf-8")
+        record = _parse_anthropic_non_streaming(body)
+        assert record is not None
+        self.assertEqual(
+            record["cache_creation"],
+            {"ephemeral_5m_input_tokens": 300, "ephemeral_1h_input_tokens": 200},
+        )
+        self.assertEqual(
+            record["usage"]["cache_creation"]["ephemeral_1h_input_tokens"], 200
+        )
+
 
 class StreamingTests(unittest.TestCase):
     def test_combines_message_start_and_message_delta_into_one_record(self) -> None:
@@ -175,6 +212,14 @@ class StreamingTests(unittest.TestCase):
                 "output_tokens": 800,
                 "cache_creation_input_tokens": 50,
                 "cache_read_input_tokens": 25,
+                # message_start usage with output_tokens overwritten by the
+                # message_delta total, forwarded as the full usage object.
+                "usage": {
+                    "input_tokens": 2000,
+                    "output_tokens": 800,
+                    "cache_creation_input_tokens": 50,
+                    "cache_read_input_tokens": 25,
+                },
             },
         )
 
@@ -193,6 +238,7 @@ class StreamingTests(unittest.TestCase):
                 "model": "claude-haiku-4-5",
                 "input_tokens": 100,
                 "output_tokens": 0,
+                "usage": {"input_tokens": 100, "output_tokens": 0},
             },
         )
 
@@ -209,7 +255,12 @@ class StreamingTests(unittest.TestCase):
         record = _parse_anthropic_streaming(body)
         self.assertEqual(
             record,
-            {"provider": "anthropic", "model": "m", "input_tokens": 10},
+            {
+                "provider": "anthropic",
+                "model": "m",
+                "input_tokens": 10,
+                "usage": {"input_tokens": 10},
+            },
         )
 
 
@@ -255,6 +306,32 @@ class TopLevelDispatchTests(unittest.TestCase):
                 request_body=b"",
                 response_content_type="application/json",
                 response_body=b'{"data":[]}',
+            )
+        )
+
+    def test_records_beta_namespace_messages_path(self) -> None:
+        # The Anthropic SDK's `client.beta.messages` namespace posts to
+        # `/v1/messages?beta=true`; the main agent loop uses it for every
+        # non-Haiku turn, so its query string must not cause the dominant
+        # model traffic to be dropped.
+        record = parse_anthropic_messages_response(
+            request_path="/v1/messages?beta=true",
+            request_body=STREAMING_REQUEST_BODY,
+            response_content_type="text/event-stream; charset=utf-8",
+            response_body=_streaming_response(),
+        )
+        assert record is not None
+        self.assertEqual(record["output_tokens"], 800)
+
+    def test_skips_beta_count_tokens_path(self) -> None:
+        # `/v1/messages/count_tokens?beta=true` carries no usage and must
+        # stay excluded even after the query string is stripped.
+        self.assertIsNone(
+            parse_anthropic_messages_response(
+                request_path="/v1/messages/count_tokens?beta=true",
+                request_body=b"",
+                response_content_type="application/json",
+                response_body=b'{"input_tokens":42}',
             )
         )
 

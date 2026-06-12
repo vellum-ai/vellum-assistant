@@ -34,13 +34,20 @@ mock.module("../../../config/loader.js", () => ({
 // Source + conversation-crud module mocks
 // ---------------------------------------------------------------------
 
-import type { LogRow } from "../../../memory/llm-request-log-store.js";
+import type { CompactionLogEvent } from "../../../memory/compaction-log-store-clickhouse.js";
+import type {
+  CompactionAgentLogRow,
+  LogMetaRow,
+} from "../../../memory/llm-request-log-store.js";
 
 interface FakeSourceState {
   conversation: { id: string } | null;
-  selectedCall: LogRow | null;
+  selectedCall: LogMetaRow | null;
   turnBounds: { startTime: number; endTime: number } | null;
-  compactionLogs: LogRow[];
+  compactionLogs: CompactionAgentLogRow[];
+  /** null = compactionLogs destination not configured (legacy-only). */
+  compactionStoreEvents: CompactionLogEvent[] | null;
+  compactionStoreError: Error | null;
 }
 
 const state: FakeSourceState = {
@@ -48,12 +55,14 @@ const state: FakeSourceState = {
   selectedCall: null,
   turnBounds: null,
   compactionLogs: [],
+  compactionStoreEvents: null,
+  compactionStoreError: null,
 };
 
 // Records the inputs the handler passed to its collaborators so tests
 // can pin the windowing plumbing without relying on the projection.
 const sourceCalls = {
-  getRequestLogByIdArgs: [] as string[],
+  getRequestLogMetaByIdArgs: [] as string[],
   getTurnTimeBoundsArgs: [] as Array<{
     conversationId: string;
     messageCreatedAt: number;
@@ -63,7 +72,33 @@ const sourceCalls = {
     afterCreatedAt: number | null;
     beforeCreatedAt: number;
   }>,
+  getEventsBetweenArgs: [] as Array<{
+    conversationId: string;
+    afterStartedAt: number | null;
+    beforeStartedAt: number;
+  }>,
 };
+
+mock.module("../../../memory/compaction-log-store-clickhouse.js", () => ({
+  getCompactionLogStore: () =>
+    state.compactionStoreEvents === null && state.compactionStoreError === null
+      ? null
+      : {
+          getEventsBetween: async (
+            conversationId: string,
+            afterStartedAt: number | null,
+            beforeStartedAt: number,
+          ) => {
+            sourceCalls.getEventsBetweenArgs.push({
+              conversationId,
+              afterStartedAt,
+              beforeStartedAt,
+            });
+            if (state.compactionStoreError) throw state.compactionStoreError;
+            return state.compactionStoreEvents ?? [];
+          },
+        },
+}));
 
 mock.module("../../../memory/conversation-crud.js", () => ({
   getConversation: (id: string) =>
@@ -82,8 +117,9 @@ mock.module("../../../memory/conversation-crud.js", () => ({
 
 mock.module("../../../memory/llm-request-log-source.js", () => ({
   getLlmRequestLogSource: async () => ({
-    getRequestLogById: async (id: string) => {
-      sourceCalls.getRequestLogByIdArgs.push(id);
+    getRequestLogById: async () => null,
+    getRequestLogMetaById: async (id: string) => {
+      sourceCalls.getRequestLogMetaByIdArgs.push(id);
       return state.selectedCall;
     },
     getRequestLogsByMessageId: async () => [],
@@ -105,6 +141,7 @@ mock.module("../../../memory/llm-request-log-source.js", () => ({
 
 // Imported AFTER the mocks so the handler picks up the fakes.
 import {
+  projectCompactionLogEventToTrailEvent,
   projectLogRowToCompactionTrailEvent,
   ROUTES,
 } from "../conversation-compaction-routes.js";
@@ -117,17 +154,61 @@ const handler = route.handler as (
   args: Record<string, unknown>,
 ) => Promise<{ conversationId: string; events: unknown[] }>;
 
-function fakeLogRow(overrides: Partial<LogRow> = {}): LogRow {
+function fakeLogMetaRow(overrides: Partial<LogMetaRow> = {}): LogMetaRow {
   return {
     id: "log-default",
     conversationId: "conv-default",
     messageId: null,
     provider: "anthropic",
-    requestPayload: "{}",
-    responsePayload: "{}",
     createdAt: 1000,
     agentLoopExitReason: null,
     callSite: null,
+    ...overrides,
+  };
+}
+
+function fakeCompactionRow(
+  overrides: Partial<CompactionAgentLogRow> = {},
+): CompactionAgentLogRow {
+  return {
+    ...fakeLogMetaRow(),
+    responsePayload: "{}",
+    requestMessageCount: null,
+    ...overrides,
+  };
+}
+
+function fakeCompactionLogEvent(
+  overrides: Partial<CompactionLogEvent> = {},
+): CompactionLogEvent {
+  return {
+    compactionId: "comp-1",
+    requestId: "req-1",
+    trigger: "budget",
+    startedAt: 3000,
+    finishedAt: 3500,
+    durationMs: 500,
+    preMessageCount: 12,
+    resultMessageCount: 4,
+    compacted: true,
+    previousEstimatedInputTokens: 900,
+    estimatedInputTokens: 300,
+    maxInputTokens: 1000,
+    thresholdTokens: 850,
+    compactedMessages: 10,
+    compactedPersistedMessages: 8,
+    preservedTailMessages: 2,
+    summaryCalls: 1,
+    summaryInputTokens: 880,
+    summaryOutputTokens: 120,
+    summaryModel: "test-model",
+    summaryFailed: false,
+    reason: "auto",
+    exhausted: false,
+    injectionMode: null,
+    autoCompressApplied: false,
+    summaryText: "summary text",
+    completed: true,
     ...overrides,
   };
 }
@@ -137,9 +218,12 @@ beforeEach(() => {
   state.selectedCall = null;
   state.turnBounds = null;
   state.compactionLogs = [];
-  sourceCalls.getRequestLogByIdArgs.length = 0;
+  state.compactionStoreEvents = null;
+  state.compactionStoreError = null;
+  sourceCalls.getRequestLogMetaByIdArgs.length = 0;
   sourceCalls.getTurnTimeBoundsArgs.length = 0;
   sourceCalls.getCompactionLogsBetweenArgs.length = 0;
+  sourceCalls.getEventsBetweenArgs.length = 0;
 });
 
 // ---------------------------------------------------------------------
@@ -196,7 +280,7 @@ describe("handleGetCompactionTrail — request-shape errors", () => {
 
   test("throws BadRequestError when callId belongs to a different conversation", async () => {
     state.conversation = { id: "conv-1" };
-    state.selectedCall = fakeLogRow({
+    state.selectedCall = fakeLogMetaRow({
       id: "call-x",
       conversationId: "conv-other",
       createdAt: 1234,
@@ -217,7 +301,7 @@ describe("handleGetCompactionTrail — request-shape errors", () => {
 describe("handleGetCompactionTrail — happy path", () => {
   test("forwards the turn window to the source (start - 1 as floor, end + 1 as ceiling)", async () => {
     state.conversation = { id: "conv-1" };
-    state.selectedCall = fakeLogRow({
+    state.selectedCall = fakeLogMetaRow({
       id: "call-selected",
       conversationId: "conv-1",
       createdAt: 5000,
@@ -231,7 +315,7 @@ describe("handleGetCompactionTrail — happy path", () => {
       queryParams: { callId: "call-selected" },
     });
 
-    expect(sourceCalls.getRequestLogByIdArgs).toEqual(["call-selected"]);
+    expect(sourceCalls.getRequestLogMetaByIdArgs).toEqual(["call-selected"]);
     expect(sourceCalls.getTurnTimeBoundsArgs).toEqual([
       { conversationId: "conv-1", messageCreatedAt: 5000 },
     ]);
@@ -248,7 +332,7 @@ describe("handleGetCompactionTrail — happy path", () => {
     // This is the core promise of turn-scoping: position within the
     // turn is irrelevant.
     state.conversation = { id: "conv-1" };
-    state.selectedCall = fakeLogRow({
+    state.selectedCall = fakeLogMetaRow({
       id: "call-early",
       conversationId: "conv-1",
       createdAt: 2500,
@@ -271,7 +355,7 @@ describe("handleGetCompactionTrail — happy path", () => {
     // The only-message-in-conversation edge case. Preserves the
     // pre-turn-scoping behavior for this degenerate input.
     state.conversation = { id: "conv-1" };
-    state.selectedCall = fakeLogRow({
+    state.selectedCall = fakeLogMetaRow({
       id: "call-solo",
       conversationId: "conv-1",
       createdAt: 5000,
@@ -291,7 +375,7 @@ describe("handleGetCompactionTrail — happy path", () => {
 
   test("returns an empty events list when no compactions ran in the window", async () => {
     state.conversation = { id: "conv-1" };
-    state.selectedCall = fakeLogRow({
+    state.selectedCall = fakeLogMetaRow({
       id: "call-1",
       conversationId: "conv-1",
       createdAt: 5000,
@@ -308,19 +392,19 @@ describe("handleGetCompactionTrail — happy path", () => {
 
   test("projects each compaction log to the wire shape", async () => {
     state.conversation = { id: "conv-1" };
-    state.selectedCall = fakeLogRow({
+    state.selectedCall = fakeLogMetaRow({
       id: "call-1",
       conversationId: "conv-1",
       createdAt: 9000,
     });
     state.turnBounds = { startTime: 500, endTime: 10_000 };
     state.compactionLogs = [
-      fakeLogRow({
+      fakeCompactionRow({
         id: "compaction-1",
         conversationId: "conv-1",
         createdAt: 1000,
       }),
-      fakeLogRow({
+      fakeCompactionRow({
         id: "compaction-2",
         conversationId: "conv-1",
         createdAt: 2000,
@@ -354,12 +438,182 @@ describe("handleGetCompactionTrail — happy path", () => {
 });
 
 // ---------------------------------------------------------------------
+// Handler — compaction-log store path
+// ---------------------------------------------------------------------
+
+describe("handleGetCompactionTrail — compaction log store", () => {
+  test("serves the trail from the store and skips the legacy projection", async () => {
+    state.conversation = { id: "conv-1" };
+    state.selectedCall = fakeLogMetaRow({
+      id: "call-1",
+      conversationId: "conv-1",
+      createdAt: 5000,
+    });
+    state.turnBounds = { startTime: 2000, endTime: 9000 };
+    state.compactionStoreEvents = [fakeCompactionLogEvent()];
+
+    const result = await handler({
+      pathParams: { id: "conv-1" },
+      queryParams: { callId: "call-1" },
+    });
+
+    // Same ±1ms-shifted turn window as the legacy path.
+    expect(sourceCalls.getEventsBetweenArgs).toEqual([
+      {
+        conversationId: "conv-1",
+        afterStartedAt: 1999,
+        beforeStartedAt: 9001,
+      },
+    ]);
+    expect(sourceCalls.getCompactionLogsBetweenArgs).toEqual([]);
+    expect(result.events).toEqual([
+      {
+        id: "comp-1",
+        createdAt: 3000,
+        model: "test-model",
+        provider: null,
+        inputTokens: 880,
+        outputTokens: 120,
+        durationMs: 500,
+        responsePreview: "summary text",
+        requestMessageCount: 12,
+        stopReason: "auto",
+        estimatedCostUsd: null,
+      },
+    ]);
+  });
+
+  test("falls back to the legacy projection when the store has no rows for the window", async () => {
+    state.conversation = { id: "conv-1" };
+    state.selectedCall = fakeLogMetaRow({
+      id: "call-1",
+      conversationId: "conv-1",
+      createdAt: 5000,
+    });
+    state.turnBounds = { startTime: 2000, endTime: 9000 };
+    state.compactionStoreEvents = [];
+    state.compactionLogs = [
+      fakeCompactionRow({ id: "compaction-legacy", conversationId: "conv-1" }),
+    ];
+
+    const result = await handler({
+      pathParams: { id: "conv-1" },
+      queryParams: { callId: "call-1" },
+    });
+
+    expect(sourceCalls.getEventsBetweenArgs).toHaveLength(1);
+    expect(sourceCalls.getCompactionLogsBetweenArgs).toHaveLength(1);
+    expect(result.events).toHaveLength(1);
+    expect((result.events[0] as { id: string }).id).toBe("compaction-legacy");
+  });
+
+  test("falls back to the legacy projection when the store read throws", async () => {
+    state.conversation = { id: "conv-1" };
+    state.selectedCall = fakeLogMetaRow({
+      id: "call-1",
+      conversationId: "conv-1",
+      createdAt: 5000,
+    });
+    state.turnBounds = { startTime: 2000, endTime: 9000 };
+    state.compactionStoreError = new Error("clickhouse unreachable");
+    state.compactionLogs = [
+      fakeCompactionRow({ id: "compaction-legacy", conversationId: "conv-1" }),
+    ];
+
+    const result = await handler({
+      pathParams: { id: "conv-1" },
+      queryParams: { callId: "call-1" },
+    });
+
+    expect(sourceCalls.getCompactionLogsBetweenArgs).toHaveLength(1);
+    expect(result.events).toHaveLength(1);
+    expect((result.events[0] as { id: string }).id).toBe("compaction-legacy");
+  });
+
+  test("falls back to the legacy projection when any event is missing its end row", async () => {
+    state.conversation = { id: "conv-1" };
+    state.selectedCall = fakeLogMetaRow({
+      id: "call-1",
+      conversationId: "conv-1",
+      createdAt: 5000,
+    });
+    state.turnBounds = { startTime: 2000, endTime: 9000 };
+    state.compactionStoreEvents = [
+      fakeCompactionLogEvent(),
+      fakeCompactionLogEvent({
+        compactionId: "comp-2",
+        finishedAt: null,
+        durationMs: null,
+        completed: false,
+      }),
+    ];
+    state.compactionLogs = [
+      fakeCompactionRow({ id: "compaction-legacy", conversationId: "conv-1" }),
+    ];
+
+    const result = await handler({
+      pathParams: { id: "conv-1" },
+      queryParams: { callId: "call-1" },
+    });
+
+    expect(sourceCalls.getEventsBetweenArgs).toHaveLength(1);
+    expect(sourceCalls.getCompactionLogsBetweenArgs).toHaveLength(1);
+    expect(result.events).toHaveLength(1);
+    expect((result.events[0] as { id: string }).id).toBe("compaction-legacy");
+  });
+});
+
+// ---------------------------------------------------------------------
 // Projection unit tests
 // ---------------------------------------------------------------------
 
+describe("projectCompactionLogEventToTrailEvent", () => {
+  test("maps a completed event onto the wire shape", () => {
+    const event = projectCompactionLogEventToTrailEvent(
+      fakeCompactionLogEvent(),
+    );
+    expect(event).toEqual({
+      id: "comp-1",
+      createdAt: 3000,
+      model: "test-model",
+      provider: null,
+      inputTokens: 880,
+      outputTokens: 120,
+      durationMs: 500,
+      responsePreview: "summary text",
+      requestMessageCount: 12,
+      stopReason: "auto",
+      estimatedCostUsd: null,
+    });
+  });
+
+  test("maps an incomplete (start-only) event with nulls for end-phase fields", () => {
+    const event = projectCompactionLogEventToTrailEvent(
+      fakeCompactionLogEvent({
+        completed: false,
+        finishedAt: null,
+        durationMs: null,
+        summaryInputTokens: null,
+        summaryOutputTokens: null,
+        summaryModel: null,
+        reason: null,
+        summaryText: null,
+      }),
+    );
+    expect(event.durationMs).toBeNull();
+    expect(event.model).toBeNull();
+    expect(event.inputTokens).toBeNull();
+    expect(event.outputTokens).toBeNull();
+    expect(event.responsePreview).toBeNull();
+    expect(event.stopReason).toBeNull();
+    // The start row always carries the pre-compaction message count.
+    expect(event.requestMessageCount).toBe(12);
+  });
+});
+
 describe("projectLogRowToCompactionTrailEvent", () => {
   test("returns null for every summary-derived field when payloads are empty", () => {
-    const event = projectLogRowToCompactionTrailEvent(fakeLogRow());
+    const event = projectLogRowToCompactionTrailEvent(fakeCompactionRow());
     expect(event.id).toBe("log-default");
     expect(event.createdAt).toBe(1000);
     expect(event.model).toBeNull();
@@ -376,7 +630,7 @@ describe("projectLogRowToCompactionTrailEvent", () => {
     // projection deliberately drops it — the gap is what surfaces to
     // the UI as "Unavailable" and informs the data-model decision.
     const event = projectLogRowToCompactionTrailEvent(
-      fakeLogRow({
+      fakeCompactionRow({
         responsePayload: JSON.stringify({
           // A made-up shape with a duration value to confirm the
           // projection ignores it.
@@ -392,19 +646,16 @@ describe("projectLogRowToCompactionTrailEvent", () => {
     // Empty payloads => normalizer returns no summary => fallback to
     // the row's stored `provider` column.
     const event = projectLogRowToCompactionTrailEvent(
-      fakeLogRow({ provider: "anthropic" }),
+      fakeCompactionRow({ provider: "anthropic" }),
     );
     expect(event.provider).toBe("anthropic");
   });
 
   test("extracts model + inputTokens + stopReason from a real Anthropic payload", () => {
     const event = projectLogRowToCompactionTrailEvent(
-      fakeLogRow({
+      fakeCompactionRow({
         provider: "anthropic",
-        requestPayload: JSON.stringify({
-          model: "claude-sonnet-4-5",
-          messages: [{ role: "user", content: "Summarize the prior context." }],
-        }),
+        requestMessageCount: 1,
         responsePayload: JSON.stringify({
           type: "message",
           model: "claude-sonnet-4-5",
@@ -420,12 +671,12 @@ describe("projectLogRowToCompactionTrailEvent", () => {
     expect(event.inputTokens).toBe(12_000);
     expect(event.outputTokens).toBe(800);
     expect(event.stopReason).toBe("end_turn");
+    expect(event.requestMessageCount).toBe(1);
   });
 
   test("tolerates non-JSON payloads without throwing (falls back to nulls)", () => {
     const event = projectLogRowToCompactionTrailEvent(
-      fakeLogRow({
-        requestPayload: "not-json{{{",
+      fakeCompactionRow({
         responsePayload: "<html>nope</html>",
       }),
     );

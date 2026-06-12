@@ -146,6 +146,8 @@ function makeContentsFetch(opts: {
 function fakeGitRunner(opts: {
   tree: Record<string, string | null>;
   commit?: string;
+  /** UNIX committer seconds reported by `git show -s --format=%ct HEAD`. */
+  committedAtSeconds?: number;
   calls?: string[][];
   fetchError?: Error;
 }): GitRunner {
@@ -170,6 +172,13 @@ function fakeGitRunner(opts: {
       }
       case "rev-parse":
         return { stdout: `${commit}\n` };
+      case "show":
+        return {
+          stdout:
+            opts.committedAtSeconds === undefined
+              ? ""
+              : `${opts.committedAtSeconds}\n`,
+        };
       default:
         return { stdout: "" };
     }
@@ -338,6 +347,10 @@ describe("installPlugin — marketplace resolution", () => {
         ".claude-plugin/plugin.json": "{}",
       },
       commit: "63a91ecadbf4c4719a4602a5abb00883f9966034",
+      // 2026-06-05T08:12:24Z as UNIX seconds, so the install captures it.
+      committedAtSeconds: Math.floor(
+        Date.parse("2026-06-05T08:12:24.000Z") / 1000,
+      ),
       calls,
     });
 
@@ -354,6 +367,8 @@ describe("installPlugin — marketplace resolution", () => {
     expect(result.target).toBe(target);
     expect(result.ref).toBe("63a91ecadbf4c4719a4602a5abb00883f9966034");
     expect(result.commit).toBe("63a91ecadbf4c4719a4602a5abb00883f9966034");
+    // AND the commit's committer date is captured as an ISO-8601 UTC string
+    expect(result.committedAt).toBe("2026-06-05T08:12:24.000Z");
     expect(result.fileCount).toBe(3);
     expect(readFileSync(join(target, "package.json"), "utf-8")).toBe(
       '{"name":"caveman"}',
@@ -371,16 +386,23 @@ describe("installPlugin — marketplace resolution", () => {
       "https://github.com/JuliusBrussee/caveman.git",
     );
 
-    // AND a provenance manifest records the github source + commit.
-    const manifest = JSON.parse(
-      readFileSync(join(target, ".vellum-plugin.json"), "utf-8"),
+    // AND an install-meta sidecar records origin + github source + commit.
+    const meta = JSON.parse(
+      readFileSync(join(target, "install-meta.json"), "utf-8"),
     );
-    expect(manifest.source.kind).toBe("github");
-    expect(manifest.source.owner).toBe("JuliusBrussee");
-    expect(manifest.source.ref).toBe(
-      "63a91ecadbf4c4719a4602a5abb00883f9966034",
-    );
-    expect(manifest.commit).toBe("63a91ecadbf4c4719a4602a5abb00883f9966034");
+    expect(meta.origin).toBe("vellum");
+    expect(meta.sourceRepo).toBe("JuliusBrussee/caveman");
+    expect(meta.source.kind).toBe("github");
+    expect(meta.source.owner).toBe("JuliusBrussee");
+    expect(meta.source.ref).toBe("63a91ecadbf4c4719a4602a5abb00883f9966034");
+    expect(meta.commit).toBe("63a91ecadbf4c4719a4602a5abb00883f9966034");
+
+    // AND both content digests baseline the materialized tree (excluding the
+    // sidecar) so later local edits are detectable.
+    expect(meta.fingerprint.algorithm).toBe("sha256");
+    expect(meta.fingerprint.files["package.json"]).toMatch(/^[0-9a-f]{64}$/);
+    expect(meta.fingerprint.files["install-meta.json"]).toBeUndefined();
+    expect(meta.contentHash).toMatch(/^v2:[0-9a-f]{64}$/);
   });
 
   test("refuses to install when the checked-out commit differs from the pinned SHA", async () => {

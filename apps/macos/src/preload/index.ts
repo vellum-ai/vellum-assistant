@@ -19,6 +19,9 @@ import type {
   PowerEvent,
   ResolvedHotkey,
   ShowNotificationPayload,
+  SystemPermissionKind,
+  SystemPermissionStateItem,
+  SystemPermissionsState,
   TextInsertionResult,
   UpdateState,
   VellumBridge,
@@ -43,6 +46,9 @@ export type {
   PowerEvent,
   ResolvedHotkey,
   ShowNotificationPayload,
+  SystemPermissionKind,
+  SystemPermissionStateItem,
+  SystemPermissionsState,
   TextInsertionResult,
   UpdateState,
   VellumBridge,
@@ -51,6 +57,21 @@ export type {
 
 const notImplemented = (name: string) => (): Promise<never> =>
   Promise.reject(new Error(`window.vellum.${name} is not implemented yet`));
+
+const subscribeDictationEvent =
+  (channel: string) =>
+  (callback: (event: DictationPartialEvent) => void): (() => void) => {
+    const handler = (
+      _event: IpcRendererEvent,
+      payload: DictationPartialEvent,
+    ) => {
+      callback(payload);
+    };
+    ipcRenderer.on(channel, handler);
+    return () => {
+      ipcRenderer.off(channel, handler);
+    };
+  };
 
 const bridge: VellumBridge = {
   platform: "electron",
@@ -155,23 +176,66 @@ const bridge: VellumBridge = {
       },
     },
     dictation: {
-      setPartials: (enable: boolean): Promise<DictationPartialsResult> =>
+      setPartials: (
+        enable: boolean,
+        deviceName?: string,
+        pushAudio?: boolean,
+      ): Promise<DictationPartialsResult> =>
         ipcRenderer.invoke(
           "vellum:helper:dictation:setPartials",
           enable,
+          deviceName,
+          pushAudio,
         ) as Promise<DictationPartialsResult>,
-      onPartial: (callback) => {
-        const handler = (
-          _event: IpcRendererEvent,
-          payload: DictationPartialEvent,
-        ) => {
-          callback(payload);
-        };
-        ipcRenderer.on("vellum:helper:dictation:partial", handler);
-        return () => {
-          ipcRenderer.off("vellum:helper:dictation:partial", handler);
-        };
+      pushAudioChunk: (chunk: ArrayBuffer): void => {
+        ipcRenderer.send("vellum:helper:dictation:audio", chunk);
       },
+      onPartial: subscribeDictationEvent("vellum:helper:dictation:partial"),
+      onFinalized: subscribeDictationEvent(
+        "vellum:helper:dictation:finalized",
+      ),
+      transcribe: (
+        audio: ArrayBuffer,
+      ): Promise<{ ok: boolean; reason?: string }> =>
+        ipcRenderer.invoke(
+          "vellum:helper:dictation:transcribe",
+          audio,
+        ) as Promise<{ ok: boolean; reason?: string }>,
+      onTranscribed: subscribeDictationEvent(
+        "vellum:helper:dictation:transcribed",
+      ),
+    },
+  },
+  permissions: {
+    getState: (): Promise<SystemPermissionsState> =>
+      ipcRenderer.invoke(
+        "vellum:permissions:getState",
+      ) as Promise<SystemPermissionsState>,
+    request: (kind: SystemPermissionKind): Promise<SystemPermissionStateItem> =>
+      ipcRenderer.invoke(
+        "vellum:permissions:request",
+        kind,
+      ) as Promise<SystemPermissionStateItem>,
+    openSettings: (
+      kind: SystemPermissionKind,
+    ): Promise<SystemPermissionStateItem> =>
+      ipcRenderer.invoke(
+        "vellum:permissions:openSettings",
+        kind,
+      ) as Promise<SystemPermissionStateItem>,
+    quitAndReopen: (): Promise<void> =>
+      ipcRenderer.invoke("vellum:permissions:quitAndReopen") as Promise<void>,
+    onState: (callback) => {
+      const handler = (
+        _event: IpcRendererEvent,
+        state: SystemPermissionsState,
+      ) => {
+        callback(state);
+      };
+      ipcRenderer.on("vellum:permissions:state", handler);
+      return () => {
+        ipcRenderer.off("vellum:permissions:state", handler);
+      };
     },
   },
   commands: {

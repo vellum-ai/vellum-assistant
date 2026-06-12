@@ -428,21 +428,15 @@ describe("Permission Checker", () => {
       expect(result.decision).toBe("allow");
     });
 
-    test("file_read of workspace UPDATES.md is auto-allowed", async () => {
-      const updatesPath = join(checkerTestDir, "UPDATES.md");
-      const result = await check("file_read", { path: updatesPath }, "/tmp");
+    test("file_read of workspace BOOTSTRAP.md is auto-allowed", async () => {
+      const bootstrapPath = join(checkerTestDir, "BOOTSTRAP.md");
+      const result = await check("file_read", { path: bootstrapPath }, "/tmp");
       expect(result.decision).toBe("allow");
     });
 
-    test("file_write of workspace UPDATES.md is auto-allowed", async () => {
-      const updatesPath = join(checkerTestDir, "UPDATES.md");
-      const result = await check("file_write", { path: updatesPath }, "/tmp");
-      expect(result.decision).toBe("allow");
-    });
-
-    test("file_edit of workspace UPDATES.md is auto-allowed", async () => {
-      const updatesPath = join(checkerTestDir, "UPDATES.md");
-      const result = await check("file_edit", { path: updatesPath }, "/tmp");
+    test("file_edit of workspace BOOTSTRAP.md is auto-allowed", async () => {
+      const bootstrapPath = join(checkerTestDir, "BOOTSTRAP.md");
+      const result = await check("file_edit", { path: bootstrapPath }, "/tmp");
       expect(result.decision).toBe("allow");
     });
 

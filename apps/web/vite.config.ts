@@ -116,6 +116,13 @@ export default defineConfig(({ mode }) => {
       port: parseInt(env.PORT || "3000"),
       strictPort: true,
       host: true,
+      // With preserveSymlinks, static assets referenced from design-library
+      // CSS (the @font-face files in tokens.css) resolve to their real path
+      // under packages/design-library — outside Vite's auto-detected root
+      // (apps/web) — and get blocked in dev. Allow both roots explicitly.
+      fs: {
+        allow: [import.meta.dirname, DESIGN_LIBRARY_SRC],
+      },
       proxy: {
         ...(isPlatformMode(env.VITE_PLATFORM_MODE) ? {
           "/v1": { target: apiProxyTarget, changeOrigin: true },

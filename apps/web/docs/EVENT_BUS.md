@@ -246,6 +246,34 @@ useBusSubscription("sse.event", (event) => {
 });
 ```
 
+### Event-driven cache refresh via `fetchQuery`
+
+When a bus event signals that server data changed but doesn't carry the
+new data inline, use `queryClient.fetchQuery` with the generated
+query-options factory to fetch and cache the fresh state. This is the
+TanStack Query pattern for [programmatic (non-rendering) data
+fetching](https://tanstack.com/query/latest/docs/reference/QueryClient#queryclientfetchquery)
+— the hook equivalent (`useXxxQuery`) cannot be called inside event
+handlers because of the
+[Rules of Hooks](https://react.dev/reference/rules/rules-of-hooks).
+
+```ts
+import { conversationsByIdGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+
+useBusSubscription("sse.event", (envelope) => {
+  if (envelope.message.type !== "sync_changed") return;
+  // fetchQuery deduplicates concurrent calls for the same query key.
+  void queryClient.fetchQuery({
+    ...conversationsByIdGetOptions({ path: { assistant_id: id, id: convId } }),
+    retry: false, // next sync_changed event is a natural retry
+  });
+});
+```
+
+See [`STATE_MANAGEMENT.md` — Event-driven cache
+updates](./STATE_MANAGEMENT.md#event-driven-cache-updates) for the
+full decision table on hooks vs `fetchQuery`.
+
 ### Imperative subscriber inside a store bootstrap
 
 ```ts

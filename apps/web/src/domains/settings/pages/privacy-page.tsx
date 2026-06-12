@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { DetailCard } from "@/components/detail-card";
+import { SystemPermissionsCard } from "@/components/system-permissions-card";
 import { AccessConsentSetting } from "@/domains/settings/components/access-consent-setting";
 import { BiometricSettingsCard } from "@/domains/settings/components/biometric-settings-card";
 import { RiskToleranceSettings } from "@/domains/settings/components/risk-tolerance-settings";
@@ -95,6 +96,7 @@ export function PrivacyPage() {
   return (
     <div className="space-y-4">
       <BiometricSettingsCard />
+      <SystemPermissionsCard />
       <TrustRules />
       <RiskToleranceSettings />
       <DetailCard title="Privacy">

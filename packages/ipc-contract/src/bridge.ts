@@ -33,6 +33,9 @@ import type {
   PowerEvent,
   ResolvedHotkey,
   ShowNotificationPayload,
+  SystemPermissionKind,
+  SystemPermissionStateItem,
+  SystemPermissionsState,
   TextInsertionResult,
   UpdateState,
   VellumCommand,
@@ -80,9 +83,42 @@ export interface VellumBridge {
       onEvent(callback: (event: HotkeyEvent) => void): () => void;
     };
     dictation: {
-      setPartials(enable: boolean): Promise<DictationPartialsResult>;
+      setPartials(
+        enable: boolean,
+        deviceName?: string,
+        pushAudio?: boolean,
+      ): Promise<DictationPartialsResult>;
+      /** Fire-and-forget 16 kHz mono Int16 LE PCM for push-mode partials. */
+      pushAudioChunk?(chunk: ArrayBuffer): void;
       onPartial(callback: (event: DictationPartialEvent) => void): () => void;
+      /**
+       * The session's completed transcript, delivered after a graceful
+       * `setPartials(false)` — short dictations end before the first
+       * partial, so the recognizer runs to completion instead of being
+       * cancelled.
+       */
+      onFinalized?(
+        callback: (event: DictationPartialEvent) => void,
+      ): () => void;
+      /**
+       * One-shot whole-utterance recognition of recorded 16 kHz mono Int16
+       * PCM — the offline transcript authority. Result arrives via
+       * `onTranscribed`.
+       */
+      transcribe?(audio: ArrayBuffer): Promise<{ ok: boolean; reason?: string }>;
+      onTranscribed?(
+        callback: (event: DictationPartialEvent) => void,
+      ): () => void;
     };
+  };
+  permissions: {
+    getState(): Promise<SystemPermissionsState>;
+    request(kind: SystemPermissionKind): Promise<SystemPermissionStateItem>;
+    openSettings(
+      kind: SystemPermissionKind,
+    ): Promise<SystemPermissionStateItem>;
+    quitAndReopen(): Promise<void>;
+    onState(callback: (state: SystemPermissionsState) => void): () => void;
   };
   commands: {
     on(callback: (command: VellumCommand) => void): () => void;

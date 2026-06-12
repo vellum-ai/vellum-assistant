@@ -12,12 +12,7 @@
  * and we want both surfaces to agree on what's present.
  */
 
-import {
-  existsSync,
-  readdirSync,
-  readFileSync,
-  statSync,
-} from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { getWorkspacePluginsDir } from "../../util/platform.js";
@@ -79,6 +74,22 @@ export function listInstalledPlugins(
     .sort();
 
   return entries.map((name) => readPluginEntry(pluginsDir, name));
+}
+
+/**
+ * Read a single installed plugin entry by name, or `null` when no directory
+ * for it exists under the workspace plugins directory. Parses leniently like
+ * {@link listInstalledPlugins} — a malformed `package.json` surfaces as an
+ * `issues` entry rather than throwing.
+ */
+export function readInstalledPlugin(
+  name: string,
+  opts: ListInstalledPluginsOptions = {},
+): InstalledPluginInfo | null {
+  const pluginsDir = opts.workspacePluginsDir ?? getWorkspacePluginsDir();
+  const target = join(pluginsDir, name);
+  if (!existsSync(target) || !statSync(target).isDirectory()) return null;
+  return readPluginEntry(pluginsDir, name);
 }
 
 function readPluginEntry(

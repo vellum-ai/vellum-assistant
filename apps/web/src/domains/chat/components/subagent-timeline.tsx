@@ -96,7 +96,7 @@ function iconBgColor(event: SubagentTimelineEvent): string {
   if (event.type === "error" || (event.type === "tool_result" && event.isError)) {
     return "color-mix(in srgb, var(--system-negative-strong) 12%, transparent)";
   }
-  return "#E9F2EC";
+  return "var(--system-positive-weak)";
 }
 
 // ---------------------------------------------------------------------------
@@ -178,7 +178,7 @@ function TimelineEventRow({
           <div
             className="w-0.5 flex-1 rounded-full"
             style={{
-              backgroundColor: "#F5F5F5",
+              backgroundColor: "var(--border-subtle)",
               minHeight: 16,
             }}
           />
@@ -186,7 +186,7 @@ function TimelineEventRow({
       </div>
 
       {/* Right: content card */}
-      <div className="mb-4 min-w-0 flex-1 rounded-lg bg-[#FCFCFC] px-4 py-3">
+      <div className="mb-4 min-w-0 flex-1 rounded-lg bg-[var(--surface-overlay)] px-4 py-3">
         <Typography
           variant="body-medium-default"
           className="text-[var(--content-default)]"

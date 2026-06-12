@@ -50,7 +50,9 @@ import { renderCard } from "./card.js";
 import { loadCoreSet } from "./core-set.js";
 import type { EdgeGraph } from "./edge.js";
 import { buildEdgeGraph } from "./edge.js";
+import { computeFreshSet } from "./fresh-set.js";
 import { computeHotSet } from "./hot-set.js";
+import { computeLearnedEdgeGraph } from "./learned-edges.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import { orchestrate } from "./orchestrate.js";
 import { ensureSectionCollection } from "./section-dense-store.js";
@@ -72,6 +74,15 @@ const log = getLogger("memory-v3-shadow");
 /** How many recent messages to fold into the shadow `recentContext` string. */
 const RECENT_CONTEXT_MESSAGES = 6;
 
+/** How many trailing characters of the previous assistant reply feed the
+ *  reply-query finder pass. */
+const REPLY_QUERY_TAIL_CHARS = 2500;
+
+/** Selection-log scan window for the learned-edge graph. At the default
+ *  30-day half-life, rows beyond ~3 half-lives carry negligible weight — the
+ *  window bounds the scan, not the math. */
+const LEARNED_EDGES_WINDOW_DAYS = 90;
+
 /**
  * The lazily-built, process-lifetime v3 lanes. The core and hot sets are
  * computed here (not per turn) because they are the candidate pool's STABLE
@@ -92,8 +103,14 @@ export interface ShadowLanes {
   /** Frecency hot set in score order: core excluded, filtered to pages in the
    *  section index. */
   hotSlugs: string[];
-  /** Pre-rendered FULL cards for the stable-prefix (core+hot) slugs, keyed by
-   *  slug. Frozen at lane build so the selector's stable prefix is
+  /** Modification-recency fresh set in recency order: core and hot excluded,
+   *  filtered to pages in the section index. */
+  freshSlugs: string[];
+  /** Learned-edge graph: co-selection NPMI associations over the selection
+   *  log, rebuilt with the lanes (the consolidation cadence). */
+  learnedGraph: EdgeGraph;
+  /** Pre-rendered FULL cards for the stable-prefix (core+hot+fresh) slugs,
+   *  keyed by slug. Frozen at lane build so the selector's stable prefix is
    *  byte-identical across turns until the next invalidation. */
   prefixCards: Map<Slug, string>;
 }
@@ -189,24 +206,77 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     .map((entry) => entry.slug)
     .filter((slug) => sectionIndex.byArticle.has(slug));
 
+  // Fresh is the modification-recency top-K over the page index with core and
+  // hot excluded (fresh never duplicates the rest of the prefix). Page mtimes
+  // move at consolidation — the same event that invalidates the lanes — so the
+  // set is recomputed exactly when it can have changed.
+  const freshSlugs = computeFreshSet(pageIndex.entries, {
+    k: config.memory.v3.freshSet.k,
+    excludeSlugs: new Set([...coreSlugs, ...hotSlugs]),
+  }).filter((slug) => sectionIndex.byArticle.has(slug));
+
   // Pre-render the stable-prefix cards ONCE per lane build: the selector's
   // stable prefix must be byte-identical across turns to ride the provider KV
   // cache, so the cards are frozen here (lane invalidation at consolidation is
   // the recompute point) instead of being re-read per turn. Capability slugs
   // render their capability content; disk pages render raw (frontmatter +
   // body) so `kind: index` pages surface their `links:` map in the card TOC.
+  // Each card carries its lane annotation; fresh cards additionally carry the
+  // page's last-modified time (an absolute stamp — it only changes when the
+  // page does, so the card stays byte-stable between lane recomputes).
+  const modifiedAtBySlug = new Map(
+    pageIndex.entries.map((entry) => [entry.slug, entry.modifiedAt]),
+  );
+  const laneAnnotation = (slug: Slug, lane: "core" | "hot" | "fresh") => {
+    if (lane !== "fresh") return `[lane: ${lane}]`;
+    const modifiedAt = modifiedAtBySlug.get(slug);
+    if (
+      modifiedAt === undefined ||
+      !Number.isFinite(modifiedAt) ||
+      modifiedAt <= 0
+    ) {
+      return "[lane: fresh]";
+    }
+    const stamp = new Date(modifiedAt)
+      .toISOString()
+      .slice(0, 16)
+      .replace("T", " ");
+    return `[lane: fresh · updated ${stamp} UTC]`;
+  };
   const prefixCards = new Map<Slug, string>();
-  for (const slug of [...coreSlugs, ...hotSlugs]) {
-    const raw = await capabilityOrDiskBody(
-      slug,
-      async (s) => (await loadPage(s))?.raw ?? "",
-    );
-    prefixCards.set(slug, renderCard(slug, raw));
+  for (const [lane, slugs] of [
+    ["core", coreSlugs],
+    ["hot", hotSlugs],
+    ["fresh", freshSlugs],
+  ] as const) {
+    for (const slug of slugs) {
+      const raw = await capabilityOrDiskBody(
+        slug,
+        async (s) => (await loadPage(s))?.raw ?? "",
+      );
+      prefixCards.set(slug, renderCard(slug, raw, laneAnnotation(slug, lane)));
+    }
   }
 
   const edgeGraph = await buildEdgeGraph(pageIndex.entries, pageRaw, {
     hubDegree: config.memory.v3.edge.hubDegree,
   });
+  // The learned graph reads the same selection log as the hot set; section-
+  // index membership is the existence filter (capability slugs included —
+  // they are first-class pages there).
+  const learned = config.memory.v3.learnedEdges;
+  const learnedGraph = computeLearnedEdgeGraph(
+    { db: getDb() },
+    {
+      halfLifeMs: learned.halfLifeDays * DAY_MS,
+      minCount: learned.minCount,
+      npmiFloor: learned.npmiFloor,
+      maxPerPage: learned.maxPerPage,
+      now: Date.now(),
+      windowMs: LEARNED_EDGES_WINDOW_DAYS * DAY_MS,
+      knownSlugs: new Set(sectionIndex.byArticle.keys()),
+    },
+  );
   // Ensuring the dense collection is best-effort: the needle + edge lanes and
   // the core/hot prefix are in-memory and independent of Qdrant, so a Qdrant outage
   // must NOT reject lane init (which would return `null` from observeTurn and
@@ -228,8 +298,10 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     needle,
     denseConfig: config,
     edgeGraph,
+    learnedGraph,
     coreSlugs,
     hotSlugs,
+    freshSlugs,
     prefixCards,
   };
 }
@@ -274,16 +346,24 @@ function readNowContext(): string | null {
  */
 function buildSituationalContext(): string {
   const now = readNowContext();
-  const today = `Today is ${new Date().toDateString()}.`;
+  const at = new Date();
+  // Clock time matters, not just the date: fresh cards carry absolute
+  // `updated <time>` stamps, and hour-grain windows ("while I was asleep",
+  // "this morning") are only computable against a current-time anchor —
+  // measured on a state-recall turn, the anchor alone moved selection more
+  // than prompt steering did.
+  const today = `Today is ${at.toDateString()}, ${at.toISOString().slice(11, 16)} UTC.`;
   return now ? `${today}\n\n${now}` : today;
 }
 
 /**
  * Build a v3 {@link MemoryRoutingTurn} from the conversation's persisted messages.
- * `currentMessage` is the latest user message; `recentContext` is the tail of
- * the recent transcript; `situationalContext` carries the current date and the
- * live NOW.md scratchpad. Returns `null` when there is no user message to route
- * on (nothing to shadow this turn).
+ * `currentMessage` is the latest user message; `previousAssistantMessage` is
+ * the tail of the last assistant reply BEFORE that message (the reply-query
+ * pass's input — absent on a conversation's first turn); `recentContext` is
+ * the tail of the recent transcript; `situationalContext` carries the current
+ * date and the live NOW.md scratchpad. Returns `null` when there is no user
+ * message to route on (nothing to shadow this turn).
  */
 function buildShadowTurn(
   conversationId: string,
@@ -293,13 +373,30 @@ function buildShadowTurn(
   if (rows.length === 0) return null;
 
   let currentMessage = "";
+  let currentIndex = -1;
   for (let i = rows.length - 1; i >= 0; i--) {
     if (rows[i]!.role === "user") {
       currentMessage = stringifyMessageContent(rows[i]!.content);
-      if (currentMessage.length > 0) break;
+      if (currentMessage.length > 0) {
+        currentIndex = i;
+        break;
+      }
     }
   }
   if (currentMessage.length === 0) return null;
+
+  // The last assistant reply before the routed user message. Only the tail is
+  // kept: replies run long, and the live threads — what the lanes should
+  // retrieve on — concentrate at the end.
+  let previousAssistantMessage: string | undefined;
+  for (let i = currentIndex - 1; i >= 0; i--) {
+    if (rows[i]!.role !== "assistant") continue;
+    const text = stringifyMessageContent(rows[i]!.content);
+    if (text.length > 0) {
+      previousAssistantMessage = text.slice(-REPLY_QUERY_TAIL_CHARS);
+      break;
+    }
+  }
 
   const recentContext = rows
     .slice(-RECENT_CONTEXT_MESSAGES)
@@ -313,6 +410,7 @@ function buildShadowTurn(
     currentMessage,
     recentContext,
     situationalContext: buildSituationalContext(),
+    previousAssistantMessage,
   };
 }
 
@@ -325,17 +423,18 @@ interface SelectionRow {
 /**
  * Map an orchestrate result onto telemetry rows with per-lane source
  * attribution, by pool position: a selection of a stable-prefix page is
- * attributed `"core"` / `"hot"` (the lane that placed it in the pool), and any
- * other selection is attributed the finder lane that FIRST surfaced it
- * (`"needle"` / `"dense"` / `"edge"`, recorded at pool-build time). A finder
- * hit on a core/hot page therefore still logs as core/hot — the prefix is
- * where the candidate lived. (`"needle"` is the fallback if a selected slug is
- * somehow absent from every lane, which should not happen since every pooled
- * candidate comes from one.)
+ * attributed `"core"` / `"hot"` / `"fresh"` (the lane that placed it in the
+ * pool), and any other selection is attributed the finder lane that FIRST
+ * surfaced it (`"needle"` / `"dense"` / `"edge"`, recorded at pool-build
+ * time). A finder hit on a stable-prefix page therefore still logs as its
+ * prefix lane — the prefix is where the candidate lived. (`"needle"` is the
+ * fallback if a selected slug is somehow absent from every lane, which should
+ * not happen since every pooled candidate comes from one.)
  */
 export function attributeSelections(result: OrchestrateResult): SelectionRow[] {
   const core = new Set<Slug>(result.lanes.core);
   const hot = new Set<Slug>(result.lanes.hot);
+  const fresh = new Set<Slug>(result.lanes.fresh);
   const finderLane = new Map(
     result.lanes.finder.map((c) => [c.slug, c.lane] as const),
   );
@@ -345,7 +444,9 @@ export function attributeSelections(result: OrchestrateResult): SelectionRow[] {
       ? ("core" as const)
       : hot.has(sel.slug)
         ? ("hot" as const)
-        : (finderLane.get(sel.slug) ?? "needle"),
+        : fresh.has(sel.slug)
+          ? ("fresh" as const)
+          : (finderLane.get(sel.slug) ?? "needle"),
     pinned: sel.pinned ? 1 : 0,
   }));
 }
@@ -396,13 +497,34 @@ export async function observeTurn(
       edgeGraph: lanes.edgeGraph,
       coreSlugs: lanes.coreSlugs,
       hotSlugs: lanes.hotSlugs,
+      freshSlugs: lanes.freshSlugs,
       prefixCards: lanes.prefixCards,
       needleK: v3.needleK,
       denseK: v3.denseK,
+      replyQueryK: v3.replyQueryK,
       edgeSeeds: v3.edge.seedCount,
       edgePerSeed: v3.edge.perSeed,
       edgeCap: v3.edge.cap,
+      learnedGraph: lanes.learnedGraph,
+      learnedPerSeed: v3.learnedEdges.perSeed,
+      learnedCap: v3.learnedEdges.cap,
     });
+
+    // A zero-selection turn over a non-trivial pool is unusual enough to be
+    // worth a breadcrumb (observed on meta-prompt-shaped system turns): the
+    // turn itself proceeds normally — cards already in context still serve it.
+    if (result.selections.length === 0) {
+      log.info(
+        {
+          conversationId,
+          core: result.lanes.core.length,
+          hot: result.lanes.hot.length,
+          fresh: result.lanes.fresh.length,
+          finder: result.lanes.finder.length,
+        },
+        "memory-v3: selector returned zero selections",
+      );
+    }
 
     const rows = attributeSelections(result);
     writeSelections(conversationId, turnIndex, rows);

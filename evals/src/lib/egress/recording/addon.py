@@ -69,6 +69,14 @@ RECORDING_OUTPUT_PATH = os.environ.get(
     "RECORDING_OUTPUT_PATH", "/recording/egress-usage.ndjson"
 )
 
+# Upper bound on the request/response payload text stored per usage record.
+# The report inlines these so a reviewer can see exactly what each priced
+# request sent and received — invaluable when the cost figure looks wrong.
+# Capped so a large SSE completion can't bloat `egress-usage.ndjson` (and
+# therefore the static report bundle) without bound; the full byte length
+# is always recorded alongside so the report can flag truncation.
+MAX_PAYLOAD_CHARS = int(os.environ.get("RECORDING_MAX_PAYLOAD_CHARS", "32768"))
+
 # When set, the request hook serves plugin install traffic from this
 # directory instead of letting it egress. Unset = mocking disabled,
 # requests fall through to the iptables DROP-default policy.
@@ -153,6 +161,39 @@ def request(flow) -> None:  # type: ignore[no-untyped-def]
         _log_warn(f"mock_github: hook raised {type(err).__name__}: {err}")
 
 
+def _decoded_body(message) -> bytes:  # type: ignore[no-untyped-def]
+    """Return an HTTP message body with any `Content-Encoding` removed.
+
+    mitmproxy's `content` property transparently decodes gzip/deflate/br/zstd;
+    `raw_content` is the compressed wire bytes. The usage parser reads JSON and
+    SSE text, so it needs the decoded body. If decoding raises (e.g. a
+    malformed encoding header), fall back to the raw bytes rather than dropping
+    the record outright.
+    """
+    try:
+        return message.content or b""
+    except Exception:  # noqa: BLE001 -- decode failure: fall back to raw bytes
+        return message.raw_content or b""
+
+
+def _payload_fields(prefix: str, body: bytes) -> dict:
+    """Build the inlined-payload fields for one HTTP message body.
+
+    Returns `{<prefix>_body, <prefix>_body_bytes, <prefix>_body_truncated}`.
+    The body is decoded as UTF-8 (replacing undecodable bytes) and capped at
+    `MAX_PAYLOAD_CHARS`; the full byte length is preserved so the report can
+    show "showing first N of M bytes" when the text was truncated.
+    """
+    full_bytes = len(body)
+    text = body.decode("utf-8", errors="replace")
+    truncated = len(text) > MAX_PAYLOAD_CHARS
+    return {
+        f"{prefix}_body": text[:MAX_PAYLOAD_CHARS],
+        f"{prefix}_body_bytes": full_bytes,
+        f"{prefix}_body_truncated": truncated,
+    }
+
+
 def response(flow) -> None:  # type: ignore[no-untyped-def]
     """mitmproxy hook fired after the full response body is available."""
     try:
@@ -161,8 +202,15 @@ def response(flow) -> None:  # type: ignore[no-untyped-def]
         host = (request.pretty_host or "").lower()
         if host != "api.anthropic.com":
             return
-        request_body: bytes = request.raw_content or b""
-        response_body: bytes = response.raw_content or b""
+        # Use the content-decoded body, not `raw_content`. The Anthropic SDK
+        # negotiates `Accept-Encoding: gzip` (and brotli/zstd when those libs
+        # are present), so the on-the-wire `raw_content` is compressed and the
+        # JSON / SSE parser would always fail to read it. mitmproxy's `content`
+        # accessor strips the `Content-Encoding`; we fall back to `raw_content`
+        # only if decoding itself raises (malformed encoding header).
+        # https://docs.mitmproxy.org/stable/api/mitmproxy/http.html#Message.content
+        request_body = _decoded_body(request)
+        response_body = _decoded_body(response)
         content_type = response.headers.get("content-type", "")
         record: Optional[dict] = usage_parser.parse_anthropic_messages_response(
             request_path=request.path,
@@ -175,6 +223,8 @@ def response(flow) -> None:  # type: ignore[no-untyped-def]
         record["recorded_at"] = datetime.now(timezone.utc).isoformat()
         record["request_path"] = request.path
         record["status_code"] = response.status_code
+        record.update(_payload_fields("request", request_body))
+        record.update(_payload_fields("response", response_body))
         _append_ndjson(record)
         _log_info(
             f"recording: anthropic usage {record.get('input_tokens')}/"

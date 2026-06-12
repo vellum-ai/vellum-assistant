@@ -237,7 +237,7 @@ function candidateSlugs(messages: Message[]): Slug[] {
       );
       if (finder) {
         for (const line of finder[1].split("\n")) {
-          const m = /^\[(\d+)\] (\S+)(?: — |$)/.exec(line);
+          const m = /^\[(\d+)\] (?:\([^)]*\) )?(\S+)(?: — |$)/.exec(line);
           if (m) entries.push({ id: Number(m[1]), slug: m[2]! });
         }
       }
@@ -310,6 +310,7 @@ async function runTurn(
     edgeGraph: deps.lanes.edgeGraph,
     coreSlugs: deps.core ?? [],
     hotSlugs: deps.hot ?? [],
+    freshSlugs: [],
     // Mirrors lane init: every stable-prefix slug gets a pre-rendered card.
     prefixCards: new Map(
       stableSlugs.map((slug) => [slug, renderCard(slug, RAW[slug] ?? "")]),
@@ -476,9 +477,12 @@ describe("memory-v3 shadow integration — selection-log readout", () => {
       bySource: {
         core: 0,
         hot: 0,
+        fresh: 0,
         needle: 0,
         dense: 0,
         edge: 0,
+        reply: 0,
+        learned: 0,
       },
       turns: 0,
       distinctSlugs: 0,

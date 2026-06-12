@@ -133,7 +133,7 @@ const VOICE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   "not-allowed": "Microphone access was blocked.",
   "service-not-allowed": "Microphone access was blocked.",
   "not-allowed-permanent":
-    "Microphone is blocked in your browser settings. Click the lock icon in your address bar and allow microphone access, then reload.",
+    "Microphone access is blocked. Allow microphone access in system or browser settings, then try again.",
   "audio-capture":
     "No microphone detected. Connect a microphone and try again.",
   network:
@@ -152,6 +152,8 @@ const VOICE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   "stt-unavailable":
     "Speech-to-text is temporarily unavailable. Try again in a moment.",
   "stt-timeout": "Transcription took too long. Try a shorter recording.",
+  "native-stt-no-transcript":
+    "macOS dictation didn’t return a transcript. Make sure Dictation is turned on in System Settings → Keyboard → Dictation, then try again.",
   "dictation-automation-denied":
     "Dictation needs Automation permission to paste into other apps.",
   "dictation-paste-blocked":
@@ -172,6 +174,10 @@ const MIC_PERMISSION_ERROR_CODES: ReadonlySet<string> = new Set([
 
 export function isMicPermissionError(code: string | null): boolean {
   return code !== null && MIC_PERMISSION_ERROR_CODES.has(code);
+}
+
+export function isMicPermissionPermanentError(code: string | null): boolean {
+  return code === "not-allowed-permanent";
 }
 
 export function isTextInsertionPermissionError(code: string | null): boolean {

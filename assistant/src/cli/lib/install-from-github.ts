@@ -41,6 +41,12 @@ import { promisify } from "node:util";
 import { ensureBun } from "../../util/bun-runtime.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import {
+  computeContentHash,
+  computeFingerprint,
+  type Fingerprint,
+  parseFingerprint,
+} from "./plugin-fingerprint.js";
+import {
   fetchMarketplaceEntries,
   MarketplaceFetchError,
   type ResolvedPluginSource,
@@ -129,6 +135,11 @@ export interface InstallPluginResult {
   readonly ref: string;
   /** Resolved commit SHA the external source was cloned at; null when it could not be read. */
   readonly commit: string | null;
+  /**
+   * ISO-8601 committer timestamp of {@link InstallPluginResult.commit} (UTC);
+   * null when the commit or its date could not be read.
+   */
+  readonly committedAt: string | null;
 }
 
 /** Plugin name failed sanitization. */
@@ -363,6 +374,7 @@ export async function installPlugin(
 
   let fileCount: number;
   let commit: string | null = null;
+  let committedAt: string | null = null;
   try {
     const cloned = await copyExternalViaGit(
       source,
@@ -371,6 +383,7 @@ export async function installPlugin(
     );
     fileCount = cloned.fileCount;
     commit = cloned.commit;
+    committedAt = cloned.committedAt;
     // An external clone is often a foreign-ecosystem plugin (e.g. a Claude
     // Code plugin) that the Vellum loader can't run as-is. When we curate an
     // adapter stub for it, overlay the stub and run its transform so the
@@ -389,11 +402,26 @@ export async function installPlugin(
     throw new PluginNotFoundError(name, ref, sourceLabel(source));
   }
 
-  // Record install provenance (source coordinates + resolved commit) as a
-  // hidden sidecar before the swap so it lands atomically with the files. The
-  // daemon loader enumerates plugin directories and reads each plugin's
-  // `package.json`, skipping dotfiles — so this never gets mistaken for code.
-  writeInstallManifest(stagingDir, name, source, ref, commit);
+  // Hash the materialized tree before the sidecar is written (so the sidecar
+  // never hashes itself) — the baseline `plugins inspect` uses to detect later
+  // local edits. The per-file fingerprint answers "which files changed"; the
+  // whole-tree content hash is a compact integrity signal mirroring skills.
+  const fingerprint = computeFingerprint(stagingDir, [INSTALL_META_FILENAME]);
+  const contentHash = computeContentHash(stagingDir, [INSTALL_META_FILENAME]);
+
+  // Record install provenance (source coordinates + resolved commit + content
+  // digests) as a sidecar before the swap so it lands atomically with the
+  // files. The external plugin loader only reads `package.json` and the
+  // `hooks/`/`tools/` dirs, so this JSON file is never mistaken for code.
+  writeInstallMeta(stagingDir, {
+    name,
+    source,
+    ref,
+    commit,
+    committedAt,
+    fingerprint,
+    contentHash,
+  });
 
   // Atomic-ish swap: rmSync + renameSync. On POSIX the rename itself is
   // atomic, so the only window where the target is absent is between the
@@ -406,14 +434,94 @@ export async function installPlugin(
   }
   renameSync(stagingDir, target);
 
-  return { name, target, fileCount, ref, commit };
+  return { name, target, fileCount, ref, commit, committedAt };
 }
 
 /** Cap on any single git invocation; a shallow fetch is well under this. */
 const GIT_TIMEOUT_MS = 120_000;
 
-/** Install-provenance sidecar written at the plugin root. */
-const INSTALL_MANIFEST_FILENAME = ".vellum-plugin.json";
+/**
+ * Install-provenance sidecar written at the plugin root. Named to match the
+ * skills' sidecar (`install-meta.json`, see `src/skills/install-meta.ts`) so
+ * both subsystems share one vocabulary. The external plugin loader only reads
+ * `package.json` and the `hooks/`/`tools/` surface dirs, so a plain JSON file
+ * at the root is ignored by it.
+ */
+export const INSTALL_META_FILENAME = "install-meta.json";
+
+/**
+ * Which catalog manages an installed plugin. Mirrors the skill origin values
+ * (`SkillInstallMeta.origin` in `src/skills/install-meta.ts`) so the two
+ * systems keep a consistent vocabulary. `"vellum"` denotes the first-party
+ * `marketplace.json`; the union widens as new sources are supported.
+ */
+export type InstallOrigin = "vellum";
+
+/** Resolved source coordinates recorded in the provenance sidecar. */
+export interface InstallMetaSource {
+  /** Source kind. Only `github` is written today. */
+  readonly kind: string;
+  readonly owner: string;
+  readonly repo: string;
+  /** Repo-relative directory holding the plugin root; absent = repo root. */
+  readonly path?: string;
+  /** Ref the install resolved through (the pinned commit SHA for marketplace installs). */
+  readonly ref: string;
+}
+
+/**
+ * Parsed contents of the `install-meta.json` provenance sidecar — what was
+ * installed, from where, and at exactly which commit. Read by
+ * {@link readInstallMeta} for provenance reporting (e.g. `plugins inspect`).
+ *
+ * The leading fields share names (and meaning) with the skills'
+ * `SkillInstallMeta`; everything below {@link InstallMeta.name} is the
+ * plugin-specific superset that the git-backed install needs.
+ */
+export interface InstallMeta {
+  /** Catalog the install is managed from. */
+  readonly origin: InstallOrigin;
+  /** ISO-8601 timestamp of when the install was materialized. */
+  readonly installedAt: string;
+  /** Principal that initiated the install, when known. */
+  readonly installedBy?: string;
+  /** Set by a backfill migration when provenance was reconstructed after the fact. */
+  readonly backfilledBy?: string;
+  /** Plugin `package.json` version at install time, when present. */
+  readonly version?: string;
+  /** Registry slug, recorded when it diverges from {@link InstallMeta.name}. */
+  readonly slug?: string;
+  /** `owner/repo` the install was sourced from. */
+  readonly sourceRepo?: string;
+  /**
+   * Whole-tree `v2:` content hash — a compact integrity signal using the same
+   * scheme as the skills' `contentHash`. Complements the per-file
+   * {@link InstallMeta.fingerprint}.
+   */
+  readonly contentHash?: string;
+
+  /** Install name. Matches the plugins directory and `plugins install <name>`. */
+  readonly name: string;
+  readonly source: InstallMetaSource;
+  /** Resolved commit SHA the source was cloned at; `null` when it could not be read at install time. */
+  readonly commit: string | null;
+  /**
+   * ISO-8601 committer timestamp of {@link InstallMeta.commit}, in UTC
+   * (e.g. `2026-06-01T12:34:56.000Z`). This is a property of the commit
+   * itself, distinct from {@link InstallMeta.installedAt} (when the local
+   * machine ran the install). `null` for older installs written before commit
+   * timestamps were recorded, or when the date could not be read. Reserved for
+   * the human-readable "version" surfaced by `plugins inspect`; the optional
+   * {@link InstallMeta.version} field stays free for future tag/semver support.
+   */
+  readonly committedAt?: string | null;
+  /**
+   * Per-file content digest of the materialized tree, captured at install
+   * time. `null` for older installs written before fingerprinting; callers
+   * then report local-modification state as unknown rather than clean.
+   */
+  readonly fingerprint: Fingerprint | null;
+}
 
 /**
  * Materialize an external plugin by shallow-cloning its repo at the pinned ref.
@@ -435,7 +543,11 @@ async function copyExternalViaGit(
   source: PluginFetchSource,
   destDir: string,
   runGit: GitRunner,
-): Promise<{ fileCount: number; commit: string | null }> {
+): Promise<{
+  fileCount: number;
+  commit: string | null;
+  committedAt: string | null;
+}> {
   const cloneDir = `${destDir}.gitclone`;
   rmSync(cloneDir, { recursive: true, force: true });
   mkdirSync(cloneDir, { recursive: true });
@@ -453,7 +565,8 @@ async function copyExternalViaGit(
       // A missing repo/ref (or a private one we can't reach) is a hard
       // not-found, surfaced as zero files. Anything else — network loss, a
       // transient GitHub outage — is retryable, so map it to a 503.
-      if (isGitRefNotFound(err)) return { fileCount: 0, commit: null };
+      if (isGitRefNotFound(err))
+        return { fileCount: 0, commit: null, committedAt: null };
       throw new PluginSourceUnavailableError(
         `git clone failed for ${sourceLabel(source)} @ ${source.ref}: ${subprocessErrorText(err)}`,
         503,
@@ -463,12 +576,31 @@ async function copyExternalViaGit(
     await runGit(["checkout", "--quiet", "FETCH_HEAD"], { cwd: cloneDir });
 
     let commit: string | null = null;
+    let committedAt: string | null = null;
     try {
       const { stdout } = await runGit(["rev-parse", "HEAD"], { cwd: cloneDir });
       commit = stdout.trim() || null;
     } catch {
       // Provenance is best-effort; a missing commit must not fail the install.
       commit = null;
+    }
+    if (commit) {
+      // The committer date (`%ct`, UNIX seconds) is the version timestamp
+      // `plugins inspect` shows. Normalize to a UTC ISO-8601 string so installs
+      // made in different local timezones remain directly comparable.
+      try {
+        const { stdout } = await runGit(
+          ["show", "-s", "--format=%ct", "HEAD"],
+          { cwd: cloneDir },
+        );
+        const seconds = Number.parseInt(stdout.trim(), 10);
+        if (Number.isFinite(seconds)) {
+          committedAt = new Date(seconds * 1000).toISOString();
+        }
+      } catch {
+        // Best-effort: a missing date must not fail the install.
+        committedAt = null;
+      }
     }
 
     // Defense in depth: external marketplace refs are full commit SHAs (the
@@ -487,11 +619,11 @@ async function copyExternalViaGit(
       ? join(cloneDir, source.rootPath)
       : cloneDir;
     if (!existsSync(srcRoot) || !statSync(srcRoot).isDirectory()) {
-      return { fileCount: 0, commit };
+      return { fileCount: 0, commit, committedAt };
     }
 
     const fileCount = copyTreeSkippingGit(srcRoot, destDir);
-    return { fileCount, commit };
+    return { fileCount, commit, committedAt };
   } finally {
     rmSync(cloneDir, { recursive: true, force: true });
   }
@@ -852,20 +984,62 @@ function pluginGitEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
+/** Inputs for {@link writeInstallMeta}, resolved during a fresh install. */
+interface WriteInstallMetaParams {
+  readonly name: string;
+  readonly source: PluginFetchSource;
+  readonly ref: string;
+  readonly commit: string | null;
+  /** ISO-8601 committer timestamp of {@link WriteInstallMetaParams.commit} (UTC); null when unknown. */
+  readonly committedAt: string | null;
+  readonly fingerprint: Fingerprint;
+  readonly contentHash: string;
+}
+
 /**
- * Write the install-provenance sidecar into the staged plugin root, recording
- * the resolved source coordinates and commit so we can later report or verify
- * exactly what is installed. Hidden (dot-prefixed) so the daemon loader, which
- * skips dotfiles, never mistakes it for plugin code.
+ * Read the `version` field from a staged plugin's `package.json`. Lenient — a
+ * missing or malformed manifest simply yields `undefined` so provenance is
+ * recorded without it rather than failing the install.
  */
-function writeInstallManifest(
+function readStagedPackageVersion(stagingDir: string): string | undefined {
+  const pkgPath = join(stagingDir, "package.json");
+  if (!existsSync(pkgPath)) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(pkgPath, "utf8"));
+    if (typeof parsed === "object" && parsed !== null) {
+      const version = (parsed as Record<string, unknown>).version;
+      if (typeof version === "string" && version.length > 0) return version;
+    }
+  } catch {
+    // fall through to undefined
+  }
+  return undefined;
+}
+
+/**
+ * Write the `install-meta.json` provenance sidecar into the staged plugin root,
+ * recording the resolved source coordinates, commit, and content digests so we
+ * can later report or verify exactly what is installed. The schema is an
+ * equal-name superset of the skills' `SkillInstallMeta`.
+ */
+function writeInstallMeta(
   stagingDir: string,
-  name: string,
-  source: PluginFetchSource,
-  ref: string,
-  commit: string | null,
+  {
+    name,
+    source,
+    ref,
+    commit,
+    committedAt,
+    fingerprint,
+    contentHash,
+  }: WriteInstallMetaParams,
 ): void {
-  const manifest = {
+  const meta: InstallMeta = {
+    origin: "vellum",
+    installedAt: new Date().toISOString(),
+    version: readStagedPackageVersion(stagingDir),
+    sourceRepo: `${source.owner}/${source.repo}`,
+    contentHash,
     name,
     source: {
       kind: "github",
@@ -874,13 +1048,79 @@ function writeInstallManifest(
       path: source.rootPath || undefined,
       ref,
     },
-    commit: commit ?? undefined,
-    installedAt: new Date().toISOString(),
+    commit,
+    committedAt,
+    fingerprint,
   };
   writeFileSync(
-    join(stagingDir, INSTALL_MANIFEST_FILENAME),
-    `${JSON.stringify(manifest, null, 2)}\n`,
+    join(stagingDir, INSTALL_META_FILENAME),
+    `${JSON.stringify(meta, null, 2)}\n`,
   );
+}
+
+/**
+ * Read the install-provenance sidecar from an installed plugin's root.
+ *
+ * Lenient by design — a missing, unreadable, or malformed sidecar yields
+ * `null` rather than throwing, mirroring {@link ./list-installed-plugins}.
+ * Older or manually-copied installs that predate the sidecar simply report no
+ * provenance. The resolved commit is the authoritative record of which bytes
+ * are installed, so callers (e.g. `plugins inspect`) can compare it against the
+ * marketplace's current pin to detect drift.
+ */
+export function readInstallMeta(pluginDir: string): InstallMeta | null {
+  const metaPath = join(pluginDir, INSTALL_META_FILENAME);
+  if (!existsSync(metaPath)) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(metaPath, "utf8"));
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return null;
+  }
+
+  const obj = parsed as Record<string, unknown>;
+  const src = obj.source;
+  if (typeof src !== "object" || src === null || Array.isArray(src)) {
+    return null;
+  }
+  const source = src as Record<string, unknown>;
+  if (
+    typeof obj.name !== "string" ||
+    typeof source.owner !== "string" ||
+    typeof source.repo !== "string" ||
+    typeof source.ref !== "string"
+  ) {
+    return null;
+  }
+
+  const optionalString = (value: unknown): string | undefined =>
+    typeof value === "string" ? value : undefined;
+
+  return {
+    origin: "vellum",
+    installedAt: typeof obj.installedAt === "string" ? obj.installedAt : "",
+    installedBy: optionalString(obj.installedBy),
+    backfilledBy: optionalString(obj.backfilledBy),
+    version: optionalString(obj.version),
+    slug: optionalString(obj.slug),
+    sourceRepo: optionalString(obj.sourceRepo),
+    contentHash: optionalString(obj.contentHash),
+    name: obj.name,
+    source: {
+      kind: typeof source.kind === "string" ? source.kind : "github",
+      owner: source.owner,
+      repo: source.repo,
+      path: typeof source.path === "string" ? source.path : undefined,
+      ref: source.ref,
+    },
+    commit: typeof obj.commit === "string" ? obj.commit : null,
+    committedAt: typeof obj.committedAt === "string" ? obj.committedAt : null,
+    fingerprint: parseFingerprint(obj.fingerprint),
+  };
 }
 
 /**

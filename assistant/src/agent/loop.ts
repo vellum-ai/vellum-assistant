@@ -11,6 +11,7 @@ import {
   estimateToolsTokens,
   getCalibrationProviderKey,
 } from "../context/token-estimator.js";
+import { spoolAndStubOversizedToolResults } from "../context/tool-result-spool.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { parseActualTokensFromError } from "../daemon/parse-actual-tokens-from-error.js";
 import type { TrustContext } from "../daemon/trust-context.js";
@@ -298,25 +299,27 @@ export type AgentEvent =
       /** The running history before injection stripping and compaction. */
       messages: Message[];
     }
-  | {
+  | ({
       /**
        * Emitted after the loop's inline mid-loop compaction pipeline runs,
        * immediately before re-injection — whether or not the pipeline actually
-       * compacted. The daemon's event dispatcher always commits `messages` (the
-       * stripped pre-compaction history) as the conversation's durable message
-       * state, so re-injection (the post-compaction hook) re-applies
-       * injections onto the stripped base rather than stacking on top of the
-       * still-injected messages. When `result.compacted` is set it
-       * additionally commits the durable compaction result (DB-record fields,
-       * graph-memory side effects, SSE) and flips the per-turn re-injection
-       * guards on the handler state.
+       * compacted. Carries the pipeline's `ContextWindowResult` unnested into
+       * the event, so `messages` here is the pipeline's output history. The
+       * pre-compaction history lives on the paired `context_compacting` start
+       * event (correlated by `compactionId`); consumers that need the
+       * stripped pre-compaction base re-derive it from the start event via
+       * `stripInjectionsForCompaction`.
+       *
+       * The daemon's event dispatcher commits the stripped pre-compaction
+       * base as the conversation's durable message state, so re-injection
+       * (the post-compaction hook) re-applies injections onto the stripped
+       * base rather than stacking on top of the still-injected messages.
+       * When `compacted` is set it additionally commits the durable
+       * compaction result (DB-record fields, graph-memory side effects, SSE)
+       * and projects Slack provenance from the pre-compaction base.
        *
        * Treated as a critical event: a failed durable commit re-throws so the
        * turn aborts rather than re-injecting against half-applied state.
-       *
-       * `messages` is the stripped pre-compaction history the summary was
-       * built from; the dispatcher uses it to project Slack provenance onto
-       * the compacted result.
        */
       type: "compaction_completed";
       /** Correlates this end event with its `context_compacting` pair. */
@@ -330,9 +333,7 @@ export type AgentEvent =
       startedAt: number;
       /** Epoch ms when the compaction pipeline returned. */
       finishedAt: number;
-      result: ContextWindowResult;
-      messages: Message[];
-    }
+    } & ContextWindowResult)
   | {
       /**
        * Emitted right after the loop strips runtime injections from the
@@ -492,6 +493,16 @@ export interface AgentLoopRunOptions {
    * call-site named profile. Missing profile names silently fall through.
    */
   overrideProfile?: string;
+  /**
+   * Float the override profile above the call-site layers (named site
+   * profile + call-site override) for non-main-agent call sites — the
+   * resolver's `forceOverrideProfile` escape hatch. Threaded onto each
+   * send's `SendMessageOptions.config` alongside `overrideProfile`. Used by
+   * wakes that must run a background call site under a specific
+   * conversation's inference profile (e.g. fork-based memory
+   * retrospectives).
+   */
+  forceOverrideProfile?: boolean;
   resolveOverrideProfile?: () => string | undefined;
   /**
    * Resolves the orchestrator's effective context window for this turn: the
@@ -595,6 +606,16 @@ export interface AgentLoopConstructorOptions {
    * post-compaction re-injection resolve the live conversation through.
    */
   conversationId: string;
+  /**
+   * Resolve the conversation's on-disk directory, used to spool oversized
+   * tool results to `.tool-results/` and swap the inline copy for the
+   * post-turn pass's stub at result time — before the result joins history,
+   * so the provider-bound prefix stays append-only for prompt caching.
+   * Returns `null` while the directory cannot be resolved (e.g. the
+   * conversation row is not yet persisted); the loop then skips the
+   * result-time pass and the post-turn truncation covers the turn instead.
+   */
+  resolveConversationDir?: () => string | null;
 }
 
 export class AgentLoop {
@@ -616,6 +637,9 @@ export class AgentLoop {
    */
   private readonly conversationId: string;
 
+  /** See {@link AgentLoopConstructorOptions.resolveConversationDir}. */
+  private readonly resolveConversationDir: (() => string | null) | null;
+
   /**
    * Loop-held compaction circuit breaker. The loop has a 1:1 lifetime with its
    * conversation, so it is the source of truth for the cross-turn failure
@@ -635,6 +659,7 @@ export class AgentLoop {
       resolveTools,
       resolveSystemPrompt,
       conversationId,
+      resolveConversationDir,
     } = options;
     this.provider = provider;
     this.systemPrompt = systemPrompt;
@@ -644,6 +669,7 @@ export class AgentLoop {
     this.resolveSystemPrompt = resolveSystemPrompt ?? null;
     this.toolExecutor = toolExecutor ?? null;
     this.conversationId = conversationId;
+    this.resolveConversationDir = resolveConversationDir ?? null;
     this.compactionCircuit = new CompactionCircuit(this.conversationId);
   }
 
@@ -782,10 +808,10 @@ export class AgentLoop {
         onEvent,
       );
     }
-    // Emit unconditionally: the dispatcher commits the stripped `messages` as the
-    // durable message base whether or not the pipeline compacted (re-injection
-    // reads it), and runs the durable compaction commit only when
-    // `result.compacted`.
+    // Emit unconditionally: the dispatcher commits the stripped pre-compaction
+    // base (re-derived from the start event) as the durable message base
+    // whether or not the pipeline compacted (re-injection reads it), and runs
+    // the durable compaction commit only when `compacted`.
     await onEvent({
       type: "compaction_completed",
       compactionId,
@@ -793,8 +819,7 @@ export class AgentLoop {
       trigger,
       startedAt,
       finishedAt: Date.now(),
-      result: compactResult,
-      messages: rawHistory,
+      ...compactResult,
     });
     const exhausted = compactResult.exhausted ?? false;
     const autoCompressApplied = compactResult.autoCompressApplied ?? false;
@@ -841,6 +866,7 @@ export class AgentLoop {
       callSite,
       trust,
       overrideProfile,
+      forceOverrideProfile = false,
       resolveOverrideProfile,
       resolveContextWindow,
       compactInPlace = false,
@@ -885,6 +911,19 @@ export class AgentLoop {
     let overflowLadderExhausted = false;
     let overflowAutoCompressApplied = false;
     const rlog = log.child({ requestId });
+
+    // Conversation directory for the result-time tool-result spool/stub pass.
+    // Resolved once per run; `null` disables the pass for this run and the
+    // post-turn truncation covers the turn instead.
+    let conversationDir: string | null = null;
+    try {
+      conversationDir = this.resolveConversationDir?.() ?? null;
+    } catch (err) {
+      rlog.warn(
+        { err },
+        "Resolving conversation dir for tool-result spooling failed (non-fatal)",
+      );
+    }
 
     // Resolve the inference-profile override that applies right now. The
     // optional resolver lets a turn observe a confirmed mid-turn profile switch
@@ -1167,6 +1206,9 @@ export class AgentLoop {
         const effectiveOverrideProfile = resolveEffectiveOverrideProfile();
         if (effectiveOverrideProfile) {
           providerConfig.overrideProfile = effectiveOverrideProfile;
+          if (forceOverrideProfile) {
+            providerConfig.forceOverrideProfile = true;
+          }
         }
 
         // Rate-limit consecutive LLM calls to prevent spin when tools return instantly
@@ -1512,14 +1554,37 @@ export class AgentLoop {
           );
           // Run the hook on the truncated reply so output-filter plugins still
           // see it, and so a turn that streamed nothing live gets its final
-          // emit (without this the client would see nothing). The retry decision
-          // is ignored here: a max-tokens stop is terminal.
-          const { finalized: safeAssistantMessage } =
-            await finalizeAssistantMessage({
-              role: "assistant",
-              content: safeContent,
-            });
+          // emit (without this the client would see nothing). A recovery hook
+          // (max-tokens-continue) may set `decision: "continue"` to resume the
+          // truncated turn: it leaves `messages` as the next history (the
+          // truncated turn followed by a continuation nudge), so unlike the
+          // no-tool retry below the partial output is kept, not discarded.
+          // Otherwise the stop is terminal and the continuation card surfaces.
+          const {
+            finalized: safeAssistantMessage,
+            decision: maxTokensDecision,
+            messages: maxTokensMessages,
+          } = await finalizeAssistantMessage({
+            role: "assistant",
+            content: safeContent,
+          });
           emitFinalAssistantText(safeAssistantMessage.content);
+          if (
+            maxTokensDecision === "continue" &&
+            postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES
+          ) {
+            postModelCallContinues++;
+            rlog.warn(
+              { turn: toolUseTurns, retry: postModelCallContinues },
+              "max-tokens stop — auto-continuing the truncated turn",
+            );
+            await onEvent({
+              type: "message_complete",
+              message: safeAssistantMessage,
+            });
+            history = maxTokensMessages;
+            continue;
+          }
           history.push(safeAssistantMessage);
           await onEvent({
             type: "max_tokens_reached",
@@ -1724,11 +1789,39 @@ export class AgentLoop {
           }),
         );
 
+        // Spool oversized results to `.tool-results/` and swap the inline
+        // copy for the post-turn pass's stub now — on the raw blocks, before
+        // the post-tool-use hooks, event emission, and history append. Running
+        // ahead of the hooks means the spooled file holds the tool's full
+        // output rather than the truncate plugin's tail-dropped copy, and the
+        // hooks then see the stub. Stubbing before the first send keeps the
+        // provider-bound history strictly append-only (rewriting an earlier
+        // message between calls would invalidate the prompt-cache prefix on
+        // every iteration).
+        if (conversationDir) {
+          const toolNameByUseId = new Map(
+            toolUseBlocks.map((tu) => [tu.id, tu.name]),
+          );
+          try {
+            spoolAndStubOversizedToolResults(rawResultBlocks, {
+              conversationDir,
+              toolNameById: (id) => toolNameByUseId.get(id),
+            });
+          } catch (err) {
+            rlog.warn(
+              { err, turn: toolUseTurns },
+              "Spooling oversized tool results to disk failed (non-fatal)",
+            );
+          }
+        }
+
         // Run the `post-tool-use` hook once per tool result, after the tool
         // returns and before the result joins the provider-bound history.
         // The default tool-result-truncate plugin tail-drops oversized output
-        // to fit the context window; user hooks can swap in a smarter strategy
-        // (e.g. a summariser) or observe results for side effects.
+        // to fit the context window (spool-stubbed results are already tiny;
+        // spool-exempt ones still rely on it); user hooks can swap in a
+        // smarter strategy (e.g. a summariser) or observe results for side
+        // effects.
         const contextWindowTokens =
           resolveContextWindow?.().maxInputTokens ??
           this.config.maxInputTokens ??
@@ -1746,6 +1839,7 @@ export class AgentLoop {
             toolResponse: block as ToolResultContent,
             messages: history,
             additionalContext: null,
+            model: response.model,
             maxInputTokens: contextWindowTokens,
             logger: rlog,
           };

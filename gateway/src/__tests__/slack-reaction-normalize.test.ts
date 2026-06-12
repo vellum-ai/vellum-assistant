@@ -83,12 +83,16 @@ describe("normalizeSlackReactionAdded", () => {
     );
   });
 
-  test("ignores reactions from the bot itself", () => {
+  // Self-authored reactions are now filtered upstream in processEventPayload,
+  // not by the normalizer. This test verifies the normalizer no longer
+  // performs that check — it normalizes successfully regardless of user.
+  test("does not filter reactions by bot user (handled upstream)", () => {
     const config = makeConfig();
     const event = makeReactionEvent({ user: "BOT1" });
-    const result = normalizeSlackReactionAdded(event, "ev-3", config, "BOT1");
+    const result = normalizeSlackReactionAdded(event, "ev-3", config);
 
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.event.actor.actorExternalId).toBe("BOT1");
   });
 
   test("returns null for unroutable channels without default", () => {

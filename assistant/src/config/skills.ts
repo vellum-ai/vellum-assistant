@@ -62,7 +62,7 @@ const SkillMetadataSchema = z
  * Origin of a skill in the merged catalog.
  *
  * - `bundled`: ships inside the assistant binary under `bundled-skills/`.
- * - `managed`: installed into `~/.vellum/workspace/skills/` from our catalog.
+ * - `managed`: installed into `$VELLUM_WORKSPACE_DIR/skills/` from our catalog.
  * - `workspace`: user-authored skill living in a conversation's working dir.
  * - `extra`: third-party directory roots passed via `loadSkillCatalog`'s
  *   `extraDirs` argument (primarily for tests).
@@ -479,7 +479,7 @@ function readSkillFromDirectory(
     if (isOutsideSkillsRoot(skillsDir, directoryPath)) {
       log.warn(
         { directoryPath },
-        "Skipping skill directory that resolves outside ~/.vellum/workspace/skills",
+        "Skipping skill directory that resolves outside $VELLUM_WORKSPACE_DIR/skills",
       );
       return null;
     }
@@ -496,7 +496,7 @@ function readSkillFromDirectory(
     if (isOutsideSkillsRoot(skillsDir, skillFilePath)) {
       log.warn(
         { skillFilePath },
-        "Skipping SKILL.md that resolves outside ~/.vellum/workspace/skills",
+        "Skipping SKILL.md that resolves outside $VELLUM_WORKSPACE_DIR/skills",
       );
       return null;
     }

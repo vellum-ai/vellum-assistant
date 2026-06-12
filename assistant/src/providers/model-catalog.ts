@@ -1242,6 +1242,16 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     },
     models: [
       {
+        id: "MiniMax-M3",
+        displayName: "MiniMax M3",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 512000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+      },
+      {
         id: "MiniMax-M2.7",
         displayName: "MiniMax M2.7",
         contextWindowTokens: 200000,

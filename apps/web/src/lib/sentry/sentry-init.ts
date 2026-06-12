@@ -74,6 +74,16 @@ const options: BrowserOptions = {
     // Browser-extension content-script lifecycle noise.
     /Extension context invalidated/,
     /Invalid call to runtime\.sendMessage/,
+    // Transient network TypeErrors — browser-engine rejections when fetch()
+    // is cancelled by page navigation, device sleep, or network drop. These
+    // reach the SDK via GlobalHandlers' `onunhandledrejection` hook for
+    // browser-internal promise rejections during navigation that JavaScript
+    // cannot attach handlers to. Application-level filtering already gates
+    // manual captures via `captureError()` + `isTransientNetworkError()`;
+    // these patterns close the same gap for the SDK's automatic paths.
+    /^Load failed($| \()/,
+    /^Failed to fetch($| \()/,
+    /^NetworkError when attempting to fetch resource\.?($| \()/,
   ],
   denyUrls: [
     // Browser-extension schemes.
