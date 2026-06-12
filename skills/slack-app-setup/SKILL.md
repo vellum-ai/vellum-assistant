@@ -27,7 +27,27 @@ USE THIS SKILL WHEN:
 
 DO NOT use this skill for runtime Slack operations (posting, reading channels, triage). That is the separate `slack` skill.
 
-The flow has four user actions: **click**, **install**, **copy tokens**, **verify**. Everything else is pre-baked into the manifest the URL creates.
+## The User Experience
+
+The user does **four things**, in this order:
+
+1. **Click** a link you give them. (Slack opens a pre-filled app creation page; they click **Create**.)
+2. **Generate** an App-Level Token on the page Slack lands them on, and paste it into a secure prompt.
+3. **Install** the app to their workspace, copy the bot token (and optional user token), and paste each into a secure prompt.
+4. **Verify** their identity by responding to a Slack message from the bot.
+
+That's the entire user-visible surface. The user never types a manifest, never thinks about scopes or events, and never types the bot's name into Slack — the name and description arrive pre-filled because you bake them into the URL.
+
+## What You Handle Silently
+
+The user does **not** supply these. You derive them and pass them to the manifest builder. The user only ever sees the resulting Slack creation page with the fields already filled in.
+
+| Input | Where you get it |
+| --- | --- |
+| `BOT_NAME` | Your assigned assistant name (e.g. "Vex"). |
+| `BOT_DESC` | `Assistant for {guardianName}` — guardian name from current user context / `users/default.md`. |
+
+If `BOT_NAME` is unset (a brand-new assistant with no name yet) → pause and ask the user *"What would you like to name me?"* before generating the link. Otherwise (default) → derive both inputs yourself and proceed straight to the script call without asking.
 
 ## Value Classification
 
@@ -54,10 +74,7 @@ Then branch:
 
 ## Step 2 — Create the Slack app (one click)
 
-Infer the bot identity yourself — do not ask the user to confirm before generating the link.
-
-- **Bot name:** your assigned assistant name. If unset → prompt the user to name you first, then come back.
-- **Description:** `Assistant for {guardianName}`, from the current user context / `users/default.md`.
+**You (silently):** derive `BOT_NAME` and `BOT_DESC` per "What You Handle Silently" above. Do not ask the user to confirm them before generating the link — they will see and confirm them on Slack's creation page.
 
 Run the bundled script — env vars carry the inputs so quoting can never break the URL:
 
@@ -74,7 +91,15 @@ Output is JSON: `{ "ok": true, "data": { "url": "..." } }`. Extract `data.url`.
 
 ⚠️ CRITICAL — point of action: **Render the URL as a markdown link** — `[Click here to create your Slack app](URL)`. Do not paste the raw encoded URL into chat. It is ~1700 characters and will wrap, breaking the click.
 
-Tell the user: *"Click the link, pick your workspace, click **Create**. All scopes, events, and Socket Mode are pre-configured — you don't need to touch anything on the creation page."*
+**Tell the user, in this shape:**
+
+> Click the link below. It opens Slack's app creation page with everything already filled in — the bot's name (**{BOT_NAME}**), description, all scopes, events, and Socket Mode.
+>
+> [Click here to create your Slack app](URL)
+>
+> Pick your workspace, click **Create**. You don't need to change anything on that page. Let me know when you've clicked Create.
+
+**What the user sees on Slack's side:** the manifest creation page opens with the name and description pre-filled, a "Configuration" tab showing scopes/events/Socket Mode already populated, and a workspace dropdown. They pick their workspace and click **Create**. No typing required.
 
 Wait for the user to confirm they clicked Create before moving to Step 3.
 
@@ -84,21 +109,23 @@ Slack lands the user on **Basic Information** after Create. The app token lives 
 
 ### Step 3a — App-Level Token (Basic Information page)
 
-Tell the user:
+**Tell the user:**
 
-> Scroll to **App-Level Tokens** → **Generate Token and Scopes** → name it "Socket Mode" → add scope `connections:write` → **Generate**. Copy the token (starts with `xapp-`).
+> You should be on the **Basic Information** page now. Scroll down to **App-Level Tokens** → click **Generate Token and Scopes** → name it "Socket Mode" → add the scope `connections:write` → click **Generate**. Copy the token that appears (it starts with `xapp-`) and paste it into the secure prompt I'm about to open.
 
 Then collect:
 
 - `credential_store` `action: "prompt"`, `service: "slack_channel"`, `field: "app_token"`, `label: "App-Level Token"`, `placeholder: "xapp-..."`, `description: "Paste the App-Level Token you just generated"`.
 
+**What the user sees:** a secure modal in chat with a single password-style input. They paste, click submit, the value never appears in conversation.
+
 ⚠️ CRITICAL — point of action: **Always route the token through `credential_store` prompt.** Do not ask the user to paste a token directly in chat, do not use `ui_show` for collection, do not call `assistant credentials reveal`. The prompt is the only handler that validates and stores securely.
 
 ### Step 3b — Install + Bot Token
 
-Tell the user:
+**Tell the user:**
 
-> In the left sidebar → **Install App** → **Install to Workspace** → **Allow**. The page that loads shows your **Bot User OAuth Token** (`xoxb-...`) and possibly a **User OAuth Token** (`xoxp-...`). Copy the bot token.
+> Now in the left sidebar → click **Install App** → **Install to Workspace** → **Allow** on Slack's authorization screen. The page that loads shows your **Bot User OAuth Token** (`xoxb-...`) and possibly a **User OAuth Token** (`xoxp-...`). Copy the **bot** token and paste it into the prompt I'm about to open.
 
 Then collect:
 
@@ -108,9 +135,13 @@ Then collect:
 
 If the Install App page also shows a **User OAuth Token** → collect it for full triage visibility. It lets the assistant see every channel the user is in, not just channels the bot was added to.
 
+**Tell the user:**
+
+> Looks like the Install App page also shows a **User OAuth Token** (`xoxp-...`). It's optional — copying it gives me visibility into every channel you're in (not just ones where the bot is a member). Paste it into the prompt, or tell me to skip.
+
 - `credential_store` `action: "prompt"`, `service: "slack_channel"`, `field: "user_token"`, `label: "User OAuth Token"`, `placeholder: "xoxp-..."`, `description: "From Install App page — the User OAuth Token (optional, for full channel visibility)"`.
 
-If the User OAuth Token is **not** shown → skip this step (default). Tell the user it's optional and they can add it later.
+If the User OAuth Token is **not** shown on the page → skip this step (default). Tell the user it's optional and they can add it later.
 
 > ✓ Checkpoint: After Step 3, the `app_token` and `bot_token` are both in the credential store and the user has confirmed both prompts came back successful. If either prompt failed, re-run it before moving on.
 
@@ -119,6 +150,8 @@ If the User OAuth Token is **not** shown → skip this step (default). Tell the 
 Load the **guardian-verify-setup** skill:
 
 - `skill_load` with `skill: "guardian-verify-setup"`.
+
+**What the user sees:** the bot DMs them in Slack and asks them to confirm their identity. They reply once.
 
 If the user wants to skip → continue to Step 5 (default if they say no), and let them know they can run it later by saying *"verify me on slack"*.
 
