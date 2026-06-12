@@ -10,7 +10,7 @@ import { formatRelativeDate } from "@/utils/format-date";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { isElectron } from "@/runtime/is-electron";
 import {
-  GuardianTokenError,
+  requiresGuardianReprovision,
   wakeLocalAssistantHost,
 } from "@/runtime/local-mode-host";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
@@ -89,15 +89,10 @@ export function SelectAssistantScreen() {
       void navigate(routes.assistant, { replace: true });
     } catch (err) {
       console.error("selectAssistant.handleConnect failed", err);
-      // A missing (404) or expired-and-unrefreshable (401) guardian token
-      // can only be fixed by re-provisioning, so offer the recovery dialog.
-      // 403 (refused loopback boundary) and transient failures keep the
-      // generic message — repair can't help those.
-      if (
-        assistant.isLocal &&
-        err instanceof GuardianTokenError &&
-        (err.status === 404 || err.status === 401)
-      ) {
+      // A token that's gone for good can only be fixed by re-provisioning,
+      // so offer the recovery dialog; every other failure keeps the generic
+      // message — repair can't help those.
+      if (assistant.isLocal && requiresGuardianReprovision(err)) {
         setRecoveryAssistant(assistant);
       } else {
         setError("Failed to connect. Please try again.");

@@ -254,10 +254,7 @@ describe("wakeLocalAssistantHost", () => {
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("/assistant/__local/wake");
     expect(init.method).toBe("POST");
-    expect(JSON.parse(init.body as string)).toEqual({
-      assistantId: "a-1",
-      repairGuardian: false,
-    });
+    expect(JSON.parse(init.body as string)).toEqual({ assistantId: "a-1" });
   });
 
   test("web/dev host forwards repairGuardian when the caller opts in", async () => {
