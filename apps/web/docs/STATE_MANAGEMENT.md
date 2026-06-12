@@ -370,8 +370,7 @@ manual rollback. Use this when the mutation and query live in the
 **same component**.
 
 ```ts
-const deleteMutation = useMutation({
-  mutationFn: (id: string) => deleteContact(id),
+const deleteMutation = useDeleteContactMutation({
   onSettled: () => invalidateContacts(),
 });
 
@@ -403,27 +402,26 @@ about to change, and in `onError` use an updater function to patch
 only those fields back. This keeps the rest of the cache intact.
 
 ```ts
-const mutation = useMutation({
-  mutationFn: (vars: { id: string; isActive: boolean }) =>
-    patchItem(vars),
+const mutation = usePatchItemMutation({
   onMutate: async (vars) => {
-    await queryClient.cancelQueries({ queryKey });
+    await queryClient.cancelQueries({ queryKey: getItemQueryKey(vars.id) });
     // Snapshot only the field we're changing
-    const previousIsActive = queryClient.getQueryData<Item>(queryKey)?.isActive;
-    // Optimistic update via updater function (always reads latest cache)
-    queryClient.setQueryData<Item>(queryKey, (old) =>
+    const previous = queryClient.getQueryData(getItemQueryKey(vars.id));
+    // Optimistic update via the generated typed setter
+    setItemQueryData(queryClient, vars.id, (old) =>
       old ? { ...old, isActive: vars.isActive } : old,
     );
-    return { previousIsActive };
+    return { previousIsActive: previous?.isActive };
   },
-  onError: (_err, _vars, ctx) => {
+  onError: (_err, vars, ctx) => {
     // Roll back only the changed field — concurrent updates to other
     // fields stay intact
-    queryClient.setQueryData<Item>(queryKey, (old) =>
+    setItemQueryData(queryClient, vars.id, (old) =>
       old ? { ...old, isActive: ctx?.previousIsActive } : old,
     );
   },
-  onSettled: () => queryClient.invalidateQueries({ queryKey }),
+  onSettled: (_data, _err, vars) =>
+    queryClient.invalidateQueries({ queryKey: getItemQueryKey(vars.id) }),
 });
 ```
 
@@ -445,13 +443,12 @@ instead of duplicating it in a `useState`.
 ```ts
 // Avoid — duplicates mutation error state
 const [error, setError] = useState<string | null>(null);
-const mutation = useMutation({
-  mutationFn: doThing,
+const mutation = useDoThingMutation({
   onError: (err) => setError(err.message),
 });
 
 // Prefer — derive from mutation
-const mutation = useMutation({ mutationFn: doThing });
+const mutation = useDoThingMutation();
 const errorMessage = mutation.error?.message ?? null;
 // Clear with mutation.reset() instead of setError(null)
 ```
@@ -599,9 +596,24 @@ approach.
 
 ```ts
 // Good — Zustand-idiomatic direct actions
+interface TurnState {
+  phase: TurnPhase;
+  activeTurnId: string | null;
+  activeToolCallCount: number;
+}
+
+interface TurnActions {
+  startTurn: (turnId: string) => void;
+  startStreaming: () => void;
+  completeTurn: () => void;
+  incrementToolCalls: () => void;
+}
+
+type TurnStore = TurnState & TurnActions;
+
 export const useTurnStore = create<TurnStore>()((set, get) => ({
-  phase: "idle" as TurnPhase,
-  activeTurnId: null as string | null,
+  phase: "idle",
+  activeTurnId: null,
   activeToolCallCount: 0,
 
   startTurn: (turnId: string) =>

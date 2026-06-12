@@ -1075,8 +1075,7 @@ resolved as platform-hosted" check on the query's `enabled`:
 const platformGate = usePlatformGate({ platformHostedOnly: true });
 const isPlatformHosted = useActiveAssistantIsPlatformHosted();
 
-const query = useQuery({
-  ...someOrgScopedOptions(),
+const query = useSomeOrgScopedQuery({
   enabled: platformGate === "full" && isPlatformHosted,
 });
 ```
