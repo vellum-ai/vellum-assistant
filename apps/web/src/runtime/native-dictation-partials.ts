@@ -36,6 +36,26 @@ const PUSH_BATCH_SAMPLES = 1600;
 // Mirror of the pcm-downsample worklet's TARGET_SAMPLE_RATE.
 const PUSH_SAMPLE_RATE = 16000;
 
+function dictationBridge() {
+  return isElectron() ? window.vellum?.helper?.dictation : undefined;
+}
+
+/**
+ * True when the renderer can route dictation through the mac helper's
+ * `SFSpeechRecognizer` — i.e. the macOS Electron shell with a preload new
+ * enough to expose the dictation bridge. Settings uses this to decide
+ * whether to offer the "macOS Native Dictation" STT provider at all.
+ *
+ * Requires the one-shot `transcribe`/`onTranscribed` surface, not just the
+ * partials methods: those members are optional for version-skew tolerance,
+ * and a forced-native session's transcript authority is the whole-recording
+ * transcribe — partials alone routinely miss short dictations.
+ */
+export function isNativeDictationSupported(): boolean {
+  const dictation = dictationBridge();
+  return !!dictation?.transcribe && !!dictation.onTranscribed;
+}
+
 export interface NativeDictationPartialsOptions {
   /**
    * The live recording stream. When provided (and the shell supports
@@ -139,9 +159,7 @@ const TRANSCRIBED_TIMEOUT_MS = 8000;
 export async function transcribeNativeAudioBlob(
   blob: Blob,
 ): Promise<string | null> {
-  const dictation = isElectron()
-    ? window.vellum?.helper?.dictation
-    : undefined;
+  const dictation = dictationBridge();
   if (!dictation?.transcribe || !dictation.onTranscribed) {
     return null;
   }
@@ -239,9 +257,7 @@ export async function startNativeDictationPartials(
   onPartial: (text: string) => void,
   options?: NativeDictationPartialsOptions,
 ): Promise<StopNativeDictationPartials | null> {
-  const dictation = isElectron()
-    ? window.vellum?.helper?.dictation
-    : undefined;
+  const dictation = dictationBridge();
   if (!dictation) {
     return null;
   }

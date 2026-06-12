@@ -458,7 +458,10 @@ BUN_BUNDLE_CACHE_DIR="$SCRIPT_DIR/.bun-bundle-cache/${BUN_VERSION}"
 # bundles and extracts it at runtime, but macOS rejects the dlopen because the
 # extracted binary's Team ID differs from the main process.  Externalising it
 # lets the lazy wrapper in avatar/resvg-lazy.ts handle the missing module.
-BUN_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*" --external "@resvg/resvg-js" --external "@resvg/resvg-js-darwin-arm64" --external "@resvg/resvg-js-darwin-x64")
+# react-devtools-core is an optional peer dep of Ink, only loaded when
+# process.env.DEV is truthy.  Ink's try/catch handles the missing module
+# gracefully, so there is no need to bundle it into the compiled binary.
+BUN_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*" --external "@resvg/resvg-js" --external "@resvg/resvg-js-darwin-arm64" --external "@resvg/resvg-js-darwin-x64" --external react-devtools-core)
 
 # ---------------------------------------------------------------------------
 # build_bun_binary — compile a TypeScript project to a native binary via Bun.
@@ -709,8 +712,9 @@ build_binaries() {
         "$SCRIPT_DIR/assistant-bin" "vellum-assistant" "${cli_flags[@]}" &
     pids+=($!)
 
+    local vellum_cli_flags=("${BUN_EXTERNAL_FLAGS[@]}" "${env_flags[@]}")
     SKIP_BUN_INSTALL=1 build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/cli-bin" "vellum-cli" "${env_flags[@]}" &
+        "$SCRIPT_DIR/cli-bin" "vellum-cli" "${vellum_cli_flags[@]}" &
     pids+=($!)
 
     SKIP_BUN_INSTALL=1 build_bun_binary "$GATEWAY_SRC_DIR" "$GATEWAY_SRC_DIR/src/index.ts" \
@@ -1327,7 +1331,7 @@ if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$CLI_SRC_DIR/src" ] && command -v
 fi
 if [ "$CLI_BIN_NEEDS_BUILD" = true ]; then
     build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/cli-bin" "vellum-cli"
+        "$SCRIPT_DIR/cli-bin" "vellum-cli" "${BUN_EXTERNAL_FLAGS[@]}"
 fi
 
 # Also rebuild if CLI binary changed or newly added

@@ -2441,6 +2441,7 @@ jobs:
           GATEWAY_SRC_DIR="../../gateway"
           CES_SRC_DIR="../../credential-executor"
 
+          CLI_EXTERNAL_FLAGS=(--external react-devtools-core)
           DAEMON_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*")
           DAEMON_FLAGS=("${DAEMON_EXTERNAL_FLAGS[@]}")
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}"
@@ -2480,7 +2481,7 @@ jobs:
           # CLI
           (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
           mkdir -p cli-bin
-          bun build --compile "${ENV_DEFINE[@]}" --target=bun-darwin-x64 \
+          bun build --compile "${CLI_EXTERNAL_FLAGS[@]}" "${ENV_DEFINE[@]}" --target=bun-darwin-x64 \
             "$CLI_SRC_DIR/src/index.ts" --outfile cli-bin/vellum-cli
           chmod +x cli-bin/vellum-cli
 

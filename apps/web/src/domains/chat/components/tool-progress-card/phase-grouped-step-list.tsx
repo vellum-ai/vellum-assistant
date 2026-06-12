@@ -487,7 +487,7 @@ function TimelineNodeIcon({
         aria-hidden="true"
         data-testid={testId}
         data-status="completed"
-        className="h-[14px] w-[14px] shrink-0 text-[#277E41]"
+        className="h-[14px] w-[14px] shrink-0 text-[var(--system-positive-strong)]"
       />
     );
   }
@@ -530,7 +530,7 @@ function PhaseHeaderRow({
             aria-hidden="true"
             data-testid="phase-header-status-icon"
             data-status="completed"
-            className="h-[14px] w-[14px] text-[#277E41]"
+            className="h-[14px] w-[14px] text-[var(--system-positive-strong)]"
           />
         ) : status === "failed" ? (
           <AlertTriangle

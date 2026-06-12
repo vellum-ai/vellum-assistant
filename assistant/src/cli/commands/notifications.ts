@@ -548,7 +548,7 @@ Examples:
         .addHelpText(
           "after",
           `
-Reads the home feed at ~/.vellum/workspace/data/home-feed.json — the
+Reads the home feed at $VELLUM_WORKSPACE_DIR/data/home-feed.json — the
 user's notification inbox. Items are ordered by priority then recency,
 matching what the user sees in the macOS Home page. The home feed covers
 background/async notifications mirrored from the unified pipeline;

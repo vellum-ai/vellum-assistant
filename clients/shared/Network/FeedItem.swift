@@ -252,7 +252,7 @@ public struct SuggestedPrompt: Codable, Sendable, Identifiable, Hashable {
 
 // MARK: - HomeFeedFile
 
-/// On-disk file format for `~/.vellum/workspace/data/home-feed.json`.
+/// On-disk file format for `$VELLUM_WORKSPACE_DIR/data/home-feed.json`.
 ///
 /// Written by the daemon feed writer, read by the daemon HTTP route
 /// and the macOS `HomeFeedStore`. `version` is currently `2` (the
