@@ -474,11 +474,11 @@ describe("image-studio TOOLS.json manifest", () => {
     expect(props.mode.enum).toEqual(["generate", "edit"]);
     expect(props.source_paths.type).toBe("array");
     expect(props.attachment_ids).toBeUndefined();
-    expect(props.model.enum).toEqual([
-      "gemini-3.1-flash-image-preview",
-      "gemini-3-pro-image-preview",
-      "gpt-image-2",
-    ]);
+    // No enum by design: model accepts tier aliases or concrete IDs, and is
+    // validated at runtime against the registry so the schema never goes
+    // stale when models change.
+    expect(props.model.type).toBe("string");
+    expect(props.model.enum).toBeUndefined();
     expect(props.variants.type).toBe("number");
   });
 });
