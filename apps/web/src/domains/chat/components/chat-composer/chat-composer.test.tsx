@@ -59,7 +59,12 @@ mock.module("@/stores/assistant-feature-flag-store", () => ({
 // so the `chat` test stays free of cross-domain coupling — the composer only
 // ever distinguishes off from non-off, so the precise taxonomy is irrelevant
 // here.
-type MockLiveVoiceState = "idle" | "connecting" | "listening" | "failed";
+type MockLiveVoiceState =
+  | "idle"
+  | "connecting"
+  | "listening"
+  | "speaking"
+  | "failed";
 type MockVoiceModeState = "off" | "idle" | "listening" | "speaking";
 
 let mockLiveVoiceState: MockLiveVoiceState = "idle";
