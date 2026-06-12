@@ -175,8 +175,14 @@ export interface RunLeafOptions {
    * When provided (and `tools` is absent), runs the schema path: a single
    * forced-tool-choice call whose returned input is validated against this
    * schema and returned as `output`.
+   *
+   * Accepts EITHER a host-side Zod schema (host callers) OR a plain JSON Schema
+   * object. A workflow script runs inside the QuickJS sandbox and cannot hold a
+   * Zod object (Zod is host-side), so a script's `leaf(prompt, { schema })`
+   * crosses the sandbox→host boundary as a JSON-marshaled JSON Schema. The
+   * runner duck-types the input and handles both shapes (see {@link runSchemaLeaf}).
    */
-  schema?: z.ZodType;
+  schema?: z.ZodType | Record<string, unknown>;
   /**
    * When provided (and `schema` is absent), runs the tool path: an agent loop
    * restricted to exactly these registry tools. These are the resolved
@@ -299,7 +305,7 @@ async function runSchemaLeaf(
   opts: RunLeafOptions,
   overrideProfile: string | undefined,
 ): Promise<LeafResult> {
-  const schema = opts.schema as z.ZodType;
+  const schema = opts.schema as z.ZodType | Record<string, unknown>;
 
   const { systemPrompt, messages } = await resolveLeafContext(opts);
 
@@ -317,7 +323,7 @@ async function runSchemaLeaf(
     description:
       "Return the result for this task. Call this tool exactly once with the " +
       "structured result.",
-    input_schema: zodToInputSchema(schema),
+    input_schema: schemaToInputSchema(schema),
   };
 
   const response = await provider.sendMessage(messages, {
@@ -338,7 +344,7 @@ async function runSchemaLeaf(
     );
   }
 
-  const parsed = schema.safeParse(toolBlock.input);
+  const parsed = validateSchemaOutput(schema, toolBlock.input);
   if (!parsed.success) {
     throw new Error(
       `Workflow leaf "${opts.label ?? "schema"}" output failed schema ` +
@@ -498,14 +504,49 @@ function finalAssistantText(history: Message[]): string {
 }
 
 /**
- * Convert a Zod schema into a JSON-schema `input_schema` object for a synthetic
- * tool. Uses Zod 4's native `z.toJSONSchema` (mirrors `scripts/generate-openapi.ts`)
- * and strips the `$schema` key, which tool definitions don't carry.
+ * A leaf's structured-output schema is EITHER a host-side Zod schema (passed by
+ * a host caller) or a plain JSON Schema object (a script's `leaf(prompt,
+ * { schema })` is JSON-marshaled across the sandbox→host boundary, since the
+ * sandbox can't hold a Zod object). Duck-type the input: a Zod schema exposes a
+ * `safeParse` method (and the internal `_zod` marker), a JSON Schema object does
+ * not.
  */
-function zodToInputSchema(schema: z.ZodType): Record<string, unknown> {
-  const converted = z.toJSONSchema(schema, {
-    unrepresentable: "any",
-  }) as Record<string, unknown>;
+function isZodSchema(
+  schema: z.ZodType | Record<string, unknown>,
+): schema is z.ZodType {
+  return typeof (schema as { safeParse?: unknown }).safeParse === "function";
+}
+
+/**
+ * Build the synthetic forced-tool's `input_schema` from the leaf's schema. A Zod
+ * schema is converted via Zod 4's native `z.toJSONSchema` (mirrors
+ * `scripts/generate-openapi.ts`), stripping the `$schema` key tool definitions
+ * don't carry. A plain JSON Schema object is used directly (same `$schema`
+ * strip for parity).
+ */
+function schemaToInputSchema(
+  schema: z.ZodType | Record<string, unknown>,
+): Record<string, unknown> {
+  const converted = isZodSchema(schema)
+    ? (z.toJSONSchema(schema, { unrepresentable: "any" }) as Record<
+        string,
+        unknown
+      >)
+    : schema;
   const { $schema: _dropped, ...rest } = converted;
   return rest;
+}
+
+/**
+ * Validate the model's returned tool input against the leaf's schema. A Zod
+ * schema validates directly; a plain JSON Schema object is reconstructed into a
+ * Zod schema via `z.fromJSONSchema` first. Returns Zod's native `safeParse`
+ * result so callers handle both shapes uniformly.
+ */
+function validateSchemaOutput(
+  schema: z.ZodType | Record<string, unknown>,
+  input: unknown,
+) {
+  const zodSchema = isZodSchema(schema) ? schema : z.fromJSONSchema(schema);
+  return zodSchema.safeParse(input);
 }

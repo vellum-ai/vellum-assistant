@@ -9,20 +9,24 @@
  * sandbox↔host JSON marshaling, the leaf runner's real agent-loop path, and
  * journal DB round-trips on resume.
  *
- * Leaves run the REAL **tool path**: the engine forwards `capabilities.tools`
+ * Most leaves run the REAL **tool path**: the engine forwards `capabilities.tools`
  * to every leaf, the leaf runner spins up an `AgentLoop`, and the mocked
  * provider returns a single `end_turn` message whose text echoes the prompt
  * (so each leaf's `output` is distinguishable and order-checkable). A leaf with
- * an empty toolset would route to the leaf runner's SCHEMA path, which requires
- * an in-process Zod schema and so cannot be driven from a sandboxed script —
- * see the `test.todo` at the end of this file (a known engine↔leaf-runner gap).
+ * an empty toolset routes to the leaf runner's SCHEMA path; a sandboxed script
+ * passes a JSON Schema object (it can't hold a host-side Zod object), which the
+ * leaf runner duck-types — see the schema-path test below.
  *
  * Covered:
  *  - `map`/`parallel` fan-out: each leaf returns its echoed output, aggregated
  *    in spec-array order through the real sandbox + leaf runner + agent loop.
+ *  - Schema path: a script-provided JSON Schema drives the forced-tool call and
+ *    its validated structured object is returned and journaled.
  *  - In-process resume: re-running the SAME runId against the SAME DB replays
  *    the unchanged prefix from the journal — ZERO duplicate provider calls —
  *    and only the changed/new tail re-runs the provider.
+ *  - Resume journal rewrite: a changed-input leaf re-runs and its journal row is
+ *    upserted (new hash + result) rather than left stale.
  *  - Cap abort: a low `maxAgentsPerRun` aborts with status `cap_exceeded` and
  *    the partial counters are persisted on the run row.
  *  - Concurrency high-water: the provider mock records in-flight concurrency
@@ -77,10 +81,19 @@ function lastUserPrompt(
   return "";
 }
 
+interface SendOptionsFull extends SendOptions {
+  config?: { tool_choice?: { type: string; name: string } };
+}
+
 /**
- * The leaf's real `AgentLoop` calls the provider; we return a single `end_turn`
- * message whose text echoes the prompt, so the loop terminates in one turn and
- * the leaf's `output` is `processed:<prompt>`.
+ * The leaf's real `AgentLoop` (tool path) calls the provider; we return a single
+ * `end_turn` message whose text echoes the prompt, so the loop terminates in one
+ * turn and the leaf's `output` is `processed:<prompt>`.
+ *
+ * The SCHEMA path forces a `tool_choice` on the synthetic `emit_result` tool;
+ * we detect that and instead return a `tool_use` block whose input echoes the
+ * prompt under the schema's `answer` field, so the leaf's structured `output`
+ * is `{ answer: "processed:<prompt>" }`.
  */
 const sendMessage = mock(
   async (
@@ -88,9 +101,14 @@ const sendMessage = mock(
       role: string;
       content: Array<{ type: string; text?: string }>;
     }>,
-    options: SendOptions,
+    options: SendOptionsFull,
   ): Promise<{
-    content: Array<{ type: string; text: string }>;
+    content: Array<{
+      type: string;
+      text?: string;
+      name?: string;
+      input?: unknown;
+    }>;
     model: string;
     usage: { inputTokens: number; outputTokens: number };
     stopReason: string;
@@ -104,6 +122,21 @@ const sendMessage = mock(
       }
       if (options.signal?.aborted) {
         throw new DOMException("Aborted", "AbortError");
+      }
+      const forcedTool = options.config?.tool_choice;
+      if (forcedTool?.type === "tool") {
+        return {
+          content: [
+            {
+              type: "tool_use",
+              name: forcedTool.name,
+              input: { answer: `processed:${lastUserPrompt(messages)}` },
+            },
+          ],
+          model: "test-model",
+          usage: { inputTokens: 7, outputTokens: 3 },
+          stopReason: "tool_use",
+        };
       }
       return {
         content: [
@@ -186,6 +219,17 @@ const capabilities = resolveCapabilities({
   persona: false,
 });
 
+/**
+ * Capabilities with NO tools. A schema leaf must route to the leaf runner's
+ * SCHEMA path, which requires an empty toolset (a schema + tools is a hard
+ * error in `runLeaf`). Used by the schema-path integration test.
+ */
+const schemaCapabilities = resolveCapabilities({
+  tools: [],
+  hostFunctions: [],
+  persona: false,
+});
+
 /** Build a `WorkflowsConfig` from schema defaults with optional overrides. */
 function makeConfig(
   overrides: Partial<{
@@ -200,12 +244,16 @@ function makeConfig(
  * Base options shared by every `executeWorkflow` call: the REAL journal store,
  * the REAL leaf runner, real capabilities, real trust context.
  */
-function baseOptions(runId: string, scriptSource: string) {
+function baseOptions(
+  runId: string,
+  scriptSource: string,
+  caps: typeof capabilities = capabilities,
+) {
   return {
     runId,
     scriptSource,
     args: {},
-    capabilities,
+    capabilities: caps,
     journal: journalStore,
     leafRunner: runLeaf,
     trustContext,
@@ -421,39 +469,103 @@ return { results, tail };
   });
 
   // ---------------------------------------------------------------------------
-  // KNOWN ENGINE↔LEAF-RUNNER GAP (flagged for a follow-up product fix).
+  // FIXED ENGINE↔LEAF-RUNNER GAP (schema-path marshaling).
   //
-  // A workflow script can declare a per-leaf output `schema` via
-  // `leaf(prompt, { schema })`, but that schema crosses the QuickJS sandbox
-  // boundary as a JSON-marshaled plain object. The leaf runner's schema path
-  // (`runSchemaLeaf`) requires an in-process Zod schema — it calls
-  // `z.toJSONSchema(schema)` and `schema.safeParse(...)` — so a marshaled
-  // schema throws `undefined is not an object (evaluating 'schema._zod.def')`
-  // and the leaf fails. The engine needs to reconstruct a Zod schema (e.g. via
-  // `z.fromJSONSchema`) from the marshaled JSON Schema before invoking the leaf
-  // runner. Converted to `test()` once the engine bridges the schema path.
+  // A workflow script declares a per-leaf output `schema` via
+  // `leaf(prompt, { schema })`. That schema crosses the QuickJS sandbox boundary
+  // as a JSON-marshaled plain object (a JSON Schema). The leaf runner's schema
+  // path now duck-types its input: a plain JSON Schema object is used directly as
+  // the forced-tool `input_schema` and validated via `z.fromJSONSchema`, while a
+  // host-side Zod schema keeps the original behavior. A schema leaf must route to
+  // the schema path, which requires an empty toolset (`schemaCapabilities`).
   // ---------------------------------------------------------------------------
-  test.todo(
-    "schema-path leaves: script-provided JSON Schema is reconstructed to Zod before runLeaf",
-    () => {},
-  );
+  test("schema-path leaves: a script-provided JSON Schema drives the forced-tool path", async () => {
+    // The script passes a JSON Schema OBJECT LITERAL (the only shape a sandbox
+    // script can produce — Zod is host-side). It marshals across the boundary
+    // and reaches the leaf runner verbatim.
+    const scriptSource = `
+export const meta = { name: "schema", description: "structured leaf output" };
+const schema = {
+  type: "object",
+  properties: { answer: { type: "string" } },
+  required: ["answer"],
+  additionalProperties: false,
+};
+const items = args.items;
+const results = map(items, (it) => leaf("item-" + it, { schema }));
+return results;
+`;
+    const result = await executeWorkflow({
+      ...baseOptions("wf-schema", scriptSource, schemaCapabilities),
+      args: { items: ["a", "b"] },
+      config: makeConfig(),
+    });
+
+    expect(result.status).toBe("completed");
+    // Each leaf returned the validated structured object (forced-tool path),
+    // NOT the tool-path's plain echoed text.
+    expect(result.result).toEqual([
+      { answer: "processed:item-a" },
+      { answer: "processed:item-b" },
+    ]);
+    expect(result.agentsSpawned).toBe(2);
+    expect(sendCallCount).toBe(2);
+
+    // The journal persisted the structured outputs.
+    const journal = getJournal("wf-schema");
+    expect(journal.map((e) => e.result)).toEqual([
+      { answer: "processed:item-a" },
+      { answer: "processed:item-b" },
+    ]);
+  });
 
   // ---------------------------------------------------------------------------
-  // KNOWN RESUME JOURNAL-STALENESS GAP (flagged for a follow-up product fix).
+  // FIXED RESUME JOURNAL-STALENESS GAP.
   //
-  // On resume, a leaf whose input CHANGED (new `call_hash`) correctly re-runs
-  // and the engine returns the new value. But its journal row is never
-  // rewritten: `journalStore.appendJournalEntry` uses `INSERT OR IGNORE` keyed
-  // on `(run_id, seq)`, so the stale first-run row (old hash, old result)
-  // survives and the persisted journal disagrees with the value the engine
-  // actually returned. The crash-idempotency the `INSERT OR IGNORE` was meant
-  // to provide should be narrowed to genuine duplicate (same-hash) re-appends;
-  // a changed-hash re-run at the same seq must overwrite (e.g. upsert keyed on
-  // `(run_id, seq)`). Converted to `test()` once the journal upserts a changed
-  // seq on resume.
+  // On resume, a leaf whose input CHANGED (new `call_hash`) re-runs and the
+  // engine returns the new value. `appendJournalEntry` now UPSERTs on
+  // `(run_id, seq)`, so the stale first-run row is rewritten with the new hash
+  // and result — the persisted journal agrees with the engine's returned value.
   // ---------------------------------------------------------------------------
-  test.todo(
-    "resume rewrites a changed leaf's journal entry (hash + result) instead of keeping the stale row",
-    () => {},
-  );
+  test("resume rewrites a changed leaf's journal entry (hash + result) instead of keeping the stale row", async () => {
+    const scriptSource = `
+export const meta = { name: "resume-rewrite", description: "sequential agents" };
+const a = agent("step-1");
+const b = agent(args.tail);
+return [a, b];
+`;
+    // First run: 2 fresh leaves.
+    await executeWorkflow({
+      ...baseOptions("wf-resume-rewrite", scriptSource),
+      args: { tail: "step-2" },
+      config: makeConfig(),
+    });
+    const firstJournal = getJournal("wf-resume-rewrite");
+    expect(firstJournal.map((e) => e.seq)).toEqual([0, 1]);
+    const seq1HashBefore = firstJournal[1]!.callHash;
+    expect(firstJournal[1]!.result).toBe("processed:step-2");
+
+    sendCallCount = 0;
+    sendMessage.mockClear();
+
+    // Resume: seq 1's input changes, so it re-runs; seq 0 replays from journal.
+    const second = await executeWorkflow({
+      ...baseOptions("wf-resume-rewrite", scriptSource),
+      args: { tail: "step-2-CHANGED" },
+      config: makeConfig(),
+    });
+    expect(second.status).toBe("completed");
+    expect(sendCallCount).toBe(1);
+
+    // The persisted journal row for seq 1 was REWRITTEN (new hash + result),
+    // agreeing with the value the engine returned — not the stale first-run row.
+    const secondJournal = getJournal("wf-resume-rewrite");
+    expect(secondJournal.map((e) => e.seq)).toEqual([0, 1]);
+    expect(secondJournal[1]!.callHash).not.toBe(seq1HashBefore);
+    expect(secondJournal[1]!.result).toBe("processed:step-2-CHANGED");
+    expect(second.result).toEqual([
+      "processed:step-1",
+      "processed:step-2-CHANGED",
+    ]);
+  });
 });

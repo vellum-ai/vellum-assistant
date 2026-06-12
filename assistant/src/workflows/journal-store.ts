@@ -276,18 +276,32 @@ export function finishRun(
 // ---------------------------------------------------------------------------
 
 /**
- * Append a leaf-call entry to a run's journal. Idempotent on `(run_id, seq)`:
- * a replayed append for an existing sequence number is ignored, so a crash
- * between the call and its journal write can't double-insert on resume.
+ * Append a leaf-call entry to a run's journal, upserting on `(run_id, seq)`.
+ *
+ * A genuine duplicate re-append (same hash/result — the crash-recovery case
+ * where a write replays after a crash between the call and its journal write)
+ * is idempotent: the conflicting row is overwritten with identical values.
+ *
+ * On resume, a leaf whose input CHANGED re-runs and produces a new
+ * hash/result/status at the same `seq`; the UPSERT rewrites the stale first-run
+ * row so the persisted journal agrees with the value the engine returned (and
+ * the call doesn't re-run on every future resume). `created_at` is left at its
+ * original value on conflict so the row keeps its first-write timestamp.
  */
 export function appendJournalEntry(
   input: AppendJournalEntryInput,
 ): WorkflowJournalEntry {
   rawRun(
     /*sql*/ `
-    INSERT OR IGNORE INTO workflow_journal (
+    INSERT INTO workflow_journal (
       run_id, seq, call_hash, kind, request_json, result_json, status, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(run_id, seq) DO UPDATE SET
+      call_hash = excluded.call_hash,
+      kind = excluded.kind,
+      request_json = excluded.request_json,
+      result_json = excluded.result_json,
+      status = excluded.status
     `,
     input.runId,
     input.seq,

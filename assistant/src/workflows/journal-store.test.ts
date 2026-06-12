@@ -216,6 +216,44 @@ describe("workflow journal store", () => {
     expect(getJournal("wf-dup")).toHaveLength(1);
   });
 
+  test("appendJournalEntry upserts a changed-hash re-run at the same seq", () => {
+    createRun({ id: "wf-resume", scriptSource: "s", scriptHash: "h" });
+
+    // First run: leaf at seq 0 produces one (hash, result).
+    appendJournalEntry({
+      runId: "wf-resume",
+      seq: 0,
+      callHash: "hash-old",
+      kind: "agent",
+      request: { prompt: "old" },
+      result: { text: "old-result" },
+      status: "completed",
+    });
+
+    // Resume: the leaf's input CHANGED, so it re-runs and re-appends a new
+    // (hash, result) at the SAME seq. The stale row must be overwritten.
+    appendJournalEntry({
+      runId: "wf-resume",
+      seq: 0,
+      callHash: "hash-new",
+      kind: "agent",
+      request: { prompt: "new" },
+      result: { text: "new-result" },
+      status: "completed",
+    });
+
+    const journal = getJournal("wf-resume");
+    // Still exactly one row at seq 0 (no duplicate).
+    expect(journal).toHaveLength(1);
+    expect(journal[0]).toMatchObject({
+      seq: 0,
+      callHash: "hash-new",
+      request: { prompt: "new" },
+      result: { text: "new-result" },
+      status: "completed",
+    });
+  });
+
   test("listRuns returns newest-first and honors limit + status filter", () => {
     // created_at is wall-clock; force distinct ordering via direct timestamps.
     createRun({ id: "old", scriptSource: "s", scriptHash: "h" });
