@@ -103,4 +103,14 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     // Save disabled so the user couldn't persist the correction.
     expect(localStorage.getItem(LS_STT_PROVIDER)).toBe("deepgram");
   });
+
+  test("a legacy provider alias is not overwritten by the self-heal", () => {
+    // "whisper" predates the current catalog ids; stt-api's
+    // normalizeSttProviderId() still maps it at transcribe time, so merely
+    // opening Settings must not rewrite it.
+    localStorage.setItem(LS_STT_PROVIDER, "whisper");
+    render(<SpeechToTextCard />);
+
+    expect(localStorage.getItem(LS_STT_PROVIDER)).toBe("whisper");
+  });
 });

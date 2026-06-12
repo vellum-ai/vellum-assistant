@@ -16,6 +16,7 @@ import {
 import {
     LS_STT_API_KEY_PREFIX,
     LS_STT_PROVIDER,
+    MACOS_NATIVE_STT_PROVIDER_ID,
     STT_PROVIDERS,
 } from "@/domains/settings/ai/ai-types";
 
@@ -40,14 +41,20 @@ export function SpeechToTextCard() {
   const [apiKeyText, setApiKeyText] = useState("");
   const [providerHasKey, setProviderHasKey] = useState(false);
 
-  // Self-heal a stored choice this build can't honor: the visual fallback
-  // alone would leave localStorage pointing at a provider the renderer
-  // can't use, and since draft and initial both coerce to the fallback,
-  // Save stays disabled and could never persist the correction. Both deps
-  // are set-once, so this runs only on mount.
+  // Self-heal a stored native choice this build can't honor: the visual
+  // fallback alone would leave localStorage pointing at a provider the
+  // renderer can't use, and since draft and initial both coerce to the
+  // fallback, Save stays disabled and could never persist the correction.
+  // ONLY the capability-dependent native id is corrected — legacy aliases
+  // like "whisper" must survive untouched for normalizeSttProviderId() /
+  // migrateLegacyLocalSttSettings() in stt-api.ts to map at transcribe
+  // time. Both deps are set-once, so this runs only on mount.
   useEffect(() => {
     const stored = getLocalSetting(LS_STT_PROVIDER, defaultProviderId);
-    if (!providers.some((p) => p.id === stored)) {
+    if (
+      stored === MACOS_NATIVE_STT_PROVIDER_ID &&
+      !providers.some((p) => p.id === stored)
+    ) {
       setLocalSetting(LS_STT_PROVIDER, defaultProviderId);
     }
   }, [providers, defaultProviderId]);
