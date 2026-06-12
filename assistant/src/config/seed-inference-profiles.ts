@@ -83,7 +83,7 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     source: "managed",
     label: "Balanced Economy",
     description: "Strong open model (MiniMax M3) at a lower price point",
-    maxTokens: 16000,
+    maxTokens: 32000,
     effort: "high",
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },

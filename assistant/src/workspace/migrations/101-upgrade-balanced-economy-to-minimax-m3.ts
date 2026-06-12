@@ -15,9 +15,8 @@ import type { WorkspaceMigration } from "./types.js";
 //
 // Only the managed balanced-economy profile still pointing at the old
 // default model is touched — a profile whose model the user changed is left
-// alone. The rewrite mirrors the new seed template: MiniMax M3, no
-// logit-bias preset. Token limits are unchanged between the templates, so
-// they are left as-is.
+// alone. The rewrite mirrors the new seed template: MiniMax M3, 32K max
+// output tokens, no logit-bias preset.
 
 const OLD_MODEL = "accounts/fireworks/models/kimi-k2p6";
 const NEW_MODEL = "accounts/fireworks/models/minimax-m3";
@@ -51,6 +50,7 @@ export const upgradeBalancedEconomyToMinimaxM3Migration: WorkspaceMigration = {
     profile.model = NEW_MODEL;
     profile.description =
       "Strong open model (MiniMax M3) at a lower price point";
+    profile.maxTokens = 32000;
     delete profile.logitBias;
     profiles["balanced-economy"] = profile;
     llm.profiles = profiles;
