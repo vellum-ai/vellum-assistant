@@ -161,11 +161,13 @@ async function runLegacyRetrospective(
   }
   const cutoffMessageId = cutoffMessage.id;
 
-  // 3. Pull the most recent prior retrospective's `remember` calls.
-  // Done BEFORE bootstrapping the new background conversation so the lookup
-  // doesn't accidentally include this run's own conversation.
-  const priorRemembers =
-    collectPriorRetrospectiveRemembers(sourceConversationId);
+  // 3. Locate the most recent prior retrospective and pull its `remember`
+  // calls. Done BEFORE bootstrapping the new background conversation so the
+  // lookup doesn't accidentally include this run's own conversation. The
+  // prior's id is kept so the success path can GC it once this run
+  // supersedes it.
+  const prior = findMostRecentRetrospectiveFor(sourceConversationId);
+  const priorRemembers = collectPriorRetrospectiveRemembers(prior);
 
   // 4. Build prompt. Render message timestamps in the user's clock, not UTC,
   // so the assistant's reasoning about relative times in the slice
@@ -235,6 +237,8 @@ async function runLegacyRetrospective(
       lastProcessedMessageId: cutoffMessageId,
       lastRunAt: Date.now(),
     });
+
+    deleteSupersededPriorRetrospective(config, prior);
 
     const followUpJobIds = enqueueFollowUpJobs();
 
@@ -343,10 +347,12 @@ async function runForkBasedRetrospective(
       timezoneContext.effectiveTimezone,
     );
 
-  // Pull prior `remember` calls BEFORE forking — otherwise
-  // `findMostRecentRetrospectiveFor` could locate this run's own fork.
-  const priorRemembers =
-    collectPriorRetrospectiveRemembers(sourceConversationId);
+  // Locate the prior retrospective and pull its `remember` calls BEFORE
+  // forking — otherwise `findMostRecentRetrospectiveFor` could locate this
+  // run's own fork. The prior's id is kept so the success path can GC it
+  // once this run supersedes it.
+  const prior = findMostRecentRetrospectiveFor(sourceConversationId);
+  const priorRemembers = collectPriorRetrospectiveRemembers(prior);
 
   // Pin the fork to `cutoffMessageId` so messages arriving between the slice
   // read above and this call don't sneak into the fork. Without
@@ -445,6 +451,8 @@ async function runForkBasedRetrospective(
       lastRunAt: Date.now(),
     });
 
+    deleteSupersededPriorRetrospective(config, prior);
+
     const followUpJobIds = enqueueFollowUpJobs();
 
     log.info(
@@ -509,6 +517,37 @@ function safeDeleteForkOnFailure(forkId: string): void {
 }
 
 /**
+ * GC the prior retrospective conversation once a newer run has succeeded.
+ * Dedup only ever reads the most recent retrospective per source
+ * (`findMostRecentRetrospectiveFor`), so the superseded run is dead weight —
+ * and fork-kind runs each materialize a full copy of the source
+ * conversation's message rows, so without GC a long-lived daemon accumulates
+ * one full-history copy per retrospective interval per active conversation.
+ *
+ * Called only AFTER `upsertRetrospectiveState` on the success path: deleting
+ * on failure would break the dedup chain (the failed run's conversation is
+ * cleaned up separately and the prior must remain the most-recent
+ * retrospective for the retry). Best-effort — deletion failure is logged and
+ * never fails the job. Operators opt out of GC entirely via
+ * `memory.retrospective.keepSupersededRuns`.
+ */
+function deleteSupersededPriorRetrospective(
+  config: AssistantConfig,
+  prior: { id: string } | null,
+): void {
+  if (!prior) return;
+  if (config.memory.retrospective.keepSupersededRuns) return;
+  try {
+    deleteConversation(prior.id);
+  } catch (err) {
+    log.warn(
+      { err, priorConversationId: prior.id },
+      "memory-retrospective: failed to delete superseded prior retrospective conversation; continuing",
+    );
+  }
+}
+
+/**
  * Walk the slice and return the `<turn_context>` `current_time:` value from
  * the first user message that carries one. Injected blocks like
  * `<turn_context>` are NOT persisted in message content — they live in
@@ -550,9 +589,11 @@ function findFirstTurnContextTimestamp(
 
 /**
  * Pull the `content` strings out of every `remember` tool call made in the
- * most recent prior retrospective conversation rooted at this source. Empty
- * array on first run (no prior retrospective) or when the prior run had no
- * `remember` calls (it found nothing to save).
+ * given prior retrospective conversation (located by the caller via
+ * `findMostRecentRetrospectiveFor` — the caller keeps the id so it can GC
+ * the prior run after success). Empty array on first run (no prior
+ * retrospective) or when the prior run had no `remember` calls (it found
+ * nothing to save).
  *
  * Two artifact shapes exist depending on which path produced the prior
  * retrospective:
@@ -573,9 +614,8 @@ function findFirstTurnContextTimestamp(
  * retrospective dedups against the one before it.
  */
 function collectPriorRetrospectiveRemembers(
-  sourceConversationId: string,
+  prior: { id: string } | null,
 ): string[] {
-  const prior = findMostRecentRetrospectiveFor(sourceConversationId);
   if (!prior) return [];
   let messages: ReturnType<typeof getMessages>;
   try {

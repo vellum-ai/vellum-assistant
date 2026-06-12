@@ -102,6 +102,15 @@ mock.module("../db-connection.js", () => ({
 
 let activeJobSourceConvIds = new Set<string>();
 let injectedNowMinusOrphanAgeMs = 0;
+let mockKeepSupersededRuns = false;
+
+mock.module("../../config/loader.js", () => ({
+  getConfig: () => ({
+    memory: {
+      retrospective: { keepSupersededRuns: mockKeepSupersededRuns },
+    },
+  }),
+}));
 
 mock.module("../conversation-crud.js", () => ({
   deleteConversation: (id: string) => {
@@ -142,6 +151,7 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
     deletedIds = [];
     activeJobSourceConvIds = new Set();
     injectedNowMinusOrphanAgeMs = 0;
+    mockKeepSupersededRuns = false;
   });
 
   afterEach(() => {
@@ -313,6 +323,37 @@ describe("sweepOrphanMemoryRetrospectiveConversations", () => {
 
   test("running across an empty workspace returns swept=0 without errors", () => {
     const result = sweepOrphanMemoryRetrospectiveConversations();
+    expect(result.swept).toBe(0);
+    expect(deletedIds).toEqual([]);
+  });
+
+  test("keepSupersededRuns=true skips the sweep entirely — sweepable orphans are retained", () => {
+    mockKeepSupersededRuns = true;
+    const now = Date.now();
+    injectedNowMinusOrphanAgeMs = now - ORPHAN_AGE_MS;
+    // Same shape as the first test's sweepable orphan — with the flag off
+    // this would be swept (older retro superseded by a newer one for the
+    // same source).
+    mockConversations = [
+      {
+        id: "old-orphan",
+        source: "memory-retrospective",
+        last_message_at: now - 2 * ORPHAN_AGE_MS,
+        fork_parent_conversation_id: "source-A",
+        created_at: now - 3 * ORPHAN_AGE_MS,
+      },
+      {
+        id: "newer-retro",
+        source: "memory-retrospective",
+        last_message_at: now - 90 * 60 * 1000,
+        fork_parent_conversation_id: "source-A",
+        created_at: now - 2 * ORPHAN_AGE_MS,
+      },
+    ];
+    rebuildActiveJobSet();
+
+    const result = sweepOrphanMemoryRetrospectiveConversations(now);
+
     expect(result.swept).toBe(0);
     expect(deletedIds).toEqual([]);
   });
