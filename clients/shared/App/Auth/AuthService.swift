@@ -52,6 +52,98 @@ public final class AuthService {
         try await request(AuthRequestConfig(path: "auth/session", method: "DELETE"))
     }
 
+    // MARK: - WorkOS app-held PKCE login
+
+    /// Fetch the headless auth config (`GET /_allauth/app/v1/config`) to
+    /// discover the WorkOS UM client id. Unauthenticated; the session-token
+    /// header (if any) is harmless here.
+    public func getConfig() async throws -> WorkOSPKCE.ConfigResponse {
+        guard let url = WorkOSPKCE.configURL(platformOrigin: VellumEnvironment.resolvedPlatformURL) else {
+            throw AuthServiceError.invalidURL
+        }
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "GET"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: urlRequest)
+        } catch {
+            throw AuthServiceError.networkError(error)
+        }
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        log.debug("Auth request GET config -> \(statusCode, privacy: .public)")
+        guard statusCode == 200 else {
+            throw WorkOSPKCE.PkceError.configFetchFailed("HTTP \(statusCode)")
+        }
+        do {
+            return try JSONDecoder().decode(WorkOSPKCE.ConfigResponse.self, from: data)
+        } catch {
+            throw AuthServiceError.decodingError(error)
+        }
+    }
+
+    /// Exchange the PKCE authorization code at WorkOS as a PUBLIC client
+    /// (POST JSON: client_id, grant_type, code, code_verifier — no secret,
+    /// no API key) and return the WorkOS `access_token`.
+    public func exchangeWorkOSCode(clientID: String, code: String, verifier: String) async throws -> String {
+        guard let url = WorkOSPKCE.codeExchangeURL() else {
+            throw AuthServiceError.invalidURL
+        }
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = try JSONSerialization.data(
+            withJSONObject: WorkOSPKCE.codeExchangeBody(clientID: clientID, code: code, verifier: verifier)
+        )
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: urlRequest)
+        } catch {
+            throw AuthServiceError.networkError(error)
+        }
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard statusCode == 200 else {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw WorkOSPKCE.PkceError.codeExchangeFailed("HTTP \(statusCode): \(body)")
+        }
+        return try WorkOSPKCE.parseAccessToken(data)
+    }
+
+    /// Exchange the WorkOS access token for a Django session token via the
+    /// allauth headless `POST /_allauth/app/v1/auth/provider/token` endpoint.
+    /// This is a login, so no existing session token is sent.
+    public func exchangeWorkOSAccessTokenForSession(clientID: String, accessToken: String) async throws -> String {
+        guard let url = WorkOSPKCE.sessionExchangeURL(platformOrigin: VellumEnvironment.resolvedPlatformURL) else {
+            throw AuthServiceError.invalidURL
+        }
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        urlRequest.httpBody = try JSONSerialization.data(
+            withJSONObject: WorkOSPKCE.sessionExchangeBody(clientID: clientID, accessToken: accessToken)
+        )
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: urlRequest)
+        } catch {
+            throw AuthServiceError.networkError(error)
+        }
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        log.debug("Auth request POST auth/provider/token -> \(statusCode, privacy: .public)")
+        guard statusCode == 200 else {
+            let body = String(data: data, encoding: .utf8) ?? ""
+            throw WorkOSPKCE.PkceError.sessionExchangeFailed("HTTP \(statusCode): \(body)")
+        }
+        return try WorkOSPKCE.parseSessionToken(data)
+    }
+
     // MARK: - Platform Organizations API
 
     /// Fetch the current user's organizations. Does not require Vellum-Organization-Id header.
