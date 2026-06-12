@@ -4513,7 +4513,7 @@ paths:
                                 additionalProperties: false
                             supportsVision:
                               type: boolean
-                          additionalProperties: false
+                          additionalProperties: {}
                       profileOrder:
                         type: array
                         items:
@@ -5017,7 +5017,7 @@ paths:
                                 additionalProperties: false
                             supportsVision:
                               type: boolean
-                          additionalProperties: false
+                          additionalProperties: {}
                       profileOrder:
                         type: array
                         items:

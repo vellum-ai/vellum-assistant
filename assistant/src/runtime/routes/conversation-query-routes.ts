@@ -470,7 +470,7 @@ function readPlainObject(value: unknown): Record<string, unknown> | undefined {
 
 const WireProfileEntry = ProfileEntry.extend({
   supportsVision: z.boolean().optional(),
-});
+}).passthrough();
 
 /**
  * Response schema for `GET /v1/config`.
