@@ -219,6 +219,11 @@ function clearIngressState(workspaceDir: string): void {
   saveRawConfig(workspaceDir, config);
 }
 
+function clearStoppedIngress(workspaceDir: string, pidPath: string): void {
+  clearIngressState(workspaceDir);
+  rmSync(pidPath, { force: true });
+}
+
 /**
  * Write the nginx config and spawn nginx detached (same idiom as the ngrok
  * spawn in ngrok.ts: stdout/stderr to a log file, fd closed after spawn,
@@ -281,25 +286,35 @@ export async function stopIngressNginx(workspaceDir: string): Promise<boolean> {
 
   const pid = readPidFile(pidPath);
   if (pid === null || !isPidAlive(pid) || !isNginxProcess(pid)) {
-    clearIngressState(workspaceDir);
-    rmSync(pidPath, { force: true });
+    clearStoppedIngress(workspaceDir, pidPath);
     return false;
   }
 
   try {
     process.kill(pid, "SIGTERM");
     if (!(await waitForPidExit(pid, STOP_TIMEOUT_MS))) {
-      process.kill(pid, "SIGKILL");
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        if (!isPidAlive(pid)) {
+          clearStoppedIngress(workspaceDir, pidPath);
+          return true;
+        }
+        return false;
+      }
       if (!(await waitForPidExit(pid, STOP_TIMEOUT_MS))) {
         return false;
       }
     }
   } catch {
+    if (!isPidAlive(pid)) {
+      clearStoppedIngress(workspaceDir, pidPath);
+      return true;
+    }
     return false;
   }
 
-  clearIngressState(workspaceDir);
-  rmSync(pidPath, { force: true });
+  clearStoppedIngress(workspaceDir, pidPath);
   return true;
 }
 

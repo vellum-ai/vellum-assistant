@@ -206,4 +206,28 @@ describe("nginx ingress process state", () => {
     });
     expect(existsSync(pidPath(ws))).toBe(true);
   });
+
+  test("clears ingress state when nginx exits before SIGTERM", async () => {
+    const ws = makeWorkspace();
+    const pid = 123_458;
+    let aliveChecks = 0;
+    writeIngressState(ws, 7841);
+    writePidFile(ws, pid);
+    execFileSyncMock.mockReturnValue("nginx: master process nginx");
+    process.kill = mock((targetPid: number, signal?: string | number) => {
+      if (targetPid !== pid) return originalKill(targetPid, signal);
+      if (signal === 0) {
+        aliveChecks++;
+        if (aliveChecks === 1) return true;
+        throw new Error("dead");
+      }
+      throw new Error("no such process");
+    }) as unknown as typeof process.kill;
+
+    await expect(stopIngressNginx(ws)).resolves.toBe(true);
+
+    const config = readConfig(ws);
+    expect((config.ingress as Record<string, unknown>).nginx).toBeUndefined();
+    expect(existsSync(pidPath(ws))).toBe(false);
+  });
 });
