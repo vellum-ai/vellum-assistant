@@ -12,9 +12,9 @@ import {
   type JobKey,
   type RatherKey,
 } from "@/cast/cast-content";
-import { COMPONENTS } from "@/cast/cast-roster";
+import { CAST as _CAST, COMPONENTS } from "@/cast/cast-roster";
 import { type MimeState, type Rect } from "@/cast/cast-hero";
-import { computeTransforms, resolveDefinitions } from "@/utils/avatar-svg-compositor";
+import { composeSvg as _composeSvg, computeTransforms, resolveDefinitions } from "@/utils/avatar-svg-compositor";
 import {
   kickoffJobContext,
   kickoffRatherContext,
@@ -48,7 +48,7 @@ interface CastCompletionData {
   credits: number;
 }
 
-type CastPhase = "login" | "starter" | "tone" | "vibe" | "brain" | "reach" | "email" | "handoff" | "job" | "rather" | "style" | "done";
+type CastPhase = "login" | "preamble" | "starter" | "dialogue" | "vibe" | "brain" | "email" | "job" | "rather" | "style" | "done";
 
 // ---------------------------------------------------------------------------
 // Shared layout helpers (same as cast-page.tsx)
@@ -221,6 +221,7 @@ function MemoryList({
 // Rendered inside the cast panel between character selection and jobs.
 // ---------------------------------------------------------------------------
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function ToneChoice({
   character,
   name: _name,
@@ -441,6 +442,7 @@ const BRAIN_PROMPTS: Record<BrainKey, string> = {
     "Export everything you know about me: preferences, habits, recurring topics, communication style, projects, personal details, and anything else you've learned from our conversations. Create a markdown (.md) file I can download.",
 };
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function BrainChoice({
   character,
   name: _name,
@@ -801,6 +803,7 @@ function pickSecondReachTool(fileContent: string | null, characterId: string): R
   return REACH_TOOLS[Math.abs(hash) % REACH_TOOLS.length];
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function ReachChoice({
   character,
   secondTool,
@@ -1027,6 +1030,7 @@ function sanitizeHandle(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9-]/g, "").replace(/^-+|-+$/g, "");
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function EmailChoice({
   character,
   name,
@@ -1175,6 +1179,7 @@ function deriveTaskSuggestions(memories: [string, string][]): string[] {
   return tasks.slice(0, 3);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function HandoffScreen({
   character,
   memories,
@@ -1273,16 +1278,619 @@ function RotatingWord({ words }: { words: string[] }) {
 }
 
 // ---------------------------------------------------------------------------
-// LoginScreen — mocked sign-in page shown before character selection
+// PreambleScreen — story introduction after login, before character selection
 // ---------------------------------------------------------------------------
 
-function LoginScreen({ onContinue }: { onContinue: () => void }) {
+function preambleGreeting(firstName: string) {
+  return `Nice to meet you, ${firstName}`;
+}
+
+function preambleLines() {
+  return [
+    "I\u2019m your new AI assistant. I can live in your browser, on your computer, in Gmail, Slack, or anywhere else you work.",
+    "I\u2019ll learn how you like things done and get better every day.",
+    "First, let\u2019s figure out who I am.",
+  ];
+}
+
+/**
+ * Preamble grid — a single cohesive grid anchored to each bottom corner.
+ * Every cell is the same size; some cells have a character outline, others are empty.
+ * The grid lines create the structure; characters just inhabit some cells.
+ */
+const GRID_COLS = 3;
+const GRID_ROWS = 5;
+const GRID_CELL = 110;
+
+// Grid layout: [row][col] = bodyShape or null. Row 0 = bottom.
+const LEFT_GRID: (string | null)[][] = [
+  ["sprout", "star",  "cloud"],
+  ["blob",   "ghost", null   ],
+  ["ninja",  null,    "burst"],
+  [null,     "flower", null  ],
+  ["urchin", null,    null   ],
+];
+
+const RIGHT_GRID: (string | null)[][] = [
+  ["stack",  "burst", "blob"  ],
+  [null,     "cloud", "flower"],
+  ["star",   "ninja", null    ],
+  [null,     "ghost", "sprout"],
+  [null,     null,    "urchin"],
+];
+
+const OUTLINE_COLOR = "rgba(70, 193, 120, 0.06)";
+const GRID_LINE_COLOR = "rgba(70, 193, 120, 0.03)";
+
+function PreambleGrid({ grid, side }: { grid: (string | null)[][]; side: "left" | "right" }) {
+  const width = GRID_COLS * GRID_CELL;
+  const height = GRID_ROWS * GRID_CELL;
+
+  const cells = useMemo(() => {
+    const out: { bodyShape: string; svgPath: string; viewBox: string; col: number; row: number }[] = [];
+    for (let row = 0; row < GRID_ROWS; row++) {
+      for (let col = 0; col < GRID_COLS; col++) {
+        const id = grid[row]?.[col];
+        if (!id) continue;
+        const shape = COMPONENTS.bodyShapes.find((b) => b.id === id);
+        if (!shape) continue;
+        out.push({
+          bodyShape: id,
+          svgPath: shape.svgPath,
+          viewBox: `0 0 ${shape.viewBox.width} ${shape.viewBox.height}`,
+          col,
+          row,
+        });
+      }
+    }
+    return out;
+  }, [grid]);
+
+  return (
+    <div
+      className={`cast-preamble__grid cast-preamble__grid--${side}`}
+      style={{ width, height }}
+    >
+      {/* Grid lines layer (masked with gradient) */}
+      <div className={`cast-preamble__lines cast-preamble__lines--${side}`}>
+        <svg className="cast-preamble__gridlines" viewBox={`0 0 ${width} ${height}`} width={width} height={height}>
+          {Array.from({ length: GRID_COLS + 1 }, (_, i) => {
+            if (side === "left" && i === GRID_COLS) return null;
+            if (side === "right" && i === 0) return null;
+            return <line key={`v${i}`} x1={i * GRID_CELL} y1={0} x2={i * GRID_CELL} y2={height} stroke={GRID_LINE_COLOR} strokeWidth={1} />;
+          })}
+          {Array.from({ length: GRID_ROWS + 1 }, (_, i) => {
+            if (i === 0) return null;
+            return <line key={`h${i}`} x1={0} y1={i * GRID_CELL} x2={width} y2={i * GRID_CELL} stroke={GRID_LINE_COLOR} strokeWidth={1} />;
+          })}
+        </svg>
+      </div>
+      {/* Character outlines (no mask) */}
+      {cells.map((cell, i) => (
+        <div
+          key={i}
+          className="cast-preamble__cell"
+          style={{
+            width: GRID_CELL,
+            height: GRID_CELL,
+            left: cell.col * GRID_CELL,
+            top: (GRID_ROWS - 1 - cell.row) * GRID_CELL,
+          }}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox={cell.viewBox} width="100%" height="100%">
+            <path d={cell.svgPath} fill="none" stroke={OUTLINE_COLOR} strokeWidth={12} />
+          </svg>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PreambleBoxes() {
+  return (
+    <div className="cast-preamble__boxes" aria-hidden>
+      <PreambleGrid grid={LEFT_GRID} side="left" />
+      <PreambleGrid grid={RIGHT_GRID} side="right" />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SetupShell — persistent visual shell for preamble → starter → dialogue.
+// Renders the dark green gradient background, topbar, and grid boxes once.
+// Center content swaps via AnimatePresence.
+// ---------------------------------------------------------------------------
+
+function SetupShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="cast-setup-shell">
+      <div className="cast-preamble__topbar">
+        <img
+          src={publicAsset("/images/vellum-pill.svg")}
+          alt="Vellum"
+          width={100}
+          height={36}
+        />
+        <span className="cast-preamble__setup-label">Setting up your assistant</span>
+      </div>
+      <PreambleBoxes />
+      <div className="cast-setup-shell__content">
+        <AnimatePresence mode="wait">
+          {children}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}
+
+/** Green rounded square with "?" — preamble speaker placeholder. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function GhostAvatar() {
+  return (
+    <span className="cast-vn__ghost">
+      <span className="cast-vn__ghost-q">?</span>
+    </span>
+  );
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const LOADING_MESSAGES = [
+  "Warming up\u2026",
+  "Getting things ready\u2026",
+  "Almost there\u2026",
+];
+
+function PreambleScreen({ firstName, onContinue }: { firstName: string; onContinue: () => void }) {
+  const greeting = useMemo(() => preambleGreeting(firstName), [firstName]);
+  const lines = useMemo(() => preambleLines(), []);
+  const totalLen = useMemo(() => lines.reduce((n, l) => n + l.length, 0), [lines]);
+  const [charCount, setCharCount] = useState(0);
+  const typed = charCount >= totalLen;
+
+  useEffect(() => {
+    if (typed) return;
+    const id = window.setTimeout(() => setCharCount((c) => c + 1), 50);
+    return () => clearTimeout(id);
+  }, [charCount, typed]);
+
+  function handleClick() {
+    if (!typed) {
+      setCharCount(totalLen);
+      return;
+    }
+    onContinue();
+  }
+
+  let remaining = charCount;
+  const revealed: string[] = [];
+  const reached: boolean[] = [];
+  for (const line of lines) {
+    reached.push(remaining > 0);
+    revealed.push(remaining > 0 ? line.slice(0, remaining) : "");
+    remaining -= line.length;
+  }
+  const typingLineIdx = typed ? -1 : revealed.findIndex((r, i) => r.length < lines[i].length && reached[i]);
+
+  // Typewriter for the greeting heading
+  const [greetCharCount, setGreetCharCount] = useState(0);
+  const greetTyped = greetCharCount >= greeting.length;
+
+  useEffect(() => {
+    if (greetTyped) return;
+    const id = window.setTimeout(() => setGreetCharCount((c) => c + 1), 65);
+    return () => clearTimeout(id);
+  }, [greetCharCount, greetTyped]);
+
+  // Don't start body typewriter until greeting is done
+  const bodyStarted = greetTyped;
+
+  return (
+    <motion.div
+      key="preamble"
+      className="cast-vn cast-vn--centered cast-vn--clickable cast-vn--embedded"
+      onClick={handleClick}
+      initial={{ opacity: 0, y: 40 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -40 }}
+      transition={{ duration: 0.5, ease: "easeOut" }}
+    >
+      <div className="cast-vn__bottom" style={{ position: "relative" }}>
+        {/* Invisible full content to reserve final dimensions */}
+        <div aria-hidden className="cast-vn__bottom" style={{ visibility: "hidden" }}>
+          <h2 className="cast-about__heading" style={{ textAlign: "left" }}>{greeting}</h2>
+          {lines.map((line, i) => (
+            <p key={i} className="cast-vn__text">{line}</p>
+          ))}
+          <span className="cast-vn__advance">Next &#9660;</span>
+        </div>
+        {/* Visible typed overlay */}
+        <div className="cast-vn__bottom" style={{ position: "absolute", inset: 0 }}>
+          <h2 className="cast-about__heading" style={{ textAlign: "left" }}>
+            {greeting.slice(0, greetCharCount)}
+            {!greetTyped && <span className="cast-vn__cursor">|</span>}
+          </h2>
+          {bodyStarted && lines.map((line, i) => {
+            if (!reached[i]) return null;
+            return (
+              <p key={i} className="cast-vn__text">
+                {revealed[i]}
+                {i === typingLineIdx && <span className="cast-vn__cursor">|</span>}
+              </p>
+            );
+          })}
+          {typed && <span className="cast-vn__advance">Next &#9660;</span>}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// VNDialogueFlow — unified Visual Novel dialogue replacing preamble, tone,
+// reach, and handoff as one bottom-anchored dialogue scene.
+// ---------------------------------------------------------------------------
+
+interface VNDialogueFlowProps {
+  character: CastCharacter;
+  name: string;
+  userName: string;
+  brainFileContent: string | null;
+  memories: [string, string][];
+  onTonePicked: (value: "fast" | "deep") => void;
+  onReachPicked: (connected: string[], creditsEarned: number) => void;
+  onComplete: () => void;
+  onBack: () => void;
+  embedded?: boolean;
+}
+
+type VNStep =
+  | { kind: "tone" }
+  | { kind: "tone-react"; value: "fast" | "deep" }
+  | { kind: "reach" }
+  | { kind: "reach-react"; connected: number }
+  | { kind: "handoff" }
+  | { kind: "handoff-ready" };
+
+function vnDialogueText(step: VNStep, _name: string): string {
+  if (step.kind === "tone") return "How do I talk?";
+  if (step.kind === "tone-react") {
+    return step.value === "fast"
+      ? "Short and sharp. Got it."
+      : "I\u2019ll take my time and explain everything.";
+  }
+  if (step.kind === "reach") return "Where should I start working?";
+  if (step.kind === "reach-react") {
+    return step.connected > 0
+      ? "Nice, we\u2019re connected. This is going to be good."
+      : "No worries, we can set those up later.";
+  }
+  if (step.kind === "handoff-ready") return "I put together a workspace for you. Go take a look.";
+  return "I did some research while we were talking. One sec\u2026";
+}
+
+function VNDialogueFlow({
+  character,
+  name,
+  userName,
+  brainFileContent,
+  memories: _memories,
+  onTonePicked,
+  onReachPicked,
+  onComplete,
+  onBack,
+  embedded,
+}: VNDialogueFlowProps) {
+  const [step, setStep] = useState<VNStep>({ kind: "tone" });
+  const [charCount, setCharCount] = useState(0);
+  const [typed, setTyped] = useState(false);
+  const [tonePick, setTonePick] = useState<"left" | "right" | null>(null);
+  const [reachConnected, setReachConnected] = useState<Set<string>>(new Set());
+  const [loadingStepIdx, setLoadingStepIdx] = useState(0);
+  const loadingSteps = useMemo(() => [
+    `Learning about ${userName}\u2026`,
+    "Reading public profiles\u2026",
+    "Looking for hobbies\u2026",
+    "Checking work history\u2026",
+    "Analyzing communication style\u2026",
+    "Mapping daily routines\u2026",
+    "Finding relevant tools\u2026",
+    "Setting up integrations\u2026",
+    "Configuring preferences\u2026",
+    "Building shortcuts\u2026",
+    "Optimizing workflows\u2026",
+    "Preparing suggestions\u2026",
+    "Personalizing the workspace\u2026",
+    "Final touches\u2026",
+  ], [userName]);
+
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => { onCompleteRef.current = onComplete; });
+
+  const text = vnDialogueText(step, name);
+
+  // Reach tools (same logic as ReachChoice)
+  const secondTool = useMemo(
+    () => pickSecondReachTool(brainFileContent, character.id),
+    [brainFileContent, character.id],
+  );
+  const reachTools = useMemo(
+    () => [
+      {
+        key: "google-calendar",
+        label: "Google Calendar",
+        icon: <img src={publicAsset("/images/integrations/google-calendar.svg")} alt="Google Calendar" width={32} height={32} />,
+      },
+      { key: secondTool.key, label: secondTool.label, icon: secondTool.icon },
+    ],
+    [secondTool],
+  );
+
+  // --- Typewriter effect ---
+  useEffect(() => {
+    if (typed) return;
+    if (charCount < text.length) {
+      const id = window.setTimeout(() => setCharCount((c) => c + 1), 18);
+      return () => clearTimeout(id);
+    }
+    setTyped(true);
+  }, [charCount, text, typed]);
+
+  // Reset typewriter on step change
+  const stepKey = step.kind;
+  useEffect(() => {
+    setCharCount(0);
+    setTyped(false);
+  }, [stepKey]);
+
+  // Cycle through loading steps during handoff
+  useEffect(() => {
+    if (step.kind !== "handoff" || !typed) return;
+    if (loadingStepIdx >= loadingSteps.length) {
+      // Loading done — advance to handoff-ready so the new text types out
+      setStep({ kind: "handoff-ready" });
+      return;
+    }
+    const id = window.setTimeout(() => setLoadingStepIdx((i) => i + 1), 1500);
+    return () => clearTimeout(id);
+  }, [step.kind, typed, loadingStepIdx, loadingSteps.length]);
+
+  // Auto-advance from react steps after typewriter completes
+  useEffect(() => {
+    if (!typed) return;
+    if (step.kind === "tone-react") {
+      const id = window.setTimeout(() => setStep({ kind: "reach" }), 1800);
+      return () => clearTimeout(id);
+    }
+    if (step.kind === "reach-react") {
+      const id = window.setTimeout(() => setStep({ kind: "handoff" }), 1800);
+      return () => clearTimeout(id);
+    }
+    if (step.kind === "handoff-ready") {
+      const id = window.setTimeout(() => onCompleteRef.current(), 2200);
+      return () => clearTimeout(id);
+    }
+  }, [step.kind, typed]);
+
+  // --- Tone choice ---
+  function handleToneChoice(side: "left" | "right") {
+    if (tonePick) return;
+    setTonePick(side);
+    const value = side === "left" ? "fast" : "deep";
+    onTonePicked(value);
+    setTimeout(() => setStep({ kind: "tone-react", value }), 200);
+  }
+
+  // --- Reach connect ---
+  function handleReachConnect(key: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    setReachConnected((prev) => {
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+  }
+
+  function handleReachContinue(e: React.MouseEvent) {
+    e.stopPropagation();
+    const connected = [...reachConnected];
+    onReachPicked(connected, connected.length > 0 ? 25 : 0);
+    setStep({ kind: "reach-react", connected: connected.length });
+  }
+
+  const vnCls = embedded ? "cast-vn cast-vn--top cast-vn--embedded" : "cast-vn cast-vn--top";
+
+  const vnContent = (
+    <div className={vnCls}>
+      {/* Back button */}
+      <button className="cast-back" onClick={(e) => { e.stopPropagation(); onBack(); }} aria-label="Back">
+        ‹
+      </button>
+
+      {/* Top-anchored dialogue area */}
+      <div className="cast-vn__top">
+        {/* Avatar + name header */}
+        <div className="cast-vn__header">
+          <div className="cast-vn__header-avatar">
+            <BlinkingAvatar character={character} />
+          </div>
+          <span className="cast-vn__speaker">{name}</span>
+        </div>
+
+        {/* Dialogue box */}
+        <div className="cast-vn__box">
+          <p className="cast-vn__text">
+            {text.slice(0, charCount)}
+            {!typed && <span className="cast-vn__cursor">|</span>}
+          </p>
+        </div>
+
+        {/* Tone choices */}
+        {step.kind === "tone" && typed && (
+          <div className="cast-vn__choices">
+            {(["left", "right"] as const).map((side) => {
+              const label = side === "left" ? "Get to the point" : "Explain everything";
+              const isPicked = tonePick === side;
+              const isUnpicked = tonePick !== null && !isPicked;
+              return (
+                <motion.button
+                  key={side}
+                  className={`cast-vs${isPicked ? " cast-vs--selected" : ""}`}
+                  onClick={(e) => { e.stopPropagation(); handleToneChoice(side); }}
+                  animate={
+                    isUnpicked
+                      ? { opacity: 0.4 }
+                      : { opacity: 1 }
+                  }
+                  transition={{ duration: 0.3, ease: "easeOut" }}
+                  whileHover={tonePick ? undefined : { y: -6 }}
+                  whileTap={tonePick ? undefined : { scale: 0.97 }}
+                >
+                  {label}
+                </motion.button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Reach tool cards */}
+        {step.kind === "reach" && typed && (
+          <>
+            <div className="cast-vn__choices">
+              {reachTools.map((tool) => {
+                const isConnected = reachConnected.has(tool.key);
+                return (
+                  <motion.button
+                    key={tool.key}
+                    className="cast-vs"
+                    onClick={(e) => !isConnected && handleReachConnect(tool.key, e)}
+                    whileHover={isConnected ? undefined : { y: -6 }}
+                    whileTap={isConnected ? undefined : { scale: 0.97 }}
+                    style={{
+                      flexDirection: "column",
+                      gap: 10,
+                      position: "relative",
+                      opacity: isConnected ? 0.85 : 1,
+                      cursor: isConnected ? "default" : "pointer",
+                    }}
+                  >
+                    {tool.icon}
+                    {tool.label}
+                    {isConnected && (
+                      <span
+                        className="cast-brain-connected__tag"
+                        style={{
+                          color: "var(--content-default)",
+                          background: "color-mix(in srgb, var(--content-default) 10%, transparent)",
+                          position: "absolute",
+                          top: 8,
+                          right: 8,
+                        }}
+                      >
+                        Connected
+                      </span>
+                    )}
+                  </motion.button>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              className="cast-vn__advance"
+              onClick={handleReachContinue}
+            >
+              Next &#9660;
+            </button>
+          </>
+        )}
+
+        {/* Handoff loading states */}
+        {step.kind === "handoff" && typed && (
+          <div className="cast-vn__loading">
+            <div className="cast-vn__loading-indicator">
+              <span className="cast-vn__loading-dot" />
+              <span className="cast-vn__loading-dot" />
+              <span className="cast-vn__loading-dot" />
+            </div>
+            <AnimatePresence mode="wait">
+              <motion.p
+                key={loadingStepIdx}
+                className="cast-vn__loading-text"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.25 }}
+              >
+                {loadingSteps[loadingStepIdx]}
+              </motion.p>
+            </AnimatePresence>
+          </div>
+        )}
+      </div>
+
+    </div>
+  );
+
+  if (embedded) {
+    return (
+      <motion.div
+        key="dialogue"
+        initial={{ opacity: 0, y: 40 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -40 }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
+        style={{ width: "100%", height: "100%" }}
+      >
+        {vnContent}
+      </motion.div>
+    );
+  }
+
+  return vnContent;
+}
+
+// ---------------------------------------------------------------------------
+// LoginScreen — sign-in page + inline "about you" dialog form
+// ---------------------------------------------------------------------------
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const ABOUT_ROLES = [
+  "Software Engineer",
+  "Product Lead",
+  "Designer",
+  "GTM Engineer",
+  "Finance Ops",
+  "Household Manager",
+  "Founder",
+  "Other",
+];
+
+function LoginScreen({ onContinue }: { onContinue: (firstName: string) => void }) {
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [firstName, setFirstName] = useState("Anita");
+  const [lastName, setLastName] = useState("Kirkovska");
+  const [role, setRole] = useState("");
+  const [revealed, setRevealed] = useState(2); // name fields pre-filled from OAuth
   const [exiting, setExiting] = useState(false);
 
+  // Reveal continue button when role gets content
+  useEffect(() => {
+    if (revealed < 3 && role.length > 0) setRevealed(3);
+  }, [role, revealed]);
+
+  const showLastName = true;
+  const showRole = true;
+  const showContinue = true;
+
+  function handleLogin() {
+    if (loggedIn) return;
+    setLoggedIn(true);
+  }
+
   function handleContinue() {
-    if (exiting) return;
+    if (exiting || !firstName.trim() || !lastName.trim() || !role.trim()) return;
     setExiting(true);
-    setTimeout(onContinue, 450);
+    setTimeout(() => onContinue(firstName.trim()), 450);
   }
 
   const buttons = [
@@ -1323,63 +1931,155 @@ function LoginScreen({ onContinue }: { onContinue: () => void }) {
         </motion.div>
 
         <div className="cast-login__form">
-          <motion.h1
-            className="cast-login__title"
-            initial={{ opacity: 0, y: 12 }}
-            animate={exiting ? { opacity: 0, y: 8 } : { opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: exiting ? 0 : 0.2 }}
-          >
-            Meet your own<br />
-            <RotatingWord words={["Personal Intelligence", "Software Engineer", "Finance Ops", "Household Manager", "GTM Engineer", "Product Lead"]} />
-          </motion.h1>
-          <motion.p
-            className="cast-login__subtitle"
-            initial={{ opacity: 0, y: 10 }}
-            animate={exiting ? { opacity: 0 } : { opacity: 1, y: 0 }}
-            transition={{ duration: 0.35, delay: exiting ? 0 : 0.3 }}
-          >
-            The most powerful assistant that can handle your work and life admin tasks.
-          </motion.p>
-
-          <div className="cast-login__buttons">
-            {buttons.map((btn, i) => (
-              <motion.button
-                key={btn.label}
-                className="cast-login__btn"
-                onClick={handleContinue}
-                initial={{ opacity: 0, y: 8 }}
-                animate={exiting ? { opacity: 0 } : { opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: exiting ? 0 : 0.38 + i * 0.08 }}
+          <AnimatePresence mode="wait">
+            {!loggedIn ? (
+              <motion.div
+                key="signup"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.3 }}
               >
-                {i === 0 && <span className="cast-login__tag">Most used</span>}
-                {btn.icon}
-                {btn.label}
-              </motion.button>
-            ))}
-          </div>
+                <motion.h1
+                  className="cast-login__title"
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4, delay: 0.2 }}
+                >
+                  Meet your own<br />
+                  <RotatingWord words={["Personal Intelligence", "Software Engineer", "Finance Ops", "Household Manager", "GTM Engineer", "Product Lead"]} />
+                </motion.h1>
+                <motion.p
+                  className="cast-login__subtitle"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.35, delay: 0.3 }}
+                >
+                  The most powerful assistant that can handle your work and life admin tasks.
+                </motion.p>
 
-          <motion.p
-            className="cast-login__footer"
-            initial={{ opacity: 0 }}
-            animate={exiting ? { opacity: 0 } : { opacity: 1 }}
-            transition={{ duration: 0.3, delay: exiting ? 0 : 0.65 }}
-          >
-            Don't have an account?{" "}
-            <button className="cast-login__link" onClick={handleContinue}>
-              Sign up
-            </button>
-          </motion.p>
+                <div className="cast-login__buttons">
+                  {buttons.map((btn, i) => (
+                    <motion.button
+                      key={btn.label}
+                      className="cast-login__btn"
+                      onClick={handleLogin}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3, delay: 0.38 + i * 0.08 }}
+                    >
+                      {i === 0 && <span className="cast-login__tag">Most used</span>}
+                      {btn.icon}
+                      {btn.label}
+                    </motion.button>
+                  ))}
+                </div>
 
-          <motion.button
-            className="cast-login__download"
-            onClick={handleContinue}
-            initial={{ opacity: 0 }}
-            animate={exiting ? { opacity: 0 } : { opacity: 1 }}
-            transition={{ duration: 0.3, delay: exiting ? 0 : 0.75 }}
-          >
-            <AppleLogo size={16} />
-            Download for macOS
-          </motion.button>
+                <motion.p
+                  className="cast-login__footer"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.3, delay: 0.65 }}
+                >
+                  Don't have an account?{" "}
+                  <button className="cast-login__link" onClick={handleLogin}>
+                    Sign up
+                  </button>
+                </motion.p>
+
+                <motion.button
+                  className="cast-login__download"
+                  onClick={handleLogin}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.3, delay: 0.75 }}
+                >
+                  <AppleLogo size={16} />
+                  Download for macOS
+                </motion.button>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="about"
+                className="cast-about__thread"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4 }}
+              >
+                <h2 className="cast-about__heading">Almost there,<br />one more detail</h2>
+
+                <motion.div
+                  className="cast-about__step"
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.35, delay: 0.15 }}
+                >
+                  <span className="cast-about__label">What should I call you? <span className="cast-about__req">*</span></span>
+                  <input
+                    className="cast-about__input"
+                    type="text"
+                    placeholder="First name"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    autoFocus
+                  />
+                </motion.div>
+
+                {showLastName && (
+                  <motion.div
+                    className="cast-about__step"
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.35 }}
+                  >
+                    <span className="cast-about__label">And your last name? <span className="cast-about__req">*</span></span>
+                    <input
+                      className="cast-about__input"
+                      type="text"
+                      placeholder="Last name"
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                    />
+                  </motion.div>
+                )}
+
+                {showRole && (
+                  <motion.div
+                    className="cast-about__step"
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.35 }}
+                  >
+                    <span className="cast-about__label">Your role <span className="cast-about__req">*</span></span>
+                    <input
+                      className="cast-about__input"
+                      type="text"
+                      placeholder="e.g. Software Engineer"
+                      value={role}
+                      onChange={(e) => setRole(e.target.value)}
+                    />
+                  </motion.div>
+                )}
+
+                {showContinue && (
+                  <motion.div
+                    className="cast-about__step"
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.35 }}
+                  >
+                    <button
+                      className="cast-about__continue"
+                      onClick={handleContinue}
+                      disabled={!firstName.trim() || !lastName.trim() || !role.trim()}
+                    >
+                      Continue &rarr;
+                    </button>
+                  </motion.div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
@@ -1413,6 +2113,7 @@ function InteractiveCastFlow({ onComplete }: { onComplete: (data: CastCompletion
   const panelRef = useRef<HTMLDivElement>(null);
 
   const [phase, setPhase] = useState<CastPhase>("login");
+  const [userFirstName, setUserFirstName] = useState("");
   const [selected, setSelected] = useState<CastCharacter | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
   const [customizing, setCustomizing] = useState(false);
@@ -1442,6 +2143,10 @@ function InteractiveCastFlow({ onComplete }: { onComplete: (data: CastCompletion
     setMemories((prev) => [...prev.filter(([s]) => s !== step), [step, text]]);
     setTypingStep(step);
     pendingPhaseRef.current = nextPhase;
+  }
+
+  function recordMemory(step: string, text: string) {
+    setMemories((prev) => [...prev.filter(([s]) => s !== step), [step, text]]);
   }
 
   function onMemoryTyped() {
@@ -1487,7 +2192,8 @@ function InteractiveCastFlow({ onComplete }: { onComplete: (data: CastCompletion
     setSelected(char);
     setNames((prev) => ({ ...prev, [char.id]: chosenName }));
     convo.seedGreeting(chosenName);
-    addMemory("face", `Look & feel: ${chosenName}`, "tone");
+    addMemory("face", `Look & feel: ${chosenName}`, "dialogue");
+    setPhase("dialogue");
   }
 
   function reopenCustomize() {
@@ -1558,89 +2264,61 @@ function InteractiveCastFlow({ onComplete }: { onComplete: (data: CastCompletion
     setPhase("done");
   }
 
+  const isShellPhase = phase === "preamble" || phase === "starter" || phase === "dialogue";
+
   return (
     <div className="cast-panel" ref={panelRef}>
-      {phase === "login" && <LoginScreen onContinue={() => setPhase("starter")} />}
+      {phase === "login" && <LoginScreen onContinue={(fn) => { setUserFirstName(fn); setPhase("preamble"); }} />}
 
-      {phase === "starter" && <CastStarter resume={resume} onChoose={chooseStarter} onCustomizing={setCustomizing} />}
+      {isShellPhase && (
+        <SetupShell>
+          {phase === "preamble" && (
+            <PreambleScreen firstName={userFirstName} onContinue={() => setPhase("starter")} />
+          )}
 
-      {phase === "tone" && selected && (
-        <ToneChoice
-          character={selected}
-          name={name}
-          onPick={(value) =>
-            addMemory(
-              "tone",
-              value === "fast"
-                ? "Communication style: concise and direct"
-                : "Communication style: thorough and detailed",
-              "reach",
-            )
-          }
-          onBack={reopenCustomize}
-        />
-      )}
+          {phase === "starter" && (
+            <CastStarter resume={resume} onChoose={chooseStarter} onCustomizing={setCustomizing} embedded />
+          )}
 
-      {phase === "brain" && selected && (
-        <BrainChoice
-          character={selected}
-          name={name}
-          onPick={(value, fileContent) => {
-            setBrainFileContent(fileContent);
-            if (fileContent) {
-              setEarnedCredits((prev) => prev + 50);
-            }
-            const labels: Record<BrainKey, string> = {
-              chatgpt: "Import from: ChatGPT",
-              claude: "Import from: Claude",
-              gemini: "Import from: Gemini",
-            };
-            addMemory("brain", labels[value], "reach");
-          }}
-          onBack={() => setPhase("tone")}
-        />
-      )}
-
-      {phase === "reach" && selected && (
-        <ReachChoice
-          character={selected}
-          secondTool={pickSecondReachTool(brainFileContent, selected.id)}
-          onPick={(connected) => {
-            if (connected.length > 0) {
-              setEarnedCredits((prev) => prev + 25);
-            }
-            addMemory(
-              "reach",
-              connected.length > 0
-                ? `Connected: ${connected.map((k) => {
-                    if (k === "google-calendar") return "Google Calendar";
-                    return REACH_TOOLS.find((t) => t.key === k)?.label ?? k;
-                  }).join(", ")}`
-                : "Tools: skipped",
-              "handoff",
-            );
-          }}
-          onBack={() => setPhase("tone")}
-        />
-      )}
-
-      {phase === "email" && selected && (
-        <EmailChoice
-          character={selected}
-          name={name}
-          onPick={(localPart) => {
-            addMemory(
-              "email",
-              localPart ? `Email: ${localPart}.vellum.me` : "Email: skipped",
-              "handoff",
-            );
-          }}
-          onBack={() => setPhase("reach")}
-        />
+          {phase === "dialogue" && selected && (
+            <VNDialogueFlow
+              character={selected}
+              name={name}
+              userName={userFirstName}
+              brainFileContent={brainFileContent}
+              memories={memories}
+              embedded
+              onTonePicked={(value) =>
+                recordMemory(
+                  "tone",
+                  value === "fast"
+                    ? "Communication style: concise and direct"
+                    : "Communication style: thorough and detailed",
+                )
+              }
+              onReachPicked={(connected, credits) => {
+                if (credits > 0) setEarnedCredits((prev) => prev + credits);
+                recordMemory(
+                  "reach",
+                  connected.length > 0
+                    ? `Connected: ${connected.map((k) => {
+                        if (k === "google-calendar") return "Google Calendar";
+                        return REACH_TOOLS.find((t) => t.key === k)?.label ?? k;
+                      }).join(", ")}`
+                    : "Tools: skipped",
+                );
+              }}
+              onComplete={() =>
+                onComplete({ character: selected, name, jobs, rathers, style, credits: earnedCredits })
+              }
+              onBack={reopenCustomize}
+            />
+          )}
+        </SetupShell>
       )}
 
       <AnimatePresence>
-        {((phase === "starter" && customizing) || phase === "tone" || phase === "reach") && (
+        {phase === "starter" && customizing && (
             <MemoryList
               key="memory-list"
               entries={memories}
@@ -1650,16 +2328,6 @@ function InteractiveCastFlow({ onComplete }: { onComplete: (data: CastCompletion
             />
           )}
       </AnimatePresence>
-
-      {phase === "handoff" && selected && (
-        <HandoffScreen
-          character={selected}
-          memories={memories}
-          onComplete={() => {
-            onComplete({ character: selected, name, jobs, rathers, style, credits: earnedCredits });
-          }}
-        />
-      )}
 
       {phase === "style" && selected && (
         <CastTwoPanel
@@ -1673,7 +2341,7 @@ function InteractiveCastFlow({ onComplete }: { onComplete: (data: CastCompletion
               onChoose={(value) => convo.send(styleTurn(value))}
               onRoundPicked={onStyleRound}
               onDone={onStyleDone}
-              onBack={() => setPhase("reach")}
+              onBack={() => setPhase("dialogue")}
             />
           }
           right={<CastConversationView messages={convo.messages} assistantName={name} />}
@@ -1710,6 +2378,35 @@ function InteractiveCastFlow({ onComplete }: { onComplete: (data: CastCompletion
 // ---------------------------------------------------------------------------
 // InteractiveSetup — top-level orchestrator
 // ---------------------------------------------------------------------------
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function CastThemeToggle({ theme, onToggle }: { theme: "dark" | "light"; onToggle: () => void }) {
+  return (
+    <button
+      className="cast-theme-toggle"
+      onClick={onToggle}
+      aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+    >
+      {theme === "dark" ? (
+        <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="5" />
+          <line x1="12" y1="1" x2="12" y2="3" />
+          <line x1="12" y1="21" x2="12" y2="23" />
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+          <line x1="1" y1="12" x2="3" y2="12" />
+          <line x1="21" y1="12" x2="23" y2="12" />
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+        </svg>
+      ) : (
+        <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        </svg>
+      )}
+    </button>
+  );
+}
 
 export function InteractiveSetup() {
   const navigate = useNavigate();
