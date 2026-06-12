@@ -280,4 +280,37 @@ describe("vellum wake", () => {
     expect(resetGuardianBootstrapMock).not.toHaveBeenCalled();
     expect(leaseGuardianTokenMock).not.toHaveBeenCalled();
   });
+
+  test("re-provisions when the persisted token's refresh token has expired", async () => {
+    // The 401 connect failure: a token file exists but can no longer mint
+    // access tokens. --repair-guardian must treat it like a missing token,
+    // not report success while leaving the broken file in place.
+    process.argv = ["bun", "vellum", "wake", "--repair-guardian", "local-assistant"];
+    loadGuardianTokenMock.mockReturnValue({
+      accessToken: "stale",
+      refreshTokenExpiresAt: Date.now() - 60_000,
+    } as ReturnType<typeof guardianToken.loadGuardianToken>);
+
+    await wake();
+
+    expect(resetGuardianBootstrapMock).toHaveBeenCalled();
+    expect(leaseGuardianTokenMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:7830",
+      "local-assistant",
+      "generated-bootstrap-secret",
+    );
+  });
+
+  test("skips re-provision when the persisted token's refresh token is still valid", async () => {
+    process.argv = ["bun", "vellum", "wake", "--repair-guardian", "local-assistant"];
+    loadGuardianTokenMock.mockReturnValue({
+      accessToken: "fresh",
+      refreshTokenExpiresAt: Date.now() + 60_000,
+    } as ReturnType<typeof guardianToken.loadGuardianToken>);
+
+    await wake();
+
+    expect(resetGuardianBootstrapMock).not.toHaveBeenCalled();
+    expect(leaseGuardianTokenMock).not.toHaveBeenCalled();
+  });
 });
