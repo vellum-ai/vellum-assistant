@@ -19,6 +19,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CallSiteOverrideDraft, DaemonConfig, DaemonConfigPatch, ProfileEntry } from "@/domains/settings/ai/ai-types";
 import { applyConfigPatch, assertProvisionSuccess, buildOrderedProfiles, snapshotPatchedFields } from "@/domains/settings/ai/ai-utils";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import type { ConfigPatchData } from "@/generated/daemon/types.gen";
 import { configGet, configPatch, secretsPost } from "@/generated/daemon/sdk.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
@@ -142,7 +143,7 @@ export function useDaemonConfigMutation() {
       const resolvedId = await resolveAssistantId();
       const { data } = await configPatch({
         path: { assistant_id: resolvedId },
-        body,
+        body: body as ConfigPatchData["body"],
         throwOnError: true,
       });
       return { data, resolvedId };
