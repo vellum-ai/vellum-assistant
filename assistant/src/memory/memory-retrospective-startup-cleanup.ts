@@ -29,6 +29,9 @@
 //     retro via `findMostRecentRetrospectiveFor` to seed its
 //     `<already_remembered>` dedup block; sweeping it would force the
 //     next run to re-save facts the prior pass already captured.
+//
+// The sweep is skipped entirely when `memory.retrospective.keepSupersededRuns`
+// is true — see the comment inside the function.
 
 import {
   and,
@@ -42,6 +45,7 @@ import {
   sql,
 } from "drizzle-orm";
 
+import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { deleteConversation } from "./conversation-crud.js";
 import { getDb } from "./db-connection.js";
@@ -65,6 +69,16 @@ export interface CleanupResult {
 export function sweepOrphanMemoryRetrospectiveConversations(
   now: number = Date.now(),
 ): CleanupResult {
+  // When the operator opted into retaining superseded retrospective runs
+  // (`memory.retrospective.keepSupersededRuns`), skip the sweep entirely —
+  // retained runs must survive restarts, and the sweep cannot distinguish a
+  // retained superseded run from a crash orphan. Tradeoff: under this opt-in,
+  // genuine crash orphans persist too. That's acceptable — the operator asked
+  // for full run history, and an orphan is just one more retained conversation.
+  if (getConfig().memory?.retrospective?.keepSupersededRuns === true) {
+    return { swept: 0 };
+  }
+
   const cutoff = now - ORPHAN_AGE_MS;
   const db = getDb();
 

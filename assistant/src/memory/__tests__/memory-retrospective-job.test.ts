@@ -47,6 +47,7 @@ let wakeCalls: Array<{
 let bootstrappedConversationId = "bg-conv-new";
 let bootstrapCalls: Array<{ forkParentConversationId?: string }> = [];
 let deletedConversationIds: string[] = [];
+let deleteConversationThrowsFor: string | null = null;
 
 // Fork-path mocks. Flag off by default so legacy-path tests stay untouched.
 let forkFlagEnabled = false;
@@ -148,6 +149,9 @@ mock.module("../conversation-crud.js", () => ({
     addMessageCalls.push({ conversationId, role, content, options });
   },
   deleteConversation: (id: string) => {
+    if (deleteConversationThrowsFor === id) {
+      throw new Error(`delete failed for ${id}`);
+    }
     deletedConversationIds.push(id);
   },
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
@@ -231,10 +235,19 @@ import type { MemoryJob } from "../jobs-store.js";
 import { memoryRetrospectiveJob } from "../memory-retrospective-job.js";
 
 function makeConfig(
-  overrides: { userTimezone?: string; detectedTimezone?: string } = {},
+  overrides: {
+    userTimezone?: string;
+    detectedTimezone?: string;
+    keepSupersededRuns?: boolean;
+  } = {},
 ): Parameters<typeof memoryRetrospectiveJob>[1] {
   return {
-    memory: { v2: { enabled: true } },
+    memory: {
+      v2: { enabled: true },
+      retrospective: {
+        keepSupersededRuns: overrides.keepSupersededRuns ?? false,
+      },
+    },
     ui: {
       userTimezone: overrides.userTimezone,
       detectedTimezone: overrides.detectedTimezone,
@@ -307,6 +320,7 @@ describe("memoryRetrospectiveJob", () => {
     bootstrappedConversationId = "bg-conv-new";
     bootstrapCalls = [];
     deletedConversationIds = [];
+    deleteConversationThrowsFor = null;
     transcriptFormatterCalls = [];
     mockAssistantName = "Bob";
     mockUserName = "Alice";
@@ -822,5 +836,92 @@ describe("memoryRetrospectiveJob", () => {
       "fail closed: review only the most recent visible messages after the summary",
     );
     expect(instructionText).toContain("behind the compaction summary");
+  });
+
+  // -------------------------------------------------------------------------
+  // GC of superseded prior retrospectives (memory.retrospective.keepSupersededRuns)
+  // -------------------------------------------------------------------------
+
+  test("legacy path: success deletes the superseded prior retrospective", async () => {
+    priorRetroId = "prior-retro-conv-1";
+    priorRetroMessages = [priorRetroMessage(["an old save"])];
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    expect(deletedConversationIds).toEqual(["prior-retro-conv-1"]);
+  });
+
+  test("fork path: success deletes the superseded prior retrospective", async () => {
+    forkFlagEnabled = true;
+    priorRetroId = "prior-retro-conv-1";
+    priorRetroMessages = [priorRetroMessage(["an old save"])];
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    expect(deletedConversationIds).toEqual(["prior-retro-conv-1"]);
+  });
+
+  test("success with no prior retrospective deletes nothing", async () => {
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    expect(deletedConversationIds).toEqual([]);
+  });
+
+  test("legacy path: wake failure does NOT delete the prior retrospective (dedup chain survives)", async () => {
+    priorRetroId = "prior-retro-conv-1";
+    priorRetroMessages = [priorRetroMessage(["an old save"])];
+    mockWakeResult = { invoked: false, reason: "timeout" };
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("wake_failed");
+    // Only the orphan background conversation is cleaned up — the prior
+    // remains the most-recent retrospective for the retry's dedup lookup.
+    expect(deletedConversationIds).toEqual(["bg-conv-new"]);
+  });
+
+  test("fork path: wake failure does NOT delete the prior retrospective (dedup chain survives)", async () => {
+    forkFlagEnabled = true;
+    priorRetroId = "prior-retro-conv-1";
+    priorRetroMessages = [priorRetroMessage(["an old save"])];
+    mockWakeResult = { invoked: false, reason: "timeout" };
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("wake_failed");
+    expect(deletedConversationIds).toEqual(["fork-conv-1"]);
+  });
+
+  test("keepSupersededRuns=true retains the prior retrospective on success (both kinds)", async () => {
+    const config = makeConfig({ keepSupersededRuns: true });
+    priorRetroId = "prior-retro-conv-1";
+    priorRetroMessages = [priorRetroMessage(["an old save"])];
+
+    // Legacy kind.
+    let outcome = await memoryRetrospectiveJob(makeJob(), config);
+    expect(outcome.kind).toBe("invoked");
+    expect(deletedConversationIds).toEqual([]);
+
+    // Fork kind.
+    forkFlagEnabled = true;
+    outcome = await memoryRetrospectiveJob(makeJob(), config);
+    expect(outcome.kind).toBe("invoked");
+    expect(deletedConversationIds).toEqual([]);
+  });
+
+  test("failure to delete the superseded prior is non-fatal — job still reports invoked with state advanced", async () => {
+    priorRetroId = "prior-retro-conv-1";
+    priorRetroMessages = [priorRetroMessage(["an old save"])];
+    deleteConversationThrowsFor = "prior-retro-conv-1";
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    expect(stateUpserts).toHaveLength(1);
+    expect(stateUpserts[0]!.lastProcessedMessageId).toBe("m3");
+    expect(deletedConversationIds).toEqual([]);
   });
 });
