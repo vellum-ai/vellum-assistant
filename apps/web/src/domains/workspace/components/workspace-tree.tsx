@@ -111,18 +111,28 @@ function workspaceTreeRetrieveOptions(opts: {
 /**
  * The daemon's write and rename endpoints overwrite existing entries
  * unconditionally, so creating or renaming onto an existing sibling would
- * silently destroy it. Guard against that here.
+ * silently destroy it. Names compare case-insensitively because the default
+ * macOS/iOS filesystems treat Foo.md and foo.md as the same file. Renames
+ * pass `excludeName` (the entry's current name) so a case-only rename of
+ * the same file is still allowed.
  */
 async function assertNameAvailable(
   assistantId: string,
   parentPath: string,
   name: string,
+  excludeName?: string,
 ) {
+  const target = name.toLowerCase();
+  const excluded = excludeName?.toLowerCase();
   const { data } = await workspaceTreeGet({
     path: { assistant_id: assistantId },
     query: parentPath ? { path: parentPath } : {},
   });
-  if (data?.entries?.some((entry) => entry.name === name)) {
+  const conflict = data?.entries?.some((entry) => {
+    const existing = (entry.name ?? "").toLowerCase();
+    return existing === target && existing !== excluded;
+  });
+  if (conflict) {
     throw new Error(`"${name}" already exists here.`);
   }
 }
@@ -589,10 +599,11 @@ export function WorkspaceTree({
     mutationFn: async (input: { oldPath: string; newName: string }) => {
       const slash = input.oldPath.lastIndexOf("/");
       const parentPath = slash === -1 ? "" : input.oldPath.slice(0, slash);
+      const oldName = input.oldPath.slice(slash + 1);
       const newPath = parentPath
         ? `${parentPath}/${input.newName}`
         : input.newName;
-      await assertNameAvailable(assistantId, parentPath, input.newName);
+      await assertNameAvailable(assistantId, parentPath, input.newName, oldName);
       const { error, response } = await workspaceRenamePost({
         path: { assistant_id: assistantId },
         body: { oldPath: input.oldPath, newPath },
