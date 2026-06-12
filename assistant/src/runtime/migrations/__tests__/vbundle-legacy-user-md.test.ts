@@ -228,6 +228,38 @@ describe("analyzeImport for legacy prompts/USER.md", () => {
     expect(userMd!.action).toBe("skip");
   });
 
+  test("retired workspace/UPDATES.md (current format) is a non-blocking skip", () => {
+    const resolver = new DefaultPathResolver(
+      WORKSPACE_ROOT,
+      undefined,
+      () => null,
+    );
+
+    const { manifest } = buildVBundle({
+      files: [
+        {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
+          path: "workspace/UPDATES.md",
+          data: new TextEncoder().encode("## Old release notes\n"),
+        },
+      ],
+      ...defaultV1Options(),
+    });
+
+    const report = analyzeImport({ manifest, pathResolver: resolver });
+
+    expect(report.can_import).toBe(true);
+    expect(report.conflicts).toHaveLength(0);
+    const updatesMd = report.files.find(
+      (f) => f.path === "workspace/UPDATES.md",
+    );
+    expect(updatesMd).toBeDefined();
+    expect(updatesMd!.action).toBe("skip");
+  });
+
   test("retired prompts/UPDATES.md in a legacy bundle is a non-blocking skip", () => {
     const resolver = new DefaultPathResolver(
       WORKSPACE_ROOT,
@@ -386,6 +418,48 @@ describe("commitImport for legacy prompts/USER.md", () => {
 
     // No stray file was written anywhere in users/.
     expect(existsSync(join(USERS_DIR, "USER.md"))).toBe(false);
+  });
+
+  test("retired workspace/UPDATES.md (current format) is never written back", () => {
+    const resolver = new DefaultPathResolver(
+      WORKSPACE_ROOT,
+      undefined,
+      () => null,
+    );
+
+    const { archive } = buildVBundle({
+      files: [
+        {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
+          path: "workspace/UPDATES.md",
+          data: new TextEncoder().encode("## Old release notes\n"),
+        },
+      ],
+      ...defaultV1Options(),
+    });
+
+    const result = commitImport({
+      archiveData: archive,
+      pathResolver: resolver,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.report.success).toBe(true);
+      expect(
+        result.report.files.find((f) => f.path === "workspace/UPDATES.md")
+          ?.action,
+      ).toBe("skipped");
+      expect(result.report.warnings.some((w) => w.includes("UPDATES.md"))).toBe(
+        false,
+      );
+    }
+
+    // The retired bulletin file must not be resurrected in the workspace.
+    expect(existsSync(join(WORKSPACE_ROOT, "UPDATES.md"))).toBe(false);
   });
 
   test("retired prompts/UPDATES.md skips silently — no warning, nothing written", () => {

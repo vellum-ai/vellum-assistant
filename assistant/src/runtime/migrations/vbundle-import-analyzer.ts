@@ -119,6 +119,14 @@ export class DefaultPathResolver implements PathResolver {
       return null;
     }
 
+    // Retired-feature files (both legacy and workspace-format spellings)
+    // must never resolve to a disk target — resolving would write them
+    // back into the workspace on import. The analyzer and both importers
+    // turn the resulting null into a silent non-blocking skip.
+    if (isRetiredArchivePath(archivePath)) {
+      return null;
+    }
+
     // New format: workspace/ prefix — maps directly into the workspace dir
     if (archivePath.startsWith("workspace/") && this.workspaceDir) {
       const relPath = archivePath.slice("workspace/".length);

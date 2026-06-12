@@ -35,16 +35,22 @@ export function isLegacyPersonaArchivePath(archivePath: string): boolean {
 }
 
 /**
- * Archive paths for retired features. Legacy bundles exported while those
- * features existed still contain these entries; preflight and both importers
- * must treat them as silent non-blocking skips (no conflict, no warning) so
- * old backups stay restorable without noise, and the files are never written
+ * Archive paths for retired features. Bundles exported while those features
+ * existed still contain these entries; preflight and both importers must
+ * treat them as silent non-blocking skips (no conflict, no warning) so old
+ * backups stay restorable without noise, and the files are never written
  * back to the workspace.
  *
- * `prompts/UPDATES.md` carried the retired update-bulletin release notes.
+ * `UPDATES.md` carried the retired update-bulletin release notes. Legacy
+ * bundles archived it as `prompts/UPDATES.md`; current-format bundles walk
+ * the workspace dir, so it appears as `workspace/UPDATES.md`. Both spellings
+ * must be retired — `DefaultPathResolver.resolve()` short-circuits them to
+ * `null` before any prefix handling so the workspace-format entry cannot
+ * resolve normally and recreate the file on import.
  */
 export const RETIRED_ARCHIVE_PATHS: ReadonlySet<string> = new Set([
   "prompts/UPDATES.md",
+  "workspace/UPDATES.md",
 ]);
 
 export function isRetiredArchivePath(archivePath: string): boolean {
