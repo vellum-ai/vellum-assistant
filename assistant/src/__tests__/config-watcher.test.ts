@@ -266,12 +266,12 @@ describe("ConfigWatcher workspace file handlers", () => {
     expect(identityCallCount).toBe(1);
   });
 
-  test("UPDATES.md is not subscribed (only the registered handler set is)", () => {
+  test("unregistered workspace files are not subscribed (only the registered handler set is)", () => {
     watcher.start(onConversationEvict);
     // Per-file watching only registers config.json, SOUL.md, IDENTITY.md.
     // The whole workspace dir must not be watched either — that was the
     // ENXIO-on-Unix-sockets bug.
-    expect(findFileWatch(join(WORKSPACE_DIR, "UPDATES.md"))).toBeUndefined();
+    expect(findFileWatch(join(WORKSPACE_DIR, "OTHER.md"))).toBeUndefined();
     expect(findWatcher(WORKSPACE_DIR)).toBeUndefined();
   });
 

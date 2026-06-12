@@ -82,6 +82,7 @@ import { migrateProviderConnectionStatusLabel } from "../memory/migrations/244-p
 import { migrateProviderConnectionBaseUrlAndModels } from "../memory/migrations/250-provider-connection-base-url-and-models.js";
 import * as schema from "../memory/schema.js";
 import { getConnection } from "../providers/inference/connections.js";
+import { getConfigQuarantineNoticePath } from "../util/platform.js";
 import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -325,8 +326,9 @@ describe("loadConfig startup behavior", () => {
         }
       }
     }
-    const updatesPath = join(WORKSPACE_DIR, "UPDATES.md");
-    if (existsSync(updatesPath)) rmSync(updatesPath, { force: true });
+    // Clear any leftover config-quarantine notice sentinel from prior runs.
+    const noticePath = getConfigQuarantineNoticePath();
+    if (existsSync(noticePath)) rmSync(noticePath, { force: true });
     ensureTestDir();
     setStorePathForTesting(join(WORKSPACE_DIR, "keys.enc"));
     delete process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH;

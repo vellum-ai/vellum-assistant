@@ -15,6 +15,7 @@
  * | `disk-pressure-warning`  | 5     | prepend-user-tail       |
  * | `workspace-context`      | 10    | prepend-user-tail       |
  * | `unified-turn-context`   | 20    | prepend-user-tail       |
+ * | `config-quarantine-notice` | 25  | prepend-user-tail       |
  * | `pkb-context`            | 30    | after-memory-prefix     |
  * | `pkb-reminder`           | 35    | after-memory-prefix     |
  * | `memory-v2-static`       | 38    | after-memory-prefix     |
@@ -43,6 +44,7 @@
  * through the registry.
  */
 
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { getConfig } from "../../../config/loader.js";
@@ -65,7 +67,10 @@ import { getPkbRoot, PKB_WORKSPACE_SCOPE } from "../../../memory/pkb/types.js";
 import { readMemoryV2StaticContent } from "../../../memory/v2/static-context.js";
 import type { Message } from "../../../providers/types.js";
 import { getLogger } from "../../../util/logger.js";
-import { getSandboxWorkingDir } from "../../../util/platform.js";
+import {
+  getConfigQuarantineNoticePath,
+  getSandboxWorkingDir,
+} from "../../../util/platform.js";
 import {
   type InjectionBlock,
   type Injector,
@@ -99,6 +104,7 @@ export const DEFAULT_INJECTOR_ORDER = {
   workspaceContext: 10,
   backgroundTurn: 15,
   unifiedTurnContext: 20,
+  configQuarantineNotice: 25,
   pkbContext: 30,
   pkbReminder: 35,
   memoryV2Static: 38,
@@ -271,6 +277,107 @@ const unifiedTurnContextInjector: Injector = {
     });
     return {
       id: "unified-turn-context",
+      text,
+      placement: "prepend-user-tail",
+    };
+  },
+};
+
+/**
+ * Maximum age of a config-quarantine notice before it is considered stale.
+ * After this window the sentinel is deleted and nothing is injected — the
+ * event is no longer actionable context for the agent.
+ */
+const CONFIG_QUARANTINE_NOTICE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Shape of the config-quarantine notice sentinel written by the config loader. */
+interface ConfigQuarantineNotice {
+  quarantinedAt: string;
+  quarantinePath: string;
+  originalPath: string;
+}
+
+/**
+ * Read and validate the config-quarantine notice sentinel. Returns the parsed
+ * notice when the file exists and carries the expected string fields, otherwise
+ * `null`. Best-effort: any read/parse error is swallowed and treated as absent.
+ */
+function readConfigQuarantineNotice(): ConfigQuarantineNotice | null {
+  const noticePath = getConfigQuarantineNoticePath();
+  if (!existsSync(noticePath)) return null;
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(noticePath, "utf-8"));
+    if (parsed == null || typeof parsed !== "object") return null;
+    const { quarantinedAt, quarantinePath, originalPath } = parsed as Record<
+      string,
+      unknown
+    >;
+    if (
+      typeof quarantinedAt !== "string" ||
+      typeof quarantinePath !== "string" ||
+      typeof originalPath !== "string"
+    ) {
+      return null;
+    }
+    return { quarantinedAt, quarantinePath, originalPath };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `config-quarantine-notice` injector — order 25, prepend-user-tail.
+ *
+ * Surfaces a recent config-quarantine event to the agent. The config loader
+ * writes a JSON sentinel ({@link getConfigQuarantineNoticePath}) when it
+ * quarantines a corrupt `config.json` and falls back to defaults. This injector
+ * reads that sentinel and, when it is younger than
+ * {@link CONFIG_QUARANTINE_NOTICE_MAX_AGE_MS}, injects a short block telling the
+ * agent the user's settings were reset and where the original is preserved, so
+ * it can explain the change if the user asks about missing settings/API keys —
+ * or mention it proactively when relevant. A stale sentinel is deleted and
+ * nothing is injected.
+ *
+ * Active in both `full` and `minimal` mode — a settings reset is grounding the
+ * agent should not lose to injection downgrade. The block is non-persisted
+ * (re-evaluated every turn) so the notice naturally stops appearing once the
+ * sentinel ages out or is removed.
+ */
+const configQuarantineNoticeInjector: Injector = {
+  name: "config-quarantine-notice",
+  order: DEFAULT_INJECTOR_ORDER.configQuarantineNotice,
+  async produce(_ctx: TurnContext): Promise<InjectionBlock | null> {
+    const notice = readConfigQuarantineNotice();
+    if (!notice) return null;
+
+    const quarantinedAtMs = Date.parse(notice.quarantinedAt);
+    const ageMs = Number.isNaN(quarantinedAtMs)
+      ? Number.POSITIVE_INFINITY
+      : Date.now() - quarantinedAtMs;
+    if (ageMs > CONFIG_QUARANTINE_NOTICE_MAX_AGE_MS) {
+      try {
+        rmSync(getConfigQuarantineNoticePath(), { force: true });
+      } catch {
+        // Best-effort cleanup — a failed delete just means we re-check (and
+        // re-attempt deletion) next turn.
+      }
+      return null;
+    }
+
+    const text =
+      `<config_reset_notice>\n` +
+      `The user's config.json was unreadable and was reset to defaults at ` +
+      `${notice.quarantinedAt}. The original file was preserved at ` +
+      `${notice.quarantinePath}. Any custom settings the user had (API keys, ` +
+      `model choices, voice preferences) are still in that file but are not ` +
+      `currently active.\n\n` +
+      `If the user asks why a setting, API key, or preference is missing or ` +
+      `changed, explain this reset and point them at the preserved file to ` +
+      `recover their settings. Otherwise mention it proactively only when it ` +
+      `is clearly relevant — do not interrupt unrelated work.\n` +
+      `</config_reset_notice>`;
+    return {
+      id: "config-quarantine-notice",
       text,
       placement: "prepend-user-tail",
     };
@@ -921,6 +1028,7 @@ export const defaultInjectors: Injector[] = [
   workspaceContextInjector,
   backgroundTurnInjector,
   unifiedTurnContextInjector,
+  configQuarantineNoticeInjector,
   pkbContextInjector,
   pkbReminderInjector,
   memoryV2StaticInjector,

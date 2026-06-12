@@ -128,7 +128,6 @@ describe("buildSystemPrompt", () => {
       "SOUL.md",
       "USER.md",
       "BOOTSTRAP.md",
-      "UPDATES.md",
       "VOICE.md",
       "skills",
       "users",
@@ -601,16 +600,6 @@ describe("buildSystemPrompt", () => {
         "using `app_update` to regenerate the Home Base HTML",
       );
     });
-  });
-
-  test("never includes UPDATES.md content in system prompt", () => {
-    const updatesBody = "# v1.2\n\nNew feature added. UNIQUE_UPDATES_MARKER.";
-    writeFileSync(join(TEST_DIR, "UPDATES.md"), updatesBody);
-    const result = buildSystemPrompt();
-    expect(result).not.toContain("## Recent Updates");
-    expect(result).not.toContain(updatesBody);
-    expect(result).not.toContain("UNIQUE_UPDATES_MARKER");
-    expect(result).not.toContain("Update Handling");
   });
 
   test("strips comment lines starting with _ from prompt files", () => {

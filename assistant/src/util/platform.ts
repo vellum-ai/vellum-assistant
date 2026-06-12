@@ -80,6 +80,22 @@ export function getDataDir(): string {
 }
 
 /**
+ * Returns the path to the config-quarantine notice sentinel
+ * (`<workspace>/data/config-quarantine-notice.json`).
+ *
+ * Written by the config loader when a corrupt `config.json` is quarantined and
+ * read by the per-turn `config-quarantine-notice` injector. Lives under the
+ * internal data dir (runtime state, config-free to resolve) rather than the
+ * user-facing workspace root because it is daemon-written bookkeeping, not a
+ * file the user edits. The path resolves without loading config, so it is safe
+ * to call during early-boot config load before the DB or `getConfig().dataDir`
+ * exist.
+ */
+export function getConfigQuarantineNoticePath(): string {
+  return join(getDataDir(), "config-quarantine-notice.json");
+}
+
+/**
  * Returns the embedding models directory (~/.vellum/workspace/embedding-models).
  * Downloaded embedding runtime (onnxruntime-node, transformers bundle, model weights)
  * is stored here, downloaded post-hatch rather than shipped with the app.

@@ -12,8 +12,6 @@ const MIGRATION_ID = "098-remove-stale-updates-bulletin-file";
  * processed by a background conversation dispatched at daemon startup. That
  * feature has been removed — nothing consumes the file's contents anymore,
  * and it was system-written bulletin material, so it is deleted outright.
- * Config-quarantine notes (which still write to this path) recreate the
- * file when a quarantine event happens after this migration runs.
  *
  * Idempotent: `rmSync` with `force` is a no-op when the file is absent.
  */

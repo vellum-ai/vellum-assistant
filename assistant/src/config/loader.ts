@@ -5,14 +5,14 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { safeStatSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
 import {
   ensureDataDir,
+  getConfigQuarantineNoticePath,
   getWorkspaceConfigPath,
-  getWorkspaceDir,
 } from "../util/platform.js";
 import { AssistantConfigSchema } from "./schema.js";
 import type { AssistantConfig } from "./types.js";
@@ -201,10 +201,9 @@ function filesystemSafeTimestamp(date: Date = new Date()): string {
  * in `.json` so editors syntax-highlight the preserved content:
  *   `<path>.corrupt-<ISO-timestamp>.json`
  *
- * On a successful rename, also appends a note to `<workspace>/UPDATES.md`
- * so the event is recorded where the agent can find it when the user asks
- * why their settings changed (log-level errors alone are invisible to
- * users).
+ * On a successful rename, also writes a small JSON sentinel recording the
+ * event so the per-turn `config-quarantine-notice` injector can surface it to
+ * the agent (log-level errors alone are invisible to users).
  */
 function quarantineCorruptConfig(configPath: string, err: unknown): string {
   const quarantinePath = `${configPath}.corrupt-${filesystemSafeTimestamp()}.json`;
@@ -215,7 +214,7 @@ function quarantineCorruptConfig(configPath: string, err: unknown): string {
         `quarantined to ${quarantinePath} and loaded defaults. ` +
         `Inspect the quarantined file to recover any hand-edited settings.`,
     );
-    appendQuarantineBulletin(configPath, quarantinePath);
+    writeQuarantineNotice(configPath, quarantinePath);
   } catch (renameErr) {
     log.error(
       { renameErr },
@@ -227,64 +226,55 @@ function quarantineCorruptConfig(configPath: string, err: unknown): string {
 }
 
 /**
- * Append a config-quarantine note to `<workspace>/UPDATES.md`. The file is
- * passive workspace context: nothing processes it proactively, but it lives
- * in the assistant's workspace so the agent can discover it organically —
- * typical cases are the user asking why their settings changed or noticing
- * missing API keys. The note is agent-visible context, not a push
- * notification.
+ * Write a small JSON sentinel recording that the config file was quarantined.
+ * The per-turn `config-quarantine-notice` injector reads this sentinel and, if
+ * it is recent, injects a system block so the agent can explain the reset when
+ * the user asks why their settings changed or notices missing API keys.
  *
- * Idempotency: the appended block embeds a marker keyed on the quarantine
- * filename's basename. If that marker is already present in UPDATES.md (a
- * prior append succeeded but the process crashed before control returned, or
- * the file was hand-edited), the function is a no-op.
+ * Writes with pure `node:fs` and a workspace-derived path
+ * ({@link getConfigQuarantineNoticePath}) deliberately: config load happens
+ * extremely early at daemon startup — before the SQLite DB is initialized and
+ * before `getConfig().dataDir` is available — so neither a DB checkpoint nor a
+ * config-dependent path can be used here without risking import-time DB init.
+ *
+ * Idempotent per quarantine event: each call overwrites the sentinel with the
+ * latest event, so a crash-then-retry re-records the same (or newer) event
+ * rather than accumulating duplicates.
  *
  * Best-effort: any write failure is logged at `warn` and swallowed. The
  * quarantine path must never block startup, and the error log from
  * `quarantineCorruptConfig` remains the authoritative record.
  *
- * Exported with an underscore-prefixed alias (`_appendQuarantineBulletin`) so
- * tests can exercise the idempotent-skip branch directly with a deterministic
- * quarantine basename. Non-test callers should never import the underscore
- * alias — the wiring into `quarantineCorruptConfig` is the production entry
- * point.
+ * Exported with an underscore-prefixed alias (`_writeQuarantineNotice`) so
+ * tests can exercise the write directly. Non-test callers should never import
+ * the underscore alias — the wiring into `quarantineCorruptConfig` is the
+ * production entry point.
  */
-function appendQuarantineBulletin(
+function writeQuarantineNotice(
   originalPath: string,
   quarantinePath: string,
 ): void {
   try {
-    const updatesPath = join(getWorkspaceDir(), "UPDATES.md");
-    const quarantineBasename = basename(quarantinePath);
-    const marker = `<!-- config-quarantine:${quarantineBasename} -->`;
-
-    const existing = existsSync(updatesPath)
-      ? readFileSync(updatesPath, "utf-8")
-      : "";
-    if (existing.includes(marker)) return;
-
-    const timestamp = new Date().toISOString();
-    const block =
-      `## Config was reset to defaults\n\n` +
-      `Your \`config.json\` was unreadable at ${timestamp} and couldn't be parsed ` +
-      `as JSON. The assistant preserved the original file at \`${quarantinePath}\` ` +
-      `and loaded defaults so the app stays working.\n\n` +
-      `If you had custom settings (API keys, model choices, voice preferences), ` +
-      `they are still in the quarantined file — \`cat ${quarantinePath}\` to ` +
-      `recover them, then re-enter through Settings or the CLI.\n\n` +
-      `${marker}\n`;
-
-    const toWrite = existing.length === 0 ? block : `${existing}\n${block}`;
-    writeFileSync(updatesPath, toWrite, "utf-8");
+    const noticePath = getConfigQuarantineNoticePath();
+    const dir = dirname(noticePath);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    const notice = {
+      quarantinedAt: new Date().toISOString(),
+      quarantinePath,
+      originalPath,
+    };
+    writeFileSync(noticePath, JSON.stringify(notice, null, 2) + "\n", "utf-8");
     log.info(
-      `Appended config-quarantine bulletin to ${updatesPath} for ${originalPath} ` +
-        `(quarantined as ${quarantineBasename}).`,
+      `Wrote config-quarantine notice to ${noticePath} for ${originalPath} ` +
+        `(quarantined as ${quarantinePath}).`,
     );
-  } catch (bulletinErr) {
+  } catch (noticeErr) {
     log.warn(
-      { bulletinErr },
-      `Failed to append config-quarantine bulletin to UPDATES.md; ` +
-        `the quarantine event is still recorded in the assistant logs.`,
+      { noticeErr },
+      `Failed to write config-quarantine notice; the quarantine event is ` +
+        `still recorded in the assistant logs.`,
     );
   }
 }
@@ -658,7 +648,9 @@ export function loadConfig(): AssistantConfig {
           quarantineCorruptConfig(
             configPath,
             new Error(
-              `config.json must contain a JSON object at the top level; got ${describeJsonShape(parsed)}`,
+              `config.json must contain a JSON object at the top level; got ${describeJsonShape(
+                parsed,
+              )}`,
             ),
           );
           fileConfig = {};
@@ -887,7 +879,9 @@ export function loadRawConfig(): Record<string, unknown> {
     quarantineCorruptConfig(
       configPath,
       new Error(
-        `config.json must contain a JSON object at the top level; got ${describeJsonShape(parsed)}`,
+        `config.json must contain a JSON object at the top level; got ${describeJsonShape(
+          parsed,
+        )}`,
       ),
     );
     return {};
@@ -961,8 +955,9 @@ export function setNestedValue(
 }
 
 /**
- * Test-only alias for `appendQuarantineBulletin`. Exists so the crash-mid-
- * append idempotency branch can be exercised with a deterministic quarantine
- * basename without widening the runtime surface. Not for production use.
+ * Test-only alias for `writeQuarantineNotice`. Exists so the sentinel write
+ * (and its overwrite/idempotency semantics) can be exercised directly with a
+ * deterministic quarantine path without widening the runtime surface. Not for
+ * production use.
  */
-export const _appendQuarantineBulletin = appendQuarantineBulletin;
+export const _writeQuarantineNotice = writeQuarantineNotice;

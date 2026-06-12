@@ -37,7 +37,7 @@ mock.module("../config/loader.js", () => ({
   getNestedValue: () => undefined,
   setNestedValue: () => {},
   API_KEY_PROVIDERS: [],
-  _appendQuarantineBulletin: () => {},
+  _writeQuarantineNotice: () => {},
   invalidateConfigCache: () => {},
 }));
 
