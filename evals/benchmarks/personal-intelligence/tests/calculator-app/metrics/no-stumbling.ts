@@ -16,9 +16,7 @@ export default async function scoreNoStumbling(
   input: MetricInput,
 ): Promise<MetricResult> {
   const transcript = await readTranscript(input.runId);
-  const assistantTurns = transcript.filter(
-    (turn) => turn.role === "assistant",
-  );
+  const assistantTurns = transcript.filter((turn) => turn.role === "assistant");
   if (assistantTurns.length === 0) {
     return {
       name: "no-stumbling",
