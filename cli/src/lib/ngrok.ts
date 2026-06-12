@@ -271,11 +271,20 @@ export async function maybeStartNgrokTunnel(
   }
 }
 
+export interface RunNgrokTunnelOptions {
+  /** Gateway port to forward. Defaults to the global GATEWAY_PORT. */
+  port?: number;
+  /** Workspace directory for config read/write. Defaults to ~/.vellum/workspace. */
+  workspaceDir?: string;
+}
+
 /**
  * Run the ngrok tunnel workflow: check installation, find or start a tunnel,
  * save the public URL to config, and block until exit or signal.
  */
-export async function runNgrokTunnel(): Promise<void> {
+export async function runNgrokTunnel(
+  opts: RunNgrokTunnelOptions = {},
+): Promise<void> {
   const version = getNgrokVersion();
   if (!version) {
     console.error("Error: ngrok is not installed.");
@@ -293,10 +302,10 @@ export async function runNgrokTunnel(): Promise<void> {
 
   console.log(`Using ${version}`);
 
-  const workspaceDir = getDefaultWorkspaceDir();
+  const workspaceDir = opts.workspaceDir ?? getDefaultWorkspaceDir();
   // While the nginx ingress is running, tunnel to it instead of the gateway —
   // it stamps the edge marker and security headers on the way through.
-  const { port, viaIngress } = resolveTunnelTargetPort(workspaceDir);
+  const { port, viaIngress } = resolveTunnelTargetPort(workspaceDir, opts.port);
   if (viaIngress) {
     console.log(
       `nginx ingress detected — tunneling to it on 127.0.0.1:${port}.`,

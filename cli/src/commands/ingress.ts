@@ -7,6 +7,7 @@ import {
   resolveAssistant,
 } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
+import { parseAssistantTargetArg } from "../lib/assistant-target-args";
 import { GATEWAY_PORT } from "../lib/constants";
 import { waitForDaemonReady } from "../lib/http-client.js";
 import {
@@ -239,8 +240,10 @@ export async function ingress(): Promise<void> {
     process.exit(sub ? 0 : 1);
   }
 
-  const positional = args.slice(1).filter((a) => !a.startsWith("-"));
-  const target = resolveIngressTarget(positional[0] ?? null);
+  // Joins all remaining positionals so unquoted multi-word display names
+  // resolve as one identifier (cli/AGENTS.md "Assistant targeting convention").
+  const assistantName = parseAssistantTargetArg(args.slice(1));
+  const target = resolveIngressTarget(assistantName ?? null);
 
   if (sub === "up") return up(target);
   if (sub === "down") return down(target);

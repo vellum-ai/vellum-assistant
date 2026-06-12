@@ -104,21 +104,21 @@ export async function tunnel(): Promise<void> {
     process.exit(1);
   }
 
+  const resources = entry.resources;
+  const tunnelOpts = resources
+    ? {
+        port: resources.gatewayPort,
+        workspaceDir: join(resources.instanceDir, ".vellum", "workspace"),
+      }
+    : {};
+
   if (provider === "ngrok") {
-    await runNgrokTunnel();
+    await runNgrokTunnel(tunnelOpts);
     return;
   }
 
   if (provider === "cloudflare") {
-    const resources = entry.resources;
-    await runCloudflareTunnel(
-      resources
-        ? {
-            port: resources.gatewayPort,
-            workspaceDir: join(resources.instanceDir, ".vellum", "workspace"),
-          }
-        : {},
-    );
+    await runCloudflareTunnel(tunnelOpts);
     return;
   }
 
