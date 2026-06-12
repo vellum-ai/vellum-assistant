@@ -187,7 +187,7 @@ function openBrowser(url: string): void {
   child.unref();
 }
 
-interface LoopbackListener {
+export interface LoopbackListener {
   /** The full `http://127.0.0.1:<port>/auth/callback` redirect URI. */
   redirectUri: string;
   /** Resolves with the authorization code once the state-matched callback arrives. */
@@ -198,8 +198,9 @@ interface LoopbackListener {
 
 /**
  * Bind an ephemeral 127.0.0.1 listener and wait for the OAuth redirect.
+ * Exported for tests; production callers go through `workosPkceLogin`.
  */
-function startLoopbackListener(
+export function startLoopbackListener(
   expectedState: string,
 ): Promise<LoopbackListener> {
   return new Promise((resolveListener, rejectListener) => {
