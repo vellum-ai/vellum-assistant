@@ -59,18 +59,39 @@ const DEFAULT_SEED_TICKS = 20;
 const DEFAULT_OBSERVE_TICKS = 10;
 
 /**
+ * Approximate number of estimator-tokens each tick message should add to
+ * conversation history. Sized so a span of seed ticks reliably carries the
+ * conversation across the compaction threshold even though the base context
+ * (system prompt + tool catalog, which the daemon's overflow gate includes
+ * in its estimate) is large and not precisely known to the benchmark.
+ *
+ * The daemon estimates ~1 token per 4 characters (`CHARS_PER_TOKEN` in
+ * `assistant/src/context/token-estimator.ts`), so a ~2000-token message is
+ * ~8000 characters. See `vellum-compaction-stress` profile setup and the
+ * arithmetic in `scenarios/cron-noop/SPEC.md` for how this pairs with the
+ * shrunken `maxInputTokens` window to produce repeated compaction.
+ */
+const TICK_TARGET_TOKENS = 2000;
+const TICK_TARGET_CHARS = TICK_TARGET_TOKENS * 4;
+
+/**
  * Build a deterministic cron-tick message. Each tick simulates a
  * scheduled polling job checking a Slack channel that produces no
  * actionable results — mimicking the real-world pattern that caused
  * unbounded context growth.
  *
- * The message is deliberately verbose (~500 tokens) so context grows
- * meaningfully with each tick, reaching the compaction threshold in
- * a reasonable number of iterations.
+ * The message is padded with deterministic record-keeping filler to
+ * ~`TICK_TARGET_TOKENS` estimator-tokens so context grows by a large,
+ * predictable amount each tick. This dominates the unknown base-context
+ * size so the compaction threshold is reached within the seed phase
+ * regardless of how big the assistant's system prompt + tool catalog are.
+ * The content stays deterministic (no randomness) so the reproduction is
+ * reliable — the only varying tokens are the tick number and an ISO
+ * timestamp.
  */
 function buildTickMessage(tickNumber: number): string {
   const timestamp = new Date().toISOString();
-  return [
+  const header = [
     `Schedule fired: check-project-updates (tick #${tickNumber})`,
     `Timestamp: ${timestamp}`,
     "",
@@ -103,7 +124,23 @@ function buildTickMessage(tickNumber: number): string {
     "- Consecutive quiet polls: " + tickNumber,
     "- Monitoring category: low-priority",
     "- SLA status: within bounds",
+    "",
+    "Per-thread audit (all unchanged since last poll):",
   ].join("\n");
+
+  // Deterministic filler: one audit line per monitored thread, repeated
+  // until the message reaches the target size. Pure function of the tick
+  // number, so two runs produce byte-identical messages.
+  const lines: string[] = [];
+  let i = 0;
+  while (header.length + lines.join("\n").length < TICK_TARGET_CHARS) {
+    lines.push(
+      `- thread-${i}: status=quiet last_activity=none watchers=0 ` +
+        `escalation=none note="no change observed during poll ${tickNumber}"`,
+    );
+    i++;
+  }
+  return `${header}\n${lines.join("\n")}`;
 }
 
 /** Per-tick observation record written to the scenario artifacts. */
@@ -111,16 +148,39 @@ export interface TickObservation {
   tick: number;
   phase: "seed" | "observe";
   eventCount: number;
-  /** Number of usage events that mention compaction-related call sites. */
+  /**
+   * Number of compaction passes observed this tick. Counted from the
+   * `assistant_activity_state` SSE event with `reason: "context_compacting"`
+   * (the on-the-wire marker the daemon emits once per proactive compaction
+   * pass), collapsing any consecutive same-reason events so one pass counts
+   * once. Defensively also counts the internal `context_compacting`
+   * AgentEvent type, though that type does not cross the SSE wire today.
+   */
   compactionEvents: number;
-  /** Total input tokens across all usage events for this tick. */
+  /**
+   * Total input tokens for this tick. Sourced from the egress jail's
+   * recorded usage records when present (the cost/usage authority per
+   * `evals/AGENTS.md`); falls back to SSE `usage_update` events otherwise.
+   */
   inputTokens: number;
-  /** Total output tokens across all usage events for this tick. */
+  /** Total output tokens for this tick (same source preference as input). */
   outputTokens: number;
-  /** Cache-creation input tokens observed this tick. */
+  /**
+   * Cache-creation (cache-write) input tokens this tick, from jail
+   * records when present, else from the SSE `usage_update` event's
+   * optional cache fields (older daemons omit them, leaving this 0 on
+   * the SSE path). This is the headline signal for cache-write
+   * amplification.
+   */
   cacheCreationInputTokens: number;
-  /** Cache-read input tokens observed this tick. */
+  /** Cache-read input tokens this tick (same sources as cache-creation). */
   cacheReadInputTokens: number;
+  /**
+   * Max `contextWindowTokens` seen on `usage_update` SSE events this tick.
+   * Diagnostic only: shows the conversation's context growing toward the
+   * compaction threshold. `undefined` when no usage_update carried it.
+   */
+  contextWindowTokens?: number;
 }
 
 const num = (v: unknown): number =>
@@ -151,59 +211,133 @@ function extractUsageFields(record: Record<string, unknown>): {
 }
 
 /**
- * Observe per-tick metrics from agent events.
+ * Count proactive-compaction passes from a tick's SSE events.
  *
- * Usage data arrives in two shapes depending on the source:
- * 1. **Daemon SSE (`usage_update`):** fields live directly on
- *    `event.message` (camelCase: `inputTokens`, `outputTokens`, …).
- * 2. **Egress-proxy recorded usage (wrapped):** a nested
- *    `event.message.usage` object (snake_case or camelCase).
+ * On the wire (NDJSON from `vellum events --json`), a proactive compaction
+ * pass surfaces as an `assistant_activity_state` event with
+ * `reason: "context_compacting"` — NOT as a top-level `context_compacting`
+ * message type (that type only exists inside the daemon's agent loop and is
+ * translated to the activity-state event before it leaves the daemon; see
+ * `assistant/src/daemon/conversation-agent-loop-handlers.ts` case
+ * "context_compacting").
  *
- * Compaction is detected via `context_compacting` events emitted by
- * the agent loop when compaction starts — not inferred from usage
- * call sites (which aren't on the SSE wire).
+ * The auto-compaction path emits exactly one such activity-state event per
+ * pass, so a single pass counts once. We additionally collapse *consecutive*
+ * `context_compacting` activity-state events into one pass: if a future
+ * daemon change ever emitted the marker more than once back-to-back for the
+ * same pass, this still counts one. A new pass is recognized when a
+ * non-compacting activity-state (or any non-activity-state-compacting gap)
+ * separates two compacting markers — the daemon brackets each pass with
+ * other activity states (e.g. "thinking", "message_complete").
+ *
+ * The internal `context_compacting` / `compaction_completed` message types
+ * are also handled (the former counts, the latter is ignored) so the counter
+ * stays correct if the wire ever carries them directly.
  */
-function observeTick(
+export function countCompactionPasses(events: AgentEvent[]): number {
+  let passes = 0;
+  let inCompactingRun = false;
+  for (const event of events) {
+    const msg = event.message;
+    const isActivityCompacting =
+      msg.type === "assistant_activity_state" &&
+      msg.reason === "context_compacting";
+    const isInternalCompacting = msg.type === "context_compacting";
+
+    if (isActivityCompacting || isInternalCompacting) {
+      if (!inCompactingRun) {
+        passes++;
+        inCompactingRun = true;
+      }
+      continue;
+    }
+    // `compaction_completed` is the paired end of an internal pass; treat it
+    // (and any other event) as the boundary that closes the current run so a
+    // later compacting marker is counted as a fresh pass.
+    inCompactingRun = false;
+  }
+  return passes;
+}
+
+/**
+ * Observe per-tick metrics for a single tick.
+ *
+ * Compaction passes are counted from SSE events (see
+ * {@link countCompactionPasses}).
+ *
+ * Token usage is sourced with a strict preference order, per
+ * `evals/AGENTS.md` ("Assistant-side usage must come from
+ * `readUsageRecords()` — never from emitted events"):
+ *
+ * 1. **Egress jail records** (`jailRecords`) — the cost/usage authority.
+ *    Flat snake_case Anthropic-usage records (`input_tokens`,
+ *    `output_tokens`, `cache_creation_input_tokens`,
+ *    `cache_read_input_tokens`). These carry the cache fields that the
+ *    benchmark exists to measure; the SSE wire does not. When any jail
+ *    records exist for the tick, they are the sole source of token counts.
+ * 2. **SSE `usage_update` fallback** — used only when no jail records
+ *    exist (e.g. a non-vellum species whose adapter has no jail). Fields
+ *    live directly on `event.message` (camelCase); there are no cache
+ *    fields, so cache-write/read stay zero on this path.
+ *
+ * `contextWindowTokens` (a diagnostic showing context growth toward the
+ * threshold) is always read from `usage_update` SSE events — the jail does
+ * not carry it — and reports the max seen this tick.
+ */
+export function observeTick(
   tickNumber: number,
   phase: "seed" | "observe",
   events: AgentEvent[],
+  jailRecords: Array<Record<string, unknown>>,
 ): TickObservation {
-  let compactionEvents = 0;
+  const compactionEvents = countCompactionPasses(events);
+
+  // Diagnostic: max context-window size reported by usage_update this tick.
+  let contextWindowTokens: number | undefined;
+  for (const event of events) {
+    const msg = event.message;
+    if (msg.type !== "usage_update") continue;
+    const cw = msg["contextWindowTokens"];
+    if (typeof cw === "number" && Number.isFinite(cw)) {
+      contextWindowTokens = Math.max(contextWindowTokens ?? 0, cw);
+    }
+  }
+
   let inputTokens = 0;
   let outputTokens = 0;
   let cacheCreationInputTokens = 0;
   let cacheReadInputTokens = 0;
 
-  for (const event of events) {
-    const msg = event.message;
-
-    // Count each compaction pass once via the start event.
-    // `context_compacting` fires when the pipeline begins;
-    // `compaction_completed` is the paired end event.
-    if (msg.type === "context_compacting") {
-      compactionEvents++;
-      continue;
-    }
-    if (msg.type === "compaction_completed") continue;
-
-    // Path 1: daemon SSE `usage_update` — fields on msg directly
-    if (msg.type === "usage_update") {
-      const fields = extractUsageFields(msg as Record<string, unknown>);
+  if (jailRecords.length > 0) {
+    // Preferred path: jail-recorded usage is the authority and the only
+    // source of cache fields.
+    for (const record of jailRecords) {
+      const fields = extractUsageFields(record);
       inputTokens += fields.inputTokens;
       outputTokens += fields.outputTokens;
       cacheCreationInputTokens += fields.cacheCreationInputTokens;
       cacheReadInputTokens += fields.cacheReadInputTokens;
-      continue;
     }
-
-    // Path 2: wrapped usage (egress-proxy records or synthetic events)
-    const usage = msg.usage;
-    if (usage && typeof usage === "object" && !Array.isArray(usage)) {
-      const fields = extractUsageFields(usage as Record<string, unknown>);
-      inputTokens += fields.inputTokens;
-      outputTokens += fields.outputTokens;
-      cacheCreationInputTokens += fields.cacheCreationInputTokens;
-      cacheReadInputTokens += fields.cacheReadInputTokens;
+  } else {
+    // Fallback: SSE usage_update events (no cache fields on the wire).
+    for (const event of events) {
+      const msg = event.message;
+      if (msg.type === "usage_update") {
+        const fields = extractUsageFields(msg as Record<string, unknown>);
+        inputTokens += fields.inputTokens;
+        outputTokens += fields.outputTokens;
+        cacheCreationInputTokens += fields.cacheCreationInputTokens;
+        cacheReadInputTokens += fields.cacheReadInputTokens;
+        continue;
+      }
+      const usage = msg.usage;
+      if (usage && typeof usage === "object" && !Array.isArray(usage)) {
+        const fields = extractUsageFields(usage as Record<string, unknown>);
+        inputTokens += fields.inputTokens;
+        outputTokens += fields.outputTokens;
+        cacheCreationInputTokens += fields.cacheCreationInputTokens;
+        cacheReadInputTokens += fields.cacheReadInputTokens;
+      }
     }
   }
 
@@ -216,6 +350,7 @@ function observeTick(
     outputTokens,
     cacheCreationInputTokens,
     cacheReadInputTokens,
+    ...(contextWindowTokens !== undefined ? { contextWindowTokens } : {}),
   };
 }
 
@@ -232,14 +367,19 @@ export interface RunCompactionThrashInput {
 }
 
 /**
- * Compute metrics from observed tick data.
+ * Compute metrics from observed tick data. All token inputs come from the
+ * per-tick usage source `observeTick` chose (egress-jail records when
+ * present, else SSE `usage_update`); cache-derived metrics are only
+ * meaningful when jail records were available, since the SSE wire carries
+ * no cache fields.
  *
- * - `compaction-efficiency`: fraction of total input tokens that were
+ * - `compaction-efficiency`: fraction of total cache tokens that were
  *   cache-read (vs cache-write) during the observation phase. Higher
  *   is better — means the prompt cache stays warm.
  * - `cache-write-ratio`: fraction of observation-phase input tokens
  *   spent on cache creation. Lower is better.
- * - `compaction-pass-count`: total compaction-related usage events
+ * - `compaction-pass-count`: total proactive-compaction passes
+ *   (one per `assistant_activity_state` `context_compacting` marker)
  *   during the observation phase. Lower is better.
  * - `cost-per-tick`: average total input+output tokens per observation
  *   tick (raw count, not USD — pricing depends on model).
@@ -314,7 +454,7 @@ function computeMetrics(observations: TickObservation[]): MetricResult[] {
     {
       name: "compaction-pass-count",
       score: totalCompactionPasses,
-      reason: `${totalCompactionPasses} compaction events across ${observePhase.length} observation ticks`,
+      reason: `${totalCompactionPasses} compaction passes across ${observePhase.length} observation ticks`,
       unit: "raw",
       metadata: {
         totalCompactionPasses,
@@ -418,6 +558,15 @@ export async function runCompactionThrashScenario(
     const observations: TickObservation[] = [];
     const transcript: TranscriptTurn[] = [];
 
+    // The egress jail accumulates one cumulative NDJSON record per upstream
+    // LLM call. We snapshot the cumulative count after each tick and slice
+    // out the records that landed during the tick, so per-tick token/cache
+    // usage comes from the cost/usage authority (`evals/AGENTS.md`) rather
+    // than from SSE events (which carry no cache fields). When the adapter
+    // has no jail (`readUsageRecords` absent), the slice is always empty and
+    // `observeTick` falls back to SSE `usage_update`.
+    let prevRecordCount = 0;
+
     for (let tick = 1; tick <= totalTicks; tick++) {
       const phase: "seed" | "observe" = tick <= seedTicks ? "seed" : "observe";
       const message = buildTickMessage(tick);
@@ -481,13 +630,21 @@ export async function runCompactionThrashScenario(
         }
       }
 
-      const observation = observeTick(tick, phase, events);
+      // Slice the jail records that landed during this tick. Reading the
+      // full cumulative list and slicing (rather than diffing token sums)
+      // keeps the authority single-sourced and tolerant of records that
+      // arrive slightly out of order within a tick.
+      const cumulativeRecords = (await agent.readUsageRecords?.()) ?? [];
+      const tickRecords = cumulativeRecords.slice(prevRecordCount);
+      prevRecordCount = cumulativeRecords.length;
+
+      const observation = observeTick(tick, phase, events, tickRecords);
       observations.push(observation);
 
       progress({
         step: "events",
         status: "done",
-        message: `[${phase}] Tick ${tick}: ${events.length} events, ${observation.compactionEvents} compaction, cache_write=${observation.cacheCreationInputTokens} cache_read=${observation.cacheReadInputTokens}`,
+        message: `[${phase}] Tick ${tick}: ${events.length} events, ${observation.compactionEvents} compaction, cache_write=${observation.cacheCreationInputTokens} cache_read=${observation.cacheReadInputTokens}, ctx=${observation.contextWindowTokens ?? "?"}`,
         turn: tick,
       });
 
@@ -514,6 +671,24 @@ export async function runCompactionThrashScenario(
       `${artifactDir}/tick-observations.json`,
       JSON.stringify(observations, null, 2),
     );
+
+    // Dump the agent's own usage ledger (per-call-site attribution with
+    // cache splits) as a diagnostic artifact. This is the daemon-side
+    // ground truth for "how much of the spend was compaction" —
+    // independent of both the SSE event stream and the egress jail.
+    const usageLedger = (await agent.readUsageLedger?.()) ?? null;
+    if (usageLedger !== null) {
+      await writeFile(
+        `${artifactDir}/usage-ledger.json`,
+        JSON.stringify(usageLedger, null, 2),
+      );
+      progress({
+        step: "metrics",
+        status: "start",
+        message: "Usage ledger captured (per-call-site attribution)",
+        detail: `${artifactDir}/usage-ledger.json`,
+      });
+    }
 
     // Compute and persist metrics.
     const metrics = computeMetrics(observations);

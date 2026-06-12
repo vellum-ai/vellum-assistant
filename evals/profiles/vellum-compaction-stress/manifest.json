@@ -1,3 +1,8 @@
 {
-  "species": "vellum"
+  "species": "vellum",
+  "description": "Vellum Assistant with a deliberately shrunken context window so a modest number of fat cron-tick messages crosses the compaction threshold and keeps re-triggering it. Used by the compaction-thrash benchmark to reproduce cache-write amplification from repeated, non-deterministic summary rewording. The shrunken window takes effect immediately (config_set invalidates the in-memory config cache and per-call resolution re-reads it; no daemon restart needed). Setup pins the active inference profile to a small, cheap model: thrash dynamics are driven by the estimator and thresholds, not model quality, so benchmark runs should not burn frontier-model spend. The window and model are patched on the ACTIVE profile (not just llm.default) because the active profile floats above defaults in main-agent config resolution.",
+  "setup": [
+    "assistant config set llm.default.contextWindow.maxInputTokens 40000",
+    "p=$(assistant config get llm.activeProfile | tail -1); if [ -n \"$p\" ] && [ \"$p\" != \"null\" ]; then assistant config set \"llm.profiles.$p.contextWindow.maxInputTokens\" 40000 && assistant config set \"llm.profiles.$p.model\" claude-haiku-4-5-20251001 && assistant config set \"llm.profiles.$p.maxTokens\" 8192 && assistant config set \"llm.profiles.$p.thinking.enabled\" false; fi"
+  ]
 }
