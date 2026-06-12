@@ -1298,6 +1298,45 @@ describe("PATCH /schedules/:id — description", () => {
     });
     expect(listSchedules()[0].description).toBe("Updated description");
   });
+
+  test("re-derives syntax when the expression switches cron to rrule", () => {
+    const schedule = createSchedule({
+      name: "Syntax switch",
+      description: "Cron schedule",
+      cronExpression: "0 9 * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+
+    const route = findRoute("schedules/:id", "PATCH");
+    const rrule = "DTSTART:20260101T000000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO";
+    route.handler({
+      pathParams: { id: schedule.id },
+      body: { expression: rrule },
+    });
+
+    const updated = listSchedules()[0];
+    expect(updated.syntax).toBe("rrule");
+    expect(updated.cronExpression).toBe(rrule);
+  });
+
+  test("rejects an expression that parses as neither cron nor rrule", () => {
+    const schedule = createSchedule({
+      name: "Bad expression",
+      description: "Cron schedule",
+      cronExpression: "0 9 * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+
+    const route = findRoute("schedules/:id", "PATCH");
+    expect(() =>
+      route.handler({
+        pathParams: { id: schedule.id },
+        body: { expression: "not a schedule" },
+      }),
+    ).toThrow(BadRequestError);
+  });
 });
 
 // ── Wake mode support ─────────────────────────────────────────────────────

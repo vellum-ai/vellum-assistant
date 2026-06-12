@@ -358,6 +358,21 @@ function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
     }
   }
 
+  // Re-derive syntax whenever the expression changes, mirroring the create
+  // handler. Without this, switching an expression between cron and rrule
+  // would validate the new expression against the schedule's old syntax.
+  if (typeof updates.expression === "string") {
+    const normalized = normalizeScheduleSyntax({
+      expression: updates.expression,
+    });
+    if (!normalized) {
+      throw new BadRequestError(
+        "expression could not be parsed as cron or rrule",
+      );
+    }
+    updates.syntax = normalized.syntax;
+  }
+
   if ("description" in body) {
     const description =
       typeof body.description === "string" ? body.description.trim() : "";
