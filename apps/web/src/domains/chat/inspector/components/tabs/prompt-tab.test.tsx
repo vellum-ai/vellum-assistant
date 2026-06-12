@@ -45,6 +45,22 @@ describe("PromptTab", () => {
     expect(html).toContain("Heading");
   });
 
+  test("preserves XML-style prompt delimiters as literal text", () => {
+    const html = render([
+      {
+        kind: "system",
+        label: "System prompt",
+        role: "system",
+        toolName: null,
+        text: "<instructions>\nFollow these rules.\n</instructions>",
+        data: null,
+      },
+    ]);
+
+    expect(html).toContain("&lt;instructions&gt;");
+    expect(html).toContain("Follow these rules.");
+  });
+
   test("renders tool result text in a code-style pre block, not Markdown", () => {
     const html = render([
       {

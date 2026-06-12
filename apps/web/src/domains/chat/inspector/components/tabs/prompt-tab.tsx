@@ -148,7 +148,11 @@ function SectionCard({ section, index }: SectionCardProps): ReactNode {
           className="mt-3 min-w-0 break-words"
           style={{ color: "var(--content-default)" }}
         >
-          <FileMarkdown content={text} stripFrontmatter={false} />
+          <FileMarkdown
+            content={text}
+            stripFrontmatter={false}
+            parseHtml={false}
+          />
         </div>
       )}
     </Card>
