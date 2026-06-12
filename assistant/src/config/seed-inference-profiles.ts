@@ -75,8 +75,7 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
   // Open-weight economy option: MiniMax M3 served by Fireworks via managed
-  // platform inference. The context window is opened to the model's full
-  // 512K (524,288 tokens) rather than the 200K default.
+  // platform inference.
   "balanced-economy": {
     intent: "balanced",
     provider: "fireworks",
@@ -84,10 +83,10 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     source: "managed",
     label: "Balanced Economy",
     description: "Strong open model (MiniMax M3) at a lower price point",
-    maxTokens: 256000,
+    maxTokens: 16000,
     effort: "high",
     thinking: { enabled: true, streamThinking: true },
-    contextWindow: { maxInputTokens: 524288 },
+    contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
 };
 

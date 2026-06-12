@@ -89,8 +89,8 @@ describe("101-upgrade-balanced-economy-to-minimax-m3 migration", () => {
     expect(profile.description).toBe(
       "Strong open model (MiniMax M3) at a lower price point",
     );
-    expect(profile.maxTokens).toBe(256000);
-    expect(profile.contextWindow).toEqual({ maxInputTokens: 524288 });
+    expect(profile.maxTokens).toBe(16000);
+    expect(profile.contextWindow).toEqual({ maxInputTokens: 200000 });
     expect("logitBias" in profile).toBe(false);
     expect(profile.label).toBe("Balanced Economy");
     expect(profile.effort).toBe("high");
