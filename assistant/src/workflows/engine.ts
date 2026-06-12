@@ -165,6 +165,24 @@ export class WorkflowNotFoundError extends Error {
 }
 
 /**
+ * Thrown into the script when a leaf requests `persona: true` but the run's
+ * capability manifest did not declare `persona`. Persona access — like tool
+ * access — is consent-gated at the manifest (the single consent point); a leaf
+ * cannot opt itself in. Surfaces as a catchable VM exception (or, uncaught,
+ * fails the run), matching the tool-denial model: be loud, never silently
+ * downgrade to anonymous.
+ */
+export class WorkflowPersonaNotDeclaredError extends Error {
+  readonly code = "persona_not_declared" as const;
+  constructor() {
+    super(
+      "persona leaves require declaring `persona` in the workflow capabilities.",
+    );
+    this.name = "WorkflowPersonaNotDeclaredError";
+  }
+}
+
+/**
  * Thrown into the script when `workflow()` is called from inside a nested
  * workflow. Nesting is limited to ONE level: a top-level script may call
  * `workflow()`, but a child workflow may not.
@@ -345,10 +363,25 @@ export async function executeWorkflow(
   }
 
   // --- Run-scoped mutable accounting ---------------------------------------
+  // On a RESUME (an existing run row from a prior, crashed execution), SEED the
+  // ACCOUNTING counters from persisted state so the agent cap and token/agent
+  // totals carry across the restart instead of resetting to zero. Without this,
+  // replayed leaves return at the journal short-circuit BEFORE the
+  // `agentsSpawned += 1` increment, so the fresh-from-0 counter would exclude
+  // everything spawned before the crash — and the first `flushCounters()` would
+  // overwrite the persisted total with that smaller value, handing a resumed
+  // run a full fresh cap budget and defeating the runaway guard.
+  //
+  // The `seq` counter is DELIBERATELY NOT seeded: it must restart at 0 on every
+  // execution. The script re-runs from the top and re-derives the SAME
+  // deterministic seq sequence (0, 1, 2, …); replay matches a journaled entry
+  // by `(runId, seq)`, so a `seq` that did not restart at 0 would miss every
+  // cached entry and re-run the whole prefix. The persisted `agentsSpawned`
+  // carries the real spawn total; `seq` is purely the in-execution call index.
   let nextSeq = 0;
-  let agentsSpawned = 0;
-  let inputTokens = 0;
-  let outputTokens = 0;
+  let agentsSpawned = existing ? existing.agentsSpawned : 0;
+  let inputTokens = existing ? existing.inputTokens : 0;
+  let outputTokens = existing ? existing.outputTokens : 0;
   let capExceeded = false;
 
   /** Persist live counters so `getRun` reports them mid-flight. */
@@ -378,6 +411,14 @@ export async function executeWorkflow(
       return { output: cached.result, failed: false };
     }
 
+    // Persona is consent-gated by the manifest, exactly like tools: a leaf may
+    // opt into persona ONLY if the run declared `persona`. An undeclared
+    // request fails loudly (never silently downgrades to anonymous), matching
+    // the tool-denial model.
+    if (leafOpts.persona && !capabilities.persona) {
+      throw new WorkflowPersonaNotDeclaredError();
+    }
+
     // Agent cap: trip BEFORE launching, abort the whole run.
     if (agentsSpawned >= config.maxAgentsPerRun) {
       capExceeded = true;
@@ -400,6 +441,7 @@ export async function executeWorkflow(
           ? { profile: leafOpts.profile }
           : {}),
         ...(isSchemaLeaf ? {} : { tools: capabilities.tools }),
+        ...(leafOpts.persona ? { persona: true } : {}),
         trustContext,
         ...(signal ? { signal } : {}),
       });

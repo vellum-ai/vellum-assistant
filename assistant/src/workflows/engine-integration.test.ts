@@ -520,6 +520,31 @@ return results;
   });
 
   // ---------------------------------------------------------------------------
+  // PERSONA MANIFEST GATE (consent-gated, like tools).
+  //
+  // A leaf may request `persona: true` only if the run's capability manifest
+  // declared `persona`. An undeclared request fails the run loudly through the
+  // real engine + sandbox stack — it must NOT silently downgrade to anonymous.
+  // ---------------------------------------------------------------------------
+  test("a persona leaf in a run WITHOUT declared persona fails the run", async () => {
+    const scriptSource = `
+export const meta = { name: "persona-denied", description: "undeclared persona" };
+return agent("draft in voice", { persona: true });
+`;
+    // `capabilities` (the shared fixture) declares persona:false.
+    expect(capabilities.persona).toBe(false);
+    const result = await executeWorkflow({
+      ...baseOptions("wf-persona-denied", scriptSource),
+      config: makeConfig(),
+    });
+
+    expect(result.status).toBe("failed");
+    // The gate trips before any provider call — nothing was spawned.
+    expect(sendCallCount).toBe(0);
+    expect(result.agentsSpawned).toBe(0);
+  });
+
+  // ---------------------------------------------------------------------------
   // FIXED RESUME JOURNAL-STALENESS GAP.
   //
   // On resume, a leaf whose input CHANGED (new `call_hash`) re-runs and the
