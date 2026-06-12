@@ -135,6 +135,11 @@ export interface InstallPluginResult {
   readonly ref: string;
   /** Resolved commit SHA the external source was cloned at; null when it could not be read. */
   readonly commit: string | null;
+  /**
+   * ISO-8601 committer timestamp of {@link InstallPluginResult.commit} (UTC);
+   * null when the commit or its date could not be read.
+   */
+  readonly committedAt: string | null;
 }
 
 /** Plugin name failed sanitization. */
@@ -369,6 +374,7 @@ export async function installPlugin(
 
   let fileCount: number;
   let commit: string | null = null;
+  let committedAt: string | null = null;
   try {
     const cloned = await copyExternalViaGit(
       source,
@@ -377,6 +383,7 @@ export async function installPlugin(
     );
     fileCount = cloned.fileCount;
     commit = cloned.commit;
+    committedAt = cloned.committedAt;
     // An external clone is often a foreign-ecosystem plugin (e.g. a Claude
     // Code plugin) that the Vellum loader can't run as-is. When we curate an
     // adapter stub for it, overlay the stub and run its transform so the
@@ -411,6 +418,7 @@ export async function installPlugin(
     source,
     ref,
     commit,
+    committedAt,
     fingerprint,
     contentHash,
   });
@@ -426,7 +434,7 @@ export async function installPlugin(
   }
   renameSync(stagingDir, target);
 
-  return { name, target, fileCount, ref, commit };
+  return { name, target, fileCount, ref, commit, committedAt };
 }
 
 /** Cap on any single git invocation; a shallow fetch is well under this. */
@@ -498,6 +506,16 @@ export interface InstallMeta {
   /** Resolved commit SHA the source was cloned at; `null` when it could not be read at install time. */
   readonly commit: string | null;
   /**
+   * ISO-8601 committer timestamp of {@link InstallMeta.commit}, in UTC
+   * (e.g. `2026-06-01T12:34:56.000Z`). This is a property of the commit
+   * itself, distinct from {@link InstallMeta.installedAt} (when the local
+   * machine ran the install). `null` for older installs written before commit
+   * timestamps were recorded, or when the date could not be read. Reserved for
+   * the human-readable "version" surfaced by `plugins inspect`; the optional
+   * {@link InstallMeta.version} field stays free for future tag/semver support.
+   */
+  readonly committedAt?: string | null;
+  /**
    * Per-file content digest of the materialized tree, captured at install
    * time. `null` for older installs written before fingerprinting; callers
    * then report local-modification state as unknown rather than clean.
@@ -525,7 +543,11 @@ async function copyExternalViaGit(
   source: PluginFetchSource,
   destDir: string,
   runGit: GitRunner,
-): Promise<{ fileCount: number; commit: string | null }> {
+): Promise<{
+  fileCount: number;
+  commit: string | null;
+  committedAt: string | null;
+}> {
   const cloneDir = `${destDir}.gitclone`;
   rmSync(cloneDir, { recursive: true, force: true });
   mkdirSync(cloneDir, { recursive: true });
@@ -543,7 +565,8 @@ async function copyExternalViaGit(
       // A missing repo/ref (or a private one we can't reach) is a hard
       // not-found, surfaced as zero files. Anything else — network loss, a
       // transient GitHub outage — is retryable, so map it to a 503.
-      if (isGitRefNotFound(err)) return { fileCount: 0, commit: null };
+      if (isGitRefNotFound(err))
+        return { fileCount: 0, commit: null, committedAt: null };
       throw new PluginSourceUnavailableError(
         `git clone failed for ${sourceLabel(source)} @ ${source.ref}: ${subprocessErrorText(err)}`,
         503,
@@ -553,12 +576,31 @@ async function copyExternalViaGit(
     await runGit(["checkout", "--quiet", "FETCH_HEAD"], { cwd: cloneDir });
 
     let commit: string | null = null;
+    let committedAt: string | null = null;
     try {
       const { stdout } = await runGit(["rev-parse", "HEAD"], { cwd: cloneDir });
       commit = stdout.trim() || null;
     } catch {
       // Provenance is best-effort; a missing commit must not fail the install.
       commit = null;
+    }
+    if (commit) {
+      // The committer date (`%ct`, UNIX seconds) is the version timestamp
+      // `plugins inspect` shows. Normalize to a UTC ISO-8601 string so installs
+      // made in different local timezones remain directly comparable.
+      try {
+        const { stdout } = await runGit(
+          ["show", "-s", "--format=%ct", "HEAD"],
+          { cwd: cloneDir },
+        );
+        const seconds = Number.parseInt(stdout.trim(), 10);
+        if (Number.isFinite(seconds)) {
+          committedAt = new Date(seconds * 1000).toISOString();
+        }
+      } catch {
+        // Best-effort: a missing date must not fail the install.
+        committedAt = null;
+      }
     }
 
     // Defense in depth: external marketplace refs are full commit SHAs (the
@@ -577,11 +619,11 @@ async function copyExternalViaGit(
       ? join(cloneDir, source.rootPath)
       : cloneDir;
     if (!existsSync(srcRoot) || !statSync(srcRoot).isDirectory()) {
-      return { fileCount: 0, commit };
+      return { fileCount: 0, commit, committedAt };
     }
 
     const fileCount = copyTreeSkippingGit(srcRoot, destDir);
-    return { fileCount, commit };
+    return { fileCount, commit, committedAt };
   } finally {
     rmSync(cloneDir, { recursive: true, force: true });
   }
@@ -948,6 +990,8 @@ interface WriteInstallMetaParams {
   readonly source: PluginFetchSource;
   readonly ref: string;
   readonly commit: string | null;
+  /** ISO-8601 committer timestamp of {@link WriteInstallMetaParams.commit} (UTC); null when unknown. */
+  readonly committedAt: string | null;
   readonly fingerprint: Fingerprint;
   readonly contentHash: string;
 }
@@ -985,6 +1029,7 @@ function writeInstallMeta(
     source,
     ref,
     commit,
+    committedAt,
     fingerprint,
     contentHash,
   }: WriteInstallMetaParams,
@@ -1004,6 +1049,7 @@ function writeInstallMeta(
       ref,
     },
     commit,
+    committedAt,
     fingerprint,
   };
   writeFileSync(
@@ -1072,6 +1118,7 @@ export function readInstallMeta(pluginDir: string): InstallMeta | null {
       ref: source.ref,
     },
     commit: typeof obj.commit === "string" ? obj.commit : null,
+    committedAt: typeof obj.committedAt === "string" ? obj.committedAt : null,
     fingerprint: parseFingerprint(obj.fingerprint),
   };
 }
