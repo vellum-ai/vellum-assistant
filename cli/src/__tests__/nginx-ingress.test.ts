@@ -99,6 +99,11 @@ describe("nginx ingress process state", () => {
     return join(workspaceDir, "data", "ingress", "nginx.pid");
   }
 
+  function nginxCommand(workspaceDir: string): string {
+    const dir = join(workspaceDir, "data", "ingress");
+    return `nginx: master process nginx -p ${dir} -c ${join(dir, "nginx.conf")} -g daemon off;`;
+  }
+
   /** A PID guaranteed dead: a short-lived child that has already exited. */
   function deadPid(): number {
     const result = childProcess.spawnSync("sh", ["-c", "exit 0"]);
@@ -135,11 +140,24 @@ describe("nginx ingress process state", () => {
     });
   });
 
-  test("targets the ingress when state exists and the PID is nginx", () => {
+  test("falls back when the recorded PID belongs to another nginx instance", () => {
     const ws = makeWorkspace();
     writeIngressState(ws, 7841);
     writePidFile(ws, process.pid);
-    execFileSyncMock.mockReturnValue("nginx: master process nginx");
+    execFileSyncMock.mockReturnValue(
+      "nginx: master process nginx -p /tmp/other-ingress -c /tmp/other-ingress/nginx.conf",
+    );
+    expect(resolveTunnelTargetPort(ws, 7830)).toEqual({
+      port: 7830,
+      viaIngress: false,
+    });
+  });
+
+  test("targets the ingress when state exists and the PID is this nginx", () => {
+    const ws = makeWorkspace();
+    writeIngressState(ws, 7841);
+    writePidFile(ws, process.pid);
+    execFileSyncMock.mockReturnValue(nginxCommand(ws));
     expect(resolveTunnelTargetPort(ws, 7830)).toEqual({
       port: 7841,
       viaIngress: true,
@@ -150,7 +168,7 @@ describe("nginx ingress process state", () => {
     const ws = makeWorkspace();
     writeIngressState(ws, 7841);
     writePidFile(ws, process.pid);
-    execFileSyncMock.mockReturnValue("nginx: master process nginx");
+    execFileSyncMock.mockReturnValue(nginxCommand(ws));
     expect(
       resolveTunnelTargetPort(ws, 7830, { preferNginxIngress: false }),
     ).toEqual({
@@ -165,7 +183,7 @@ describe("nginx ingress process state", () => {
     let alive = true;
     writeIngressState(ws, 7841);
     writePidFile(ws, pid);
-    execFileSyncMock.mockReturnValue("nginx: master process nginx");
+    execFileSyncMock.mockReturnValue(nginxCommand(ws));
     process.kill = mock((targetPid: number, signal?: string | number) => {
       if (targetPid !== pid) return originalKill(targetPid, signal);
       if (signal === 0) {
@@ -191,7 +209,7 @@ describe("nginx ingress process state", () => {
     const pid = 123_457;
     writeIngressState(ws, 7841);
     writePidFile(ws, pid);
-    execFileSyncMock.mockReturnValue("nginx: master process nginx");
+    execFileSyncMock.mockReturnValue(nginxCommand(ws));
     process.kill = mock((targetPid: number, signal?: string | number) => {
       if (targetPid !== pid) return originalKill(targetPid, signal);
       if (signal === 0) return true;
@@ -213,7 +231,7 @@ describe("nginx ingress process state", () => {
     let aliveChecks = 0;
     writeIngressState(ws, 7841);
     writePidFile(ws, pid);
-    execFileSyncMock.mockReturnValue("nginx: master process nginx");
+    execFileSyncMock.mockReturnValue(nginxCommand(ws));
     process.kill = mock((targetPid: number, signal?: string | number) => {
       if (targetPid !== pid) return originalKill(targetPid, signal);
       if (signal === 0) {
@@ -225,6 +243,27 @@ describe("nginx ingress process state", () => {
     }) as unknown as typeof process.kill;
 
     await expect(stopIngressNginx(ws)).resolves.toBe(true);
+
+    const config = readConfig(ws);
+    expect((config.ingress as Record<string, unknown>).nginx).toBeUndefined();
+    expect(existsSync(pidPath(ws))).toBe(false);
+  });
+
+  test("does not kill another nginx instance when clearing stale state", async () => {
+    const ws = makeWorkspace();
+    const pid = 123_459;
+    writeIngressState(ws, 7841);
+    writePidFile(ws, pid);
+    execFileSyncMock.mockReturnValue(
+      "nginx: master process nginx -p /tmp/other-ingress -c /tmp/other-ingress/nginx.conf",
+    );
+    process.kill = mock((targetPid: number, signal?: string | number) => {
+      if (targetPid !== pid) return originalKill(targetPid, signal);
+      if (signal === 0) return true;
+      throw new Error("should not kill another nginx instance");
+    }) as unknown as typeof process.kill;
+
+    await expect(stopIngressNginx(ws)).resolves.toBe(false);
 
     const config = readConfig(ws);
     expect((config.ingress as Record<string, unknown>).nginx).toBeUndefined();

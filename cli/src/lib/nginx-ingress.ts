@@ -166,15 +166,28 @@ function isPidAlive(pid: number): boolean {
   }
 }
 
-/** Check whether a PID belongs to an nginx process via its command line. */
-function isNginxProcess(pid: number): boolean {
+/**
+ * Check whether a PID belongs to this ingress nginx process.
+ *
+ * Matching only the executable name is not enough: a stale pidfile can point
+ * at a system nginx or another assistant's ingress after PID reuse.
+ */
+function isIngressNginxProcess(pid: number, paths: IngressPaths): boolean {
   try {
-    const output = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
-      encoding: "utf-8",
-      timeout: 3000,
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-    return /nginx/.test(output);
+    const output = execFileSync(
+      "ps",
+      ["-ww", "-p", String(pid), "-o", "command="],
+      {
+        encoding: "utf-8",
+        timeout: 3000,
+        stdio: ["ignore", "pipe", "ignore"],
+      },
+    ).trim();
+    return (
+      /nginx/.test(output) &&
+      output.includes(paths.dir) &&
+      output.includes(paths.confPath)
+    );
   } catch {
     return false;
   }
@@ -182,8 +195,11 @@ function isNginxProcess(pid: number): boolean {
 
 /** The ingress nginx PID when it is recorded and alive, null otherwise. */
 export function getIngressPid(workspaceDir: string): number | null {
-  const pid = readPidFile(getIngressPaths(workspaceDir).pidPath);
-  return pid !== null && isPidAlive(pid) && isNginxProcess(pid) ? pid : null;
+  const paths = getIngressPaths(workspaceDir);
+  const pid = readPidFile(paths.pidPath);
+  return pid !== null && isPidAlive(pid) && isIngressNginxProcess(pid, paths)
+    ? pid
+    : null;
 }
 
 export function isIngressRunning(workspaceDir: string): boolean {
@@ -276,17 +292,16 @@ async function waitForPidExit(
  * Stop a running ingress nginx via its pidfile and clear the recorded state.
  * Returns true if a process was stopped.
  *
- * Verifies the PID still belongs to nginx before killing to avoid hitting an
- * unrelated process if the OS has reused the PID (the same pattern local.ts
- * uses for ngrok). SIGTERM is nginx fast shutdown; escalate to SIGKILL if it
- * doesn't exit within the timeout.
+ * Verifies the PID still belongs to this ingress nginx before killing to avoid
+ * hitting an unrelated process if the OS has reused the PID. SIGTERM is nginx
+ * fast shutdown; escalate to SIGKILL if it doesn't exit within the timeout.
  */
 export async function stopIngressNginx(workspaceDir: string): Promise<boolean> {
-  const { pidPath } = getIngressPaths(workspaceDir);
+  const paths = getIngressPaths(workspaceDir);
 
-  const pid = readPidFile(pidPath);
-  if (pid === null || !isPidAlive(pid) || !isNginxProcess(pid)) {
-    clearStoppedIngress(workspaceDir, pidPath);
+  const pid = readPidFile(paths.pidPath);
+  if (pid === null || !isPidAlive(pid) || !isIngressNginxProcess(pid, paths)) {
+    clearStoppedIngress(workspaceDir, paths.pidPath);
     return false;
   }
 
@@ -297,7 +312,7 @@ export async function stopIngressNginx(workspaceDir: string): Promise<boolean> {
         process.kill(pid, "SIGKILL");
       } catch {
         if (!isPidAlive(pid)) {
-          clearStoppedIngress(workspaceDir, pidPath);
+          clearStoppedIngress(workspaceDir, paths.pidPath);
           return true;
         }
         return false;
@@ -308,13 +323,13 @@ export async function stopIngressNginx(workspaceDir: string): Promise<boolean> {
     }
   } catch {
     if (!isPidAlive(pid)) {
-      clearStoppedIngress(workspaceDir, pidPath);
+      clearStoppedIngress(workspaceDir, paths.pidPath);
       return true;
     }
     return false;
   }
 
-  clearStoppedIngress(workspaceDir, pidPath);
+  clearStoppedIngress(workspaceDir, paths.pidPath);
   return true;
 }
 
