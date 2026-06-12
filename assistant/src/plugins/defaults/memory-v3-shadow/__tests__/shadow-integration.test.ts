@@ -481,6 +481,7 @@ describe("memory-v3 shadow integration — selection-log readout", () => {
         needle: 0,
         dense: 0,
         edge: 0,
+        reply: 0,
       },
       turns: 0,
       distinctSlugs: 0,

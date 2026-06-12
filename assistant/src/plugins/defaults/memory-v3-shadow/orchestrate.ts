@@ -2,11 +2,16 @@
  * Memory v3 — orchestrator composing the candidate lanes into one turn.
  *
  * Each turn runs:
- *   1. Candidate generation over three deterministic finder lanes:
+ *   1. Candidate generation over the deterministic finder lanes:
  *        - the section-grain BM25 needle (`SectionNeedle.query`, KB articles),
- *        - the dense lane (`denseLane`, KD articles), and
- *        - link-graph edge expansion (`edgeExpand`) over the top needle+dense
- *          article seeds.
+ *        - the dense lane (`denseLane`, KD articles),
+ *        - the reply-query pass — needle + dense re-run over the assistant's
+ *          PREVIOUS message as separate queries at a smaller budget
+ *          (`replyQueryK` per lane), surfacing the threads the assistant is
+ *          actively developing that the user's message references without
+ *          naming — and
+ *        - link-graph edge expansion (`edgeExpand`) over the top
+ *          user-message needle+dense article seeds.
  *      Each lane only ever ADDS candidates, so the pool is recall-safe by
  *      construction.
  *   2. Build the candidate pool in CACHE ORDER: the stable prefix —
@@ -84,6 +89,10 @@ export interface OrchestrateDeps {
   needleK?: number;
   /** Number of dense-lane articles. Defaults to {@link DEFAULT_DENSE_K}. */
   denseK?: number;
+  /** Per-lane article budget for the reply-query pass (needle + dense re-run
+   *  over `turn.previousAssistantMessage` as separate queries). `0` or
+   *  omitted disables the pass (canonical value: `memory.v3.replyQueryK`). */
+  replyQueryK?: number;
   /** Number of top needle+dense seeds expanded. When omitted, the edge lane's
    *  own default applies (canonical value: `memory.v3.edge.seedCount`). */
   edgeSeeds?: number;
@@ -162,10 +171,22 @@ export async function orchestrate(
 
   // Step 1: needle (sync BM25) and dense (async embed + Qdrant) lanes run in
   // parallel. Both return distinct articles each tagged with their best-scoring
-  // section index/ordinal.
-  const [needled, densed] = await Promise.all([
+  // section index/ordinal. The reply-query pass re-runs both lanes over the
+  // assistant's previous message as SEPARATE queries (concatenating the two
+  // speakers would average their retrieval intents into a vector that matches
+  // neither) at its own, smaller budget; it runs in the same parallel batch.
+  const replyK = deps.replyQueryK ?? 0;
+  const replyQuery =
+    replyK > 0 ? (turn.previousAssistantMessage ?? "").trim() : "";
+  const [needled, densed, replyNeedled, replyDensed] = await Promise.all([
     Promise.resolve(deps.needle.query(turn.currentMessage, needleK)),
     denseLane(deps.denseConfig, turn.currentMessage, denseK),
+    Promise.resolve(
+      replyQuery.length > 0 ? deps.needle.query(replyQuery, replyK) : [],
+    ),
+    replyQuery.length > 0
+      ? denseLane(deps.denseConfig, replyQuery, replyK)
+      : Promise.resolve([]),
   ]);
 
   // `matchedSections` records the matched `Section` (when one is known) for
@@ -217,6 +238,24 @@ export async function orchestrate(
       sectionByOrdinal(deps.sectionIndex, hit.article, hit.section),
       undefined,
       "dense",
+    );
+  }
+
+  // Step 1b': reply-query hits — candidates the user-message lanes already
+  // surfaced keep their primary attribution (`addFinder`'s first-lane-wins
+  // dedup); only genuinely reply-surfaced articles tag `"reply"`. Matched
+  // sections are recorded the same way as the primary lanes', so injection
+  // and the spotlight render the reply-matched section.
+  for (const hit of replyNeedled) {
+    addFinder(hit.article, sections[hit.section], undefined, "reply");
+  }
+  for (const hit of replyDensed) {
+    if (!deps.sectionIndex.byArticle.has(hit.article)) continue;
+    addFinder(
+      hit.article,
+      sectionByOrdinal(deps.sectionIndex, hit.article, hit.section),
+      undefined,
+      "reply",
     );
   }
 

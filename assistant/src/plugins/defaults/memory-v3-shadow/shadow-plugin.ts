@@ -73,6 +73,10 @@ const log = getLogger("memory-v3-shadow");
 /** How many recent messages to fold into the shadow `recentContext` string. */
 const RECENT_CONTEXT_MESSAGES = 6;
 
+/** How many trailing characters of the previous assistant reply feed the
+ *  reply-query finder pass. */
+const REPLY_QUERY_TAIL_CHARS = 2500;
+
 /**
  * The lazily-built, process-lifetime v3 lanes. The core and hot sets are
  * computed here (not per turn) because they are the candidate pool's STABLE
@@ -294,10 +298,12 @@ function buildSituationalContext(): string {
 
 /**
  * Build a v3 {@link MemoryRoutingTurn} from the conversation's persisted messages.
- * `currentMessage` is the latest user message; `recentContext` is the tail of
- * the recent transcript; `situationalContext` carries the current date and the
- * live NOW.md scratchpad. Returns `null` when there is no user message to route
- * on (nothing to shadow this turn).
+ * `currentMessage` is the latest user message; `previousAssistantMessage` is
+ * the tail of the last assistant reply BEFORE that message (the reply-query
+ * pass's input — absent on a conversation's first turn); `recentContext` is
+ * the tail of the recent transcript; `situationalContext` carries the current
+ * date and the live NOW.md scratchpad. Returns `null` when there is no user
+ * message to route on (nothing to shadow this turn).
  */
 function buildShadowTurn(
   conversationId: string,
@@ -307,13 +313,30 @@ function buildShadowTurn(
   if (rows.length === 0) return null;
 
   let currentMessage = "";
+  let currentIndex = -1;
   for (let i = rows.length - 1; i >= 0; i--) {
     if (rows[i]!.role === "user") {
       currentMessage = stringifyMessageContent(rows[i]!.content);
-      if (currentMessage.length > 0) break;
+      if (currentMessage.length > 0) {
+        currentIndex = i;
+        break;
+      }
     }
   }
   if (currentMessage.length === 0) return null;
+
+  // The last assistant reply before the routed user message. Only the tail is
+  // kept: replies run long, and the live threads — what the lanes should
+  // retrieve on — concentrate at the end.
+  let previousAssistantMessage: string | undefined;
+  for (let i = currentIndex - 1; i >= 0; i--) {
+    if (rows[i]!.role !== "assistant") continue;
+    const text = stringifyMessageContent(rows[i]!.content);
+    if (text.length > 0) {
+      previousAssistantMessage = text.slice(-REPLY_QUERY_TAIL_CHARS);
+      break;
+    }
+  }
 
   const recentContext = rows
     .slice(-RECENT_CONTEXT_MESSAGES)
@@ -327,6 +350,7 @@ function buildShadowTurn(
     currentMessage,
     recentContext,
     situationalContext: buildSituationalContext(),
+    previousAssistantMessage,
   };
 }
 
@@ -417,6 +441,7 @@ export async function observeTurn(
       prefixCards: lanes.prefixCards,
       needleK: v3.needleK,
       denseK: v3.denseK,
+      replyQueryK: v3.replyQueryK,
       edgeSeeds: v3.edge.seedCount,
       edgePerSeed: v3.edge.perSeed,
       edgeCap: v3.edge.cap,

@@ -150,12 +150,14 @@ function depsOf(
 function makeTurn(
   turnNumber: number,
   currentMessage: string,
+  previousAssistantMessage?: string,
 ): MemoryRoutingTurn {
   return {
     conversationId: "conv-xyz",
     turnNumber,
     currentMessage,
     recentContext: "prior context",
+    previousAssistantMessage,
   };
 }
 
@@ -391,6 +393,68 @@ describe("orchestrate — cache-ordered pool (core + hot + finders)", () => {
 
     expect(lastPool).toEqual(["topic-c", "topic-d", "topic-b", "topic-a"]);
     expect(result.lanes.fresh).toEqual(["topic-b"]);
+  });
+
+  test('reply-query hits join the finder tail tagged "reply", after primary lanes and before edge', async () => {
+    const lanes = await buildLanes();
+    denseHits = [];
+    providerStub = selectProvider([]);
+
+    // Primary query matches topic-a; the previous reply matches topic-b. The
+    // edge lane expands topic-a's curated link to topic-d.
+    const result = await orchestrate(
+      makeTurn(1, "apple", "cherry date"),
+      depsOf(lanes, { replyQueryK: 5 }),
+    );
+
+    expect(result.lanes.finder.map((c) => [c.slug, c.lane])).toEqual([
+      ["topic-a", "needle"],
+      ["topic-b", "reply"],
+      ["topic-d", "edge"],
+    ]);
+    // The reply-matched section is recorded for injection/spotlight.
+    expect(result.matchedSections.has("topic-b")).toBe(true);
+  });
+
+  test("a slug both queries surface keeps its primary-lane attribution", async () => {
+    const lanes = await buildLanes();
+    denseHits = [];
+    providerStub = selectProvider([]);
+
+    const result = await orchestrate(
+      makeTurn(1, "apple", "apple banana"),
+      depsOf(lanes, { replyQueryK: 5 }),
+    );
+
+    const topicA = result.lanes.finder.filter((c) => c.slug === "topic-a");
+    expect(topicA).toHaveLength(1);
+    expect(topicA[0]!.lane).toBe("needle");
+  });
+
+  test("no previous assistant message → no reply-lane candidates", async () => {
+    const lanes = await buildLanes();
+    denseHits = [];
+    providerStub = selectProvider([]);
+
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { replyQueryK: 5 }),
+    );
+
+    expect(result.lanes.finder.some((c) => c.lane === "reply")).toBe(false);
+  });
+
+  test("replyQueryK = 0 disables the pass even with a previous reply", async () => {
+    const lanes = await buildLanes();
+    denseHits = [];
+    providerStub = selectProvider([]);
+
+    const result = await orchestrate(
+      makeTurn(1, "apple", "cherry date"),
+      depsOf(lanes, { replyQueryK: 0 }),
+    );
+
+    expect(result.lanes.finder.some((c) => c.lane === "reply")).toBe(false);
   });
 
   test("the rendered stable prefix is byte-identical across turns with different queries", async () => {
