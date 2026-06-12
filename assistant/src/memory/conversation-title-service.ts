@@ -39,7 +39,6 @@ export type TitleOrigin =
   | "filing"
   | "local"
   | "task_submit"
-  | "updates_bulletin"
   | "memory_consolidation"
   | "memory_retrospective"
   | "misc";

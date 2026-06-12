@@ -221,13 +221,41 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   // the recompute point) instead of being re-read per turn. Capability slugs
   // render their capability content; disk pages render raw (frontmatter +
   // body) so `kind: index` pages surface their `links:` map in the card TOC.
+  // Each card carries its lane annotation; fresh cards additionally carry the
+  // page's last-modified time (an absolute stamp — it only changes when the
+  // page does, so the card stays byte-stable between lane recomputes).
+  const modifiedAtBySlug = new Map(
+    pageIndex.entries.map((entry) => [entry.slug, entry.modifiedAt]),
+  );
+  const laneAnnotation = (slug: Slug, lane: "core" | "hot" | "fresh") => {
+    if (lane !== "fresh") return `[lane: ${lane}]`;
+    const modifiedAt = modifiedAtBySlug.get(slug);
+    if (
+      modifiedAt === undefined ||
+      !Number.isFinite(modifiedAt) ||
+      modifiedAt <= 0
+    ) {
+      return "[lane: fresh]";
+    }
+    const stamp = new Date(modifiedAt)
+      .toISOString()
+      .slice(0, 16)
+      .replace("T", " ");
+    return `[lane: fresh · updated ${stamp} UTC]`;
+  };
   const prefixCards = new Map<Slug, string>();
-  for (const slug of [...coreSlugs, ...hotSlugs, ...freshSlugs]) {
-    const raw = await capabilityOrDiskBody(
-      slug,
-      async (s) => (await loadPage(s))?.raw ?? "",
-    );
-    prefixCards.set(slug, renderCard(slug, raw));
+  for (const [lane, slugs] of [
+    ["core", coreSlugs],
+    ["hot", hotSlugs],
+    ["fresh", freshSlugs],
+  ] as const) {
+    for (const slug of slugs) {
+      const raw = await capabilityOrDiskBody(
+        slug,
+        async (s) => (await loadPage(s))?.raw ?? "",
+      );
+      prefixCards.set(slug, renderCard(slug, raw, laneAnnotation(slug, lane)));
+    }
   }
 
   const edgeGraph = await buildEdgeGraph(pageIndex.entries, pageRaw, {
@@ -318,7 +346,13 @@ function readNowContext(): string | null {
  */
 function buildSituationalContext(): string {
   const now = readNowContext();
-  const today = `Today is ${new Date().toDateString()}.`;
+  const at = new Date();
+  // Clock time matters, not just the date: fresh cards carry absolute
+  // `updated <time>` stamps, and hour-grain windows ("while I was asleep",
+  // "this morning") are only computable against a current-time anchor —
+  // measured on a state-recall turn, the anchor alone moved selection more
+  // than prompt steering did.
+  const today = `Today is ${at.toDateString()}, ${at.toISOString().slice(11, 16)} UTC.`;
   return now ? `${today}\n\n${now}` : today;
 }
 

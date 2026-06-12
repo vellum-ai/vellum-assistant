@@ -2049,8 +2049,8 @@ export interface OverrideProfileFields {
 /**
  * Resolve the per-turn inference-profile override from a conversation's
  * fields. Returns the `inferenceProfile` for interactive conversations,
- * `undefined` for automation threads (subagent fan-out, scheduled tasks,
- * update bulletins) so they run on the workspace defaults rather than
+ * `undefined` for automation threads (subagent fan-out, scheduled
+ * tasks) so they run on the workspace defaults rather than
  * inheriting an interactive override.
  */
 export function resolveOverrideProfile(

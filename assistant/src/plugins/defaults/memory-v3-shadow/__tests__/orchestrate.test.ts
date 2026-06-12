@@ -203,7 +203,7 @@ function parsePool(messages: Message[]): {
       );
       if (finder) {
         for (const line of finder[1].split("\n")) {
-          const m = /^\[(\d+)\] (\S+)(?: — |$)/.exec(line);
+          const m = /^\[(\d+)\] (?:\([^)]*\) )?(\S+)(?: — |$)/.exec(line);
           if (m) entries.push({ id: Number(m[1]), slug: m[2]!, line });
         }
       }
@@ -587,9 +587,9 @@ describe("orchestrate — cache-ordered pool (core + hot + finders)", () => {
     expect(lastPool.filter((s) => s === "topic-a")).toHaveLength(2);
     expect(lastPool[0]).toBe("topic-a");
     // The finder line shows the matched-section snippet.
-    expect(lastPoolLines.find((l) => /^\[2\] topic-a — /.test(l))).toContain(
-      "apple",
-    );
+    expect(
+      lastPoolLines.find((l) => /^\[2\] (?:\([^)]*\) )?topic-a — /.test(l)),
+    ).toContain("apple");
     // Selecting both ids still yields ONE selection (slug dedup), the finder
     // lane records the hit, and the matched section survives downstream.
     expect(result.selections).toEqual([{ slug: "topic-a", pinned: false }]);

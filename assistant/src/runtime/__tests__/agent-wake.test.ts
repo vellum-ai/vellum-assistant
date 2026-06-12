@@ -837,7 +837,7 @@ describe("wakeAgentForOpportunity", () => {
   });
 
   test("applies caller-supplied trustContext to the target before the agent loop runs", async () => {
-    // Background system jobs (memory consolidation, update-bulletin) need
+    // Background system jobs (e.g. memory consolidation) need
     // guardian trust to clear the side-effect approval gate. The wake must
     // call setTrustContext BEFORE agentLoop.run so the per-turn snapshot
     // captures the elevated trust.
