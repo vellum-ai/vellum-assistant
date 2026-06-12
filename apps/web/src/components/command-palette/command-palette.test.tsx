@@ -45,7 +45,7 @@ describe("CommandPalette", () => {
     expect(dialog.className).not.toContain("absolute");
 
     const panel = dialog.firstElementChild as HTMLElement | null;
-    expect(panel?.className).toContain("bg-[#111417]");
+    expect(panel?.className).toContain("bg-[var(--surface-base)]");
 
     const selected = screen.getByRole("option", { selected: true });
     expect(selected.className).toContain("h-10");
