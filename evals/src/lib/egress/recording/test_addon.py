@@ -1,25 +1,41 @@
 """
-Unit tests for addon.py's response hook body handling.
+Unit tests for addon.py's response- and request-hook behavior.
 
-Plain `unittest`, no third-party deps (mitmproxy is optional at import
-time — addon.py degrades to `ctx = http = None` when it's absent, which
-is exactly the case here). Runnable as:
+Plain `unittest`, no third-party deps. Runnable as:
 
     python3 -m unittest evals/src/lib/egress/recording/test_addon.py
 
-These tests pin the regression where the hook read `raw_content` (the
-compressed wire bytes) instead of the content-decoded body, which made
-the parser silently fail on every gzip'd Anthropic response and left
-`egress-usage.ndjson` empty.
+Two groups:
+
+  - `ResponseHookGzipTest` pins the regression where the response hook
+    read `raw_content` (the compressed wire bytes) instead of the
+    content-decoded body, which made the parser silently fail on every
+    gzip'd Anthropic response and left `egress-usage.ndjson` empty, plus
+    the payload-inlining behavior. These run against the addon imported
+    at module load — mitmproxy is optional there (addon.py degrades to
+    `ctx = http = None` when absent), which is fine for the response
+    hook.
+
+  - `AllowlistTests` drives the `request` hook's mock-then-allowlist
+    dispatch. The request hook needs `http.Response.make`, so these
+    install a minimal `mitmproxy` stub into `sys.modules` and reload the
+    addon with the env (ALLOW_HOSTS / PLUGIN_FIXTURES_DIR) under test —
+    both are read from os.environ at import time. The reload is in-place
+    (`importlib.reload`), so the module-level `addon` reference the
+    response-hook tests use stays valid.
 """
 
 from __future__ import annotations
 
 import gzip
+import importlib
 import json
 import os
+import sys
 import tempfile
+import types
 import unittest
+from typing import Optional
 
 import addon
 
@@ -205,6 +221,141 @@ class ResponseHookGzipTest(unittest.TestCase):
         records = self._records()
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["input_tokens"], 16442)
+
+
+def _install_mitmproxy_stub() -> None:
+    """Install a minimal fake `mitmproxy` package into sys.modules.
+
+    Only the surface the addon touches is provided: `ctx.log.{info,warn}`
+    (no-ops) and `http.Response.make(status, body, headers)` returning a
+    simple namespace we can assert against.
+    """
+
+    class _FakeResponse:
+        def __init__(self, status_code: int, content: bytes, headers: dict):
+            self.status_code = status_code
+            self.content = content
+            self.headers = headers
+
+    class _FakeResponseFactory:
+        @staticmethod
+        def make(status: int, body: bytes, headers: dict) -> "_FakeResponse":
+            return _FakeResponse(status, body, headers)
+
+    mitmproxy = types.ModuleType("mitmproxy")
+
+    log = types.SimpleNamespace(info=lambda *_: None, warn=lambda *_: None)
+    ctx = types.SimpleNamespace(log=log)
+
+    http = types.SimpleNamespace(Response=_FakeResponseFactory)
+
+    mitmproxy.ctx = ctx  # type: ignore[attr-defined]
+    mitmproxy.http = http  # type: ignore[attr-defined]
+
+    sys.modules["mitmproxy"] = mitmproxy
+
+
+def _load_addon(*, allow_hosts: str, fixtures_dir: Optional[str] = None):
+    """Reload addon.py with the given env so module-level config refreshes."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    _install_mitmproxy_stub()
+    os.environ["ALLOW_HOSTS"] = allow_hosts
+    if fixtures_dir is None:
+        os.environ.pop("PLUGIN_FIXTURES_DIR", None)
+    else:
+        os.environ["PLUGIN_FIXTURES_DIR"] = fixtures_dir
+    if "addon" in sys.modules:
+        return importlib.reload(sys.modules["addon"])
+    return importlib.import_module("addon")
+
+
+class _AllowlistFakeRequest:
+    def __init__(self, host: str, path: str = "/v1/messages", method: str = "POST"):
+        self.pretty_host = host
+        self.path = path
+        self.method = method
+
+
+class _AllowlistFakeFlow:
+    def __init__(self, request: _AllowlistFakeRequest):
+        self.request = request
+        self.response = None
+
+
+class AllowlistTests(unittest.TestCase):
+    def test_blocks_a_host_not_in_the_allowlist_with_403(self) -> None:
+        addon = _load_addon(allow_hosts="api.anthropic.com")
+        flow = _AllowlistFakeFlow(_AllowlistFakeRequest("evil.example.com"))
+        addon.request(flow)
+        self.assertIsNotNone(flow.response)
+        self.assertEqual(flow.response.status_code, 403)
+        self.assertIn(b"blocked by vellum-evals egress jail", flow.response.content)
+
+    def test_allows_an_allowlisted_host_to_fall_through(self) -> None:
+        # An allowed host gets no short-circuit response — it flows to
+        # mitmproxy's normal upstream path. We assert `flow.response`
+        # stays None (the hook returned without setting it).
+        addon = _load_addon(allow_hosts="api.anthropic.com,api.openai.com")
+        flow = _AllowlistFakeFlow(_AllowlistFakeRequest("api.anthropic.com"))
+        addon.request(flow)
+        self.assertIsNone(flow.response)
+
+    def test_allowlist_match_is_case_insensitive(self) -> None:
+        addon = _load_addon(allow_hosts="API.Anthropic.com")
+        flow = _AllowlistFakeFlow(_AllowlistFakeRequest("api.anthropic.com"))
+        addon.request(flow)
+        self.assertIsNone(flow.response)
+
+    def test_blocks_when_allowlist_is_empty(self) -> None:
+        # A sidecar with no ALLOW_HOSTS blocks everything (fail closed).
+        addon = _load_addon(allow_hosts="")
+        flow = _AllowlistFakeFlow(_AllowlistFakeRequest("api.anthropic.com"))
+        addon.request(flow)
+        self.assertEqual(flow.response.status_code, 403)
+
+    def test_mocked_github_host_is_served_even_though_not_allowlisted(self) -> None:
+        # GitHub is intentionally NOT in ALLOW_HOSTS — it's served from
+        # the fixtures dir. The mock must win before the allowlist would
+        # 403 it. We point PLUGIN_FIXTURES_DIR at a temp dir with a
+        # `plugins/<name>/` layout so the contents-API mock returns 200.
+        with tempfile.TemporaryDirectory() as fixtures:
+            plugin_dir = os.path.join(fixtures, "demo-plugin")
+            os.makedirs(plugin_dir)
+            with open(os.path.join(plugin_dir, "SKILL.md"), "w") as fh:
+                fh.write("# demo\n")
+            addon = _load_addon(
+                allow_hosts="api.anthropic.com",
+                fixtures_dir=fixtures,
+            )
+            flow = _AllowlistFakeFlow(
+                _AllowlistFakeRequest(
+                    "api.github.com",
+                    path="/repos/vellum-ai/vellum-assistant/contents/plugins/demo-plugin",
+                    method="GET",
+                )
+            )
+            addon.request(flow)
+            self.assertIsNotNone(flow.response)
+            self.assertEqual(flow.response.status_code, 200)
+            self.assertEqual(
+                flow.response.headers.get("x-mocked-by"),
+                "vellum-evals-egress-mock",
+            )
+
+    def test_unmocked_github_path_falls_to_allowlist_and_is_blocked(self) -> None:
+        # With fixtures mounted but a path the mock doesn't recognize,
+        # the request falls through to the allowlist — github isn't
+        # allowlisted, so it 403s rather than egressing to real github.
+        with tempfile.TemporaryDirectory() as fixtures:
+            addon = _load_addon(
+                allow_hosts="api.anthropic.com",
+                fixtures_dir=fixtures,
+            )
+            flow = _AllowlistFakeFlow(
+                _AllowlistFakeRequest("api.github.com", path="/zen", method="GET")
+            )
+            addon.request(flow)
+            self.assertEqual(flow.response.status_code, 403)
 
 
 if __name__ == "__main__":

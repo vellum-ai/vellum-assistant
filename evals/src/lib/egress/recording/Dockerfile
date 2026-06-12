@@ -18,12 +18,11 @@ FROM mitmproxy/mitmproxy:11.0.2
 
 USER root
 
-# `iptables` + `iproute2` for the netns policy. `conntrack` lets the
-# apply script flush pre-jail flows so connections the assistant opened
-# before the jail attached are re-evaluated against the NAT REDIRECT
-# rather than bypassing it. `getent` (for hostname resolution in the
-# apply script) is in `libc-bin` which is already in the base image.
-# `su` is from `util-linux` (also already in base).
+# `iptables` + `iproute2` for the netns policy; `conntrack` so the
+# apply script can evict pre-jail 443 flows (connections opened before
+# the sidecar started carry no REDIRECT verdict and would bypass
+# mitmproxy over HTTP keep-alive forever). `su` is from `util-linux`
+# (already in base).
 RUN apt-get update \
   && apt-get install -y --no-install-recommends iptables iproute2 conntrack \
   && rm -rf /var/lib/apt/lists/*

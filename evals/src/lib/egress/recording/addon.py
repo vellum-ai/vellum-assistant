@@ -1,5 +1,5 @@
 """
-mitmproxy addon. Two responsibilities:
+mitmproxy addon. Three responsibilities:
 
   1. **Recording.** Wires the `response` hook into the pure-function
      parser (`usage_parser.parse_anthropic_messages_response`) and
@@ -13,7 +13,19 @@ mitmproxy addon. Two responsibilities:
      `assistant plugins install` traffic at the egress jail and serve
      plugins from a fixtures directory bind-mounted into the sidecar,
      instead of allowing api.github.com / raw.githubusercontent.com
-     through the iptables allowlist.
+     out to the real GitHub.
+  3. **Allowlist enforcement.** Also in the `request` hook, after the
+     mock handler has had its chance: any request whose `pretty_host`
+     is not in `ALLOW_HOSTS` (and was not satisfied by a mock) is
+     short-circuited with a 403. This is the jail's primary egress
+     control now — it replaces the per-IP iptables ACCEPT rules that
+     `apply-recording-jail.sh` used to install from a one-shot DNS
+     resolution. Those broke under DNS rotation: api.anthropic.com
+     rotates IPs with low TTLs, so a fresh IP minutes into a run had
+     no matching ACCEPT and mitmproxy's upstream connect hit the
+     default DROP. Enforcing by hostname at the proxy is rotation-proof
+     — mitmproxy is free to dial whatever IP DNS returns, and the
+     allowlist decision is made on the stable Host header instead.
 
 Hosts intercepted for response parsing:
   - `api.anthropic.com` (the only provider parsed in v1)
@@ -23,8 +35,12 @@ set):
   - `api.github.com` — plugin Contents API listings
   - `raw.githubusercontent.com` — plugin file downloads
 
-Other allowlisted hosts (OpenAI, Gemini) flow through mitmproxy and out
-the egress jail just like before — the recording addon doesn't touch
+ALL TLS/443 flows are intercepted now (entrypoint.sh no longer passes
+`--allow-hosts` to mitmdump). That is safe because only the assistant
+container trusts the mitmproxy CA; the gateway / credential-executor
+containers don't share this netns, so their traffic never reaches us.
+Other allowlisted hosts (OpenAI, Gemini, the platform) flow through
+mitmproxy and out the egress jail — the recording addon doesn't touch
 their bodies. Follow-up tickets will add per-provider parsers as needed.
 
 Design notes:
@@ -79,8 +95,29 @@ MAX_PAYLOAD_CHARS = int(os.environ.get("RECORDING_MAX_PAYLOAD_CHARS", "32768"))
 
 # When set, the request hook serves plugin install traffic from this
 # directory instead of letting it egress. Unset = mocking disabled,
-# requests fall through to the iptables DROP-default policy.
+# requests fall through to the allowlist check (and out, if allowed).
 PLUGIN_FIXTURES_DIR: Optional[str] = os.environ.get("PLUGIN_FIXTURES_DIR")
+
+
+def _parse_allow_hosts(raw: Optional[str]) -> frozenset:
+    """Parse the comma-separated ALLOW_HOSTS env var into a lowercase set.
+
+    Hosts are compared case-insensitively (DNS is case-insensitive and
+    `pretty_host` can echo whatever case the client sent), so we
+    normalize both the allowlist and the request host to lowercase.
+    Blank entries and surrounding whitespace are stripped so a trailing
+    comma or a `"a, b"` style value parses cleanly.
+    """
+    if not raw:
+        return frozenset()
+    return frozenset(
+        host.strip().lower() for host in raw.split(",") if host.strip()
+    )
+
+
+# Hostname allowlist enforced in the `request` hook. Parsed once at
+# module load — ALLOW_HOSTS is fixed for the lifetime of the sidecar.
+ALLOW_HOSTS: frozenset = _parse_allow_hosts(os.environ.get("ALLOW_HOSTS"))
 
 # Lock guards the NDJSON file writer — mitmproxy can fire `response`
 # hooks concurrently for parallel requests.
@@ -116,49 +153,84 @@ def _append_ndjson(record: dict) -> None:
 def request(flow) -> None:  # type: ignore[no-untyped-def]
     """mitmproxy hook fired before mitmproxy makes the upstream request.
 
-    Dispatches to `mock_github_handler.handle`. On a match the handler
-    returns a `(status, content_type, body)` tuple; we set
-    `flow.response` inline so mitmproxy short-circuits and never makes
-    the upstream call. On a miss the handler returns `None` and the
-    request flows through to the response hook + addon's normal
-    upstream re-emission.
+    Two stages, in order:
 
-    Disabled when `PLUGIN_FIXTURES_DIR` is unset (no fixtures dir
-    bind-mounted) — every request falls through to the upstream path.
+      1. **Mock.** When `PLUGIN_FIXTURES_DIR` is set, dispatch to
+         `mock_github_handler.handle`. On a match the handler returns a
+         `(status, content_type, body)` tuple; we set `flow.response`
+         inline so mitmproxy short-circuits and never makes the upstream
+         call, and we return immediately (a mocked request is allowed by
+         construction — it never egresses).
+
+      2. **Allowlist.** If the request wasn't mocked, enforce the
+         hostname allowlist: when `request.pretty_host` is not in
+         `ALLOW_HOSTS` (case-insensitive exact match), short-circuit
+         with a 403 so mitmproxy never makes the upstream call. Allowed
+         hosts fall through to the response hook + normal upstream
+         re-emission.
+
+    This is the jail's egress control. Mock-then-allowlist ordering
+    matters: GitHub hosts are intentionally NOT in `ALLOW_HOSTS` (they're
+    served from disk), so the mock has to win before the allowlist would
+    403 them.
+
     Errors are swallowed via the same ctx.log pattern as the response
-    hook so a single bad request can never crash mitmproxy.
+    hook so a single bad request can never crash mitmproxy. On an
+    unexpected error we fail OPEN (let the request through) rather than
+    risk wedging a whole eval run — the iptables DROP-default + per-flow
+    REDIRECT still backstops any truly non-allowlisted path, and a
+    non-CA-trusting client's handshake fails regardless.
     """
-    if http is None or PLUGIN_FIXTURES_DIR is None:
+    if http is None:
         return
     try:
         request = flow.request
         method = request.method
+        host = (request.pretty_host or "").lower()
         # `--showhost` in entrypoint.sh makes `pretty_host` use the
         # original Host header from the client, so we reconstruct the
         # same URL the assistant CLI dialed before the iptables
         # REDIRECT bounced it into mitmproxy.
         url = f"https://{request.pretty_host}{request.path}"
-        result = mock_github_handler.handle(
-            method=method,
-            url=url,
-            fixtures_dir=PLUGIN_FIXTURES_DIR,
-        )
-        if result is None:
+
+        # Stage 1: mock (only when a fixtures dir is bind-mounted).
+        if PLUGIN_FIXTURES_DIR is not None:
+            result = mock_github_handler.handle(
+                method=method,
+                url=url,
+                fixtures_dir=PLUGIN_FIXTURES_DIR,
+            )
+            if result is not None:
+                status, content_type, body = result
+                flow.response = http.Response.make(
+                    status,
+                    body,
+                    {
+                        "content-type": content_type,
+                        "x-mocked-by": "vellum-evals-egress-mock",
+                    },
+                )
+                _log_info(
+                    f"mock_github: {method} {url} -> {status} "
+                    f"({len(body)} bytes)"
+                )
+                return
+
+        # Stage 2: hostname allowlist. A request that reaches here was
+        # not mocked; block it unless its host is explicitly allowed.
+        if host not in ALLOW_HOSTS:
+            flow.response = http.Response.make(
+                403,
+                b"blocked by vellum-evals egress jail: host not in allowlist\n",
+                {"content-type": "text/plain; charset=utf-8"},
+            )
+            _log_info(
+                f"egress-jail: blocked {method} {url} "
+                f"(host {host!r} not in allowlist)"
+            )
             return
-        status, content_type, body = result
-        flow.response = http.Response.make(
-            status,
-            body,
-            {
-                "content-type": content_type,
-                "x-mocked-by": "vellum-evals-egress-mock",
-            },
-        )
-        _log_info(
-            f"mock_github: {method} {url} -> {status} ({len(body)} bytes)"
-        )
     except Exception as err:  # noqa: BLE001 -- never crash mitmproxy
-        _log_warn(f"mock_github: hook raised {type(err).__name__}: {err}")
+        _log_warn(f"request: hook raised {type(err).__name__}: {err}")
 
 
 def _decoded_body(message) -> bytes:  # type: ignore[no-untyped-def]

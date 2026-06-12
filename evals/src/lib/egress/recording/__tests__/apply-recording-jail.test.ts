@@ -102,9 +102,10 @@ describe("apply-recording-jail.sh", () => {
   });
 
   test("requires ALLOW_HOSTS so a misconfig fails loud, not silent", async () => {
-    // A missing ALLOW_HOSTS means no upstream the recording sidecar
-    // can reach — running mitmproxy in that state would record
-    // nothing and the jail would silently break every eval run. The
+    // ALLOW_HOSTS is consumed by the addon (proxy-layer allowlist)
+    // now, not by this script — but the script keeps the guard as a
+    // central fail-loud misconfig check. A sidecar booted without it
+    // would let the addon 403 every request once a mock misses. The
     // explicit guard at the top of the script makes that case
     // observable in `docker logs <jail-name>`.
     const lines = await readScript();
@@ -115,5 +116,47 @@ describe("apply-recording-jail.sh", () => {
     expect(guardCheck).toBeGreaterThanOrEqual(0);
     expect(guardExit).toBeGreaterThan(guardCheck);
     expect(guardExitCode).toBeGreaterThan(guardExit);
+  });
+
+  test("accepts mitmproxy's own upstream legs so DNS rotation can't strand a flow", async () => {
+    // The DNS-rotation fix: instead of resolving ALLOW_HOSTS to IPs
+    // once and pinning a per-IP ACCEPT (which goes stale when
+    // api.anthropic.com rotates IPs mid-run), the filter table lets
+    // mitmproxy ($MITM_UID) reach any IP. mitmproxy is free to dial
+    // whatever DNS returns; the hostname allowlist is enforced in the
+    // addon. This UID-scoped ACCEPT must land after the DROP policy is
+    // the active default so it's a genuine exception to block-by-default.
+    const lines = await readScript();
+    const policyDrop = findLine(lines, "iptables -P OUTPUT DROP");
+    const mitmAccept = findLine(
+      lines,
+      'iptables -A OUTPUT -m owner --uid-owner "$MITM_UID" -j ACCEPT',
+    );
+
+    expect(policyDrop).toBeGreaterThanOrEqual(0);
+    expect(mitmAccept).toBeGreaterThan(policyDrop);
+  });
+
+  test("does NOT resolve ALLOW_HOSTS to IPs (the stale-per-IP-ACCEPT design is gone)", async () => {
+    // Regression guard for the DNS-rotation bug. The old script ran
+    // `getent ahostsv4 $host` to resolve each allowlisted host to IPv4s
+    // at container start and installed a per-IP ACCEPT. That snapshot
+    // went stale when low-TTL hosts (api.anthropic.com) rotated IPs,
+    // stranding mitmproxy's upstream connect against the default DROP.
+    // Re-introducing any one-shot DNS resolution would bring the bug
+    // back, so we assert no EXECUTABLE line resolves hosts or pins a
+    // per-IP ACCEPT. Comment lines (which still document the old design
+    // for posterity) are stripped first so the doc reference doesn't
+    // trip the guard.
+    const codeLines = (await readScript()).filter(
+      (line) => !line.trimStart().startsWith("#"),
+    );
+    const code = codeLines.join("\n");
+    expect(code).not.toContain("getent");
+    expect(code).not.toContain("ahostsv4");
+    // No `-d <ip>` style ACCEPT for ALLOW_HOSTS members. The only
+    // destination-scoped ACCEPT that survives is the loopback one
+    // (127.0.0.0/8), which the test above already pins.
+    expect(code).not.toMatch(/--dport 443 -j ACCEPT/);
   });
 });
