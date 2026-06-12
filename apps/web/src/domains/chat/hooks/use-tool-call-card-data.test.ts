@@ -675,7 +675,7 @@ describe("computeToolCallCardData — regression vs. legacy web-search hook", ()
     expect(data.carouselItems).toHaveLength(3);
   });
 
-  test("emits the same `Searching...` placeholder for an in-flight web tool with no metadata", () => {
+  test("emits a web_search placeholder for an in-flight web tool with no metadata", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
@@ -686,13 +686,33 @@ describe("computeToolCallCardData — regression vs. legacy web-search hook", ()
     ];
     const data = computeToolCallCardData(toolCalls, {});
     expect(data.steps[0]).toEqual({
-      kind: "thinking",
+      kind: "web_search",
+      title: "Searching the web",
       durationLabel: "",
-      text: "Searching...",
+      linkCount: 0,
+      results: [],
     });
     expect(data.state).toBe("loading");
     expect(data.currentStepTitle).toBe("Searching the web");
     expect(data.currentStepInfo).toBe("Searching tigers");
+  });
+
+  test("emits a thinking placeholder for an in-flight web_fetch with no metadata", () => {
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        name: "web_fetch",
+        status: "running",
+        input: { url: "https://example.com" },
+      }),
+    ];
+    const data = computeToolCallCardData(toolCalls, {});
+    expect(data.steps[0]).toEqual({
+      kind: "thinking",
+      durationLabel: "",
+      text: "Reading…",
+    });
+    expect(data.state).toBe("loading");
   });
 });
 

@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import {
   computeNextRunAt,
+  describeRRuleExpression,
+  isSingleFireRRule,
   isValidScheduleExpression,
 } from "../schedule/recurrence-engine.js";
 
@@ -115,5 +117,48 @@ describe("recurrence engine — rrule", () => {
     // Should skip the excluded date and return January 2
     const jan2 = new Date("2099-01-02T09:00:00Z").getTime();
     expect(next).toBe(jan2);
+  });
+});
+
+describe("recurrence engine — rrule display helpers", () => {
+  const SINGLE_FIRE = "DTSTART:20990612T080000\nRRULE:FREQ=DAILY;COUNT=1";
+  const WEEKLY = "DTSTART:20990612T080000\nRRULE:FREQ=WEEKLY;BYDAY=MO,WE";
+
+  test("isSingleFireRRule detects COUNT=1 rules", () => {
+    expect(isSingleFireRRule(SINGLE_FIRE)).toBe(true);
+    expect(isSingleFireRRule(WEEKLY)).toBe(false);
+    expect(
+      isSingleFireRRule("DTSTART:20990612T080000\nRRULE:FREQ=DAILY;COUNT=2"),
+    ).toBe(false);
+    expect(isSingleFireRRule("not an rrule")).toBe(false);
+  });
+
+  test("isSingleFireRRule is false for set constructs", () => {
+    expect(
+      isSingleFireRRule(
+        "DTSTART:20990612T080000\nRRULE:FREQ=DAILY;COUNT=1\nRDATE:20990613T080000",
+      ),
+    ).toBe(false);
+  });
+
+  test("describeRRuleExpression humanizes rules", () => {
+    expect(describeRRuleExpression(SINGLE_FIRE)).toBe("One-time");
+    expect(describeRRuleExpression(WEEKLY)).toBe(
+      "Every week on Monday, Wednesday",
+    );
+    expect(
+      describeRRuleExpression(
+        "DTSTART:20990612T080000\nRRULE:FREQ=DAILY;COUNT=3",
+      ),
+    ).toBe("Every day for 3 times");
+  });
+
+  test("describeRRuleExpression falls back instead of leaking raw text", () => {
+    expect(
+      describeRRuleExpression(
+        "DTSTART:20990612T080000\nRRULE:FREQ=DAILY\nEXDATE:20990613T080000",
+      ),
+    ).toBe("Custom recurrence");
+    expect(describeRRuleExpression("garbage")).toBe("Custom recurrence");
   });
 });

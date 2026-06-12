@@ -257,7 +257,7 @@ export function GeneralPage() {
           isAcknowledging={diskPressure.isAcknowledging}
           acknowledgeError={diskPressure.acknowledgeError?.message ?? null}
           onAcknowledge={() => void diskPressure.acknowledge()}
-          onReviewWorkspaceData={() => void navigate(routes.workspace)}
+          onReviewWorkspaceData={() => void navigate(`${routes.workspace}?sort=size`)}
           onUpgradeStorage={
             infraGate === "full"
               ? () => void navigate(`${routes.settings.billing}?adjust_plan=1`)
@@ -274,7 +274,10 @@ export function GeneralPage() {
         />
       </DetailCard>
 
-      {isAuthenticated && platformGate === "full" && <ProfileCard assistant={platformAssistant} />}
+      {isAuthenticated && platformGate === "full" && (
+        // Handles are platform-only — withhold the prop for self-hosted assistants.
+        <ProfileCard assistant={isPlatformHosted ? platformAssistant : null} />
+      )}
 
       {infraGate === "full" && assistant && (
         <ResizeCard

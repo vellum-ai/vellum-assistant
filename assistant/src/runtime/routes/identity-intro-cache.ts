@@ -25,7 +25,7 @@ import { getWorkspacePromptPath } from "../../util/platform.js";
 // Constants
 // ---------------------------------------------------------------------------
 
-const CACHE_TTL_MS = 2 * 24 * 60 * 60 * 1000; // 2 days
+const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
 
 const CHECKPOINT_KEY_GREETINGS = "identity:intro:greetings";
 const CHECKPOINT_KEY_TIMESTAMP = "identity:intro:cached_at";

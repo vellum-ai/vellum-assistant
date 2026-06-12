@@ -35,6 +35,12 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
+  type InspectPluginDeps,
+  type InspectPluginOptions,
+  type PluginInspection,
+  PluginInspectNotFoundError,
+} from "../../../cli/lib/inspect-plugin.js";
+import {
   type InstallPluginOptions,
   type InstallPluginResult,
   InvalidPluginNameError,
@@ -59,6 +65,12 @@ import {
   type UninstallPluginOptions,
   type UninstallPluginResult,
 } from "../../../cli/lib/uninstall-plugin.js";
+import {
+  PluginNotUpgradableError,
+  type PluginUpgradeResult,
+  type UpgradePluginDeps,
+  type UpgradePluginOptions,
+} from "../../../cli/lib/upgrade-plugin.js";
 
 // Mutable list returned by the mocked library function. Tests reassign
 // `installedFixture` before invoking the handler.
@@ -133,6 +145,38 @@ mock.module("../../../cli/lib/plugin-details.js", () => ({
   getPluginDetails: detailsSpy,
 }));
 
+// Mock inspectPlugin: the lib computes the local-vs-remote drift (covered by
+// inspect-plugin.test.ts); the route only forwards the name and maps errors.
+const inspectSpy = mock(
+  async (
+    _opts: InspectPluginOptions,
+    _deps: InspectPluginDeps,
+  ): Promise<PluginInspection> => {
+    throw new Error("inspectSpy default impl not configured");
+  },
+);
+
+mock.module("../../../cli/lib/inspect-plugin.js", () => ({
+  PluginInspectNotFoundError,
+  inspectPlugin: inspectSpy,
+}));
+
+// Mock upgradePlugin: the lib performs the re-pin (covered by
+// upgrade-plugin.test.ts); the route projects its result and maps errors.
+const upgradeSpy = mock(
+  async (
+    _opts: UpgradePluginOptions,
+    _deps: UpgradePluginDeps,
+  ): Promise<PluginUpgradeResult> => {
+    throw new Error("upgradeSpy default impl not configured");
+  },
+);
+
+mock.module("../../../cli/lib/upgrade-plugin.js", () => ({
+  PluginNotUpgradableError,
+  upgradePlugin: upgradeSpy,
+}));
+
 import {
   BadRequestError,
   ConflictError,
@@ -154,6 +198,8 @@ const searchHandler = findHandler("plugins_search");
 const uninstallHandler = findHandler("plugins_uninstall");
 const getHandler = findHandler("plugins_get");
 const installHandler = findHandler("plugins_install");
+const inspectHandler = findHandler("plugins_inspect");
+const upgradeHandler = findHandler("plugins_upgrade");
 
 function invoke(args: RouteHandlerArgs = {}): {
   plugins: Array<Record<string, unknown>>;
@@ -643,6 +689,7 @@ function pluginDetails(overrides: Partial<PluginDetails> = {}): PluginDetails {
     },
     readme: overrides.readme ?? null,
     ref: overrides.ref ?? "main",
+    artifact: overrides.artifact ?? null,
   };
 }
 
@@ -873,6 +920,307 @@ describe("POST /v1/plugins/install", () => {
     let caught: unknown;
     try {
       await invokeInstall({ body: { name: "caveman" } });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(InternalError);
+    expect((caught as Error).message).toContain("ECONNRESET");
+  });
+});
+
+function inspection(
+  overrides: Partial<PluginInspection> = {},
+): PluginInspection {
+  return {
+    name: overrides.name ?? "level-up",
+    installed: overrides.installed ?? true,
+    status: overrides.status ?? "update-available",
+    local:
+      overrides.local === undefined
+        ? {
+            target: "/workspace/.vellum/plugins/level-up",
+            commit: "60a392b0000000000000000000000000000000aa",
+            version: "0.1.0",
+            description: "Surfaces a Level Up diff card.",
+            installedAt: "2026-06-08T00:00:00.000Z",
+            source: {
+              kind: "github",
+              owner: "vellum-ai",
+              repo: "level-up",
+              ref: "60a392b0000000000000000000000000000000aa",
+            },
+            localChanges: {
+              modified: [],
+              added: [],
+              removed: [],
+              clean: true,
+            },
+            issues: [],
+          }
+        : overrides.local,
+    remote:
+      overrides.remote === undefined
+        ? {
+            repo: "vellum-ai/level-up",
+            path: "",
+            commit: "3eae1820000000000000000000000000000000bb",
+            description: "Surfaces a Level Up diff card.",
+            homepage: "https://github.com/vellum-ai/level-up",
+            license: "MIT",
+            category: null,
+            marketplaceRef: "main",
+          }
+        : overrides.remote,
+    remoteError: overrides.remoteError ?? null,
+  };
+}
+
+async function invokeInspect(
+  args: RouteHandlerArgs = {},
+): Promise<PluginInspection> {
+  return (await inspectHandler(args)) as PluginInspection;
+}
+
+describe("GET /v1/plugins/:name/inspect", () => {
+  beforeEach(() => {
+    inspectSpy.mockReset();
+  });
+
+  test("forwards the name to inspectPlugin and returns the drift verbatim", async () => {
+    // GIVEN inspectPlugin reports an available update for an installed plugin
+    const view = inspection({ status: "update-available" });
+    inspectSpy.mockImplementation(async () => view);
+
+    // WHEN the route handler is invoked with the path name
+    const result = await invokeInspect({ pathParams: { name: "level-up" } });
+
+    // THEN the inspection is returned unchanged
+    expect(result).toEqual(view);
+    // AND the name is forwarded to the lib (ref is never caller-supplied)
+    expect(inspectSpy.mock.calls[0]?.[0]).toEqual({ name: "level-up" });
+  });
+
+  test("a captured marketplace error is returned as 200 with remote-unavailable, not thrown", async () => {
+    // GIVEN the catalog was unreachable but a local copy exists, so the lib
+    // returns a status rather than throwing
+    const view = inspection({
+      status: "remote-unavailable",
+      remote: null,
+      remoteError: "ENOTFOUND raw.githubusercontent.com",
+    });
+    inspectSpy.mockImplementation(async () => view);
+
+    // WHEN the handler runs
+    const result = await invokeInspect({ pathParams: { name: "level-up" } });
+
+    // THEN it resolves (does not throw) and surfaces the captured error
+    expect(result.status).toBe("remote-unavailable");
+    expect(result.remoteError).toContain("ENOTFOUND");
+  });
+
+  test("InvalidPluginNameError → BadRequestError (400)", async () => {
+    inspectSpy.mockImplementation(async () => {
+      throw new InvalidPluginNameError("../escape");
+    });
+
+    await expect(
+      invokeInspect({ pathParams: { name: "../escape" } }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
+  test("PluginInspectNotFoundError → NotFoundError (404)", async () => {
+    inspectSpy.mockImplementation(async () => {
+      throw new PluginInspectNotFoundError("ghost");
+    });
+
+    await expect(
+      invokeInspect({ pathParams: { name: "ghost" } }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  test("unknown errors → InternalError with original message preserved", async () => {
+    inspectSpy.mockImplementation(async () => {
+      throw new Error("EUNEXPECTED");
+    });
+
+    let caught: unknown;
+    try {
+      await invokeInspect({ pathParams: { name: "level-up" } });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(InternalError);
+    expect((caught as Error).message).toContain("EUNEXPECTED");
+  });
+});
+
+function upgradeResult(
+  overrides: Partial<PluginUpgradeResult> = {},
+): PluginUpgradeResult {
+  return {
+    name: overrides.name ?? "level-up",
+    outcome: overrides.outcome ?? "upgraded",
+    fromCommit:
+      overrides.fromCommit === undefined
+        ? "60a392b0000000000000000000000000000000aa"
+        : overrides.fromCommit,
+    toCommit: overrides.toCommit ?? "3eae1820000000000000000000000000000000bb",
+    target: overrides.target ?? "/workspace/.vellum/plugins/level-up",
+    fileCount: overrides.fileCount === undefined ? 12 : overrides.fileCount,
+    dryRun: overrides.dryRun ?? false,
+    provenanceWasUnknown: overrides.provenanceWasUnknown ?? false,
+  };
+}
+
+async function invokeUpgrade(args: RouteHandlerArgs = {}): Promise<{
+  name: string;
+  outcome: string;
+  fromCommit: string | null;
+  toCommit: string;
+  target: string;
+  fileCount: number | null;
+  dryRun: boolean;
+  provenanceWasUnknown: boolean;
+}> {
+  return (await upgradeHandler(args)) as {
+    name: string;
+    outcome: string;
+    fromCommit: string | null;
+    toCommit: string;
+    target: string;
+    fileCount: number | null;
+    dryRun: boolean;
+    provenanceWasUnknown: boolean;
+  };
+}
+
+describe("POST /v1/plugins/:name/upgrade", () => {
+  beforeEach(() => {
+    upgradeSpy.mockReset();
+  });
+
+  test("forwards name + dryRun and projects the upgrade result", async () => {
+    // GIVEN upgradePlugin reports a successful re-pin
+    upgradeSpy.mockImplementation(async () => upgradeResult());
+
+    // WHEN the handler runs with an explicit dryRun flag
+    const result = await invokeUpgrade({
+      pathParams: { name: "level-up" },
+      body: { dryRun: false },
+    });
+
+    // THEN the result is projected onto the wire shape
+    expect(result).toEqual({
+      name: "level-up",
+      outcome: "upgraded",
+      fromCommit: "60a392b0000000000000000000000000000000aa",
+      toCommit: "3eae1820000000000000000000000000000000bb",
+      target: "/workspace/.vellum/plugins/level-up",
+      fileCount: 12,
+      dryRun: false,
+      provenanceWasUnknown: false,
+    });
+    // AND the name + dryRun are forwarded to the lib
+    expect(upgradeSpy.mock.calls[0]?.[0]).toEqual({
+      name: "level-up",
+      dryRun: false,
+    });
+  });
+
+  test("omits dryRun (passes undefined) when the body flag is absent", async () => {
+    // GIVEN a no-op upgrade where the install already matches the pin
+    upgradeSpy.mockImplementation(async () =>
+      upgradeResult({
+        outcome: "already-up-to-date",
+        toCommit: "60a392b0000000000000000000000000000000aa",
+        fileCount: null,
+      }),
+    );
+
+    // WHEN invoked without a body
+    const result = await invokeUpgrade({ pathParams: { name: "level-up" } });
+
+    // THEN the no-op outcome is surfaced
+    expect(result.outcome).toBe("already-up-to-date");
+    expect(result.fileCount).toBeNull();
+    // AND dryRun is passed through as undefined (not coerced to false)
+    expect(upgradeSpy.mock.calls[0]?.[0]).toEqual({
+      name: "level-up",
+      dryRun: undefined,
+    });
+  });
+
+  test("InvalidPluginNameError → BadRequestError (400)", async () => {
+    upgradeSpy.mockImplementation(async () => {
+      throw new InvalidPluginNameError("../escape");
+    });
+
+    await expect(
+      invokeUpgrade({ pathParams: { name: "../escape" } }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
+  test("PluginNotInstalledError → NotFoundError (404)", async () => {
+    upgradeSpy.mockImplementation(async () => {
+      throw new PluginNotInstalledError(
+        "ghost",
+        "/workspace/.vellum/plugins/ghost",
+      );
+    });
+
+    await expect(
+      invokeUpgrade({ pathParams: { name: "ghost" } }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  test("PluginNotUpgradableError → ConflictError (409)", async () => {
+    // The install exists but has no marketplace entry to advance to: a
+    // well-formed request that isn't actionable in the current state.
+    upgradeSpy.mockImplementation(async () => {
+      throw new PluginNotUpgradableError(
+        "level-up",
+        "it has no marketplace entry to upgrade from",
+      );
+    });
+
+    await expect(
+      invokeUpgrade({ pathParams: { name: "level-up" } }),
+    ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  test("PluginNotFoundError → NotFoundError (404)", async () => {
+    upgradeSpy.mockImplementation(async () => {
+      throw new PluginNotFoundError("level-up", "main", "vellum-ai/level-up");
+    });
+
+    await expect(
+      invokeUpgrade({ pathParams: { name: "level-up" } }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  test("PluginSourceUnavailableError → ServiceUnavailableError (503)", async () => {
+    // The re-install fetch can hit a rate-limited GitHub; that is retryable,
+    // so surface 503 rather than a misleading 500.
+    upgradeSpy.mockImplementation(async () => {
+      throw new PluginSourceUnavailableError(
+        "GitHub tree listing for vellum-ai/level-up: HTTP 403",
+        403,
+      );
+    });
+
+    await expect(
+      invokeUpgrade({ pathParams: { name: "level-up" } }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableError);
+  });
+
+  test("unknown errors → InternalError with original message preserved", async () => {
+    upgradeSpy.mockImplementation(async () => {
+      throw new Error("ECONNRESET");
+    });
+
+    let caught: unknown;
+    try {
+      await invokeUpgrade({ pathParams: { name: "level-up" } });
     } catch (err) {
       caught = err;
     }

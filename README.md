@@ -10,37 +10,37 @@
 </p>
 
 <p align="center"><b>A personal AI assistant that evolves with you.</b><br>
-It learns how you work, remembers what matters, and acts before you ask. Yours to name, shape, and extend.</p>
+8 different types of memory (episodic, semantic, procedural, emotional, prospective, behavioral, narrative, shared) make it truly yours. It learns how you work, remembers what matters, and takes action across your apps.</p>
 
 ---
 
 ## What it does
 
-| Area            | Summary                                                                                                                                                                                                                                                                                                                                                               |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Memory**      | **Learns what matters and forgets what doesn't.** Structured memory items — identity, preferences, projects, events — extracted with source attribution and deduplication. Hybrid retrieval (dense + sparse) ranks results semantically and lexically, with staleness windows per memory type. Per-user and per-channel isolation. Embeddings run locally by default. |
-| **Identity**    | **Becomes its own.** Behavior lives in SOUL.md, and during onboarding the assistant observes how you communicate and writes its own personality files. A per-user journal captures its reflections on past interactions. NOW.md acts as an ephemeral scratchpad for current focus and active threads.                                                                 |
-| **Proactivity** | **Reaches out when something matters, without being asked.** Every hour it checks in with itself: re-reads its notes, notices what's unfinished or due soon, and sends a message if needed. Notifications are routed to the right channel and won't interrupt you if you're already talking.                                                                          |
-| **Security**    | **Fail-closed by design.** Actor identity is resolved once (guardian, trusted, or unknown) and enforced everywhere. Untrusted actors cannot read or write memory, trigger tools, or escalate. Credentials live in a separate process and never reach the model. Every tool runs in a sandbox.                                                                         |
-
-<p align="center">
-  <img src="assets/what-it-does.png" alt="Memory, identity, proactivity, and security in the Vellum Assistant" width="100%">
-</p>
+If you've set up a Personal AI on OpenClaw, Hermes Agent, or Claude Code, you know how long it takes, and how many times you have to hatch a new one to get it right. Vellum gets you the result you're looking for out of the box, one download away.
+| Area                          | Summary |
+| ----------------------------- | --- |
+| **Memory**                    | Eight types (episodic, semantic, procedural, emotional, prospective, behavioral, narrative, shared), each with its own staleness window, hybrid dense + sparse retrieval, and per-user and per-channel isolation. Structured items (identity, preferences, projects, events) extracted from conversations with source attribution and dedup. Embeddings run locally by default. Not a SQLite + markdown file you maintain yourself. |
+| **Identity**                  | Behavior lives in SOUL.md. During onboarding the assistant observes how you communicate and writes its own personality files. It keeps a per-user journal of reflections and uses NOW.md as a scratchpad for current focus and active threads. |
+| **Proactivity**               | Every hour the assistant re-reads its notes, looks for anything unfinished or due soon, and messages you if something needs attention. Notifications go to the right channel and won't interrupt an active conversation. |
+| **Security**                  | Actor identity (guardian, trusted, unknown) is resolved once and enforced everywhere; unknown actors can't read memory, trigger tools, or escalate. Credentials live in a separate process and never reach the model. Every tool call runs in a sandbox. The default is to deny. |
+| **Channels**           | macOS, iOS, Web, Voice, Email, Telegram, Slack, Twilio. One assistant, one memory, every channel. |
+| **OAuth**             | Slack, Notion, Google, HubSpot, Linear, Discord, Twitter, Telegram, Twilio. No hand-rolled token refresh. |
+| **Hosting**      | Managed runtime on Vellum Platform, or self-hosted. Same codebase, same data model. |
 
 ---
 
 ## Get started
 
-**1. [Download the latest release](https://vellum.ai/download)**
+**1. [Sign up](https://vellum.ai/signup) or [download the app](https://vellum.ai/download)**
 
-**2. Open the app and pick your mode**
+**2. Pick your mode**
 
-- **Managed** — sign in via Vellum Cloud, no local runtime required
-- **Local** — everything runs on your machine
+- **Managed**: sign in via Vellum Cloud, no local runtime required
+- **Local**: everything runs on your machine
 
 **3. Hatch your assistant**
 
-- Give it a name, a personality, and the keys to your work
+- It's yours! Have fun with it.
 
 <sub>Prefer the terminal? See <a href="#cli">CLI install</a> below.</sub>
 
@@ -48,7 +48,9 @@ It learns how you work, remembers what matters, and acts before you ask. Yours t
 
 ## Quick demo
 
-https://github.com/user-attachments/assets/009bd0ae-95ac-4cf3-81bc-d54cd8631583
+<p align="center">
+  <img src="assets/quick-demo.gif" alt="Vellum Assistant demo" width="100%">
+</p>
 
 ---
 
@@ -99,10 +101,10 @@ All commands target the default assistant. If you have multiple, pass the assist
 
 | Area                       | Summary                                                                                                                                                                                                                                                                                                                  |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Trust engine**           | **Decides who can do what, and defaults to no.** Fail-closed trust system that resolves actor identity once (guardian, trusted, or unknown) and enforces it everywhere. Untrusted actors cannot read or write memory, trigger tools, or escalate. Your credentials live in a separate process and never reach the model. |
-| **Skills**                 | **Add new capabilities through sandboxed plugins.** Manifest-driven plugins (SKILL.md + TOOLS.json) that inject tools and prompt sections at runtime. Skills can be bundled, installed from a catalog, or added from the workspace.                                                                                      |
-| **Channels**               | **One assistant, everywhere you need it.** Use it from the macOS app, Telegram, or Slack, with shared memory across all of them. More channels coming soon.                                                                                                                                                              |
-| **Multi-provider support** | **Swap models without changing anything else.** Supports Anthropic Claude, OpenAI, Google Gemini, and Ollama for local models. Embeddings follow the same pattern: local ONNX by default, with automatic fallback to cloud providers.                                                                                    |
+| **Computer use**           | The assistant works in its own sandbox, and with your approval reaches your actual machine: reads and edits files, runs commands, drives the browser. Every action is permission-gated, and you can grant once, for ten minutes, or always. |
+| **Skills**                 | Plugins defined by a SKILL.md and a TOOLS.json that add tools and prompt sections at runtime, sandboxed like everything else. Install them from the catalog, bundle them, or drop them in the workspace.                                                                                      |
+| **Channels**               | One assistant with one memory, reachable from the macOS app, Telegram, or Slack. Start a thought in one channel and pick it up in another.                                                                                                                                                              |
+| **Multi-provider support** | Works with Anthropic, OpenAI, Google Gemini, Fireworks, OpenRouter, MiniMax, and any OpenAI-compatible endpoint. Local models run through Ollama. Embeddings run on local ONNX by default and fall back to cloud providers automatically.                                                                                    |
 
 ---
 
@@ -145,7 +147,7 @@ We welcome contributions from everyone.
 
 ## License
 
-MIT — see [License](https://github.com/vellum-ai/vellum-assistant?tab=MIT-1-ov-file). Integration logos from [Simple Icons](https://github.com/simple-icons/simple-icons), licensed [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/).
+MIT. See [License](https://github.com/vellum-ai/vellum-assistant?tab=MIT-1-ov-file). Integration logos from [Simple Icons](https://github.com/simple-icons/simple-icons), licensed [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/).
 
 Vellum Assistant is open-source software built by [Vellum AI](https://vellum.ai), a for-profit company. We also offer a managed product, the [Vellum Platform](https://vellum.ai/platform), which sustains the business. Free to use and modify under MIT, and we're committed to keeping it that way.
 

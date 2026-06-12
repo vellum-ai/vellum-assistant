@@ -770,30 +770,28 @@ The macOS `SpeechRecognizerAdapter` protocol in `clients/macos/vellum-assistant/
 - Terminology: "STT" and "transcription" refer to the same operation (converting audio to text). "Speech recognition" is used in client-native contexts where Apple's Speech framework terminology is canonical. All three terms map to the same conceptual operation.
 - **Onboarding**: For a step-by-step guide to adding a new STT provider, see `docs/stt-provider-onboarding.md`.
 
-### Update Bulletin System
+### On-Demand Home Content Generation
 
-Release-driven update notification system that dispatches a background conversation to process release notes when a release lands.
+LLM-generated content shown by clients (personalized home greeting, suggested prompts, conversation starters, identity intro) is produced on demand, never at daemon startup or on unconditional timers.
 
-**Data flow:**
+**Data flow (home greeting + suggested prompts):**
 
-1. **Storage** — Release notes live at `<workspace>/UPDATES.md`. The file is written by workspace migrations; each release that needs to surface notes ships a dedicated migration in `src/workspace/migrations/` that appends a release-notes block to the file. The workspace-migration runner is the authoritative idempotency mechanism: `runWorkspaceMigrations()` records each migration's `WorkspaceMigration.id` in `<workspace>/data/.workspace-migrations.json` and never re-runs an ID that is already in the `applied` set.
-2. **Dispatch** — At daemon startup (after `runWorkspaceMigrations()`), `runUpdateBulletinJobIfNeeded()` is invoked fire-and-forget. It hashes the current `UPDATES.md` content and compares against the `updates:last_processed_hash` checkpoint. When the hashes differ, it bootstraps a `conversationType: "background"` conversation and calls `wakeAgentForOpportunity()` so the agent processes the bulletin without any interactive session.
-3. **Completion** — The agent acts on the contents and deletes `UPDATES.md` when done. The job persists the new hash to `updates:last_processed_hash` post-wake, so subsequent startups short-circuit until the file is repopulated by a future migration.
+1. **Read** — `GET /v1/home/feed` reads both caches synchronously: the greeting from `memory_checkpoints` (`home:greeting:*`, 4-hour TTL, busted when identity files change) and suggested prompts from `memory_checkpoints` (`home:suggested_prompts:*`, 4-hour TTL, invalidated on OAuth connect/disconnect). When a cache is empty the handler falls back to a time-of-day greeting and an empty prompt list.
+2. **Revalidate** — The same GET fires `revalidateHomeContentInBackground()` (`src/home/home-content-refresh.ts`) fire-and-forget. It is single-flight (concurrent GETs share one run) and each refresher no-ops while its cache is fresh, so generation happens at most once per TTL window — and only when a user actually views Home.
+3. **Notify** — When fresh content lands, the coordinator publishes a `home_feed_updated` event; connected clients refetch the feed and the personalized content swaps in.
 
-**Checkpoint keys** (in `memory_checkpoints` table):
-
-- `updates:last_processed_hash` — content hash of the `UPDATES.md` payload most recently dispatched to the background job.
+Conversation starters follow the same pattern via `GET /v1/conversation-starters`, which enqueues a `generate_conversation_starters` memory job when the starter set is stale (cooldown-gated, deduped against in-flight jobs).
 
 **Key source files:**
 
-| File                                   | Purpose                                                                                   |
-| -------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `src/workspace/migrations/`            | Per-release migrations that append release notes to `UPDATES.md`                          |
-| `src/workspace/migrations/registry.ts` | Append-only `WORKSPACE_MIGRATIONS` registry                                               |
-| `src/prompts/update-bulletin-job.ts`   | `runUpdateBulletinJobIfNeeded()` — hash check, background dispatch, and checkpoint update |
-| `src/daemon/lifecycle.ts`              | Fire-and-forget dispatch of `runUpdateBulletinJobIfNeeded()` after DB init at startup     |
-| `src/config/schemas/updates.ts`        | `updates.enabled` config toggle (defaults to `true`; disables the background dispatch)    |
-| `src/permissions/defaults.ts`          | Auto-allow rules for file_read/write/edit + bare-filename `rm UPDATES.md`                 |
+| File                                                | Purpose                                                                  |
+| --------------------------------------------------- | ------------------------------------------------------------------------ |
+| `src/home/home-content-refresh.ts`                  | Single-flight on-demand revalidation coordinator + SSE notify            |
+| `src/home/home-greeting.ts`                         | Greeting generation (BTW side-chain, `homeGreeting` call site)           |
+| `src/home/home-greeting-cache.ts`                   | Checkpoint-backed greeting cache with identity-hash invalidation         |
+| `src/home/suggested-prompts.ts`                     | Prompt generation + checkpoint-backed cache + OAuth invalidation         |
+| `src/runtime/routes/home-feed-routes.ts`            | `GET /v1/home/feed` — cached read + fire-and-forget revalidation trigger |
+| `src/runtime/routes/conversation-starter-routes.ts` | On-demand starter refresh via memory job enqueue                         |
 
 ---
 

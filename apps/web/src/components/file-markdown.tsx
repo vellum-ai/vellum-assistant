@@ -217,6 +217,13 @@ interface FileMarkdownProps {
    * is real, reader-facing content rather than metadata.
    */
   stripFrontmatter?: boolean;
+  /**
+   * When true (default), inline HTML embedded in the markdown is parsed into
+   * real elements (then sanitized). Set to `false` for content where
+   * XML/HTML-style tags are literal text that must stay visible — e.g. LLM
+   * prompt text using `<instructions>`-style delimiters.
+   */
+  parseHtml?: boolean;
 }
 
 /**
@@ -227,6 +234,7 @@ interface FileMarkdownProps {
 export function FileMarkdown({
   content,
   stripFrontmatter: shouldStripFrontmatter = true,
+  parseHtml = true,
 }: FileMarkdownProps) {
   const rendered = shouldStripFrontmatter ? stripFrontmatter(content) : content;
   return (
@@ -236,8 +244,9 @@ export function FileMarkdown({
       // use `<p align>`, `<img>`, `<table>` for layout), then `rehype-sanitize`
       // strips anything unsafe (scripts, event handlers, `javascript:` URLs)
       // using its GitHub-aligned default schema. Order matters: raw first so
-      // sanitize sees real element nodes.
-      rehypePlugins={[rehypeRaw, rehypeSanitize]}
+      // sanitize sees real element nodes. Without `parseHtml`, react-markdown
+      // renders raw HTML as literal text instead.
+      rehypePlugins={parseHtml ? [rehypeRaw, rehypeSanitize] : []}
       components={fileMarkdownComponents}
     >
       {rendered}

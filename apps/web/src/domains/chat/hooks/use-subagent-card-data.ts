@@ -236,10 +236,8 @@ export function computeSubagentCardData(
     if (event.type === "tool_result") {
       const matchIndex = findMatchingInFlightToolIndex(steps, toolMeta, event);
       if (matchIndex === -1) continue;
-      const target = steps[matchIndex] as Extract<
-        ToolCallCardStep,
-        { kind: "tool" }
-      >;
+      const target = steps[matchIndex]!;
+      if (target.kind !== "tool") continue;
       const start = toolMeta[matchIndex]?.startTs;
       const durationLabel =
         typeof start === "number" && Number.isFinite(start)
@@ -260,11 +258,10 @@ export function computeSubagentCardData(
       // calls to the same tool close the correct step.
       const matchIndex = findMatchingInFlightToolIndex(steps, toolMeta, event);
       if (matchIndex !== -1) {
-        const target = steps[matchIndex] as Extract<
-          ToolCallCardStep,
-          { kind: "tool" }
-        >;
-        steps[matchIndex] = { ...target, status: "error" };
+        const target = steps[matchIndex]!;
+        if (target.kind === "tool") {
+          steps[matchIndex] = { ...target, status: "error" };
+        }
       }
       const message = trimTextPreview(event.content) || "Subagent error";
       steps.push({ kind: "tool_error", message });

@@ -18,7 +18,7 @@ import { Typography } from "@vellumai/design-library";
  * with duration 0.
  *
  * `currentStepInfo` accepts a `ReactNode` (not just a string) so callers
- * can pass rich content — e.g. `WebSearchProgressCard` passes a
+ * can pass rich content — e.g. the lone web-search link passes a
  * `<WebsiteCarousel />` in carousel mode while other consumers pass plain
  * text. The component compares `info` references via `Object.is` so memoised
  * nodes (e.g. the carousel) don't trigger a transition on every parent render.

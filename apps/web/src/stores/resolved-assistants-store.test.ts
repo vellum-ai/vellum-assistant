@@ -6,6 +6,7 @@ import {
   type ResolvedAssistant,
 } from "@/stores/resolved-assistants-store";
 import { SELECTED_ASSISTANT_STORAGE_KEY } from "@/assistant/selected-assistant-storage";
+import { useLockfileStore } from "@/stores/lockfile-store";
 import type { Lockfile, LockfileAssistant } from "@/runtime/local-mode-host";
 
 // A platform entry is identified by `cloud === "vellum"` and carries an
@@ -26,6 +27,7 @@ const localAssistant: LockfileAssistant = {
 
 beforeEach(() => {
   localStorage.removeItem(SELECTED_ASSISTANT_STORAGE_KEY);
+  useLockfileStore.setState({ lockfile: null, committed: false });
   useResolvedAssistantsStore.setState({
     assistants: [],
     selectedAssistantId: null,
@@ -45,6 +47,18 @@ describe("setFromLockfile", () => {
     expect(entry.id).toBe("asst-platform");
     expect(entry.isPlatformHosted).toBe(true);
     expect(entry.organizationId).toBe("org-1");
+  });
+
+  it("copies version from lockfile entries", () => {
+    const lockfile: Lockfile = {
+      assistants: [{ ...localAssistant, version: "0.7.0" }],
+      activeAssistant: null,
+    };
+    useResolvedAssistantsStore.getState().setFromLockfile(lockfile);
+
+    expect(useResolvedAssistantsStore.getState().assistants[0].version).toBe(
+      "0.7.0",
+    );
   });
 
   it("leaves organizationId undefined for local entries", () => {
@@ -74,6 +88,7 @@ describe("upsertFromApi", () => {
       name: "Platform (refreshed)",
       created: "2026-01-01T00:00:00Z",
       is_local: false,
+      current_release_version: "0.7.0",
     } as Parameters<
       ReturnType<typeof useResolvedAssistantsStore.getState>["upsertFromApi"]
     >[0]);
@@ -81,6 +96,29 @@ describe("upsertFromApi", () => {
     const entry = useResolvedAssistantsStore.getState().assistants[0];
     expect(entry.id).toBe("asst-platform");
     expect(entry.name).toBe("Platform (refreshed)");
+    expect(entry.organizationId).toBe("org-1");
+    expect(entry.version).toBe("0.7.0");
+  });
+
+  it("seeds organizationId from the lockfile cache when inserting a new entry", () => {
+    // A lifecycle refresh can land before the lockfile subscription has seeded
+    // the resolved list; the insert must still pick up the org the lockfile knows.
+    useLockfileStore.getState().setLockfile({
+      assistants: [platformAssistant],
+      activeAssistant: null,
+    });
+
+    useResolvedAssistantsStore.getState().upsertFromApi({
+      id: "asst-platform",
+      name: "Platform",
+      created: "2026-01-01T00:00:00Z",
+      is_local: false,
+    } as Parameters<
+      ReturnType<typeof useResolvedAssistantsStore.getState>["upsertFromApi"]
+    >[0]);
+
+    const entry = useResolvedAssistantsStore.getState().assistants[0];
+    expect(entry.id).toBe("asst-platform");
     expect(entry.organizationId).toBe("org-1");
   });
 });

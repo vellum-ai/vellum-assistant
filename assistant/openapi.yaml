@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.8.10
+  version: 0.8.11
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -6631,9 +6631,10 @@ paths:
       description:
         Return the chronological list of compaction events that ran in the same agent turn as the call identified
         by `callId`. Turn bounds are walked from the `messages` table (real user messages — tool-result user messages
-        are not boundaries). Projected from `llm_request_logs` rows where `call_site = "compactionAgent"`. When the
-        conversation has no other messages around the selected call, every compaction strictly before the call's
-        `createdAt` is in scope. Drives the Inspector's Compaction tab.
+        are not boundaries). Served from the first-class compaction log when `compactionLogs.destination = "clickhouse"`
+        is configured, falling back to the legacy projection over `llm_request_logs` rows where `call_site =
+        "compactionAgent"`. When the conversation has no other messages around the selected call, every compaction
+        strictly before the call's `createdAt` is in scope. Drives the Inspector's Compaction tab.
       tags:
         - conversations
       responses:
@@ -8383,6 +8384,15 @@ paths:
           schema:
             type: string
           description: Internal conversation identifier.
+        - name: view
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - full
+              - summary
+          description: Response shape. 'summary' omits per-log request/response sections; defaults to 'full'.
   /v1/conversations/rename:
     post:
       operationId: conversations_rename_post
@@ -13002,6 +13012,23 @@ paths:
                   - source
                   - refreshing
                 additionalProperties: false
+      parameters:
+        - name: localHour
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 23
+          description: Optional client-local hour of day used only when refreshing generated greetings.
+        - name: localMinute
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 59
+          description: Optional client-local minute used only when refreshing generated greetings.
   /v1/image-generation/generate:
     post:
       operationId: imagegeneration_generate_post
@@ -15264,6 +15291,191 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/llm-request-logs/{id}/context:
+    get:
+      operationId: llmrequestlogs_by_id_context_get
+      summary: Get normalized context for a single LLM request log
+      description: Return the normalized summary and request/response sections for a specific log entry.
+      tags:
+        - messages
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  createdAt:
+                    type: number
+                  requestPayload:
+                    type: "null"
+                  responsePayload:
+                    type: "null"
+                  provider:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  summary:
+                    anyOf:
+                      - type: object
+                        properties:
+                          provider:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          model:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          status:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          inputTokens:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          outputTokens:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          cacheCreationInputTokens:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          cacheReadInputTokens:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          stopReason:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          requestMessageCount:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          requestToolCount:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          responseMessageCount:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          responseToolCallCount:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          responsePreview:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          toolCallNames:
+                            anyOf:
+                              - type: array
+                                items:
+                                  type: string
+                              - type: "null"
+                          estimatedCostUsd:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          durationMs:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                        additionalProperties: false
+                      - type: "null"
+                  requestSections:
+                    anyOf:
+                      - type: array
+                        items:
+                          type: object
+                          properties:
+                            kind:
+                              type: string
+                            label:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            role:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            text:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            toolName:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            data: {}
+                            language:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                          required:
+                            - kind
+                          additionalProperties: false
+                      - type: "null"
+                  responseSections:
+                    anyOf:
+                      - type: array
+                        items:
+                          type: object
+                          properties:
+                            kind:
+                              type: string
+                            label:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            role:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            text:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            toolName:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            data: {}
+                            language:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                          required:
+                            - kind
+                          additionalProperties: false
+                      - type: "null"
+                  agentLoopExitReason:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  callSite:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - id
+                  - createdAt
+                  - requestPayload
+                  - responsePayload
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/llm-request-logs/{id}/payload:
     get:
       operationId: llmrequestlogs_by_id_payload_get
@@ -17576,6 +17788,15 @@ paths:
           required: true
           schema:
             type: string
+        - name: view
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - full
+              - summary
+          description: Response shape. 'summary' omits per-log request/response sections; defaults to 'full'.
   /v1/messages/{messageId}/tts:
     post:
       operationId: messages_by_messageId_tts_post
@@ -19546,6 +19767,27 @@ paths:
                   ref:
                     type: string
                     description: Git ref the catalog metadata / README were resolved at.
+                  artifact:
+                    anyOf:
+                      - type: object
+                        properties:
+                          url:
+                            type: string
+                            description: HTTPS URL the prebuilt client artifact is downloaded from.
+                          sha256:
+                            type: string
+                            description: Lowercase 64-char hex SHA-256 the download is verified against.
+                          label:
+                            description: Optional human label for the download (e.g. "Download for macOS"); absent when the plugin doesn't name it.
+                            type: string
+                        required:
+                          - url
+                          - sha256
+                        additionalProperties: false
+                      - type: "null"
+                    description:
+                      Prebuilt client artifact from `package.json` `vellum.artifact`, or null when the plugin ships none or its
+                      descriptor is incomplete (e.g. a placeholder sha256).
                 required:
                   - name
                   - installed
@@ -19556,6 +19798,7 @@ paths:
                   - source
                   - readme
                   - ref
+                  - artifact
                 additionalProperties: false
         "400":
           description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
@@ -19573,6 +19816,310 @@ paths:
           schema:
             type: string
           description: Optional git ref to read catalog metadata / README at. Defaults to the CLI's `DEFAULT_PLUGIN_REF`.
+  /v1/plugins/{name}/inspect:
+    get:
+      operationId: plugins_by_name_inspect_get
+      summary: Inspect a plugin's install drift
+      description:
+        'Compare the locally installed copy of a plugin against the marketplace''s current pinned commit and report
+        whether an upgrade is available. Returns a six-way `status` (`up-to-date`, `update-available`, `not-installed`,
+        `not-in-marketplace`, `unknown-provenance`, `remote-unavailable`) plus the local provenance (installed commit,
+        version, source, and any local edits vs the install-time fingerprint) and the remote pin. An unreachable
+        marketplace for an installed plugin is not fatal — it returns 200 with `status: "remote-unavailable"`. A name
+        that is neither installed nor in the catalog returns 404. Powers the web upgrade affordance; mirrors the CLI''s
+        `assistant plugins inspect <name>` and `GET /v1/skills/:id/inspect`.'
+      tags:
+        - plugins
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    description: Install name. Matches `assistant plugins install <name>`.
+                  installed:
+                    type: boolean
+                    description: Whether a copy is materialized under `<workspaceDir>/plugins/`.
+                  status:
+                    type: string
+                    enum:
+                      - up-to-date
+                      - update-available
+                      - not-installed
+                      - not-in-marketplace
+                      - unknown-provenance
+                      - remote-unavailable
+                    description: Drift classification between the installed copy and the marketplace pin.
+                  local:
+                    anyOf:
+                      - type: object
+                        properties:
+                          target:
+                            type: string
+                            description: Absolute path to the installed plugin directory.
+                          commit:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                            description: Resolved commit the copy was installed at; null when no provenance was recorded.
+                          version:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                            description: Installed `package.json#version`.
+                          description:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                            description: Installed `package.json#description`.
+                          installedAt:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                            description: ISO-8601 install timestamp from the sidecar; null when absent.
+                          source:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  kind:
+                                    type: string
+                                    description: Source kind. Only `github` is written today.
+                                  owner:
+                                    type: string
+                                  repo:
+                                    type: string
+                                  path:
+                                    description: Repo-relative directory holding the plugin root; absent = repo root.
+                                    type: string
+                                  ref:
+                                    type: string
+                                    description: Ref the install resolved through (the pinned commit SHA for marketplace installs).
+                                required:
+                                  - kind
+                                  - owner
+                                  - repo
+                                  - ref
+                                additionalProperties: false
+                                description: Source coordinates recorded in the install-time provenance sidecar.
+                              - type: "null"
+                            description: Source recorded at install time; null when no sidecar exists.
+                          localChanges:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  modified:
+                                    type: array
+                                    items:
+                                      type: string
+                                    description: Tracked files whose content changed since install.
+                                  added:
+                                    type: array
+                                    items:
+                                      type: string
+                                    description: Files present on disk but absent from the install baseline.
+                                  removed:
+                                    type: array
+                                    items:
+                                      type: string
+                                    description: Files recorded at install but missing from the on-disk copy.
+                                  clean:
+                                    type: boolean
+                                    description: True when no files were added, removed, or modified.
+                                required:
+                                  - modified
+                                  - added
+                                  - removed
+                                  - clean
+                                additionalProperties: false
+                                description: Local-edit comparison of the on-disk tree against the install-time fingerprint.
+                              - type: "null"
+                            description:
+                              Local-edit state vs the install-time fingerprint; null when no baseline was recorded (older/manual
+                              install).
+                          issues:
+                            type: array
+                            items:
+                              type: string
+                            description: Non-fatal issues with the installed copy (e.g. malformed `package.json`).
+                        required:
+                          - target
+                          - commit
+                          - version
+                          - description
+                          - installedAt
+                          - source
+                          - localChanges
+                          - issues
+                        additionalProperties: false
+                        description: The locally installed copy of the plugin.
+                      - type: "null"
+                    description: Locally installed copy; null when the plugin is not installed.
+                  remote:
+                    anyOf:
+                      - type: object
+                        properties:
+                          repo:
+                            type: string
+                            description: "`owner/repo` of the external plugin repository."
+                          path:
+                            type: string
+                            description: Repo-relative directory holding the plugin root; `""` = repo root.
+                          commit:
+                            type: string
+                            description: Pinned commit SHA the marketplace currently resolves installs to.
+                          description:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          homepage:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          license:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          category:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          marketplaceRef:
+                            type: string
+                            description: Ref of the canonical repo the marketplace manifest was read from.
+                        required:
+                          - repo
+                          - path
+                          - commit
+                          - description
+                          - homepage
+                          - license
+                          - category
+                          - marketplaceRef
+                        additionalProperties: false
+                        description: The marketplace's current pin and advertised metadata.
+                      - type: "null"
+                    description: Marketplace pin + metadata; null when no entry claims the name or it was unreachable.
+                  remoteError:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Marketplace fetch error message, when the catalog could not be read.
+                required:
+                  - name
+                  - installed
+                  - status
+                  - local
+                  - remote
+                  - remoteError
+                additionalProperties: false
+        "400":
+          description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
+        "404":
+          description: No installed copy and no catalog entry claims the given name.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+  /v1/plugins/{name}/upgrade:
+    post:
+      operationId: plugins_by_name_upgrade_post
+      summary: Upgrade a plugin to the marketplace pin
+      description:
+        'Move an installed plugin to the marketplace''s current pinned commit, re-materializing it under
+        `<workspaceDir>/plugins/<name>/`. Always resolves against the curated marketplace pin (no caller-supplied ref),
+        mirroring `plugins install`''s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed
+        commit already equals the pin; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching
+        the install. Installs lacking provenance are re-pinned to the current SHA. The assistant must be restarted to
+        load the upgraded code. This does not gate on local edits — callers should consult `GET
+        /v1/plugins/:name/inspect` (`local.localChanges`) first and confirm before overwriting. Mirrors the CLI''s
+        `assistant plugins upgrade <name>`.'
+      tags:
+        - plugins
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    description: Install name that was (or would be) upgraded.
+                  outcome:
+                    type: string
+                    enum:
+                      - upgraded
+                      - already-up-to-date
+                      - would-upgrade
+                    description:
+                      "`upgraded` moved the install to the pin; `already-up-to-date` was a no-op; `would-upgrade` is a dry-run
+                      that found drift."
+                  fromCommit:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Installed commit before the upgrade; null when no provenance was recorded.
+                  toCommit:
+                    type: string
+                    description: Marketplace-pinned commit the install was (or would be) moved to.
+                  target:
+                    type: string
+                    description: Absolute path to the installed plugin directory on the host.
+                  fileCount:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description: Files materialized by the upgrade; null for a no-op or dry run.
+                  dryRun:
+                    type: boolean
+                    description: Whether this was a dry run (no changes made).
+                  provenanceWasUnknown:
+                    type: boolean
+                    description:
+                      Whether the install lacked resolvable provenance before the upgrade; such installs are re-pinned to record
+                      it going forward.
+                required:
+                  - name
+                  - outcome
+                  - fromCommit
+                  - toCommit
+                  - target
+                  - fileCount
+                  - dryRun
+                  - provenanceWasUnknown
+                additionalProperties: false
+        "400":
+          description: The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).
+        "404":
+          description: No copy of the plugin is installed, or its source resolves to nothing.
+        "409":
+          description: The install exists but has no marketplace entry to advance to.
+        "503":
+          description: The plugin source (GitHub) was temporarily unavailable; the upgrade is retryable.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dryRun:
+                  description: Report what would change without modifying the install. Defaults to false.
+                  type: boolean
+              additionalProperties: false
   /v1/plugins/install:
     post:
       operationId: plugins_install_post

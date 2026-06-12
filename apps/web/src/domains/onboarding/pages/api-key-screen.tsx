@@ -12,6 +12,7 @@ import {
     peekPendingProviderKey,
     setPendingProviderKey,
 } from "@/domains/onboarding/provider-key";
+import { isElectron } from "@/runtime/is-electron";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
@@ -21,6 +22,7 @@ export function ApiKeyScreen() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const hosting = searchParams.get("hosting");
+  const electron = isElectron();
 
   const [provider, setProvider] = useState<OnboardingProviderId>(
     () => peekPendingProviderKey()?.provider ?? DEFAULT_ONBOARDING_PROVIDER.id,
@@ -52,25 +54,25 @@ export function ApiKeyScreen() {
 
   return (
     <OnboardingLayout>
-      <div className="mx-auto flex w-full max-w-xl flex-col items-center px-6 py-16 text-[var(--content-default)]">
+      <div className={`mx-auto flex w-full max-w-xl flex-col items-center ${electron ? "min-h-full px-8 pt-21 pb-4 electron-prechat-type" : "px-6 py-16"} text-[var(--content-default)]`}>
         <h1
-          className="text-3xl font-semibold tracking-tight"
+          className={electron ? "text-title-large" : "text-3xl font-semibold tracking-tight"}
           style={{ animation: "fadeInUp 0.5s ease-out 0.1s both" }}
         >
           Connect a Model Provider
         </h1>
         <p
-          className="mt-3 text-center text-body-medium-lighter text-[var(--content-tertiary)]"
+          className={`text-center text-body-medium-lighter text-[var(--content-tertiary)] ${electron ? "mt-3.5" : "mt-3"}`}
           style={{ animation: "fadeInUp 0.5s ease-out 0.3s both" }}
         >
           Enter an API key to connect your model provider.
         </p>
 
         <div
-          className="mt-10 flex w-full flex-col gap-4"
+          className={`flex w-full flex-col gap-4 ${electron ? "mt-8" : "mt-10"}`}
           style={{ animation: "fadeInUp 0.5s ease-out 0.4s both" }}
         >
-          <div className="flex flex-col gap-1">
+          <div className={`flex flex-col ${electron ? "gap-2" : "gap-1"}`}>
             <label className="text-body-small-default text-[var(--content-tertiary)]">
               Provider
             </label>
@@ -119,7 +121,7 @@ export function ApiKeyScreen() {
         </div>
 
         <div
-          className="mt-8 flex w-full flex-col gap-2"
+          className={`mt-8 flex w-full flex-col ${electron ? "gap-2.5" : "gap-2"}`}
           style={{ animation: "fadeInUp 0.5s ease-out 0.5s both" }}
         >
           <Button
@@ -128,7 +130,7 @@ export function ApiKeyScreen() {
             fullWidth
             disabled={!canContinue}
             onClick={onContinue}
-            className="h-11 text-base"
+            className={electron ? undefined : "h-11 text-base"}
           >
             Continue
           </Button>
@@ -137,7 +139,7 @@ export function ApiKeyScreen() {
             size="regular"
             fullWidth
             onClick={onBack}
-            className="h-11 text-base"
+            className={electron ? undefined : "h-11 text-base"}
           >
             Back
           </Button>

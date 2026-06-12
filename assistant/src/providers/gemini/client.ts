@@ -5,6 +5,7 @@ import {
   THINKING_LEVELS,
   type ThinkingLevel as ThinkingLevelName,
 } from "../../config/schemas/llm.js";
+import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
@@ -314,7 +315,10 @@ export class GeminiProvider implements Provider {
       const geminiConfig: genai.GenerateContentConfig = {};
 
       if (systemPrompt) {
-        geminiConfig.systemInstruction = systemPrompt;
+        geminiConfig.systemInstruction = systemPrompt.replaceAll(
+          SYSTEM_PROMPT_CACHE_BOUNDARY,
+          "\n\n",
+        );
       }
       if (maxTokens) {
         geminiConfig.maxOutputTokens = maxTokens;

@@ -133,7 +133,7 @@ const VOICE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   "not-allowed": "Microphone access was blocked.",
   "service-not-allowed": "Microphone access was blocked.",
   "not-allowed-permanent":
-    "Microphone is blocked in your browser settings. Click the lock icon in your address bar and allow microphone access, then reload.",
+    "Microphone access is blocked. Allow microphone access in system or browser settings, then try again.",
   "audio-capture":
     "No microphone detected. Connect a microphone and try again.",
   network:
@@ -172,6 +172,10 @@ const MIC_PERMISSION_ERROR_CODES: ReadonlySet<string> = new Set([
 
 export function isMicPermissionError(code: string | null): boolean {
   return code !== null && MIC_PERMISSION_ERROR_CODES.has(code);
+}
+
+export function isMicPermissionPermanentError(code: string | null): boolean {
+  return code === "not-allowed-permanent";
 }
 
 export function isTextInsertionPermissionError(code: string | null): boolean {

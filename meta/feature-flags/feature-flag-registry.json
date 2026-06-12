@@ -76,14 +76,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "system-schedule-toggles",
-      "scope": "assistant",
-      "key": "system-schedule-toggles",
-      "label": "System Schedule Toggles",
-      "description": "Show the Heartbeat pause toggle on the schedules settings page. The toggle only pauses automatic runs; manual Run now remains available.",
-      "defaultEnabled": false
-    },
-    {
       "id": "developer-menu-items",
       "scope": "client",
       "key": "developer-menu-items",
@@ -364,6 +356,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "web-remote-ingress",
+      "scope": "assistant",
+      "key": "web-remote-ingress",
+      "label": "Web Remote Ingress",
+      "description": "Serve the web client over a public tunnel and enable browser pairing for self-hosted assistants.",
+      "defaultEnabled": false
+    },
+    {
       "id": "settings-sleep-policy",
       "scope": "assistant",
       "key": "settings-sleep-policy",
@@ -401,14 +401,6 @@
       "key": "memory-v3-live",
       "label": "Memory v3 Live",
       "description": "When on, memory-v3 topic-tree retrieval becomes the live injected memory source (suppressing v2 injection). Off by default; only enable after shadow telemetry validates the design.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "empty-state-dynamic-greetings",
-      "scope": "assistant",
-      "key": "empty-state-dynamic-greetings",
-      "label": "Dynamic Empty-State Greetings",
-      "description": "Enable the empty new-chat screen to refresh cached greeting options via the empty-state greeting LLM call site. When off, the assistant serves workspace-authored greetings or static fallbacks only.",
       "defaultEnabled": false
     },
     {

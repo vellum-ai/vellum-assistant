@@ -16,11 +16,12 @@ import type {
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
+import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
 import {
   recordCompactionEndBestEffort,
   recordCompactionStartBestEffort,
-} from "../memory/compaction-log-writer-clickhouse.js";
+} from "../memory/compaction-log-store-clickhouse.js";
 import { projectAssistantMessage } from "../memory/conversation-attention-store.js";
 import {
   deleteMessageById,
@@ -286,6 +287,14 @@ export interface EventHandlerState {
    * never claims content a flush has not yet written.
    */
   lastPersistedContentSeq: number | undefined;
+  /**
+   * Pre-compaction history buffered from `context_compacting` start events,
+   * keyed by `compactionId`. The paired `compaction_completed` event no
+   * longer carries the pre-compaction history, so the dispatcher re-derives
+   * the stripped durable base from the buffered start messages. Entries are
+   * consumed (deleted) when the end event dispatches.
+   */
+  readonly compactionStartMessages: Map<string, Message[]>;
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
@@ -301,8 +310,8 @@ export interface EventHandlerDeps {
   readonly turnInterfaceContext: TurnInterfaceContext;
   /**
    * Commit a successful inline compaction to durable state. Invoked from the
-   * `compaction_completed` dispatch case (when `result.compacted`) with the
-   * loop's compaction result and the stripped pre-compaction `messages`. Supplied
+   * `compaction_completed` dispatch case (when `compacted`) with the
+   * loop's compaction result and the stripped pre-compaction history. Supplied
    * by the orchestrator because the body writes Conversation DB-record fields,
    * projects Slack provenance, and emits transport the loop is intentionally
    * blind to.
@@ -361,6 +370,7 @@ export function createEventHandlerState(): EventHandlerState {
     currentMessageContent: [],
     currentThinkingTimestamps: [],
     lastPersistedContentSeq: undefined,
+    compactionStartMessages: new Map(),
   };
 }
 
@@ -2316,6 +2326,9 @@ export async function dispatchAgentEvent(
       }
       case "context_compacting":
         recordCompactionStartBestEffort(deps.ctx.conversationId, event);
+        // Buffer the pre-compaction history so the paired end event can
+        // re-derive the stripped durable base.
+        state.compactionStartMessages.set(event.compactionId, event.messages);
         deps.ctx.emitActivityState("thinking", "context_compacting", {
           requestId: deps.reqId,
           statusText: "Compacting context",
@@ -2329,22 +2342,34 @@ export async function dispatchAgentEvent(
         // banner.
         deps.onEvent(event);
         break;
-      case "compaction_completed":
-        // Always commit the loop-stripped `messages` as the durable message base
-        // so re-injection re-applies onto the stripped history even when the
-        // pipeline ran but did not compact. When it did compact, commit the
-        // durable result (DB-record fields, Slack provenance, SSE) — which
-        // overwrites `ctx.messages` with the compacted history. This runs
-        // before the loop's `reinject` hook (the loop awaits this dispatch),
-        // so the committed history is in place in time. A failed durable
-        // commit re-throws below to abort the turn rather than re-injecting
-        // against half-applied state.
+      case "compaction_completed": {
+        // Always commit the stripped pre-compaction history as the durable
+        // message base so re-injection re-applies onto the stripped history
+        // even when the pipeline ran but did not compact. The base is
+        // re-derived from the buffered start event's messages (the end event
+        // carries only the pipeline's output). When the pipeline did compact,
+        // commit the durable result (DB-record fields, Slack provenance,
+        // SSE) — which overwrites `ctx.messages` with the compacted history.
+        // This runs before the loop's `reinject` hook (the loop awaits this
+        // dispatch), so the committed history is in place in time. A failed
+        // durable commit re-throws below to abort the turn rather than
+        // re-injecting against half-applied state.
         recordCompactionEndBestEffort(deps.ctx.conversationId, event);
-        deps.ctx.messages = event.messages;
-        if (event.result.compacted) {
-          await deps.applyCompaction(event.result, event.messages);
+        const startMessages = state.compactionStartMessages.get(
+          event.compactionId,
+        );
+        state.compactionStartMessages.delete(event.compactionId);
+        // Fall back to the pipeline's output when the start event was never
+        // buffered — on the no-compaction path it is the stripped input.
+        const strippedBase = startMessages
+          ? stripInjectionsForCompaction(startMessages)
+          : event.messages;
+        deps.ctx.messages = strippedBase;
+        if (event.compacted) {
+          await deps.applyCompaction(event, strippedBase);
         }
         break;
+      }
       case "history_stripped":
         // Record the history-stripped DB marker right after the loop strips
         // injections (before the pipeline). Best-effort: a transient marker

@@ -755,6 +755,7 @@ describe("web_search_tool_result structural guard", () => {
     // (array of web_search_result objects) and is not truncated this way.
     "context/tool-result-truncation.ts",
     "context/post-turn-tool-result-truncation.ts",
+    "context/tool-result-spool.ts",
 
     // Anthropic provider type guards define API-specific discriminants.
     // It has a separate isWebSearchToolResultBlock for the other type.
@@ -787,6 +788,13 @@ describe("web_search_tool_result structural guard", () => {
     // no is_error flag and are not produced by the tool executor, so only
     // tool_result is relevant. Same reasoning as agent/loop.ts above.
     "plugins/defaults/tool-error/hooks/post-tool-use.ts",
+
+    // Counts unbroken runs of locally-executed exploration tools (bash,
+    // file_read, file_list) to detect inline drift. Server-side web search
+    // results (web_search_tool_result) are not produced by the tool executor;
+    // any non-exploration block simply bounds the trailing run, which is the
+    // conservative direction (fewer nudges). Same reasoning as agent/loop.ts.
+    "plugins/defaults/exploration-drift/hooks/post-tool-use.ts",
 
     // Reconciles synthesized cancellation tool_results for locally-executed
     // tools only. Same reasoning as agent/loop.ts above.

@@ -4,8 +4,8 @@ import { withCrashRecovery } from "./validate-migration-state.js";
 
 /**
  * Rename checkpoint keys from the old `thread_starters:` prefix to
- * `conversation_starters:` so that the renamed code paths in
- * `conversation-starters-cadence.ts` and `conversation-starters.ts`
+ * `conversation_starters:` so that the renamed code paths (see
+ * `conversation-starter-checkpoints.ts` and `conversation-starters.ts`)
  * find existing generation state and avoid unnecessary re-generation.
  *
  * This was originally appended to migration 174, but that migration

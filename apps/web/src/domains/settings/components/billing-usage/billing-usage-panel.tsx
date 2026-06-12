@@ -22,7 +22,10 @@ import {
     type LlmUsageDimension,
 } from "@/utils/llm-dimension";
 
-import { BillingUsageChart, type ChartMetric } from "@/domains/settings/components/billing-usage/billing-usage-chart";
+import {
+  BillingUsageChart,
+  type ChartMetric,
+} from "@/domains/settings/components/billing-usage/billing-usage-chart";
 import {
     type BillingUsageSourceFilter,
     getDefaultDateRange,
@@ -237,11 +240,11 @@ export function BillingUsagePanel() {
           </div>
         ) : series ? (
           <div className="rounded-xl bg-[var(--surface-base)] p-3">
-            <BillingUsageChart
-              buckets={series.buckets}
-              metric={metric}
-              onBarClick={handleBarClick}
-            />
+              <BillingUsageChart
+                buckets={series.buckets}
+                metric={metric}
+                onBarClick={handleBarClick}
+              />
           </div>
         ) : null}
       </div>

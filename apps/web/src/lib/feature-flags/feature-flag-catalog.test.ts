@@ -33,9 +33,14 @@ describe("feature flag catalog", () => {
     );
   });
 
-  test("exposes dynamic empty-state greetings as an assistant flag", () => {
-    expect(ASSISTANT_FLAG_DEFAULTS.emptyStateDynamicGreetings).toBe(false);
+  test("does not expose GA empty-state greetings as a feature flag", () => {
+    expect("emptyStateDynamicGreetings" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
     expect("emptyStateDynamicGreetings" in CLIENT_FLAG_DEFAULTS).toBe(false);
+  });
+
+  test("exposes web remote ingress as an assistant flag defaulted off", () => {
+    expect(ASSISTANT_FLAG_DEFAULTS.webRemoteIngress).toBe(false);
+    expect("webRemoteIngress" in CLIENT_FLAG_DEFAULTS).toBe(false);
   });
 });
 

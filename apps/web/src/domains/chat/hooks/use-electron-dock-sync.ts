@@ -1,10 +1,11 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { setDockBadge, setDockSignedIn } from "@/runtime/dock";
 import { setMenuPlatformSession } from "@/runtime/menu";
 import { useHasPlatformSession, useIsAuthenticated } from "@/stores/auth-store";
 import type { Conversation } from "@/types/conversation-types";
 import { contributesToUnreadCount } from "@/utils/conversation-predicates";
+import { getDeviceBool, watchDeviceSetting } from "@/utils/device-settings";
 
 /**
  * Publish the data the Electron Dock cares about — unread conversation
@@ -30,6 +31,9 @@ import { contributesToUnreadCount } from "@/utils/conversation-predicates";
 export function useElectronDockSync(conversations: Conversation[]): void {
   const isAuthenticated = useIsAuthenticated();
   const hasPlatformSession = useHasPlatformSession();
+  const [dockBadgesEnabled, setDockBadgesEnabled] = useState(() =>
+    getDeviceBool("dockBadgesEnabled", true),
+  );
 
   const unreadCount = useMemo(
     () =>
@@ -40,9 +44,17 @@ export function useElectronDockSync(conversations: Conversation[]): void {
     [conversations],
   );
 
+  useEffect(
+    () =>
+      watchDeviceSetting("dockBadgesEnabled", () => {
+        setDockBadgesEnabled(getDeviceBool("dockBadgesEnabled", true));
+      }),
+    [],
+  );
+
   useEffect(() => {
-    setDockBadge(unreadCount);
-  }, [unreadCount]);
+    setDockBadge(dockBadgesEnabled ? unreadCount : 0);
+  }, [dockBadgesEnabled, unreadCount]);
 
   useEffect(() => {
     setDockSignedIn(isAuthenticated);

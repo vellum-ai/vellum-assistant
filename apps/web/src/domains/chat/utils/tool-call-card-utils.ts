@@ -40,9 +40,8 @@ export const WEB_TOOL_NAMES = new Set(["web_search", "web_fetch"]);
  * Discriminated step descriptor for the unified tool-call progress card.
  *
  * The first three variants (`thinking`, `web_search`, `web_search_error`)
- * preserve the existing `StepDescriptor` shape from
- * `WebSearchProgressCard`, so the legacy renderer keeps working unchanged.
- * The `tool` variant carries the title/info/icon tuple produced by
+ * cover the web-search rendering path. The `tool` variant carries the
+ * title/info/icon tuple produced by
  * `deriveStepLabel` plus the per-call duration + status fields the unified
  * card needs to drive its row chrome. The `tool_error` variant is used by
  * `useSubagentCardData` for synthesised terminal-error events that have
@@ -235,8 +234,18 @@ function buildWebFetchStep(
   };
 }
 
-function buildPlaceholderStep(): ToolCallCardStep {
-  return { kind: "thinking", durationLabel: "", text: "Searching..." };
+function buildWebSearchPlaceholderStep(): ToolCallCardStep {
+  return {
+    kind: "web_search",
+    title: "Searching the web",
+    durationLabel: "",
+    linkCount: 0,
+    results: [],
+  };
+}
+
+function buildWebFetchPlaceholderStep(): ToolCallCardStep {
+  return { kind: "thinking", durationLabel: "", text: "Reading…" };
 }
 
 function buildWebSearchStepFromResultText(
@@ -714,7 +723,9 @@ function buildStepForToolCall(
     return buildWebFetchStep(metadata.webFetch);
   }
   if (!terminal) {
-    return buildPlaceholderStep();
+    return tc.name === "web_search"
+      ? buildWebSearchPlaceholderStep()
+      : buildWebFetchPlaceholderStep();
   }
   if (tc.name === "web_search" && typeof tc.result === "string") {
     return buildWebSearchStepFromResultText(tc.result) ?? buildEmptyWebSearchStep();
@@ -749,9 +760,9 @@ export function computeToolCallCardDataFromItems(
   // Tracks the text of the most recently pushed step that originated from a
   // GENUINE thinking *item* (a `{ kind: "thinking" }` reasoning segment) and
   // is still the last step in the list. Web-tool synthesis can also emit
-  // `kind: "thinking"` steps (the `Searching...` placeholder, `web_fetch`
-  // "Reading …"); those must keep flowing through the tool/web header
-  // derivation, so we don't promote them to a "Thinking" header.
+  // `kind: "thinking"` steps (`web_fetch` "Reading …"); those must keep
+  // flowing through the tool/web header derivation, so we don't promote them
+  // to a "Thinking" header.
   let trailingThinkingText: string | null = null;
   for (const item of items) {
     if (item.kind === "thinking") {

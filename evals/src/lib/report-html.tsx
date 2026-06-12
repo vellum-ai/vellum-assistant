@@ -11,6 +11,7 @@ import type {
 } from "./metrics";
 import type {
   DockerArtifactFile,
+  ReportProfileInSession,
   ReportRunDetail,
   ReportSessionDetail,
   ReportSessionSummary,
@@ -20,10 +21,59 @@ import type {
   SubprocessLogFile,
 } from "./report-data";
 import type { TranscriptTurn } from "./transcript";
+import { priceUsageRecord } from "./pricing";
 
 function formatNumber(value: number | undefined, digits = 2): string {
   if (value === undefined) return "—";
   return Number.isInteger(value) ? String(value) : value.toFixed(digits);
+}
+
+/** Human-readable byte size, e.g. `812 B`, `14.2 KB`, `3.1 MB`. */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  return `${(kb / 1024).toFixed(1)} MB`;
+}
+
+function utf8ByteLength(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+/**
+ * Total byte volume of every log stream rendered on the Logs tab: the
+ * file-backed subprocess/docker logs plus the serialized container and
+ * runner event streams. Surfaced as the Logs pill's headline stat so a
+ * reader can gauge how much log there is to read before opening the tab.
+ */
+function logsSizeBytes(run: ReportRunDetail): number {
+  let total = 0;
+  for (const log of run.subprocessLogs) total += utf8ByteLength(log.content);
+  for (const artifact of run.dockerArtifacts)
+    total += utf8ByteLength(artifact.content);
+  total += utf8ByteLength(JSON.stringify(run.assistantEvents));
+  total += utf8ByteLength(JSON.stringify(run.ingestAssistantEvents));
+  total += utf8ByteLength(JSON.stringify(run.progressEvents));
+  return total;
+}
+
+function readRecordNumber(
+  record: Record<string, unknown>,
+  ...keys: string[]
+): number | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return undefined;
+}
+
+function readRecordString(
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
 }
 
 function formatAggregateScore(value: number | undefined): string {
@@ -189,6 +239,12 @@ h1 { font-size: clamp(34px, 5vw, 64px); line-height: .95; margin: 10px 0; letter
 .run-heading { font-size: 32px; margin: 0 0 6px; letter-spacing: -.04em; }
 .run-heading-meta { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; color: var(--muted); font-size: 13px; margin-bottom: 22px; }
 .run-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+.profile-info { margin: 0; display: grid; gap: 14px; padding: 18px 20px; border: 1px solid var(--border); border-radius: 18px; background: rgba(255,255,255,.04); }
+.profile-info > div { display: grid; grid-template-columns: 120px 1fr; gap: 16px; align-items: start; }
+.profile-info dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; margin: 0; }
+.profile-info dd { margin: 0; }
+.profile-setup { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.profile-setup code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
 .cli-command { margin: 0 0 22px; padding: 14px 18px; border: 1px solid var(--border); border-radius: 14px; background: rgba(0,0,0,.32); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 1.5; color: #dbeafe; word-break: break-all; }
 .cli-command-label { display: block; font-family: inherit; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .14em; margin-bottom: 6px; font-weight: 800; }
 .cli-command code { font-family: inherit; }
@@ -223,6 +279,57 @@ pre.log { max-height: 480px; overflow: auto; padding: 16px; border-radius: 16px;
 .cost-diag-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .cost-diag-table th, .cost-diag-table td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--border); }
 .cost-diag-table th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; }
+.cost-requests { margin-top: 16px; }
+.cost-requests h3 { font-size: 16px; margin: 0 0 10px; letter-spacing: -.02em; }
+.cost-req-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cost-req-table th, .cost-req-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.cost-req-table th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; }
+.cost-req-table tbody:hover { background: rgba(255,255,255,.02); }
+.cost-req-table .payload-row td { padding: 0 10px 8px; border-bottom: 1px solid var(--border); }
+.payload-details > summary { cursor: pointer; color: var(--muted); font-size: 12px; list-style: none; padding: 4px 0; }
+.payload-details > summary::-webkit-details-marker { display: none; }
+.payload-details > summary::before { content: "▸ "; }
+.payload-details[open] > summary::before { content: "▾ "; }
+.payload-details[open] > summary:hover, .payload-details > summary:hover { color: var(--accent2); }
+.payload-body h4 { margin: 10px 0 4px; font-size: 12px; color: var(--muted); font-weight: 800; }
+.payload-pre { max-height: 360px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+.tabs { margin-top: 4px; }
+.tab-input { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.tablist { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+.tab-pill { display: flex; flex-direction: column; gap: 8px; padding: 18px; border-radius: 22px; background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.035)); border: 1px solid var(--border); cursor: pointer; transition: .15s ease; }
+.tab-pill:hover { border-color: rgba(139,92,246,.45); transform: translateY(-1px); }
+.tab-pill-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .12em; font-weight: 800; }
+.tab-pill-value { font-size: 30px; font-weight: 900; letter-spacing: -.04em; }
+.tabpanel { display: none; padding: 24px; border-radius: 24px; background: rgba(0,0,0,.18); border: 1px solid var(--border); }
+.tabpanel h2 { margin: 0 0 14px; font-size: 20px; letter-spacing: -.03em; }
+#exec-tab-score:checked ~ .tabpanels .panel-score,
+#exec-tab-turns:checked ~ .tabpanels .panel-turns,
+#exec-tab-cost:checked ~ .tabpanels .panel-cost,
+#exec-tab-logs:checked ~ .tabpanels .panel-logs { display: block; }
+#exec-tab-score:checked ~ .tablist label[for="exec-tab-score"],
+#exec-tab-turns:checked ~ .tablist label[for="exec-tab-turns"],
+#exec-tab-cost:checked ~ .tablist label[for="exec-tab-cost"],
+#exec-tab-logs:checked ~ .tablist label[for="exec-tab-logs"] { border-color: rgba(139,92,246,.7); background: linear-gradient(180deg, rgba(139,92,246,.22), rgba(34,211,238,.08)); }
+#exec-tab-score:focus-visible ~ .tablist label[for="exec-tab-score"],
+#exec-tab-turns:focus-visible ~ .tablist label[for="exec-tab-turns"],
+#exec-tab-cost:focus-visible ~ .tablist label[for="exec-tab-cost"],
+#exec-tab-logs:focus-visible ~ .tablist label[for="exec-tab-logs"] { outline: 2px solid var(--accent2); outline-offset: 2px; }
+.log-group { margin-top: 24px; }
+.log-group:first-child { margin-top: 0; }
+.log-group h3 { font-size: 16px; margin: 0 0 8px; letter-spacing: -.02em; }
+.metric-card-list { display: flex; flex-direction: column; gap: 10px; }
+.metric-card { border: 1px solid var(--border); border-radius: 16px; background: rgba(255,255,255,.04); overflow: hidden; }
+.metric-card > summary { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 14px 16px; cursor: pointer; list-style: none; }
+.metric-card > summary::-webkit-details-marker { display: none; }
+.metric-card > summary::after { content: "▸"; color: var(--muted); transition: transform .15s ease; }
+.metric-card[open] > summary::after { transform: rotate(90deg); }
+.metric-card-name { font-weight: 800; }
+.metric-card-detail { padding: 0 16px 16px; border-top: 1px solid var(--border); }
+.metric-card-reason { white-space: pre-wrap; line-height: 1.5; margin: 12px 0 0; }
+.metric-card-meta { display: grid; gap: 8px; margin: 14px 0 0; }
+.metric-card-meta > div { display: grid; grid-template-columns: 160px 1fr; gap: 12px; align-items: start; }
+.metric-card-meta dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; margin: 0; }
+.metric-card-meta dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; word-break: break-word; }
 .debug-section { border: 1px solid rgba(251, 113, 133, .24); background: rgba(251, 113, 133, .06); }
 .debug-item { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
 .debug-item:last-child { margin-bottom: 0; }
@@ -543,6 +650,7 @@ function SessionPage({ session }: { session: ReportSessionDetail }) {
             <ProfileAggregateCard
               key={aggregate.profileId}
               aggregate={aggregate}
+              href={`/sessions/${encodeURIComponent(session.sessionId)}/profiles/${encodeURIComponent(aggregate.profileId)}`}
             />
           ))}
         </div>
@@ -748,34 +856,227 @@ function TestInSessionPage({ test }: { test: ReportTestInSession }) {
   );
 }
 
-function MetricTable({ metrics }: { metrics: MetricResult[] }) {
+function setupCommands(
+  setup: NonNullable<ReportProfileInSession["info"]>["setup"],
+): string[] {
+  if (setup === undefined) return [];
+  return Array.isArray(setup) ? setup : [setup];
+}
+
+function ProfileInfoPanel({
+  profileId,
+  info,
+}: {
+  profileId: string;
+  info?: ReportProfileInSession["info"];
+}) {
+  const commands = setupCommands(info?.setup);
+  return (
+    <dl className="profile-info">
+      <div>
+        <dt>Profile</dt>
+        <dd>{profileId}</dd>
+      </div>
+      <div>
+        <dt>Species</dt>
+        <dd>{info?.species ?? "—"}</dd>
+      </div>
+      {info?.version ? (
+        <div>
+          <dt>Version</dt>
+          <dd>{info.version}</dd>
+        </div>
+      ) : null}
+      <div>
+        <dt>Description</dt>
+        <dd>
+          {info?.description ?? "No description in this profile's manifest."}
+        </dd>
+      </div>
+      <div>
+        <dt>Setup</dt>
+        <dd>
+          {commands.length === 0 ? (
+            "None — bare profile."
+          ) : (
+            <ul className="profile-setup">
+              {commands.map((command, index) => (
+                <li key={index}>
+                  <code>{command}</code>
+                </li>
+              ))}
+            </ul>
+          )}
+        </dd>
+      </div>
+    </dl>
+  );
+}
+
+function ProfileTestRow({
+  sessionId,
+  profileId,
+  entry,
+}: {
+  sessionId: string;
+  profileId: string;
+  entry: ReportProfileInSession["tests"][number];
+}) {
+  const url = `/sessions/${encodeURIComponent(sessionId)}/tests/${encodeURIComponent(entry.testId)}/profiles/${encodeURIComponent(profileId)}`;
+  return (
+    <tr className="linked">
+      <td>
+        <a href={url} className="row-link">
+          <strong>{entry.testId}</strong>
+        </a>
+      </td>
+      <td>
+        <a href={url} className="row-link">
+          <StatusBadge status={entry.status} />
+        </a>
+      </td>
+      <td>
+        <a
+          href={url}
+          className={`row-link score ${scoreClass(entry.scoreTotal)}`}
+        >
+          {formatAggregateScore(entry.scoreTotal)}
+        </a>
+      </td>
+      <td>
+        <a href={url} className="row-link muted">
+          {entry.metricCount}
+        </a>
+      </td>
+      <td>
+        <a href={url} className="row-link muted">
+          {entry.transcriptTurns}
+        </a>
+      </td>
+      <td>
+        <a href={url} className="row-link muted">
+          {formatCost(entry.totalCostUsd)}
+        </a>
+      </td>
+    </tr>
+  );
+}
+
+function ProfileInSessionPage({
+  profile,
+}: {
+  profile: ReportProfileInSession;
+}) {
+  const sessionUrl = `/sessions/${encodeURIComponent(profile.sessionId)}`;
+  return (
+    <>
+      <Crumbs
+        trail={[
+          { href: "/", label: "All runs" },
+          {
+            href: sessionUrl,
+            label: profile.sessionLabel ?? profile.sessionId,
+          },
+          { label: profile.profileId },
+        ]}
+      />
+      <h1 className="run-heading">{profile.profileId}</h1>
+      <div className="run-heading-meta">
+        <span className={`score ${scoreClass(profile.scoreTotal)}`}>
+          {formatAggregateScore(profile.scoreTotal)} overall
+        </span>
+        <span>
+          {profile.tests.length} test{profile.tests.length === 1 ? "" : "s"}
+        </span>
+      </div>
+
+      <section className="section">
+        <h2>Profile</h2>
+        <ProfileInfoPanel profileId={profile.profileId} info={profile.info} />
+      </section>
+
+      <section className="section">
+        <h2>Test scores</h2>
+        <p className="section-subtle">
+          How this profile scored on every test in the run. Click a test to open
+          its transcript and logs.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Test</th>
+              <th>Status</th>
+              <th>Score</th>
+              <th>Metrics</th>
+              <th>Turns</th>
+              <th>Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            {profile.tests.map((entry) => (
+              <ProfileTestRow
+                key={entry.testId}
+                sessionId={profile.sessionId}
+                profileId={profile.profileId}
+                entry={entry}
+              />
+            ))}
+          </tbody>
+        </table>
+      </section>
+    </>
+  );
+}
+
+/**
+ * The Score tab's report card: one expandable row per metric. The summary
+ * always shows the metric name + its scored value; expanding reveals the
+ * scorer's `reason` and any structured `metadata` it attached. Rendered with
+ * native `<details>` so it stays interactive in the fully static,
+ * no-JS report bundle.
+ */
+function MetricReportCard({ metrics }: { metrics: MetricResult[] }) {
   if (metrics.length === 0) {
     return <p className="muted">No metrics recorded for this run yet.</p>;
   }
 
   return (
-    <table>
-      <thead>
-        <tr>
-          <th>Metric</th>
-          <th>Score</th>
-          <th>Reason</th>
-        </tr>
-      </thead>
-      <tbody>
-        {metrics.map((metric) => (
-          <tr key={metric.name}>
-            <td>
-              <strong>{metric.name}</strong>
-            </td>
-            <td className={`score ${scoreClass(metric.score)}`}>
-              {formatScore(metric.score, metric.unit, 2)}
-            </td>
-            <td>{metric.reason ?? ""}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="metric-card-list">
+      {metrics.map((metric) => {
+        const meta = metric.metadata ? Object.entries(metric.metadata) : [];
+        return (
+          <details key={metric.name} className="metric-card">
+            <summary className="metric-card-summary">
+              <span className="metric-card-name">{metric.name}</span>
+              <span className={`score ${scoreClass(metric.score)}`}>
+                {formatScore(metric.score, metric.unit, 2)}
+              </span>
+            </summary>
+            <div className="metric-card-detail">
+              {metric.reason ? (
+                <p className="metric-card-reason">{metric.reason}</p>
+              ) : (
+                <p className="muted">No reason recorded for this metric.</p>
+              )}
+              {meta.length > 0 && (
+                <dl className="metric-card-meta">
+                  {meta.map(([key, value]) => (
+                    <div key={key}>
+                      <dt>{key}</dt>
+                      <dd>
+                        {typeof value === "string"
+                          ? value
+                          : JSON.stringify(value)}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+            </div>
+          </details>
+        );
+      })}
+    </div>
   );
 }
 
@@ -976,6 +1277,222 @@ function RunnerLogs({ events }: { events: PersistedProgressEvent[] }) {
   );
 }
 
+/**
+ * The Logs tab: every process-log stream for a run, stacked. Groups the
+ * container/forensic snapshots and the structured event/runner logs that
+ * used to be separate top-level sections so they all live behind one tab.
+ */
+function LogsPanel({ run }: { run: ReportRunDetail }) {
+  return (
+    <>
+      {run.dockerArtifacts.length > 0 && (
+        <div className="log-group">
+          <h3>Docker snapshot</h3>
+          <p className="section-subtle">
+            Container forensics captured at hatch failure, before{" "}
+            <code>vellum retire</code> removed the container. Each block is the
+            full <code>docker inspect</code> /{" "}
+            <code>docker logs --tail 200</code> for a sibling container (
+            <code>assistant</code> / <code>gateway</code> /{" "}
+            <code>credential-executor</code>), inlined here so port collisions
+            and crash exits land in the same scroll as the subprocess logs
+            below.
+          </p>
+          {run.dockerArtifacts.map((artifact) => (
+            <div key={artifact.name} className="subprocess-log-block">
+              <div className="subprocess-log-head">
+                <strong>{artifact.name}</strong>
+                <a
+                  className="raw-link"
+                  href={`/api/runs/${encodeURIComponent(run.runId)}/files/${encodeURIComponent(artifact.name)}`}
+                  target="_blank"
+                  rel="noopener"
+                >
+                  raw
+                </a>
+              </div>
+              <DockerArtifact artifact={artifact} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {run.subprocessLogs.length > 0 && (
+        <div className="log-group">
+          <h3>Subprocess logs</h3>
+          <p className="section-subtle">
+            Stdout/stderr from every CLI subprocess the adapter spawned — useful
+            when a hatch or setup step failed silently and the error message
+            alone doesn't tell you why. Each line is timestamped and tagged in
+            the same format as the test runner log so they line up
+            column-for-column when read side by side.
+          </p>
+          {run.subprocessLogs.map((log) => (
+            <div key={log.name} className="subprocess-log-block">
+              <div className="subprocess-log-head">
+                <strong>{log.name}</strong>
+                <a
+                  className="raw-link"
+                  href={`/api/runs/${encodeURIComponent(run.runId)}/files/${encodeURIComponent(log.name)}`}
+                  target="_blank"
+                  rel="noopener"
+                >
+                  raw
+                </a>
+              </div>
+              <SubprocessLog log={log} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="log-group">
+        <h3>Memory-formation events</h3>
+        <p className="section-subtle">
+          V2 only: typed event stream from the agent&apos;s ingest turn —
+          consuming the haystack sessions to form memory before the question is
+          asked. Empty for V1 runs and for V2 runs whose adapter doesn&apos;t
+          expose ingest-side events.
+        </p>
+        <ContainerLogs
+          events={run.ingestAssistantEvents}
+          emptyLabel="No memory-formation events recorded."
+        />
+      </div>
+
+      <div className="log-group">
+        <h3>Container logs</h3>
+        <p className="section-subtle">
+          Typed event stream emitted by the assistant inside the container
+          during the question turn — what the agent said in response to the
+          question.
+        </p>
+        <ContainerLogs events={run.assistantEvents} />
+      </div>
+
+      <div className="log-group">
+        <h3>Test runner logs</h3>
+        <p className="section-subtle">
+          Step-by-step trace from the eval runner: hatching, setup, simulator
+          turns, metric scoring, shutdown.
+        </p>
+        <RunnerLogs events={run.progressEvents} />
+      </div>
+    </>
+  );
+}
+
+/**
+ * Tabbed body of the per-execution page. The four pills double as both the
+ * run's headline stats (score / turn count / cost / log count) and the tab
+ * controls — clicking one swaps the panel below. Implemented with hidden
+ * radio inputs + `:checked` sibling selectors so it stays fully interactive
+ * in the static, no-JS report bundle. Score is selected by default.
+ */
+function ExecutionTabs({ run }: { run: ReportRunDetail }) {
+  const logsSize = logsSizeBytes(run);
+  return (
+    <div className="tabs">
+      <input
+        className="tab-input"
+        type="radio"
+        name="exec-tab"
+        id="exec-tab-score"
+        defaultChecked
+      />
+      <input
+        className="tab-input"
+        type="radio"
+        name="exec-tab"
+        id="exec-tab-turns"
+      />
+      <input
+        className="tab-input"
+        type="radio"
+        name="exec-tab"
+        id="exec-tab-cost"
+      />
+      <input
+        className="tab-input"
+        type="radio"
+        name="exec-tab"
+        id="exec-tab-logs"
+      />
+      <div className="tablist" role="tablist">
+        <label className="tab-pill" htmlFor="exec-tab-score">
+          <span className="tab-pill-label">Score</span>
+          <span className="tab-pill-value">
+            {formatAggregateScore(run.scoreTotal)}
+          </span>
+        </label>
+        <label className="tab-pill" htmlFor="exec-tab-turns">
+          <span className="tab-pill-label">Turns</span>
+          <span className="tab-pill-value">{run.transcriptTurns}</span>
+        </label>
+        <label className="tab-pill" htmlFor="exec-tab-cost">
+          <span className="tab-pill-label">Cost</span>
+          <span className="tab-pill-value">{formatCost(run.totalCostUsd)}</span>
+        </label>
+        <label className="tab-pill" htmlFor="exec-tab-logs">
+          <span className="tab-pill-label">Logs</span>
+          <span className="tab-pill-value">{formatBytes(logsSize)}</span>
+        </label>
+      </div>
+      <div className="tabpanels">
+        <section className="tabpanel panel-score">
+          <h2>Metric report card</h2>
+          <p className="section-subtle">
+            Every metric scored for this run. Expand a metric for its scoring
+            reason and any structured metadata.
+          </p>
+          <MetricReportCard metrics={run.metrics} />
+        </section>
+
+        <section className="tabpanel panel-turns">
+          <h2>Transcript</h2>
+          <p className="section-subtle">
+            The conversation between the simulated user and the assistant, turn
+            by turn.
+          </p>
+          <Transcript turns={run.transcript} />
+        </section>
+
+        <section className="tabpanel panel-cost">
+          <h2>Cost breakdown</h2>
+          <p className="section-subtle">
+            Token usage and dollar cost for this run, metered from the egress
+            jail&apos;s observed model traffic.
+          </p>
+          <div className="cards">
+            <StatCard label="Cost" value={formatCost(run.totalCostUsd)} />
+            <StatCard
+              label="Input tokens"
+              value={formatNumber(run.totalInputTokens, 0)}
+            />
+            <StatCard
+              label="Output tokens"
+              value={formatNumber(run.totalOutputTokens, 0)}
+            />
+            <StatCard label="Requests" value={run.usage.requests.length} />
+          </div>
+          <CostRequestsTable usage={run.usage} />
+          <CostDiagnosticsPanel usage={run.usage} />
+        </section>
+
+        <section className="tabpanel panel-logs">
+          <h2>Process logs</h2>
+          <p className="section-subtle">
+            Every log stream captured for this run — container forensics,
+            subprocess stdout/stderr, agent event streams, and the test-runner
+            trace.
+          </p>
+          <LogsPanel run={run} />
+        </section>
+      </div>
+    </div>
+  );
+}
+
 function ExecutionPage({
   run,
   readOnly,
@@ -1009,13 +1526,6 @@ function ExecutionPage({
       </div>
 
       <CliCommandSection argv={run.cliArgv} />
-
-      <div className="cards">
-        <StatCard label="Score" value={formatAggregateScore(run.scoreTotal)} />
-        <StatCard label="Metrics" value={run.metricCount} />
-        <StatCard label="Turns" value={run.transcriptTurns} />
-        <StatCard label="Cost" value={formatCost(run.totalCostUsd)} />
-      </div>
 
       {(run.status === "abandoned" ||
         run.status === "failed" ||
@@ -1063,126 +1573,124 @@ function ExecutionPage({
         </section>
       )}
 
-      {run.dockerArtifacts.length > 0 && (
-        <section className="section debug-section">
-          <h2>Docker snapshot</h2>
-          <p className="section-subtle">
-            Container forensics captured at hatch failure, before{" "}
-            <code>vellum retire</code> removed the container. Each block is the
-            full <code>docker inspect</code> /{" "}
-            <code>docker logs --tail 200</code> for a sibling container (
-            <code>assistant</code> / <code>gateway</code> /{" "}
-            <code>credential-executor</code>), inlined here so port collisions
-            and crash exits land in the same scroll as the subprocess logs
-            below.
-          </p>
-          {run.dockerArtifacts.map((artifact) => (
-            <div key={artifact.name} className="subprocess-log-block">
-              <div className="subprocess-log-head">
-                <strong>{artifact.name}</strong>
-                <a
-                  className="raw-link"
-                  href={`/api/runs/${encodeURIComponent(run.runId)}/files/${encodeURIComponent(artifact.name)}`}
-                  target="_blank"
-                  rel="noopener"
-                >
-                  raw
-                </a>
-              </div>
-              <DockerArtifact artifact={artifact} />
-            </div>
-          ))}
-        </section>
-      )}
-
-      {run.subprocessLogs.length > 0 && (
-        <section className="section">
-          <h2>Subprocess logs</h2>
-          <p className="section-subtle">
-            Stdout/stderr from every CLI subprocess the adapter spawned — useful
-            when a hatch or setup step failed silently and the error message
-            alone doesn't tell you why. Each line is timestamped and tagged in
-            the same format as the test runner log so they line up
-            column-for-column when read side by side.
-          </p>
-          {run.subprocessLogs.map((log) => (
-            <div key={log.name} className="subprocess-log-block">
-              <div className="subprocess-log-head">
-                <strong>{log.name}</strong>
-                <a
-                  className="raw-link"
-                  href={`/api/runs/${encodeURIComponent(run.runId)}/files/${encodeURIComponent(log.name)}`}
-                  target="_blank"
-                  rel="noopener"
-                >
-                  raw
-                </a>
-              </div>
-              <SubprocessLog log={log} />
-            </div>
-          ))}
-        </section>
-      )}
-
-      <section className="section">
-        <h2>Metric card</h2>
-        <MetricTable metrics={run.metrics} />
-      </section>
-
-      <section className="section">
-        <h2>Transcript</h2>
-        <Transcript turns={run.transcript} />
-      </section>
-
-      <section className="section">
-        <h2>Memory-formation events</h2>
-        <p className="section-subtle">
-          V2 only: typed event stream from the agent&apos;s ingest turn —
-          consuming the haystack sessions to form memory before the question is
-          asked. Empty for V1 runs and for V2 runs whose adapter doesn&apos;t
-          expose ingest-side events.
-        </p>
-        <ContainerLogs
-          events={run.ingestAssistantEvents}
-          emptyLabel="No memory-formation events recorded."
-        />
-      </section>
-
-      <section className="section">
-        <h2>Container logs</h2>
-        <p className="section-subtle">
-          Typed event stream emitted by the assistant inside the container
-          during the question turn — what the agent said in response to the
-          question.
-        </p>
-        <ContainerLogs events={run.assistantEvents} />
-      </section>
-
-      <section className="section">
-        <h2>Test runner logs</h2>
-        <p className="section-subtle">
-          Step-by-step trace from the eval runner: hatching, setup, simulator
-          turns, metric scoring, shutdown.
-        </p>
-        <RunnerLogs events={run.progressEvents} />
-      </section>
-
-      <section className="section">
-        <h2>Usage</h2>
-        <div className="cards usage-cards">
-          <StatCard
-            label="Input tokens"
-            value={formatNumber(run.totalInputTokens, 0)}
-          />
-          <StatCard
-            label="Output tokens"
-            value={formatNumber(run.totalOutputTokens, 0)}
-          />
-          <StatCard label="Requests" value={run.usage.requests.length} />
-        </div>
-        <CostDiagnosticsPanel usage={run.usage} />
-      </section>
+      <ExecutionTabs run={run} />
     </>
+  );
+}
+
+/**
+ * Expandable view of the raw request/response bodies the egress recorder
+ * captured for one priced request. Returns null when the recorder wrote no
+ * payloads (older runs, or a record that predates payload capture). When a
+ * body was truncated past the recorder's cap, the heading notes how many of
+ * the full bytes are shown so the reader knows the view is partial.
+ */
+function RequestPayloads({ record }: { record: Record<string, unknown> }) {
+  const requestBody = readRecordString(record, "request_body");
+  const responseBody = readRecordString(record, "response_body");
+  if (requestBody === undefined && responseBody === undefined) return null;
+
+  const payloadHeading = (
+    label: string,
+    body: string | undefined,
+    truncated: boolean,
+    fullBytes: number | undefined,
+  ) =>
+    truncated && fullBytes !== undefined && body !== undefined
+      ? `${label} — showing first ${formatBytes(utf8ByteLength(body))} of ${formatBytes(fullBytes)}`
+      : label;
+
+  return (
+    <details className="payload-details">
+      <summary>Request &amp; response payloads</summary>
+      <div className="payload-body">
+        <h4>
+          {payloadHeading(
+            "Request",
+            requestBody,
+            record.request_body_truncated === true,
+            readRecordNumber(record, "request_body_bytes"),
+          )}
+        </h4>
+        <pre className="log payload-pre">{requestBody ?? "—"}</pre>
+        <h4>
+          {payloadHeading(
+            "Response",
+            responseBody,
+            record.response_body_truncated === true,
+            readRecordNumber(record, "response_body_bytes"),
+          )}
+        </h4>
+        <pre className="log payload-pre">{responseBody ?? "—"}</pre>
+      </div>
+    </details>
+  );
+}
+
+/**
+ * Per-request cost breakdown for the Cost tab. One row per recorded model
+ * request — model, token counts, and the dollar cost computed by the same
+ * `priceUsageRecord` the run total uses — so a reader can see exactly which
+ * requests drove (or didn't drive) the cost. Each row carries an expandable
+ * view of the request/response payloads, which is the first place to look
+ * when the cost figure looks wrong (e.g. the large agentic calls never
+ * reached the recorder and only small auxiliary calls were priced).
+ */
+function CostRequestsTable({ usage }: { usage: UsageSummary }) {
+  if (usage.requests.length === 0) return null;
+  return (
+    <div className="cost-requests">
+      <h3>Per-request breakdown</h3>
+      <table className="cost-req-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Model</th>
+            <th>Input</th>
+            <th>Output</th>
+            <th>Cache (write / read)</th>
+            <th>Cost</th>
+          </tr>
+        </thead>
+        {usage.requests.map((record, index) => {
+          const priced = priceUsageRecord(record);
+          const cacheWrite = readRecordNumber(
+            record,
+            "cache_creation_input_tokens",
+          );
+          const cacheRead = readRecordNumber(record, "cache_read_input_tokens");
+          return (
+            <tbody key={index}>
+              <tr>
+                <td>{index}</td>
+                <td>{readRecordString(record, "model") ?? "—"}</td>
+                <td>
+                  {formatNumber(
+                    readRecordNumber(record, "input_tokens", "inputTokens"),
+                    0,
+                  )}
+                </td>
+                <td>
+                  {formatNumber(
+                    readRecordNumber(record, "output_tokens", "outputTokens"),
+                    0,
+                  )}
+                </td>
+                <td>
+                  {formatNumber(cacheWrite, 0)} / {formatNumber(cacheRead, 0)}
+                </td>
+                <td>{formatCost(priced.costUsd)}</td>
+              </tr>
+              <tr className="payload-row">
+                <td colSpan={6}>
+                  <RequestPayloads record={record} />
+                </td>
+              </tr>
+            </tbody>
+          );
+        })}
+      </table>
+    </div>
   );
 }
 
@@ -1252,6 +1760,7 @@ function NotFoundPage({ message }: { message: string }) {
 export type ReportPageInput =
   | { kind: "index"; sessions: ReportSessionSummary[] }
   | { kind: "session"; session: ReportSessionDetail }
+  | { kind: "profile"; profile: ReportProfileInSession }
   | { kind: "test"; test: ReportTestInSession }
   | { kind: "execution"; run: ReportRunDetail }
   | { kind: "not-found"; message: string };
@@ -1262,6 +1771,8 @@ function pageTitle(input: ReportPageInput): string {
       return "Vellum Evals Report Card";
     case "session":
       return `Run · ${sessionTitle(input.session)}`;
+    case "profile":
+      return `Profile · ${input.profile.profileId}`;
     case "test":
       return `Test · ${input.test.testId}`;
     case "execution":
@@ -1283,6 +1794,8 @@ function PageBody({
       return <IndexPage sessions={input.sessions} readOnly={readOnly} />;
     case "session":
       return <SessionPage session={input.session} />;
+    case "profile":
+      return <ProfileInSessionPage profile={input.profile} />;
     case "test":
       return <TestInSessionPage test={input.test} />;
     case "execution":

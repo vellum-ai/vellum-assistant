@@ -94,7 +94,7 @@ export function PriorAssistantSelectionScreen({
 
   return (
     <OnboardingLayout showCreatureFooter={false}>
-      <div className={`mx-auto flex w-full max-w-2xl flex-col items-center ${electron ? "min-h-full px-8 pt-11 pb-4 electron-prechat-type" : "px-6 pt-12 pb-40"} text-[var(--content-default)]`}>
+      <div className={`mx-auto flex w-full max-w-2xl flex-col items-center ${electron ? "min-h-full px-8 pt-11 pb-8 electron-prechat-type" : "px-6 pt-12 pb-40"} text-[var(--content-default)]`}>
         <div
           className="grid w-full items-center grid-cols-[auto_1fr_auto]"
           style={{ animation: "fadeInUp 0.3s ease-out 0.1s both" }}

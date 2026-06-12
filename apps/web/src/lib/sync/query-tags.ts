@@ -1,5 +1,3 @@
-import type { QueryClient } from "@tanstack/react-query";
-
 import {
   configGetQueryKey,
   groupsGetQueryKey,
@@ -123,44 +121,4 @@ export function assistantIdentityIntroQueryKey(
   assistantId: string | null | undefined,
 ) {
   return [ASSISTANT_IDENTITY_INTRO_QUERY_KEY, assistantId ?? ""] as const;
-}
-
-
-export function invalidateAssistantConfigQueries(
-  queryClient: QueryClient,
-  assistantId: string | null | undefined,
-): void {
-  if (!assistantId) return;
-  void queryClient.invalidateQueries({
-    queryKey: assistantDaemonConfigQueryKey(assistantId),
-  });
-}
-
-export function invalidateAssistantSoundsQueries(
-  queryClient: QueryClient,
-  assistantId: string | null | undefined,
-): void {
-  if (!assistantId) return;
-  void queryClient.invalidateQueries({
-    queryKey: assistantSoundsConfigQueryKey(assistantId),
-  });
-  void queryClient.invalidateQueries({
-    queryKey: assistantSoundsAvailableQueryKey(assistantId),
-  });
-}
-
-export function invalidateAssistantSchedulesQueries(
-  queryClient: QueryClient,
-  assistantId: string | null | undefined,
-): void {
-  if (!assistantId) return;
-  void queryClient.invalidateQueries({
-    queryKey: assistantSchedulesQueryKey(assistantId),
-  });
-  void queryClient.invalidateQueries({
-    queryKey: assistantScheduleRunsQueryKey(assistantId),
-  });
-  void queryClient.invalidateQueries({
-    queryKey: assistantScheduleUsageSummaryQueryKey(assistantId),
-  });
 }

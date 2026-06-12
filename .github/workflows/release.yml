@@ -2808,9 +2808,8 @@ jobs:
 
       - name: Build and package Electron app
         env:
-          VELLUM_ENVIRONMENT: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
           CSC_NAME: Developer ID Application
-        run: bun run pack
+        run: bun run pack --environment "${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}"
 
       - name: Rename DMG for release
         id: dmg
@@ -3397,7 +3396,7 @@ jobs:
       - name: Install shared packages
         uses: ./.github/actions/install-shared-packages
         with:
-          packages: packages/service-contracts packages/ces-client packages/assistant-client
+          packages: packages/service-contracts packages/ces-client packages/assistant-client packages/gateway-client
 
       - name: Install dependencies
         run: bun install --frozen-lockfile

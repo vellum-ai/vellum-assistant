@@ -57,6 +57,9 @@ const fetchConsolidationRunsMock = mock(
     },
   ],
 );
+const fetchHeartbeatRunsMock = mock(
+  async (_assistantId: string): Promise<ScheduleRun[]> => [],
+);
 const fetchScheduleRunsMock = mock(
   async (_assistantId: string, _scheduleId: string): Promise<ScheduleRun[]> => [],
 );
@@ -72,6 +75,7 @@ mock.module("@/domains/settings/api/schedules", () => ({
   ...schedulesApi,
   createSchedule: createScheduleMock,
   fetchConsolidationRuns: fetchConsolidationRunsMock,
+  fetchHeartbeatRuns: fetchHeartbeatRunsMock,
   fetchScheduleRuns: fetchScheduleRunsMock,
   fetchScheduleUsageSummary: fetchScheduleUsageSummaryMock,
 }));
@@ -82,7 +86,8 @@ const {
   canOpenScheduleSourceConversation,
   formatScheduleCost,
   formatTimestamp,
-  shouldShowSystemTaskToggles,
+  groupSchedules,
+  pastOneTimeStatus,
 } = await import("@/domains/settings/utils/schedule-formatters");
 const { RecentRunsCard } = await import(
   "@/domains/settings/components/recent-runs-card"
@@ -108,6 +113,7 @@ afterEach(() => {
   navigateCalls.length = 0;
   createScheduleMock.mockClear();
   fetchConsolidationRunsMock.mockClear();
+  fetchHeartbeatRunsMock.mockClear();
   fetchScheduleRunsMock.mockClear();
   fetchScheduleUsageSummaryMock.mockClear();
   nowSpy?.mockRestore();
@@ -204,6 +210,146 @@ describe("formatScheduleCost", () => {
   test("falls back when cost is missing or invalid", () => {
     expect(formatScheduleCost(null)).toBe("—");
     expect(formatScheduleCost(Number.NaN)).toBe("—");
+  });
+});
+
+describe("groupSchedules", () => {
+  const now = 1_761_792_000_000;
+
+  test("splits one-shots into upcoming and past", () => {
+    const recurring = schedule({ id: "r1", isOneShot: false });
+    const upcoming = schedule({
+      id: "u1",
+      isOneShot: true,
+      status: "active",
+      enabled: true,
+      lastRunAt: null,
+      nextRunAt: now + 60_000,
+    });
+    const expired = schedule({
+      id: "p1",
+      isOneShot: true,
+      status: "active",
+      enabled: false,
+      lastRunAt: null,
+      nextRunAt: now - 60_000,
+    });
+    const completed = schedule({
+      id: "p2",
+      isOneShot: true,
+      status: "fired",
+      enabled: true,
+      lastRunAt: now - 120_000,
+      nextRunAt: now - 120_000,
+    });
+
+    const grouped = groupSchedules(
+      [completed, recurring, upcoming, expired],
+      now,
+    );
+
+    expect(grouped.recurring.map((s) => s.id)).toEqual(["r1"]);
+    expect(grouped.upcomingOneTime.map((s) => s.id)).toEqual(["u1"]);
+    expect(grouped.pastOneTime.map((s) => s.id)).toEqual(["p1", "p2"]);
+  });
+
+  test("a failed one-shot awaiting retry stays upcoming", () => {
+    const retrying = schedule({
+      id: "retry-1",
+      isOneShot: true,
+      status: "active",
+      enabled: true,
+      lastRunAt: now - 60_000,
+      lastStatus: "error",
+      nextRunAt: now + 60_000,
+    });
+
+    const grouped = groupSchedules([retrying], now);
+
+    expect(grouped.upcomingOneTime.map((s) => s.id)).toEqual(["retry-1"]);
+    expect(grouped.pastOneTime).toEqual([]);
+  });
+
+  test("in-flight and overdue-but-enabled one-shots stay out of the past bucket", () => {
+    const firing = schedule({
+      id: "firing-1",
+      isOneShot: true,
+      status: "firing",
+      enabled: true,
+      lastRunAt: now - 1_000,
+      nextRunAt: now - 1_000,
+    });
+    const overdue = schedule({
+      id: "overdue-1",
+      isOneShot: true,
+      status: "active",
+      enabled: true,
+      lastRunAt: null,
+      nextRunAt: now - 60_000,
+    });
+
+    const grouped = groupSchedules([firing, overdue], now);
+
+    expect(grouped.pastOneTime).toEqual([]);
+    expect(grouped.upcomingOneTime.map((s) => s.id)).toEqual([
+      "overdue-1",
+      "firing-1",
+    ]);
+  });
+
+  test("orders upcoming one-shots soonest first", () => {
+    const later = schedule({
+      id: "later",
+      isOneShot: true,
+      lastRunAt: null,
+      nextRunAt: now + 120_000,
+    });
+    const sooner = schedule({
+      id: "sooner",
+      isOneShot: true,
+      lastRunAt: null,
+      nextRunAt: now + 60_000,
+    });
+
+    const grouped = groupSchedules([later, sooner], now);
+
+    expect(grouped.upcomingOneTime.map((s) => s.id)).toEqual([
+      "sooner",
+      "later",
+    ]);
+  });
+});
+
+describe("pastOneTimeStatus", () => {
+  test("labels completed, failed, and expired one-shots", () => {
+    expect(
+      pastOneTimeStatus(
+        schedule({ lastRunAt: 1_761_792_000_000, lastStatus: "ok" }),
+      ),
+    ).toEqual({ label: "Completed", tone: "positive" });
+    expect(
+      pastOneTimeStatus(
+        schedule({ lastRunAt: 1_761_792_000_000, lastStatus: "error" }),
+      ),
+    ).toEqual({ label: "Failed", tone: "negative" });
+    expect(
+      pastOneTimeStatus(schedule({ lastRunAt: null, nextRunAt: 1 })),
+    ).toEqual({ label: "Expired", tone: "neutral" });
+    expect(
+      pastOneTimeStatus(
+        schedule({ status: "cancelled", lastRunAt: 1_761_792_000_000 }),
+      ),
+    ).toEqual({ label: "Cancelled", tone: "neutral" });
+    // failOneShotPermanently: retry cap exhausted → cancelled + error.
+    expect(
+      pastOneTimeStatus(
+        schedule({
+          status: "cancelled",
+          lastStatus: "error",
+          lastRunAt: 1_761_792_000_000,
+        }),
+      ),
+    ).toEqual({ label: "Failed", tone: "negative" });
   });
 });
 
@@ -526,7 +672,7 @@ describe("ScheduleRow", () => {
       }),
     );
 
-    expect(screen.getByText(formatTimestamp(lastRunAt))).toBeTruthy();
+    expect(screen.getByText(`Last ${formatTimestamp(lastRunAt)}`)).toBeTruthy();
     expect(screen.queryByLabelText("ok")).toBeNull();
   });
 
@@ -554,7 +700,60 @@ describe("ScheduleRow", () => {
       }),
     );
 
-    expect(screen.getByText(formatTimestamp(nextRunAt))).toBeTruthy();
+    expect(screen.getByText(`Next ${formatTimestamp(nextRunAt)}`)).toBeTruthy();
+  });
+
+  test("hides the description when it duplicates the name", () => {
+    render(
+      createElement(ScheduleRow, {
+        schedule: rowSchedule({
+          name: "fill water",
+          description: "fill water",
+        }),
+        usage: {
+          status: "ready",
+          summary: {
+            scheduleId: "schedule-123",
+            runCount: 0,
+            totalEstimatedCostUsd: 0,
+            eventCount: 0,
+          },
+        },
+        onClick: () => {},
+        onToggle: () => {},
+        onOpenUsage: () => {},
+      }),
+    );
+
+    expect(screen.getAllByText("fill water")).toHaveLength(1);
+  });
+
+  test("past one-shot rows show a status tag instead of a toggle", () => {
+    render(
+      createElement(ScheduleRow, {
+        schedule: rowSchedule({
+          isOneShot: true,
+          lastRunAt: 1_761_792_000_000,
+          lastStatus: "ok",
+        }),
+        usage: {
+          status: "ready",
+          summary: {
+            scheduleId: "schedule-123",
+            runCount: 1,
+            totalEstimatedCostUsd: 0.01,
+            eventCount: 1,
+          },
+        },
+        onClick: () => {},
+        onToggle: () => {},
+        onOpenUsage: () => {},
+        pastStatus: { label: "Completed", tone: "positive" },
+      }),
+    );
+
+    expect(screen.getByText("Completed")).toBeTruthy();
+    expect(screen.queryByLabelText("Toggle Daily summary")).toBeNull();
   });
 
   test("renders authored description and recurring cadence as separate row text", () => {
@@ -742,8 +941,6 @@ describe("SystemTaskRow", () => {
         onClick: () => {
           detailClicks += 1;
         },
-        showToggle: false,
-        onToggle: () => {},
       }),
     );
 
@@ -763,50 +960,91 @@ describe("SystemTaskRow", () => {
         lastRunAt: 1_761_792_003_000,
         usage: readySystemTaskUsage,
         onClick: () => {},
-        showToggle: false,
-        onToggle: () => {},
       }),
     );
 
     expect(screen.queryByRole("button", { name: /Run now/i })).toBeNull();
     expect(screen.queryByText("system")).toBeNull();
     expect(screen.getByLabelText("enabled")).toBeTruthy();
-    expect(screen.getByText("Cost (7d)")).toBeTruthy();
+    // Column labels live in the shared list header now, not in each row.
+    expect(screen.queryByText("Cost (7d)")).toBeNull();
     expect(screen.getByText("$0.42")).toBeTruthy();
-    expect(screen.getByText("Runs (7d)")).toBeTruthy();
+    expect(screen.queryByText("Runs (7d)")).toBeNull();
     expect(screen.getByText("2 runs")).toBeTruthy();
   });
 });
 
 describe("system task toggles", () => {
-  test("only presents system task toggles after the feature flag has hydrated on", () => {
-    expect(shouldShowSystemTaskToggles(false, true)).toBe(false);
-    expect(shouldShowSystemTaskToggles(true, false)).toBe(false);
-    expect(shouldShowSystemTaskToggles(true, true)).toBe(true);
-  });
-
-  test("hides the system task toggle when the presentation flag is off", () => {
+  test("heartbeat list row shows a status dot; the toggle lives on the detail page", () => {
     render(
-      createElement(SystemTaskRow, {
-        name: "Heartbeat",
-        subtitle: "Every 1 hr",
-        enabled: true,
-        nextRunAt: null,
-        lastRunAt: null,
-        usage: readySystemTaskUsage,
-        showToggle: false,
-        onClick: () => {},
-        onToggle: () => {},
+      createElement(SystemTasksSection, {
+        heartbeatConfig: {
+          enabled: true,
+          intervalMs: 60 * 60_000,
+          activeHoursStart: null,
+          activeHoursEnd: null,
+          cronExpression: null,
+          timezone: null,
+          nextRunAt: null,
+          lastRunAt: null,
+          success: true,
+        },
+        consolidationConfig: undefined,
+        heartbeatUsage: readySystemTaskUsage,
+        consolidationUsage: readySystemTaskUsage,
+        isLoading: false,
+        hasError: false,
+        onRetry: () => {},
+        onSelectHeartbeat: () => {},
+        onSelectConsolidation: () => {},
       }),
     );
 
+    // System jobs are collapsed by default — expand the disclosure first.
+    fireEvent.click(screen.getByRole("button", { name: /System/i }));
+
     expect(screen.queryByLabelText("Toggle Heartbeat")).toBeNull();
-    expect(screen.queryByRole("button", { name: /run now/i })).toBeNull();
+    expect(screen.getByLabelText("enabled")).toBeTruthy();
+  });
+
+  test("heartbeat detail page toggle reports the new state and keeps Run now available", async () => {
+    const toggleCalls: boolean[] = [];
+
+    renderWithQueryClient(
+      createElement(SystemTaskDetailView, {
+        kind: "heartbeat",
+        assistantId: "assistant-1",
+        name: "Heartbeat",
+        subtitle: "Every 1 hr",
+        enabled: false,
+        nextRunAt: null,
+        lastRunAt: null,
+        isRunning: false,
+        onBack: () => {},
+        onRunNow: () => {},
+        onToggleEnabled: (enabled: boolean) => {
+          toggleCalls.push(enabled);
+        },
+      }),
+    );
+
+    await waitFor(() =>
+      expect(fetchHeartbeatRunsMock.mock.calls).toEqual([["assistant-1"]]),
+    );
+
+    expect(document.body.textContent).toContain("Disabled");
+    // Disabling only pauses automatic runs — manual runs stay available.
+    expect(
+      (screen.getByRole("button", { name: /Run now/i }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+
+    fireEvent.click(screen.getByLabelText("Toggle Heartbeat"));
+
+    expect(toggleCalls).toEqual([true]);
   });
 
   test("consolidation never renders an automatic-run toggle", () => {
-    const toggleCalls: boolean[] = [];
-
     render(
       createElement(SystemTasksSection, {
         heartbeatConfig: undefined,
@@ -825,15 +1063,13 @@ describe("system task toggles", () => {
         onRetry: () => {},
         onSelectHeartbeat: () => {},
         onSelectConsolidation: () => {},
-        showSystemTaskToggles: true,
-        onToggleHeartbeat: (enabled: boolean) => {
-          toggleCalls.push(enabled);
-        },
       }),
     );
 
+    // System jobs are collapsed by default — expand the disclosure first.
+    fireEvent.click(screen.getByRole("button", { name: /System/i }));
+
     expect(screen.queryByLabelText("Toggle Consolidation")).toBeNull();
-    expect(toggleCalls).toEqual([]);
     expect(screen.queryByRole("button", { name: /run now/i })).toBeNull();
     // Enabled consolidation reads like any other healthy system row: a status
     // dot, no management tag or helper copy (the detail page explains it).
@@ -842,5 +1078,33 @@ describe("system task toggles", () => {
     expect(document.body.textContent).not.toContain(
       "Consolidation is part of Memory.",
     );
+    // Heartbeat is hidden here, so its cached usage must not inflate the
+    // aggregate cost on the collapsed trigger ($0.42, not $0.84).
+    expect(document.body.textContent).toContain("$0.42 (7d)");
+  });
+
+  test("consolidation detail page never renders a toggle even if a handler is passed", async () => {
+    renderWithQueryClient(
+      createElement(SystemTaskDetailView, {
+        kind: "consolidation",
+        assistantId: "assistant-1",
+        name: "Consolidation",
+        subtitle: "Every 4 hr",
+        enabled: true,
+        nextRunAt: null,
+        lastRunAt: null,
+        isRunning: false,
+        onBack: () => {},
+        onRunNow: () => {},
+        onToggleEnabled: () => {},
+      }),
+    );
+
+    await waitFor(() =>
+      expect(fetchConsolidationRunsMock.mock.calls).toEqual([["assistant-1"]]),
+    );
+
+    expect(screen.queryByLabelText("Toggle Consolidation")).toBeNull();
+    expect(document.body.textContent).toContain("On · Managed by Memory");
   });
 });

@@ -12,6 +12,10 @@ import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
 import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
 import { getConversation } from "../../memory/conversation-crud.js";
 import { getUsageCostForConversationWindow } from "../../memory/llm-usage-store.js";
+import {
+  describeRRuleExpression,
+  isSingleFireRRule,
+} from "../../schedule/recurrence-engine.js";
 import { normalizeScheduleSyntax } from "../../schedule/recurrence-types.js";
 import {
   runScript,
@@ -136,7 +140,20 @@ function getCadenceDescription(
   if (job.syntax === "cron") {
     return describeCronExpression(job.cronExpression);
   }
-  return job.expression ?? "";
+  return describeRRuleExpression(job.cronExpression);
+}
+
+/**
+ * Presentation-layer one-shot flag. A COUNT=1 rrule fires exactly once and
+ * should read as one-time in clients, even though the scheduler internally
+ * treats expression-backed jobs as recurring (retry policy, conversation
+ * reuse). Do not feed this back into scheduler logic.
+ */
+function isOneShotForDisplay(
+  job: Pick<ScheduleJob, "syntax" | "cronExpression">,
+): boolean {
+  if (job.cronExpression == null) return true;
+  return job.syntax === "rrule" && isSingleFireRRule(job.cronExpression);
 }
 
 function handleListSchedules(queryParams: Record<string, string>) {
@@ -182,7 +199,7 @@ function handleListSchedules(queryParams: Record<string, string>) {
         routingIntent: j.routingIntent,
         reuseConversation: j.reuseConversation,
         wakeConversationId: j.wakeConversationId,
-        isOneShot: j.cronExpression == null,
+        isOneShot: isOneShotForDisplay(j),
       };
     }),
   };

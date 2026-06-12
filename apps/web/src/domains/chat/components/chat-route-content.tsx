@@ -48,7 +48,7 @@ import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcrip
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { Button, Notice } from "@vellumai/design-library";
-import { Link, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/types/types";
@@ -154,7 +154,9 @@ export function ChatMainPanel({
   didOnboarding,
   onboardingConversationId,
 }: ChatMainPanelProps) {
+  const location = useLocation();
   const navigate = useNavigate();
+  const statusBannerVisible = !location.search.includes("popout=1");
 
   // -------------------------------------------------------------------------
   // Derived UI state (provides assistantId, activeConversationId,
@@ -252,6 +254,7 @@ export function ChatMainPanel({
     handlePrimerContinue,
     handlePrimerCancel,
     handleRetryMicPermission,
+    handleOpenMicSettings,
   } = useVoiceInput({ assistantId, inputRef, setInput });
 
 
@@ -372,7 +375,7 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Nudges + ghost text
   // -------------------------------------------------------------------------
-  const nudges = useAppNudges(messages, conversations.length, liveAssistantMessageId);
+  const nudges = useAppNudges(messages, conversations.length, liveAssistantMessageId, activeConversationId);
 
   const lastCompleteAssistantMsgId = useMemo<string | null>(() => {
     const last = messages[messages.length - 1];
@@ -731,6 +734,7 @@ export function ChatMainPanel({
     showMaintenanceBanner:
       assistantState.kind === "active" &&
       assistantState.maintenanceMode?.enabled === true,
+    showMaintenanceExitAction: !statusBannerVisible,
     assistantId,
     onMaintenanceExited: handleMaintenanceExited,
   };
@@ -789,6 +793,7 @@ export function ChatMainPanel({
         voiceError={voiceError}
         onClearVoiceError={clearVoiceError}
         onRetryMicPermission={handleRetryMicPermission}
+        onOpenMicSettings={handleOpenMicSettings}
         onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
         textStateNoticesSlot={textStateNoticesJsx}
       />

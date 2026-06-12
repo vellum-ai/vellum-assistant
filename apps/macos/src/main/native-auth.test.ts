@@ -28,12 +28,37 @@ const cookieRemoveCalls: Array<{ url: string; name: string }> = [];
 mock.module("electron", () => ({
   app: { getVersion: () => "9.9.9", getPath: () => "/tmp" },
   net: {
-    fetch: () =>
-      Promise.resolve(
-        new Response(JSON.stringify({ session_token: "sess-tok-123" }), {
-          status: 200,
-        }),
-      ),
+    // Routed by URL: serves the real workos-pkce module's three network
+    // legs (config discovery, WorkOS code exchange, session exchange) and
+    // the legacy /accounts/native/exchange.
+    fetch: (url: string) => {
+      let body: unknown;
+      if (url.includes("/_allauth/app/v1/config")) {
+        body = {
+          data: {
+            socialaccount: {
+              providers: [
+                {
+                  id: "workos-oidc",
+                  name: "WorkOS",
+                  client_id: "client_um_test",
+                  flows: ["provider_redirect", "provider_token"],
+                },
+              ],
+            },
+          },
+        };
+      } else if (url.includes("/user_management/authenticate")) {
+        body = { access_token: "access-token-abc", user: {} };
+      } else if (url.includes("/_allauth/app/v1/auth/provider/token")) {
+        body = { meta: { session_token: "sess-tok-123" } };
+      } else {
+        body = { session_token: "sess-tok-123" };
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify(body), { status: 200 }),
+      );
+    },
   },
   session: {
     defaultSession: {
@@ -139,7 +164,7 @@ describe("buildStartUrl", () => {
 });
 
 describe("installNativeAuth — session-token wiring", () => {
-  test("persists the exchanged token on successful login", async () => {
+  test("persists the exchanged token on successful PKCE login", async () => {
     installNativeAuth();
 
     const startOAuth = ipcHandlers["vellum:auth:startOAuth"];
@@ -147,16 +172,31 @@ describe("installNativeAuth — session-token wiring", () => {
 
     const pending = startOAuth([{}]) as Promise<{ sessionToken: string }>;
 
-    // openExternal ran synchronously in the flow's executor, so the start URL
-    // (with the state) is already captured.
-    const state = new URL(lastOpenedUrl).searchParams.get("state");
-    expect(state).toBeTruthy();
+    // Wait for the async setup (config fetch + listener bind) to open the
+    // browser at the WorkOS authorize URL.
+    while (!lastOpenedUrl) await Bun.sleep(1);
+    const opened = new URL(lastOpenedUrl);
+    expect(opened.pathname).toBe("/user_management/authorize");
+    expect(opened.searchParams.get("client_id")).toBe("client_um_test");
+    expect(opened.searchParams.get("code_challenge_method")).toBe("S256");
 
-    await handleAuthCallback(state!, "auth-code-xyz");
+    // Play the browser: hit the real loopback listener with the code.
+    const redirectUri = opened.searchParams.get("redirect_uri")!;
+    const state = opened.searchParams.get("state")!;
+    expect(redirectUri).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/auth\/callback$/);
+    const res = await fetch(`${redirectUri}?code=auth-code-xyz&state=${state}`);
+    expect(res.status).toBe(200);
+
     const result = await pending;
-
     expect(result.sessionToken).toBe("sess-tok-123");
     expect(store.saved).toContain("sess-tok-123");
+  });
+
+  test("legacy deep-link callbacks are ignored by the PKCE flow", async () => {
+    installNativeAuth();
+    // No pending legacy flow exists; a stray deep link must be a no-op.
+    await handleAuthCallback("unknown-state", "auth-code-xyz");
+    expect(store.saved).toHaveLength(0);
   });
 
   test("evicts both legacy session cookies on install", () => {

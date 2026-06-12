@@ -181,8 +181,10 @@ import {
 import { GatewayIpcServer } from "./ipc/server.js";
 import { contactRoutes } from "./ipc/contact-handlers.js";
 import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
+import { createLogTailRoutes } from "./ipc/log-tail-handlers.js";
 import { slackThreadRoutes } from "./ipc/slack-thread-handlers.js";
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
+import { trustRulesRoutes } from "./ipc/trust-rules-handlers.js";
 
 import { riskClassificationRoutes } from "./ipc/risk-classification-handlers.js";
 import { createVelayRoutes } from "./ipc/velay-handlers.js";
@@ -1853,9 +1855,7 @@ async function main() {
   let lastRecordActivityTs = 0;
   async function notifyRecordActivity(): Promise<void> {
     if (!arePlatformFeaturesEnabled()) {
-      log.debug(
-        "Platform features disabled — skipping record-activity",
-      );
+      log.debug("Platform features disabled — skipping record-activity");
       return;
     }
 
@@ -2355,6 +2355,8 @@ async function main() {
     ...slackThreadRoutes,
     ...thresholdRoutes,
     ...riskClassificationRoutes,
+    ...createLogTailRoutes(config),
+    ...trustRulesRoutes,
     ...createVelayRoutes(velayTunnelClient),
   ]);
   ipcServer.start();

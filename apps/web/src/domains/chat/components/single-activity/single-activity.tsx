@@ -80,8 +80,8 @@ export type SingleActivityProps =
       carouselItems: WebSearchResultItem[];
       /** Card-level state: drives the leading indicator (loading -> dots). */
       state: "loading" | "complete" | "error";
-      /** The single web step to render when expanded (favicon chips / error). */
-      step: Extract<ToolCallCardStep, { kind: "web_search" | "web_search_error" }>;
+      /** The single web step to render when expanded (favicon chips / error). Null during the brief loading window before metadata arrives. */
+      step: Extract<ToolCallCardStep, { kind: "web_search" | "web_search_error" }> | null;
       /** Controlled expand state + change handler (owned by the caller). */
       expanded: boolean;
       onExpandChange: (next: boolean) => void;
@@ -195,7 +195,7 @@ export function SingleActivity(props: SingleActivityProps) {
             aria-hidden
           />
         </button>
-        {expanded ? (
+        {expanded && step != null ? (
           <div className="pl-6">
             {step.kind === "web_search_error" ? (
               <WebSearchErrorRow step={step} />
