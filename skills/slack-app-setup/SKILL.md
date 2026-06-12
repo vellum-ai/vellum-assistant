@@ -1,6 +1,6 @@
 ---
 name: slack-app-setup
-description: Connect a Slack app to the Vellum Assistant via Socket Mode. Pre-fills a one-click manifest URL so the user only has to name, save, and copy three tokens.
+description: Connect a Slack app to the Vellum Assistant via Socket Mode. Use whenever the user wants to set up Slack for their assistant, connect a workspace, or get the assistant talking in Slack — the skill generates a one-click manifest URL so they only have to name, save, and copy three tokens.
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "💬"
@@ -8,26 +8,26 @@ metadata:
     category: "messaging"
     display-name: "Slack App Setup"
     includes: ["guardian-verify-setup"]
+    activation-hints:
+      - "set up Slack"
+      - "connect Slack"
+      - "add a Slack workspace"
+      - "get you on Slack"
+      - "install you in Slack"
+      - "create a Slack bot"
 ---
 
-You are helping your user connect a Slack bot to the Vellum Assistant via Socket Mode.
+## When to Use
 
-The flow has four user actions: **click**, **install**, **copy tokens**, **verify**. The skill's job is to keep it that short — every other detail is pre-baked into the manifest the user creates from a single URL.
+USE THIS SKILL WHEN:
 
-**Set expectations once:** "We're creating a custom Slack app for your assistant — your own bot identity, avatar, and name. The link below pre-configures every scope, event, and setting; you just name it and save."
+- The user says "set up Slack", "connect Slack", "add a Slack workspace", "get you on Slack", or any variant that means *connect this assistant to Slack*.
+- A freshly-provisioned assistant needs a Slack bot identity (tokens, scopes, events) configured for the first time.
+- The user wants to switch the assistant to a new Slack workspace or rotate its tokens.
 
-## ⚡ DO THIS FIRST
+DO NOT use this skill for runtime Slack operations (posting, reading channels, triage). That is the separate `slack` skill.
 
-1. Check existing credentials (Step 0) — Slack may already be connected.
-2. Generate the manifest URL via the bundled script (Step 1) — **never hand-write the manifest**, JSON or otherwise.
-3. Collect tokens through `credential_store` prompts — **never accept tokens pasted in chat**.
-
-## ⛔ DO NOT
-
-- Do **NOT** write the manifest yourself. The script is the only source of truth for scopes/events/settings. A hand-rolled manifest will be missing pieces and setup will fail silently downstream.
-- Do **NOT** show YAML or raw JSON to the user — show the link.
-- Do **NOT** ask the user to paste tokens in chat — always route through the secure `credential_store` prompt.
-- Do **NOT** paste the raw URL as plain text — render it as a markdown link, the encoded URL is long and will wrap.
+The flow has four user actions: **click**, **install**, **copy tokens**, **verify**. Everything else is pre-baked into the manifest the URL creates.
 
 ## Value Classification
 
@@ -37,24 +37,26 @@ The flow has four user actions: **click**, **install**, **copy tokens**, **verif
 | Bot Token  | Credential | `credential_store` prompt | **Yes** |
 | User Token | Credential | `credential_store` prompt | **Yes** |
 
-## Step 0: Check Existing Configuration
+## Step 1 — Check existing configuration
 
 Call `credential_store` with `action: "list"` (no other arguments). Scan the result for entries with `service: "slack_channel"` and note which of `app_token`, `bot_token`, `user_token` are present.
 
-| `app_token` | `bot_token` | `user_token` | What to do |
-| --- | --- | --- | --- |
-| ✅ | ✅ | ✅ | Fully configured. Offer to show status or reconfigure. |
-| ✅ | ✅ | ❌ | Bot-only visibility. Offer Step 2c to add the user token. |
-| ✅ or ❌ (one missing) | ✅ or ❌ | any | Resume from the missing step. |
-| ❌ | ❌ | any | Continue to Step 1. An orphan `user_token` will be replaced. |
+Then branch:
 
-`user_token` is **optional**; missing it is not blocking.
+- If **`app_token` ✅ and `bot_token` ✅ and `user_token` ✅** → fully configured. Offer to show status or reconfigure. Stop here unless the user wants a reset.
+- If **`app_token` ✅ and `bot_token` ✅ and `user_token` ❌** → bot-only visibility. Offer Step 3c (user-token collection) and stop after that step.
+- If **exactly one of `app_token` / `bot_token` is missing** → resume from the missing step. An orphan `user_token`, if present, will be re-validated at the end.
+- **Otherwise (both missing)** → continue to Step 2 (default). An orphan `user_token` will be replaced — tell the user.
 
-## Step 1: Create the Slack App (One Click)
+`user_token` is optional — its absence is never blocking.
+
+> ✓ Checkpoint: You named which of `app_token` / `bot_token` / `user_token` are present before branching. Do not skip the `credential_store list` call and guess.
+
+## Step 2 — Create the Slack app (one click)
 
 Infer the bot identity yourself — do not ask the user to confirm before generating the link.
 
-- **Bot name:** your assigned assistant name. If unset, prompt the user to name you first.
+- **Bot name:** your assigned assistant name. If unset → prompt the user to name you first, then come back.
 - **Description:** `Assistant for {guardianName}`, from the current user context / `users/default.md`.
 
 Run the bundled script — env vars carry the inputs so quoting can never break the URL:
@@ -66,55 +68,61 @@ bash {
 }
 ```
 
+⚠️ CRITICAL — point of action: **You must run the script.** Do not hand-write the manifest, do not show the user raw YAML or JSON, do not type out a URL from memory. The script is the only source of truth for scopes, events, and Socket Mode settings; anything you write yourself will silently miss pieces and setup will fail downstream.
+
 Output is JSON: `{ "ok": true, "data": { "url": "..." } }`. Extract `data.url`.
 
-**Render it as a markdown link** — do not paste the raw URL:
-
-> [Click here to create your Slack app](URL)
+⚠️ CRITICAL — point of action: **Render the URL as a markdown link** — `[Click here to create your Slack app](URL)`. Do not paste the raw encoded URL into chat. It is ~1700 characters and will wrap, breaking the click.
 
 Tell the user: *"Click the link, pick your workspace, click **Create**. All scopes, events, and Socket Mode are pre-configured — you don't need to touch anything on the creation page."*
 
-Wait for confirmation before continuing.
+Wait for the user to confirm they clicked Create before moving to Step 3.
 
-## Step 2: Tokens (One Page Each)
+## Step 3 — Collect tokens
 
-### Step 2a — App-Level Token (Basic Information page)
+Slack lands the user on **Basic Information** after Create. The app token lives there; the bot/user tokens live on the **Install App** page.
 
-Slack lands the user on **Basic Information** after Create. Tell them:
+### Step 3a — App-Level Token (Basic Information page)
+
+Tell the user:
 
 > Scroll to **App-Level Tokens** → **Generate Token and Scopes** → name it "Socket Mode" → add scope `connections:write` → **Generate**. Copy the token (starts with `xapp-`).
 
-Collect securely:
+Then collect:
 
-- `credential_store` `action: "prompt"`, `service: "slack_channel"`, `field: "app_token"`, `label: "App-Level Token"`, `placeholder: "xapp-..."`, `description: "Paste the App-Level Token you just generated"`
+- `credential_store` `action: "prompt"`, `service: "slack_channel"`, `field: "app_token"`, `label: "App-Level Token"`, `placeholder: "xapp-..."`, `description: "Paste the App-Level Token you just generated"`.
 
-### Step 2b — Install + Bot Token
+⚠️ CRITICAL — point of action: **Always route the token through `credential_store` prompt.** Do not ask the user to paste a token directly in chat, do not use `ui_show` for collection, do not call `assistant credentials reveal`. The prompt is the only handler that validates and stores securely.
+
+### Step 3b — Install + Bot Token
 
 Tell the user:
 
 > In the left sidebar → **Install App** → **Install to Workspace** → **Allow**. The page that loads shows your **Bot User OAuth Token** (`xoxb-...`) and possibly a **User OAuth Token** (`xoxp-...`). Copy the bot token.
 
-Collect securely:
+Then collect:
 
-- `credential_store` `action: "prompt"`, `service: "slack_channel"`, `field: "bot_token"`, `label: "Bot User OAuth Token"`, `placeholder: "xoxb-..."`, `description: "From Install App page — the Bot User OAuth Token"`
+- `credential_store` `action: "prompt"`, `service: "slack_channel"`, `field: "bot_token"`, `label: "Bot User OAuth Token"`, `placeholder: "xoxb-..."`, `description: "From Install App page — the Bot User OAuth Token"`.
 
-### Step 2c — User Token (optional, same page)
+### Step 3c — User Token (optional, same page)
 
-If the Install App page also shows a **User OAuth Token**, collect it for full triage visibility (lets the assistant see every channel the user is in, not just channels the bot was added to). If it's not shown, skip.
+If the Install App page also shows a **User OAuth Token** → collect it for full triage visibility. It lets the assistant see every channel the user is in, not just channels the bot was added to.
 
-- `credential_store` `action: "prompt"`, `service: "slack_channel"`, `field: "user_token"`, `label: "User OAuth Token"`, `placeholder: "xoxp-..."`, `description: "From Install App page — the User OAuth Token (optional, for full channel visibility)"`
+- `credential_store` `action: "prompt"`, `service: "slack_channel"`, `field: "user_token"`, `label: "User OAuth Token"`, `placeholder: "xoxp-..."`, `description: "From Install App page — the User OAuth Token (optional, for full channel visibility)"`.
 
-Tell the user the user token is optional and they can add it later.
+If the User OAuth Token is **not** shown → skip this step (default). Tell the user it's optional and they can add it later.
 
-## Step 3: Verify Identity
+> ✓ Checkpoint: After Step 3, the `app_token` and `bot_token` are both in the credential store and the user has confirmed both prompts came back successful. If either prompt failed, re-run it before moving on.
+
+## Step 4 — Verify identity
 
 Load the **guardian-verify-setup** skill:
 
 - `skill_load` with `skill: "guardian-verify-setup"`.
 
-If the user wants to skip, continue to Step 4 and let them know they can run it later by saying *"verify me on slack"*.
+If the user wants to skip → continue to Step 5 (default if they say no), and let them know they can run it later by saying *"verify me on slack"*.
 
-## Step 4: Report Success
+## Step 5 — Report success
 
 If identity was verified:
 
@@ -129,7 +137,7 @@ If identity was verified:
 > Channels: @mention the bot in any channel to add it, or use `/invite @{botUsername}`. DMs work immediately.
 > Identity: verified
 
-If identity was skipped, swap the last two lines for:
+If identity was skipped → swap the last two lines for:
 
 > ⬜ Connection tested — say "verify me on slack" to finish later.
 > …
@@ -137,8 +145,19 @@ If identity was skipped, swap the last two lines for:
 
 `{triage_line}` is:
 
-- `✅ Triage visibility: full (can read all your channels)` if a user token was collected,
-- `⬜ Triage visibility: bot-only (only channels the bot is a member of) — collect a user token anytime to enable full triage` otherwise.
+- `✅ Triage visibility: full (can read all your channels)` if a user token was collected, OR
+- `⬜ Triage visibility: bot-only (only channels the bot is a member of) — collect a user token anytime to enable full triage` otherwise (default).
+
+## SKILL COMPLETE WHEN
+
+- [ ] `credential_store list` was called and the existing-state branch was named explicitly (Step 1).
+- [ ] `bun run skills/slack-app-setup/scripts/build-manifest-url.ts` returned `{ok: true, data: {url}}` and the URL was rendered as a markdown link (Step 2).
+- [ ] User confirmed they clicked **Create** in Slack.
+- [ ] `credential_store prompt` for `app_token` returned successfully (Step 3a).
+- [ ] `credential_store prompt` for `bot_token` returned successfully (Step 3b).
+- [ ] `credential_store prompt` for `user_token` either returned successfully or was explicitly skipped because the Install App page did not show one (Step 3c).
+- [ ] `guardian-verify-setup` was loaded and either completed or the user explicitly declined (Step 4).
+- [ ] Success message was posted with the correct `{triage_line}` (Step 5).
 
 ## If Something Fails
 
@@ -146,11 +165,11 @@ If identity was skipped, swap the last two lines for:
 
 **Socket Mode keeps disconnecting.** The app token is revoked or expired. Regenerate it in **Basic Information → App-Level Tokens** and re-run the `app_token` prompt.
 
-**Token rejected on prompt.** The handler validates on entry. Re-prompt; double-check you copied the right value (bot token starts `xoxb-`, app token `xapp-`, user token `xoxp-`).
+**Token rejected on prompt.** The handler validates on entry. Re-prompt; double-check you copied the right value — bot token starts `xoxb-`, app token `xapp-`, user token `xoxp-`.
 
 **Messages not arriving.** Verify **Event Subscriptions → Subscribe to bot events** includes `message.channels`. The manifest pre-configures it, but it can be edited out by hand.
 
-**No Bot User OAuth Token on the Install App page.** The app was likely created without the manifest. Verify **OAuth & Permissions → Scopes → Bot Token Scopes** is populated; if empty, start over from Step 1 — do not hand-edit scopes.
+**No Bot User OAuth Token on the Install App page.** The app was likely created without the manifest. Verify **OAuth & Permissions → Scopes → Bot Token Scopes** is populated; if empty → start over from Step 2 (default). Do not hand-edit scopes.
 
 ## Clearing Credentials
 
