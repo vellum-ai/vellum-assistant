@@ -27,10 +27,12 @@ function makeAccessRequestSurface(
     subtitle?: string;
     body?: string;
     metadata?: Array<{ label: string; value: string }>;
+    requestId?: string;
   } = {},
 ): Surface {
+  const requestId = overrides.requestId ?? "req-123";
   return {
-    surfaceId: "access-request-req-123",
+    surfaceId: `access-request-${requestId}`,
     surfaceType: "card",
     title: "Access Request",
     data: {
@@ -39,6 +41,10 @@ function makeAccessRequestSurface(
       body: overrides.body ?? "No additional context available.",
       metadata: overrides.metadata ?? [],
     },
+    actions: [
+      { id: `apr:${requestId}:approve_once`, label: "Approve", style: "primary" },
+      { id: `apr:${requestId}:reject`, label: "Reject", style: "secondary" },
+    ],
   };
 }
 

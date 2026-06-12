@@ -160,6 +160,37 @@ describe("buildAccessRequestSeedContentBlocks", () => {
     expect(data.body).toBe("No additional context available.");
   });
 
+  test("surface block includes approve/reject actions when requestId present", () => {
+    const blocks = buildAccessRequestSeedContentBlocks(basePayload);
+    const surface = blocks[0] as Record<string, unknown>;
+    const actions = surface.actions as Array<{
+      id: string;
+      label: string;
+      style: string;
+    }>;
+    expect(actions).toHaveLength(2);
+    expect(actions[0]).toEqual({
+      id: "apr:req-123:approve_once",
+      label: "Approve",
+      style: "primary",
+    });
+    expect(actions[1]).toEqual({
+      id: "apr:req-123:reject",
+      label: "Reject",
+      style: "secondary",
+    });
+  });
+
+  test("surface block omits actions when requestId is missing", () => {
+    const payload = {
+      ...basePayload,
+      requestId: undefined,
+    };
+    const blocks = buildAccessRequestSeedContentBlocks(payload);
+    const surface = blocks[0] as Record<string, unknown>;
+    expect(surface.actions).toBeUndefined();
+  });
+
   test("parseAccessRequestPayload extracts typed fields", () => {
     const p = parseAccessRequestPayload(basePayload);
     expect(p.requestId).toBe("req-123");

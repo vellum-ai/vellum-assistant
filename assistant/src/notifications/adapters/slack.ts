@@ -135,19 +135,39 @@ function buildAccessRequestBlocks(payload: Record<string, unknown>): unknown[] {
     });
   }
 
-  // Divider before instructions
+  // Divider before actions
   blocks.push({ type: "divider" });
 
-  // Approval code instructions
-  const requestCode = nonEmpty(p.requestCode);
-  if (requestCode) {
-    const code = requestCode.toUpperCase();
+  // Approval buttons — same `apr:<requestId>:<action>` callback convention
+  // used by gateway's block-kit-builder and Telegram's inline keyboard.
+  if (p.requestId) {
     blocks.push({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `Reply *${code} approve* to grant access or *${code} reject* to deny.`,
-      },
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Approve", emoji: true },
+          action_id: `apr:${p.requestId}:approve_once`,
+          value: `apr:${p.requestId}:approve_once`,
+          style: "primary",
+        },
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Reject", emoji: true },
+          action_id: `apr:${p.requestId}:reject`,
+          value: `apr:${p.requestId}:reject`,
+          style: "danger",
+        },
+      ],
+    });
+    blocks.push({
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: "You can also react with :thumbsup: to approve or :thumbsdown: to deny",
+        },
+      ],
     });
   }
 

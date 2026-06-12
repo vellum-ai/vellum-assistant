@@ -428,6 +428,24 @@ export function buildAccessRequestSeedContentBlocks(
       ? bodyParts.join("\n\n")
       : "No additional context available.";
 
+  // Actions match the canonical `apr:<requestId>:<action>` callback format
+  // used by Telegram and Slack adapters, and the `SurfaceActionSchema`
+  // shape that `SurfaceContainer` renders as buttons.
+  const actions = p.requestId
+    ? [
+        {
+          id: `apr:${p.requestId}:approve_once`,
+          label: "Approve",
+          style: "primary",
+        },
+        {
+          id: `apr:${p.requestId}:reject`,
+          label: "Reject",
+          style: "secondary",
+        },
+      ]
+    : undefined;
+
   const surfaceBlock = {
     type: "ui_surface" as const,
     surfaceId: `access-request-${p.requestId ?? "unknown"}`,
@@ -439,6 +457,7 @@ export function buildAccessRequestSeedContentBlocks(
       body,
       metadata,
     },
+    ...(actions ? { actions } : {}),
   };
 
   const textBlock = {
