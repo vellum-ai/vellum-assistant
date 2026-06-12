@@ -75,7 +75,14 @@ export type SlackSocketModeConfig = {
   appToken: string;
   botToken: string;
   gatewayConfig: GatewayConfig;
-  /** Bot's own Slack user ID, used to ignore the bot's own DMs. */
+  /**
+   * Bot's own Slack user ID. Required for self-filtering — when undefined,
+   * the gateway cannot distinguish its own outbound echoes from inbound
+   * messages and refuses to process events (fail-closed).
+   *
+   * Resolved once via `auth.test` and persisted to SQLite so subsequent
+   * startups load it without depending on a successful API call.
+   */
   botUserId?: string;
   /** Bot's display name, resolved at startup via auth.test. */
   botUsername?: string;
@@ -142,65 +149,122 @@ export class SlackSocketModeClient {
     this.running = true;
     this.startDedupCleanup();
 
-    // Resolve bot identity via auth.test so we can filter the bot's own DMs
-    if (
-      !this.config.botUserId ||
-      !this.config.botUsername ||
-      !this.config.teamName
-    ) {
-      try {
-        const resp = await fetchImpl("https://slack.com/api/auth.test", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${this.config.botToken}` },
-        });
-        const data = (await resp.json()) as {
-          ok: boolean;
-          user_id?: string;
-          user?: string;
-          team?: string;
-        };
-        if (!data.ok) {
-          throw new Error(
-            "Slack auth.test failed: bot token is invalid or expired",
-          );
-        }
-        if (data.user_id) {
-          this.config.botUserId = data.user_id;
-        }
-        if (data.user) {
-          this.config.botUsername = data.user;
-        }
-        if (data.team) {
-          this.config.teamName = data.team;
-        }
-        warnOnMissingSlackScopes(resp.headers.get("x-oauth-scopes") ?? "");
+    await this.resolveBotIdentity();
+    await this.connect();
+  }
 
-        log.info(
-          {
-            botUserId: data.user_id,
-            botUsername: data.user,
-            teamName: data.team,
-          },
-          "Resolved Slack bot identity",
-        );
-      } catch (err) {
-        // Explicit auth rejection (data.ok === false) is fatal — the bot
-        // token is invalid and retrying won't help.
-        const isAuthRejection =
-          err instanceof Error &&
-          err.message.includes("bot token is invalid or expired");
-        if (isAuthRejection) {
-          this.running = false;
-          this.stopDedupCleanup();
-          throw err;
-        }
-        // Transient fetch/network errors — warn and proceed to connect(),
-        // which has its own reconnect logic with backoff.
-        log.warn({ err }, "Failed to resolve bot identity via auth.test");
-      }
+  /**
+   * Resolve the bot's Slack user ID — the identity used to filter the
+   * bot's own outbound echoes from inbound events.
+   *
+   * Resolution strategy (in order):
+   *   1. Already populated in config (e.g. by a previous call) → no-op.
+   *   2. Call `auth.test` to get the authoritative answer from Slack.
+   *      On success, persist the result to SQLite so future startups
+   *      don't depend on a successful API call.
+   *   3. On transient `auth.test` failure, fall back to the persisted
+   *      identity from SQLite (the last known good value).
+   *   4. If neither API nor persistence has a value (first-ever start
+   *      with a transient failure), log an error. `processEventPayload`
+   *      will refuse to forward events until identity is resolved
+   *      (fail-closed).
+   *
+   * Auth rejection (`data.ok === false`) is always fatal — a bad token
+   * cannot self-heal.
+   */
+  private async resolveBotIdentity(): Promise<void> {
+    if (
+      this.config.botUserId &&
+      this.config.botUsername &&
+      this.config.teamName
+    ) {
+      return;
     }
 
-    await this.connect();
+    // Try the live API first — this is the authoritative source.
+    try {
+      const resp = await fetchImpl("https://slack.com/api/auth.test", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${this.config.botToken}` },
+      });
+      const data = (await resp.json()) as {
+        ok: boolean;
+        user_id?: string;
+        user?: string;
+        team?: string;
+      };
+      if (!data.ok) {
+        throw new Error(
+          "Slack auth.test failed: bot token is invalid or expired",
+        );
+      }
+      if (data.user_id) {
+        this.config.botUserId = data.user_id;
+      }
+      if (data.user) {
+        this.config.botUsername = data.user;
+      }
+      if (data.team) {
+        this.config.teamName = data.team;
+      }
+      warnOnMissingSlackScopes(resp.headers.get("x-oauth-scopes") ?? "");
+
+      // Persist for future startups.
+      if (data.user_id) {
+        this.store.setBotIdentity({
+          userId: data.user_id,
+          username: data.user ?? null,
+          teamName: data.team ?? null,
+        });
+      }
+
+      log.info(
+        {
+          botUserId: data.user_id,
+          botUsername: data.user,
+          teamName: data.team,
+        },
+        "Resolved Slack bot identity via auth.test",
+      );
+      return;
+    } catch (err) {
+      const isAuthRejection =
+        err instanceof Error &&
+        err.message.includes("bot token is invalid or expired");
+      if (isAuthRejection) {
+        this.running = false;
+        this.stopDedupCleanup();
+        throw err;
+      }
+      log.warn(
+        { err },
+        "Failed to resolve bot identity via auth.test — checking persisted identity",
+      );
+    }
+
+    // Transient API failure — fall back to the last persisted identity.
+    const persisted = this.store.getBotIdentity();
+    if (persisted) {
+      this.config.botUserId = persisted.userId;
+      this.config.botUsername = persisted.username ?? this.config.botUsername;
+      this.config.teamName = persisted.teamName ?? this.config.teamName;
+      log.info(
+        {
+          botUserId: persisted.userId,
+          botUsername: persisted.username,
+          teamName: persisted.teamName,
+        },
+        "Loaded Slack bot identity from persisted store (auth.test was unavailable)",
+      );
+      return;
+    }
+
+    // Neither API nor persistence — first-ever start with a transient failure.
+    log.error(
+      "Unable to resolve Slack bot identity: auth.test failed and no persisted identity exists. " +
+        "Events will not be processed until identity is resolved (fail-closed). " +
+        "The next successful WebSocket reconnect will retry.",
+    );
   }
 
   stop(): void {
@@ -390,6 +454,84 @@ export class SlackSocketModeClient {
   }
 
   /**
+   * Extract the Slack user ID from any event type. Returns undefined for
+   * events that don't carry a user field (e.g. some system subtypes).
+   */
+  private extractEventUser(
+    event:
+      | SlackAppMentionEvent
+      | SlackDirectMessageEvent
+      | SlackChannelMessageEvent
+      | SlackMessageChangedEvent
+      | SlackMessageDeletedEvent
+      | SlackReactionAddedEvent
+      | SlackReactionRemovedEvent,
+  ): string | undefined {
+    // message_changed: the author is on the inner `message` object.
+    if (
+      event.type === "message" &&
+      (event as SlackMessageChangedEvent).subtype === "message_changed"
+    ) {
+      return (event as SlackMessageChangedEvent).message?.user;
+    }
+    // message_deleted: the author is on previous_message.
+    if (
+      event.type === "message" &&
+      (event as SlackMessageDeletedEvent).subtype === "message_deleted"
+    ) {
+      return (event as SlackMessageDeletedEvent).previous_message?.user;
+    }
+    // All other event types carry `user` at the top level.
+    return (event as { user?: string }).user;
+  }
+
+  /**
+   * Side-effect-only handler for the bot's own thread replies. The event
+   * itself is always dropped (the caller returns after this), but thread
+   * tracking is armed so follow-up human replies pass the active-thread
+   * filter.
+   */
+  private maybeTrackBotOwnThreadReply(
+    event:
+      | SlackAppMentionEvent
+      | SlackDirectMessageEvent
+      | SlackChannelMessageEvent
+      | SlackMessageChangedEvent
+      | SlackMessageDeletedEvent
+      | SlackReactionAddedEvent
+      | SlackReactionRemovedEvent,
+  ): void {
+    const channelEvent = event as SlackChannelMessageEvent;
+    if (
+      event.type !== "message" ||
+      (event as SlackMessageChangedEvent).subtype ||
+      !channelEvent.thread_ts ||
+      !channelEvent.channel
+    ) {
+      return;
+    }
+    if (!this.shouldTrackBotOwnThreadReply(channelEvent.channel)) return;
+
+    if (this.store.isThreadDetached(channelEvent.thread_ts)) {
+      log.info(
+        { channel: channelEvent.channel, threadTs: channelEvent.thread_ts },
+        "Skipped tracking bot's own reply in explicitly muted thread",
+      );
+      return;
+    }
+
+    this.store.trackThread(
+      channelEvent.thread_ts,
+      channelEvent.channel,
+      ACTIVE_THREAD_TTL_MS,
+    );
+    log.info(
+      { channel: channelEvent.channel, threadTs: channelEvent.thread_ts },
+      "Tracked thread after bot's own thread reply",
+    );
+  }
+
+  /**
    * Tracking-eligibility check for the bot's own thread replies (the
    * Socket Mode echo of a proactive chat.postMessage). The echo is never
    * forwarded — this only decides whether the thread is armed in
@@ -453,6 +595,12 @@ export class SlackSocketModeClient {
       ws.addEventListener("open", () => {
         log.info("Slack Socket Mode connected");
         this.reconnectAttempt = 0;
+        // Retry bot identity resolution on every reconnect so a transient
+        // auth.test failure at startup is self-healing. Once resolved, the
+        // check in resolveBotIdentity short-circuits immediately.
+        void this.resolveBotIdentity().catch((err) => {
+          log.error({ err }, "Bot identity resolution failed on reconnect");
+        });
         // Recover messages that arrived during the reconnect gap (Slack
         // does not buffer Socket Mode events during disconnects). Runs
         // off the open handler so initial-start, normal reconnect, and
@@ -630,6 +778,36 @@ export class SlackSocketModeClient {
       | SlackReactionRemovedEvent;
   }): void {
     const event = eventPayload.event;
+    const botUserId = this.config.botUserId;
+
+    // ── Fail-closed: reject events when bot identity is unknown ────────
+    // Without botUserId the gateway cannot distinguish its own outbound
+    // echoes from legitimate inbound messages. Processing them would
+    // trigger spurious access-request notifications for the bot's own
+    // Slack user ID. Reject all events until identity is resolved — the
+    // reconnect path retries auth.test on every WebSocket open.
+    if (!botUserId) {
+      log.warn(
+        { eventId: eventPayload.event_id },
+        "Dropping event: bot identity not yet resolved (fail-closed)",
+      );
+      return;
+    }
+
+    // ── Single self-filter: drop the bot's own messages ────────────────
+    // Slack's Socket Mode delivers the bot's own outbound messages back
+    // as inbound events (DM echoes, thread reply echoes, etc.). This is
+    // the one structural filter point — every event with the bot as author
+    // is dropped here, before any normalization or routing.
+    const eventUser = this.extractEventUser(event);
+    if (eventUser === botUserId) {
+      // Exception: the bot's own thread replies are used to arm thread
+      // tracking (so follow-up human replies are forwarded). This is a
+      // side effect only — the event itself is still dropped.
+      this.maybeTrackBotOwnThreadReply(event);
+      return;
+    }
+
     const dmEvent = event as SlackDirectMessageEvent;
     const channelEvent = event as SlackChannelMessageEvent;
     const messageChangedEvent = event as SlackMessageChangedEvent;
@@ -686,9 +864,7 @@ export class SlackSocketModeClient {
       !isMessageChanged &&
       !isMessageDeleted &&
       dmEvent.channel_type === "im";
-    const mentionsBot =
-      this.config.botUserId &&
-      channelEvent.text?.includes(`<@${this.config.botUserId}>`);
+    const mentionsBot = channelEvent.text?.includes(`<@${botUserId}>`);
     const isActiveThreadReply =
       event.type === "message" &&
       !isMessageChanged &&
@@ -697,68 +873,6 @@ export class SlackSocketModeClient {
       !mentionsBot &&
       !!channelEvent.thread_ts &&
       this.store.hasThread(channelEvent.thread_ts);
-
-    // The bot's own thread replies arrive as plain `message` events and are
-    // never forwarded (every normalizer drops self-authored messages). They
-    // are, however, the only Socket Mode signal that the assistant has
-    // posted into a thread it is not already tracking — e.g. a proactive
-    // chat.postMessage reply under another bot's thread parent, sent via the
-    // slack skill or the daemon's direct Web API delivery. Track the thread
-    // here, before the forwarding filter drops the event, so that:
-    //   1. follow-up replies in the thread (without an @-mention) pass the
-    //      active-thread filter, matching threads entered via app_mention;
-    //   2. reconnect catch-up's thread fan-out covers the thread — Slack's
-    //      conversations.history excludes thread replies, so an @-mention
-    //      that lands during a Socket Mode reconnect gap in an untracked
-    //      thread is otherwise unrecoverable (JARVIS-1086).
-    // Like the app_mention tracking below, only routable channels arm a
-    // thread, so channels that route to no assistant don't accumulate
-    // active-thread state — see shouldTrackBotOwnThreadReply for why the
-    // eligibility check cannot resolve by the echo's author (the bot).
-    const isBotOwnThreadReply =
-      event.type === "message" &&
-      !isMessageChanged &&
-      !isMessageDeleted &&
-      !!this.config.botUserId &&
-      channelEvent.user === this.config.botUserId &&
-      !!channelEvent.thread_ts;
-    if (isBotOwnThreadReply) {
-      if (
-        channelEvent.channel &&
-        this.shouldTrackBotOwnThreadReply(channelEvent.channel)
-      ) {
-        // An explicitly detached (muted) thread must not be re-armed by
-        // the bot's own posts — most immediately the Socket Mode echo of
-        // the mute confirmation that handleSlackMuteCommand sends right
-        // after detaching. Only a human re-engagement (e.g. a fresh
-        // app_mention) clears the marker, via trackThread below.
-        if (this.store.isThreadDetached(channelEvent.thread_ts!)) {
-          log.info(
-            {
-              eventId: eventPayload.event_id,
-              channel: channelEvent.channel,
-              threadTs: channelEvent.thread_ts,
-            },
-            "Skipped tracking bot's own reply in explicitly muted thread",
-          );
-        } else {
-          this.store.trackThread(
-            channelEvent.thread_ts!,
-            channelEvent.channel,
-            ACTIVE_THREAD_TTL_MS,
-          );
-          log.info(
-            {
-              eventId: eventPayload.event_id,
-              channel: channelEvent.channel,
-              threadTs: channelEvent.thread_ts,
-            },
-            "Tracked thread after bot's own thread reply",
-          );
-        }
-      }
-      return;
-    }
 
     // Forward reaction events on:
     //   1. messages in tracked bot threads (preserves original behavior), or
@@ -1114,21 +1228,18 @@ export class SlackSocketModeClient {
         event as SlackReactionAddedEvent,
         eventId,
         this.config.gatewayConfig,
-        this.config.botUserId,
       );
     } else if (isReactionRemoved) {
       normalized = normalizeSlackReactionRemoved(
         event as SlackReactionRemovedEvent,
         eventId,
         this.config.gatewayConfig,
-        this.config.botUserId,
       );
     } else if (isAppMention) {
       normalized = normalizeSlackAppMention(
         event as SlackAppMentionEvent,
         eventId,
         this.config.gatewayConfig,
-        this.config.botUserId,
         this.config.botToken,
         renderContext,
       );
@@ -1137,7 +1248,6 @@ export class SlackSocketModeClient {
         event as SlackMessageChangedEvent,
         eventId,
         this.config.gatewayConfig,
-        this.config.botUserId,
         renderContext,
       );
     } else if (isMessageDeleted) {
@@ -1145,14 +1255,12 @@ export class SlackSocketModeClient {
         event as SlackMessageDeletedEvent,
         eventId,
         this.config.gatewayConfig,
-        this.config.botUserId,
       );
     } else if (isActiveThreadReply) {
       normalized = normalizeSlackChannelMessage(
         event as SlackChannelMessageEvent,
         eventId,
         this.config.gatewayConfig,
-        this.config.botUserId,
         this.config.botToken,
         renderContext,
       );
@@ -1161,7 +1269,6 @@ export class SlackSocketModeClient {
         event as SlackDirectMessageEvent,
         eventId,
         this.config.gatewayConfig,
-        this.config.botUserId,
         this.config.botToken,
         renderContext,
       );
@@ -1255,15 +1362,9 @@ export class SlackSocketModeClient {
     const botToken = this.config.botToken;
     if (!botToken) return;
 
-    // Bootstrap before the bot-identity check. The bot-identity check below
-    // can keep returning early across reconnects if `auth.test` failed
-    // transiently in `start()` and never retried — gating bootstrap on it
-    // would leave the watermark unwritten for the entire degraded session,
-    // and the eventual restart with a working `auth.test` would bootstrap
-    // fresh against "now then" rather than "now at first ws.open", silently
-    // widening the unrecoverable window. Bootstrap is identity-agnostic, so
-    // run it first; the actual replay still requires `botUserId` and is
-    // gated below.
+    // Bootstrap the watermark on first-ever connect so reconnect catch-up
+    // has a starting point. This is identity-agnostic — safe to run even
+    // before botUserId is resolved.
     const persisted = this.store.getLastSeenTs();
     if (!persisted) {
       this.store.setLastSeenTsIfGreater(toSlackTs(Date.now()));
@@ -1273,9 +1374,13 @@ export class SlackSocketModeClient {
       return;
     }
 
+    // Replay requires botUserId so injectReplayMessage can filter the
+    // bot's own history messages. processEventPayload also rejects events
+    // when botUserId is undefined (fail-closed), but filtering at the
+    // replay level avoids wasting API calls on messages we'd drop anyway.
     const botUserId = this.config.botUserId;
     if (!botUserId) {
-      log.debug("Skipping reconnect catch-up: bot user id not yet resolved");
+      log.warn("Skipping reconnect catch-up: bot identity not yet resolved");
       return;
     }
 

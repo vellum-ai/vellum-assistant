@@ -4,11 +4,20 @@ import { type GatewayDb, getGatewayDb } from "./connection.js";
 import {
   contactChannels,
   slackActiveThreads,
+  slackBotIdentity,
   slackLastSeenTs,
   slackSeenEvents,
 } from "./schema.js";
 
 const LAST_SEEN_KEY = "global";
+const BOT_IDENTITY_KEY = "default";
+
+/** Persisted Slack bot identity fields. */
+export type SlackBotIdentity = {
+  userId: string;
+  username: string | null;
+  teamName: string | null;
+};
 
 /**
  * Lifetime of an explicit-detach (mute) marker row. While the marker is
@@ -259,6 +268,53 @@ export class SlackStore {
     return raw
       .prepare("DELETE FROM slack_seen_events WHERE expires_at < ?")
       .run(now).changes;
+  }
+
+  // -- Bot identity --
+
+  /**
+   * Load the persisted bot identity. Returns undefined on first-ever
+   * start (before any successful `auth.test` resolution).
+   */
+  getBotIdentity(): SlackBotIdentity | undefined {
+    const row = this.db
+      .select({
+        userId: slackBotIdentity.userId,
+        username: slackBotIdentity.username,
+        teamName: slackBotIdentity.teamName,
+      })
+      .from(slackBotIdentity)
+      .where(eq(slackBotIdentity.key, BOT_IDENTITY_KEY))
+      .get();
+    return row ?? undefined;
+  }
+
+  /**
+   * Persist the bot identity after a successful `auth.test` resolution.
+   * Upserts so the first write creates the row and subsequent writes
+   * update it (e.g. after a bot token rotation).
+   */
+  setBotIdentity(identity: SlackBotIdentity): void {
+    const now = Date.now();
+    this.db
+      .insert(slackBotIdentity)
+      .values({
+        key: BOT_IDENTITY_KEY,
+        userId: identity.userId,
+        username: identity.username,
+        teamName: identity.teamName,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: slackBotIdentity.key,
+        set: {
+          userId: identity.userId,
+          username: identity.username,
+          teamName: identity.teamName,
+          updatedAt: now,
+        },
+      })
+      .run();
   }
 
   // -- Catch-up watermark --

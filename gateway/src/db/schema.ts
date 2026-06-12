@@ -66,6 +66,28 @@ export const slackLastSeenTs = sqliteTable("slack_last_seen_ts", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+/**
+ * Persisted Slack bot identity resolved via `auth.test`.
+ *
+ * The bot's own Slack user ID is a deployment constant — it never changes
+ * for a given bot token. Persisting it here decouples the gateway from a
+ * successful `auth.test` call at every startup: the first successful
+ * resolution writes the row, and subsequent startups load it directly.
+ * `auth.test` is still called to validate the token, but a transient
+ * failure no longer leaves the gateway unable to identify its own messages.
+ */
+export const slackBotIdentity = sqliteTable("slack_bot_identity", {
+  /** Single-row key, always `'default'`. */
+  key: text("key").primaryKey(),
+  /** The bot's Slack user ID (e.g. `U01ABC123`). */
+  userId: text("user_id").notNull(),
+  /** The bot's display name (e.g. `assistant`). */
+  username: text("username"),
+  /** The Slack workspace/team name. */
+  teamName: text("team_name"),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 // ---------------------------------------------------------------------------
 // Data migrations
 // ---------------------------------------------------------------------------

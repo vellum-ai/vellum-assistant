@@ -105,6 +105,13 @@ function createSlackStore(): { rawDb: Database; store: SlackStore } {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
+    CREATE TABLE slack_bot_identity (
+      key TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      username TEXT,
+      team_name TEXT,
+      updated_at INTEGER NOT NULL
+    );
   `);
   return { rawDb, store: new SlackStore(drizzle(rawDb, { schema })) };
 }
