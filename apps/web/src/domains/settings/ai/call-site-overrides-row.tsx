@@ -55,8 +55,8 @@ export function CallSiteOverrideRow({
   })();
 
   const isCustom = profileVal === CUSTOM_SENTINEL;
-  const currentProvider = draft?.provider ?? INFERENCE_PROVIDERS[0];
-  const availableModels = getModelsForProvider(currentProvider ?? "anthropic");
+  const currentProvider = INFERENCE_PROVIDERS.find((p) => p === draft?.provider) ?? INFERENCE_PROVIDERS[0];
+  const availableModels = getModelsForProvider(currentProvider);
   const modelOptions = availableModels.map((m) => ({
     value: m.id,
     label: m.displayName,
@@ -75,7 +75,7 @@ export function CallSiteOverrideRow({
     }
   }
 
-  function handleProviderChange(provider: string) {
+  function handleProviderChange(provider: (typeof INFERENCE_PROVIDERS)[number]) {
     const defaultModel = getDefaultModelForProvider(provider) ?? "";
     onDraftChange(id, { ...(draft ?? {}), profile: null, provider, model: defaultModel });
   }

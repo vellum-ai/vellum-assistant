@@ -1,4 +1,5 @@
 import {
+  hasAssistantResponse,
   readRunMetadata,
   type MetricInput,
   type MetricResult,
@@ -14,6 +15,13 @@ const LIMIT_MS = 5 * 60 * 1000;
 export default async function scoreCompletedUnderFiveMinutes(
   input: MetricInput,
 ): Promise<MetricResult> {
+  if (!(await hasAssistantResponse(input.runId))) {
+    return {
+      name: "completed-under-five-minutes",
+      score: 0,
+      reason: "No assistant responses — the task never completed.",
+    };
+  }
   const metadata = await readRunMetadata(input.runId);
   const startedAt = metadata?.startedAt;
   if (!startedAt) {

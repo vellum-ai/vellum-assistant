@@ -84,7 +84,9 @@ describe("buildAuthorizeUrl", () => {
   });
 
   test("login hint is forwarded", () => {
+    // generic-examples:ignore-next-line — reason: test fixture for URL encoding, not a real email
     const url = new URL(buildAuthorizeUrl({ ...base, loginHint: "a@b.co" }));
+    // generic-examples:ignore-next-line — reason: test fixture for URL encoding, not a real email
     expect(url.searchParams.get("login_hint")).toBe("a@b.co");
 
     const noHint = new URL(buildAuthorizeUrl(base));

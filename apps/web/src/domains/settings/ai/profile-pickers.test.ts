@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   selectSeedProfileForOverride,
   type ProfilePickerEntry,
-} from "@/domains/settings/ai/profile-pickers";
+} from "@/assistant/profile-pickers";
 
 describe("selectSeedProfileForOverride", () => {
   const profiles: ProfilePickerEntry[] = [

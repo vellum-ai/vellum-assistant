@@ -3,10 +3,21 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { resolveSelectedAssistantId } from "@/assistant/selection";
+import { retireAssistant } from "@/assistant/retire-service";
+import {
+  clearGatewayToken,
+  isRepairableGatewayTokenError,
+} from "@/lib/auth/gateway-session";
+import { isGuardianRepairable } from "@/lib/local-mode";
+import { ConnectRecoveryDialog } from "@/domains/onboarding/components/connect-recovery-dialog";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { formatRelativeDate } from "@/utils/format-date";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { isElectron } from "@/runtime/is-electron";
+import {
+  requiresGuardianReprovision,
+  wakeLocalAssistantHost,
+} from "@/runtime/local-mode-host";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import {
@@ -55,6 +66,12 @@ export function SelectAssistantScreen() {
   const [connecting, setConnecting] = useState(false);
   const [autoSkipping, setAutoSkipping] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A local assistant whose guardian token is missing/unrefreshable; opens
+  // the recovery dialog instead of the generic connect error.
+  const [recoveryAssistant, setRecoveryAssistant] =
+    useState<ResolvedAssistant | null>(null);
+  const [recoveryPending, setRecoveryPending] = useState(false);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
 
   // Default selection: the app's known selected assistant when accessible,
   // else the first accessible assistant.
@@ -75,10 +92,85 @@ export function SelectAssistantScreen() {
         await useAuthStore.getState().connectPlatformAssistant(assistant.id);
       }
       void navigate(routes.assistant, { replace: true });
-    } catch {
-      setError("Failed to connect. Please try again.");
+    } catch (err) {
+      console.error("selectAssistant.handleConnect failed", err);
+      // Offer recovery when a guardian re-provision can fix it: the token is
+      // gone/unrefreshable on disk, or the gateway rejected it at the
+      // /auth/token mint (a 401 from a signing-key mismatch). Otherwise keep
+      // the generic message — repair can't help.
+      if (
+        assistant.isLocal &&
+        (requiresGuardianReprovision(err) ||
+          isRepairableGatewayTokenError(err)) &&
+        isGuardianRepairable(assistant.id)
+      ) {
+        setRecoveryAssistant(assistant);
+      } else {
+        setError("Failed to connect. Please try again.");
+      }
       setConnecting(false);
     }
+  };
+
+  const clearRecoveryState = () => {
+    setRecoveryAssistant(null);
+    setRecoveryPending(false);
+    setRecoveryError(null);
+    // If recovery interrupted an auto-skip, dismissing it must land on the
+    // chooser — leaving autoSkipping set would re-render the indefinite
+    // "Connecting…" screen with no way out.
+    setAutoSkipping(false);
+  };
+
+  const handleRecoveryRepair = async () => {
+    // recoveryPending also guards re-entry: a second click can land before
+    // React flushes the pending state into the dialog's disabled buttons.
+    if (!recoveryAssistant || recoveryPending) return;
+    setRecoveryPending(true);
+    setRecoveryError(null);
+    // try/catch, not just the result branch: a thrown fetch/transport error
+    // would otherwise strand recoveryPending=true on a deliberately
+    // un-dismissable pending dialog.
+    try {
+      const result = await wakeLocalAssistantHost(recoveryAssistant.id, {
+        repairGuardian: true,
+      });
+      if (result.ok) {
+        // Re-provisioning the guardian token revokes the gateway session
+        // token derived from the old one. The cached token is still valid by
+        // its local expiry, so `ensureGatewayToken` on reconnect would reuse
+        // it and every gateway call would 401 — drop it so the reconnect mints
+        // a fresh one against the new guardian principal.
+        clearGatewayToken();
+        clearRecoveryState();
+        void handleConnect(recoveryAssistant);
+        return;
+      }
+      setRecoveryError(result.error || "Repair failed. Please try again.");
+    } catch (err) {
+      console.error("selectAssistant.recoveryRepair failed", err);
+      setRecoveryError("Repair failed. Please try again.");
+    }
+    setRecoveryPending(false);
+  };
+
+  const handleRecoveryRetire = async () => {
+    if (!recoveryAssistant || recoveryPending) return;
+    setRecoveryPending(true);
+    setRecoveryError(null);
+    try {
+      const outcome = await retireAssistant(recoveryAssistant.id);
+      if (outcome.ok) {
+        clearRecoveryState();
+        void navigate(outcome.nextRoute, { replace: true });
+        return;
+      }
+      setRecoveryError(outcome.error);
+    } catch (err) {
+      console.error("selectAssistant.recoveryRetire failed", err);
+      setRecoveryError("Failed to retire assistant. Please try again.");
+    }
+    setRecoveryPending(false);
   };
 
   // Auto-skip when there's exactly one assistant and it's accessible.
@@ -107,8 +199,9 @@ export function SelectAssistantScreen() {
 
   const displayError = loginError ?? error;
 
-  // Loading state during auto-skip
-  if (autoSkipping && !displayError) {
+  // Loading state during auto-skip. A pending recovery falls through to the
+  // chooser so the dialog can render.
+  if (autoSkipping && !displayError && !recoveryAssistant) {
     return (
       <OnboardingLayout>
         <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center justify-center px-6 text-[var(--content-default)]">
@@ -217,6 +310,15 @@ export function SelectAssistantScreen() {
           </Button>
         </div>
       </div>
+      <ConnectRecoveryDialog
+        open={recoveryAssistant != null}
+        assistantName={recoveryAssistant ? assistantLabel(recoveryAssistant) : ""}
+        isPending={recoveryPending}
+        errorMessage={recoveryError ?? undefined}
+        onCancel={clearRecoveryState}
+        onRepair={() => void handleRecoveryRepair()}
+        onRetire={() => void handleRecoveryRetire()}
+      />
     </OnboardingLayout>
   );
 }

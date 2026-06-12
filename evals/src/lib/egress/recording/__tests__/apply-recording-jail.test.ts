@@ -82,6 +82,25 @@ describe("apply-recording-jail.sh", () => {
     expect(redirect).toBeGreaterThan(exempt);
   });
 
+  test("flushes pre-jail conntrack after installing the NAT REDIRECT", async () => {
+    // The sidecar attaches to an already-running assistant netns, so the
+    // daemon may have opened a keep-alive provider connection before
+    // these rules existed. NAT REDIRECT only rewrites NEW flows and the
+    // filter chain accepts ESTABLISHED ones, so that pre-jail connection
+    // would egress past mitmproxy unrecorded. Flushing conntrack forces
+    // it to be re-evaluated. The flush must come AFTER the REDIRECT is
+    // installed — flushing before would just let the connection
+    // re-establish on the still-unredirected path.
+    const lines = await readScript();
+    const redirect = findLine(
+      lines,
+      "iptables -t nat -A OUTPUT -p tcp --dport 443 -j REDIRECT",
+    );
+    const flush = findLine(lines, "conntrack -F");
+
+    expect(flush).toBeGreaterThan(redirect);
+  });
+
   test("requires ALLOW_HOSTS so a misconfig fails loud, not silent", async () => {
     // A missing ALLOW_HOSTS means no upstream the recording sidecar
     // can reach — running mitmproxy in that state would record

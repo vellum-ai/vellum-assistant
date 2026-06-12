@@ -1,10 +1,10 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { DetailCard } from "@/components/detail-card";
-import {
-  useDaemonConfigMutation,
-  useDaemonConfigQuery,
-} from "@/domains/settings/ai/use-daemon-config";
 import { useAssistantWithHealthz } from "@/domains/settings/components/assistant-status-panel";
 import { UpdateWindowPolicy } from "@/domains/settings/components/update-window-policy";
+import { configGetOptions, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -15,14 +15,29 @@ export function AdvancedPage() {
   const { assistant, healthz } = useAssistantWithHealthz();
   const infraGate = usePlatformGate({ platformHostedOnly: true });
   const platformAssistant = assistant?.is_local ? null : assistant;
+  const assistantId = useActiveAssistantId();
+  const queryClient = useQueryClient();
   const showMemoryOptOut = healthz?.capabilities?.memoryOptOut === true;
-  const { config } = useDaemonConfigQuery({ enabled: showMemoryOptOut });
-  const configMutation = useDaemonConfigMutation();
+
+  const { data: config } = useQuery({
+    ...configGetOptions({ path: { assistant_id: assistantId } }),
+    staleTime: 30_000,
+    enabled: showMemoryOptOut,
+  });
+
+  const configMutation = useConfigPatchMutation({
+    onSuccess: (data) => {
+      configGetSetQueryData(queryClient, { path: { assistant_id: assistantId } }, data);
+    },
+  });
   const memoryEnabled = config?.memory?.enabled !== false;
 
   const handleMemoryToggle = async (enabled: boolean) => {
     try {
-      await configMutation.mutateAsync({ memory: { enabled } });
+      await configMutation.mutateAsync({
+        path: { assistant_id: assistantId },
+        body: { memory: { enabled } },
+      });
       toast.success(enabled ? "Memory enabled." : "Memory disabled.");
     } catch (error) {
       captureError(error, { context: "settings-memory-toggle" });

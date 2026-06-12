@@ -6,6 +6,7 @@ import {
     organizationsBillingAutoTopUpDisableCreateMutation,
     organizationsBillingAutoTopUpRetrieveOptions,
     organizationsBillingAutoTopUpRetrieveQueryKey,
+    organizationsBillingAutoTopUpRetrieveSetQueryData,
     organizationsBillingAutoTopUpUpdateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
@@ -243,9 +244,10 @@ export function AutoTopUpCard() {
         // brand/last4 from GET in the background — that keeps them in
         // sync if the user just changed cards.
         onSuccess: (data) => {
-          queryClient.setQueryData(
-            organizationsBillingAutoTopUpRetrieveQueryKey(),
-            (prior: AutoTopUpConfigResponse | undefined) => ({
+          organizationsBillingAutoTopUpRetrieveSetQueryData(
+            queryClient,
+            undefined,
+            (prior) => ({
               ...data,
               payment_method_brand: prior?.payment_method_brand ?? null,
               payment_method_last4: prior?.payment_method_last4 ?? null,
@@ -278,8 +280,9 @@ export function AutoTopUpCard() {
         // cached PM fields so the card stays accurate until the next GET
         // refresh.
         onSuccess: () => {
-          queryClient.setQueryData<AutoTopUpConfigResponse | undefined>(
-            organizationsBillingAutoTopUpRetrieveQueryKey(),
+          organizationsBillingAutoTopUpRetrieveSetQueryData(
+            queryClient,
+            undefined,
             (prior) => ({
               ...DISABLED_CONFIG,
               has_payment_method: prior?.has_payment_method ?? false,

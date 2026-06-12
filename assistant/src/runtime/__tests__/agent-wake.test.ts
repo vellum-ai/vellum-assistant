@@ -50,6 +50,12 @@ interface WakeConversationProbe {
     requestId?: string;
     trust?: unknown;
     allowedTools?: string[];
+    /**
+     * `conversation.wakePersonaOverride` as observed at run start — the
+     * field the conversation's resolveSystemPrompt callback reads when
+     * building the wake's system prompt.
+     */
+    personaOverride?: unknown;
     order: number;
   }>;
   /** Every `setProcessing` value, in call order. */
@@ -77,6 +83,13 @@ interface WakeConversationProbe {
   allowedToolSnapshots: Array<string[] | undefined>;
   /** `setTrustContext` calls, with the value and a monotonic order tag. */
   setTrustContextCalls: Array<{ ctx: unknown; order: number }>;
+  /**
+   * Every assignment to `conversation.wakePersonaOverride`, in order. A
+   * wake that applies an override records `[override, undefined]` — the
+   * trailing `undefined` proves the wake restored the field before
+   * releasing the conversation.
+   */
+  personaOverrideSets: unknown[];
   /** Number of persisted tail messages at the moment each frame emitted. */
   persistedAtEachEmit: number[];
   /**
@@ -307,6 +320,7 @@ function makeWakeConversation(options: {
     processingDuringDrain: [],
     allowedToolSnapshots: [],
     setTrustContextCalls: [],
+    personaOverrideSets: [],
     persistedAtEachEmit: [],
     maybeCompactOrders: [],
   };
@@ -315,6 +329,7 @@ function makeWakeConversation(options: {
   let processing = options.isProcessing ?? false;
   let order = 0;
   let activeAllowedTools = options.initialAllowedTools;
+  let wakePersonaOverride: unknown;
   const snapshotAllowedTools = (): string[] | undefined =>
     activeAllowedTools ? [...activeAllowedTools].sort() : undefined;
 
@@ -377,6 +392,13 @@ function makeWakeConversation(options: {
         `tools:${snapshotAllowedTools()?.join(",") ?? "all"}`,
       );
     },
+    get wakePersonaOverride() {
+      return wakePersonaOverride;
+    },
+    set wakePersonaOverride(value: unknown) {
+      wakePersonaOverride = value;
+      probe.personaOverrideSets.push(value);
+    },
     agentLoop: {
       run: async (options: AgentLoopRunOptions) => {
         const { messages: input, onEvent } = options;
@@ -385,6 +407,7 @@ function makeWakeConversation(options: {
           requestId: options.requestId,
           trust: options.trust,
           allowedTools: snapshotAllowedTools(),
+          personaOverride: wakePersonaOverride,
           order: order++,
         });
         return runBody(input, onEvent, options);
@@ -582,6 +605,78 @@ describe("wakeAgentForOpportunity", () => {
     });
   });
 
+  test("personaOverride is applied to the conversation for the run and restored after", async () => {
+    const conversation = makeWakeConversation({
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "reviewed." }],
+      },
+    });
+    const override = { userSlug: "alice", channelSlug: "telegram" };
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "retrospective pass",
+        source: "memory-retrospective",
+        trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
+        personaOverride: override,
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result.invoked).toBe(true);
+    // The override was live on the conversation when the loop ran — the
+    // resolveSystemPrompt callback reads this field at prompt-build time.
+    expect(conversation.runCalls[0]!.personaOverride).toEqual(override);
+    // Applied exactly once and cleared before the wake released the
+    // conversation, so a queued user turn can't build under it.
+    expect(conversation.personaOverrideSets).toEqual([override, undefined]);
+  });
+
+  test("personaOverride is cleared even when the agent loop throws", async () => {
+    const conversation = makeWakeConversation({
+      runImpl: async () => {
+        throw new Error("loop exploded");
+      },
+    });
+    const override = { userSlug: "alice" };
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "retrospective pass",
+        source: "memory-retrospective",
+        personaOverride: override,
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    expect(conversation.personaOverrideSets).toEqual([override, undefined]);
+  });
+
+  test("no personaOverride → the conversation's persona field is never touched", async () => {
+    const conversation = makeWakeConversation({
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "hello" }],
+      },
+    });
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "plain wake",
+        source: "background-tool",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(conversation.runCalls[0]!.personaOverride).toBeUndefined();
+    expect(conversation.personaOverrideSets).toEqual([]);
+  });
+
   test("silent no-op when agent produces no tool calls and no text", async () => {
     const conversation = makeWakeConversation({
       baseline: [
@@ -674,6 +769,64 @@ describe("wakeAgentForOpportunity", () => {
     expect(restoreIndex).toBeGreaterThan(-1);
     expect(restoreIndex).toBeLessThan(processingFalseIndex);
     expect(processingFalseIndex).toBeLessThan(drainIndex);
+  });
+
+  test("applies toolGateMode: 'execution' alongside the allowlist and restores it after the wake", async () => {
+    let gateModeDuringRun: string | undefined;
+    const conversation = makeWakeConversation({
+      runImpl: async (input) => {
+        gateModeDuringRun = conversation.subagentToolGateMode;
+        return runResult([
+          ...input,
+          { role: "assistant", content: [{ type: "text", text: "Saved." }] },
+        ]);
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "review for memories",
+        source: "memory-retrospective",
+        allowedTools: ["remember"],
+        toolGateMode: "execution",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    // The gate mode is live on the conversation for the duration of the run
+    // (the tool resolver and executor closures read it there)...
+    expect(gateModeDuringRun).toBe("execution");
+    expect(conversation.runCalls[0]!.allowedTools).toEqual(["remember"]);
+    // ...and restored alongside the allowlist after the wake.
+    expect(conversation.subagentToolGateMode).toBeUndefined();
+  });
+
+  test("defaults to the wire gate mode when toolGateMode is absent", async () => {
+    let gateModeDuringRun: string | undefined;
+    const conversation = makeWakeConversation({
+      runImpl: async (input) => {
+        gateModeDuringRun = conversation.subagentToolGateMode;
+        return runResult([
+          ...input,
+          { role: "assistant", content: [{ type: "text", text: "Saved." }] },
+        ]);
+      },
+    });
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "review for memories",
+        source: "memory-retrospective",
+        allowedTools: ["remember"],
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(gateModeDuringRun).toBe("wire");
+    expect(conversation.subagentToolGateMode).toBeUndefined();
   });
 
   test("restores allowed tools before drain when the wake is a silent no-op", async () => {

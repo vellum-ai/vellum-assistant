@@ -66,6 +66,15 @@ export interface BaseAgent {
   send(message: AgentMessage): Promise<void>;
   runSetupCommand(command: TestSetupCommand): Promise<void>;
   events(): AsyncIterable<AgentEvent>;
+  /**
+   * Whether `event` is the species' turn-completion signal — the event
+   * the agent emits when it has finished responding to the most recent
+   * `send`. The runner's event collector waits for this signal instead
+   * of inferring turn boundaries from stream silence, so a turn with a
+   * long silent phase (memory retrieval, extended thinking, slow tools)
+   * is never cut off mid-flight.
+   */
+  isTurnComplete(event: AgentEvent): boolean;
   readUsageRecords?(): Promise<Array<Record<string, unknown>>>;
   shutdown(): Promise<void>;
   /**
