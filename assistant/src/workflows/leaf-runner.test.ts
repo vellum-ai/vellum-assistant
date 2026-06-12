@@ -31,11 +31,61 @@ mock.module("../util/logger.js", () => ({
 
 const TEST_PROFILES = { balanced: {}, "cost-optimized": {} };
 
+// Mutable config the mocked `getConfig` returns. Tests reassign this to drive
+// the active-profile and memory-enabled branches.
+let testConfig: {
+  llm: { profiles: Record<string, unknown>; activeProfile?: string };
+  memory: { enabled: boolean };
+} = {
+  llm: { profiles: TEST_PROFILES },
+  memory: { enabled: false },
+};
+
 mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    llm: { profiles: TEST_PROFILES },
-    memory: { enabled: false },
-  }),
+  getConfig: () => testConfig,
+}));
+
+// Persona path — identity system prompt. A sentinel marks the persona prompt
+// so tests can assert identity was assembled (vs. the anonymous task prompt).
+const PERSONA_IDENTITY_PROMPT = "PERSONA_IDENTITY_SYSTEM_PROMPT";
+const buildSystemPrompt = mock(() => PERSONA_IDENTITY_PROMPT);
+mock.module("../prompts/system-prompt.js", () => ({ buildSystemPrompt }));
+
+// Persona path — memory-injection pipeline. The mock records construction and
+// `prepareMemory` calls, and prepends a sentinel `<memory>` block so tests can
+// assert the pipeline ran and its output reached the provider.
+const MEMORY_BLOCK_TEXT = "INJECTED_MEMORY_BLOCK";
+let graphMemoryInstances = 0;
+let prepareMemoryCalls = 0;
+let disposeCalls = 0;
+class MockConversationGraphMemory {
+  constructor(_conversationId: string) {
+    graphMemoryInstances += 1;
+  }
+  async prepareMemory(
+    messages: Array<{ role: string; content: unknown[] }>,
+  ): Promise<{ runMessages: unknown[] }> {
+    prepareMemoryCalls += 1;
+    const [first, ...rest] = messages;
+    const injected = {
+      role: first?.role ?? "user",
+      content: [
+        { type: "text", text: MEMORY_BLOCK_TEXT },
+        ...(first?.content ?? []),
+      ],
+    };
+    return { runMessages: [injected, ...rest] };
+  }
+  dispose(): void {
+    disposeCalls += 1;
+  }
+}
+mock.module("../memory/graph/conversation-graph-memory.js", () => ({
+  ConversationGraphMemory: MockConversationGraphMemory,
+}));
+
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  broadcastMessage: () => {},
 }));
 
 // Captures the most recent provider resolution + sendMessage invocation so
@@ -109,9 +159,17 @@ function countConversations(): number {
 beforeEach(() => {
   sendMessage.mockClear();
   getConfiguredProvider.mockClear();
+  buildSystemPrompt.mockClear();
   lastResolveOpts = undefined;
   lastSendCall = undefined;
   responseQueue = [];
+  graphMemoryInstances = 0;
+  prepareMemoryCalls = 0;
+  disposeCalls = 0;
+  testConfig = {
+    llm: { profiles: TEST_PROFILES },
+    memory: { enabled: false },
+  };
 });
 
 describe("runLeaf — schema path", () => {
@@ -342,6 +400,119 @@ describe("runLeaf — no persistence", () => {
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
+  });
+});
+
+describe("runLeaf — persona path", () => {
+  const personaResponse = {
+    content: [
+      { type: "tool_use", name: "emit_result", id: "p", input: { a: "ok" } },
+    ],
+    model: "test",
+    usage: { inputTokens: 3, outputTokens: 2 },
+    stopReason: "tool_use",
+  };
+
+  test("injects identity system prompt and runs the memory pipeline", async () => {
+    testConfig = {
+      llm: { profiles: TEST_PROFILES, activeProfile: "balanced" },
+      memory: { enabled: true },
+    };
+    const schema = z.object({ a: z.string() });
+    responseQueue = [personaResponse];
+
+    const before = countConversations();
+    await runLeaf({
+      prompt: "Draft a reply.",
+      schema,
+      persona: true,
+      trustContext,
+    });
+
+    // Identity system prompt assembled and handed to the provider.
+    expect(buildSystemPrompt).toHaveBeenCalledTimes(1);
+    expect(lastSendCall?.options.systemPrompt).toBe(PERSONA_IDENTITY_PROMPT);
+
+    // Memory pipeline ran (constructed, queried, and disposed) and its
+    // injected block reached the provider as the user message's first block.
+    expect(graphMemoryInstances).toBe(1);
+    expect(prepareMemoryCalls).toBe(1);
+    expect(disposeCalls).toBe(1);
+    const messages = lastSendCall?.messages as Array<{
+      content: Array<{ type: string; text?: string }>;
+    }>;
+    expect(messages[0]?.content[0]?.text).toBe(MEMORY_BLOCK_TEXT);
+
+    // No conversation row — persona keeps the no-persistence guarantee.
+    expect(countConversations()).toBe(before);
+  });
+
+  test("resolves the workspace active profile by default", async () => {
+    testConfig = {
+      llm: { profiles: TEST_PROFILES, activeProfile: "balanced" },
+      memory: { enabled: true },
+    };
+    const schema = z.object({ a: z.string() });
+    responseQueue = [personaResponse];
+
+    await runLeaf({ prompt: "x", schema, persona: true, trustContext });
+
+    expect(lastResolveOpts?.overrideProfile).toBe("balanced");
+  });
+
+  test("explicit profile beats the persona active-profile default", async () => {
+    testConfig = {
+      llm: { profiles: TEST_PROFILES, activeProfile: "balanced" },
+      memory: { enabled: true },
+    };
+    const schema = z.object({ a: z.string() });
+    responseQueue = [personaResponse];
+
+    await runLeaf({
+      prompt: "x",
+      schema,
+      persona: true,
+      profile: "cost-optimized",
+      trustContext,
+    });
+
+    expect(lastResolveOpts?.overrideProfile).toBe("cost-optimized");
+  });
+
+  test("missing active profile falls through (no override)", async () => {
+    // No `activeProfile` set → persona resolves no overrideProfile, deferring
+    // to the shipped call-site default.
+    testConfig = {
+      llm: { profiles: TEST_PROFILES },
+      memory: { enabled: true },
+    };
+    const schema = z.object({ a: z.string() });
+    responseQueue = [personaResponse];
+
+    await runLeaf({ prompt: "x", schema, persona: true, trustContext });
+
+    expect(lastResolveOpts?.overrideProfile).toBeUndefined();
+  });
+
+  test("anonymous leaf carries no identity and skips the memory pipeline", async () => {
+    testConfig = {
+      llm: { profiles: TEST_PROFILES, activeProfile: "balanced" },
+      memory: { enabled: true },
+    };
+    const schema = z.object({ a: z.string() });
+    responseQueue = [personaResponse];
+
+    await runLeaf({ prompt: "x", schema, trustContext });
+
+    // Anonymous path is unchanged: minimal task prompt, no identity assembly,
+    // no memory pipeline, no active-profile override.
+    expect(buildSystemPrompt).not.toHaveBeenCalled();
+    expect(graphMemoryInstances).toBe(0);
+    expect(prepareMemoryCalls).toBe(0);
+    expect(lastSendCall?.options.systemPrompt).not.toBe(
+      PERSONA_IDENTITY_PROMPT,
+    );
+    expect(lastResolveOpts?.overrideProfile).toBeUndefined();
   });
 });
 
