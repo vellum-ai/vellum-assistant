@@ -71,6 +71,11 @@ export async function fetchConversationDetail(
 
   const data = await queryClient.fetchQuery<ConversationsByIdGetResponse>({
     queryKey,
+    // Force a network request even if the cache holds data within the
+    // global staleTime window. Callers reach this function because the
+    // server signalled that data changed (sync_changed event) or because
+    // the caller needs authoritative state (send-message surfacing).
+    staleTime: 0,
     queryFn: async ({ signal }) => {
       const { data, error, response } = await conversationsByIdGet({
         path: { assistant_id: assistantId, id: conversationId },
