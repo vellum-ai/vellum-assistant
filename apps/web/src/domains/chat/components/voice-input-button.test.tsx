@@ -39,8 +39,12 @@ const postSttTranscribeSpy = mock(
     text: "hello world",
   }),
 );
+// Flipped on by the forced-native tests — mirrors the user picking
+// "macOS Native Dictation" as the STT provider in Settings.
+let prefersNativeStt = false;
 mock.module("@/domains/chat/voice/stt-api", () => ({
   postSttTranscribe: postSttTranscribeSpy,
+  prefersMacosNativeStt: () => prefersNativeStt,
 }));
 
 // The daemon stream defaults to unavailable (null) — live interim text from
@@ -428,5 +432,63 @@ describe("VoiceInputButton — native partials fallback", () => {
     await waitFor(() => {
       expect(onTranscript).toHaveBeenCalledWith("stream words");
     });
+  });
+});
+
+describe("VoiceInputButton — forced native provider (macOS Native Dictation)", () => {
+  beforeEach(() => {
+    addBreadcrumbSpy.mockClear();
+    postSttTranscribeSpy.mockClear();
+    prefersNativeStt = true;
+    useVoiceRecordingStore.getState().reset();
+  });
+
+  afterEach(() => {
+    prefersNativeStt = false;
+    nativePartialsImpl = async () => null;
+    transcribeBlobImpl = async () => null;
+    dictationStreamImpl = () => null;
+    cleanup();
+    useVoiceRecordingStore.getState().reset();
+  });
+
+  test("skips batch STT and the daemon stream; native transcript is the authority", async () => {
+    let streamStarted = false;
+    dictationStreamImpl = () => {
+      streamStarted = true;
+      return { isLive: () => true, stop: () => {} };
+    };
+    transcribeBlobImpl = async () => "spoken natively";
+
+    const onTranscript = mock(async (_text: string) => {});
+    await startSession(onTranscript);
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(onTranscript).toHaveBeenCalledWith("spoken natively");
+    });
+    expect(postSttTranscribeSpy).not.toHaveBeenCalled();
+    expect(streamStarted).toBe(false);
+    expect(lastBreadcrumb().data.outcome).toBe("completed");
+  });
+
+  test("captured audio with no native transcript surfaces the dictation-setup error", async () => {
+    transcribeBlobImpl = async () => null;
+
+    const onTranscript = mock(async (_text: string) => {});
+    await startSession(onTranscript);
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop recording" }));
+
+    await waitFor(() => {
+      expect(useVoiceRecordingStore.getState().phase).toBe("error");
+    });
+    expect(useVoiceRecordingStore.getState().errorCode).toBe(
+      "native-stt-no-transcript",
+    );
+    expect(postSttTranscribeSpy).not.toHaveBeenCalled();
+    expect(onTranscript).not.toHaveBeenCalled();
+    expect(lastBreadcrumb().data.outcome).toBe("error");
   });
 });
