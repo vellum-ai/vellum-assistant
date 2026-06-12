@@ -19,7 +19,7 @@ import { createSelectors } from "@/utils/create-selectors";
 import {
   isAuthenticated,
   isSessionSettled,
-  isTransportFailure,
+  isSettledSessionRejection,
   hasLivePlatformSession,
   type PlatformSessionStatus,
   type SessionStatus,
@@ -169,14 +169,18 @@ const sessionEnded = (): Partial<AuthState> => ({
 
 /**
  * A `getSession()` outcome that says nothing about the session itself —
- * the request threw (fetch rejection) or failed at the transport layer
- * (no response / 5xx, including the Electron proxy's offline 502).
- * Distinct from a settled "no session" answer (2xx without user,
- * 401/403), which is the only thing allowed to end the session.
+ * the request threw (fetch rejection), never completed, or failed for a
+ * non-auth reason (429 rate limiting, 5xx outages, the Electron proxy's
+ * offline 502). Distinct from a settled "no session" answer (2xx without
+ * user, or an explicit 401/403/410 rejection), which is the only thing
+ * allowed to end the session. Callers check the 2xx-without-user case
+ * themselves — by the time they consult this, `result.ok` means the user
+ * field was missing, a settled negative.
  */
-const isTransportFailedProbe = (
+const isInconclusiveProbe = (
   result: Awaited<ReturnType<typeof getSession>> | null,
-): boolean => result === null || isTransportFailure(result);
+): boolean =>
+  result === null || (!result.ok && !isSettledSessionRejection(result));
 
 /**
  * Settle the session from the persisted user snapshot after a
@@ -471,7 +475,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
         // Offline boot with a still-valid local credential must not bounce
         // to the login screen (LUM-2412); only a settled "no session"
         // answer ends the session (and invalidates the snapshot).
-        if (isTransportFailedProbe(result)) {
+        if (isInconclusiveProbe(result)) {
           if (await restoreOfflineSession(set)) return;
         } else {
           clearUserSnapshot();
@@ -513,7 +517,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     // Wi-Fi reassociates): a transport-failed probe says nothing about
     // the session, so restore it from the snapshot instead of bouncing a
     // logged-in user to the login screen (LUM-2412).
-    if (isTransportFailedProbe(result) && (await restoreOfflineSession(set))) {
+    if (isInconclusiveProbe(result) && (await restoreOfflineSession(set))) {
       return;
     }
 
@@ -550,7 +554,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     // revoked session must not be resurrected by a later offline boot.
     // Transport failures keep it (web builds land here too; without a
     // readable credential they stay on the login-screen behavior).
-    if (!isTransportFailedProbe(result)) clearUserSnapshot();
+    if (!isInconclusiveProbe(result)) clearUserSnapshot();
     set(sessionEnded());
   },
 
@@ -656,7 +660,7 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
     // surface down to the login screen (LUM-2412). Keep the current state;
     // the next resume/online refresh revalidates for real, and a settled
     // "no session" answer below still ends the session normally.
-    if (isTransportFailedProbe(result)) {
+    if (isInconclusiveProbe(result)) {
       return isAuthenticated(get().sessionStatus);
     }
     clearUserSnapshot();

@@ -11,7 +11,7 @@ let getSessionCallCount = 0;
 let getSessionFailFirstCall = false;
 // Transport-failure controls: `getSessionThrows` simulates a fetch
 // rejection; `getSessionFailStatus` sets the status of the !sessionUser
-// failure result (401 = settled "no session", 502 = proxy network 502).
+// failure result (401 = settled "no session"; 429/502 = non-authoritative).
 let getSessionThrows = false;
 let getSessionFailStatus: number | undefined = 401;
 // When set to an array, each `getSession` call blocks until its release fn
@@ -676,6 +676,31 @@ describe("offline session restore (LUM-2412)", () => {
 
     expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
     expect(useAuthStore.getState().user?.id).toBe("user-cached");
+  });
+
+  test("rate-limited boot (429) is non-authoritative — restores from cache instead of logging out", async () => {
+    getSessionFailStatus = 429;
+    mockElectronSessionToken = "tok-1";
+    seedSnapshot();
+
+    await useAuthStore.getState().initSession();
+
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(useAuthStore.getState().user?.id).toBe("user-cached");
+    expect(localStorage.getItem(SNAPSHOT_KEY)).not.toBeNull();
+  });
+
+  test("rate-limited refresh (429) keeps the authenticated session", async () => {
+    sessionUser = { id: "user-9", username: "nine", email: "nine@example.com" };
+    await useAuthStore.getState().initSession();
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+
+    sessionUser = null;
+    getSessionFailStatus = 429;
+    await expect(useAuthStore.getState().refreshSession()).resolves.toBe(true);
+
+    expect(useAuthStore.getState().sessionStatus).toBe("authenticated");
+    expect(localStorage.getItem(SNAPSHOT_KEY)).not.toBeNull();
   });
 
   test("transport-failed boot without a local credential stays unauthenticated (web behavior)", async () => {
