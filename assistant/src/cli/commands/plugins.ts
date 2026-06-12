@@ -14,6 +14,7 @@ import {
   inspectPlugin,
   type PluginInspection,
   PluginInspectNotFoundError,
+  type PluginRemoteInfo,
 } from "../lib/inspect-plugin.js";
 import {
   DEFAULT_PLUGIN_REF,
@@ -380,33 +381,44 @@ function shortSha(sha: string | null): string {
   return sha ? sha.slice(0, 7) : "—";
 }
 
-/** Human-readable status line for an inspection result. */
-function statusLine(inspection: PluginInspection): string {
-  const { status, local, remote } = inspection;
+/**
+ * Render a commit timestamp as the human-facing version: a UTC `YYYY-MM-DDThh:mm:ss`
+ * string (seconds precision, no fractional or zone suffix). Older installs with
+ * no recorded commit date — and remote pins whose date could not be fetched —
+ * fall back to `unknown`, with the SHA still shown alongside as the precise id.
+ */
+function formatTimestamp(iso: string | null): string {
+  if (!iso) return "unknown";
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return "unknown";
+  return new Date(ms).toISOString().slice(0, 19);
+}
+
+/** Human-readable status line for an inspection result. The from/to revisions
+ * now live in the installed/remote blocks, so the status itself is just words. */
+function statusLine(status: PluginInspection["status"]): string {
   switch (status) {
     case "up-to-date":
       return "up to date";
     case "update-available":
-      return `update available  (${shortSha(local?.commit ?? null)} → ${shortSha(
-        remote?.commit ?? null,
-      )})`;
+      return "update available";
     case "not-installed":
       return "not installed";
     case "not-in-marketplace":
       return "installed (not in marketplace)";
     case "unknown-provenance":
-      return "unknown — reinstall to record provenance";
+      return "unknown (reinstall to record provenance)";
     case "remote-unavailable":
       return "installed (marketplace unavailable)";
   }
 }
 
 /**
- * Summarize local edits relative to the install-time fingerprint. Reports
- * "unknown" when no baseline was recorded (an older or manually-copied
- * install), "none" when the on-disk tree matches, or a per-category count.
+ * Summarize drift relative to the install-time fingerprint. Reports "unknown"
+ * when no baseline was recorded (an older or manually-copied install), "none"
+ * when the on-disk tree matches, or a per-category count.
  */
-function localEditsLine(changes: FingerprintComparison | null): string {
+function driftLine(changes: FingerprintComparison | null): string {
   if (!changes)
     return "unknown (no recorded baseline; reinstall to record one)";
   if (changes.clean) return "none";
@@ -418,74 +430,105 @@ function localEditsLine(changes: FingerprintComparison | null): string {
   return parts.join(", ");
 }
 
-/** Render an inspection as aligned, human-readable summary lines. */
-function formatInspection(inspection: PluginInspection): string[] {
-  const { name, local, remote, remoteError } = inspection;
-  const lines: string[] = [`${name}  plugin`];
-  const row = (label: string, value: string) =>
-    lines.push(`  ${label.padEnd(11)} ${value}`);
+/** Build the GitHub web URL for a remote pin's location (repo, or repo subtree). */
+function remoteLocation(remote: PluginRemoteInfo): string {
+  const base = `https://github.com/${remote.repo}`;
+  return remote.path ? `${base}/tree/${remote.commit}/${remote.path}` : base;
+}
 
-  row("status", statusLine(inspection));
+/**
+ * Render an inspection with timestamps as the headline version. The layout is a
+ * name heading + rule, a top-level `status`, then `installed`/`remote` blocks
+ * that each carry `timestamp` (the human version), `hash` (the precise id), and
+ * `location`, with a `drift` line under the installed copy.
+ */
+function formatInspection(inspection: PluginInspection): string[] {
+  const { name, status, local, remote, remoteError } = inspection;
+  const lines: string[] = [name, "─".repeat(44)];
+  const topRow = (label: string, value: string) =>
+    lines.push(`${label.padEnd(11)} ${value}`);
+  const blockRow = (label: string, value: string) =>
+    lines.push(`  ${label.padEnd(9)} ${value}`);
+
+  topRow("status", statusLine(status));
 
   if (local) {
-    const installedAt = local.installedAt
-      ? `  (${local.installedAt.slice(0, 10)})`
-      : "";
-    row("installed", `${shortSha(local.commit)}${installedAt}`);
-    row("local edits", localEditsLine(local.localChanges));
+    lines.push("installed");
+    blockRow("timestamp", formatTimestamp(local.committedAt));
+    blockRow("hash", shortSha(local.commit));
+    blockRow("location", local.target);
+    // `installedAt` is rewritten on every install/upgrade, so it reads as the
+    // last time this copy was materialized rather than a first-install date.
+    blockRow("updated", formatTimestamp(local.installedAt));
+    topRow("drift", driftLine(local.localChanges));
   }
 
   if (remote) {
-    const where = remote.path ? `${remote.repo}/${remote.path}` : remote.repo;
-    row(
-      "remote pin",
-      `${shortSha(remote.commit)}  (${where}, ${remote.marketplaceRef})`,
-    );
+    lines.push("remote");
+    blockRow("timestamp", formatTimestamp(remote.committedAt));
+    blockRow("hash", shortSha(remote.commit));
+    blockRow("location", remoteLocation(remote));
   } else if (remoteError) {
-    row("remote", `unavailable — ${remoteError}`);
+    topRow("remote", `unavailable: ${remoteError}`);
   }
 
-  const version = local?.version ?? null;
-  if (version) row("version", version);
+  const pkgVersion = local?.version ?? null;
+  if (pkgVersion) topRow("pkg version", pkgVersion);
 
   const license = remote?.license ?? null;
   const homepage = remote?.homepage ?? null;
-  if (license && homepage) row("license", `${license}   homepage  ${homepage}`);
-  else if (license) row("license", license);
-  else if (homepage) row("homepage", homepage);
+  if (license) topRow("license", license);
+  if (homepage) topRow("homepage", homepage);
 
   const description = remote?.description ?? local?.description ?? null;
-  if (description) row("description", description);
+  if (description) topRow("description", description);
 
-  for (const issue of local?.issues ?? []) row("issue", issue);
+  for (const issue of local?.issues ?? []) topRow("issue", issue);
 
   return lines;
 }
 
-/** Render an upgrade result as human-readable summary lines. */
+/**
+ * Render an upgrade result with the `timestamp (hash) → timestamp (hash)` move
+ * as the headline, mirroring the inspect layout so the same version identity is
+ * used everywhere.
+ */
 function formatUpgrade(result: PluginUpgradeResult): string[] {
-  const { name, fromCommit, toCommit } = result;
-  const move = `${shortSha(fromCommit)} → ${shortSha(toCommit)}`;
+  const { name, fromCommit, fromTimestamp, toCommit, toTimestamp } = result;
+  const move =
+    `${formatTimestamp(fromTimestamp)} (${shortSha(fromCommit)})` +
+    ` → ${formatTimestamp(toTimestamp)} (${shortSha(toCommit)})`;
   const provenanceNote = result.provenanceWasUnknown
-    ? " (previous install had no recorded provenance)"
-    : "";
+    ? "Previous install had no recorded provenance; it has been re-pinned."
+    : null;
 
   switch (result.outcome) {
     case "already-up-to-date":
-      return [`"${name}" is already up to date (${shortSha(toCommit)}).`];
-    case "would-upgrade":
       return [
-        `"${name}" would upgrade ${move}${provenanceNote} (dry run; no changes made).`,
+        `"${name}" is already up to date at ${formatTimestamp(toTimestamp)} (${shortSha(toCommit)}).`,
       ];
+    case "would-upgrade": {
+      const lines = [
+        `"${name}" would upgrade ${move}`,
+        "",
+        "dry run; no changes made.",
+      ];
+      if (provenanceNote) lines.push(provenanceNote);
+      return lines;
+    }
     case "upgraded": {
       const count =
         result.fileCount === null
           ? ""
-          : ` (${result.fileCount} file${result.fileCount === 1 ? "" : "s"})`;
-      return [
-        `Upgraded "${name}" ${move}${count}${provenanceNote} → ${result.target}`,
+          : `(${result.fileCount} file${result.fileCount === 1 ? "" : "s"}) `;
+      const lines = [
+        `Upgraded "${name}" ${move}`,
+        "",
+        `${count}→ ${result.target}`,
         "Restart the assistant to pick up the upgrade.",
       ];
+      if (provenanceNote) lines.push(provenanceNote);
+      return lines;
     }
   }
 }

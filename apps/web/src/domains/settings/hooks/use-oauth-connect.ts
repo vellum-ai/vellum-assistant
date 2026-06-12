@@ -1,9 +1,9 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   assistantsOauthConnectionsListOptions,
-  assistantsOauthStartCreateMutation,
+  useAssistantsOauthStartCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import { useOAuthCompleteDeepLinkListener } from "@/hooks/use-oauth-complete-deep-link-listener";
@@ -262,9 +262,7 @@ export function useOAuthConnect({
     };
   }, []);
 
-  const startOAuth = useMutation({
-    ...assistantsOauthStartCreateMutation(),
-  });
+  const startOAuth = useAssistantsOauthStartCreateMutation();
 
   const handleConnect = () => {
     if (!managedAvailable) return;
