@@ -8,6 +8,7 @@ describe("MemoryV3ConfigSchema", () => {
     expect(parsed).toEqual({
       prune: { maxResidentBytes: 393216, targetResidentBytes: 262144 },
       hotSet: { k: 40, halfLifeDays: 14 },
+      freshSet: { k: 50 },
       spotlight: { n: 6, windowTurns: 2 },
       needleK: 100,
       denseK: 100,

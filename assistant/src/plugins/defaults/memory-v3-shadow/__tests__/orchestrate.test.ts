@@ -127,8 +127,9 @@ function depsOf(
 ): OrchestrateDeps {
   const coreSlugs = overrides.coreSlugs ?? [];
   const hotSlugs = overrides.hotSlugs ?? [];
+  const freshSlugs = overrides.freshSlugs ?? [];
   const prefixCards = new Map<Slug, string>(
-    [...coreSlugs, ...hotSlugs].map((slug) => [
+    [...coreSlugs, ...hotSlugs, ...freshSlugs].map((slug) => [
       slug,
       renderCard(slug, RAW[slug] ?? ""),
     ]),
@@ -140,6 +141,7 @@ function depsOf(
     edgeGraph: lanes.edgeGraph,
     coreSlugs,
     hotSlugs,
+    freshSlugs,
     prefixCards,
     ...overrides,
   };
@@ -369,6 +371,26 @@ describe("orchestrate — cache-ordered pool (core + hot + finders)", () => {
       "topic-a",
       "topic-b",
     ]);
+  });
+
+  test("fresh follows hot in the pool and dedups against core/hot", async () => {
+    const lanes = await buildLanes();
+    denseHits = [];
+    providerStub = selectProvider([]);
+
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, {
+        coreSlugs: ["topic-c"],
+        hotSlugs: ["topic-d"],
+        // topic-c (core) and topic-d (hot) are defensively dropped; only
+        // topic-b earns a fresh slot.
+        freshSlugs: ["topic-c", "topic-d", "topic-b"],
+      }),
+    );
+
+    expect(lastPool).toEqual(["topic-c", "topic-d", "topic-b", "topic-a"]);
+    expect(result.lanes.fresh).toEqual(["topic-b"]);
   });
 
   test("the rendered stable prefix is byte-identical across turns with different queries", async () => {

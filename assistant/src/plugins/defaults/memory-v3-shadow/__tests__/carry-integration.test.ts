@@ -255,6 +255,7 @@ async function scriptedObserveTurn(conversationId: string, turnIndex: number) {
       edgeGraph: lanes.edgeGraph,
       coreSlugs: lanes.coreSlugs,
       hotSlugs: lanes.hotSlugs,
+      freshSlugs: [],
       prefixCards: lanes.prefixCards,
     },
   );

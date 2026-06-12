@@ -310,6 +310,7 @@ async function runTurn(
     edgeGraph: deps.lanes.edgeGraph,
     coreSlugs: deps.core ?? [],
     hotSlugs: deps.hot ?? [],
+    freshSlugs: [],
     // Mirrors lane init: every stable-prefix slug gets a pre-rendered card.
     prefixCards: new Map(
       stableSlugs.map((slug) => [slug, renderCard(slug, RAW[slug] ?? "")]),
@@ -476,6 +477,7 @@ describe("memory-v3 shadow integration — selection-log readout", () => {
       bySource: {
         core: 0,
         hot: 0,
+        fresh: 0,
         needle: 0,
         dense: 0,
         edge: 0,

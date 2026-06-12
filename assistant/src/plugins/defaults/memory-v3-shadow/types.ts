@@ -81,8 +81,9 @@ export interface MemoryRoutingTurn {
  * exactly one place and the runtime list (used for telemetry roll-ups and
  * source validation) can never drift from the type.
  *
- * `core` / `hot` are the stable-prefix lanes (curated core set, frecency hot
- * set); `needle` / `dense` / `edge` are the per-turn finder lanes.
+ * `core` / `hot` / `fresh` are the stable-prefix lanes (curated core set,
+ * frecency hot set, modification-recency fresh set); `needle` / `dense` /
+ * `edge` are the per-turn finder lanes.
  *
  * The `memory_v3_selections.source` column is free-text, so tightening this set
  * needs no migration: any historical rows with retired labels (e.g. the old
@@ -92,6 +93,7 @@ export interface MemoryRoutingTurn {
 export const SELECTION_SOURCES = [
   "core",
   "hot",
+  "fresh",
   "needle",
   "dense",
   "edge",
@@ -101,9 +103,9 @@ export type SelectionSource = (typeof SELECTION_SOURCES)[number];
 
 /**
  * The per-turn finder lanes — the strict subset of {@link SelectionSource} a
- * finder candidate can be tagged with at pool-build time. (`core` / `hot` are
- * assigned by stable-prefix membership, not by a finder.) Defined via
- * `Exclude` so it can never drift from {@link SELECTION_SOURCES}: adding a
+ * finder candidate can be tagged with at pool-build time. (`core` / `hot` /
+ * `fresh` are assigned by stable-prefix membership, not by a finder.) Defined
+ * via `Exclude` so it can never drift from {@link SELECTION_SOURCES}: adding a
  * finder lane there widens this automatically.
  */
-export type FinderLane = Exclude<SelectionSource, "core" | "hot">;
+export type FinderLane = Exclude<SelectionSource, "core" | "hot" | "fresh">;

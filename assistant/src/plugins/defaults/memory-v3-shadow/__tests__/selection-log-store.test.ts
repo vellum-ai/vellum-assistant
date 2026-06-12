@@ -202,6 +202,7 @@ describe("summarizeSelections", () => {
     expect(summary.bySource).toEqual({
       core: 0,
       hot: 0,
+      fresh: 0,
       needle: 2,
       dense: 0,
       edge: 2,
@@ -216,6 +217,7 @@ describe("summarizeSelections", () => {
       bySource: {
         core: 0,
         hot: 0,
+        fresh: 0,
         needle: 0,
         dense: 0,
         edge: 0,

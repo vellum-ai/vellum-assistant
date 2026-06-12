@@ -88,8 +88,9 @@ const CAPABILITY_SLUG = "skills/example";
 const CAPABILITY_CONTENT = "use the kumquat skill to do the thing";
 
 // The orchestrate result the spy returns. `lanes` records where each pooled
-// slug lived: page-core in the core lane, page-hot in the hot lane, and the
-// finder entries page-1 → "needle", page-2 → "dense", page-3 → "edge";
+// slug lived: page-core in the core lane, page-hot in the hot lane, page-fresh
+// in the fresh lane, and the finder entries page-1 → "needle", page-2 → "dense",
+// page-3 → "edge";
 // `attributeSelections` reads it directly. `matchedSections` carries the
 // matched section for the slugs that had one (page-1/page-2) — consumed by the
 // live injector's progressive disclosure, independent of source attribution.
@@ -98,6 +99,7 @@ const orchestrateSpy = mock(
     selections: [
       { slug: "page-core", pinned: false },
       { slug: "page-hot", pinned: false },
+      { slug: "page-fresh", pinned: false },
       { slug: "page-1", pinned: true },
       { slug: "page-2", pinned: false },
       { slug: "page-3", pinned: false },
@@ -109,6 +111,7 @@ const orchestrateSpy = mock(
     lanes: {
       core: ["page-core"],
       hot: ["page-hot"],
+      fresh: ["page-fresh"],
       finder: [
         { slug: "page-1", descriptor: "", lane: "needle" },
         { slug: "page-2", descriptor: "", lane: "dense" },
@@ -180,6 +183,7 @@ mock.module("../../../../config/loader.js", () => ({
       enabled: memoryEnabled,
       v3: {
         hotSet: { k: 40, halfLifeDays: 14 },
+        freshSet: { k: 50 },
         spotlight: { n: 6, windowTurns: 2 },
         needleK: 100,
         denseK: 100,
@@ -463,8 +467,10 @@ describe("memory-v3 shadow plugin", () => {
       { slug: "page-2", source: "dense", pinned: 0 },
       // page-3 was surfaced by the edge lane → "edge".
       { slug: "page-3", source: "edge", pinned: 0 },
-      // page-core / page-hot sit in the stable prefix → "core" / "hot".
+      // page-core / page-hot / page-fresh sit in the stable prefix →
+      // "core" / "hot" / "fresh".
       { slug: "page-core", source: "core", pinned: 0 },
+      { slug: "page-fresh", source: "fresh", pinned: 0 },
       { slug: "page-hot", source: "hot", pinned: 0 },
     ]);
   });
@@ -476,6 +482,7 @@ describe("memory-v3 shadow plugin", () => {
       lanes: {
         core: ["page-core"],
         hot: [],
+        fresh: [],
         // The needle also hit the core page this turn — the row still logs
         // "core" because that is where the candidate lived in the pool.
         finder: [{ slug: "page-core", descriptor: "", lane: "needle" }],
@@ -598,7 +605,7 @@ describe("memory-v3 shadow plugin", () => {
     orchestrateSpy.mockImplementationOnce(async () => ({
       selections: [],
       matchedSections: new Map(),
-      lanes: { core: [], hot: [], finder: [] },
+      lanes: { core: [], hot: [], fresh: [], finder: [] },
     }));
     const block = await produce("conv-1", 0);
     expect(block).toBeNull();
