@@ -1,4 +1,4 @@
-import { BrowserWindow, screen } from "electron";
+import { BrowserWindow, screen, type WebContents } from "electron";
 import { z } from "zod";
 
 import type {
@@ -229,13 +229,22 @@ export const installDictationOverlay = (
     /**
      * The user clicked the overlay's stop button. Injected (same reason as
      * above) so main can relay a `stopDictation` command to the renderer
-     * that owns the recording session.
+     * that owns the recording session. `owner` is the WebContents that
+     * published the session's overlay state — the chat composer can live in
+     * the main window or a conversation pop-out — or null when it's already
+     * gone (fall back to the main window).
      */
-    onStopRequested?: () => void;
+    onStopRequested?: (owner: WebContents | null) => void;
   } = {},
 ): void => {
   if (installed) return;
   installed = true;
+
+  // The renderer that published the current session's state. Captured on
+  // every lifecycle message rather than just session start: it's the same
+  // sender throughout a session, and re-capturing keeps it correct without
+  // session-boundary bookkeeping.
+  let sessionOwner: WebContents | null = null;
 
   const controller = createDictationOverlayController({
     showOverlay,
@@ -249,7 +258,8 @@ export const installDictationOverlay = (
   on(
     "vellum:dictationOverlay:setState",
     z.tuple([dictationOverlayMessageSchema]),
-    ([message]) => {
+    ([message], event) => {
+      sessionOwner = event.sender;
       options.onRecordingLifecycle?.(message.kind === "recording");
       controller.handleMessage(message);
     },
@@ -259,7 +269,9 @@ export const installDictationOverlay = (
 
   // Sent by the overlay's own renderer when the stop button is clicked.
   on("vellum:dictationOverlay:requestStop", z.tuple([]), () => {
-    options.onStopRequested?.();
+    options.onStopRequested?.(
+      sessionOwner && !sessionOwner.isDestroyed() ? sessionOwner : null,
+    );
   });
 
   // The overlay window is click-through by default; the overlay renderer
