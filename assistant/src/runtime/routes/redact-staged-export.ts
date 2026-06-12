@@ -21,16 +21,19 @@
  * redacted via a parse → redact-string-leaves → re-stringify path so the
  * quoted redaction marker cannot corrupt them. Files above the size cap are
  * NOT shipped unswept: their content is replaced with a short omission note
- * (fail closed).
+ * (fail closed). Likewise, a file whose redacted content cannot be written
+ * back is replaced with a note rather than shipped with its original bytes.
  */
 
 import type { Dirent } from "node:fs";
 import {
+  chmodSync,
   closeSync,
   openSync,
   readdirSync,
   readFileSync,
   readSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -56,6 +59,25 @@ export const MAX_SWEEP_FILE_BYTES = 32 * 1024 * 1024;
 export const OVERSIZED_FILE_NOTE = `[content omitted from export: file exceeded the ${
   MAX_SWEEP_FILE_BYTES / (1024 * 1024)
 } MiB secret-redaction cap]\n`;
+
+/**
+ * Replacement content for files where redaction detected a secret but the
+ * redacted content could not be written back in place.
+ */
+const UNWRITABLE_FILE_NOTE =
+  "[content omitted from export: redaction detected a secret but could not rewrite this staged file]\n";
+
+/**
+ * Replace a staged file's content with a short omission note. Removal +
+ * recreation is a directory-level operation, so it succeeds regardless of
+ * the file's own mode bits (the staging dir is daemon-created and writable).
+ * Throws if the replacement fails — callers rely on that to fail closed
+ * rather than letting the tar step ship the original content.
+ */
+function replaceFileWithNote(filePath: string, note: string): void {
+  rmSync(filePath, { force: true });
+  writeFileSync(filePath, note, { encoding: "utf-8", mode: 0o600 });
+}
 
 /**
  * Bytes read from the head of each staged file to classify it as text
@@ -124,12 +146,19 @@ function redactContent(content: string, ext: string): string {
  * `stagingDir`, rewriting in place any file where `redactSecrets()` found a
  * match. Unchanged files are left byte-identical (no gratuitous rewrites).
  *
- * Per-file failures are logged and skipped — a single unreadable file must
- * never fail the export (degraded mode beats no archive at all).
+ * Per-file failures *before* anything sweep-worthy is detected (unreadable
+ * or unstattable files) are logged and skipped — they leak nothing the
+ * sweep would have changed, and a single bad file must never fail the
+ * export (degraded mode beats no archive at all). Once a file is known to
+ * need rewriting (a secret was detected, or it is oversized), failures fail
+ * closed instead: the file's content is replaced with an omission note, and
+ * if even that fails the error propagates and the export fails rather than
+ * shipping the original content.
  *
- * `filesOmitted` counts oversized files whose content was replaced with the
- * omission note — they are never read, so they are not counted as scanned
- * or redacted.
+ * `filesOmitted` counts files whose content was replaced with an omission
+ * note: oversized files (never read, so not counted as scanned) and files
+ * whose redacted content could not be written back (scanned, but not
+ * counted as redacted — the redaction never landed).
  */
 export function redactStagedExportFiles(stagingDir: string): {
   filesScanned: number;
@@ -164,37 +193,64 @@ export function redactStagedExportFiles(stagingDir: string): {
       if (!entry.isFile()) continue;
       const ext = extname(entry.name).toLowerCase();
 
+      // Phase 1 — classify and scan. Failures here mean the file's content
+      // was never read into the sweep, so skipping it leaks nothing.
+      let size = 0;
+      let content = "";
+      let redacted = "";
       try {
         if (!sniffsAsText(filePath)) continue;
-        const { size } = statSync(filePath);
-        if (size > MAX_SWEEP_FILE_BYTES) {
-          // Fail closed: an oversized sweep-eligible file must not ship
-          // unswept — it may carry legacy plaintext secrets the sweep
-          // exists to catch. Replace its content with a short note.
-          // Normally unreachable now that every staged section is bounded
-          // at the source; retained as the final belt so assumption drift
-          // (a future unbounded section) can't silently ship unswept
-          // secrets.
-          log.warn(
-            { file: filePath, size },
-            "Staged export file exceeds secret sweep size cap; replacing content with omission note",
-          );
-          writeFileSync(filePath, OVERSIZED_FILE_NOTE, "utf-8");
-          filesOmitted++;
-          continue;
-        }
-        const content = readFileSync(filePath, "utf-8");
-        filesScanned++;
-        const redacted = redactContent(content, ext);
-        if (redacted !== content) {
-          writeFileSync(filePath, redacted, "utf-8");
-          filesRedacted++;
+        size = statSync(filePath).size;
+        if (size <= MAX_SWEEP_FILE_BYTES) {
+          content = readFileSync(filePath, "utf-8");
+          filesScanned++;
+          redacted = redactContent(content, ext);
         }
       } catch (err) {
         log.warn(
           { err, file: filePath },
           "Failed to sweep staged export file for secrets; continuing",
         );
+        continue;
+      }
+
+      // Phase 2 — rewrite. From here the file is known to need new content,
+      // so failures must not fall through to the tar step with the original
+      // bytes. `replaceFileWithNote` throws on failure, failing the export.
+      if (size > MAX_SWEEP_FILE_BYTES) {
+        // Fail closed: an oversized sweep-eligible file must not ship
+        // unswept — it may carry legacy plaintext secrets the sweep exists
+        // to catch. Normally unreachable now that every staged section is
+        // bounded at the source; retained as the final belt so assumption
+        // drift (a future unbounded section) can't silently ship unswept
+        // secrets.
+        log.warn(
+          { file: filePath, size },
+          "Staged export file exceeds secret sweep size cap; replacing content with omission note",
+        );
+        replaceFileWithNote(filePath, OVERSIZED_FILE_NOTE);
+        filesOmitted++;
+        continue;
+      }
+      if (redacted === content) continue;
+      try {
+        // Staged copies inherit source mode bits (`cpSync` preserves them),
+        // so a read-only workspace attachment arrives read-only and the
+        // rewrite below would throw. Loosening the mode on the export copy
+        // is an accepted tradeoff: the staging dir is daemon-private, and a
+        // mode-bit change in the tar is far better than a leaked secret.
+        // Clean files are never chmod'd, keeping them byte- and
+        // mode-identical.
+        chmodSync(filePath, 0o600);
+        writeFileSync(filePath, redacted, "utf-8");
+        filesRedacted++;
+      } catch (err) {
+        log.warn(
+          { err, file: filePath },
+          "Failed to write redacted content back to staged export file; replacing content with omission note",
+        );
+        replaceFileWithNote(filePath, UNWRITABLE_FILE_NOTE);
+        filesOmitted++;
       }
     }
   }

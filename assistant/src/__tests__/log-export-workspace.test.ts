@@ -15,6 +15,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -745,6 +746,48 @@ describe("POST /v1/export — staged-file secret sweep", () => {
       rmSync(staging, { recursive: true, force: true });
     }
   });
+
+  // Root bypasses file permission checks, so chmod 0o444 cannot make the
+  // file read-only — skip rather than assert a fail-closed path that cannot
+  // be exercised.
+  test.skipIf(process.getuid?.() === 0)(
+    "redacts a read-only staged file in place instead of shipping the raw secret",
+    () => {
+      const staging = mkdtempSync(join(tmpdir(), "redact-staged-readonly-"));
+      try {
+        // A read-only workspace attachment is staged with its mode bits
+        // preserved (cpSync). The sweep must still rewrite it — the chmod
+        // path — so the raw secret never reaches the tar step.
+        const readonlyPath = join(staging, "creds.env");
+        writeFileSync(
+          readonlyPath,
+          `OPENAI_API_KEY=${SYNTHETIC_OPENAI_PROJECT_KEY}\n`,
+          "utf-8",
+        );
+        chmodSync(readonlyPath, 0o444);
+        // A clean read-only file needs no rewrite, so it must keep its
+        // content AND its mode bits (no gratuitous chmod).
+        const cleanPath = join(staging, "clean.txt");
+        writeFileSync(cleanPath, "nothing secret here\n", "utf-8");
+        chmodSync(cleanPath, 0o444);
+
+        const result = redactStagedExportFiles(staging);
+
+        expect(result).toEqual({
+          filesScanned: 2,
+          filesRedacted: 1,
+          filesOmitted: 0,
+        });
+        const content = readFileSync(readonlyPath, "utf-8");
+        expect(content).not.toContain(SYNTHETIC_OPENAI_PROJECT_KEY);
+        expect(content).toContain(OPENAI_PROJECT_KEY_REDACTION_MARKER);
+        expect(readFileSync(cleanPath, "utf-8")).toBe("nothing secret here\n");
+        expect(statSync(cleanPath).mode & 0o777).toBe(0o444);
+      } finally {
+        rmSync(staging, { recursive: true, force: true });
+      }
+    },
+  );
 
   // Root bypasses file permission checks, so chmod 0o000 cannot make the
   // file unreadable — skip rather than assert a degraded path that cannot
