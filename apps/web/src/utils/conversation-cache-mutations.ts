@@ -251,7 +251,7 @@ function updateGroupsCache(
   assistantId: string | null,
   updater: (groups: ConversationGroup[]) => ConversationGroup[],
 ): void {
-  const opts = { path: { assistant_id: assistantId ?? "" } } as Options<GroupsGetData>;
+  const opts: Options<GroupsGetData> = { path: { assistant_id: assistantId ?? "" } };
   groupsGetSetQueryData(queryClient, opts, (prev) => {
     const list = prev?.groups ?? [];
     const next = updater(list);
