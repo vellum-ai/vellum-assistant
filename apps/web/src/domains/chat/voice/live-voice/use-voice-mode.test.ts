@@ -341,6 +341,17 @@ describe("deactivation", () => {
     expect(useVoiceModeStore.getState().state).toBe("off");
     expect(publishedStates[publishedStates.length - 1]).toBe("off");
   });
+
+  test("a controller that never activated publishes nothing (multi-window tray safety)", () => {
+    // Each Electron window has its own renderer/store; an idle window's
+    // composer mounting or unmounting must not publish its local `off` over
+    // another window's live conversation in the main-process tray state.
+    const h = renderVoiceMode();
+    expect(publishedStates).toEqual([]);
+
+    h.view.unmount();
+    expect(publishedStates).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------

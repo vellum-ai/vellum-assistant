@@ -288,14 +288,25 @@ export function useVoiceMode(options: UseVoiceModeOptions): UseVoiceModeResult {
     };
   }, [state, partialTranscript, liveStop, turnOff]);
 
-  // Mirror every mode transition to the Electron main process (tray).
+  // Mirror mode transitions to the Electron main process (tray) — but only
+  // from a controller that has actually been active. Each Electron window is
+  // its own renderer with its own store, and more than one can mount a
+  // composer (main chat + pop-out); an idle window publishing its local
+  // `off` on mount/unmount would overwrite the tray state of another
+  // window's live conversation. Gating on the last published value means an
+  // always-off controller never publishes at all, while the owning window
+  // still publishes its final `off`.
+  const lastPublishedStateRef = useRef<VoiceModeState>("off");
   useEffect(() => {
+    if (state === "off" && lastPublishedStateRef.current === "off") return;
+    lastPublishedStateRef.current = state;
     publishVoiceModeState(state);
   }, [state]);
 
   // Unmount: the mode can't outlive its controller. useLiveVoice's own
   // unmount cleanup tears down the session; this resets the mode store and
-  // tells main the conversation is over.
+  // — when this controller owned an active conversation — tells main it is
+  // over.
   useEffect(
     () => () => {
       modeOnRef.current = false;
@@ -304,7 +315,10 @@ export function useVoiceMode(options: UseVoiceModeOptions): UseVoiceModeResult {
         restartTimerRef.current = null;
       }
       useVoiceModeStore.getState().reset();
-      publishVoiceModeState("off");
+      if (lastPublishedStateRef.current !== "off") {
+        lastPublishedStateRef.current = "off";
+        publishVoiceModeState("off");
+      }
     },
     [],
   );
