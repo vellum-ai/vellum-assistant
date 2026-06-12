@@ -1,19 +1,16 @@
-import { createServer } from "http";
 import { spawn } from "child_process";
 import { randomBytes } from "crypto";
+import { createServer } from "http";
+import type { AddressInfo } from "net";
 
 import {
   getActiveAssistant,
-  resolveAssistant,
   loadAllAssistants,
   removeAssistantEntry,
+  resolveAssistant,
   setActiveAssistant,
 } from "../lib/assistant-config";
 import { computeDeviceId } from "../lib/guardian-token";
-import {
-  fetchAssistantIngressUrl,
-  fetchCurrentVersion,
-} from "../lib/upgrade-lifecycle.js";
 import {
   clearPlatformToken,
   ensureSelfHostedLocalRegistration,
@@ -21,7 +18,6 @@ import {
   fetchOrganizationId,
   fetchPlatformAssistants,
   getPlatformUrl,
-  getWebUrl,
   injectCredentialsIntoAssistant,
   readGatewayCredential,
   readPlatformToken,
@@ -29,6 +25,18 @@ import {
   savePlatformToken,
 } from "../lib/platform-client";
 import { syncCloudAssistants } from "../lib/sync-cloud-assistants";
+import {
+  fetchAssistantIngressUrl,
+  fetchCurrentVersion,
+} from "../lib/upgrade-lifecycle.js";
+import {
+  CALLBACK_PATH,
+  buildAuthorizeUrl,
+  exchangeAccessTokenForSession,
+  exchangeCodeWithWorkos,
+  fetchWorkosClientId,
+  generatePkcePair,
+} from "../lib/workos-pkce";
 
 const LOGIN_TIMEOUT_MS = 120_000; // 2 minutes
 
@@ -41,7 +49,11 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function renderLoginPage(title: string, subtitle: string, success: boolean): string {
+function renderLoginPage(
+  title: string,
+  subtitle: string,
+  success: boolean,
+): string {
   const checkmarkSvg = `<svg class="icon" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
       <circle cx="28" cy="28" r="28" fill="var(--positive-bg)"/>
       <path class="check" d="M17 28.5L24.5 36L39 21" stroke="var(--positive-fg)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
@@ -175,78 +187,130 @@ function openBrowser(url: string): void {
   child.unref();
 }
 
+interface LoopbackListener {
+  /** The full `http://127.0.0.1:<port>/auth/callback` redirect URI. */
+  redirectUri: string;
+  /** Resolves with the authorization code once the state-matched callback arrives. */
+  waitForCode: Promise<string>;
+  /** Tear down the server, rejecting any pending waiter with `reason`. */
+  close: (reason?: string) => void;
+}
+
 /**
- * Start a local HTTP server, open the browser to the platform login page,
- * and wait for the platform to redirect back with the session token.
+ * Bind an ephemeral 127.0.0.1 listener and wait for the OAuth redirect.
  */
-function browserLogin(webUrl: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const state = randomBytes(32).toString("hex");
+function startLoopbackListener(
+  expectedState: string,
+): Promise<LoopbackListener> {
+  return new Promise((resolveListener, rejectListener) => {
+    let settle: {
+      resolve: (code: string) => void;
+      reject: (err: Error) => void;
+    };
+    const waitForCode = new Promise<string>((resolve, reject) => {
+      settle = { resolve, reject };
+    });
 
     const server = createServer((req, res) => {
-      const url = new URL(req.url ?? "/", `http://localhost`);
-
-      if (url.pathname !== "/callback") {
+      const url = new URL(req.url ?? "/", "http://127.0.0.1");
+      if (
+        url.pathname !== CALLBACK_PATH ||
+        url.searchParams.get("state") !== expectedState
+      ) {
         res.writeHead(404, { "Content-Type": "text/plain" });
         res.end("Not found");
         return;
       }
 
-      const receivedState = url.searchParams.get("state");
-      const sessionToken = url.searchParams.get("session_token");
-
-      if (receivedState !== state) {
+      const error = url.searchParams.get("error");
+      const code = url.searchParams.get("code");
+      if (error || !code) {
         res.writeHead(400, { "Content-Type": "text/html" });
-        res.end(renderLoginPage("Login Failed", "State mismatch. Please try again.", false));
-        cleanup("State mismatch — possible CSRF attack.");
-        return;
-      }
-
-      if (!sessionToken) {
-        res.writeHead(400, { "Content-Type": "text/html" });
-        res.end(renderLoginPage("Login Failed", "No session token received. Please try again.", false));
-        cleanup("No session token received from platform.");
+        res.end(
+          renderLoginPage(
+            "Login Failed",
+            "Please try again from your terminal.",
+            false,
+          ),
+        );
+        server.close();
+        settle.reject(
+          new Error(
+            `Authentication failed: ${error ?? "no authorization code received"}`,
+          ),
+        );
         return;
       }
 
       res.writeHead(200, { "Content-Type": "text/html" });
-      res.end(renderLoginPage("Login Successful", "You can close this window and return to your terminal.", true));
-      cleanup(null, sessionToken);
+      res.end(
+        renderLoginPage(
+          "Login Successful",
+          "You can close this window and return to your terminal.",
+          true,
+        ),
+      );
+      server.close();
+      settle.resolve(code);
     });
 
-    const timeout = setTimeout(() => {
-      cleanup("Login timed out. Please try again.");
-    }, LOGIN_TIMEOUT_MS);
-
-    function cleanup(error: string | null, token?: string): void {
-      clearTimeout(timeout);
-      server.close();
-      if (error) {
-        reject(new Error(error));
-      } else if (token) {
-        resolve(token);
-      } else {
-        reject(new Error("Unknown error during login."));
-      }
-    }
-
-    server.on("error", (err) => cleanup(err.message));
+    server.on("error", rejectListener);
     server.listen(0, "127.0.0.1", () => {
       const addr = server.address();
       if (!addr || typeof addr === "string") {
-        cleanup("Failed to start local server.");
+        rejectListener(new Error("Failed to start local server."));
         return;
       }
-
-      const port = addr.port;
-      const returnTo = `/accounts/cli/callback?port=${port}&state=${state}`;
-      const loginUrl = `${webUrl}/account/login?returnTo=${encodeURIComponent(returnTo)}`;
-
-      console.log("Opening browser for login...");
-      console.log(`If the browser doesn't open, visit: ${loginUrl}`);
-      openBrowser(loginUrl);
+      const { port } = addr as AddressInfo;
+      resolveListener({
+        redirectUri: `http://127.0.0.1:${port}${CALLBACK_PATH}`,
+        waitForCode,
+        close: (reason?: string) => {
+          server.close();
+          settle.reject(new Error(reason ?? "Login cancelled."));
+        },
+      });
     });
   });
+}
+
+/** App-held WorkOS PKCE login */
+async function workosPkceLogin(platformUrl: string): Promise<string> {
+  const clientId = await fetchWorkosClientId(platformUrl);
+  const { verifier, challenge } = generatePkcePair();
+  const state = randomBytes(32).toString("hex");
+
+  const listener = await startLoopbackListener(state);
+  const timeout = setTimeout(() => {
+    listener.close("Login timed out. Please try again.");
+  }, LOGIN_TIMEOUT_MS);
+
+  try {
+    const authorizeUrl = buildAuthorizeUrl({
+      clientId,
+      redirectUri: listener.redirectUri,
+      challenge,
+      state,
+    });
+
+    console.log("Opening browser for login...");
+    console.log(`If the browser doesn't open, visit: ${authorizeUrl}`);
+    openBrowser(authorizeUrl);
+
+    const code = await listener.waitForCode;
+    const accessToken = await exchangeCodeWithWorkos({
+      clientId,
+      code,
+      verifier,
+    });
+    return await exchangeAccessTokenForSession(
+      platformUrl,
+      clientId,
+      accessToken,
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function login(): Promise<void> {
@@ -306,11 +370,10 @@ export async function login(): Promise<void> {
     }
   }
 
-  // If no --token flag, use browser-based login
+  // If no --token flag, use app-held WorkOS PKCE login.
   if (!token) {
-    const webUrl = getWebUrl();
     try {
-      token = await browserLogin(webUrl);
+      token = await workosPkceLogin(getPlatformUrl());
     } catch (error) {
       console.error(`❌ ${error instanceof Error ? error.message : error}`);
       process.exit(1);
