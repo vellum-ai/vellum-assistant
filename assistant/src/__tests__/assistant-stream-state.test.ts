@@ -1,3 +1,5 @@
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { AssistantEvent } from "../runtime/assistant-event.js";
@@ -8,6 +10,7 @@ import type {
 import {
   _peekStreamForTesting,
   _resetStreamStateForTesting,
+  _simulateRestartForTesting,
   getCurrentSeq,
   getPersistedSeq,
   getReplayWindow,
@@ -640,6 +643,75 @@ describe("assistant-stream-state", () => {
       recordPersistedSeq("conv_overflow", 9999);
       expect(getPersistedSeq("conv_0")).toBe(5000);
       expect(getPersistedSeq("conv_1")).toBeNull();
+    });
+  });
+
+  describe("seq persistence across restarts", () => {
+    test("counter resumes above the persisted reservation after a restart", () => {
+      // GIVEN a process that stamped events (reserving a seq block on disk)
+      const a = mkEvent();
+      stampAndBuffer(a);
+      expect(a.seq).toBe(1);
+
+      // WHEN the daemon restarts
+      _simulateRestartForTesting();
+
+      // THEN the next stamp resumes above the reserved block instead of 1,
+      // so clients never observe the counter moving backwards.
+      const b = mkEvent();
+      stampAndBuffer(b);
+      expect(b.seq).toBe(1025);
+    });
+
+    test("repeated restarts keep advancing monotonically", () => {
+      stampAndBuffer(mkEvent());
+      _simulateRestartForTesting();
+      const a = mkEvent();
+      stampAndBuffer(a);
+      _simulateRestartForTesting();
+      const b = mkEvent();
+      stampAndBuffer(b);
+      expect(a.seq).toBe(1025);
+      expect(b.seq).toBe(2049);
+    });
+
+    test("stamping within a reserved block does not advance the persisted ceiling", () => {
+      // GIVEN many stamps within one block
+      for (let i = 0; i < 100; i++) stampAndBuffer(mkEvent());
+
+      // WHEN the daemon restarts
+      _simulateRestartForTesting();
+
+      // THEN the resume point is the block ceiling, not per-event state.
+      const a = mkEvent();
+      stampAndBuffer(a);
+      expect(a.seq).toBe(1025);
+    });
+
+    test("a corrupt reservation file degrades to a cold start", () => {
+      const path = join(
+        process.env.VELLUM_WORKSPACE_DIR!,
+        "data",
+        "stream-seq.json",
+      );
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, "not json");
+
+      _simulateRestartForTesting();
+      const a = mkEvent();
+      stampAndBuffer(a);
+      expect(a.seq).toBe(1);
+    });
+
+    test("a missing reservation file is a cold start at 1", () => {
+      rmSync(
+        join(process.env.VELLUM_WORKSPACE_DIR!, "data", "stream-seq.json"),
+        { force: true },
+      );
+      _simulateRestartForTesting();
+      const a = mkEvent();
+      stampAndBuffer(a);
+      expect(a.seq).toBe(1);
     });
   });
 });
