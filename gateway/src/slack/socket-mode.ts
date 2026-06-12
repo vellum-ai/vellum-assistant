@@ -1336,10 +1336,10 @@ export class SlackSocketModeClient {
 
     // Enrich actor metadata when the sync cache missed.
     // resolveSlackUser is fast on cache hit, deduplicates in-flight fetches,
-    // and returns undefined on failure — so blocking here is safe and ensures
-    // trust signals (isStranger, isRestricted) are available before the event
-    // reaches ACL enforcement. This follows the mainstream pattern (Bolt SDK,
-    // Discord, Telegram) of resolving identity before processing.
+    // and returns undefined on failure. We block here so trust signals
+    // (isStranger, isRestricted) are available before ACL enforcement, but
+    // bound the wait to prevent a hanging TCP connection from stalling all
+    // event processing.
     const actor = normalized.event.actor;
     if (actor?.actorExternalId && !actor.displayName) {
       const mentionedLabel = userLabels[actor.actorExternalId];
@@ -1347,10 +1347,12 @@ export class SlackSocketModeClient {
         actor.displayName = mentionedLabel;
       }
 
-      const userInfo = await resolveSlackUser(
-        actor.actorExternalId,
-        this.config.botToken,
-      );
+      const userInfo = await Promise.race([
+        resolveSlackUser(actor.actorExternalId, this.config.botToken),
+        new Promise<undefined>((resolve) =>
+          setTimeout(resolve, SLACK_RESOLVE_TIMEOUT_MS),
+        ),
+      ]);
       if (userInfo) {
         Object.assign(actor, slackUserActorFields(userInfo));
       }
