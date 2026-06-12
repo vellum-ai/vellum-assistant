@@ -676,6 +676,64 @@ describe("wakeAgentForOpportunity", () => {
     expect(processingFalseIndex).toBeLessThan(drainIndex);
   });
 
+  test("applies toolGateMode: 'execution' alongside the allowlist and restores it after the wake", async () => {
+    let gateModeDuringRun: string | undefined;
+    const conversation = makeWakeConversation({
+      runImpl: async (input) => {
+        gateModeDuringRun = conversation.subagentToolGateMode;
+        return runResult([
+          ...input,
+          { role: "assistant", content: [{ type: "text", text: "Saved." }] },
+        ]);
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "review for memories",
+        source: "memory-retrospective",
+        allowedTools: ["remember"],
+        toolGateMode: "execution",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    // The gate mode is live on the conversation for the duration of the run
+    // (the tool resolver and executor closures read it there)...
+    expect(gateModeDuringRun).toBe("execution");
+    expect(conversation.runCalls[0]!.allowedTools).toEqual(["remember"]);
+    // ...and restored alongside the allowlist after the wake.
+    expect(conversation.subagentToolGateMode).toBeUndefined();
+  });
+
+  test("defaults to the wire gate mode when toolGateMode is absent", async () => {
+    let gateModeDuringRun: string | undefined;
+    const conversation = makeWakeConversation({
+      runImpl: async (input) => {
+        gateModeDuringRun = conversation.subagentToolGateMode;
+        return runResult([
+          ...input,
+          { role: "assistant", content: [{ type: "text", text: "Saved." }] },
+        ]);
+      },
+    });
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "review for memories",
+        source: "memory-retrospective",
+        allowedTools: ["remember"],
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(gateModeDuringRun).toBe("wire");
+    expect(conversation.subagentToolGateMode).toBeUndefined();
+  });
+
   test("restores allowed tools before drain when the wake is a silent no-op", async () => {
     const conversation = makeWakeConversation({
       scriptedAssistant: {

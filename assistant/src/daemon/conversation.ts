@@ -146,7 +146,10 @@ import {
   handleSurfaceUndo as handleSurfaceUndoImpl,
   type SurfaceActionResult,
 } from "./conversation-surfaces.js";
-import type { ToolSetupContext } from "./conversation-tool-setup.js";
+import type {
+  SubagentToolGateMode,
+  ToolSetupContext,
+} from "./conversation-tool-setup.js";
 import {
   createResolveToolsCallback,
   createToolExecutor,
@@ -220,6 +223,15 @@ export class Conversation {
   /** @internal */ toolsDisabledDepth = 0;
   /** @internal */ preactivatedSkillIds?: string[];
   /** @internal */ subagentAllowedTools?: Set<string>;
+  /**
+   * How {@link subagentAllowedTools} is enforced — absent/`"wire"` filters
+   * the provider tool definitions (historical behavior); `"execution"`
+   * keeps the full tool surface on the wire for prompt-cache parity and
+   * rejects non-allowlisted calls at execution time. Set and restored
+   * alongside the allowlist by `scopeWakeAllowedTools`.
+   * @internal
+   */
+  subagentToolGateMode?: SubagentToolGateMode;
   /** @internal */ coreToolNames: Set<string>;
   /** @internal */ readonly skillProjectionState = new Map<string, string>();
   /** @internal */ readonly skillProjectionCache: SkillProjectionCache = {};

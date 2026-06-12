@@ -184,9 +184,27 @@ export interface WakeOptions {
   /**
    * Optional exact tool allowlist for this wake. Used by internal maintenance
    * jobs that need the assistant's judgment but must not execute arbitrary
-   * side-effect tools.
+   * side-effect tools. Enforcement depends on `toolGateMode`: in `"wire"`
+   * mode (default) the tool definitions sent to the provider are filtered to
+   * the allowlist; in `"execution"` mode the full tool surface stays on the
+   * wire and non-allowlisted calls are rejected with an error tool_result
+   * before their executor runs. Either way, only allowlisted tools can
+   * execute during the wake.
    */
   allowedTools?: readonly string[];
+  /**
+   * How `allowedTools` is enforced. Defaults to `"wire"` — the historical
+   * behavior, byte-identical when absent: the provider request's tool array
+   * is filtered down to the allowlist. Pass `"execution"` to keep the
+   * conversation's full tool surface on the wire and enforce the allowlist
+   * at execution time instead. Provider prompt caches key on the rendered
+   * `tools → system → messages` prefix, so wire-filtering the tool array
+   * invalidates the source conversation's cached prefix; execution mode
+   * preserves it. Used by fork-based memory retrospectives when matching
+   * the source conversation's inference profile. Ignored when
+   * `allowedTools` is absent.
+   */
+  toolGateMode?: "wire" | "execution";
 }
 
 /**
@@ -885,6 +903,7 @@ export async function wakeAgentForOpportunity(
         restoreWakeToolScope = scopeWakeAllowedTools(
           conversation,
           new Set(opts.allowedTools),
+          opts.toolGateMode,
         );
         return true;
       } catch (err) {

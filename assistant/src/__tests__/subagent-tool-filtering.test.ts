@@ -87,6 +87,56 @@ describe("subagent-only tool filtering", () => {
     expect(isToolActiveForContext(TEST_TOOL_NAME, ctx)).toBe(false);
   });
 
+  test("execution gate mode keeps non-allowlisted tools visible (allowlist enforced at execution time)", () => {
+    // `subagentToolGateMode: "execution"` keeps the full tool surface on the
+    // wire for provider prompt-cache parity; the executor callback rejects
+    // non-allowlisted calls instead.
+    const ctx: SkillProjectionContext = {
+      skillProjectionState: new Map(),
+      skillProjectionCache: {},
+      coreToolNames: new Set(),
+      toolsDisabledDepth: 0,
+      hasNoClient: false,
+      subagentAllowedTools: new Set(["remember"]),
+      subagentToolGateMode: "execution",
+    };
+
+    expect(isToolActiveForContext("remember", ctx)).toBe(true);
+    expect(isToolActiveForContext("bash", ctx)).toBe(true);
+  });
+
+  test("explicit wire gate mode filters exactly like the absent default", () => {
+    const ctx: SkillProjectionContext = {
+      skillProjectionState: new Map(),
+      skillProjectionCache: {},
+      coreToolNames: new Set(),
+      toolsDisabledDepth: 0,
+      hasNoClient: false,
+      subagentAllowedTools: new Set(["remember"]),
+      subagentToolGateMode: "wire",
+    };
+
+    expect(isToolActiveForContext("remember", ctx)).toBe(true);
+    expect(isToolActiveForContext("bash", ctx)).toBe(false);
+  });
+
+  test("execution gate mode still applies non-allowlist filters (toolsDisabledDepth)", () => {
+    // The execution gate only bypasses the subagent allowlist's wire filter;
+    // every other visibility rule still applies.
+    const ctx: SkillProjectionContext = {
+      skillProjectionState: new Map(),
+      skillProjectionCache: {},
+      coreToolNames: new Set(),
+      toolsDisabledDepth: 1,
+      hasNoClient: false,
+      subagentAllowedTools: new Set(["remember"]),
+      subagentToolGateMode: "execution",
+    };
+
+    expect(isToolActiveForContext("remember", ctx)).toBe(false);
+    expect(isToolActiveForContext("bash", ctx)).toBe(false);
+  });
+
   test("returns false for every tool when toolsDisabledDepth > 0", () => {
     // `createResolveToolsCallback` returns an empty tool list when tools are
     // disabled; mirror it here so this helper reports the same final tool set.
