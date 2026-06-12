@@ -38,6 +38,7 @@
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/types.js";
 import { extractTurnContextTimestamp } from "../context/compactor.js";
+import { findConversation } from "../daemon/conversation-registry.js";
 import {
   formatLocalTimestamp,
   resolveTurnTimezoneContext,
@@ -103,6 +104,7 @@ const FOLLOW_UP_JOB_TYPES: readonly MemoryJobType[] = [] as const;
 export type MemoryRetrospectiveOutcome =
   | { kind: "disabled" }
   | { kind: "no_new_messages" }
+  | { kind: "source_processing" }
   | { kind: "wake_failed"; reason?: string; conversationId?: string }
   | {
       kind: "invoked";
@@ -327,6 +329,24 @@ async function runForkBasedRetrospective(
       "memory-retrospective (fork): source conversation not found; skipping",
     );
     return { kind: "no_new_messages" };
+  }
+
+  // Forking mid-turn would capture a half-finished display turn — incremental
+  // checkpoint persistence writes complete tool turns to the DB while the
+  // agent loop is still running. Peek the in-memory registry only (an
+  // unloaded conversation is by definition not processing); never load the
+  // conversation just to check. Bump `lastRunAt` so the cooldown gate
+  // applies, leave `lastProcessedMessageId` untouched so the next
+  // interval/message-count trigger re-processes the same messages — nothing
+  // is lost. Returning (not throwing) keeps the jobs-worker from
+  // retry-with-backoff.
+  if (findConversation(sourceConversationId)?.isProcessing()) {
+    bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
+    log.info(
+      { sourceConversationId },
+      "memory-retrospective (fork): source conversation is mid-turn; skipping",
+    );
+    return { kind: "source_processing" };
   }
 
   const state = getRetrospectiveState(sourceConversationId);
