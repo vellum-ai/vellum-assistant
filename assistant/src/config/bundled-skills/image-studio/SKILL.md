@@ -61,7 +61,11 @@ Edit:
 - Generate: describe style, composition, lighting, and mood, not just the subject.
 - Edit: name the change AND what must stay the same. Models re-render the whole image, so without preservation language ("keep subject, framing, and lighting identical; only change X") they drift on crop and color.
 - Aspect ratio and size have no parameter today. State them in the prompt ("16:9 widescreen banner") and verify the output.
-- Use `variants` (1 to 4) when the user wants options or when an edit is risky; pick or present the best.
+- Use `variants` (1 to 4) when the user wants options. In **edit mode always use `variants: 1`**: edits run 60-90 seconds per variant, and two variants can exceed the tool execution timeout (`timeouts.toolExecutionTimeoutSec`, default 120s). If the user wants multiple edit options, make separate sequential calls.
+
+## Timing
+
+Edits on large photos are slow (1 to 2 minutes). If the tool reports a timeout ("timed out after Ns"), the result is lost; do not wait for it to appear. Retry with `variants: 1`, or if it already was 1, fall back to the CLI which writes files to disk: `assistant image-generation generate --prompt "..." --mode edit --source <path> --model openai --output-dir <dir>`.
 
 ## Output handling
 
