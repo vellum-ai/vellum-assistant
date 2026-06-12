@@ -467,7 +467,7 @@ BUN_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*" --external 
 # in its api.mjs.  The gateway only uses SQLite via drizzle-orm — these optional
 # driver packages are never called at runtime.  Mark them external so
 # bun --compile doesn't fail trying to resolve them.
-GATEWAY_EXTERNAL_FLAGS=(--external "@electric-sql/pglite" --external pg --external postgres --external "@vercel/postgres" --external "@neondatabase/serverless" --external "mysql2/promise" --external "@planetscale/database" --external "@libsql/client" --external better-sqlite3)
+GATEWAY_EXTERNAL_FLAGS=(--external "@electric-sql/pglite" --external pg --external postgres --external "@vercel/postgres" --external "@neondatabase/serverless" --external mysql2 --external "mysql2/promise" --external "@planetscale/database" --external "@libsql/client" --external better-sqlite3 --external "@aws-sdk/client-rds-data")
 
 # ---------------------------------------------------------------------------
 # build_bun_binary — compile a TypeScript project to a native binary via Bun.

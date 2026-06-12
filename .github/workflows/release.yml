@@ -2445,7 +2445,7 @@ jobs:
           DAEMON_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*")
           # drizzle-kit ≥0.31 bundles dynamic imports for every supported DB driver;
           # the gateway only uses SQLite — mark the rest external.
-          GATEWAY_EXTERNAL_FLAGS=(--external "@electric-sql/pglite" --external pg --external postgres --external "@vercel/postgres" --external "@neondatabase/serverless" --external "mysql2/promise" --external "@planetscale/database" --external "@libsql/client" --external better-sqlite3)
+          GATEWAY_EXTERNAL_FLAGS=(--external "@electric-sql/pglite" --external pg --external postgres --external "@vercel/postgres" --external "@neondatabase/serverless" --external mysql2 --external "mysql2/promise" --external "@planetscale/database" --external "@libsql/client" --external better-sqlite3 --external "@aws-sdk/client-rds-data")
           DAEMON_FLAGS=("${DAEMON_EXTERNAL_FLAGS[@]}")
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}"
           if [ -n "$DISPLAY_VERSION" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
