@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNotNull, like, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, like, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db-connection.js";
@@ -33,7 +33,6 @@ function escapeLike(value: string): string {
  *
  * Channels with a platform-native user ID (Slack, Telegram, Discord)
  * use externalUserId. Channels without one (email, phone) use address.
- * All conflict checks, dedup, and lookups should go through this.
  */
 export function resolveChannelIdentity(channel: {
   type: string;
@@ -46,32 +45,35 @@ export function resolveChannelIdentity(channel: {
 }
 
 /**
- * Find the first contact_channels row matching the canonical identity
- * of the given channel descriptor. Uses resolveChannelIdentity to decide
- * which column to query.
+ * Find the first contact_channels row that would conflict with inserting
+ * the given channel descriptor. Checks ALL unique constraints on the table:
+ *   1. (type, address) — always active (migration 105)
+ *   2. (type, external_user_id) WHERE NOT NULL — active when set (migration 282)
+ *
+ * When externalUserId is non-null both constraints apply, so we match rows
+ * where (type, externalUserId) OR (type, address) collides. This catches
+ * existing address-only rows that haven't yet acquired an externalUserId.
  */
 function findConflictingChannel(
   db: ReturnType<typeof getDb>,
   channel: { type: string; address: string; externalUserId?: string | null },
   excludeContactId?: string,
 ) {
-  const identity = resolveChannelIdentity(channel);
-  const conditions =
-    identity.column === "externalUserId"
-      ? [
-          eq(contactChannels.type, channel.type),
-          eq(contactChannels.externalUserId, identity.value),
-        ]
-      : [
-          eq(contactChannels.type, channel.type),
-          eq(contactChannels.address, identity.value),
-        ];
+  const typeMatch = eq(contactChannels.type, channel.type);
+  const addressMatch = eq(contactChannels.address, channel.address);
 
-  const result = db
-    .select()
-    .from(contactChannels)
-    .where(and(...conditions))
-    .get();
+  const condition =
+    channel.externalUserId != null
+      ? and(
+          typeMatch,
+          or(
+            eq(contactChannels.externalUserId, channel.externalUserId),
+            addressMatch,
+          ),
+        )
+      : and(typeMatch, addressMatch);
+
+  const result = db.select().from(contactChannels).where(condition).get();
 
   if (result && excludeContactId && result.contactId === excludeContactId) {
     return undefined;
@@ -716,25 +718,23 @@ export function mergeContacts(
       .all();
 
     for (const ch of donorChannels) {
-      const identity = resolveChannelIdentity(ch);
-      const conditions =
-        identity.column === "externalUserId"
-          ? [
-              eq(contactChannels.contactId, keepId),
-              eq(contactChannels.type, ch.type),
-              eq(contactChannels.externalUserId, identity.value),
-            ]
-          : [
-              eq(contactChannels.contactId, keepId),
-              eq(contactChannels.type, ch.type),
-              eq(contactChannels.address, identity.value),
-            ];
+      const typeMatch = eq(contactChannels.type, ch.type);
+      const ownerMatch = eq(contactChannels.contactId, keepId);
+      const addressMatch = eq(contactChannels.address, ch.address);
 
-      const exists = tx
-        .select()
-        .from(contactChannels)
-        .where(and(...conditions))
-        .get();
+      const condition =
+        ch.externalUserId != null
+          ? and(
+              ownerMatch,
+              typeMatch,
+              or(
+                eq(contactChannels.externalUserId, ch.externalUserId),
+                addressMatch,
+              ),
+            )
+          : and(ownerMatch, typeMatch, addressMatch);
+
+      const exists = tx.select().from(contactChannels).where(condition).get();
 
       if (!exists) {
         tx.update(contactChannels)
