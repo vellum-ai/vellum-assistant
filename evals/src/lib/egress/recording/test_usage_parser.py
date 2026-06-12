@@ -258,6 +258,32 @@ class TopLevelDispatchTests(unittest.TestCase):
             )
         )
 
+    def test_records_beta_namespace_messages_path(self) -> None:
+        # The Anthropic SDK's `client.beta.messages` namespace posts to
+        # `/v1/messages?beta=true`; the main agent loop uses it for every
+        # non-Haiku turn, so its query string must not cause the dominant
+        # model traffic to be dropped.
+        record = parse_anthropic_messages_response(
+            request_path="/v1/messages?beta=true",
+            request_body=STREAMING_REQUEST_BODY,
+            response_content_type="text/event-stream; charset=utf-8",
+            response_body=_streaming_response(),
+        )
+        assert record is not None
+        self.assertEqual(record["output_tokens"], 800)
+
+    def test_skips_beta_count_tokens_path(self) -> None:
+        # `/v1/messages/count_tokens?beta=true` carries no usage and must
+        # stay excluded even after the query string is stripped.
+        self.assertIsNone(
+            parse_anthropic_messages_response(
+                request_path="/v1/messages/count_tokens?beta=true",
+                request_body=b"",
+                response_content_type="application/json",
+                response_body=b'{"input_tokens":42}',
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

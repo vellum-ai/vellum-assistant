@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import json
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 
 def _coerce_int(value: Any) -> Optional[int]:
@@ -186,7 +187,17 @@ def parse_anthropic_messages_response(
     it isn't a /v1/messages response, or because the body is malformed.
     The mitmproxy addon treats `None` as "skip" (no NDJSON line written).
     """
-    if not request_path.endswith("/v1/messages"):
+    # Match on the path component only. The Anthropic SDK's beta namespace
+    # (`client.beta.messages`) posts to `/v1/messages?beta=true`, which the
+    # main agent loop uses for every non-Haiku turn (it always sends a
+    # `betas` header). A bare `endswith("/v1/messages")` check fails on that
+    # query string, so the dominant model traffic would go unmetered while
+    # the auxiliary Haiku calls (plain `/v1/messages`) are recorded. Stripping
+    # the query before the suffix check captures both. `count_tokens` paths
+    # carry no usage and remain excluded because they don't end in
+    # `/v1/messages`.
+    path_only = urlsplit(request_path).path
+    if not path_only.endswith("/v1/messages"):
         return None
     # SSE streaming responses have content-type "text/event-stream".
     # Non-streaming responses are "application/json".
