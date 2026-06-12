@@ -130,6 +130,7 @@ function inspectResponse(
     local: {
       target: `/ws/plugins/${name}`,
       commit: LOCAL_COMMIT,
+      committedAt: "2026-05-30T00:00:00.000Z",
       version: "0.1.0",
       description: "Surfaces a Level Up diff card.",
       installedAt: "2026-06-01T00:00:00.000Z",
@@ -151,6 +152,7 @@ function inspectResponse(
       repo: "vellum-ai/level-up",
       path: "",
       commit: behind ? REMOTE_COMMIT : LOCAL_COMMIT,
+      committedAt: behind ? "2026-06-05T00:00:00.000Z" : "2026-05-30T00:00:00.000Z",
       description: "Surfaces a Level Up diff card.",
       homepage: null,
       license: "MIT",
