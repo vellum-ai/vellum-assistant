@@ -3,6 +3,7 @@ import {
   secretsPost,
   sttTranscribePost,
 } from "@/generated/daemon/sdk.gen";
+import { isNativeDictationSupported } from "@/runtime/native-dictation-partials";
 import {
   getLocalSetting,
   removeLocalSetting,
@@ -60,13 +61,19 @@ const MACOS_NATIVE_STT_PROVIDER_ID = "macos-native";
 
 /**
  * True when the user explicitly chose macOS native dictation as the STT
- * provider in Settings → AI. Callers should then skip the daemon streaming
- * and batch STT paths entirely and rely on the helper recognizer.
+ * provider in Settings → AI AND this renderer can honor it (the helper's
+ * dictation bridge is present). Callers should then skip the daemon
+ * streaming and batch STT paths entirely and rely on the helper recognizer.
+ *
+ * The capability gate matters: a persisted choice can outlive the bridge
+ * (older Electron preload, web/iOS) — suppressing the daemon paths there
+ * would leave dictation with no transcript source at all.
  */
 export function prefersMacosNativeStt(): boolean {
   return (
+    isNativeDictationSupported() &&
     getLocalSetting(LS_STT_PROVIDER, DEFAULT_STT_PROVIDER_ID) ===
-    MACOS_NATIVE_STT_PROVIDER_ID
+      MACOS_NATIVE_STT_PROVIDER_ID
   );
 }
 
