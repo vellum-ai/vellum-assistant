@@ -301,28 +301,60 @@ describe("priceUsageRecord", () => {
     expect(result.costUsd!).toBeGreaterThan(0.001044 * 6);
   });
 
-  test("folds cache tokens at the base input rate for non-Anthropic providers", () => {
+  test("prices Anthropic 5-minute and 1-hour cache writes at distinct rates", () => {
     /**
-     * The Anthropic cache multipliers are provider-specific. For other
-     * providers, cache tokens are folded in at the base input rate so
-     * they are never silently dropped.
+     * Anthropic charges 1.25x base input for a 5-minute ephemeral cache
+     * write and 2x for a 1-hour write. The recorder forwards the
+     * `cache_creation` split so the tiers must be priced separately, not
+     * collapsed into a single rate.
      */
-    // GIVEN an OpenAI record carrying cache tokens
+    // GIVEN an Anthropic record whose cache write is split across both TTLs
     const record = {
-      provider: "openai",
-      model: "gpt-4.1",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
       input_tokens: 0,
       output_tokens: 0,
-      cache_creation_input_tokens: 1_000,
-      cache_read_input_tokens: 1_000,
+      cache_creation_input_tokens: 500,
+      cache_read_input_tokens: 0,
+      cache_creation: {
+        ephemeral_5m_input_tokens: 300,
+        ephemeral_1h_input_tokens: 200,
+      },
     };
 
     // WHEN it is priced
     const result = priceUsageRecord(record);
 
-    // THEN both cache fields bill at the $2/1M base input rate (no
-    // Anthropic multipliers): 2k * 2/1M = 0.004
-    expect(result.costUsd).toBeCloseTo(0.004, 6);
+    // THEN the 5m slice bills at 1.25x and the 1h slice at 2x of the
+    // $3/1M base input rate: 300 * 3 * 1.25/1M + 200 * 3 * 2/1M
+    //                      = 0.001125 + 0.0012 = 0.002325
+    expect(result.costUsd).toBeCloseTo(0.002325, 6);
+    expect(result.diagnostic).toBeUndefined();
+  });
+
+  test("does not double-bill cached input tokens for non-Anthropic providers", () => {
+    /**
+     * OpenAI folds the cached subset *into* `input_tokens`, so the cache
+     * tokens are already priced via the input rate. Re-adding them would
+     * double-bill the cached portion. The additive cache path is therefore
+     * Anthropic-only (whose `input_tokens` excludes cache).
+     */
+    // GIVEN an OpenAI record whose `input_tokens` already includes its
+    // cache-read subset (the convention the daemon's OpenAI provider uses)
+    const record = {
+      provider: "openai",
+      model: "gpt-4.1",
+      input_tokens: 1_000,
+      output_tokens: 0,
+      cache_read_input_tokens: 800,
+    };
+
+    // WHEN it is priced
+    const result = priceUsageRecord(record);
+
+    // THEN cost is just the input rate on the inclusive count, with the
+    // cached subset NOT added a second time: 1k * 2/1M = 0.002
+    expect(result.costUsd).toBeCloseTo(0.002, 6);
     expect(result.diagnostic).toBeUndefined();
   });
 });
