@@ -364,3 +364,87 @@ export function buildAccessRequestContractText(
   }
   return lines.join("\n");
 }
+
+// ── Seed content blocks (Surface-based rendering) ───────────────────────────
+
+/**
+ * Build structured content blocks for an access request notification seed
+ * message. Produces a `ui_surface` card block that the web/macOS/iOS apps
+ * render as an interactive card via `SurfaceRouter → CardSurface`, plus a
+ * plain-text fallback block for search, CLI display, and backward-compatible
+ * clients that don't support surfaces.
+ *
+ * The card data shape matches {@link CardSurfaceData} from
+ * `daemon/message-types/surfaces.ts`: `{ title, subtitle, body, metadata }`.
+ */
+export function buildAccessRequestSeedContentBlocks(
+  payload: Record<string, unknown>,
+): unknown[] {
+  const p = parseAccessRequestPayload(payload);
+
+  const rawName = nonEmpty(p.actorDisplayName) ?? nonEmpty(p.senderIdentifier);
+  const displayName = rawName ? sanitizeIdentityField(rawName) : "Someone";
+
+  const metadata: Array<{ label: string; value: string }> = [];
+
+  if (p.actorUsername) {
+    metadata.push({
+      label: "Username",
+      value: `@${sanitizeIdentityField(p.actorUsername)}`,
+    });
+  }
+
+  if (p.sourceChannel === "slack" && p.conversationExternalId) {
+    const isDm = /^D[A-Z0-9]+$/i.test(p.conversationExternalId);
+    metadata.push({
+      label: "Source",
+      value: isDm
+        ? "Slack — Direct message"
+        : `Slack — #${p.conversationExternalId}`,
+    });
+  } else if (p.sourceChannel) {
+    metadata.push({ label: "Source", value: p.sourceChannel });
+  }
+
+  const warnings = buildAccessRequestWarnings(p);
+  const bodyParts: string[] = [];
+
+  if (p.messagePreview) {
+    bodyParts.push(`> "${sanitizeMessagePreview(p.messagePreview)}"`);
+  }
+  if (warnings.length > 0) {
+    bodyParts.push(warnings.map((w) => `⚠️ ${w}`).join("\n"));
+  }
+  if (p.sourceChannel === "slack" && p.conversationExternalId && p.messageTs) {
+    const permalink = buildSlackMessagePermalink(
+      p.conversationExternalId,
+      p.messageTs,
+    );
+    bodyParts.push(`[View message](${permalink})`);
+  }
+
+  const body =
+    bodyParts.length > 0
+      ? bodyParts.join("\n\n")
+      : "No additional context available.";
+
+  const surfaceBlock = {
+    type: "ui_surface" as const,
+    surfaceId: `access-request-${p.requestId ?? "unknown"}`,
+    surfaceType: "card" as const,
+    title: "Access Request",
+    data: {
+      title: displayName,
+      subtitle: "Requesting access to the assistant",
+      body,
+      metadata,
+    },
+  };
+
+  const textBlock = {
+    type: "text" as const,
+    text: buildAccessRequestContractText(payload),
+  };
+
+  return [surfaceBlock, textBlock];
+}

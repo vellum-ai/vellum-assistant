@@ -11,6 +11,7 @@
 
 import {
   buildAccessRequestContractText,
+  buildAccessRequestSeedContentBlocks,
   sanitizeIdentityField,
 } from "./access-request-copy.js";
 import {
@@ -118,6 +119,7 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
   "ingress.access_request": (payload) => ({
     title: "Access Request",
     body: buildAccessRequestContractText(payload),
+    seedContentBlocks: buildAccessRequestSeedContentBlocks(payload),
   }),
 
   "ingress.access_request.callback_handoff": (payload) => {
