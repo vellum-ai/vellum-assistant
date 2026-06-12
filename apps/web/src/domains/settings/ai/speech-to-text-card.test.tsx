@@ -98,5 +98,9 @@ describe("SpeechToTextCard — macOS Native Dictation option", () => {
     );
     expect(trigger?.textContent).toContain("Deepgram");
     expect(screen.getByText("API Key")).toBeTruthy();
+    // The fallback must also self-heal the persisted value — leaving
+    // "macos-native" behind would diverge from what the UI shows, with
+    // Save disabled so the user couldn't persist the correction.
+    expect(localStorage.getItem(LS_STT_PROVIDER)).toBe("deepgram");
   });
 });

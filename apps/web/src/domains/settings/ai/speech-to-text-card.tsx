@@ -40,6 +40,18 @@ export function SpeechToTextCard() {
   const [apiKeyText, setApiKeyText] = useState("");
   const [providerHasKey, setProviderHasKey] = useState(false);
 
+  // Self-heal a stored choice this build can't honor: the visual fallback
+  // alone would leave localStorage pointing at a provider the renderer
+  // can't use, and since draft and initial both coerce to the fallback,
+  // Save stays disabled and could never persist the correction. Both deps
+  // are set-once, so this runs only on mount.
+  useEffect(() => {
+    const stored = getLocalSetting(LS_STT_PROVIDER, defaultProviderId);
+    if (!providers.some((p) => p.id === stored)) {
+      setLocalSetting(LS_STT_PROVIDER, defaultProviderId);
+    }
+  }, [providers, defaultProviderId]);
+
   const selectedProvider = useMemo(() => {
     return providers.find((p) => p.id === draftProvider) ?? providers[0]!;
   }, [providers, draftProvider]);
