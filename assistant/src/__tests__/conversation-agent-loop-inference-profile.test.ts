@@ -3,7 +3,7 @@
  * `inferenceProfile` column at turn start and threads it through to
  * `AgentLoop.run()` as the per-turn `overrideProfile`. Background
  * conversations intentionally skip the column so background fan-out
- * (subagents, scheduled tasks, update bulletins) runs on the workspace
+ * (subagents, scheduled tasks) runs on the workspace
  * defaults rather than inheriting an interactive override.
  *
  * This is the "conversation-agent-loop integration" half of the

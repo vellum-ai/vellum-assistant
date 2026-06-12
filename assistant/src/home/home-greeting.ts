@@ -6,9 +6,11 @@
  * caches the result for 4 hours (busted when identity files change).
  *
  * The GET handler reads only from cache (`getPersonalizedGreeting`).
- * Generation runs in the background via `refreshPersonalizedGreeting`,
- * called at daemon startup and periodically by the home-content
- * refresh timer.
+ * Generation runs on demand via `refreshPersonalizedGreeting`, invoked
+ * fire-and-forget by the home-content revalidation coordinator when a
+ * client fetches the home feed and the cache is stale (see
+ * `home-content-refresh.ts`). Nothing generates at daemon startup or on
+ * a timer — LLM cost is only incurred when a user actually views Home.
  */
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
@@ -37,13 +39,14 @@ export function getPersonalizedGreeting(): string | null {
 
 /**
  * Generate a personalized greeting via LLM and write it to cache.
- * No-ops when the cache is still fresh. Intended for background
- * invocation (daemon startup / periodic refresh), not the GET path.
+ * No-ops when the cache is still fresh. Intended for fire-and-forget
+ * background invocation, not the GET path. Returns `true` when a new
+ * greeting was generated and cached.
  */
-export async function refreshPersonalizedGreeting(): Promise<void> {
+export async function refreshPersonalizedGreeting(): Promise<boolean> {
   const cached = getCachedHomeGreeting();
   if (cached) {
-    return;
+    return false;
   }
 
   try {
@@ -52,7 +55,7 @@ export async function refreshPersonalizedGreeting(): Promise<void> {
 
     const provider = await getConfiguredProvider("homeGreeting");
     if (!provider) {
-      return;
+      return false;
     }
 
     const systemPrompt = buildSystemPrompt({
@@ -78,8 +81,10 @@ export async function refreshPersonalizedGreeting(): Promise<void> {
     const text = result.text.trim();
     if (text) {
       setCachedHomeGreeting(text);
+      return true;
     }
   } catch (err) {
     log.warn({ err }, "Failed to generate personalized home greeting");
   }
+  return false;
 }

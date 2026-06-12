@@ -227,13 +227,13 @@ Docker instances use six per-service volumes enforcing least-privilege at the co
 - **The daemon must never read from `GATEWAY_SECURITY_DIR`** or any gateway-owned directory. Any data the daemon needs from the gateway (e.g. capability token verification, feature flags, trust rules) must flow through IPC or HTTP APIs.
 - **Do not access the user's `~/.vellum` directory from client packages** (`clients/chrome-extension/`, `clients/macos/`). Clients should read configuration from their own package directory or from `GATEWAY_SECURITY_DIR`. Existing `~/.vellum` references in client code are legacy and should be removed.
 
-## Release Update Hygiene
+## Release Notes
 
-Release notes ship via an append-only workspace migration that writes to `<workspace>/UPDATES.md`. See `assistant/src/workspace/migrations/AGENTS.md` for the idempotency contract (in-file marker required — runner alone doesn't close mid-migration crash windows).
+There is currently **no release-note surfacing mechanism**. The update-bulletin feature (workspace migrations appending to `<workspace>/UPDATES.md`, processed by a background conversation at daemon startup) was removed — it ran an LLM conversation on container start before the user did anything. Do not add new `0XX-release-notes-*` workspace migrations; the guard test `workspace-release-notes-feature-flag-guard.test.ts` freezes the historical set. If a release needs user-facing notes, design an explicit surfacing mechanism first (and make it on-demand, not boot-triggered).
 
-- **Skip flag-gated features.** `UPDATES.md` is processed without checking the underlying flag, so notes for disabled features leak into user prompts. Guard test `workspace-release-notes-feature-flag-guard.test.ts` blocks new migrations that mention flag/rollout launch language or default-disabled flag keys.
-- **To ship**: add `assistant/src/workspace/migrations/0XX-release-notes-<slug>.ts`, append the export to `WORKSPACE_MIGRATIONS` in `registry.ts`, and embed an HTML marker (`<!-- release-note-id:<id> -->`) in the appended block; short-circuit the append if the marker is already present. Skip the migration entirely for no-op releases.
-- **Processing**: `runUpdateBulletinJobIfNeeded()` wakes a background conversation to process `UPDATES.md` and delete it. Hash-keyed short-circuit on `updates:last_processed_hash` makes startup runs safe.
+## No LLM Work at Daemon Startup
+
+The daemon must not invoke LLM providers at startup or on unconditional timers — boot-time generation costs the user money before they have asked for anything. Generated content that clients display (home greeting, suggested prompts, conversation starters, identity intro) is produced on demand: GET handlers serve cached content and trigger a bounded, single-flight, TTL-gated background refresh only when a client actually fetches (see the GET-idempotency exceptions in `assistant/src/runtime/AGENTS.md`). User-facing scheduled work (heartbeat, user-created schedules) is exempt — it is explicit, user-visible, and user-disableable.
 
 ## Companion Repos
 
