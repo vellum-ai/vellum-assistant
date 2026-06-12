@@ -57,7 +57,7 @@ function printHelp(): void {
   console.log("");
   console.log("Environment:");
   console.log(
-    `  VELLUM_NGINX_INGRESS_PORT   Loopback listen port (default ${DEFAULT_NGINX_INGRESS_PORT})`,
+    `  VELLUM_NGINX_INGRESS_PORT   nginx ingress loopback listen port (default ${DEFAULT_NGINX_INGRESS_PORT})`,
   );
   console.log("  NGINX_BIN             Path to the nginx binary");
   console.log("");
