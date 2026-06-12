@@ -3,7 +3,6 @@ import { defineConfig } from "@hey-api/openapi-ts";
 const reactQueryPlugin = {
   name: "@tanstack/react-query",
   useMutation: true,
-  useQuery: true,
   setQueryData: true,
 };
 
