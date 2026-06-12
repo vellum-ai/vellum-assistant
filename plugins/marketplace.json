@@ -34,7 +34,7 @@
       "source": {
         "source": "github",
         "repo": "AnitaKirkovska/dynamic-notch",
-        "ref": "25fd4db8e8eee493396f7206d7015099ec1af689"
+        "ref": "9729c3685d60d00d1de73a183b03122b9fa1f8f4"
       },
       "description": "Put your Vellum assistant inside your MacBook's notch: click to chat, hold Ctrl+Option to talk, and get a floating task bulb while it works, with live-streamed replies and per-sentence voice.",
       "category": "interface",
