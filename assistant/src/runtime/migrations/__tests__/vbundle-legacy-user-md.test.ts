@@ -227,6 +227,39 @@ describe("analyzeImport for legacy prompts/USER.md", () => {
     const userMd = report.files.find((f) => f.path === "prompts/USER.md");
     expect(userMd!.action).toBe("skip");
   });
+
+  test("retired prompts/UPDATES.md in a legacy bundle is a non-blocking skip", () => {
+    const resolver = new DefaultPathResolver(
+      WORKSPACE_ROOT,
+      undefined,
+      () => null,
+    );
+
+    const { manifest } = buildVBundle({
+      files: [
+        {
+          path: "data/db/assistant.db",
+          data: new Uint8Array(),
+        },
+        {
+          path: "prompts/UPDATES.md",
+          data: new TextEncoder().encode("## Old release notes\n"),
+        },
+      ],
+      ...defaultV1Options(),
+    });
+
+    const report = analyzeImport({ manifest, pathResolver: resolver });
+
+    // Bundles exported while the update-bulletin feature existed must stay
+    // restorable — the retired file is dropped, never written back, and
+    // must not register an UNKNOWN_ARCHIVE_PATH conflict.
+    expect(report.can_import).toBe(true);
+    expect(report.conflicts).toHaveLength(0);
+    const updatesMd = report.files.find((f) => f.path === "prompts/UPDATES.md");
+    expect(updatesMd).toBeDefined();
+    expect(updatesMd!.action).toBe("skip");
+  });
 });
 
 // ---------------------------------------------------------------------------

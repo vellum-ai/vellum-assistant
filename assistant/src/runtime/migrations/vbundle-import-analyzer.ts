@@ -35,6 +35,14 @@ const ALLOWED_PROMPT_FILENAMES = new Set(["IDENTITY.md", "SOUL.md", "USER.md"]);
 /** Archive path for the legacy guardian user persona file. */
 const LEGACY_USER_MD_ARCHIVE_PATH = "prompts/USER.md";
 
+/**
+ * Archive path for the retired update-bulletin file. Legacy bundles exported
+ * while the feature existed contain this entry; it must remain importable as
+ * a non-blocking skip so old backups stay restorable, but the file is never
+ * written back to the workspace.
+ */
+const RETIRED_UPDATES_MD_ARCHIVE_PATH = "prompts/UPDATES.md";
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
@@ -271,6 +279,25 @@ export function analyzeImport(
         log.warn(
           { path: fileEntry.path },
           "Legacy prompts/USER.md has no guardian target — will be skipped on import",
+        );
+        files.push({
+          path: fileEntry.path,
+          action: "skip",
+          bundle_size: fileEntry.size_bytes,
+          bundle_sha256: fileEntry.sha256,
+          current_size: null,
+          current_sha256: null,
+        });
+        continue;
+      }
+
+      // Retired update-bulletin file from a legacy bundle: nothing consumes
+      // it anymore, so drop it silently instead of blocking the restore with
+      // an UNKNOWN_ARCHIVE_PATH conflict.
+      if (fileEntry.path === RETIRED_UPDATES_MD_ARCHIVE_PATH) {
+        log.info(
+          { path: fileEntry.path },
+          "Retired prompts/UPDATES.md in legacy bundle — will be skipped on import",
         );
         files.push({
           path: fileEntry.path,
