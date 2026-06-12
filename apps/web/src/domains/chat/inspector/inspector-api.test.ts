@@ -9,7 +9,7 @@
  * params).
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
   LlmContextResponse,
@@ -73,11 +73,19 @@ import {
   fetchConversationLlmContext,
   fetchMessageLlmContextOrThrow,
 } from "@/domains/chat/inspector/inspector-api";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 beforeEach(() => {
   requests.length = 0;
   nextResponses = [];
   mockMessages = [];
+  // Summary-view capable assistant by default; individual tests
+  // override to exercise the pre-0.8.12 path.
+  useAssistantIdentityStore.getState().setIdentity("test-asst", "0.8.12");
+});
+
+afterEach(() => {
+  useAssistantIdentityStore.getState().clearIdentity();
 });
 
 function staticLog(id: string, createdAt: number): LLMRequestLogEntry {
@@ -118,6 +126,24 @@ describe("fetchConversationLlmContext — happy path", () => {
       view: "summary",
     });
     expect(result).toEqual(body);
+  });
+
+  test("omits view=summary for assistants older than 0.8.12", async () => {
+    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.8.11");
+    const body: LlmContextResponse = {
+      conversationKey: "conv-1",
+      conversationId: "conv-int-1",
+      conversationKind: "user",
+      conversationTotalEstimatedCostUsd: null,
+      logs: [staticLog("log-a", 1)],
+      memoryRecall: null,
+      memoryV2Activation: null,
+    };
+    nextResponses = [{ status: 200, body }];
+
+    await fetchConversationLlmContext("asst-1", "conv-1", undefined);
+
+    expect(requests[0]!.query).toEqual({ conversationId: "conv-1" });
   });
 
   test("throws LlmContextRequestError when the new endpoint returns a non-404 error", async () => {

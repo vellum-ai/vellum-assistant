@@ -23,6 +23,10 @@ import {
     type LlmLogPayload,
 } from "@/domains/chat/inspector/inspector-payload-api";
 import { normalizeContentBlocks } from "@/domains/chat/api/messages";
+import {
+    supportsLlmContextSummaryView,
+    useSupportsLlmContextSummaryView,
+} from "@/lib/backwards-compat/llm-context-summary-view";
 import { useAuthStore, useIsSessionInitializing } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import type {
@@ -236,27 +240,15 @@ function Header({
           return queryClient.fetchQuery(options);
         }),
       );
-      // The list is fetched with view=summary (no sections), so the
-      // export hydrates each call's sections from the per-log context
-      // endpoint. Falls back to the list entry's own sections when the
-      // daemon predates that endpoint (it then ignores view=summary).
-      const logsWithSections = await Promise.all(
-        context.logs.map(async (log): Promise<LLMRequestLogEntry> => {
-          if (log.requestSections || log.responseSections) return log;
-          const detail = await queryClient
-            .fetchQuery(llmCallDetailQueryOptions(assistantId, log.id))
-            .catch(() => null);
-          if (!detail) return log;
-          return {
-            ...log,
-            requestSections: detail.requestSections,
-            responseSections: detail.responseSections,
-          };
-        }),
-      );
       const blob = await buildInspectorExportZipBlob(
-        { ...context, logs: logsWithSections },
+        context,
         payloads,
+        (logId) =>
+          supportsLlmContextSummaryView()
+            ? queryClient.fetchQuery(
+                llmCallDetailQueryOptions(assistantId, logId),
+              )
+            : Promise.resolve(null),
       );
       const { saveFile } = await import("@/runtime/native-file");
       await saveFile(
@@ -580,31 +572,33 @@ function Loaded({
 }: LoadedProps): ReactNode {
   const [tab, setTab] = useState<InspectorTab>("overview");
 
-  // The list is fetched with view=summary, so the selected call's
-  // request/response sections are loaded lazily here and merged into
-  // the entry. Older daemons ignore view=summary and return sections
-  // inline, in which case the list entry is used as-is.
+  // On assistants with summary-view support, the list omits per-log
+  // sections, so the selected call's request/response sections are
+  // loaded lazily here and merged into the entry. Older assistants
+  // return sections inline and the list entry is used as-is.
+  const supportsSummaryView = useSupportsLlmContextSummaryView();
   const selectedLogHasSections = Boolean(
     selectedLog && (selectedLog.requestSections || selectedLog.responseSections),
   );
+  const shouldFetchDetail = supportsSummaryView && !selectedLogHasSections;
   const {
     data: detail,
     isPending: isDetailPending,
     isError: isDetailError,
   } = useLlmCallDetail(
-    selectedLogHasSections ? undefined : assistantId,
+    shouldFetchDetail ? assistantId : undefined,
     selectedLogId,
   );
   const selectedEntry = useMemo<LLMRequestLogEntry | null>(() => {
     if (!selectedLog) return null;
-    if (selectedLogHasSections || !detail) return selectedLog;
+    if (!shouldFetchDetail || !detail) return selectedLog;
     return {
       ...selectedLog,
       requestSections: detail.requestSections,
       responseSections: detail.responseSections,
     };
-  }, [selectedLog, selectedLogHasSections, detail]);
-  const detailState: DetailState = selectedLogHasSections
+  }, [selectedLog, shouldFetchDetail, detail]);
+  const detailState: DetailState = !shouldFetchDetail
     ? "loaded"
     : isDetailError
       ? "error"
