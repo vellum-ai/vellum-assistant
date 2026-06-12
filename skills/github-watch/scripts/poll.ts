@@ -107,7 +107,7 @@ function runAssistantJson(args: string[]): unknown {
   if (!stdout.trim()) {
     fail(
       `\`assistant ${args[0]} ${args[1] ?? ""}\` produced no output ` +
-        `(exit ${proc.exitCode}). stderr: ${truncate(stderr, 500)}`
+        `(exit ${proc.exitCode}). stderr: ${truncate(stderr, 500)}`,
     );
   }
   try {
@@ -116,8 +116,8 @@ function runAssistantJson(args: string[]): unknown {
     fail(
       `\`assistant ${args[0]}\` emitted non-JSON output: ${truncate(
         stdout,
-        500
-      )}`
+        500,
+      )}`,
     );
   }
 }
@@ -134,10 +134,10 @@ interface OauthRequestResult {
 
 function fetchNotificationsPage(
   since: string,
-  page: number
+  page: number,
 ): GitHubNotification[] {
   const query = `all=false&since=${encodeURIComponent(
-    since
+    since,
   )}&per_page=${PER_PAGE}&page=${page}`;
   const result = runAssistantJson([
     "oauth",
@@ -159,7 +159,7 @@ function fetchNotificationsPage(
   if (result.status < 200 || result.status >= 300) {
     fail(
       `GitHub Notifications API returned ${result.status}: ` +
-        truncate(JSON.stringify(result.body), 500)
+        truncate(JSON.stringify(result.body), 500),
     );
   }
   if (!Array.isArray(result.body)) {
@@ -227,7 +227,7 @@ function deliver(conversationId: string, items: GitHubNotification[]): boolean {
 
   if (wake.ok && wake.invoked) {
     process.stdout.write(
-      `Woke conversation ${conversationId} with ${items.length} notification(s)\n`
+      `Woke conversation ${conversationId} with ${items.length} notification(s)\n`,
     );
     return true;
   }
@@ -235,7 +235,7 @@ function deliver(conversationId: string, items: GitHubNotification[]): boolean {
   if (wake.reason === "timeout") {
     // Conversation busy — retry on the next poll without losing events.
     process.stderr.write(
-      `Conversation ${conversationId} busy; will retry next poll\n`
+      `Conversation ${conversationId} busy; will retry next poll\n`,
     );
     return false;
   }
@@ -243,7 +243,7 @@ function deliver(conversationId: string, items: GitHubNotification[]): boolean {
   // Archived / not found / IPC error — fall back to a plain notification.
   process.stderr.write(
     `Wake failed (${wake.reason ?? wake.error ?? "unknown"}); ` +
-      `falling back to notifications send\n`
+      `falling back to notifications send\n`,
   );
   const lines = items.slice(0, MAX_HINT_ITEMS).map(describeNotification);
   const send = Bun.spawnSync(
@@ -260,11 +260,11 @@ function deliver(conversationId: string, items: GitHubNotification[]): boolean {
       "--dedupe-key",
       `github-watch-${items[0]!.id}`,
     ],
-    { stdout: "pipe", stderr: "pipe" }
+    { stdout: "pipe", stderr: "pipe" },
   );
   if (send.exitCode !== 0) {
     process.stderr.write(
-      `notifications send failed: ${truncate(send.stderr.toString(), 500)}\n`
+      `notifications send failed: ${truncate(send.stderr.toString(), 500)}\n`,
     );
     return false;
   }
@@ -310,7 +310,7 @@ function main(): void {
         watermark: state.watermark,
         seenIds: state.seenIds.length,
         initialized: hasState,
-      }) + "\n"
+      }) + "\n",
     );
     return;
   }
@@ -341,7 +341,7 @@ function main(): void {
   }
 
   const mergedSeen = [...state.seenIds, ...fresh.map((n) => n.id)].slice(
-    -MAX_SEEN_IDS
+    -MAX_SEEN_IDS,
   );
   const nextState: State = { watermark: fetchStart, seenIds: mergedSeen };
   writeFileSync(statePath, JSON.stringify(nextState, null, 2) + "\n", "utf-8");

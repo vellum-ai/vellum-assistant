@@ -267,7 +267,8 @@
           "display-name": "GitHub Watch"
         }
       },
-      "compatibility": "Designed for Vellum personal assistants. Requires the GitHub OAuth integration and script-mode schedules. PROTOTYPE — built to evaluate replacing the watcher primitive with skills + schedules."
+      "compatibility": "Designed for Vellum personal assistants. Requires the GitHub OAuth integration and script-mode schedules. PROTOTYPE — built to evaluate replacing the watcher primitive with skills + schedules.",
+      "updatedAt": "2026-06-12T19:09:37.000Z"
     },
     {
       "id": "gmail",
