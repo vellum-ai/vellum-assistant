@@ -92,7 +92,12 @@ export function buildAccessRequestWarnings(
   return warnings;
 }
 
-// ── Slack permalink ─────────────────────────────────────────────────────────
+// ── Slack conversation helpers ───────────────────────────────────────────────
+
+/** Slack DM conversation IDs start with `D` followed by alphanumeric chars. */
+export function isSlackDmConversation(conversationExternalId: string): boolean {
+  return /^D[A-Z0-9]+$/i.test(conversationExternalId);
+}
 
 /**
  * Build a Slack message permalink from a channel ID and message timestamp.
@@ -337,7 +342,7 @@ export function buildAccessRequestContractText(
     const permalink = p.messageTs
       ? buildSlackMessagePermalink(p.conversationExternalId, p.messageTs)
       : undefined;
-    const isDm = /^D[A-Z0-9]+$/i.test(p.conversationExternalId);
+    const isDm = isSlackDmConversation(p.conversationExternalId);
     const channelLabel = isDm ? "Direct message" : p.conversationExternalId;
     const source = permalink
       ? `Source: Slack — ${channelLabel} (${permalink})`
@@ -395,7 +400,7 @@ export function buildAccessRequestSeedContentBlocks(
   }
 
   if (p.sourceChannel === "slack" && p.conversationExternalId) {
-    const isDm = /^D[A-Z0-9]+$/i.test(p.conversationExternalId);
+    const isDm = isSlackDmConversation(p.conversationExternalId);
     metadata.push({
       label: "Source",
       value: isDm

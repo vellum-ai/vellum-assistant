@@ -10,6 +10,7 @@ import {
   buildAccessRequestInviteDirective,
   buildAccessRequestWarnings,
   buildSlackMessagePermalink,
+  isSlackDmConversation,
   parseAccessRequestPayload,
   sanitizeIdentityField,
 } from "../access-request-copy.js";
@@ -99,7 +100,7 @@ function buildAccessRequestBlocks(payload: Record<string, unknown>): unknown[] {
 
       // C = public/private channels, G = group DMs / MPIMs / legacy private channels.
       // Both support the <#ID> mrkdwn deep-link. D = 1:1 DMs (no linkable channel).
-      if (/^[CG][A-Z0-9]+$/i.test(p.conversationExternalId)) {
+      if (!isSlackDmConversation(p.conversationExternalId)) {
         channelDisplay = permalink
           ? `Slack — <#${p.conversationExternalId}> · <${permalink}|View message>`
           : `Slack — <#${p.conversationExternalId}>`;
