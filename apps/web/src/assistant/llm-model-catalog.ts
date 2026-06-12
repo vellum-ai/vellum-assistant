@@ -239,6 +239,14 @@ export const MODELS_BY_PROVIDER = {
       maxOutputTokens: 32_768,
     },
     {
+      id: "accounts/fireworks/models/minimax-m3",
+      displayName: "MiniMax M3",
+      contextWindowTokens: 524_288,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 512_000,
+      supportsThinking: true,
+    },
+    {
       id: "accounts/fireworks/models/minimax-m2p7",
       displayName: "MiniMax M2.7",
       contextWindowTokens: 196_608,
