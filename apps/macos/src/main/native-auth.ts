@@ -1,4 +1,4 @@
-import { app, net, session, shell } from "electron";
+import { net, session, shell } from "electron";
 import crypto from "node:crypto";
 import { z } from "zod";
 
@@ -10,6 +10,14 @@ import {
     getSessionToken,
     saveSessionToken,
 } from "./session-token-store";
+import {
+    buildAuthorizeUrl,
+    exchangeAccessTokenForSession,
+    exchangeCodeWithWorkos,
+    fetchWorkosClientId,
+    generatePkcePair,
+    startLoopbackListener,
+} from "./workos-pkce";
 
 const AUTH_FLOW_TIMEOUT_MS = 5 * 60_000;
 
@@ -94,35 +102,64 @@ function resolveProxyPlatformUrl(): string {
   return resolveLocalConfigFromEnv(process.env).platformUrl;
 }
 
+let activePkceCancel: ((reason?: string) => void) | null = null;
+
+/**
+ * App-held PKCE login (workos-pkce.ts). Replaces the server-mediated flow
+ * (`/accounts/native/start` → deep link → `/accounts/native/exchange`);
+ * older builds keep using those legacy endpoints.
+ */
 async function startOAuth(options: {
   providerHint?: string;
   loginHint?: string;
   intent?: string;
 }): Promise<{ sessionToken: string }> {
   cancelPendingFlows();
+  activePkceCancel?.();
 
+  const platformUrl = resolveProxyPlatformUrl();
+  const clientId = await fetchWorkosClientId(platformUrl);
   const state = generateState();
-  const authPlatformUrl = resolveAuthPlatformUrl();
-  const clientVersion = app.getVersion();
+  const { verifier, challenge } = generatePkcePair();
+  const listener = await startLoopbackListener(state);
 
-  const url = buildStartUrl(authPlatformUrl, state, {
-    providerHint: options.providerHint,
-    loginHint: options.loginHint,
-    clientVersion,
-  });
+  const timer = setTimeout(
+    () => listener.close("Sign-in timed out. Please try again."),
+    AUTH_FLOW_TIMEOUT_MS,
+  );
+  activePkceCancel = listener.close;
 
-  const sessionToken = await new Promise<string>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      pendingFlows.delete(state);
-      reject(new Error("Sign-in timed out. Please try again."));
-    }, AUTH_FLOW_TIMEOUT_MS);
+  try {
+    const authorizeUrl = buildAuthorizeUrl({
+      clientId,
+      redirectUri: listener.redirectUri,
+      challenge,
+      state,
+      loginHint: options.loginHint,
+      providerHint: options.providerHint,
+      intent: options.intent,
+    });
+    void shell.openExternal(authorizeUrl);
 
-    pendingFlows.set(state, { resolve, reject, timer });
-    void shell.openExternal(url);
-  });
+    const code = await listener.waitForCode;
+    const accessToken = await exchangeCodeWithWorkos({
+      clientId,
+      code,
+      verifier,
+    });
+    const sessionToken = await exchangeAccessTokenForSession(
+      platformUrl,
+      clientId,
+      accessToken,
+    );
 
-  saveSessionToken(sessionToken);
-  return { sessionToken };
+    saveSessionToken(sessionToken);
+    return { sessionToken };
+  } finally {
+    clearTimeout(timer);
+    listener.close();
+    activePkceCancel = null;
+  }
 }
 
 export async function handleAuthCallback(
@@ -180,6 +217,7 @@ export const installNativeAuth = (): void => {
 
   handle("vellum:auth:cancelOAuth", z.tuple([]), () => {
     cancelPendingFlows();
+    activePkceCancel?.();
   });
 
   handle("vellum:auth:signOut", z.tuple([]), () => {
