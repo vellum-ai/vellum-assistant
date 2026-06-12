@@ -28,6 +28,58 @@ function escapeLike(value: string): string {
 }
 
 /**
+ * The canonical identity for a contact channel — the value that
+ * uniquely identifies a person on this channel type.
+ *
+ * Channels with a platform-native user ID (Slack, Telegram, Discord)
+ * use externalUserId. Channels without one (email, phone) use address.
+ * All conflict checks, dedup, and lookups should go through this.
+ */
+export function resolveChannelIdentity(channel: {
+  type: string;
+  address: string;
+  externalUserId?: string | null;
+}): { column: "externalUserId" | "address"; value: string } {
+  return channel.externalUserId != null
+    ? { column: "externalUserId", value: channel.externalUserId }
+    : { column: "address", value: channel.address };
+}
+
+/**
+ * Find the first contact_channels row matching the canonical identity
+ * of the given channel descriptor. Uses resolveChannelIdentity to decide
+ * which column to query.
+ */
+function findConflictingChannel(
+  db: ReturnType<typeof getDb>,
+  channel: { type: string; address: string; externalUserId?: string | null },
+  excludeContactId?: string,
+) {
+  const identity = resolveChannelIdentity(channel);
+  const conditions =
+    identity.column === "externalUserId"
+      ? [
+          eq(contactChannels.type, channel.type),
+          eq(contactChannels.externalUserId, identity.value),
+        ]
+      : [
+          eq(contactChannels.type, channel.type),
+          eq(contactChannels.address, identity.value),
+        ];
+
+  const result = db
+    .select()
+    .from(contactChannels)
+    .where(and(...conditions))
+    .get();
+
+  if (result && excludeContactId && result.contactId === excludeContactId) {
+    return undefined;
+  }
+  return result;
+}
+
+/**
  * Pure slug transform applied to a display name. No DB lookup, no collision
  * handling — callers that need a collision-free filename should use
  * `generateUserFileSlug` instead. Exported so the migration classifier can
@@ -240,20 +292,14 @@ export function upsertContact(params: {
     }
   }
 
-  // Try to find by channel address to avoid duplicates
+  // Try to find by channel canonical identity to avoid duplicates
   if (!contactId && params.channels && params.channels.length > 0) {
     for (const ch of params.channels) {
-      // Primary lookup: match by (type, address)
-      const existingChannel = db
-        .select()
-        .from(contactChannels)
-        .where(
-          and(
-            eq(contactChannels.type, ch.type),
-            eq(contactChannels.address, ch.address.toLowerCase()),
-          ),
-        )
-        .get();
+      const existingChannel = findConflictingChannel(db, {
+        type: ch.type,
+        address: ch.address.toLowerCase(),
+        externalUserId: ch.externalUserId,
+      });
 
       if (existingChannel) {
         contactId = existingChannel.contactId;
@@ -394,34 +440,12 @@ function syncChannels(
       continue;
     }
 
-    // Check if this channel exists for a different contact — covers both
-    // unique constraints: (type, address) and (type, external_user_id).
-    const conflictByAddress = db
-      .select()
-      .from(contactChannels)
-      .where(
-        and(
-          eq(contactChannels.type, ch.type),
-          eq(contactChannels.address, normalizedAddress),
-        ),
-      )
-      .get();
-
-    const conflictByExtUserId =
-      ch.externalUserId != null
-        ? db
-            .select()
-            .from(contactChannels)
-            .where(
-              and(
-                eq(contactChannels.type, ch.type),
-                eq(contactChannels.externalUserId, ch.externalUserId),
-              ),
-            )
-            .get()
-        : undefined;
-
-    const conflicting = conflictByAddress ?? conflictByExtUserId;
+    // Check if this channel's canonical identity conflicts with another contact.
+    const conflicting = findConflictingChannel(db, {
+      type: ch.type,
+      address: normalizedAddress,
+      externalUserId: ch.externalUserId,
+    });
 
     if (conflicting) {
       if (reassignConflicting) {
@@ -457,18 +481,6 @@ function syncChannels(
           .set(reassignSet)
           .where(eq(contactChannels.id, conflicting.id))
           .run();
-
-        // If both constraints matched different rows, clean up the other one
-        // to avoid a constraint violation on the subsequent insert/update.
-        if (
-          conflictByAddress &&
-          conflictByExtUserId &&
-          conflictByAddress.id !== conflictByExtUserId.id
-        ) {
-          db.delete(contactChannels)
-            .where(eq(contactChannels.id, conflictByExtUserId.id))
-            .run();
-        }
       }
       // When not reassigning, skip to avoid unique constraint violation.
       // The caller should use contact_merge to combine the two contacts.
@@ -704,16 +716,24 @@ export function mergeContacts(
       .all();
 
     for (const ch of donorChannels) {
+      const identity = resolveChannelIdentity(ch);
+      const conditions =
+        identity.column === "externalUserId"
+          ? [
+              eq(contactChannels.contactId, keepId),
+              eq(contactChannels.type, ch.type),
+              eq(contactChannels.externalUserId, identity.value),
+            ]
+          : [
+              eq(contactChannels.contactId, keepId),
+              eq(contactChannels.type, ch.type),
+              eq(contactChannels.address, identity.value),
+            ];
+
       const exists = tx
         .select()
         .from(contactChannels)
-        .where(
-          and(
-            eq(contactChannels.contactId, keepId),
-            eq(contactChannels.type, ch.type),
-            eq(contactChannels.address, ch.address),
-          ),
-        )
+        .where(and(...conditions))
         .get();
 
       if (!exists) {
@@ -1007,35 +1027,14 @@ export function updateContactPrincipalAndChannel(
     .get();
   if (!channel) return false;
 
-  // Guard: check if another channel row already holds this (type, address)
-  // or (type, externalUserId) — both have unique constraints.
-  const conflictByAddress = db
-    .select()
-    .from(contactChannels)
-    .where(
-      and(
-        eq(contactChannels.type, channel.type),
-        eq(contactChannels.address, normalizedAddress),
-      ),
-    )
-    .get();
+  // Guard: check if another channel row holds this canonical identity.
+  const conflicting = findConflictingChannel(db, {
+    type: channel.type,
+    address: normalizedAddress,
+    externalUserId: newPrincipalId,
+  });
 
-  if (conflictByAddress && conflictByAddress.id !== channelId) {
-    return false;
-  }
-
-  const conflictByExtUserId = db
-    .select()
-    .from(contactChannels)
-    .where(
-      and(
-        eq(contactChannels.type, channel.type),
-        eq(contactChannels.externalUserId, newPrincipalId),
-      ),
-    )
-    .get();
-
-  if (conflictByExtUserId && conflictByExtUserId.id !== channelId) {
+  if (conflicting && conflicting.id !== channelId) {
     return false;
   }
 
