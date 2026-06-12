@@ -26,6 +26,10 @@
 import { z } from "zod";
 
 import {
+  inspectPlugin,
+  PluginInspectNotFoundError,
+} from "../../cli/lib/inspect-plugin.js";
+import {
   DEFAULT_PLUGIN_REF,
   installPlugin,
   InvalidPluginNameError,
@@ -53,6 +57,10 @@ import {
   PluginNotInstalledError,
   uninstallPlugin,
 } from "../../cli/lib/uninstall-plugin.js";
+import {
+  PluginNotUpgradableError,
+  upgradePlugin,
+} from "../../cli/lib/upgrade-plugin.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
@@ -234,6 +242,197 @@ const pluginInstallResponseSchema = z.object({
     .number()
     .describe("Number of files written for the installed plugin."),
   ref: z.string().describe("Git ref the plugin was fetched from."),
+});
+
+const fingerprintComparisonSchema = z
+  .object({
+    modified: z
+      .array(z.string())
+      .describe("Tracked files whose content changed since install."),
+    added: z
+      .array(z.string())
+      .describe("Files present on disk but absent from the install baseline."),
+    removed: z
+      .array(z.string())
+      .describe("Files recorded at install but missing from the on-disk copy."),
+    clean: z
+      .boolean()
+      .describe("True when no files were added, removed, or modified."),
+  })
+  .describe(
+    "Local-edit comparison of the on-disk tree against the install-time fingerprint.",
+  );
+
+const installMetaSourceSchema = z
+  .object({
+    kind: z.string().describe("Source kind. Only `github` is written today."),
+    owner: z.string(),
+    repo: z.string(),
+    path: z
+      .string()
+      .optional()
+      .describe(
+        "Repo-relative directory holding the plugin root; absent = repo root.",
+      ),
+    ref: z
+      .string()
+      .describe(
+        "Ref the install resolved through (the pinned commit SHA for marketplace installs).",
+      ),
+  })
+  .describe(
+    "Source coordinates recorded in the install-time provenance sidecar.",
+  );
+
+const pluginLocalInfoSchema = z
+  .object({
+    target: z
+      .string()
+      .describe("Absolute path to the installed plugin directory."),
+    commit: z
+      .string()
+      .nullable()
+      .describe(
+        "Resolved commit the copy was installed at; null when no provenance was recorded.",
+      ),
+    version: z
+      .string()
+      .nullable()
+      .describe("Installed `package.json#version`."),
+    description: z
+      .string()
+      .nullable()
+      .describe("Installed `package.json#description`."),
+    installedAt: z
+      .string()
+      .nullable()
+      .describe(
+        "ISO-8601 install timestamp from the sidecar; null when absent.",
+      ),
+    source: installMetaSourceSchema
+      .nullable()
+      .describe(
+        "Source recorded at install time; null when no sidecar exists.",
+      ),
+    localChanges: fingerprintComparisonSchema
+      .nullable()
+      .describe(
+        "Local-edit state vs the install-time fingerprint; null when no baseline was recorded (older/manual install).",
+      ),
+    issues: z
+      .array(z.string())
+      .describe(
+        "Non-fatal issues with the installed copy (e.g. malformed `package.json`).",
+      ),
+  })
+  .describe("The locally installed copy of the plugin.");
+
+const pluginRemoteInfoSchema = z
+  .object({
+    repo: z
+      .string()
+      .describe("`owner/repo` of the external plugin repository."),
+    path: z
+      .string()
+      .describe(
+        'Repo-relative directory holding the plugin root; `""` = repo root.',
+      ),
+    commit: z
+      .string()
+      .describe(
+        "Pinned commit SHA the marketplace currently resolves installs to.",
+      ),
+    description: z.string().nullable(),
+    homepage: z.string().nullable(),
+    license: z.string().nullable(),
+    category: z.string().nullable(),
+    marketplaceRef: z
+      .string()
+      .describe(
+        "Ref of the canonical repo the marketplace manifest was read from.",
+      ),
+  })
+  .describe("The marketplace's current pin and advertised metadata.");
+
+const pluginInspectResponseSchema = z.object({
+  name: z
+    .string()
+    .describe("Install name. Matches `assistant plugins install <name>`."),
+  installed: z
+    .boolean()
+    .describe(
+      "Whether a copy is materialized under `<workspaceDir>/plugins/`.",
+    ),
+  status: z
+    .enum([
+      "up-to-date",
+      "update-available",
+      "not-installed",
+      "not-in-marketplace",
+      "unknown-provenance",
+      "remote-unavailable",
+    ])
+    .describe(
+      "Drift classification between the installed copy and the marketplace pin.",
+    ),
+  local: pluginLocalInfoSchema
+    .nullable()
+    .describe("Locally installed copy; null when the plugin is not installed."),
+  remote: pluginRemoteInfoSchema
+    .nullable()
+    .describe(
+      "Marketplace pin + metadata; null when no entry claims the name or it was unreachable.",
+    ),
+  remoteError: z
+    .string()
+    .nullable()
+    .describe(
+      "Marketplace fetch error message, when the catalog could not be read.",
+    ),
+});
+
+const pluginUpgradeRequestSchema = z.object({
+  dryRun: z
+    .boolean()
+    .optional()
+    .describe(
+      "Report what would change without modifying the install. Defaults to false.",
+    ),
+});
+
+const pluginUpgradeResponseSchema = z.object({
+  name: z.string().describe("Install name that was (or would be) upgraded."),
+  outcome: z
+    .enum(["upgraded", "already-up-to-date", "would-upgrade"])
+    .describe(
+      "`upgraded` moved the install to the pin; `already-up-to-date` was a no-op; `would-upgrade` is a dry-run that found drift.",
+    ),
+  fromCommit: z
+    .string()
+    .nullable()
+    .describe(
+      "Installed commit before the upgrade; null when no provenance was recorded.",
+    ),
+  toCommit: z
+    .string()
+    .describe(
+      "Marketplace-pinned commit the install was (or would be) moved to.",
+    ),
+  target: z
+    .string()
+    .describe("Absolute path to the installed plugin directory on the host."),
+  fileCount: z
+    .number()
+    .nullable()
+    .describe(
+      "Files materialized by the upgrade; null for a no-op or dry run.",
+    ),
+  dryRun: z.boolean().describe("Whether this was a dry run (no changes made)."),
+  provenanceWasUnknown: z
+    .boolean()
+    .describe(
+      "Whether the install lacked resolvable provenance before the upgrade; such installs are re-pinned to record it going forward.",
+    ),
 });
 
 // ---------------------------------------------------------------------------
@@ -490,6 +689,90 @@ async function handleInstallPlugin({ body = {} }: RouteHandlerArgs) {
 }
 
 // ---------------------------------------------------------------------------
+// Handler — inspect (drift)
+// ---------------------------------------------------------------------------
+
+async function handleInspectPlugin({ pathParams = {} }: RouteHandlerArgs) {
+  const rawName = pathParams.name ?? "";
+
+  try {
+    // `inspectPlugin` never throws for an unreachable marketplace when a local
+    // copy exists — it reports `status: "remote-unavailable"` and captures the
+    // message in `remoteError`. It only throws when there is nothing to show.
+    return await inspectPlugin(
+      { name: rawName },
+      { fetch: globalThis.fetch.bind(globalThis) },
+    );
+  } catch (err) {
+    if (err instanceof InvalidPluginNameError) {
+      throw new BadRequestError(err.message);
+    }
+    if (err instanceof PluginInspectNotFoundError) {
+      throw new NotFoundError(err.message);
+    }
+    throw new InternalError(
+      err instanceof Error ? err.message : "plugin inspect failed",
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Handler — upgrade
+// ---------------------------------------------------------------------------
+
+async function handleUpgradePlugin({
+  pathParams = {},
+  body = {},
+}: RouteHandlerArgs) {
+  const rawName = pathParams.name ?? "";
+  const dryRun = typeof body.dryRun === "boolean" ? body.dryRun : undefined;
+
+  // Like install, the upgrade target ref is the curated marketplace pin
+  // (resolved inside `upgradePlugin` via `inspectPlugin`), never a
+  // caller-supplied ref — a `settings.write` principal cannot redirect the
+  // upgrade at an unreviewed revision.
+  try {
+    const result = await upgradePlugin(
+      { name: rawName, dryRun },
+      { fetch: globalThis.fetch.bind(globalThis) },
+    );
+    return {
+      name: result.name,
+      outcome: result.outcome,
+      fromCommit: result.fromCommit,
+      toCommit: result.toCommit,
+      target: result.target,
+      fileCount: result.fileCount,
+      dryRun: result.dryRun,
+      provenanceWasUnknown: result.provenanceWasUnknown,
+    };
+  } catch (err) {
+    if (err instanceof InvalidPluginNameError) {
+      throw new BadRequestError(err.message);
+    }
+    if (err instanceof PluginNotInstalledError) {
+      throw new NotFoundError(err.message);
+    }
+    if (err instanceof PluginNotFoundError) {
+      throw new NotFoundError(err.message);
+    }
+    // No marketplace entry / unreachable catalog: the install exists but
+    // cannot be advanced. 409 marks the request as well-formed but not
+    // actionable in the current state.
+    if (err instanceof PluginNotUpgradableError) {
+      throw new ConflictError(err.message);
+    }
+    // A rate-limited or temporarily-down GitHub source is retryable.
+    if (err instanceof PluginSourceUnavailableError) {
+      throw new ServiceUnavailableError(err.message);
+    }
+    throw new InternalError(
+      err instanceof Error ? err.message : "plugin upgrade failed",
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Route definitions
 // ---------------------------------------------------------------------------
 
@@ -648,5 +931,80 @@ export const ROUTES: RouteDefinition[] = [
       },
     },
     handler: handleUninstallPlugin,
+  },
+  {
+    operationId: "plugins_inspect",
+    endpoint: "plugins/:name/inspect",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Inspect a plugin's install drift",
+    description:
+      "Compare the locally installed copy of a plugin against the marketplace's current pinned commit and report whether an upgrade is available. Returns a six-way `status` (`up-to-date`, `update-available`, `not-installed`, `not-in-marketplace`, `unknown-provenance`, `remote-unavailable`) plus the local provenance (installed commit, version, source, and any local edits vs the install-time fingerprint) and the remote pin. An unreachable marketplace for an installed plugin is not fatal — it returns 200 with `status: \"remote-unavailable\"`. A name that is neither installed nor in the catalog returns 404. Powers the web upgrade affordance; mirrors the CLI's `assistant plugins inspect <name>` and `GET /v1/skills/:id/inspect`.",
+    tags: ["plugins"],
+    pathParams: [
+      {
+        name: "name",
+        type: "string",
+        description:
+          "Install name. Must match the kebab-case name accepted by `assistant plugins install`.",
+      },
+    ],
+    responseBody: pluginInspectResponseSchema,
+    additionalResponses: {
+      "400": {
+        description:
+          "The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).",
+      },
+      "404": {
+        description:
+          "No installed copy and no catalog entry claims the given name.",
+      },
+    },
+    handler: handleInspectPlugin,
+  },
+  {
+    operationId: "plugins_upgrade",
+    endpoint: "plugins/:name/upgrade",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Upgrade a plugin to the marketplace pin",
+    description:
+      'Move an installed plugin to the marketplace\'s current pinned commit, re-materializing it under `<workspaceDir>/plugins/<name>/`. Always resolves against the curated marketplace pin (no caller-supplied ref), mirroring `plugins install`\'s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed commit already equals the pin; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching the install. Installs lacking provenance are re-pinned to the current SHA. The assistant must be restarted to load the upgraded code. This does not gate on local edits — callers should consult `GET /v1/plugins/:name/inspect` (`local.localChanges`) first and confirm before overwriting. Mirrors the CLI\'s `assistant plugins upgrade <name>`.',
+    tags: ["plugins"],
+    pathParams: [
+      {
+        name: "name",
+        type: "string",
+        description:
+          "Install name. Must match the kebab-case name accepted by `assistant plugins install`.",
+      },
+    ],
+    requestBody: pluginUpgradeRequestSchema,
+    responseBody: pluginUpgradeResponseSchema,
+    additionalResponses: {
+      "400": {
+        description:
+          "The plugin name failed sanitization (e.g. contained slashes, dots, or uppercase letters).",
+      },
+      "404": {
+        description:
+          "No copy of the plugin is installed, or its source resolves to nothing.",
+      },
+      "409": {
+        description:
+          "The install exists but has no marketplace entry to advance to.",
+      },
+      "503": {
+        description:
+          "The plugin source (GitHub) was temporarily unavailable; the upgrade is retryable.",
+      },
+    },
+    handler: handleUpgradePlugin,
   },
 ];
