@@ -44,6 +44,10 @@ import imageRecoveryPostModelCall from "./image-recovery/hooks/post-model-call.j
 import imageRecoveryStop from "./image-recovery/hooks/stop.js";
 import { resetImageRecoveryStoreForTests } from "./image-recovery/image-recovery-state-store.js";
 import imageRecoveryPkg from "./image-recovery/package.json" with { type: "json" };
+import { resetMaxTokensContinueStoreForTests } from "./max-tokens-continue/continue-state-store.js";
+import maxTokensContinuePostModelCall from "./max-tokens-continue/hooks/post-model-call.js";
+import maxTokensContinueStop from "./max-tokens-continue/hooks/stop.js";
+import maxTokensContinuePkg from "./max-tokens-continue/package.json" with { type: "json" };
 import memoryRetrievalPostCompact from "./memory-retrieval/hooks/post-compact.js";
 import memoryRetrievalUserPromptSubmit from "./memory-retrieval/hooks/user-prompt-submit.js";
 import memoryRetrievalPkg from "./memory-retrieval/package.json" with { type: "json" };
@@ -151,6 +155,24 @@ export const defaultImageRecoveryPlugin: Plugin = {
 };
 
 /**
+ * `max-tokens-continue` — a `post-model-call` hook that auto-resumes a
+ * user-facing turn the provider truncated at its output token limit, keeping
+ * the partial output and re-querying with a continuation nudge so long
+ * generations can finish without the user clicking the continuation card.
+ * Bounded per run; the `stop` hook clears the budget on a terminal stop.
+ */
+export const defaultMaxTokensContinuePlugin: Plugin = {
+  manifest: {
+    name: maxTokensContinuePkg.name,
+    version: maxTokensContinuePkg.version,
+  },
+  hooks: {
+    "post-model-call": maxTokensContinuePostModelCall,
+    stop: maxTokensContinueStop,
+  },
+};
+
+/**
  * `memory-v3-shadow` — houses the memory-v3 shadow/live orchestration engine
  * (`memory-v3-shadow/`) and its injector. The `user-prompt-submit` /
  * `post-compact` hooks are no-op scaffolding for the eventual convergence,
@@ -243,6 +265,7 @@ function getAllDefaultPlugins(): readonly Plugin[] {
     defaultMemoryRetrievalPlugin,
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
+    defaultMaxTokensContinuePlugin,
     defaultToolErrorPlugin,
     defaultExplorationDriftPlugin,
     defaultHistoryRepairPlugin,
@@ -290,6 +313,7 @@ export function registerDefaultPlugins(): void {
 export function resetPluginRegistryAndRegisterDefaults(): void {
   resetPluginRegistryForTests();
   resetEmptyResponseNudgeStoreForTests();
+  resetMaxTokensContinueStoreForTests();
   resetRepairStateStoreForTests();
   resetImageRecoveryStoreForTests();
   resetExplorationDriftStateForTests();
