@@ -57,6 +57,7 @@ import {
 } from "./schemas/timeouts.js";
 import { ToolsConfigSchema } from "./schemas/tools.js";
 import { UpdatesConfigSchema } from "./schemas/updates.js";
+import { WorkflowsConfigSchema } from "./schemas/workflows.js";
 import { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
 export const AssistantConfigSchema = z
@@ -123,6 +124,7 @@ export const AssistantConfigSchema = z
     ),
     ui: UiConfigSchema.default(UiConfigSchema.parse({})),
     tools: ToolsConfigSchema.default(ToolsConfigSchema.parse({})),
+    workflows: WorkflowsConfigSchema.default(WorkflowsConfigSchema.parse({})),
     // Per-plugin config blocks keyed by plugin name. The schema is intentionally
     // permissive — each plugin's manifest supplies its own validator which the
     // plugin bootstrap (`external-plugins-bootstrap.ts`) runs against the raw
