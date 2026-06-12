@@ -648,7 +648,7 @@ export async function wakeAgentForOpportunity(
           JSON.stringify(record.rawResponse),
           undefined,
           record.provider,
-          "mainAgent",
+          callSite,
         );
       } catch (err) {
         log.warn(

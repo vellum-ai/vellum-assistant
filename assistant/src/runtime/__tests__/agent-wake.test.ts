@@ -216,6 +216,7 @@ const recordRequestLogCalls: Array<{
   responsePayload: string;
   messageId?: string;
   provider?: string;
+  callSite?: string;
 }> = [];
 mock.module("../../memory/llm-request-log-store.js", () => ({
   recordRequestLog: (
@@ -224,6 +225,7 @@ mock.module("../../memory/llm-request-log-store.js", () => ({
     responsePayload: string,
     messageId?: string,
     provider?: string,
+    callSite?: string,
   ) => {
     recordRequestLogCalls.push({
       conversationId,
@@ -231,6 +233,7 @@ mock.module("../../memory/llm-request-log-store.js", () => ({
       responsePayload,
       messageId,
       provider,
+      callSite,
     });
     return "log-id-test";
   },
@@ -1608,7 +1611,46 @@ describe("wakeAgentForOpportunity", () => {
       conversationId: conversation.conversationId,
       provider: "test-provider",
       messageId: undefined,
+      callSite: "mainAgent",
     });
+  });
+
+  test("wake with an explicit callSite records logs under that call site", async () => {
+    const usageEvent: AgentEvent = {
+      type: "usage",
+      inputTokens: 100,
+      outputTokens: 5,
+      model: "test-model",
+      actualProvider: "test-provider",
+      providerDurationMs: 10,
+      rawRequest: { request: "retrospective wake" },
+      rawResponse: { response: "real reply" },
+    };
+    const conversation = makeWakeConversation({
+      baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      scriptedEvents: [usageEvent],
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "real reply" }],
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "do reply",
+        source: "unit-test",
+        callSite: "memoryRetrospective",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    expect(recordRequestLogCalls).toHaveLength(1);
+    // Regression guard: persistLog used to hardcode "mainAgent", which
+    // mislabeled retrospective/consolidation wake rows in llm_request_logs
+    // and polluted call-site filtering during prompt diagnostics.
+    expect(recordRequestLogCalls[0]?.callSite).toBe("memoryRetrospective");
   });
 
   test("non-serializable usage payload does not abort the wake", async () => {
