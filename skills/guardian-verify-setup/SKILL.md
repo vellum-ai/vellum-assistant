@@ -17,6 +17,18 @@ metadata:
 
 You are helping your user set up channel verification for a messaging channel (phone, Telegram, Slack, or email). This links their identity for verified message delivery on the chosen channel. Use the `assistant channel-verification-sessions` CLI for all verification operations.
 
+## When to Use
+
+Load this skill when:
+
+- The user says "verify me", "verify my identity", "set up verification", "verify my [phone/telegram/slack/email]", or any equivalent identity-handshake intent.
+- Another skill is wiring up a channel and needs to bind the guardian's identity to it (e.g., `slack-app-setup` invokes this skill at the end of Slack setup so the user can prove ownership of the configured workspace).
+
+Do not load this skill for:
+
+- Generic "set up X" intents where X is not a guardian channel (use the channel-specific setup skill instead).
+- Phone-CALLS intent (use the phone-calls skill — those are outbound calls the assistant makes, not verification handshakes).
+
 ## Prerequisites
 
 - Run shell commands for this skill with `bash`.
@@ -31,7 +43,12 @@ Ask the user which channel they want to verify:
 - **slack** -- verify a Slack account
 - **email** -- verify an email address
 
-If the user's intent already specifies a channel (e.g. "verify my phone number for voice calls", "verify me on Slack"), skip the prompt and proceed.
+**Skip the prompt and proceed directly with the named channel when:**
+
+- The user's intent already specifies a channel (e.g. "verify my phone number for voice calls", "verify me on Slack").
+- This skill is loaded from another skill that has already established the channel (e.g., `slack-app-setup` finishes configuring Slack then loads this skill — `slack` is already the channel; do not re-prompt the user for which channel after they just spent the prior steps configuring one).
+
+⚠️ CRITICAL — point of action: **Do not re-prompt for channel when it is already determined.** Re-prompting after a parent skill has just configured a channel makes the user feel like the assistant forgot the previous five minutes of setup.
 
 ## Step 2: Collect Destination
 
@@ -43,18 +60,27 @@ Based on the chosen channel, ask for the required destination:
   - If they know their numeric chat ID, provide it directly. The bot will send the code to that chat.
   - If they only know their @handle, the flow uses a bootstrap deep-link that they must click first.
 - **Slack**: Offer to look up the user's Slack member ID automatically to reduce friction:
-  1. **Auto-lookup (preferred)**: Ask the user for their Slack display name or @handle, then look up their member ID using the Slack API:
+  1. **Auto-lookup (preferred)**: Ask the user for their Slack display name or @handle, then look up their member ID using the Slack API.
+
+     Set `USER_QUERY` to whatever the user gave you (display name, @handle, or full name — the search matches against all of them). For example, if the user says "find me, I'm @ashlee", set `USER_QUERY="ashlee"`. If they say "Ashlee Radka", set `USER_QUERY="Ashlee Radka"`. **Do not leave `USER_QUERY` as a literal `<...>` placeholder string.**
 
      ```bash
+     USER_QUERY="ashlee"  # ← replace with the actual value the user provided
+
      # Get the bot token from the credential store
-     BOT_TOKEN=$(assistant credentials reveal --service slack_channel --field bot_token 2>/dev/null)
+     BOT_TOKEN=$(assistant credentials reveal --service slack_channel --field bot_token)
+     if [ -z "$BOT_TOKEN" ]; then
+       echo "ERROR: bot_token not found in credential store — fall back to manual entry"
+       exit 1
+     fi
+
      # Search for matching users (paginate through all workspace members)
      CURSOR=""
      MATCHES="[]"
      while true; do
        RESPONSE=$(curl -s -H "Authorization: Bearer $BOT_TOKEN" \
          "https://slack.com/api/users.list?limit=200${CURSOR:+&cursor=$CURSOR}")
-       PAGE_MATCHES=$(echo "$RESPONSE" | jq --arg name "<name>" --arg handle "<handle>" '[.members[] | select(.deleted == false) | select(.profile.display_name == $name or .name == $handle or .profile.display_name_normalized == $name or .real_name == $name) | {id: .id, name: .name, display_name: .profile.display_name, real_name: .real_name}]')
+       PAGE_MATCHES=$(echo "$RESPONSE" | jq --arg q "$USER_QUERY" '[.members[] | select(.deleted == false) | select(.profile.display_name == $q or .name == $q or .profile.display_name_normalized == $q or .real_name == $q) | {id: .id, name: .name, display_name: .profile.display_name, real_name: .real_name}]')
        MATCHES=$(echo "$MATCHES $PAGE_MATCHES" | jq -s 'add')
        CURSOR=$(echo "$RESPONSE" | jq -r '.response_metadata.next_cursor // empty')
        [ -z "$CURSOR" ] && break
@@ -62,13 +88,15 @@ Based on the chosen channel, ask for the required destination:
      echo "$MATCHES" | jq '.[]'
      ```
 
-     Replace `<name>` and `<handle>` with the value the user provided (try matching against all fields).
+     ⚠️ CRITICAL — point of action: **Substitute `USER_QUERY` with the actual user-provided value before running the bash block.** A literal `USER_QUERY="<query>"` or `USER_QUERY="<name>"` matches nothing and burns a `users.list` cycle.
+
+     Result handling:
      - **Single match**: Present it for confirmation: "I found @username (U01ABCDEF) — is that you?" If confirmed, use the `id` value as the destination for Step 3.
      - **Multiple matches**: Present the list (up to 5) and ask the user to pick: "I found a few matches — which one is you?" Use the confirmed `id` as the destination.
      - **No matches**: Tell the user no matches were found. Suggest they double-check the spelling, or fall back to manual entry (see below).
 
   2. **Fallback to manual entry** if any of the following occur:
-     - The `BOT_TOKEN` retrieval fails (credential store returns an error or empty)
+     - The `BOT_TOKEN` retrieval fails (the bash block above exits 1 with the "bot_token not found" error)
      - The `users.list` API call fails or returns an error
      - Too many matches are returned (more than 5)
      - The user prefers to enter their ID directly
@@ -238,12 +266,13 @@ When in a **rebind flow**, apply the same guard as Slack/voice: only report succ
 
 ## Step 6: Check Verification Status
 
-After the user reports entering the code, verify the binding was created:
+After the user reports entering the code, verify the binding was created. Replace `<channel>` below with the actual channel name (`phone`, `telegram`, `slack`, or `email`) before running:
 
 ```bash
-CHANNEL="<channel>"
-assistant channel-verification-sessions status --channel "$CHANNEL" --json
+assistant channel-verification-sessions status --channel <channel> --json
 ```
+
+⚠️ CRITICAL — point of action: **`<channel>` is a placeholder, not the literal string to send.** Substitute it with the channel currently being verified (`phone`, `telegram`, `slack`, or `email`).
 
 If the response shows the channel is bound, confirm success: "Verification complete! Your [channel] identity is now verified."
 
@@ -251,13 +280,13 @@ If not yet bound, offer to resend (Step 4) or generate a new session (Step 3).
 
 ## Step 7: Revoke Verification
 
-If the user wants to remove themselves (or the current verified identity) from a channel, use the revoke endpoint:
+If the user wants to remove themselves (or the current verified identity) from a channel, use the revoke endpoint. Replace `<channel>` below with the actual channel name (`phone`, `telegram`, `slack`, or `email`) before running:
 
 ```bash
 assistant channel-verification-sessions revoke --channel <channel> --json
 ```
 
-Replace `<channel>` with the channel to unbind from (e.g. `phone`, `telegram`, `slack`, `email`).
+⚠️ CRITICAL — point of action: **`<channel>` is a placeholder.** Substitute it with the actual channel to unbind from (`phone`, `telegram`, `slack`, or `email`) before running.
 
 ### On success (`success: true`)
 
