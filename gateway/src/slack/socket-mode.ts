@@ -169,8 +169,9 @@ export class SlackSocketModeClient {
    *      will refuse to forward events until identity is resolved
    *      (fail-closed).
    *
-   * Auth rejection (`data.ok === false`) is always fatal — a bad token
-   * cannot self-heal.
+   * Auth rejection (invalid_auth, token_revoked, etc.) is fatal — a bad
+   * token cannot self-heal. Server-side errors (internal_error, fatal_error)
+   * are treated as transient and fall through to persistence.
    */
   private async resolveBotIdentity(): Promise<void> {
     if (this.config.botUserId && this.config.botUsername) {
@@ -185,51 +186,71 @@ export class SlackSocketModeClient {
       });
       const data = (await resp.json()) as {
         ok: boolean;
+        error?: string;
         user_id?: string;
         user?: string;
         team?: string;
       };
+
       if (!data.ok) {
-        throw new Error(
-          "Slack auth.test failed: bot token is invalid or expired",
+        // Distinguish auth rejection (fatal — bad token) from server-side
+        // errors (transient — Slack internal_error, fatal_error, etc.).
+        // https://api.slack.com/methods/auth.test#errors
+        const FATAL_AUTH_ERRORS: ReadonlySet<string> = new Set([
+          "invalid_auth",
+          "not_authed",
+          "token_revoked",
+          "token_expired",
+          "account_inactive",
+          "enterprise_is_restricted",
+        ]);
+        if (FATAL_AUTH_ERRORS.has(data.error ?? "")) {
+          this.running = false;
+          this.stopDedupCleanup();
+          throw new Error(`Slack auth.test rejected: ${data.error}`);
+        }
+        // Server-side error — treat as transient, fall through to persistence.
+        log.warn(
+          { error: data.error },
+          "Slack auth.test returned a server-side error — checking persisted identity",
         );
-      }
-      if (data.user_id) {
-        this.config.botUserId = data.user_id;
-      }
-      if (data.user) {
-        this.config.botUsername = data.user;
-      }
-      if (data.team) {
-        this.config.teamName = data.team;
-      }
-      warnOnMissingSlackScopes(resp.headers.get("x-oauth-scopes") ?? "");
+      } else {
+        if (data.user_id) {
+          this.config.botUserId = data.user_id;
+        }
+        if (data.user) {
+          this.config.botUsername = data.user;
+        }
+        if (data.team) {
+          this.config.teamName = data.team;
+        }
+        warnOnMissingSlackScopes(resp.headers.get("x-oauth-scopes") ?? "");
 
-      // Persist for future startups.
-      if (data.user_id) {
-        this.store.setBotIdentity({
-          userId: data.user_id,
-          username: data.user ?? null,
-          metadata: data.team ? { teamName: data.team } : null,
-        });
-      }
+        // Persist for future startups.
+        if (data.user_id) {
+          this.store.setBotIdentity({
+            userId: data.user_id,
+            username: data.user ?? null,
+            metadata: data.team ? { teamName: data.team } : null,
+          });
+        }
 
-      log.info(
-        {
-          botUserId: data.user_id,
-          botUsername: data.user,
-          teamName: data.team,
-        },
-        "Resolved Slack bot identity via auth.test",
-      );
-      return;
+        log.info(
+          {
+            botUserId: data.user_id,
+            botUsername: data.user,
+            teamName: data.team,
+          },
+          "Resolved Slack bot identity via auth.test",
+        );
+        return;
+      }
     } catch (err) {
-      const isAuthRejection =
+      // Re-throw fatal auth rejections — they can't self-heal.
+      if (
         err instanceof Error &&
-        err.message.includes("bot token is invalid or expired");
-      if (isAuthRejection) {
-        this.running = false;
-        this.stopDedupCleanup();
+        err.message.startsWith("Slack auth.test rejected:")
+      ) {
         throw err;
       }
       log.warn(
