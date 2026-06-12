@@ -158,7 +158,13 @@ const executionDetail: ReportRunDetail = {
     totalCostUsd: 0.001,
   },
   assistantEvents: [
-    { message: { type: "assistant_text_delta", text: "hello" } },
+    {
+      message: {
+        type: "assistant_text_delta",
+        text: "Remembered <b>the date</b>",
+      },
+      emittedAt: "2026-05-15T12:00:01.000Z",
+    },
   ],
   ingestAssistantEvents: [],
   simulatorMessages: [{ content: "hello" }],
@@ -265,10 +271,10 @@ describe("report html", () => {
       },
     });
     // The Memory-formation section ships ingest events; the Container-logs
-    // section (question-turn) still ships the original "hello" event. Both
-    // strings appear, neither leaks across.
+    // section (question-turn) still ships the original question-turn event.
+    // Both strings appear, neither leaks across.
     expect(html).toContain("indexing-session-1");
-    expect(html).toContain("hello");
+    expect(html).toContain("Remembered");
     expect(html).not.toContain("No memory-formation events recorded.");
   });
 
