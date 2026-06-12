@@ -832,7 +832,7 @@ async function handleAccessRequestApproval(
 
   // Approved: deliver the verification code to the guardian and notify the requester.
   const requesterIdentifier =
-    requesterDisplayName ?? approval.requesterExternalUserId;
+    requesterDisplayName || approval.requesterExternalUserId;
 
   let codeDelivered = true;
   if (decisionResult.verificationCode) {

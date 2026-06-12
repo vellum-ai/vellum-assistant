@@ -162,6 +162,7 @@ export async function resolveSlackUser(
           tz_offset?: number;
           is_stranger?: boolean;
           is_restricted?: boolean;
+          is_ultra_restricted?: boolean;
           profile?: { display_name?: string; real_name?: string };
         };
       };
@@ -184,7 +185,11 @@ export async function resolveSlackUser(
           : undefined;
 
       const isStranger = data.user.is_stranger === true ? true : undefined;
-      const isRestricted = data.user.is_restricted === true ? true : undefined;
+      const isRestricted =
+        data.user.is_restricted === true ||
+        data.user.is_ultra_restricted === true
+          ? true
+          : undefined;
 
       const info: SlackUserInfo = {
         displayName,
