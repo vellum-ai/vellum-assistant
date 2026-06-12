@@ -125,6 +125,53 @@ describe("buildSystemPrompt — persona override", () => {
   });
 });
 
+describe("buildSystemPrompt — hasNoClient pin", () => {
+  // Marker unique to the `{{^hasNoClient}}` branch of 05-access-preference:
+  // host fallbacks only render when a client is connected.
+  const WITH_CLIENT_MARKER = "`host_bash` with CLIs";
+
+  beforeEach(() => {
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  test("hasNoClient renders divergent access-preference text", () => {
+    expect(buildSystemPrompt({ hasNoClient: false })).toContain(
+      WITH_CLIENT_MARKER,
+    );
+    expect(buildSystemPrompt({ hasNoClient: true })).not.toContain(
+      WITH_CLIENT_MARKER,
+    );
+  });
+
+  test("personaOverride.hasNoClient pins the flag over the conversation-derived option", () => {
+    // Fork-retrospective case: the fork is hydrated clientless
+    // (hasNoClient: true) but pins the source's live-turn value (false) so
+    // the prompt byte-matches the source's cached prefix.
+    expect(
+      buildSystemPrompt({
+        hasNoClient: true,
+        personaOverride: { hasNoClient: false },
+      }),
+    ).toContain(WITH_CLIENT_MARKER);
+    // And the pin wins in the other direction too.
+    expect(
+      buildSystemPrompt({
+        hasNoClient: false,
+        personaOverride: { hasNoClient: true },
+      }),
+    ).not.toContain(WITH_CLIENT_MARKER);
+  });
+
+  test("a personaOverride without the pin leaves the conversation-derived flag untouched", () => {
+    expect(
+      buildSystemPrompt({ hasNoClient: true, personaOverride: {} }),
+    ).not.toContain(WITH_CLIENT_MARKER);
+    expect(
+      buildSystemPrompt({ hasNoClient: false, personaOverride: {} }),
+    ).toContain(WITH_CLIENT_MARKER);
+  });
+});
+
 describe("maybeReseedBootstrap — content-automation template", () => {
   const templatesDir = join(import.meta.dirname!, "..", "templates");
 

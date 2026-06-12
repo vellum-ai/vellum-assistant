@@ -16,7 +16,7 @@ import path from "node:path";
 import log from "./logger";
 
 // Auto-stamped by create-release-branch workflow.
-export const PINNED_CLI_VERSION = "0.8.11";
+export const PINNED_CLI_VERSION = "0.8.12";
 
 /** Directory where the pinned CLI version is installed. */
 export function getCliInstallDir(): string {
