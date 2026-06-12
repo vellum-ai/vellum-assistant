@@ -146,6 +146,8 @@ function makeContentsFetch(opts: {
 function fakeGitRunner(opts: {
   tree: Record<string, string | null>;
   commit?: string;
+  /** UNIX committer seconds reported by `git show -s --format=%ct HEAD`. */
+  committedAtSeconds?: number;
   calls?: string[][];
   fetchError?: Error;
 }): GitRunner {
@@ -170,6 +172,13 @@ function fakeGitRunner(opts: {
       }
       case "rev-parse":
         return { stdout: `${commit}\n` };
+      case "show":
+        return {
+          stdout:
+            opts.committedAtSeconds === undefined
+              ? ""
+              : `${opts.committedAtSeconds}\n`,
+        };
       default:
         return { stdout: "" };
     }
@@ -338,6 +347,10 @@ describe("installPlugin — marketplace resolution", () => {
         ".claude-plugin/plugin.json": "{}",
       },
       commit: "63a91ecadbf4c4719a4602a5abb00883f9966034",
+      // 2026-06-05T08:12:24Z as UNIX seconds, so the install captures it.
+      committedAtSeconds: Math.floor(
+        Date.parse("2026-06-05T08:12:24.000Z") / 1000,
+      ),
       calls,
     });
 
@@ -354,6 +367,8 @@ describe("installPlugin — marketplace resolution", () => {
     expect(result.target).toBe(target);
     expect(result.ref).toBe("63a91ecadbf4c4719a4602a5abb00883f9966034");
     expect(result.commit).toBe("63a91ecadbf4c4719a4602a5abb00883f9966034");
+    // AND the commit's committer date is captured as an ISO-8601 UTC string
+    expect(result.committedAt).toBe("2026-06-05T08:12:24.000Z");
     expect(result.fileCount).toBe(3);
     expect(readFileSync(join(target, "package.json"), "utf-8")).toBe(
       '{"name":"caveman"}',

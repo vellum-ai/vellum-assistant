@@ -81,8 +81,18 @@ export interface PluginUpgradeResult {
   readonly outcome: PluginUpgradeOutcome;
   /** Installed commit before the upgrade; `null` when no provenance was recorded. */
   readonly fromCommit: string | null;
+  /**
+   * ISO-8601 committer timestamp (UTC) of {@link PluginUpgradeResult.fromCommit},
+   * the human-readable version moved from; `null` when it was not recorded.
+   */
+  readonly fromTimestamp: string | null;
   /** Marketplace-pinned commit the install was (or would be) moved to. */
   readonly toCommit: string;
+  /**
+   * ISO-8601 committer timestamp (UTC) of {@link PluginUpgradeResult.toCommit},
+   * the human-readable version moved to; `null` when it could not be resolved.
+   */
+  readonly toTimestamp: string | null;
   /** Absolute path to the installed plugin directory. */
   readonly target: string;
   /** Files materialized by the upgrade; `null` for a no-op or dry run. */
@@ -173,7 +183,9 @@ export async function upgradePlugin(
   }
 
   const fromCommit = local.commit;
+  const fromTimestamp = local.committedAt;
   const toCommit = remote.commit;
+  const toTimestamp = remote.committedAt;
   const provenanceWasUnknown = inspection.status === "unknown-provenance";
 
   if (inspection.status === "up-to-date") {
@@ -181,7 +193,9 @@ export async function upgradePlugin(
       name,
       outcome: "already-up-to-date",
       fromCommit,
+      fromTimestamp,
       toCommit,
+      toTimestamp,
       target: local.target,
       fileCount: null,
       dryRun,
@@ -194,7 +208,9 @@ export async function upgradePlugin(
       name,
       outcome: "would-upgrade",
       fromCommit,
+      fromTimestamp,
       toCommit,
+      toTimestamp,
       target: local.target,
       fileCount: null,
       dryRun: true,
@@ -216,7 +232,9 @@ export async function upgradePlugin(
     name,
     outcome: "upgraded",
     fromCommit,
+    fromTimestamp,
     toCommit: result.commit ?? toCommit,
+    toTimestamp: result.committedAt ?? toTimestamp,
     target: result.target,
     fileCount: result.fileCount,
     dryRun: false,

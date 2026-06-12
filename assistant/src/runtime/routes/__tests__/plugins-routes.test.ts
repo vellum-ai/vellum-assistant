@@ -811,6 +811,7 @@ describe("POST /v1/plugins/install", () => {
       fileCount: 7,
       ref: opts.ref ?? "main",
       commit: null,
+      committedAt: null,
     }));
 
     const result = await invokeInstall({
@@ -842,6 +843,7 @@ describe("POST /v1/plugins/install", () => {
       fileCount: 7,
       ref: opts.ref ?? "main",
       commit: null,
+      committedAt: null,
     }));
 
     const result = await invokeInstall({
@@ -940,6 +942,7 @@ function inspection(
         ? {
             target: "/workspace/.vellum/plugins/level-up",
             commit: "60a392b0000000000000000000000000000000aa",
+            committedAt: "2026-06-01T12:34:56.000Z",
             version: "0.1.0",
             description: "Surfaces a Level Up diff card.",
             installedAt: "2026-06-08T00:00:00.000Z",
@@ -964,6 +967,7 @@ function inspection(
             repo: "vellum-ai/level-up",
             path: "",
             commit: "3eae1820000000000000000000000000000000bb",
+            committedAt: "2026-06-05T08:12:24.000Z",
             description: "Surfaces a Level Up diff card.",
             homepage: "https://github.com/vellum-ai/level-up",
             license: "MIT",
@@ -1064,7 +1068,15 @@ function upgradeResult(
       overrides.fromCommit === undefined
         ? "60a392b0000000000000000000000000000000aa"
         : overrides.fromCommit,
+    fromTimestamp:
+      overrides.fromTimestamp === undefined
+        ? "2026-06-01T12:34:56.000Z"
+        : overrides.fromTimestamp,
     toCommit: overrides.toCommit ?? "3eae1820000000000000000000000000000000bb",
+    toTimestamp:
+      overrides.toTimestamp === undefined
+        ? "2026-06-05T08:12:24.000Z"
+        : overrides.toTimestamp,
     target: overrides.target ?? "/workspace/.vellum/plugins/level-up",
     fileCount: overrides.fileCount === undefined ? 12 : overrides.fileCount,
     dryRun: overrides.dryRun ?? false,
@@ -1076,7 +1088,9 @@ async function invokeUpgrade(args: RouteHandlerArgs = {}): Promise<{
   name: string;
   outcome: string;
   fromCommit: string | null;
+  fromTimestamp: string | null;
   toCommit: string;
+  toTimestamp: string | null;
   target: string;
   fileCount: number | null;
   dryRun: boolean;
@@ -1086,7 +1100,9 @@ async function invokeUpgrade(args: RouteHandlerArgs = {}): Promise<{
     name: string;
     outcome: string;
     fromCommit: string | null;
+    fromTimestamp: string | null;
     toCommit: string;
+    toTimestamp: string | null;
     target: string;
     fileCount: number | null;
     dryRun: boolean;
@@ -1114,7 +1130,9 @@ describe("POST /v1/plugins/:name/upgrade", () => {
       name: "level-up",
       outcome: "upgraded",
       fromCommit: "60a392b0000000000000000000000000000000aa",
+      fromTimestamp: "2026-06-01T12:34:56.000Z",
       toCommit: "3eae1820000000000000000000000000000000bb",
+      toTimestamp: "2026-06-05T08:12:24.000Z",
       target: "/workspace/.vellum/plugins/level-up",
       fileCount: 12,
       dryRun: false,
