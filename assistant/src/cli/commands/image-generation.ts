@@ -66,7 +66,7 @@ Modes:
   managed    — Uses platform-managed credentials (requires login to Vellum).
   your-own   — Uses your own Gemini or OpenAI API key depending on the configured model.
 
-Supported models: pass a tier alias, the daemon resolves it to the
+Supported models: pass a tier alias, the assistant resolves it to the
 current model for that tier.
   fast     (default) quickest, good quality
   quality  higher fidelity, slower

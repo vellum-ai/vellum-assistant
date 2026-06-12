@@ -47,7 +47,7 @@ export async function run(
   });
   if (!credentials) {
     return {
-      content: `${errorHint ?? "Image generation is not configured."}\n\nReport this error to the user. Do not change service configuration (mode, provider, or model) to try to fix it.`,
+      content: `${errorHint ?? "Image generation is not configured."}\n\nReport this error to the user as-is. Do not change service configuration (managed/your-own mode or default provider/model settings) to try to fix it.`,
       isError: true,
     };
   }
@@ -150,7 +150,7 @@ export async function run(
     // Echo the model that failed so callers (including the skill's retry
     // branch) can key off the error text instead of remembering their input.
     return {
-      content: `${mapImageGenError(provider, error)}\n\nFailed model: ${model}\n\nReport this error to the user. Do not change service configuration (mode, provider, or model) to try to fix it.`,
+      content: `${mapImageGenError(provider, error)}\n\nFailed model: ${model}\n\nDo not change service configuration (managed/your-own mode or default provider/model settings) to try to fix it. Retrying this call once with a different model parameter is allowed; follow the skill's error handling instructions.`,
       isError: true,
     };
   }
