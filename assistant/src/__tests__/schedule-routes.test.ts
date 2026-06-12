@@ -1156,7 +1156,7 @@ describe("POST /schedules — create", () => {
     expect(job.description).toBe("Description fallback");
   });
 
-  test("rejects non-execute modes", () => {
+  test("rejects modes other than execute/workflow", () => {
     expect(() =>
       postCreate({
         name: "x",
@@ -1165,7 +1165,37 @@ describe("POST /schedules — create", () => {
         message: "hi",
         mode: "notify",
       }),
-    ).toThrow("Only 'execute' mode is supported");
+    ).toThrow("Only 'execute' and 'workflow' modes are supported");
+  });
+
+  test("rejects workflow-mode creation when the workflows flag is off", () => {
+    // The mocked getConfig returns no feature flags, so `workflows` is off.
+    expect(() =>
+      postCreate({
+        name: "Triage",
+        description: "Triage the inbox every morning",
+        expression: "0 9 * * *",
+        message: "triage inbox",
+        mode: "workflow",
+        workflowName: "triage-inbox",
+      }),
+    ).toThrow("Workflows are not enabled");
+  });
+
+  test("rejects PATCH switching to workflow mode when the flag is off", () => {
+    const schedule = createSchedule({
+      name: "Plain execute",
+      cronExpression: "0 9 * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+    const patch = findRoute("schedules/:id", "PATCH");
+    expect(() =>
+      patch.handler({
+        pathParams: { id: schedule.id },
+        body: { mode: "workflow", workflowName: "triage-inbox" },
+      }),
+    ).toThrow("Workflows are not enabled");
   });
 
   test("rejects an unparseable expression", () => {
@@ -1188,6 +1218,38 @@ describe("POST /schedules — create", () => {
         message: "hi",
       }),
     ).toThrow();
+  });
+
+  test("persists and round-trips workflowName/workflowArgs in the list response", () => {
+    // Store-level round trip: the create route is flag-gated (and the mocked
+    // config disables it), so exercise persistence directly via the store.
+    createSchedule({
+      name: "Workflow schedule",
+      cronExpression: "0 9 * * *",
+      message: "trigger",
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "triage-inbox",
+      workflowArgs: { folder: "primary", limit: 10 },
+    });
+
+    const route = findRoute("schedules", "GET");
+    const result = route.handler({}) as {
+      schedules: Array<{
+        name: string;
+        mode: string;
+        workflowName: string | null;
+      }>;
+    };
+    const job = result.schedules.find((s) => s.name === "Workflow schedule");
+    expect(job).toBeDefined();
+    expect(job!.mode).toBe("workflow");
+    expect(job!.workflowName).toBe("triage-inbox");
+
+    // workflowArgs is not in the list projection; assert it round-trips at the
+    // store layer (this is what the scheduler reads).
+    const stored = listSchedules().find((s) => s.name === "Workflow schedule")!;
+    expect(stored.workflowArgs).toEqual({ folder: "primary", limit: 10 });
   });
 
   test("respects enabled=false", () => {

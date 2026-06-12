@@ -44,6 +44,22 @@ mock.module("../runtime/background-job-runner.js", () => ({
   },
 }));
 
+// Capture workflow-mode dispatch. The scheduler's `workflow` branch calls
+// `getWorkflowRunManager().start(...)`; we stub the singleton so each trigger
+// is observable without spinning up the real engine.
+const workflowStartCalls: Array<Record<string, unknown>> = [];
+let workflowStartImpl: (opts: Record<string, unknown>) => { runId: string } = (
+  opts,
+) => {
+  workflowStartCalls.push(opts);
+  return { runId: "wf-run-1" };
+};
+mock.module("../workflows/run-manager.js", () => ({
+  getWorkflowRunManager: () => ({
+    start: (opts: Record<string, unknown>) => workflowStartImpl(opts),
+  }),
+}));
+
 // Capture `emitNotificationSignal` calls so tests can assert that scheduled
 // task failures surface via the notification pipeline (home feed + native).
 const emitNotificationCalls: Array<Record<string, unknown>> = [];
@@ -458,5 +474,117 @@ describe("scheduler run_task detection", () => {
       totalEstimatedCostUsd: 0.1,
       eventCount: 1,
     });
+  });
+});
+
+// ── Workflow mode dispatch ──────────────────────────────────────────
+
+describe("scheduler workflow mode", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run("DELETE FROM cron_runs");
+    db.run("DELETE FROM cron_jobs");
+    workflowStartCalls.length = 0;
+    workflowStartImpl = (opts) => {
+      workflowStartCalls.push(opts);
+      return { runId: "wf-run-1" };
+    };
+  });
+
+  test("a due workflow-mode job triggers the run manager with name/args", async () => {
+    const schedule = createSchedule({
+      name: "Triage inbox",
+      cronExpression: "0 9 * * *",
+      message: "triage",
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "triage-inbox",
+      workflowArgs: { folder: "primary" },
+      wakeConversationId: "conv-origin",
+    });
+    forceScheduleDue(schedule.id);
+
+    const result = await runScheduleDueWorkOnce(
+      async () => {},
+      () => {},
+    );
+
+    expect(result.completed).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(workflowStartCalls).toHaveLength(1);
+    expect(workflowStartCalls[0]).toMatchObject({
+      name: "triage-inbox",
+      args: { folder: "primary" },
+      conversationId: "conv-origin",
+      manifest: { tools: [], hostFunctions: [], persona: false },
+    });
+
+    const runs = getScheduleRuns(schedule.id);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].status).toBe("ok");
+  });
+
+  test("defaults workflowArgs to {} when unset", async () => {
+    const schedule = createSchedule({
+      name: "No-args workflow",
+      cronExpression: "0 9 * * *",
+      message: "go",
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "nightly",
+    });
+    forceScheduleDue(schedule.id);
+
+    await runScheduleDueWorkOnce(
+      async () => {},
+      () => {},
+    );
+
+    expect(workflowStartCalls).toHaveLength(1);
+    expect(workflowStartCalls[0].args).toEqual({});
+  });
+
+  test("records an error and skips when start() throws", async () => {
+    workflowStartImpl = () => {
+      throw new Error("workflows disabled");
+    };
+    const schedule = createSchedule({
+      name: "Failing workflow",
+      cronExpression: "0 9 * * *",
+      message: "go",
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "broken",
+    });
+    forceScheduleDue(schedule.id);
+
+    const result = await runScheduleDueWorkOnce(
+      async () => {},
+      () => {},
+    );
+
+    expect(result.failed).toBe(1);
+    const runs = getScheduleRuns(schedule.id);
+    expect(runs[0].status).toBe("error");
+    expect(runs[0].error).toContain("workflows disabled");
+  });
+
+  test("skips a workflow-mode job with no workflowName", async () => {
+    const schedule = createSchedule({
+      name: "Nameless workflow",
+      cronExpression: "0 9 * * *",
+      message: "go",
+      syntax: "cron",
+      mode: "workflow",
+    });
+    forceScheduleDue(schedule.id);
+
+    const result = await runScheduleDueWorkOnce(
+      async () => {},
+      () => {},
+    );
+
+    expect(result.skipped).toBe(1);
+    expect(workflowStartCalls).toHaveLength(0);
   });
 });

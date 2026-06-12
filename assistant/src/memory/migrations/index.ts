@@ -273,6 +273,7 @@ export { migrateToolInvocationsTelemetryColumns } from "./278-tool-invocations-t
 export { createSkillLoadedEventsTable } from "./279-create-skill-loaded-events.js";
 export { migrateConversationsSurfacedAt } from "./280-conversations-surfaced-at.js";
 export { migrateWorkflowRuns } from "./281-workflow-runs.js";
+export { migrateScheduleWorkflowMode } from "./282-schedule-workflow-mode.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

@@ -7,6 +7,8 @@
 
 import { z } from "zod";
 
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
+import { getConfig } from "../../config/loader.js";
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
 import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
@@ -71,11 +73,12 @@ const scheduleSchema = z.object({
   createdFromConversationArchivedAt: z.number().nullable(),
   description: z.string(),
   cadenceDescription: z.string(),
-  mode: z.enum(["notify", "execute", "script", "wake"]),
+  mode: z.enum(["notify", "execute", "script", "wake", "workflow"]),
   status: z.enum(["active", "firing", "fired", "cancelled"]),
   routingIntent: z.enum(["single_channel", "multi_channel", "all_channels"]),
   reuseConversation: z.boolean(),
   wakeConversationId: z.string().nullable(),
+  workflowName: z.string().nullable(),
   isOneShot: z.boolean(),
 });
 
@@ -199,6 +202,7 @@ function handleListSchedules(queryParams: Record<string, string>) {
         routingIntent: j.routingIntent,
         reuseConversation: j.reuseConversation,
         wakeConversationId: j.wakeConversationId,
+        workflowName: j.workflowName,
         isOneShot: isOneShotForDisplay(j),
       };
     }),
@@ -229,11 +233,12 @@ function handleCreateSchedule(body: Record<string, unknown>) {
     throw new BadRequestError("description is required");
   }
 
-  // The settings UI only exposes execute mode for now. Other modes
-  // remain reachable via the schedule_create LLM tool.
-  if (mode !== "execute") {
+  // The settings UI only exposes execute mode; `workflow` mode is reachable
+  // here (flag-gated) and via the schedule_create LLM tool. All other modes
+  // remain tool-only.
+  if (mode !== "execute" && mode !== "workflow") {
     throw new BadRequestError(
-      "Only 'execute' mode is supported by this endpoint",
+      "Only 'execute' and 'workflow' modes are supported by this endpoint",
     );
   }
 
@@ -242,6 +247,39 @@ function handleCreateSchedule(body: Record<string, unknown>) {
     throw new BadRequestError(
       "expression could not be parsed as cron or rrule",
     );
+  }
+
+  if (mode === "workflow") {
+    assertWorkflowsEnabled();
+    const workflowName =
+      typeof body.workflowName === "string" ? body.workflowName.trim() : "";
+    if (!workflowName) {
+      throw new BadRequestError(
+        "workflowName is required for workflow-mode schedules",
+      );
+    }
+    try {
+      const job = createSchedule({
+        name,
+        description,
+        message,
+        mode: "workflow",
+        workflowName,
+        workflowArgs: body.workflowArgs,
+        enabled,
+        timezone,
+        expression: normalized.expression,
+        syntax: normalized.syntax,
+      });
+      log.info(
+        { id: job.id, name: job.name, workflowName },
+        "Workflow schedule created",
+      );
+    } catch (err) {
+      if (err instanceof Error) throw new BadRequestError(err.message);
+      throw err;
+    }
+    return handleListSchedules({});
   }
 
   try {
@@ -261,6 +299,17 @@ function handleCreateSchedule(body: Record<string, unknown>) {
     throw err;
   }
   return handleListSchedules({});
+}
+
+/**
+ * Reject workflow-mode schedule operations when the `workflows` feature flag
+ * is off. Scheduled workflow runs would fail at trigger time (the run manager
+ * hard-fails with WorkflowsDisabledError), so we fail fast at the route.
+ */
+function assertWorkflowsEnabled(): void {
+  if (!isAssistantFeatureFlagEnabled("workflows", getConfig())) {
+    throw new BadRequestError("Workflows are not enabled.");
+  }
 }
 
 function handleToggleSchedule(id: string, body: Record<string, unknown>) {
@@ -295,7 +344,13 @@ function handleCancelSchedule(id: string) {
   return handleListSchedules({});
 }
 
-const VALID_MODES = ["notify", "execute", "script", "wake"] as const;
+const VALID_MODES = [
+  "notify",
+  "execute",
+  "script",
+  "wake",
+  "workflow",
+] as const;
 const VALID_ROUTING_INTENTS = [
   "single_channel",
   "multi_channel",
@@ -322,6 +377,11 @@ function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
     );
   }
 
+  // Switching a schedule into workflow mode requires the workflows flag.
+  if (body.mode === "workflow") {
+    assertWorkflowsEnabled();
+  }
+
   const updates: Record<string, unknown> = {};
   for (const key of [
     "name",
@@ -334,6 +394,8 @@ function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
     "quiet",
     "reuseConversation",
     "wakeConversationId",
+    "workflowName",
+    "workflowArgs",
     "maxRetries",
     "retryBackoffMs",
     "timeoutMs",
@@ -525,7 +587,18 @@ export const ROUTES: RouteDefinition[] = [
         .boolean()
         .describe("Whether the schedule starts active (default true)")
         .optional(),
-      mode: z.string().describe("Currently must be 'execute'").optional(),
+      mode: z
+        .string()
+        .describe("'execute' (default) or 'workflow' (flag-gated)")
+        .optional(),
+      workflowName: z
+        .string()
+        .describe("Saved workflow to trigger (required for workflow mode)")
+        .optional(),
+      workflowArgs: z
+        .unknown()
+        .describe("Args passed to the workflow run (workflow mode)")
+        .optional(),
     }),
     responseBody: z.object({
       schedules: z.array(scheduleSchema).describe("Updated schedule list"),
@@ -615,7 +688,19 @@ export const ROUTES: RouteDefinition[] = [
         .nullable()
         .describe("Shell command for script mode")
         .optional(),
-      mode: z.string().describe("notify, execute, or script").optional(),
+      mode: z
+        .string()
+        .describe("notify, execute, script, wake, or workflow")
+        .optional(),
+      workflowName: z
+        .string()
+        .nullable()
+        .describe("Saved workflow to trigger (workflow mode)")
+        .optional(),
+      workflowArgs: z
+        .unknown()
+        .describe("Args passed to the workflow run (workflow mode)")
+        .optional(),
       routingIntent: z
         .string()
         .describe("single_channel, multi_channel, or all_channels")
