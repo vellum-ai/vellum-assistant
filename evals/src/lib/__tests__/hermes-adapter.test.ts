@@ -3,14 +3,15 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "bun:test";
 
-import type { AgentEvent } from "../adapter";
 import {
   HermesAgent,
   DEFAULT_HERMES_IMAGE,
   EXEC_PATH,
-  normalizeHermesEventStream,
+  HERMES_TRANSCRIPT_EVENT_TYPE,
   selectProviderEnvFlags,
+  synthesizeHermesTurnEvent,
 } from "../adapters/hermes";
+import { AgentEventCollector } from "../runner/event-collector";
 import {
   HERMES_EVAL_SESSION_SOURCE,
   HERMES_STATE_DB_PATH,
@@ -33,7 +34,10 @@ function lines(values: string[]): AsyncIterable<string> {
 class FakeProcess implements SpawnedProcess {
   pid = 456;
   killed = false;
-  stdout = lines(['{"message":{"type":"assistant_text_delta","text":"hi"}}\n']);
+  // Hermes turns are single-shot: there is no live event subprocess to
+  // spawn, so nothing consumes this stream. Kept only to satisfy the
+  // CommandRunner interface for the unrelated egress-jail plumbing.
+  stdout = lines([]);
   stderr = lines([]);
 
   async wait(): Promise<number> {
@@ -64,10 +68,22 @@ class FakeRunner implements CommandRunner {
     // assertSuccess sees a clean exit and the seed helper's stdout
     // assertions stay realistic.
     const isSeed = args[0] === "exec" && args.includes("python3");
-    const stdout = isSeed
-      ? '{"session_id": "evals_timeline-recall_eval-hermes-seed", "messages": 2}\n'
-      : "ok";
-    return { exitCode: 0, stdout, stderr: "" };
+    if (isSeed) {
+      return {
+        exitCode: 0,
+        stdout:
+          '{"session_id": "evals_timeline-recall_eval-hermes-seed", "messages": 2}\n',
+        stderr: "",
+      };
+    }
+    // A `hermes -z "<prompt>"` send prints only the final assistant text.
+    // Echo the prompt (with a trailing newline the real CLI appends) so
+    // turn-event synthesis and trailing-whitespace trimming are exercised.
+    const zIdx = args.indexOf("-z");
+    if (zIdx !== -1) {
+      return { exitCode: 0, stdout: `reply: ${args[zIdx + 1]}\n`, stderr: "" };
+    }
+    return { exitCode: 0, stdout: "ok", stderr: "" };
   }
 
   spawn(command: string, args: string[]): SpawnedProcess {
@@ -162,27 +178,35 @@ describe("HermesAgent", () => {
     ]);
     expect(runner.spawns).toEqual([]);
 
-    const events = [];
-    for await (const event of agent.events()) events.push(event);
-    expect(runner.spawns).toEqual([
-      {
-        command: "docker",
-        args: [
-          "exec",
-          "--env",
-          `PATH=${EXEC_PATH}`,
-          "eval-hermes-1-hermes",
-          "hermes",
-          "events",
-          "--conversation-key",
-          "evals:timeline-recall:eval-hermes-1",
-          "--json",
-        ],
-      },
-    ]);
+    // Driving a turn: `send` runs one `hermes -z` and the synthesized
+    // transcript event surfaces on the `events()` stream — no live event
+    // subprocess is ever spawned.
+    const collector = new AgentEventCollector(
+      agent.events()[Symbol.asyncIterator](),
+    );
+    await agent.send({ content: "hello hermes" });
+    const events = await collector.collectUntilQuiet({ quietMs: 5, maxMs: 50 });
+    expect(runner.spawns).toEqual([]);
     expect(events).toEqual([
-      { message: { type: "assistant_text_delta", text: "hi" } },
+      { message: { type: "message_chunk", chunk: "reply: hello hermes" } },
     ]);
+
+    // The send invoked `hermes -z "<prompt>"` as the unprivileged gateway
+    // user so memory writes stay gateway-owned.
+    expect(runner.runs.at(-1)).toMatchObject({
+      command: "docker",
+      args: [
+        "exec",
+        "--user",
+        "hermes",
+        "--env",
+        `PATH=${EXEC_PATH}`,
+        "eval-hermes-1-hermes",
+        "hermes",
+        "-z",
+        "hello hermes",
+      ],
+    });
   });
 
   test("honors a custom docker image, daemon args, and in-container CLI command", async () => {
@@ -213,13 +237,13 @@ describe("HermesAgent", () => {
     expect(calls.at(-1)).toEqual([
       "docker",
       "exec",
+      "--user",
+      "hermes",
       "--env",
       `PATH=${EXEC_PATH}`,
       "eval-hermes-custom-hermes",
       "hermesctl",
-      "message",
-      "--conversation-key",
-      "evals:timeline-recall:eval-hermes-custom",
+      "-z",
       "hello hermes",
     ]);
   });
@@ -306,13 +330,13 @@ describe("HermesAgent", () => {
       "evals_timeline-recall_eval-hermes-seed",
     );
 
-    // No `hermes message ...` was issued — seeding does not invoke the
-    // model.
+    // No `hermes -z ...` was issued — seeding writes history directly and
+    // never invokes the model.
     const sendCalls = runner.runs.filter(
       (r) =>
         r.command === "docker" &&
         r.args.includes("exec") &&
-        r.args.includes("message"),
+        r.args.includes("-z"),
     );
     expect(sendCalls).toEqual([]);
   });
@@ -399,23 +423,25 @@ describe("HermesAgent", () => {
     await agent.send({ content: "hello" });
     await agent.shutdown();
 
+    // The send is one `hermes -z` exec; shutdown then retires the jail and
+    // the container. No event subprocess is spawned to kill.
     expect(runner.runs.map((r) => [r.command, ...r.args]).slice(-3)).toEqual([
       [
         "docker",
         "exec",
+        "--user",
+        "hermes",
         "--env",
         `PATH=${EXEC_PATH}`,
         "eval-hermes-2-hermes",
         "hermes",
-        "message",
-        "--conversation-key",
-        "evals:timeline-recall:eval-hermes-2",
+        "-z",
         "hello",
       ],
       ["docker", "rm", "-f", "eval-hermes-2-hermes-egress-jail"],
       ["docker", "rm", "-f", "eval-hermes-2-hermes"],
     ]);
-    expect(runner.process.killed).toBe(true);
+    expect(runner.spawns).toEqual([]);
   });
 
   test("does not retire the container if hatch fails before container creation succeeds", async () => {
@@ -552,89 +578,86 @@ describe("HermesAgent", () => {
   });
 });
 
-async function collectHermesEvents(
-  src: AsyncIterable<AgentEvent>,
-): Promise<AgentEvent[]> {
-  const out: AgentEvent[] = [];
-  for await (const event of src) out.push(event);
-  return out;
-}
+describe("synthesizeHermesTurnEvent", () => {
+  test("maps one-shot stdout to a single message_chunk transcript event", () => {
+    expect(synthesizeHermesTurnEvent("the answer is March 14")).toEqual({
+      message: {
+        type: HERMES_TRANSCRIPT_EVENT_TYPE,
+        chunk: "the answer is March 14",
+      },
+    });
+  });
 
-function hermesEventSource(events: AgentEvent[]): AsyncIterable<AgentEvent> {
-  return (async function* () {
-    for (const event of events) yield event;
-  })();
-}
+  test("trims the trailing newline the CLI appends without touching inner text", () => {
+    expect(
+      synthesizeHermesTurnEvent("line one\nline two\n\n").message.chunk,
+    ).toBe("line one\nline two");
+  });
 
-describe("normalizeHermesEventStream", () => {
-  test("passes through message_chunk events unchanged (the Hermes transcript event)", async () => {
-    const out = await collectHermesEvents(
-      normalizeHermesEventStream(
-        hermesEventSource([
-          { message: { type: "message_chunk", chunk: "hi from hermes" } },
-          { message: { type: "message_chunk", chunk: " more text" } },
-        ]),
-      ),
+  test("still produces an event for an empty answer so the turn isn't read as a dead stream", () => {
+    expect(synthesizeHermesTurnEvent("").message.chunk).toBe("");
+  });
+});
+
+describe("HermesAgent single-shot event synthesis", () => {
+  test("each send pushes exactly one turn event onto a reused subscription (multi-turn)", async () => {
+    // GIVEN a hatched agent with a single events() subscription, mirroring
+    // the simulator runner which subscribes once and drains per turn.
+    const runner = new FakeRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "timeline-recall",
+      runId: "eval-hermes-multiturn",
+      processEnv: {},
+    });
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+    const collector = new AgentEventCollector(
+      agent.events()[Symbol.asyncIterator](),
     );
-    expect(out).toEqual([
-      { message: { type: "message_chunk", chunk: "hi from hermes" } },
-      { message: { type: "message_chunk", chunk: " more text" } },
+
+    // WHEN two turns are sent through the same subscription.
+    await agent.send({ content: "first" });
+    const turn1 = await collector.collectUntilQuiet({ quietMs: 5, maxMs: 50 });
+    await agent.send({ content: "second" });
+    const turn2 = await collector.collectUntilQuiet({ quietMs: 5, maxMs: 50 });
+
+    // THEN each turn surfaces exactly its own one-shot answer — the
+    // subscription stays live across turns and never bleeds turn 1 into
+    // turn 2.
+    expect(turn1).toEqual([
+      { message: { type: "message_chunk", chunk: "reply: first" } },
     ]);
-  });
-
-  test("passes through assistant_text_delta events unchanged (forward-compat with Vellum-style names)", async () => {
-    const out = await collectHermesEvents(
-      normalizeHermesEventStream(
-        hermesEventSource([
-          { message: { type: "assistant_text_delta", text: "hello" } },
-        ]),
-      ),
-    );
-    expect(out).toEqual([
-      { message: { type: "assistant_text_delta", text: "hello" } },
+    expect(turn2).toEqual([
+      { message: { type: "message_chunk", chunk: "reply: second" } },
     ]);
+
+    // AND every turn is a `hermes -z` one-shot — no live event subprocess.
+    const sends = runner.runs.filter((r) => r.args.includes("-z"));
+    expect(sends).toHaveLength(2);
+    expect(runner.spawns).toEqual([]);
   });
 
-  test("strips text on user_message_echo events", async () => {
-    // Same echo-guard contract as Vellum. If a Hermes build ever
-    // broadcasts a user-echo with `text`, the runner must not read it
-    // as transcript.
-    const out = await collectHermesEvents(
-      normalizeHermesEventStream(
-        hermesEventSource([
-          {
-            message: {
-              type: "user_message_echo",
-              text: "user's outbound text",
-            },
-          },
-        ]),
-      ),
-    );
-    expect(out).toHaveLength(1);
-    expect(out[0]?.message.type).toBe("user_message_echo");
-    expect(out[0]?.message.text).toBeUndefined();
-    expect(out[0]?.message.chunk).toBeUndefined();
-  });
+  test("a parked subscription unblocks at shutdown instead of hanging", async () => {
+    // GIVEN a subscription with no buffered events (no send yet).
+    const runner = new FakeRunner();
+    const agent = new HermesAgent({
+      runner,
+      profile,
+      testId: "timeline-recall",
+      runId: "eval-hermes-drain-eof",
+      processEnv: {},
+    });
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+    const iterator = agent.events()[Symbol.asyncIterator]();
+    const pending = iterator.next();
 
-  test("strips text/chunk on tool, thinking, error, complete events but preserves them on the stream", async () => {
-    const out = await collectHermesEvents(
-      normalizeHermesEventStream(
-        hermesEventSource([
-          { message: { type: "tool_use_start", toolName: "shell" } },
-          { message: { type: "tool_output_chunk", chunk: "file.txt" } },
-          { message: { type: "assistant_thinking_delta", thinking: "hmm" } },
-          { message: { type: "error", message: "boom" } },
-          { message: { type: "message_complete" } },
-        ]),
-      ),
-    );
-    expect(out).toHaveLength(5);
-    for (const event of out) {
-      expect(event.message.text).toBeUndefined();
-      expect(event.message.chunk).toBeUndefined();
-    }
-    expect(out[0]?.message.toolName).toBe("shell");
-    expect(out[2]?.message.thinking).toBe("hmm");
+    // WHEN the agent shuts down while a consumer is parked on next().
+    await agent.shutdown();
+
+    // THEN the parked consumer resolves as done rather than hanging.
+    await expect(pending).resolves.toEqual({ value: undefined, done: true });
   });
 });
