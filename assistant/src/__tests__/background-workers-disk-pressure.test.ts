@@ -158,6 +158,9 @@ mock.module("../memory/conversation-crud.js", () => ({
 
 mock.module("../memory/conversation-title-service.js", () => ({
   GENERATING_TITLE: "Generating title...",
+  AUTO_TITLE_DETERMINISTIC: 2,
+  deriveDeterministicTitle: (context: { systemHint?: string }) =>
+    context.systemHint ?? "Untitled Conversation",
   isReplaceableTitle: () => true,
   queueGenerateConversationTitle: () => {},
   queueRegenerateConversationTitle: () => {},

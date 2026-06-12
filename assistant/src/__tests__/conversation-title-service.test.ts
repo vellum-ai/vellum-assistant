@@ -59,6 +59,7 @@ mock.module("../runtime/sync/resource-sync-events.js", () => ({
 }));
 
 import {
+  AUTO_TITLE_DETERMINISTIC,
   generateAndPersistConversationTitle,
   queueGenerateConversationTitle,
   regenerateConversationTitle,
@@ -260,7 +261,7 @@ describe("conversation-title-service", () => {
     expect(mockUpdateConversationTitle).toHaveBeenCalledWith(
       "conv-1",
       "Untitled Conversation",
-      1,
+      AUTO_TITLE_DETERMINISTIC,
     );
   });
 

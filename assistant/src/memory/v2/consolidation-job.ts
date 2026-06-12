@@ -225,6 +225,7 @@ export async function memoryV2ConsolidateJob(
       jobName: JOB_NAME,
       source: MEMORY_V2_CONSOLIDATION_SOURCE,
       prompt,
+      systemHint: "Memory consolidation",
       trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
       callSite: "memoryV2Consolidation",
       timeoutMs: CONSOLIDATION_TIMEOUT_MS,
