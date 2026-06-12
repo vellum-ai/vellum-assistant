@@ -301,14 +301,16 @@ export const memoryV3Injector: Injector = {
       // `produce()` would let a never-attached turn (non-user tail) claim
       // cards in the store, suppressing them until compaction. The valve is
       // scheduled after `recordInjected` so the resident accounting includes
-      // this turn's cards; core/hot lane members are exempt — the selector's
-      // stable prefix must never be pruned out from under it.
+      // this turn's cards; stable-prefix lane members (core/hot/fresh) are
+      // exempt — the selector's stable prefix must never be pruned out from
+      // under it.
       const commit = (): void => {
         recordInjected(ctx.conversationId, entries);
         schedulePruneValve(ctx.conversationId, {
           exemptSlugs: new Set<Slug>([
             ...result.lanes.core,
             ...result.lanes.hot,
+            ...result.lanes.fresh,
           ]),
         });
       };

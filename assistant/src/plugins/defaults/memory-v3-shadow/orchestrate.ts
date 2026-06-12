@@ -10,13 +10,13 @@
  *      Each lane only ever ADDS candidates, so the pool is recall-safe by
  *      construction.
  *   2. Build the candidate pool in CACHE ORDER: the stable prefix —
- *      `[...core (file order), ...hot (score order)]`, both computed at lane
- *      init — followed by the finder candidates (needle → dense → edge
- *      surfacing order). The stable prefix is identical across consecutive
- *      turns while the lanes are unchanged (lane invalidation at consolidation
- *      is the recompute cadence), so the selector input's leading segment
- *      rides the provider KV cache (the cache breakpoint itself lives in
- *      `pool-select.ts`).
+ *      `[...core (file order), ...hot (score order), ...fresh (recency
+ *      order)]`, all computed at lane init — followed by the finder
+ *      candidates (needle → dense → edge surfacing order). The stable prefix
+ *      is identical across consecutive turns while the lanes are unchanged
+ *      (lane invalidation at consolidation is the recompute cadence), so the
+ *      selector input's leading segment rides the provider KV cache (the
+ *      cache breakpoint itself lives in `pool-select.ts`).
  *
  *      Stable-prefix candidates render as FULL CARDS (`renderCard` — head
  *      section + TOC), pre-rendered at lane init (`prefixCards`) so the
@@ -71,10 +71,13 @@ export interface OrchestrateDeps {
   /** The frecency hot set in score order (computed at lane init with the core
    *  set excluded). Follows core in the stable prefix. */
   hotSlugs: Slug[];
+  /** The modification-recency fresh set in recency order (computed at lane
+   *  init with core and hot excluded). Follows hot in the stable prefix. */
+  freshSlugs: Slug[];
   /** Pre-rendered FULL cards for the stable-prefix slugs, keyed by slug.
    *  Rendered ONCE at lane init so the selector's stable prefix is
-   *  byte-identical across turns (the cache contract). Every core/hot slug
-   *  MUST have an entry — a missing card is a lane-init bug and throws
+   *  byte-identical across turns (the cache contract). Every core/hot/fresh
+   *  slug MUST have an entry — a missing card is a lane-init bug and throws
    *  (silently degrading would violate the byte-stable-prefix contract). */
   prefixCards: ReadonlyMap<Slug, string>;
   /** Number of BM25 needle articles. Defaults to {@link DEFAULT_NEEDLE_K}. */
@@ -101,16 +104,19 @@ export interface FinderCandidate {
 }
 
 /**
- * The three candidate lanes in cache order. `core` and `hot` are the stable
- * prefix (byte-identical across turns while lanes are unchanged); `finder` is
- * the dynamic tail and MAY repeat a stable-prefix slug (a finder hit on a
- * core/hot page is kept so its current relevance stays visible downstream).
+ * The candidate lanes in cache order. `core`, `hot`, and `fresh` are the
+ * stable prefix (byte-identical across turns while lanes are unchanged);
+ * `finder` is the dynamic tail and MAY repeat a stable-prefix slug (a finder
+ * hit on a stable-prefix page is kept so its current relevance stays visible
+ * downstream).
  */
 export interface OrchestrateLanes {
   /** Curated core set, file order. */
   core: Slug[];
   /** Frecency hot set, score order (never overlaps core). */
   hot: Slug[];
+  /** Modification-recency fresh set, recency order (never overlaps core/hot). */
+  fresh: Slug[];
   /** Finder candidates in surfacing order, deduped among themselves only. */
   finder: FinderCandidate[];
 }
@@ -144,12 +150,15 @@ export async function orchestrate(
   const denseK = deps.denseK ?? DEFAULT_DENSE_K;
   const { sections } = deps.sectionIndex;
 
-  // The stable prefix: core (file order) then hot (score order). Hot is
-  // computed with core excluded at lane init; the filter here is a cheap
-  // defensive dedup so a misbehaving lane can never double-list a slug.
+  // The stable prefix: core (file order), hot (score order), fresh (recency
+  // order). Hot is computed with core excluded at lane init, fresh with both
+  // excluded; the filters here are a cheap defensive dedup so a misbehaving
+  // lane can never double-list a slug.
   const core = deps.coreSlugs;
   const hot = deps.hotSlugs.filter((slug) => !core.includes(slug));
-  const stablePrefix = new Set<Slug>([...core, ...hot]);
+  const coreHot = new Set<Slug>([...core, ...hot]);
+  const fresh = deps.freshSlugs.filter((slug) => !coreHot.has(slug));
+  const stablePrefix = new Set<Slug>([...coreHot, ...fresh]);
 
   // Step 1: needle (sync BM25) and dense (async embed + Qdrant) lanes run in
   // parallel. Both return distinct articles each tagged with their best-scoring
@@ -246,7 +255,7 @@ export async function orchestrate(
   }
 
   // Step 2: assemble the selector pool in cache order — the stable prefix
-  // (core then hot) as FULL CARDS, then the finder tail. Cards are
+  // (core, hot, fresh) as FULL CARDS, then the finder tail. Cards are
   // pre-rendered at lane init (`prefixCards`): query- AND
   // conversation-state-INDEPENDENT by design, so the rendered prefix is
   // byte-identical across turns while the lanes are unchanged. The tail is
@@ -254,7 +263,7 @@ export async function orchestrate(
   // its own snippet line so its CURRENT relevance stays visible; `selectPool`
   // dedupes selections by slug. Finder candidates with no match text fall
   // back to the page's lead-section snippet.
-  const stable: StableCandidate[] = [...core, ...hot].map((slug) => {
+  const stable: StableCandidate[] = [...core, ...hot, ...fresh].map((slug) => {
     const card = deps.prefixCards.get(slug);
     if (card === undefined) {
       // Lane init renders a card for every core/hot slug; a hole here means
@@ -283,7 +292,7 @@ export async function orchestrate(
   return {
     selections,
     matchedSections,
-    lanes: { core, hot, finder },
+    lanes: { core, hot, fresh, finder },
   };
 }
 

@@ -50,6 +50,7 @@ import { renderCard } from "./card.js";
 import { loadCoreSet } from "./core-set.js";
 import type { EdgeGraph } from "./edge.js";
 import { buildEdgeGraph } from "./edge.js";
+import { computeFreshSet } from "./fresh-set.js";
 import { computeHotSet } from "./hot-set.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import { orchestrate } from "./orchestrate.js";
@@ -92,8 +93,11 @@ export interface ShadowLanes {
   /** Frecency hot set in score order: core excluded, filtered to pages in the
    *  section index. */
   hotSlugs: string[];
-  /** Pre-rendered FULL cards for the stable-prefix (core+hot) slugs, keyed by
-   *  slug. Frozen at lane build so the selector's stable prefix is
+  /** Modification-recency fresh set in recency order: core and hot excluded,
+   *  filtered to pages in the section index. */
+  freshSlugs: string[];
+  /** Pre-rendered FULL cards for the stable-prefix (core+hot+fresh) slugs,
+   *  keyed by slug. Frozen at lane build so the selector's stable prefix is
    *  byte-identical across turns until the next invalidation. */
   prefixCards: Map<Slug, string>;
 }
@@ -189,6 +193,15 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     .map((entry) => entry.slug)
     .filter((slug) => sectionIndex.byArticle.has(slug));
 
+  // Fresh is the modification-recency top-K over the page index with core and
+  // hot excluded (fresh never duplicates the rest of the prefix). Page mtimes
+  // move at consolidation — the same event that invalidates the lanes — so the
+  // set is recomputed exactly when it can have changed.
+  const freshSlugs = computeFreshSet(pageIndex.entries, {
+    k: config.memory.v3.freshSet.k,
+    excludeSlugs: new Set([...coreSlugs, ...hotSlugs]),
+  }).filter((slug) => sectionIndex.byArticle.has(slug));
+
   // Pre-render the stable-prefix cards ONCE per lane build: the selector's
   // stable prefix must be byte-identical across turns to ride the provider KV
   // cache, so the cards are frozen here (lane invalidation at consolidation is
@@ -196,7 +209,7 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   // render their capability content; disk pages render raw (frontmatter +
   // body) so `kind: index` pages surface their `links:` map in the card TOC.
   const prefixCards = new Map<Slug, string>();
-  for (const slug of [...coreSlugs, ...hotSlugs]) {
+  for (const slug of [...coreSlugs, ...hotSlugs, ...freshSlugs]) {
     const raw = await capabilityOrDiskBody(
       slug,
       async (s) => (await loadPage(s))?.raw ?? "",
@@ -230,6 +243,7 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     edgeGraph,
     coreSlugs,
     hotSlugs,
+    freshSlugs,
     prefixCards,
   };
 }
@@ -325,17 +339,18 @@ interface SelectionRow {
 /**
  * Map an orchestrate result onto telemetry rows with per-lane source
  * attribution, by pool position: a selection of a stable-prefix page is
- * attributed `"core"` / `"hot"` (the lane that placed it in the pool), and any
- * other selection is attributed the finder lane that FIRST surfaced it
- * (`"needle"` / `"dense"` / `"edge"`, recorded at pool-build time). A finder
- * hit on a core/hot page therefore still logs as core/hot — the prefix is
- * where the candidate lived. (`"needle"` is the fallback if a selected slug is
- * somehow absent from every lane, which should not happen since every pooled
- * candidate comes from one.)
+ * attributed `"core"` / `"hot"` / `"fresh"` (the lane that placed it in the
+ * pool), and any other selection is attributed the finder lane that FIRST
+ * surfaced it (`"needle"` / `"dense"` / `"edge"`, recorded at pool-build
+ * time). A finder hit on a stable-prefix page therefore still logs as its
+ * prefix lane — the prefix is where the candidate lived. (`"needle"` is the
+ * fallback if a selected slug is somehow absent from every lane, which should
+ * not happen since every pooled candidate comes from one.)
  */
 export function attributeSelections(result: OrchestrateResult): SelectionRow[] {
   const core = new Set<Slug>(result.lanes.core);
   const hot = new Set<Slug>(result.lanes.hot);
+  const fresh = new Set<Slug>(result.lanes.fresh);
   const finderLane = new Map(
     result.lanes.finder.map((c) => [c.slug, c.lane] as const),
   );
@@ -345,7 +360,9 @@ export function attributeSelections(result: OrchestrateResult): SelectionRow[] {
       ? ("core" as const)
       : hot.has(sel.slug)
         ? ("hot" as const)
-        : (finderLane.get(sel.slug) ?? "needle"),
+        : fresh.has(sel.slug)
+          ? ("fresh" as const)
+          : (finderLane.get(sel.slug) ?? "needle"),
     pinned: sel.pinned ? 1 : 0,
   }));
 }
@@ -396,6 +413,7 @@ export async function observeTurn(
       edgeGraph: lanes.edgeGraph,
       coreSlugs: lanes.coreSlugs,
       hotSlugs: lanes.hotSlugs,
+      freshSlugs: lanes.freshSlugs,
       prefixCards: lanes.prefixCards,
       needleK: v3.needleK,
       denseK: v3.denseK,
@@ -403,6 +421,22 @@ export async function observeTurn(
       edgePerSeed: v3.edge.perSeed,
       edgeCap: v3.edge.cap,
     });
+
+    // A zero-selection turn over a non-trivial pool is unusual enough to be
+    // worth a breadcrumb (observed on meta-prompt-shaped system turns): the
+    // turn itself proceeds normally — cards already in context still serve it.
+    if (result.selections.length === 0) {
+      log.info(
+        {
+          conversationId,
+          core: result.lanes.core.length,
+          hot: result.lanes.hot.length,
+          fresh: result.lanes.fresh.length,
+          finder: result.lanes.finder.length,
+        },
+        "memory-v3: selector returned zero selections",
+      );
+    }
 
     const rows = attributeSelections(result);
     writeSelections(conversationId, turnIndex, rows);

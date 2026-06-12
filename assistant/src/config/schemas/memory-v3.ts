@@ -64,6 +64,26 @@ export const MemoryV3HotSetSchema = z
   .describe("Memory v3 hot-set lane (decayed selection frequency) tuning.");
 
 /**
+ * Fresh-set lane tuning: the top-K pages by most-recent on-disk modification
+ * folded into the candidate pool as a stable-prefix lane. Recency covers the
+ * window before the other lanes can reach a just-written page (no selection
+ * history for the hot set; nothing lexical for the finders on summary-shaped
+ * messages).
+ */
+export const MemoryV3FreshSetSchema = z
+  .object({
+    k: z
+      .number({ error: "memory.v3.freshSet.k must be a number" })
+      .int("memory.v3.freshSet.k must be an integer")
+      .nonnegative("memory.v3.freshSet.k must be a non-negative integer")
+      .default(50)
+      .describe(
+        "Number of most-recently-modified pages included in the fresh-set lane (0 disables the lane). Sized to cover roughly the last day or two of page writes — the recency window conversations reference most.",
+      ),
+  })
+  .describe("Memory v3 fresh-set lane (page-modification recency) tuning.");
+
+/**
  * Ephemeral section-spotlight tuning: how many of the current turn's selected
  * finder hits render their matched section into the `<memory_spotlight>`
  * block, and how many previous turns' spotlight entries are carried along
@@ -142,6 +162,7 @@ export const MemoryV3ConfigSchema = z
   .object({
     prune: MemoryV3PruneSchema.default(MemoryV3PruneSchema.parse({})),
     hotSet: MemoryV3HotSetSchema.default(MemoryV3HotSetSchema.parse({})),
+    freshSet: MemoryV3FreshSetSchema.default(MemoryV3FreshSetSchema.parse({})),
     spotlight: MemoryV3SpotlightSchema.default(
       MemoryV3SpotlightSchema.parse({}),
     ),
