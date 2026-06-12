@@ -6,6 +6,7 @@
 import {
   type Dirent,
   existsSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -452,12 +453,13 @@ function handleWorkspaceMkdir({ body, headers }: RouteHandlerArgs) {
  * On case-insensitive filesystems (macOS/iOS defaults) a case-only rename's
  * destination "exists" because it resolves to the source itself. Compare
  * dev/inode so that case is treated as a rename of the same file rather
- * than a conflict.
+ * than a conflict. lstat, not stat: two distinct symlinks to one target
+ * must still count as different entries.
  */
 function isSameFsEntry(a: string, b: string): boolean {
   try {
-    const statA = statSync(a);
-    const statB = statSync(b);
+    const statA = lstatSync(a);
+    const statB = lstatSync(b);
     return statA.dev === statB.dev && statA.ino === statB.ino;
   } catch {
     return false;

@@ -10,6 +10,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -678,6 +679,26 @@ describe("POST /v1/workspace/rename", () => {
     expect(() =>
       handler({
         body: { oldPath: "hello.txt", newPath: "data.json" },
+      }),
+    ).toThrow(ConflictError);
+  });
+
+  // statSync would follow both links to the shared target and treat them as
+  // the same entry, letting the rename clobber a real, separate symlink.
+  test("throws ConflictError when renaming a symlink over a sibling symlink to the same target", () => {
+    writeFileSync(join(testWorkspaceDir, "link-target.txt"), "target");
+    symlinkSync(
+      join(testWorkspaceDir, "link-target.txt"),
+      join(testWorkspaceDir, "link-a.txt"),
+    );
+    symlinkSync(
+      join(testWorkspaceDir, "link-target.txt"),
+      join(testWorkspaceDir, "link-b.txt"),
+    );
+
+    expect(() =>
+      handler({
+        body: { oldPath: "link-a.txt", newPath: "link-b.txt" },
       }),
     ).toThrow(ConflictError);
   });
