@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { resolveSelectedAssistantId } from "@/assistant/selection";
 import { retireAssistant } from "@/assistant/retire-service";
+import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { isGuardianRepairable } from "@/lib/local-mode";
 import { ConnectRecoveryDialog } from "@/domains/onboarding/components/connect-recovery-dialog";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
@@ -130,6 +131,12 @@ export function SelectAssistantScreen() {
         repairGuardian: true,
       });
       if (result.ok) {
+        // Re-provisioning the guardian token revokes the gateway session
+        // token derived from the old one. The cached token is still valid by
+        // its local expiry, so `ensureGatewayToken` on reconnect would reuse
+        // it and every gateway call would 401 — drop it so the reconnect mints
+        // a fresh one against the new guardian principal.
+        clearGatewayToken();
         clearRecoveryState();
         void handleConnect(recoveryAssistant);
         return;
