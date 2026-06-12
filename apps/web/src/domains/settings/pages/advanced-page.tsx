@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { DetailCard } from "@/components/detail-card";
 import { useAssistantWithHealthz } from "@/domains/settings/components/assistant-status-panel";
+import { MemoryCostSummary } from "@/domains/settings/components/memory-cost-summary";
 import { UpdateWindowPolicy } from "@/domains/settings/components/update-window-policy";
 import { configGetOptions, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
@@ -78,7 +79,9 @@ export function AdvancedPage() {
             />
           }
           compactAccessory
-        />
+        >
+          <MemoryCostSummary assistantId={assistantId} />
+        </DetailCard>
       ) : null}
     </div>
   );

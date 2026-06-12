@@ -11,6 +11,7 @@
  */
 
 import { isElectron } from "@/runtime/is-electron";
+import type { UsageRangeWindowId } from "@/utils/usage-window";
 
 const r = <const T extends string>(path: T): T => path;
 
@@ -60,6 +61,15 @@ export const routes = {
         groupBy: "schedule",
         scheduleId,
       });
+      return `${LOGS_USAGE_PATH}?${params.toString()}`;
+    },
+    /**
+     * Usage page grouped by action ("task" in usage-page URL state), the
+     * per-call-site cost breakdown. Used by settings surfaces that want to
+     * deep-link a "what is this feature costing me" view.
+     */
+    usageByAction: (range: UsageRangeWindowId) => {
+      const params = new URLSearchParams({ range, groupBy: "task" });
       return `${LOGS_USAGE_PATH}?${params.toString()}`;
     },
     emails: r("/assistant/logs/emails"),
