@@ -246,7 +246,7 @@ function TreeNode({
           <span className="min-w-0 flex-1 truncate">{entryName}</span>
           {entry.size != null && (
             <span
-              className={`shrink-0 text-label-medium-default tabular-nums${canDelete ? " group-hover:invisible group-focus-within:invisible" : ""}`}
+              className={`shrink-0 text-label-medium-default tabular-nums${canDelete ? " max-md:invisible md:group-hover:invisible md:group-focus-within:invisible" : ""}`}
               style={{ color: "var(--content-tertiary)" }}
             >
               {formatFileSize(entry.size)}
@@ -268,7 +268,7 @@ function TreeNode({
             }
             aria-label={`Delete ${entryName}`}
             title="Delete"
-            className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+            className="absolute right-1 top-1/2 -translate-y-1/2 transition-opacity max-md:opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"
             tintColor="var(--content-tertiary)"
           />
         )}
