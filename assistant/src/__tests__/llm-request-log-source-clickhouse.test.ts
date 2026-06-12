@@ -134,7 +134,9 @@ describe("ClickHouseLlmRequestLogSource", () => {
     const call = recorder[0]!;
     const parsed = new URL(call.url);
     expect(parsed.searchParams.get("database")).toBe("default");
-    expect(parsed.searchParams.get("param_assistant_id")).toBe("asst-fixture-001");
+    expect(parsed.searchParams.get("param_assistant_id")).toBe(
+      "asst-fixture-001",
+    );
     expect(parsed.searchParams.get("param_log_id")).toBe("log-1");
     expect(call.init?.method).toBe("POST");
     const auth = (call.init?.headers as Record<string, string>).Authorization;
@@ -222,6 +224,90 @@ describe("ClickHouseLlmRequestLogSource", () => {
     // injection surface the regression test guards against.
     expect(body).not.toContain(`'${malicious}'`);
     expect(body).not.toContain(`'msg-b'`);
+  });
+
+  test("getRequestLogMetaById returns metadata without selecting either payload column", async () => {
+    // GIVEN a stored row in ClickHouse
+    const recorder: FakeFetchCall[] = [];
+    const metaRow = {
+      id: "log-1",
+      conversation_id: "conv-1",
+      message_id: "msg-1",
+      provider: "anthropic",
+      created_at: "1778465138786",
+      agent_loop_exit_reason: "no_tool_calls",
+      call_site: "compactionAgent",
+    };
+    const src = makeSource({
+      body: JSON.stringify(metaRow) + "\n",
+      recorder,
+    });
+
+    // WHEN looking it up by id
+    const row = await src.getRequestLogMetaById("log-1");
+
+    // THEN the metadata comes back without payload fields
+    expect(row).toEqual({
+      id: "log-1",
+      conversationId: "conv-1",
+      messageId: "msg-1",
+      provider: "anthropic",
+      createdAt: 1778465138786,
+      agentLoopExitReason: "no_tool_calls",
+      callSite: "compactionAgent",
+    });
+    // AND the query never selects the payload columns (a single request
+    // payload can be a full context window)
+    const body = String(recorder[0]!.init?.body ?? "");
+    expect(body).not.toContain("request_payload");
+    expect(body).not.toContain("response_payload");
+  });
+
+  test("getCompactionLogsBetween computes message count in SQL and skips the request payload", async () => {
+    // GIVEN compaction rows whose message count ClickHouse computed via
+    // JSONLength (Int64 arrives as a quoted string under JSONEachRow)
+    const recorder: FakeFetchCall[] = [];
+    const compactionRow = {
+      id: "log-1",
+      conversation_id: "conv-1",
+      message_id: "",
+      provider: "anthropic",
+      response_payload: '{"bar":2}',
+      request_message_count: "42",
+      created_at: "1778465138786",
+      agent_loop_exit_reason: "",
+      call_site: "compactionAgent",
+    };
+    const src = makeSource({
+      body:
+        JSON.stringify(compactionRow) +
+        "\n" +
+        JSON.stringify({
+          ...compactionRow,
+          id: "log-2",
+          request_message_count: null,
+        }) +
+        "\n",
+      recorder,
+    });
+
+    // WHEN querying the trail window
+    const rows = await src.getCompactionLogsBetween("conv-1", 100, 500);
+
+    // THEN each row carries the numeric message count (null when the
+    // payload had no known message array) and no request payload
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.requestMessageCount).toBe(42);
+    expect(rows[1]!.requestMessageCount).toBeNull();
+    expect(rows[0]!.responsePayload).toBe('{"bar":2}');
+    expect("requestPayload" in rows[0]!).toBe(false);
+    // AND the SQL only touches request_payload inside JSONLength —
+    // it is never selected as a column
+    const body = String(recorder[0]!.init?.body ?? "");
+    expect(body).toContain("JSONLength(request_payload");
+    expect(body.match(/request_payload/g)).toHaveLength(
+      body.match(/JSONLength\(request_payload/g)!.length,
+    );
   });
 
   test("missing clickhouse:url credential surfaces a clear error", async () => {
