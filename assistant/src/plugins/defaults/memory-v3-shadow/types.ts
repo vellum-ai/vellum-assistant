@@ -96,7 +96,8 @@ export interface MemoryRoutingTurn {
  * frecency hot set, modification-recency fresh set); `needle` / `dense` /
  * `edge` are the per-turn finder lanes over the user's message; `reply` marks
  * finder candidates first surfaced by the reply-query pass (needle + dense
- * re-run over the assistant's previous message).
+ * re-run over the assistant's previous message); `learned` marks candidates
+ * surfaced by the co-selection NPMI association graph.
  *
  * The `memory_v3_selections.source` column is free-text, so tightening this set
  * needs no migration: any historical rows with retired labels (e.g. the old
@@ -111,6 +112,7 @@ export const SELECTION_SOURCES = [
   "dense",
   "edge",
   "reply",
+  "learned",
 ] as const;
 
 export type SelectionSource = (typeof SELECTION_SOURCES)[number];

@@ -105,6 +105,7 @@ const orchestrateSpy = mock(
       { slug: "page-2", pinned: false },
       { slug: "page-3", pinned: false },
       { slug: "page-4", pinned: false },
+      { slug: "page-5", pinned: false },
     ],
     matchedSections: new Map([
       ["page-1", { article: "page-1", title: "", text: "x", ordinal: 0 }],
@@ -119,6 +120,7 @@ const orchestrateSpy = mock(
         { slug: "page-2", descriptor: "", lane: "dense" },
         { slug: "page-3", descriptor: "", lane: "edge" },
         { slug: "page-4", descriptor: "", lane: "reply" },
+        { slug: "page-5", descriptor: "", lane: "learned" },
       ],
     },
   }),
@@ -191,6 +193,14 @@ mock.module("../../../../config/loader.js", () => ({
         needleK: 100,
         denseK: 100,
         replyQueryK: 12,
+        learnedEdges: {
+          halfLifeDays: 30,
+          minCount: 3,
+          npmiFloor: 0.2,
+          maxPerPage: 6,
+          perSeed: 3,
+          cap: 20,
+        },
         edge: { hubDegree: 30, seedCount: 18, perSeed: 6, cap: 45 },
       },
       qdrant: { vectorSize: 8, onDisk: false },
@@ -473,6 +483,8 @@ describe("memory-v3 shadow plugin", () => {
       { slug: "page-3", source: "edge", pinned: 0 },
       // page-4 was first surfaced by the reply-query pass → "reply".
       { slug: "page-4", source: "reply", pinned: 0 },
+      // page-5 was first surfaced by the learned-edge pass → "learned".
+      { slug: "page-5", source: "learned", pinned: 0 },
       // page-core / page-hot / page-fresh sit in the stable prefix →
       // "core" / "hot" / "fresh".
       { slug: "page-core", source: "core", pinned: 0 },

@@ -52,6 +52,7 @@ import type { EdgeGraph } from "./edge.js";
 import { buildEdgeGraph } from "./edge.js";
 import { computeFreshSet } from "./fresh-set.js";
 import { computeHotSet } from "./hot-set.js";
+import { computeLearnedEdgeGraph } from "./learned-edges.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import { orchestrate } from "./orchestrate.js";
 import { ensureSectionCollection } from "./section-dense-store.js";
@@ -77,6 +78,11 @@ const RECENT_CONTEXT_MESSAGES = 6;
  *  reply-query finder pass. */
 const REPLY_QUERY_TAIL_CHARS = 2500;
 
+/** Selection-log scan window for the learned-edge graph. At the default
+ *  30-day half-life, rows beyond ~3 half-lives carry negligible weight — the
+ *  window bounds the scan, not the math. */
+const LEARNED_EDGES_WINDOW_DAYS = 90;
+
 /**
  * The lazily-built, process-lifetime v3 lanes. The core and hot sets are
  * computed here (not per turn) because they are the candidate pool's STABLE
@@ -100,6 +106,9 @@ export interface ShadowLanes {
   /** Modification-recency fresh set in recency order: core and hot excluded,
    *  filtered to pages in the section index. */
   freshSlugs: string[];
+  /** Learned-edge graph: co-selection NPMI associations over the selection
+   *  log, rebuilt with the lanes (the consolidation cadence). */
+  learnedGraph: EdgeGraph;
   /** Pre-rendered FULL cards for the stable-prefix (core+hot+fresh) slugs,
    *  keyed by slug. Frozen at lane build so the selector's stable prefix is
    *  byte-identical across turns until the next invalidation. */
@@ -224,6 +233,22 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   const edgeGraph = await buildEdgeGraph(pageIndex.entries, pageRaw, {
     hubDegree: config.memory.v3.edge.hubDegree,
   });
+  // The learned graph reads the same selection log as the hot set; section-
+  // index membership is the existence filter (capability slugs included —
+  // they are first-class pages there).
+  const learned = config.memory.v3.learnedEdges;
+  const learnedGraph = computeLearnedEdgeGraph(
+    { db: getDb() },
+    {
+      halfLifeMs: learned.halfLifeDays * DAY_MS,
+      minCount: learned.minCount,
+      npmiFloor: learned.npmiFloor,
+      maxPerPage: learned.maxPerPage,
+      now: Date.now(),
+      windowMs: LEARNED_EDGES_WINDOW_DAYS * DAY_MS,
+      knownSlugs: new Set(sectionIndex.byArticle.keys()),
+    },
+  );
   // Ensuring the dense collection is best-effort: the needle + edge lanes and
   // the core/hot prefix are in-memory and independent of Qdrant, so a Qdrant outage
   // must NOT reject lane init (which would return `null` from observeTurn and
@@ -245,6 +270,7 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     needle,
     denseConfig: config,
     edgeGraph,
+    learnedGraph,
     coreSlugs,
     hotSlugs,
     freshSlugs,
@@ -445,6 +471,9 @@ export async function observeTurn(
       edgeSeeds: v3.edge.seedCount,
       edgePerSeed: v3.edge.perSeed,
       edgeCap: v3.edge.cap,
+      learnedGraph: lanes.learnedGraph,
+      learnedPerSeed: v3.learnedEdges.perSeed,
+      learnedCap: v3.learnedEdges.cap,
     });
 
     // A zero-selection turn over a non-trivial pool is unusual enough to be
