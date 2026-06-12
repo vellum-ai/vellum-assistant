@@ -210,6 +210,9 @@ export function ProviderCreateForm({
         return;
       } else if (authType === "none") {
         auth = { type: "none" };
+      } else if (authType === "service_account") {
+        setError("Service account connections cannot be created through this form.");
+        return;
       } else {
         auth = { type: "platform" };
       }
@@ -319,8 +322,7 @@ export function ProviderCreateForm({
         <Dropdown
           aria-label="Provider"
           value={provider}
-          onChange={(v) => {
-            const newProvider = v;
+          onChange={(newProvider) => {
             setProvider(newProvider);
             // Re-seed Name + Key from the newly selected provider type, but
             // only while the user hasn't manually edited either field (dirty

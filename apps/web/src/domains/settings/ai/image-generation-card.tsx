@@ -51,7 +51,8 @@ export function ImageGenerationCard() {
       const raw = getLocalSetting(LS_IMAGE_GEN_MODE, "your-own");
       return raw === "managed" || raw === "your-own" ? raw : "your-own";
     }
-    return daemonConfig.services?.["image-generation"]?.mode ?? "your-own";
+    const mode = daemonConfig.services?.["image-generation"]?.mode;
+    return mode === "managed" || mode === "your-own" ? mode : "your-own";
   }, [daemonConfig]);
 
   const [imageGenMode, setDraftImageGenMode] = useDraftOverride(serverImageGenMode);

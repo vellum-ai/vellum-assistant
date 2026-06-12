@@ -275,6 +275,13 @@ export function ProviderEditorContent({
           setError("Use the \"Sign in with ChatGPT\" button to connect your subscription.");
           return;
         }
+      } else if (authType === "service_account") {
+        if (connection?.auth.type === "service_account") {
+          auth = connection.auth;
+        } else {
+          setError("Service account connections cannot be created through this form.");
+          return;
+        }
       } else if (authType === "none") {
         auth = { type: "none" };
       } else {
@@ -412,7 +419,7 @@ export function ProviderEditorContent({
           <Dropdown
             aria-label="Provider"
             value={provider}
-            onChange={(v) => setProvider(v)}
+            onChange={setProvider}
             disabled
             options={connectionProviderOptions.map((p) => ({
               value: p,
