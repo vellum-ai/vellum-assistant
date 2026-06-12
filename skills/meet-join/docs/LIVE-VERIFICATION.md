@@ -42,11 +42,11 @@ criteria, and what to capture when something goes wrong.
 ### Where the logs live
 
 - **Daemon logs** (pino JSON, one object per line):
-  `~/.vellum/workspace/logs/daemon-stderr.log`.
+  `$VELLUM_WORKSPACE_DIR/logs/daemon-stderr.log`.
   See `assistant/src/util/platform.ts` — `getDaemonStderrLogPath()`.
   In Docker mode the workspace is mounted at `/workspace`, so the path
   inside the container is `/workspace/logs/daemon-stderr.log`.
-  Tail with `tail -F ~/.vellum/workspace/logs/daemon-stderr.log`.
+  Tail with `tail -F $VELLUM_WORKSPACE_DIR/logs/daemon-stderr.log`.
 - **Bot container logs**: `docker logs vellum-meet-<meetingId>`. In
   Docker-in-Docker mode (assistant itself running in a container) the bot
   containers are nested — run `docker logs` from _inside_ the assistant
@@ -69,9 +69,9 @@ All log lines below are pino JSON — use `rg` with JSON-aware patterns.
 
 ```bash
 # Meet session lifecycle
-rg '"MeetAudioIngest: bot connected"' ~/.vellum/workspace/logs/daemon-stderr.log
-rg '"Meet barge-in: cancelling in-flight TTS"' ~/.vellum/workspace/logs/daemon-stderr.log
-rg '"MeetConsentMonitor: objection detected"' ~/.vellum/workspace/logs/daemon-stderr.log
+rg '"MeetAudioIngest: bot connected"' $VELLUM_WORKSPACE_DIR/logs/daemon-stderr.log
+rg '"Meet barge-in: cancelling in-flight TTS"' $VELLUM_WORKSPACE_DIR/logs/daemon-stderr.log
+rg '"MeetConsentMonitor: objection detected"' $VELLUM_WORKSPACE_DIR/logs/daemon-stderr.log
 ```
 
 ---
@@ -113,7 +113,7 @@ persisted artifacts.
   `storage-writer.ts` `writeParticipantsJson` removes entries on leave.
   Verify:
   ```bash
-  jq 'length' ~/.vellum/workspace/meets/<id>/participants.json
+  jq 'length' $VELLUM_WORKSPACE_DIR/meets/<id>/participants.json
   ```
   Expected: matches the number of non-bot humans still present when the
   bot left (step 7 leaves Alice only → `1`).
@@ -123,7 +123,7 @@ persisted artifacts.
   on the _next_ change (see `closeOpenSegmentAt`), so the first
   `speaker.change` after join opens segment #1.
   ```bash
-  jq -r '.speakerName' ~/.vellum/workspace/meets/<id>/segments.jsonl | sort -u
+  jq -r '.speakerName' $VELLUM_WORKSPACE_DIR/meets/<id>/segments.jsonl | sort -u
   ```
   Expected: two distinct human names (bot is silent, should never appear).
 - SSE event stream, observed via the desktop app's meeting view or by
@@ -149,10 +149,10 @@ persisted artifacts.
 ### Capture on failure
 
 - `docker logs vellum-meet-<id> > /tmp/vellum-meet-<id>.log`.
-- `cp -r ~/.vellum/workspace/meets/<id> /tmp/meet-artifact-<id>`.
+- `cp -r $VELLUM_WORKSPACE_DIR/meets/<id> /tmp/meet-artifact-<id>`.
 - Screen recording of the Meet DOM showing the speaker tile transitions
   (helps correlate against log timestamps).
-- `rg meet ~/.vellum/workspace/logs/daemon-stderr.log > /tmp/daemon-meet-<id>.log`.
+- `rg meet $VELLUM_WORKSPACE_DIR/logs/daemon-stderr.log > /tmp/daemon-meet-<id>.log`.
 
 ---
 
@@ -197,7 +197,7 @@ stable string to grep against.
 - **Transcript written**. In `transcript.jsonl`:
   ```bash
   jq -c 'select(.text | test("quick brown fox"; "i"))' \
-    ~/.vellum/workspace/meets/<id>/transcript.jsonl
+    $VELLUM_WORKSPACE_DIR/meets/<id>/transcript.jsonl
   ```
   Expected: at least one line with `text` containing the phrase. Each
   line also carries `timestamp`, optional `speakerId`, optional
@@ -219,7 +219,7 @@ stable string to grep against.
   ```bash
   jq 'select(.text | test("quick brown fox"; "i"))
       | {speakerLabel, speakerId}' \
-    ~/.vellum/workspace/meets/<id>/transcript.jsonl
+    $VELLUM_WORKSPACE_DIR/meets/<id>/transcript.jsonl
   ```
   Expected: both fields present and non-null.
 - **Confidence reasonable**: `confidence > 0.8` for the scripted phrase
@@ -239,11 +239,11 @@ stable string to grep against.
 
 ### Capture on failure
 
-- `cp ~/.vellum/workspace/meets/<id>/transcript.jsonl /tmp/`.
-- `cp ~/.vellum/workspace/meets/<id>/participants.json /tmp/`.
-- `cp ~/.vellum/workspace/meets/<id>/audio.opus /tmp/` (play it back to
+- `cp $VELLUM_WORKSPACE_DIR/meets/<id>/transcript.jsonl /tmp/`.
+- `cp $VELLUM_WORKSPACE_DIR/meets/<id>/participants.json /tmp/`.
+- `cp $VELLUM_WORKSPACE_DIR/meets/<id>/audio.opus /tmp/` (play it back to
   verify audio actually landed in ingest).
-- `rg -i 'MeetAudioIngest|speaker-resolver|transcript' ~/.vellum/workspace/logs/daemon-stderr.log > /tmp/stt-<id>.log`.
+- `rg -i 'MeetAudioIngest|speaker-resolver|transcript' $VELLUM_WORKSPACE_DIR/logs/daemon-stderr.log > /tmp/stt-<id>.log`.
 
 ---
 
@@ -323,7 +323,7 @@ and the bot's HTTP server receives `DELETE /play_audio/:streamId`.
 - Screen/audio recording of the bot's voice trailing off (phone camera
   aimed at speakers is fine — we just need the timing).
 - `docker logs vellum-meet-<id> 2>&1 > /tmp/vellum-meet-bargein-<id>.log`.
-- `rg -i 'barge-in|tts|speaking_started|speaking_ended|play_audio' ~/.vellum/workspace/logs/daemon-stderr.log > /tmp/daemon-bargein-<id>.log`.
+- `rg -i 'barge-in|tts|speaking_started|speaking_ended|play_audio' $VELLUM_WORKSPACE_DIR/logs/daemon-stderr.log > /tmp/daemon-bargein-<id>.log`.
 
 ---
 
@@ -365,7 +365,7 @@ LLM should return `{ "objected": true, ... }`.
 5. Daemon log checks:
    ```bash
    rg '"MeetConsentMonitor: objection detected"' \
-     ~/.vellum/workspace/logs/daemon-stderr.log
+     $VELLUM_WORKSPACE_DIR/logs/daemon-stderr.log
    ```
    Exactly one line with fields:
    `meetingId`, `trigger: "keyword:chat"`, `reason: "<non-empty>"`,
@@ -423,9 +423,9 @@ Exact phrase to speak aloud, clearly:
 ### Capture on failure
 
 - Full daemon log slice for the meeting:
-  `rg -i 'consent|objection|leave' ~/.vellum/workspace/logs/daemon-stderr.log > /tmp/consent-<id>.log`.
+  `rg -i 'consent|objection|leave' $VELLUM_WORKSPACE_DIR/logs/daemon-stderr.log > /tmp/consent-<id>.log`.
 - `docker logs vellum-meet-<id> 2>&1 > /tmp/vellum-meet-consent-<id>.log`.
-- `cp -r ~/.vellum/workspace/meets/<id> /tmp/meet-consent-<id>`.
+- `cp -r $VELLUM_WORKSPACE_DIR/meets/<id> /tmp/meet-consent-<id>`.
 - Screen recording of the Meet chat panel timing the Send → bot-goodbye
   → container-exit sequence.
 

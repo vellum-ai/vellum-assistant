@@ -156,7 +156,7 @@ Manually signals the assistant to reconnect all MCP servers from disk. Normally 
 
 ## Advanced Configuration
 
-`mcp add` covers the common cases. For advanced options, edit `~/.vellum/workspace/config.json` directly under `mcp.servers.<name>`:
+`mcp add` covers the common cases. For advanced options, edit `$VELLUM_WORKSPACE_DIR/config.json` directly under `mcp.servers.<name>`:
 
 - `env` — environment variables for stdio servers
 - `headers` — custom HTTP headers for remote servers

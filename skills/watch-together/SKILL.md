@@ -48,8 +48,8 @@ When the user says they want to watch something:
 1. Create the session directory and episode state file
 2. Give them the capture command with the current conversation ID:
    ```
-   bash ~/.vellum/workspace/watch-together/scripts/capture-live.sh \
-     ~/.vellum/workspace/watch-together/sessions/<session-id> \
+   bash $VELLUM_WORKSPACE_DIR/watch-together/scripts/capture-live.sh \
+     $VELLUM_WORKSPACE_DIR/watch-together/sessions/<session-id> \
      <conversation_id> \
      30
    ```
@@ -73,9 +73,9 @@ Implementation: Create session dir, copy episode state template, output the capt
 
 ```bash
 SESSION_ID=$(echo "${show_name}" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')-s${season}e${episode}
-SESSION_DIR="$HOME/.vellum/workspace/watch-together/sessions/$SESSION_ID"
+SESSION_DIR="$VELLUM_WORKSPACE_DIR/watch-together/sessions/$SESSION_ID"
 mkdir -p "$SESSION_DIR/chunks" "$SESSION_DIR/processed"
-cp "$HOME/.vellum/workspace/watch-together/episode-state-template.md" "$SESSION_DIR/episode-state.md"
+cp "$VELLUM_WORKSPACE_DIR/watch-together/episode-state-template.md" "$SESSION_DIR/episode-state.md"
 echo "$SESSION_DIR"
 ```
 
@@ -89,7 +89,7 @@ Parameters:
 - `output_dir` (string, required) — Directory to write extracted frames and audio
 
 ```bash
-bash "$HOME/.vellum/workspace/watch-together/scripts/process-chunk.sh" "$chunk_path" "$output_dir"
+bash "$VELLUM_WORKSPACE_DIR/watch-together/scripts/process-chunk.sh" "$chunk_path" "$output_dir"
 ```
 
 ### rewind
@@ -104,7 +104,7 @@ Parameters:
 - `end_time` (number, required) — End time in seconds
 
 ```bash
-bash "$HOME/.vellum/workspace/watch-together/scripts/process-chunk.sh" "$chunk_path" "$output_dir" --rewind "$start_time" "$end_time"
+bash "$VELLUM_WORKSPACE_DIR/watch-together/scripts/process-chunk.sh" "$chunk_path" "$output_dir" --rewind "$start_time" "$end_time"
 ```
 
 ## Environment Variables
@@ -114,10 +114,10 @@ bash "$HOME/.vellum/workspace/watch-together/scripts/process-chunk.sh" "$chunk_p
 
 ## File Locations
 
-- Scripts: `~/.vellum/workspace/watch-together/scripts/`
-- Sessions: `~/.vellum/workspace/watch-together/sessions/`
-- Episode state template: `~/.vellum/workspace/watch-together/episode-state-template.md`
-- Signal format: JSON to `~/.vellum/workspace/signals/user-message.<requestId>` (supports `attachments` array with `{path, filename, mimeType}` for inline images)
+- Scripts: `$VELLUM_WORKSPACE_DIR/watch-together/scripts/`
+- Sessions: `$VELLUM_WORKSPACE_DIR/watch-together/sessions/`
+- Episode state template: `$VELLUM_WORKSPACE_DIR/watch-together/episode-state-template.md`
+- Signal format: JSON to `$VELLUM_WORKSPACE_DIR/signals/user-message.<requestId>` (supports `attachments` array with `{path, filename, mimeType}` for inline images)
 
 ## Episode State Template Sections
 
