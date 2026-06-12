@@ -6,6 +6,7 @@ import type { LlmContextResponse } from "@vellumai/assistant-api";
 import {
   buildInspectorExportFilename,
   buildInspectorExportFiles,
+  buildInspectorExportZipBlob,
 } from "@/domains/chat/inspector/inspector-export";
 
 function makeContext(): LlmContextResponse {
@@ -138,4 +139,47 @@ describe("inspector export", () => {
     });
   });
 
+  test("hydrates section-less logs through the fetcher, skipping inline ones", async () => {
+    const context = makeContext();
+    context.logs.push({
+      id: "log/beta",
+      createdAt: 1_715_200_000_001,
+      requestPayload: null,
+      responsePayload: null,
+    });
+    const fetchedIds: string[] = [];
+
+    const blob = await buildInspectorExportZipBlob(
+      context,
+      makePayloads(),
+      async (logId) => {
+        fetchedIds.push(logId);
+        return {
+          requestSections: [
+            { kind: "message", role: "user", label: "User", text: "hi" },
+          ],
+          responseSections: [],
+        };
+      },
+    );
+
+    expect(blob.size).toBeGreaterThan(0);
+    expect(fetchedIds).toEqual(["log/beta"]);
+  });
+
+  test("propagates fetcher failures instead of exporting incomplete data", async () => {
+    const context = makeContext();
+    context.logs.push({
+      id: "log/beta",
+      createdAt: 1_715_200_000_001,
+      requestPayload: null,
+      responsePayload: null,
+    });
+
+    await expect(
+      buildInspectorExportZipBlob(context, makePayloads(), async () => {
+        throw new Error("detail fetch failed");
+      }),
+    ).rejects.toThrow("detail fetch failed");
+  });
 });

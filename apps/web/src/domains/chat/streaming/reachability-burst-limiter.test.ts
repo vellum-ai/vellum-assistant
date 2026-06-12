@@ -42,7 +42,7 @@ const makeDeps = (
 };
 
 describe("reachability burst-limiter", () => {
-  test("ignores phases other than ready / retrying", () => {
+  test("ignores phases other than ready", () => {
     const { deps, onReady, onExhausted } = makeDeps();
     const limiter = createReachabilityBurstLimiter(deps);
 
@@ -67,21 +67,6 @@ describe("reachability burst-limiter", () => {
       {},
     );
     expect(onReset).not.toHaveBeenCalled();
-  });
-
-  test("retrying success: does NOT clear turn / error, but resets the probe", () => {
-    const { deps, onReady, onClearError, onReset } = makeDeps();
-    const limiter = createReachabilityBurstLimiter(deps);
-
-    limiter.handleReachabilityPhase("retrying");
-
-    expect(onReady).not.toHaveBeenCalled();
-    expect(onClearError).not.toHaveBeenCalled();
-    expect(publishSpy).toHaveBeenCalledWith(
-      "reachability.retry-requested",
-      {},
-    );
-    expect(onReset).toHaveBeenCalledTimes(1);
   });
 
   test("three retries within the window are allowed", () => {

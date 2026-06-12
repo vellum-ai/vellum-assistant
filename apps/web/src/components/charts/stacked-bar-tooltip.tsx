@@ -1,6 +1,3 @@
-import type { TooltipContentProps } from "recharts";
-
-import { CHART_TOOLTIP_STYLE } from "@/components/charts/chart-config";
 import { formatDateLabel } from "@/components/charts/format-date-label";
 
 export type TooltipRowItem = {
@@ -13,35 +10,27 @@ export type TooltipRowItem = {
 
 export function TooltipRow({ item }: { item: TooltipRowItem }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "2px 0",
-        fontSize: 13,
-        color: "#f6f5f4",
-      }}
-    >
+    <div className="flex items-center gap-2 py-0.5 text-[13px] text-[var(--content-default)]">
       <span
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: "50%",
-          backgroundColor: item.color,
-          flexShrink: 0,
-        }}
+        className="h-2 w-2 shrink-0 rounded-full"
+        style={{ backgroundColor: item.color }}
       />
       <span>{item.label}</span>
-      <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums" }}>
-        {item.value}
-      </span>
+      <span className="ml-auto tabular-nums">{item.value}</span>
     </div>
   );
 }
 
-interface StackedBarTooltipProps
-  extends Partial<TooltipContentProps<number, string>> {
+export type TooltipPayloadEntry = {
+  dataKey: string;
+  value: number;
+};
+
+interface StackedBarTooltipProps {
+  active?: boolean;
+  payload?: TooltipPayloadEntry[];
+  hoveredKey?: string;
+  label?: string;
   labelMap: Record<string, string>;
   colorMap: Record<string, string>;
   formatValue: (v: number) => string;
@@ -52,6 +41,7 @@ interface StackedBarTooltipProps
 export function StackedBarTooltip({
   active,
   payload,
+  hoveredKey,
   label,
   labelMap,
   colorMap,
@@ -60,9 +50,6 @@ export function StackedBarTooltip({
   formatLabel,
 }: StackedBarTooltipProps) {
   if (!active || !payload?.length) return null;
-
-  const hoveredKey = payload.find((p) => p.payload?.__hoveredKey)?.payload
-    ?.__hoveredKey as string | undefined;
 
   const items: TooltipRowItem[] = payload
     .filter((p) => p.value != null && p.dataKey != null)
@@ -73,10 +60,6 @@ export function StackedBarTooltip({
       color: colorMap[String(p.dataKey)] ?? "#6b7280",
       numericValue: Number(p.value),
     }))
-    // Recharts emits payload in stack-key order, which is the insertion
-    // order from the source bucket — neither cost-sorted nor alphabetical.
-    // Sort by numeric value desc so the breakdown reads high → low (label
-    // is a tiebreaker for stability across re-renders).
     .sort((a, b) => {
       if (a.numericValue !== b.numericValue) {
         return b.numericValue - a.numericValue;
@@ -92,24 +75,15 @@ export function StackedBarTooltip({
   const total = items.reduce((sum, i) => sum + i.numericValue, 0);
 
   return (
-    <div style={CHART_TOOLTIP_STYLE}>
-      <div
-        style={{
-          color: "#a9b2bb",
-          fontSize: 12,
-          fontWeight: 500,
-          marginBottom: 6,
-        }}
-      >
+    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-overlay)] px-3.5 py-2.5 shadow-[var(--shadow-popover)]">
+      <div className="mb-1.5 text-xs font-medium text-[var(--content-secondary)]">
         {(formatLabel ?? formatDateLabel)(String(label))}
       </div>
       {hovered && (
         <>
           <TooltipRow item={hovered} />
           {rest.length > 0 && (
-            <div
-              style={{ borderTop: "1px solid #3a3f47", margin: "6px 0" }}
-            />
+            <div className="my-1.5 border-t border-[var(--border-subtle)]" />
           )}
         </>
       )}
@@ -117,20 +91,7 @@ export function StackedBarTooltip({
         <TooltipRow key={item.key} item={item} />
       ))}
       {showTotal && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "2px 0",
-            fontSize: 13,
-            color: "#f6f5f4",
-            fontWeight: 600,
-            borderTop: "1px solid rgba(255,255,255,0.15)",
-            paddingTop: 6,
-            marginTop: 4,
-          }}
-        >
+        <div className="mt-1 flex items-center gap-2 border-t border-[var(--border-subtle)] pt-1.5 text-[13px] font-semibold text-[var(--content-default)]">
           <span>Total: {formatValue(total)}</span>
         </div>
       )}

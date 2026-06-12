@@ -240,6 +240,9 @@ export function SchedulesPage() {
         isRunning={systemTasks.isHeartbeatRunning}
         onBack={navigateToSchedules}
         onRunNow={() => void systemTasks.handleRunNow("heartbeat")}
+        onToggleEnabled={(enabled) =>
+          void systemTasks.handleToggle("heartbeat", enabled)
+        }
       />
     );
   }
@@ -437,9 +440,6 @@ export function SchedulesPage() {
         }
         onSelectConsolidation={() =>
           navigateToSchedule(SYSTEM_TASK_URL_IDS.consolidation)
-        }
-        onToggleHeartbeat={(enabled) =>
-          void systemTasks.handleToggle("heartbeat", enabled)
         }
       />
 

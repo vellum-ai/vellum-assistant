@@ -202,9 +202,12 @@ describe("summarizeSelections", () => {
     expect(summary.bySource).toEqual({
       core: 0,
       hot: 0,
+      fresh: 0,
       needle: 2,
       dense: 0,
       edge: 2,
+      reply: 0,
+      learned: 0,
     });
     expect(summary.turns).toBe(2);
     // page-1 and page-2 — distinct across the two turns.
@@ -216,9 +219,12 @@ describe("summarizeSelections", () => {
       bySource: {
         core: 0,
         hot: 0,
+        fresh: 0,
         needle: 0,
         dense: 0,
         edge: 0,
+        reply: 0,
+        learned: 0,
       },
       turns: 0,
       distinctSlugs: 0,

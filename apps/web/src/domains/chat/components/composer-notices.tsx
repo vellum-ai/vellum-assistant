@@ -6,6 +6,7 @@ import { MissingApiKeyBanner } from "@/domains/chat/components/missing-api-key-b
 import {
   formatVoiceError,
   isMicPermissionError,
+  isMicPermissionPermanentError,
   isTextInsertionPermissionError,
 } from "@/domains/chat/utils/chat";
 import { Button, Notice } from "@vellumai/design-library";
@@ -49,6 +50,13 @@ export interface ComposerNoticesProps {
   onClearVoiceError?: () => void;
   /** Mic-permission retry handler. Only shown when {@link voiceError} is a permission error. */
   onRetryMicPermission?: () => void;
+  /**
+   * Opens the OS microphone privacy settings. Only shown when
+   * {@link voiceError} is a permanent (OS-recorded) mic-permission denial,
+   * which macOS never re-prompts for. Omit when no settings deep-link is
+   * available (plain browser).
+   */
+  onOpenMicSettings?: () => void | Promise<void>;
   /** Opens macOS Automation settings for external-app dictation paste. */
   onOpenTextInsertionSettings?: () => void | Promise<void>;
 
@@ -98,6 +106,7 @@ export function ComposerNotices({
   voiceError,
   onClearVoiceError,
   onRetryMicPermission,
+  onOpenMicSettings,
   onOpenTextInsertionSettings,
   diskPressureBanner,
   billingBannerSlot,
@@ -134,6 +143,17 @@ export function ComposerNotices({
                   onClick={onRetryMicPermission}
                 >
                   Allow Microphone
+                </Button>
+              ) : isMicPermissionPermanentError(voiceError) &&
+                onOpenMicSettings ? (
+                <Button
+                  variant="outlined"
+                  size="compact"
+                  onClick={() => {
+                    void onOpenMicSettings();
+                  }}
+                >
+                  Open Settings
                 </Button>
               ) : isTextInsertionPermissionError(voiceError) &&
                 onOpenTextInsertionSettings ? (

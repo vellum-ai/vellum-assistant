@@ -347,6 +347,55 @@ describe("createSkillTool — required/type/enum validation", () => {
     expect(result.content).toContain('mode must be one of "a", "b"');
   });
 
+  test("coerces string booleans before validation and passes the coerced value to the executor", async () => {
+    const hash = computeSkillVersionHash(tempDir);
+    const tool = createSkillTool(
+      makeEntry({
+        executor: "echo.ts",
+        input_schema: {
+          type: "object",
+          properties: {
+            auto_open: { type: "boolean" },
+            name: { type: "string" },
+          },
+        },
+      }),
+      tempDir,
+      hash,
+    );
+
+    const result = await tool.execute(
+      { auto_open: "false", name: "x" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.input).toEqual({ auto_open: false, name: "x" });
+  });
+
+  test("rejects non-coercible boolean strings with a self-correcting message", async () => {
+    const hash = computeSkillVersionHash(tempDir);
+    const tool = createSkillTool(
+      makeEntry({
+        executor: "echo.ts",
+        input_schema: {
+          type: "object",
+          properties: { auto_open: { type: "boolean" } },
+        },
+      }),
+      tempDir,
+      hash,
+    );
+
+    const result = await tool.execute({ auto_open: "yes" }, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      "auto_open must be a boolean — pass true or false as a JSON boolean, not a string",
+    );
+  });
+
   test("passes valid input through to the executor unchanged", async () => {
     const hash = computeSkillVersionHash(tempDir);
     const tool = createSkillTool(

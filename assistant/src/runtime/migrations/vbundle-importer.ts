@@ -322,7 +322,10 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
     const diskPath = pathResolver.resolve(fileEntry.path);
 
     if (!diskPath) {
-      // Unknown archive path — skip it
+      // Unknown archive path — skip it. Retired-feature paths (see
+      // `policy.RETIRED_ARCHIVE_PATHS`) are expected in legacy bundles and
+      // skip silently so the import report matches preflight; anything else
+      // unresolvable earns a warning.
       importedFiles.push({
         path: fileEntry.path,
         disk_path: "",
@@ -331,9 +334,11 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
         sha256: fileEntry.sha256,
         backup_path: null,
       });
-      warnings.push(
-        `Skipped "${fileEntry.path}": no known disk target for this archive path`,
-      );
+      if (!policy.isRetiredArchivePath(fileEntry.path)) {
+        warnings.push(
+          `Skipped "${fileEntry.path}": no known disk target for this archive path`,
+        );
+      }
       continue;
     }
 

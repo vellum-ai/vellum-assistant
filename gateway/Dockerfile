@@ -11,6 +11,7 @@ COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 # Copy shared packages needed by gateway's repo-local dependencies
 COPY packages/assistant-client ./packages/assistant-client
 COPY packages/ces-client ./packages/ces-client
+COPY packages/gateway-client ./packages/gateway-client
 COPY packages/ipc-server-utils ./packages/ipc-server-utils
 COPY packages/service-contracts ./packages/service-contracts
 COPY packages/slack-text ./packages/slack-text
@@ -18,6 +19,7 @@ COPY packages/twilio-client ./packages/twilio-client
 
 # Install deps for shared packages whose source is loaded at runtime.
 RUN cd /app/packages/ces-client && bun install --frozen-lockfile
+RUN cd /app/packages/gateway-client && bun install --frozen-lockfile
 RUN cd /app/packages/service-contracts && bun install --frozen-lockfile
 
 # Install gateway dependencies first for cache reuse

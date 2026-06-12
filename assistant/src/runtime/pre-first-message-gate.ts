@@ -25,7 +25,7 @@
  * interaction resumes, so re-querying on miss is the correct behavior.)
  *
  * Callers should treat the gate as advisory + defense-in-depth: prefer to
- * skip at the service level (heartbeat, update-bulletin, etc.) so no run
+ * skip at the service level (heartbeat, etc.) so no run
  * row / conversation row is created at all, and rely on the gate inside
  * `runBackgroundJob` as the universal backstop.
  */

@@ -268,6 +268,14 @@ function normalizeSendMessageOptions(
     if (nextConfig.thinking === undefined && resolved.thinking !== undefined) {
       nextConfig.thinking = resolved.thinking;
     }
+    // Not a wire field: consumed (and stripped) by provider clients that
+    // implement prompt caching, like `cacheTtl` / `disableTurnStartCache`.
+    if (
+      nextConfig.disableCache === undefined &&
+      resolved.disableCache !== undefined
+    ) {
+      nextConfig.disableCache = resolved.disableCache;
+    }
     // Forward OpenRouter-only routing preferences so `OpenRouterProvider` can
     // translate `openrouter.only` into the wire-format `provider: { only: [...] }`
     // body field on both the OpenAI-compat and Anthropic-compat endpoints.

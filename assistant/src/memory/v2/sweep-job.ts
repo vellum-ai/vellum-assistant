@@ -283,7 +283,7 @@ function loadRecentMessagesText(nowMs: number): string {
   // initial limit (1000) defends against pathological busy windows where a
   // naive scan would touch every recent message. Joining conversations and
   // excluding background/scheduled types keeps automation chatter
-  // (heartbeats, filing, update bulletins, scheduled jobs) out of buffer.md.
+  // (heartbeats, filing, scheduled jobs) out of buffer.md.
   const rows = db
     .select({
       role: messages.role,

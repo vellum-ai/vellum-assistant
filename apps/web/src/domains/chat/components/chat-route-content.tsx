@@ -254,6 +254,7 @@ export function ChatMainPanel({
     handlePrimerContinue,
     handlePrimerCancel,
     handleRetryMicPermission,
+    handleOpenMicSettings,
   } = useVoiceInput({ assistantId, inputRef, setInput });
 
 
@@ -792,6 +793,7 @@ export function ChatMainPanel({
         voiceError={voiceError}
         onClearVoiceError={clearVoiceError}
         onRetryMicPermission={handleRetryMicPermission}
+        onOpenMicSettings={handleOpenMicSettings}
         onOpenTextInsertionSettings={handleOpenTextInsertionSettings}
         textStateNoticesSlot={textStateNoticesJsx}
       />

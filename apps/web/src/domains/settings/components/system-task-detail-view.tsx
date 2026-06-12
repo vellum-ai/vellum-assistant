@@ -11,6 +11,7 @@ import { formatTimestamp } from "@/domains/settings/utils/schedule-formatters";
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Tag } from "@vellumai/design-library/components/tag";
+import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import type { SystemTaskKind } from "@/domains/settings/types/schedules";
 
@@ -25,6 +26,8 @@ interface SystemTaskDetailViewProps {
   isRunning: boolean;
   onBack: () => void;
   onRunNow: () => void;
+  /** Pauses/resumes automatic runs. Manual Run now stays available. */
+  onToggleEnabled?: (enabled: boolean) => void;
   onOpenMemorySettings?: () => void;
 }
 
@@ -39,6 +42,7 @@ export function SystemTaskDetailView({
   isRunning,
   onBack,
   onRunNow,
+  onToggleEnabled,
   onOpenMemorySettings,
 }: SystemTaskDetailViewProps) {
   const isConsolidation = kind === "consolidation";
@@ -109,7 +113,16 @@ export function SystemTaskDetailView({
         <div className="space-y-2 text-body-medium-lighter">
           <div className="flex items-center justify-between">
             <span className="text-[var(--content-secondary)]">Status</span>
-            <span>{statusValue}</span>
+            <span className="flex items-center gap-2">
+              <span>{statusValue}</span>
+              {!isConsolidation && onToggleEnabled ? (
+                <Toggle
+                  checked={enabled}
+                  onChange={onToggleEnabled}
+                  aria-label={`Toggle ${name}`}
+                />
+              ) : null}
+            </span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-[var(--content-secondary)]">Next run</span>

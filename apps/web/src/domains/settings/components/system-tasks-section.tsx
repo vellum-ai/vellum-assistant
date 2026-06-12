@@ -12,7 +12,6 @@ import {
 import { Collapsible } from "@vellumai/design-library/components/collapsible";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Tag, type TagTone } from "@vellumai/design-library/components/tag";
-import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import type {
   ConsolidationConfigGetResponse,
@@ -34,8 +33,6 @@ interface SystemTaskRowProps {
   statusLabel?: string;
   statusTone?: TagTone;
   onClick: () => void;
-  /** When provided, the row shows a toggle instead of a status dot/tag. */
-  onToggle?: (enabled: boolean) => void;
 }
 
 export function SystemTaskRow({
@@ -49,7 +46,6 @@ export function SystemTaskRow({
   statusLabel,
   statusTone = "neutral",
   onClick,
-  onToggle,
 }: SystemTaskRowProps) {
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-md px-2 py-3 transition-colors hover:bg-[var(--surface-hover)] [&+&]:border-t [&+&]:border-[var(--border-base)]">
@@ -84,7 +80,7 @@ export function SystemTaskRow({
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
           <ScheduleUsageStats scheduleName={name} usage={usage} />
-          {onToggle ? null : statusLabel ? (
+          {statusLabel ? (
             <Tag tone={statusTone}>{statusLabel}</Tag>
           ) : (
             <span
@@ -100,13 +96,6 @@ export function SystemTaskRow({
           <ChevronRight className="h-4 w-4 text-[var(--content-tertiary)]" />
         </div>
       </button>
-      {onToggle ? (
-        <Toggle
-          checked={enabled}
-          onChange={onToggle}
-          aria-label={`Toggle ${name}`}
-        />
-      ) : null}
     </div>
   );
 }
@@ -125,7 +114,6 @@ interface SystemTasksSectionProps {
   onRetry: () => void;
   onSelectHeartbeat: () => void;
   onSelectConsolidation: () => void;
-  onToggleHeartbeat: (enabled: boolean) => void;
 }
 
 export function SystemTasksSection({
@@ -138,7 +126,6 @@ export function SystemTasksSection({
   onRetry,
   onSelectHeartbeat,
   onSelectConsolidation,
-  onToggleHeartbeat,
 }: SystemTasksSectionProps) {
   const showHeartbeat = heartbeatConfig != null;
   const showConsolidation = consolidationConfig?.available === true;
@@ -187,7 +174,6 @@ export function SystemTasksSection({
           lastRunAt={heartbeatConfig.lastRunAt}
           usage={heartbeatUsage}
           onClick={onSelectHeartbeat}
-          onToggle={onToggleHeartbeat}
         />
       ) : null}
       {showConsolidation ? (

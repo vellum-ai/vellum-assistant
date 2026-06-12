@@ -11,6 +11,11 @@ import type { Command } from "commander";
 
 import { confirmPrompt } from "../lib/confirm-prompt.js";
 import {
+  inspectPlugin,
+  type PluginInspection,
+  PluginInspectNotFoundError,
+} from "../lib/inspect-plugin.js";
+import {
   DEFAULT_PLUGIN_REF,
   installPlugin,
   InvalidPluginNameError,
@@ -18,6 +23,7 @@ import {
   PluginNotFoundError,
 } from "../lib/install-from-github.js";
 import { listInstalledPlugins } from "../lib/list-installed-plugins.js";
+import type { FingerprintComparison } from "../lib/plugin-fingerprint.js";
 import { registerCommand } from "../lib/register-command.js";
 import {
   InvalidSearchPatternError,
@@ -27,6 +33,11 @@ import {
   PluginNotInstalledError,
   uninstallPlugin,
 } from "../lib/uninstall-plugin.js";
+import {
+  PluginNotUpgradableError,
+  type PluginUpgradeResult,
+  upgradePlugin,
+} from "../lib/upgrade-plugin.js";
 import { getCliLogger } from "../logger.js";
 
 const log = getCliLogger("plugins");
@@ -41,15 +52,19 @@ export function registerPluginsCommand(program: Command): void {
         "after",
         `
 Examples:
-  $ assistant plugins install simple-memory
-  $ assistant plugins install simple-memory --force
-  $ assistant plugins install simple-memory --ref my-feature-branch
+  $ assistant plugins install example
+  $ assistant plugins install example --force
+  $ assistant plugins install example --ref my-feature-branch
   $ assistant plugins list
   $ assistant plugins list --json
-  $ assistant plugins search memory
-  $ assistant plugins search "^simple"
-  $ assistant plugins search memory --json
-  $ assistant plugins uninstall simple-memory`,
+  $ assistant plugins inspect example
+  $ assistant plugins inspect example --json
+  $ assistant plugins upgrade example
+  $ assistant plugins upgrade example --dry-run
+  $ assistant plugins search example
+  $ assistant plugins search "^example"
+  $ assistant plugins search example --json
+  $ assistant plugins uninstall example`,
       );
 
       plugins
@@ -148,6 +163,55 @@ Examples:
         });
 
       plugins
+        .command("inspect <name>")
+        .description(
+          "Show a plugin's local install metadata and the marketplace pin, and whether an update is available",
+        )
+        .option("--json", "Emit machine-readable JSON instead of a summary")
+        .action(async (name: string, opts: { json?: boolean }) => {
+          try {
+            const inspection = await inspectPlugin(
+              { name },
+              { fetch: globalThis.fetch.bind(globalThis) },
+            );
+
+            if (opts.json) {
+              process.stdout.write(JSON.stringify(inspection, null, 2) + "\n");
+              return;
+            }
+
+            // Logged after the JSON early-return: the CLI logger writes
+            // info to stdout, which would otherwise corrupt --json output.
+            log.info(
+              {
+                name: inspection.name,
+                installed: inspection.installed,
+                status: inspection.status,
+              },
+              "plugin inspect",
+            );
+
+            for (const line of formatInspection(inspection)) {
+              console.log(line);
+            }
+          } catch (err) {
+            if (err instanceof PluginInspectNotFoundError) {
+              console.error(err.message);
+              process.exitCode = 1;
+              return;
+            }
+            if (err instanceof InvalidPluginNameError) {
+              console.error(err.message);
+              process.exitCode = 1;
+              return;
+            }
+            const message = err instanceof Error ? err.message : String(err);
+            console.error(`Plugin inspect failed: ${message}`);
+            process.exitCode = 1;
+          }
+        });
+
+      plugins
         .command("search <query>")
         .description(
           "Search the plugins/marketplace.json catalog for plugin names matching <query> (case-insensitive regex)",
@@ -160,9 +224,13 @@ Examples:
               { fetch: globalThis.fetch.bind(globalThis) },
             );
 
-            // Log on every success path — JSON output, empty results, and
-            // populated tables alike — so observability doesn't depend on
-            // which formatting branch the caller landed in.
+            if (opts.json) {
+              process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+              return;
+            }
+
+            // Logged after the JSON early-return: the CLI logger writes info
+            // to stdout, which would otherwise corrupt --json output.
             log.info(
               {
                 query: result.query,
@@ -171,11 +239,6 @@ Examples:
               },
               "external plugin search",
             );
-
-            if (opts.json) {
-              process.stdout.write(JSON.stringify(result, null, 2) + "\n");
-              return;
-            }
 
             if (result.matches.length === 0) {
               console.log(`No plugins matched "${result.query}".`);
@@ -253,6 +316,176 @@ Examples:
             process.exitCode = 1;
           }
         });
+
+      plugins
+        .command("upgrade <name>")
+        .description(
+          "Upgrade an installed plugin to the marketplace's current pin",
+        )
+        .option(
+          "--dry-run",
+          "Show what would change without modifying the install",
+        )
+        .option("--json", "Emit machine-readable JSON instead of a summary")
+        .action(
+          async (name: string, opts: { dryRun?: boolean; json?: boolean }) => {
+            try {
+              const result = await upgradePlugin(
+                { name, dryRun: opts.dryRun },
+                { fetch: globalThis.fetch.bind(globalThis) },
+              );
+
+              if (opts.json) {
+                process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+                return;
+              }
+
+              // Logged after the JSON early-return: the CLI logger writes
+              // info to stdout, which would otherwise corrupt --json output.
+              log.info(
+                {
+                  name: result.name,
+                  outcome: result.outcome,
+                  from: result.fromCommit,
+                  to: result.toCommit,
+                },
+                "plugin upgrade",
+              );
+
+              for (const line of formatUpgrade(result)) {
+                console.log(line);
+              }
+            } catch (err) {
+              if (
+                err instanceof PluginNotInstalledError ||
+                err instanceof PluginNotUpgradableError ||
+                err instanceof InvalidPluginNameError
+              ) {
+                console.error(err.message);
+                process.exitCode = 1;
+                return;
+              }
+              const message = err instanceof Error ? err.message : String(err);
+              console.error(`Plugin upgrade failed: ${message}`);
+              process.exitCode = 1;
+            }
+          },
+        );
     },
   });
+}
+
+/** Abbreviate a commit SHA for display; passes through non-SHA / null values. */
+function shortSha(sha: string | null): string {
+  return sha ? sha.slice(0, 7) : "—";
+}
+
+/** Human-readable status line for an inspection result. */
+function statusLine(inspection: PluginInspection): string {
+  const { status, local, remote } = inspection;
+  switch (status) {
+    case "up-to-date":
+      return "up to date";
+    case "update-available":
+      return `update available  (${shortSha(local?.commit ?? null)} → ${shortSha(
+        remote?.commit ?? null,
+      )})`;
+    case "not-installed":
+      return "not installed";
+    case "not-in-marketplace":
+      return "installed (not in marketplace)";
+    case "unknown-provenance":
+      return "unknown — reinstall to record provenance";
+    case "remote-unavailable":
+      return "installed (marketplace unavailable)";
+  }
+}
+
+/**
+ * Summarize local edits relative to the install-time fingerprint. Reports
+ * "unknown" when no baseline was recorded (an older or manually-copied
+ * install), "none" when the on-disk tree matches, or a per-category count.
+ */
+function localEditsLine(changes: FingerprintComparison | null): string {
+  if (!changes)
+    return "unknown (no recorded baseline; reinstall to record one)";
+  if (changes.clean) return "none";
+  const parts = [
+    `${changes.modified.length} modified`,
+    `${changes.added.length} added`,
+    `${changes.removed.length} removed`,
+  ];
+  return parts.join(", ");
+}
+
+/** Render an inspection as aligned, human-readable summary lines. */
+function formatInspection(inspection: PluginInspection): string[] {
+  const { name, local, remote, remoteError } = inspection;
+  const lines: string[] = [`${name}  plugin`];
+  const row = (label: string, value: string) =>
+    lines.push(`  ${label.padEnd(11)} ${value}`);
+
+  row("status", statusLine(inspection));
+
+  if (local) {
+    const installedAt = local.installedAt
+      ? `  (${local.installedAt.slice(0, 10)})`
+      : "";
+    row("installed", `${shortSha(local.commit)}${installedAt}`);
+    row("local edits", localEditsLine(local.localChanges));
+  }
+
+  if (remote) {
+    const where = remote.path ? `${remote.repo}/${remote.path}` : remote.repo;
+    row(
+      "remote pin",
+      `${shortSha(remote.commit)}  (${where}, ${remote.marketplaceRef})`,
+    );
+  } else if (remoteError) {
+    row("remote", `unavailable — ${remoteError}`);
+  }
+
+  const version = local?.version ?? null;
+  if (version) row("version", version);
+
+  const license = remote?.license ?? null;
+  const homepage = remote?.homepage ?? null;
+  if (license && homepage) row("license", `${license}   homepage  ${homepage}`);
+  else if (license) row("license", license);
+  else if (homepage) row("homepage", homepage);
+
+  const description = remote?.description ?? local?.description ?? null;
+  if (description) row("description", description);
+
+  for (const issue of local?.issues ?? []) row("issue", issue);
+
+  return lines;
+}
+
+/** Render an upgrade result as human-readable summary lines. */
+function formatUpgrade(result: PluginUpgradeResult): string[] {
+  const { name, fromCommit, toCommit } = result;
+  const move = `${shortSha(fromCommit)} → ${shortSha(toCommit)}`;
+  const provenanceNote = result.provenanceWasUnknown
+    ? " (previous install had no recorded provenance)"
+    : "";
+
+  switch (result.outcome) {
+    case "already-up-to-date":
+      return [`"${name}" is already up to date (${shortSha(toCommit)}).`];
+    case "would-upgrade":
+      return [
+        `"${name}" would upgrade ${move}${provenanceNote} (dry run; no changes made).`,
+      ];
+    case "upgraded": {
+      const count =
+        result.fileCount === null
+          ? ""
+          : ` (${result.fileCount} file${result.fileCount === 1 ? "" : "s"})`;
+      return [
+        `Upgraded "${name}" ${move}${count}${provenanceNote} → ${result.target}`,
+        "Restart the assistant to pick up the upgrade.",
+      ];
+    }
+  }
 }

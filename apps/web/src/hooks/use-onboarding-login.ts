@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import { PROVIDER_ID } from "@/domains/account/login-flow";
 import { isPlatformLocal } from "@/lib/auth/loopback-auth";
 import { isLocalMode } from "@/lib/local-mode";
 import { buildNavigationState } from "@/lib/navigation/build-state";
@@ -35,7 +36,7 @@ export function useOnboardingLogin(returnToOverride?: string) {
     setLoading(true);
     try {
       const callbackUrl = `${routes.account.providerCallback}?returnTo=${encodeURIComponent(returnTo)}`;
-      await startAuthFlow("workos-oidc", callbackUrl, { returnTo });
+      await startAuthFlow(PROVIDER_ID, callbackUrl, { returnTo });
     } catch {
       if (flowId !== flowIdRef.current) return;
       setError("Something went wrong. Please try again.");

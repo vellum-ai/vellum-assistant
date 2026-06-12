@@ -242,7 +242,7 @@ export const routeTree = [
 
             // Logs routes — full-screen overlay panel (like SettingsLayout).
             // LogsLayout reuses SidebarShell for visual consistency.
-            // Lazy-loaded: analytics-only, pulls in recharts.
+            // Lazy-loaded: analytics-only.
             {
               path: "logs",
               lazy: { Component: () => import("@/domains/logs/logs-layout").then((m) => m.LogsLayout) },

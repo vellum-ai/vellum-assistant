@@ -145,7 +145,7 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
           <ul className="flex flex-col gap-2">
             {visibleInstalled.map((plugin) => (
               <li key={plugin.id}>
-                <PluginRow plugin={plugin} />
+                <PluginRow plugin={plugin} assistantId={assistantId} />
               </li>
             ))}
           </ul>

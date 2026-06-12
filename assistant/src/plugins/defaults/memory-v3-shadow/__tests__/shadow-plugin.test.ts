@@ -34,6 +34,7 @@ import type { HotSetEntry, HotSetOptions } from "../hot-set.js";
 import type { OrchestrateResult } from "../orchestrate.js";
 import {
   MEMORY_V3_COMMIT_META_KEY,
+  type MemoryRoutingTurn,
   type SectionIndex,
   type SelectionSource,
 } from "../types.js";
@@ -88,8 +89,9 @@ const CAPABILITY_SLUG = "skills/example";
 const CAPABILITY_CONTENT = "use the kumquat skill to do the thing";
 
 // The orchestrate result the spy returns. `lanes` records where each pooled
-// slug lived: page-core in the core lane, page-hot in the hot lane, and the
-// finder entries page-1 → "needle", page-2 → "dense", page-3 → "edge";
+// slug lived: page-core in the core lane, page-hot in the hot lane, page-fresh
+// in the fresh lane, and the finder entries page-1 → "needle", page-2 → "dense",
+// page-3 → "edge";
 // `attributeSelections` reads it directly. `matchedSections` carries the
 // matched section for the slugs that had one (page-1/page-2) — consumed by the
 // live injector's progressive disclosure, independent of source attribution.
@@ -98,9 +100,12 @@ const orchestrateSpy = mock(
     selections: [
       { slug: "page-core", pinned: false },
       { slug: "page-hot", pinned: false },
+      { slug: "page-fresh", pinned: false },
       { slug: "page-1", pinned: true },
       { slug: "page-2", pinned: false },
       { slug: "page-3", pinned: false },
+      { slug: "page-4", pinned: false },
+      { slug: "page-5", pinned: false },
     ],
     matchedSections: new Map([
       ["page-1", { article: "page-1", title: "", text: "x", ordinal: 0 }],
@@ -109,10 +114,13 @@ const orchestrateSpy = mock(
     lanes: {
       core: ["page-core"],
       hot: ["page-hot"],
+      fresh: ["page-fresh"],
       finder: [
         { slug: "page-1", descriptor: "", lane: "needle" },
         { slug: "page-2", descriptor: "", lane: "dense" },
         { slug: "page-3", descriptor: "", lane: "edge" },
+        { slug: "page-4", descriptor: "", lane: "reply" },
+        { slug: "page-5", descriptor: "", lane: "learned" },
       ],
     },
   }),
@@ -180,9 +188,19 @@ mock.module("../../../../config/loader.js", () => ({
       enabled: memoryEnabled,
       v3: {
         hotSet: { k: 40, halfLifeDays: 14 },
+        freshSet: { k: 50 },
         spotlight: { n: 6, windowTurns: 2 },
         needleK: 100,
         denseK: 100,
+        replyQueryK: 12,
+        learnedEdges: {
+          halfLifeDays: 30,
+          minCount: 3,
+          npmiFloor: 0.2,
+          maxPerPage: 6,
+          perSeed: 3,
+          cap: 20,
+        },
         edge: { hubDegree: 30, seedCount: 18, perSeed: 6, cap: 45 },
       },
       qdrant: { vectorSize: 8, onDisk: false },
@@ -463,10 +481,55 @@ describe("memory-v3 shadow plugin", () => {
       { slug: "page-2", source: "dense", pinned: 0 },
       // page-3 was surfaced by the edge lane → "edge".
       { slug: "page-3", source: "edge", pinned: 0 },
-      // page-core / page-hot sit in the stable prefix → "core" / "hot".
+      // page-4 was first surfaced by the reply-query pass → "reply".
+      { slug: "page-4", source: "reply", pinned: 0 },
+      // page-5 was first surfaced by the learned-edge pass → "learned".
+      { slug: "page-5", source: "learned", pinned: 0 },
+      // page-core / page-hot / page-fresh sit in the stable prefix →
+      // "core" / "hot" / "fresh".
       { slug: "page-core", source: "core", pinned: 0 },
+      { slug: "page-fresh", source: "fresh", pinned: 0 },
       { slug: "page-hot", source: "hot", pinned: 0 },
     ]);
+  });
+
+  test("the turn carries the tail of the previous assistant reply for the reply-query pass", async () => {
+    shadowEnabled = true;
+    messages = [
+      {
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "first question" }]),
+      },
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          { type: "text", text: "the thread continues from my last reply" },
+        ]),
+      },
+      {
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "and now this" }]),
+      },
+    ];
+    await runShadowObservation("conv-1", 1);
+
+    const turn = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![0] as MemoryRoutingTurn;
+    expect(turn.currentMessage).toBe("and now this");
+    expect(turn.previousAssistantMessage).toBe(
+      "the thread continues from my last reply",
+    );
+  });
+
+  test("a conversation-opening turn has no previous assistant message", async () => {
+    shadowEnabled = true;
+    await runShadowObservation("conv-1", 0);
+
+    const turn = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![0] as MemoryRoutingTurn;
+    expect(turn.previousAssistantMessage).toBeUndefined();
   });
 
   test("a selection of a core page a finder also hit attributes to core (pool position wins)", () => {
@@ -476,6 +539,7 @@ describe("memory-v3 shadow plugin", () => {
       lanes: {
         core: ["page-core"],
         hot: [],
+        fresh: [],
         // The needle also hit the core page this turn — the row still logs
         // "core" because that is where the candidate lived in the pool.
         finder: [{ slug: "page-core", descriptor: "", lane: "needle" }],
@@ -598,7 +662,7 @@ describe("memory-v3 shadow plugin", () => {
     orchestrateSpy.mockImplementationOnce(async () => ({
       selections: [],
       matchedSections: new Map(),
-      lanes: { core: [], hot: [], finder: [] },
+      lanes: { core: [], hot: [], fresh: [], finder: [] },
     }));
     const block = await produce("conv-1", 0);
     expect(block).toBeNull();

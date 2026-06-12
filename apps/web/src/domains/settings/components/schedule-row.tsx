@@ -75,12 +75,14 @@ export function ScheduleRow({
             {schedule.name}
           </span>
         </div>
-        <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-body-small-default text-[var(--content-tertiary)]">
-          {descriptionText ? (
-            <span className="min-w-[12rem] max-w-full flex-1 truncate">
-              {descriptionText}
-            </span>
-          ) : null}
+        {descriptionText ? (
+          <p className="mt-0.5 truncate text-body-small-default text-[var(--content-tertiary)]">
+            {descriptionText}
+          </p>
+        ) : null}
+      </button>
+      {(cadenceText || timestampText) && (
+        <div className="flex shrink-0 items-center gap-3 text-body-small-default text-[var(--content-tertiary)]">
           {cadenceText ? (
             <span className="shrink-0 text-[var(--content-secondary)]">
               {cadenceText}
@@ -90,7 +92,7 @@ export function ScheduleRow({
             <span className="shrink-0">{timestampText}</span>
           ) : null}
         </div>
-      </button>
+      )}
       <div className="flex shrink-0 items-center gap-3">
         <ScheduleUsageStats
           scheduleName={schedule.name}

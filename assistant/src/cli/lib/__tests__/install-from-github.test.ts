@@ -371,16 +371,23 @@ describe("installPlugin — marketplace resolution", () => {
       "https://github.com/JuliusBrussee/caveman.git",
     );
 
-    // AND a provenance manifest records the github source + commit.
-    const manifest = JSON.parse(
-      readFileSync(join(target, ".vellum-plugin.json"), "utf-8"),
+    // AND an install-meta sidecar records origin + github source + commit.
+    const meta = JSON.parse(
+      readFileSync(join(target, "install-meta.json"), "utf-8"),
     );
-    expect(manifest.source.kind).toBe("github");
-    expect(manifest.source.owner).toBe("JuliusBrussee");
-    expect(manifest.source.ref).toBe(
-      "63a91ecadbf4c4719a4602a5abb00883f9966034",
-    );
-    expect(manifest.commit).toBe("63a91ecadbf4c4719a4602a5abb00883f9966034");
+    expect(meta.origin).toBe("vellum");
+    expect(meta.sourceRepo).toBe("JuliusBrussee/caveman");
+    expect(meta.source.kind).toBe("github");
+    expect(meta.source.owner).toBe("JuliusBrussee");
+    expect(meta.source.ref).toBe("63a91ecadbf4c4719a4602a5abb00883f9966034");
+    expect(meta.commit).toBe("63a91ecadbf4c4719a4602a5abb00883f9966034");
+
+    // AND both content digests baseline the materialized tree (excluding the
+    // sidecar) so later local edits are detectable.
+    expect(meta.fingerprint.algorithm).toBe("sha256");
+    expect(meta.fingerprint.files["package.json"]).toMatch(/^[0-9a-f]{64}$/);
+    expect(meta.fingerprint.files["install-meta.json"]).toBeUndefined();
+    expect(meta.contentHash).toMatch(/^v2:[0-9a-f]{64}$/);
   });
 
   test("refuses to install when the checked-out commit differs from the pinned SHA", async () => {
