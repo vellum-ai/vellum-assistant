@@ -4,6 +4,7 @@ import type {
   AgentMessage,
   BaseAgent,
 } from "../adapter";
+import { confirmationRequestId } from "../adapter";
 import {
   appendAssistantEvents,
   appendSimulatorMessage,
@@ -309,11 +310,14 @@ export async function collectAndPersistEvents(input: {
   isTurnComplete: (event: AgentEvent) => boolean;
   /** Remaining wall-clock budget for the run (caps this turn's wait). */
   maxMs: number;
+  /** Invoked for every collected event, before the next one is pulled. */
+  onEvent?: (event: AgentEvent) => void | Promise<void>;
 }): Promise<CollectAndPersistEventsResult> {
   const { events, completed } = await input.collector.collectUntilTurnComplete({
     isComplete: input.isTurnComplete,
     maxMs: input.maxMs,
     graceQuietMs: TURN_TRAILER_QUIET_MS,
+    onEvent: input.onEvent,
   });
   input.assistantEvents.push(...events);
   await appendAssistantEvents(input.runId, events);
@@ -554,6 +558,30 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
       // pre-assignment throws), and TS won't propagate that narrowing
       // across a function boundary on its own.
       const sendingAgent = agent;
+      // Auto-approve tool confirmations. The agent legitimately reaches
+      // for tools above the auto-approve risk threshold, and a headless
+      // hatch has no interactive approver: nothing would answer the
+      // `confirmation_request`, the turn-completion signal would never
+      // arrive, and the run would burn its whole wall-clock budget. A
+      // failed approval is logged but not fatal — the run still fails
+      // loudly if the turn never completes.
+      const autoConfirm = async (event: AgentEvent): Promise<void> => {
+        const requestId = confirmationRequestId(event);
+        if (
+          requestId === undefined ||
+          typeof sendingAgent.confirm !== "function"
+        ) {
+          return;
+        }
+        try {
+          await sendingAgent.confirm({ requestId, decision: "allow" });
+        } catch (err) {
+          console.warn(
+            `[run-once] failed to auto-confirm ${requestId}: ` +
+              (err instanceof Error ? err.message : String(err)),
+          );
+        }
+      };
       await sendAndPersistSimulatorMessage({
         runId: input.runId,
         agentSend: (message) => sendingAgent.send(message),
@@ -579,6 +607,7 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
           includeInTranscript: true,
           isTurnComplete: (event) => sendingAgent.isTurnComplete(event),
           maxMs: Math.max(0, runDeadline - Date.now()),
+          onEvent: autoConfirm,
         });
       // A zero-event window means the event stream went silent for the
       // entire remaining run budget without delivering anything — a

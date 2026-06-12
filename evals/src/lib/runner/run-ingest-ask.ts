@@ -31,6 +31,7 @@ import type {
   BaseAgent,
   WorkspaceFileWrite,
 } from "../adapter";
+import { confirmationRequestId } from "../adapter";
 import type { Profile } from "../profile";
 
 import { createAgent } from "./create-agent";
@@ -243,21 +244,6 @@ function joinAssistantText(events: readonly AgentEvent[]): string {
     if (text !== undefined) out += text;
   }
   return out;
-}
-
-/**
- * Extract the `requestId` from a pending tool-confirmation event, or
- * `undefined` if the event isn't a `confirmation_request`. A hatched
- * assistant runs headless with no interactive approver, so any tool the
- * agent reaches for above the auto-approve risk threshold stalls on such
- * an event until something answers it.
- */
-function confirmationRequestId(event: AgentEvent): string | undefined {
-  if (event.message.type !== "confirmation_request") return undefined;
-  const requestId = event.message.requestId;
-  return typeof requestId === "string" && requestId.length > 0
-    ? requestId
-    : undefined;
 }
 
 export async function runIngestAsk(
