@@ -468,13 +468,9 @@ function readPlainObject(value: unknown): Record<string, unknown> | undefined {
   return value as Record<string, unknown>;
 }
 
-/**
- * Wire-only extension of ProfileEntry: adds `supportsVision` resolved from
- * the model catalog at response time. Never persisted to disk.
- */
 const WireProfileEntry = ProfileEntry.extend({
   supportsVision: z.boolean().optional(),
-});
+}).passthrough();
 
 /**
  * Response schema for `GET /v1/config`.
@@ -1395,7 +1391,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Patch config",
     description:
-      "Deep-merge a partial JSON object into the settings.json configuration. Returns the full merged config.",
+      "Deep-merge a partial JSON object into the settings.json configuration.",
     tags: ["config"],
     requestBody: ConfigPatchRequestSchema,
     responseBody: ConfigGetResponseSchema,

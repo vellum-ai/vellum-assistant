@@ -38,6 +38,15 @@ export const MemoryRetrospectiveConfigSchema = z
       .describe(
         "Minimum milliseconds between attempts (success or failure). Prevents tight retry loops across trigger types. Pre-compaction bypasses this gate.",
       ),
+
+    keepSupersededRuns: z
+      .boolean({
+        error: "memory.retrospective.keepSupersededRuns must be a boolean",
+      })
+      .default(false)
+      .describe(
+        "When false (default), superseded retrospective conversations are deleted once a newer run succeeds — dedup only ever reads the most recent run via findMostRecentRetrospectiveFor, so older runs are dead weight (fork-based runs each carry a full copy of the source conversation's messages). Operators who want to retain the full run history set this to true; retained runs also skip the startup orphan sweep so they survive restarts.",
+      ),
   })
   .describe(
     "Controls the memory-retrospective background pass. Model selection lives under llm.callSites.memoryRetrospective.",

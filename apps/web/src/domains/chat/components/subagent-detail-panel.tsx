@@ -86,7 +86,7 @@ function MetricCard({
 }) {
   return (
     <div className="flex items-center gap-3 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] px-3 py-3">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#F5F5F5]">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--surface-base)]">
         {icon}
       </div>
       <div className="min-w-0">
