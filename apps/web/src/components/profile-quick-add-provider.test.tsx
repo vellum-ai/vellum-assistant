@@ -10,10 +10,9 @@
  * Mounted with `@testing-library/react` (happy-dom — see `apps/web/test-setup.ts`).
  */
 
-import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createElement, useEffect } from "react";
 
 const NEW_PROFILE_NAME = "fast-cheap";
@@ -55,11 +54,13 @@ mock.module("@/domains/settings/ai/provider-connections-client", () => ({
   filterFlaggedConnections: (c: unknown) => c,
 }));
 
+const configGetSetQueryDataMock = mock((_client: unknown, _opts: unknown, _data: unknown) => {});
 mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   inferenceProviderconnectionsGetOptions: () => ({
     queryKey: [{ _id: "inferenceProviderconnectionsGet" }],
     queryFn: async () => ({ connections: [] }),
   }),
+  configGetSetQueryData: configGetSetQueryDataMock,
 }));
 
 const configPatchMock = mock(
@@ -112,6 +113,7 @@ beforeEach(() => {
   onCreated.mockClear();
   configPatchMock.mockClear();
   configGetMock.mockClear();
+  configGetSetQueryDataMock.mockClear();
 });
 
 afterEach(() => {
@@ -207,21 +209,19 @@ describe("ProfileQuickAddProvider", () => {
     expect(screen.getByTestId("modal-save-btn")).toBeTruthy();
   });
 
-  test("invalidates the daemon config cache after a successful create so Settings stays in sync", async () => {
-    const { queryClient } = renderProvider(["smart"]);
-    const invalidateSpy = spyOn(queryClient, "invalidateQueries");
+  test("writes the PATCH response to the shared config query cache so Settings stays in sync", async () => {
+    renderProvider(["smart"]);
     await waitFor(() => screen.getByTestId("modal-save-btn"));
     fireEvent.click(screen.getByTestId("modal-save-btn"));
 
     await waitFor(() => {
       expect(configPatchMock).toHaveBeenCalledTimes(1);
     });
-    // The shared daemon-config query is invalidated so a previously-loaded
-    // Settings/AI tab refetches and shows the newly created profile.
+    // The PATCH response (merged config) is written directly to the shared
+    // config query cache via configGetSetQueryData so all consumers see the
+    // new profile immediately without a refetch.
     await waitFor(() => {
-      expect(invalidateSpy).toHaveBeenCalledWith({
-        queryKey: assistantDaemonConfigQueryKey("assistant-1"),
-      });
+      expect(configGetSetQueryDataMock).toHaveBeenCalledTimes(1);
     });
   });
 

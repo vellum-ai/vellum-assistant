@@ -31,6 +31,24 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
+mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
+  configGetQueryKey: (options: { path: { assistant_id: string } }) => [
+    { _id: "configGet", baseUrl: undefined, path: options.path },
+  ],
+  configGetOptions: (options: { path: { assistant_id: string } }) => ({
+    queryKey: [{ _id: "configGet", baseUrl: undefined, path: options.path }],
+    queryFn: async () => daemonConfig,
+  }),
+  configGetSetQueryData: (_client: unknown, _opts: unknown, _data: unknown) => {},
+  useConfigPatchMutation: () => ({
+    mutateAsync: async (_opts: { body: unknown }) => {
+      await configPatchMock();
+      return { data: daemonConfig };
+    },
+    isPending: false,
+  }),
+}));
+
 const { configGetQueryKey } = await import("@/generated/daemon/@tanstack/react-query.gen");
 const { AdvancedPage } = await import("./advanced-page");
 
