@@ -117,7 +117,9 @@ export function SelectAssistantScreen() {
   };
 
   const handleRecoveryRepair = async () => {
-    if (!recoveryAssistant) return;
+    // recoveryPending also guards re-entry: a second click can land before
+    // React flushes the pending state into the dialog's disabled buttons.
+    if (!recoveryAssistant || recoveryPending) return;
     setRecoveryPending(true);
     setRecoveryError(null);
     const result = await wakeLocalAssistantHost(recoveryAssistant.id, {
@@ -133,7 +135,7 @@ export function SelectAssistantScreen() {
   };
 
   const handleRecoveryRetire = async () => {
-    if (!recoveryAssistant) return;
+    if (!recoveryAssistant || recoveryPending) return;
     setRecoveryPending(true);
     setRecoveryError(null);
     const outcome = await retireAssistant(recoveryAssistant.id);
