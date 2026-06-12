@@ -233,6 +233,43 @@ describe("buildTranscriptView", () => {
     });
   });
 
+  test("GIVEN untimestamped events WHEN building THEN persisted turns render so turn order is preserved", () => {
+    // The Hermes adapter synthesizes message_chunk events with no
+    // emittedAt — they can't be ordered against simulator turns.
+    const turns: TranscriptTurn[] = [
+      simTurn("first", "2026-01-01T00:00:00Z"),
+      {
+        role: "assistant",
+        content: "reply one",
+        emittedAt: "2026-01-01T00:00:01Z",
+      },
+      simTurn("second", "2026-01-01T00:00:10Z"),
+      {
+        role: "assistant",
+        content: "reply two",
+        emittedAt: "2026-01-01T00:00:11Z",
+      },
+    ];
+
+    const items = buildTranscriptView(turns, [
+      event({ type: "message_chunk", chunk: "reply one" }),
+      event({ type: "message_chunk", chunk: "reply two" }),
+    ]);
+
+    expect(items.map((item) => item.role)).toEqual([
+      "simulator",
+      "assistant",
+      "simulator",
+      "assistant",
+    ]);
+    expect(items[1]).toMatchObject({
+      blocks: [{ kind: "text", text: "reply one" }],
+    });
+    expect(items[3]).toMatchObject({
+      blocks: [{ kind: "text", text: "reply two" }],
+    });
+  });
+
   test("GIVEN plumbing-only events WHEN building THEN no assistant message opens", () => {
     const items = buildTranscriptView(
       [simTurn("hi", "2026-01-01T00:00:00Z")],

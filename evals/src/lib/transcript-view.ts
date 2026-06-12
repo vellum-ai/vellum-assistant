@@ -133,16 +133,20 @@ function appendBlock(message: AssistantMessageView, block: AssistantBlock) {
  * Build the interleaved transcript view: simulator turns from the
  * persisted transcript, assistant messages folded from the event
  * stream. Events and simulator turns merge chronologically on their
- * ISO `emittedAt` stamps (events without a stamp attach to the current
- * message). When the run has no persisted events (legacy artifact dirs)
- * the persisted assistant turns render as plain text messages so old
- * reports keep working.
+ * ISO `emittedAt` stamps. When the run has no persisted events (legacy
+ * artifact dirs) or any event lacks a stamp (the Hermes adapter
+ * synthesizes bare `message_chunk` events with no `emittedAt`, so the
+ * stream can't be ordered against simulator turns), the persisted
+ * turns render as plain text messages so turn order is never wrong.
  */
 export function buildTranscriptView(
   turns: TranscriptTurn[],
   assistantEvents: AgentEvent[],
 ): TranscriptViewItem[] {
-  if (assistantEvents.length === 0) {
+  if (
+    assistantEvents.length === 0 ||
+    assistantEvents.some((event) => event.emittedAt === undefined)
+  ) {
     return turns.map((turn) =>
       turn.role === "simulator"
         ? {
