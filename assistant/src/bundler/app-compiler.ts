@@ -454,6 +454,14 @@ async function runCompile(appDir: string): Promise<CompileResult> {
   if (existsSync(htmlSrc)) {
     let html = await readFile(htmlSrc, "utf-8");
 
+    // Strip source-file script tags (e.g. <script src="/src/main.tsx">) that
+    // models often write in Vite style; browsers cannot load raw TSX/TS/JSX.
+    // The compiled main.js tag is injected below instead.
+    html = html.replace(
+      /<script\b[^>]*\bsrc=["'][^"']*\.(?:tsx|ts|jsx)["'][^>]*>\s*<\/script>\s*/gi,
+      "",
+    );
+
     // Check if CSS output was produced
     const distFiles = await readdir(distDir);
     const hasCss = distFiles.some((f) => f.endsWith(".css"));
