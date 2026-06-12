@@ -236,7 +236,7 @@
           ]
         }
       },
-      "updatedAt": "2026-06-10T17:57:08.000Z"
+      "updatedAt": "2026-06-10T20:12:38.000Z"
     },
     {
       "id": "geo-writing",
@@ -255,6 +255,19 @@
       },
       "compatibility": "Designed for Vellum personal assistants",
       "updatedAt": "2026-06-03T03:10:07.000Z"
+    },
+    {
+      "id": "github-watch",
+      "name": "github-watch",
+      "description": "Watch GitHub notifications (review requests, mentions, issue/PR assignments, team mentions) using a tokenless script-mode schedule. Polls every 15 minutes via the GitHub OAuth integration and wakes the conversation only when relevant notifications arrive — quiet polls cost zero tokens. Prototype replacement for the built-in GitHub watcher.",
+      "metadata": {
+        "emoji": "🐙",
+        "vellum": {
+          "category": "development",
+          "display-name": "GitHub Watch"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants. Requires the GitHub OAuth integration and script-mode schedules. PROTOTYPE — built to evaluate replacing the watcher primitive with skills + schedules."
     },
     {
       "id": "gmail",
