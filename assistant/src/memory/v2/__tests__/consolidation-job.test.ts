@@ -310,13 +310,17 @@ describe("memoryV2ConsolidateJob — chunked cutoff (consolidation_max_entries_p
     );
   });
 
-  test("over-cap line without a bracketed timestamp → falls back to the full-buffer cutoff", async () => {
+  test("continuation lines (multi-line entries) don't count as entries or break the cutoff", async () => {
+    // The second entry carries embedded newlines: its continuation lines
+    // belong to that entry, so the buffer holds 3 entries, not 5 lines.
+    // With a cap of 2, the cutoff is the THIRD entry's timestamp.
     writeFileSync(
       bufferPath(),
       [
         "- [Apr 27, 9:00 AM] Alice prefers VS Code.",
-        "- [Apr 27, 9:01 AM] Bob takes his coffee black.",
-        "a stray unstructured line with no timestamp",
+        "- [Apr 27, 9:01 AM] Bob shared a snippet:",
+        "  line two of Bob's multi-line memory",
+        "  line three of Bob's multi-line memory",
         "- [Apr 27, 9:03 AM] Dave runs marathons.",
       ].join("\n") + "\n",
     );
@@ -328,8 +332,30 @@ describe("memoryV2ConsolidateJob — chunked cutoff (consolidation_max_entries_p
 
     expect(outcome.kind).toBe("invoked");
     if (outcome.kind !== "invoked") throw new Error("unreachable");
+    expect(outcome.cutoff).toBe("Apr 27, 9:03 AM");
+    expect(outcome.deferredEntries).toBe(1);
+  });
+
+  test("multi-line entries under the cap → full-buffer cutoff even when raw line count exceeds it", async () => {
+    writeFileSync(
+      bufferPath(),
+      [
+        "- [Apr 27, 9:00 AM] Alice shared a snippet:",
+        "  continuation one",
+        "  continuation two",
+        "- [Apr 27, 9:01 AM] Bob takes his coffee black.",
+      ].join("\n") + "\n",
+    );
+
+    const outcome = await memoryV2ConsolidateJob(
+      makeJob(),
+      configWithMaxEntries(2),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    if (outcome.kind !== "invoked") throw new Error("unreachable");
     expect(outcome.deferredEntries).toBe(0);
-    expect(outcome.cutoff).not.toBe("Apr 27, 9:03 AM");
+    expect(outcome.cutoff).not.toBe("Apr 27, 9:01 AM");
   });
 });
 

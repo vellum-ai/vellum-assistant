@@ -202,20 +202,22 @@ export async function memoryV2ConsolidateJob(
     // overflow loss-free, and the `consolidation_max_buffer_lines` size
     // trigger re-fires while the remainder stays over threshold — so one run
     // never has to read an unbounded backlog into context. Entries sharing
-    // the over-cap entry's minute are also deferred (conservative). A line
-    // whose timestamp can't be extracted falls back to the full-buffer
-    // cutoff — today's behavior.
+    // the over-cap entry's minute are also deferred (conservative).
+    //
+    // Entries are counted by their timestamped bullet-start lines
+    // (`- [Mon D, h:mm AM/PM] …`) rather than raw non-empty lines: a
+    // remembered fact can carry embedded newlines, and its continuation
+    // lines belong to the preceding entry, not the count.
     let cutoff = formatBufferTimestamp(new Date());
     let deferredEntries = 0;
     const maxEntries = config.memory.v2.consolidation_max_entries_per_run;
     if (maxEntries != null) {
-      const entryLines = bufferContent
+      const entryTimestamps = bufferContent
         .split("\n")
-        .filter((line) => line.trim().length > 0);
-      if (entryLines.length > maxEntries) {
-        const overflowTimestamp = extractBufferEntryTimestamp(
-          entryLines[maxEntries],
-        );
+        .map(extractBufferEntryTimestamp)
+        .filter((timestamp): timestamp is string => timestamp !== null);
+      if (entryTimestamps.length > maxEntries) {
+        const overflowTimestamp = entryTimestamps[maxEntries];
         // Same-minute burst guard: timestamps have minute precision, so when
         // even the FIRST entry shares the over-cap entry's timestamp, a
         // pulled-back cutoff would tell the agent to defer every entry
@@ -223,31 +225,26 @@ export async function memoryV2ConsolidateJob(
         // would requeue the identical run forever. Fall back to the
         // full-buffer cutoff in that case; partial same-minute runs (some
         // earlier entries have older timestamps) still make progress.
-        const firstTimestamp = extractBufferEntryTimestamp(entryLines[0]);
-        if (
-          overflowTimestamp !== null &&
-          firstTimestamp === overflowTimestamp
-        ) {
+        if (entryTimestamps[0] === overflowTimestamp) {
           log.warn(
-            { bufferEntries: entryLines.length, maxEntries, overflowTimestamp },
+            {
+              bufferEntries: entryTimestamps.length,
+              maxEntries,
+              overflowTimestamp,
+            },
             "consolidation: entire over-cap prefix shares one minute timestamp; processing full buffer to guarantee progress",
           );
-        } else if (overflowTimestamp !== null) {
+        } else {
           cutoff = overflowTimestamp;
-          deferredEntries = entryLines.length - maxEntries;
+          deferredEntries = entryTimestamps.length - maxEntries;
           log.info(
             {
-              bufferEntries: entryLines.length,
+              bufferEntries: entryTimestamps.length,
               maxEntries,
               deferredEntries,
               cutoff,
             },
             "consolidation chunked: buffer over per-run cap, overflow deferred to next pass",
-          );
-        } else {
-          log.warn(
-            { line: entryLines[maxEntries].slice(0, 80) },
-            "consolidation: could not extract timestamp from over-cap buffer entry; processing full buffer",
           );
         }
       }
