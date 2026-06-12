@@ -20,7 +20,7 @@ import {
     THINKING_LEVEL_INHERIT,
 } from "@/domains/settings/ai/profile-advanced-params";
 import { ProfileEditorProviderSection } from "@/domains/settings/ai/profile-editor-provider-section";
-import { resolveProfileParamVisibility } from "@/domains/settings/ai/profile-param-visibility";
+import { type GeminiThinkingLevel, isGeminiThinkingLevel, resolveProfileParamVisibility } from "@/domains/settings/ai/profile-param-visibility";
 import { AUTO_PROFILE_NAME } from "@/assistant/profile-pickers";
 import { deriveProfileDefaults } from "@/domains/settings/ai/profile-prefill";
 import type { ConnectionProvider, ProviderConnection } from "@/domains/settings/ai/provider-connections-client";
@@ -225,9 +225,8 @@ function ProfileEditorModalInner({
     initialValues?.thinking?.streamThinking ?? false,
   );
   // Gemini reasoning-depth knob. "default" = inherit the model default.
-  type ThinkingLevel = NonNullable<NonNullable<ProfileEntry["thinking"]>["level"]>;
-  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel | typeof THINKING_LEVEL_INHERIT>(
-    initialValues?.thinking?.level ?? THINKING_LEVEL_INHERIT,
+  const [thinkingLevel, setThinkingLevel] = useState<GeminiThinkingLevel | typeof THINKING_LEVEL_INHERIT>(
+    isGeminiThinkingLevel(initialValues?.thinking?.level) ? initialValues.thinking.level : THINKING_LEVEL_INHERIT,
   );
 
   // Derived: selected model from catalog
@@ -293,9 +292,9 @@ function ProfileEditorModalInner({
     setLocallyCreatedConnections([]);
   }, [profileName, mode, resetDirty]);
 
-  function handleProviderChange(newProvider: string) {
+  function handleProviderChange(newProvider: ConnectionProvider) {
     if (newProvider === provider) return;
-    setProvider(newProvider as typeof provider);
+    setProvider(newProvider);
     setModel("");
     // Auto-select connection: if exactly one connection exists for the new
     // provider, select it automatically. If multiple exist, clear so the user
@@ -626,11 +625,11 @@ function ProfileEditorModalInner({
       contextWindowMaxInputTokens={contextWindowMaxInputTokens}
       onContextWindowChange={setContextWindowMaxInputTokens}
       effort={effort}
-      onEffortChange={(v) => setEffort(v as typeof effort)}
+      onEffortChange={setEffort}
       speed={speed}
-      onSpeedChange={(v) => setSpeed(v as typeof speed)}
+      onSpeedChange={setSpeed}
       verbosity={verbosity}
-      onVerbosityChange={(v) => setVerbosity(v as typeof verbosity)}
+      onVerbosityChange={setVerbosity}
       temperatureEnabled={temperatureEnabled}
       onTemperatureEnabledChange={setTemperatureEnabled}
       temperature={temperature}
@@ -640,7 +639,7 @@ function ProfileEditorModalInner({
       thinkingStreamThinking={thinkingStreamThinking}
       onThinkingStreamThinkingChange={setThinkingStreamThinking}
       thinkingLevel={thinkingLevel}
-      onThinkingLevelChange={(v) => setThinkingLevel(v as typeof thinkingLevel)}
+      onThinkingLevelChange={setThinkingLevel}
     />
   ) : null;
 
@@ -659,8 +658,8 @@ function ProfileEditorModalInner({
   // Providers with at least one connection, plus the always-present "+ Create
   // new provider" sentinel. First-run empty state shows ONLY the sentinel.
   const createModeProviderOptions = useMemo(() => {
-    const seen = new Set<string>();
-    const opts: { value: string; label: string }[] = [];
+    const seen = new Set<ConnectionProvider>();
+    const opts: { value: ConnectionProvider | typeof CREATE_NEW_PROVIDER_SENTINEL; label: string }[] = [];
     for (const c of effectiveConnections) {
       if (!seen.has(c.provider)) {
         seen.add(c.provider);
@@ -701,6 +700,7 @@ function ProfileEditorModalInner({
               setNewProviderNote(false);
               return;
             }
+            if (!next) return;
             setCreatingProvider(false);
             handleProviderChange(next);
           }}

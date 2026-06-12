@@ -1,4 +1,4 @@
-import type { ConfigGetResponse } from "@/generated/daemon/types.gen";
+import type { ConfigGetResponse, ConfigPatchData } from "@/generated/daemon/types.gen";
 
 import { PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
 
@@ -26,37 +26,38 @@ export type ProfileEntry = NonNullable<
 export type MemoryConfig = NonNullable<ConfigGetResponse["memory"]>;
 
 /**
- * Profile entry as constructed by the editor form for PATCH requests.
- * Allows `null` on any field as a "clear" sentinel for the daemon's
- * deep-merge semantics: omitted keys are preserved, `null` deletes them.
- * Distinct from `ProfileEntry` (the response shape) where `null` only
- * appears on explicitly nullable fields like `label` and `status`.
+ * Typed body for daemon config PATCH requests.
+ * Derived from the generated SDK type — do NOT hand-write this.
  */
-export type ProfilePatchEntry = {
-  [K in keyof ProfileEntry]?: ProfileEntry[K] | null;
-};
+export type DaemonConfigPatch = ConfigPatchData["body"];
+
+/**
+ * A single profile entry within a PATCH request body.
+ * All fields are nullable (null = delete via deep-merge) and optional
+ * (omitted = unchanged).
+ */
+export type ProfilePatchEntry = NonNullable<
+  NonNullable<NonNullable<DaemonConfigPatch["llm"]>["profiles"]>[string]
+>;
+
+/**
+ * A single call-site override within a PATCH request body.
+ */
+export type CallSiteOverrideDraft = NonNullable<
+  NonNullable<NonNullable<DaemonConfigPatch["llm"]>["callSites"]>[string]
+>;
 
 // ---------------------------------------------------------------------------
 // Profile status
 // ---------------------------------------------------------------------------
 
-export type ProfileStatus = "active" | "disabled";
+export type ProfileStatus = NonNullable<ProfileEntry["status"]>;
 
 // ---------------------------------------------------------------------------
 // Provider constants
 // ---------------------------------------------------------------------------
 
 export const OPENAI_COMPATIBLE_PROVIDER = "openai-compatible";
-
-// ---------------------------------------------------------------------------
-// Call-site override draft (request body type — not a response type)
-// ---------------------------------------------------------------------------
-
-export interface CallSiteOverrideDraft {
-  profile?: string | null;
-  provider?: string | null;
-  model?: string | null;
-}
 
 // ---------------------------------------------------------------------------
 // Service mode
@@ -69,33 +70,6 @@ export type ServiceMode = "managed" | "your-own";
 // ---------------------------------------------------------------------------
 
 export type ProfileWithName = { name: string } & ProfileEntry;
-
-/**
- * Typed body for daemon config PATCH requests.
- *
- * The daemon uses deep-merge semantics: omitted keys are left unchanged,
- * `null` values delete the key. This mirrors the config response shape but
- * makes every level partial and allows `null` at record-entry positions where
- * deletion is meaningful (individual profiles, individual call-site overrides).
- *
- * Note: The PATCH endpoint's server-side schema is intentionally permissive
- * (`z.record(z.string(), z.unknown())`). This client-side type adds
- * compile-time validation that the server doesn't enforce at the schema level.
- */
-export type DaemonConfigPatch = {
-  memory?: Partial<MemoryConfig> | null;
-  services?: {
-    "web-search"?: { mode?: string; provider?: string } | null;
-    "image-generation"?: { mode?: string } | null;
-  };
-  llm?: {
-    default?: { provider?: string; model?: string } | null;
-    activeProfile?: string | null;
-    profileOrder?: string[];
-    profiles?: Record<string, ProfilePatchEntry | null>;
-    callSites?: Record<string, CallSiteOverrideDraft | null>;
-  };
-};
 
 export interface InferenceTokenBudgetState {
   maxOutputTokens: number;

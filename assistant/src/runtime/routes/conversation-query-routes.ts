@@ -523,6 +523,105 @@ const ConfigGetResponseSchema = z
   })
   .passthrough();
 
+/**
+ * Given a `z.object(...)` schema, returns a new schema where every property
+ * is `.nullable().optional()`. Used to express PATCH body semantics where any
+ * field can be `null` (meaning "delete via deep-merge") or omitted (unchanged).
+ */
+function nullablePartial(schema: z.ZodObject<z.ZodRawShape>) {
+  const shape: Record<string, z.ZodType> = {};
+  for (const [key, value] of Object.entries(schema.shape)) {
+    shape[key] = (value as z.ZodType).nullable().optional();
+  }
+  return z.object(shape);
+}
+
+/**
+ * Request body schema for `PATCH /v1/config`.
+ *
+ * Mirrors the response shape but every field is `.nullable().optional()`:
+ * omitted keys are left unchanged by the daemon's deep-merge, `null` values
+ * delete the key. Uses the same Zod enums as `ConfigGetResponseSchema` so
+ * the generated SDK produces literal-union types — no hand-written patch
+ * types needed downstream.
+ */
+const ConfigPatchRequestSchema = z
+  .object({
+    llm: z
+      .object({
+        default: nullablePartial(
+          LLMConfigFragment.extend({
+            provider_connection: z.string().optional(),
+          }),
+        )
+          .passthrough()
+          .nullable()
+          .optional(),
+        profiles: z
+          .record(
+            z.string(),
+            nullablePartial(ProfileEntry).passthrough().nullable(),
+          )
+          .optional(),
+        profileOrder: z.array(z.string()).optional(),
+        activeProfile: z.string().nullable().optional(),
+        callSites: z
+          .record(
+            z.string(),
+            nullablePartial(
+              LLMConfigFragment.extend({ profile: z.string().optional() }),
+            )
+              .passthrough()
+              .nullable(),
+          )
+          .optional(),
+        profileSession: z
+          .object({
+            defaultTtlSeconds: z.number().optional(),
+            maxTtlSeconds: z.number().optional(),
+          })
+          .nullable()
+          .optional(),
+      })
+      .passthrough()
+      .optional(),
+    memory: z
+      .object({
+        enabled: z.boolean().optional(),
+        v2: z
+          .object({ enabled: z.boolean().optional() })
+          .passthrough()
+          .optional(),
+      })
+      .passthrough()
+      .nullable()
+      .optional(),
+    services: z
+      .object({
+        "web-search": z
+          .object({
+            mode: z.string().optional(),
+            provider: z.string().optional(),
+          })
+          .passthrough()
+          .nullable()
+          .optional(),
+        "image-generation": z
+          .object({ mode: z.string().optional() })
+          .passthrough()
+          .nullable()
+          .optional(),
+        inference: z
+          .object({ mode: z.string().optional() })
+          .passthrough()
+          .nullable()
+          .optional(),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough();
+
 function handleGetConfig() {
   try {
     const config = applyContextDefaultsToRawConfig(loadRawConfig());
@@ -1251,7 +1350,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Deep-merge a partial JSON object into the settings.json configuration.",
     tags: ["config"],
-    requestBody: z.record(z.string(), z.unknown()),
+    requestBody: ConfigPatchRequestSchema,
     responseBody: z.object({ ok: z.boolean() }),
     handler: handlePatchConfig,
   },
