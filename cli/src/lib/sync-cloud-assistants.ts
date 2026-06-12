@@ -15,7 +15,6 @@
 
 import {
   loadAllAssistants,
-  normalizeVersion,
   removeAssistantEntry,
   saveAssistantEntry,
 } from "./assistant-config.js";
@@ -23,7 +22,6 @@ import {
   fetchCurrentUser,
   fetchPlatformAssistants,
   getPlatformUrl,
-  type HatchedAssistant,
 } from "./platform-client.js";
 
 export type SyncLogger = (message: string) => void;
@@ -84,7 +82,7 @@ export async function syncCloudAssistants(
     }
   }
 
-  let platformAssistants: HatchedAssistant[];
+  let platformAssistants: { id: string; name: string; status: string }[];
   try {
     log?.("Fetching platform assistants…");
     platformAssistants = await fetchPlatformAssistants(token);
@@ -128,33 +126,22 @@ export async function syncCloudAssistants(
     const existing = existingCloudById.get(pa.id);
     const assistantName = pa.name.trim();
     const nameFields = assistantName ? { name: assistantName } : {};
-    // undefined when the platform reports no release — written through on
-    // update so a stale cached version is cleared, not preserved.
-    const version =
-      pa.current_release_version != null
-        ? normalizeVersion(pa.current_release_version)
-        : undefined;
     if (!existing) {
       log?.(`Adding ${pa.name || pa.id} to lockfile`);
       saveAssistantEntry({
         assistantId: pa.id,
         ...nameFields,
-        ...(version && { version }),
         runtimeUrl: getPlatformUrl(),
         cloud: "vellum",
         species: "vellum",
         hatchedAt: new Date().toISOString(),
       });
       added++;
-    } else if (
-      (assistantName && existing.name !== assistantName) ||
-      existing.version !== version
-    ) {
-      log?.(`Updating ${pa.id} from platform`);
+    } else if (assistantName && existing.name !== assistantName) {
+      log?.(`Updating ${pa.id} name to ${assistantName}`);
       saveAssistantEntry({
         ...existing,
-        ...nameFields,
-        version,
+        name: assistantName,
       });
       updated++;
     }
