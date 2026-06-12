@@ -14,11 +14,13 @@ import type { WorkspaceMigration } from "./types.js";
 // quality intent pointed at when they hatched (claude-opus-4-7 or
 // claude-opus-4-8) until a migration rewrites it.
 //
-// Only profiles still on a previous quality-intent default are upgraded —
-// matching by model value also covers the OpenRouter-prefixed ids. A profile
-// whose model the user changed to anything else is left untouched.
+// Only the managed quality-optimized profile is touched — the user-owned
+// custom-quality-optimized copy is theirs to manage. Within it, only a model
+// still on a previous quality-intent default is upgraded — matching by model
+// value also covers the OpenRouter-prefixed ids. A profile whose model the
+// user changed to anything else is left untouched.
 
-const TARGET_PROFILES = ["quality-optimized", "custom-quality-optimized"];
+const TARGET_PROFILES = ["quality-optimized"];
 
 const MODEL_UPGRADES: Record<string, string> = {
   "claude-opus-4-7": "claude-fable-5",
@@ -30,7 +32,7 @@ const MODEL_UPGRADES: Record<string, string> = {
 export const upgradeQualityProfileToFable5Migration: WorkspaceMigration = {
   id: "100-upgrade-quality-profile-to-fable-5",
   description:
-    "Upgrade quality-optimized profiles from Opus 4.7/4.8 to Claude Fable 5",
+    "Upgrade the managed quality-optimized profile from Opus 4.7/4.8 to Claude Fable 5",
   run(workspaceDir: string): void {
     const configPath = join(workspaceDir, "config.json");
     if (!existsSync(configPath)) return;

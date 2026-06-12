@@ -82,7 +82,7 @@ describe("100-upgrade-quality-profile-to-fable-5 migration", () => {
     expect(profile.label).toBe("Quality");
   });
 
-  test("upgrades both managed and custom profiles from claude-opus-4-8", () => {
+  test("upgrades the managed profile but not the user-owned custom copy", () => {
     writeConfig({
       llm: {
         profiles: {
@@ -100,7 +100,7 @@ describe("100-upgrade-quality-profile-to-fable-5 migration", () => {
     upgradeQualityProfileToFable5Migration.run(workspaceDir);
     const profiles = readProfiles();
     expect(profiles["quality-optimized"]!.model).toBe("claude-fable-5");
-    expect(profiles["custom-quality-optimized"]!.model).toBe("claude-fable-5");
+    expect(profiles["custom-quality-optimized"]!.model).toBe("claude-opus-4-8");
   });
 
   test("upgrades OpenRouter-prefixed model ids", () => {
@@ -125,10 +125,6 @@ describe("100-upgrade-quality-profile-to-fable-5 migration", () => {
       llm: {
         profiles: {
           "quality-optimized": { provider: "openai", model: "gpt-5.4" },
-          "custom-quality-optimized": {
-            provider: "anthropic",
-            model: "claude-sonnet-4-6",
-          },
         },
       },
     };
