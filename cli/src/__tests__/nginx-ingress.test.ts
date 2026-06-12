@@ -22,59 +22,28 @@ describe("buildIngressNginxConfig", () => {
     }
   });
 
-  test("proxies selected gateway-owned routes to the gateway", () => {
-    expect(conf).toContain("location = /webhooks/telegram");
-    expect(conf).toContain("location = /v1/contacts");
-    expect(conf).toContain("location = /v1/feature-flags");
-    expect(conf).toContain("location ~ ^/v1/oauth/apps/[^/]+/connect/?$");
-    expect(conf).toContain(
-      "location ~ ^/v1/assistants/[^/]+/trust-rules/[^/]+/?$",
-    );
+  test("proxies requests to the gateway", () => {
+    expect(conf).toContain("location / {");
     expect(conf).toContain("proxy_pass http://127.0.0.1:7830;");
+    expect(conf).not.toContain("return 404;");
+    expect(conf).not.toContain("return 403;");
+    expect(conf).not.toContain("location =");
+    expect(conf).not.toContain("location ~");
   });
 
-  test("does not pass unknown paths to the gateway runtime proxy", () => {
-    expect(conf).toContain(`    location / {
-      return 404;
-    }`);
-    expect(conf).not.toContain(`    location / {
-      proxy_pass`);
-  });
-
-  test("does not set a Vellum-specific forwarded marker", () => {
+  test("does not set forwarded identity headers", () => {
+    expect(conf).not.toContain("X-Forwarded-For");
+    expect(conf).not.toContain("X-Forwarded-Host");
+    expect(conf).not.toContain("X-Forwarded-Proto");
     expect(conf).not.toContain("X-Vellum-Edge-Forwarded");
-  });
-
-  test("blocks local-only gateway endpoints at nginx", () => {
-    expect(conf).toContain("location = /auth/token");
-    expect(conf).toContain("location = /v1/pair");
-    expect(conf).toContain("location = /v1/devices");
-    expect(conf).toContain("location = /v1/devices/revoke");
-    expect(conf).toContain("location = /v1/guardian/init");
-    expect(conf).toContain("location = /v1/guardian/reset-bootstrap");
-    expect(conf.match(/return 403;/g)?.length).toBe(6);
-  });
-
-  test("overwrites forwarded headers instead of appending client values", () => {
-    expect(conf).toContain("proxy_set_header X-Forwarded-For $remote_addr;");
-    expect(conf).toContain("proxy_set_header X-Forwarded-Host $host;");
-    expect(conf).toContain("proxy_set_header X-Forwarded-Proto $scheme;");
-    expect(conf).not.toContain("$proxy_add_x_forwarded_for");
-    expect(conf).not.toContain("$http_x_forwarded_for");
-  });
-
-  test("sets response security headers", () => {
-    expect(conf).toContain(
-      'add_header X-Content-Type-Options "nosniff" always;',
-    );
-    expect(conf).toContain('add_header X-Frame-Options "DENY" always;');
-    expect(conf).toContain('add_header Referrer-Policy "no-referrer" always;');
   });
 
   test("supports websockets and SSE streaming", () => {
     expect(conf).toContain("map $http_upgrade $connection_upgrade");
+    expect(conf).toContain("proxy_http_version 1.1;");
     expect(conf).toContain("proxy_set_header Upgrade $http_upgrade;");
     expect(conf).toContain("proxy_set_header Connection $connection_upgrade;");
+    expect(conf).toContain("proxy_request_buffering off;");
     expect(conf).toContain("proxy_buffering off;");
     expect(conf).toContain("proxy_read_timeout 1h;");
   });
