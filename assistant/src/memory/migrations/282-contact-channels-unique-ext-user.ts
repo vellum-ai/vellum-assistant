@@ -10,7 +10,7 @@ const log = getLogger("migration-282");
  * A Slack user ID (or Telegram user ID, etc.) uniquely identifies a person
  * per channel type. Multiple rows for the same identity are data corruption,
  * not a valid state. The dedup keeps the row with the best status
- * (active > unverified > other) and most recent updated_at.
+ * (blocked > revoked > active > unverified > other) and most recent updated_at.
  */
 export function migrateContactChannelsUniqueExtUser(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);

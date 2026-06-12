@@ -28,23 +28,6 @@ function escapeLike(value: string): string {
 }
 
 /**
- * The canonical identity for a contact channel — the value that
- * uniquely identifies a person on this channel type.
- *
- * Channels with a platform-native user ID (Slack, Telegram, Discord)
- * use externalUserId. Channels without one (email, phone) use address.
- */
-export function resolveChannelIdentity(channel: {
-  type: string;
-  address: string;
-  externalUserId?: string | null;
-}): { column: "externalUserId" | "address"; value: string } {
-  return channel.externalUserId != null
-    ? { column: "externalUserId", value: channel.externalUserId }
-    : { column: "address", value: channel.address };
-}
-
-/**
  * Find the first contact_channels row that would conflict with inserting
  * the given channel descriptor. Checks ALL unique constraints on the table:
  *   1. (type, address) — always active (migration 105)
@@ -395,7 +378,17 @@ function syncChannels(
   for (const ch of channels) {
     const normalizedAddress = ch.address.toLowerCase();
 
-    // Check if this channel already exists for this contact
+    // Check if this channel already exists for this contact.
+    // Match on both unique-constraint columns so a channel with a stable
+    // externalUserId but changed address is still recognised as "existing".
+    const sameContactIdentity =
+      ch.externalUserId != null
+        ? or(
+            eq(contactChannels.address, normalizedAddress),
+            eq(contactChannels.externalUserId, ch.externalUserId),
+          )
+        : eq(contactChannels.address, normalizedAddress);
+
     const existing = db
       .select()
       .from(contactChannels)
@@ -403,7 +396,7 @@ function syncChannels(
         and(
           eq(contactChannels.contactId, contactId),
           eq(contactChannels.type, ch.type),
-          eq(contactChannels.address, normalizedAddress),
+          sameContactIdentity,
         ),
       )
       .get();
@@ -415,6 +408,9 @@ function syncChannels(
       const isBlocked = existing.status === "blocked";
 
       const updateSet: Record<string, unknown> = {};
+      // Keep address in sync when externalUserId is the stable identity.
+      if (existing.address !== normalizedAddress)
+        updateSet.address = normalizedAddress;
       if (ch.isPrimary !== undefined) updateSet.isPrimary = ch.isPrimary;
       if (ch.externalUserId !== undefined)
         updateSet.externalUserId = ch.externalUserId;
@@ -784,6 +780,7 @@ export function findContactByChannelExternalId(
   externalUserId: string,
 ): ContactWithChannels | null {
   const db = getDb();
+  // Unique constraint (type, external_user_id) guarantees at most one row.
   const channel = db
     .select()
     .from(contactChannels)
@@ -792,14 +789,6 @@ export function findContactByChannelExternalId(
         eq(contactChannels.type, channelType),
         eq(contactChannels.externalUserId, externalUserId),
       ),
-    )
-    .orderBy(
-      sql`CASE ${contactChannels.status}
-        WHEN 'active' THEN 0
-        WHEN 'unverified' THEN 1
-        ELSE 2
-      END`,
-      desc(contactChannels.updatedAt),
     )
     .get();
 
@@ -810,6 +799,7 @@ export function findContactByChannelExternalId(
 /**
  * Find a contact by channel external chat ID. This is the fallback lookup path
  * when externalUserId is not available — matches by (type, externalChatId).
+ * No unique constraint exists on externalChatId, so ORDER BY is needed.
  */
 function findContactByChannelExternalChatId(
   channelType: string,
