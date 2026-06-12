@@ -286,6 +286,30 @@ describe("memoryV2ConsolidateJob — chunked cutoff (consolidation_max_entries_p
     expect(outcome.deferredEntries).toBe(0);
   });
 
+  test("same-minute burst (every entry shares the over-cap timestamp) → full-buffer cutoff, no wedge", () => {
+    // A sweep that wrote >cap entries within one minute: a pulled-back
+    // cutoff would defer ALL of them ("timestamp >= cutoff stays") and the
+    // size trigger would requeue an identical no-op run forever.
+    writeFileSync(
+      bufferPath(),
+      [
+        "- [Apr 27, 9:00 AM] Alice prefers VS Code.",
+        "- [Apr 27, 9:00 AM] Bob takes his coffee black.",
+        "- [Apr 27, 9:00 AM] Carol loves jazz.",
+        "- [Apr 27, 9:00 AM] Dave runs marathons.",
+      ].join("\n") + "\n",
+    );
+
+    return memoryV2ConsolidateJob(makeJob(), configWithMaxEntries(2)).then(
+      (outcome) => {
+        expect(outcome.kind).toBe("invoked");
+        if (outcome.kind !== "invoked") throw new Error("unreachable");
+        expect(outcome.deferredEntries).toBe(0);
+        expect(outcome.cutoff).not.toBe("Apr 27, 9:00 AM");
+      },
+    );
+  });
+
   test("over-cap line without a bracketed timestamp → falls back to the full-buffer cutoff", async () => {
     writeFileSync(
       bufferPath(),

@@ -389,9 +389,17 @@ function readGatedNowScratchpad(trust: TrustContext): string | null {
  * otherwise `null`. {@link readMemoryV2StaticContent} self-gates on the v2
  * flag + config, so the `memory-v2-static` injector owns its input rather than
  * having it threaded in from the agent loop.
+ *
+ * `excludeBuffer` is forwarded for consolidation turns, whose contract is the
+ * buffer FILE itself — see {@link readMemoryV2StaticContent}.
  */
-function readGatedMemoryV2Static(trust: TrustContext): string | null {
-  return isPersonalMemoryAllowed(trust) ? readMemoryV2StaticContent() : null;
+function readGatedMemoryV2Static(
+  trust: TrustContext,
+  options: { excludeBuffer?: boolean } = {},
+): string | null {
+  return isPersonalMemoryAllowed(trust)
+    ? readMemoryV2StaticContent(options)
+    : null;
 }
 
 /**
@@ -629,7 +637,12 @@ const memoryV2StaticInjector: Injector = {
   ): Promise<InjectionBlock | null> {
     const mode = ctx.mode ?? "full";
     if (mode !== "full") return null;
-    const content = readGatedMemoryV2Static(ctx.trust);
+    // The consolidation agent reads and rewrites memory/buffer.md through
+    // file tools; injecting the buffer section here would duplicate the
+    // entire backlog into its context (and go stale as it edits the file).
+    const content = readGatedMemoryV2Static(ctx.trust, {
+      excludeBuffer: ctx.callSite === "memoryV2Consolidation",
+    });
     if (!content) return null;
     if (hasInjectedUserTextBlock(runMessages, MEMORY_V2_STATIC_BLOCK_MATCHERS))
       return null;

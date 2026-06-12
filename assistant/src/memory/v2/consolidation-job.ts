@@ -216,7 +216,23 @@ export async function memoryV2ConsolidateJob(
         const overflowTimestamp = extractBufferEntryTimestamp(
           entryLines[maxEntries],
         );
-        if (overflowTimestamp !== null) {
+        // Same-minute burst guard: timestamps have minute precision, so when
+        // even the FIRST entry shares the over-cap entry's timestamp, a
+        // pulled-back cutoff would tell the agent to defer every entry
+        // ("timestamp ≥ cutoff stays") — zero progress, and the size trigger
+        // would requeue the identical run forever. Fall back to the
+        // full-buffer cutoff in that case; partial same-minute runs (some
+        // earlier entries have older timestamps) still make progress.
+        const firstTimestamp = extractBufferEntryTimestamp(entryLines[0]);
+        if (
+          overflowTimestamp !== null &&
+          firstTimestamp === overflowTimestamp
+        ) {
+          log.warn(
+            { bufferEntries: entryLines.length, maxEntries, overflowTimestamp },
+            "consolidation: entire over-cap prefix shares one minute timestamp; processing full buffer to guarantee progress",
+          );
+        } else if (overflowTimestamp !== null) {
           cutoff = overflowTimestamp;
           deferredEntries = entryLines.length - maxEntries;
           log.info(
