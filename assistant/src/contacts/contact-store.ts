@@ -744,6 +744,14 @@ export function findContactByChannelExternalId(
         eq(contactChannels.externalUserId, externalUserId),
       ),
     )
+    .orderBy(
+      sql`CASE ${contactChannels.status}
+        WHEN 'active' THEN 0
+        WHEN 'unverified' THEN 1
+        ELSE 2
+      END`,
+      desc(contactChannels.updatedAt),
+    )
     .get();
 
   if (!channel) return null;
@@ -767,6 +775,14 @@ function findContactByChannelExternalChatId(
         eq(contactChannels.type, channelType),
         eq(contactChannels.externalChatId, externalChatId),
       ),
+    )
+    .orderBy(
+      sql`CASE ${contactChannels.status}
+        WHEN 'active' THEN 0
+        WHEN 'unverified' THEN 1
+        ELSE 2
+      END`,
+      desc(contactChannels.updatedAt),
     )
     .get();
   if (!channel) return null;

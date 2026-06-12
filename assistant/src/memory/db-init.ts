@@ -68,6 +68,7 @@ import {
   migrateChannelInteractionColumns,
   migrateContactChannelsAccessFields,
   migrateContactChannelsTypeChatIdIndex,
+  migrateContactChannelsUniqueExtUser,
   migrateContactsAssistantId,
   migrateContactsNotesColumn,
   migrateContactsRolePrincipal,
@@ -498,6 +499,7 @@ export function initializeDb(): void {
     migrateToolInvocationsTelemetryColumns,
     createSkillLoadedEventsTable,
     migrateConversationsSurfacedAt,
+    migrateContactChannelsUniqueExtUser,
   ];
 
   // Run each migration step, catching and logging individual failures so one

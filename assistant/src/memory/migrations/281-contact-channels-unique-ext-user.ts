@@ -1,0 +1,49 @@
+import type { DrizzleDb } from "../db-connection.js";
+
+/**
+ * Deduplicate contact_channels rows sharing the same (type, external_user_id)
+ * and add a partial unique index so duplicates cannot recur.
+ *
+ * A Slack user ID (or Telegram user ID, etc.) uniquely identifies a person
+ * per channel type. Multiple rows for the same identity are data corruption,
+ * not a valid state. The dedup keeps the row with the best status
+ * (active > unverified > other) and most recent updated_at.
+ */
+export function migrateContactChannelsUniqueExtUser(database: DrizzleDb): void {
+  // Step 1: Delete duplicate rows, keeping the best one per (type, external_user_id).
+  // "Best" = lowest status rank (active=0, unverified=1, else=2), then most recent updated_at.
+  database.run(/*sql*/ `
+    DELETE FROM contact_channels
+    WHERE id NOT IN (
+      SELECT id FROM (
+        SELECT id,
+               ROW_NUMBER() OVER (
+                 PARTITION BY type, external_user_id
+                 ORDER BY
+                   CASE status
+                     WHEN 'active' THEN 0
+                     WHEN 'unverified' THEN 1
+                     ELSE 2
+                   END,
+                   updated_at DESC
+               ) AS rn
+        FROM contact_channels
+        WHERE external_user_id IS NOT NULL
+      )
+      WHERE rn = 1
+    )
+    AND external_user_id IS NOT NULL
+  `);
+
+  // Step 2: Drop the old non-unique index (if it exists) — the unique index
+  // covers the same columns and supersedes it.
+  database.run(
+    /*sql*/ `DROP INDEX IF EXISTS idx_contact_channels_type_ext_user`,
+  );
+
+  // Step 3: Create a partial unique index on (type, external_user_id) for
+  // non-null external_user_id values.
+  database.run(/*sql*/ `CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_channels_type_ext_user_unique
+             ON contact_channels(type, external_user_id)
+             WHERE external_user_id IS NOT NULL`);
+}
