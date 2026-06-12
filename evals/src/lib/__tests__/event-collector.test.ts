@@ -192,3 +192,143 @@ describe("AgentEventCollector.collectUntilSentinel", () => {
     expect(events.length).toBe(1);
   });
 });
+
+describe("AgentEventCollector.collectUntilTurnComplete", () => {
+  test("completes on the turn-completion signal and drains trailing events", async () => {
+    // GIVEN a stream where message_complete is followed by a trailing
+    // usage event (the daemon emits usage after the turn's final text)
+    const collector = new AgentEventCollector(
+      arrayIterator([
+        textEvent("hello"),
+        { message: { type: "message_complete" } },
+        { message: { type: "assistant_usage", input_tokens: 10 } },
+      ]),
+    );
+
+    // WHEN we collect until the completion signal
+    const { events, completed } = await collector.collectUntilTurnComplete({
+      isComplete: (event) => event.message.type === "message_complete",
+      maxMs: 1_000,
+      graceQuietMs: 5,
+    });
+
+    // THEN completion is reported AND the trailing usage event is still
+    // captured by the grace drain
+    expect(completed).toBe(true);
+    expect(events.length).toBe(3);
+    expect(events[2]?.message.type).toBe("assistant_usage");
+  });
+
+  test("reports completed=false when the stream ends without the signal", async () => {
+    // GIVEN a stream that ends without ever emitting message_complete
+    const collector = new AgentEventCollector(
+      arrayIterator([textEvent("working"), textEvent(" hard")]),
+    );
+
+    // WHEN we collect until a completion signal that never arrives
+    const { events, completed } = await collector.collectUntilTurnComplete({
+      isComplete: (event) => event.message.type === "message_complete",
+      maxMs: 1_000,
+      graceQuietMs: 5,
+    });
+
+    // THEN it drains the stream and signals the turn never completed
+    expect(completed).toBe(false);
+    expect(events.length).toBe(2);
+  });
+
+  test("waits through stream silence and only gives up at the hard deadline", async () => {
+    // GIVEN a stream that emits one event then hangs indefinitely
+    const blocked = deferred<IteratorResult<AgentEvent>>();
+    const iterator: AsyncIterator<AgentEvent> = {
+      next: (() => {
+        const calls = [
+          Promise.resolve<IteratorResult<AgentEvent>>({
+            done: false,
+            value: textEvent("partial"),
+          }),
+        ];
+        return () => calls.shift() ?? blocked.promise;
+      })(),
+    };
+    const collector = new AgentEventCollector(iterator);
+    const startedAt = Date.now();
+
+    // WHEN the completion signal never arrives
+    const { events, completed } = await collector.collectUntilTurnComplete({
+      isComplete: (event) => event.message.type === "message_complete",
+      maxMs: 50,
+      graceQuietMs: 5,
+    });
+
+    // THEN the wait runs to the hard deadline (no quiet-window early
+    // exit) and reports the turn as incomplete
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(50);
+    expect(completed).toBe(false);
+    expect(events.length).toBe(1);
+  });
+
+  test("does not drop an event when the deadline wins before next resolves", async () => {
+    // GIVEN a pending next() that resolves only after a deadline-bounded
+    // collection gave up
+    const first = deferred<IteratorResult<AgentEvent>>();
+    const iterator: AsyncIterator<AgentEvent> = {
+      next: (() => {
+        const calls = [first.promise];
+        return () =>
+          calls.shift() ?? Promise.resolve({ done: true, value: undefined });
+      })(),
+    };
+    const collector = new AgentEventCollector(iterator);
+
+    // WHEN the first collection times out before the event lands
+    const empty = await collector.collectUntilTurnComplete({
+      isComplete: (event) => event.message.type === "message_complete",
+      maxMs: 1,
+      graceQuietMs: 1,
+    });
+    expect(empty.events).toEqual([]);
+
+    // AND the event then resolves and a second collection runs
+    first.resolve({ done: false, value: textEvent("late") });
+    const late = await collector.collectUntilTurnComplete({
+      isComplete: (event) => event.message.type === "message_complete",
+      maxMs: 100,
+      graceQuietMs: 5,
+    });
+
+    // THEN the late event is delivered to the second collection
+    expect(late.events).toEqual([textEvent("late")]);
+  });
+
+  test("invokes onEvent for events before and after the completion signal", async () => {
+    // GIVEN a stream with a confirmation_request before the signal and
+    // a usage event after it
+    const collector = new AgentEventCollector(
+      arrayIterator([
+        { message: { type: "confirmation_request", requestId: "req-1" } },
+        { message: { type: "message_complete" } },
+        { message: { type: "assistant_usage", input_tokens: 10 } },
+      ]),
+    );
+    const seen: string[] = [];
+
+    // WHEN we collect with an onEvent hook
+    const { completed } = await collector.collectUntilTurnComplete({
+      isComplete: (event) => event.message.type === "message_complete",
+      maxMs: 1_000,
+      graceQuietMs: 5,
+      onEvent: (event) => {
+        seen.push(event.message.type);
+      },
+    });
+
+    // THEN every event was observed in order, including the trailer
+    expect(completed).toBe(true);
+    expect(seen).toEqual([
+      "confirmation_request",
+      "message_complete",
+      "assistant_usage",
+    ]);
+  });
+});

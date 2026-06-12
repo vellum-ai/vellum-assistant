@@ -166,24 +166,23 @@ export function wasErrorReportedToProgress(err: unknown): boolean {
 }
 
 /**
- * Quiet window before the event collector concludes the turn is done.
- *
- * Sized for the longest silent phase in the daemon's per-message pipeline,
- * not for the typical inter-event gap. On a cold-start hatch the
- * `memoryRetrieval` plugin pipeline runs ~4–5s of work before the agent
- * loop begins emitting deltas, and the agent loop's first-token latency
- * adds another ~1–2s on top. None of those phases emit subscriber-visible
- * events today, so the collector sees raw silence from `user_message_echo`
- * (or `conversation_title_updated`) until the first `assistant_*_delta`
- * lands. A 5s window expires mid-pipeline and the harness gives up before
- * the assistant's real response is even produced.
- *
- * Revisit once the daemon emits in-pipeline heartbeat events (e.g. an
- * `agent_loop_start` signal at the conversation event hub) — at that point
- * the collector resets on its own and this can drop back toward 5s.
+ * Wall-clock budget for the whole simulator-driven conversation — every
+ * turn's event collection draws from this single shared budget. Turn
+ * boundaries come from the adapter's `isTurnComplete` signal (e.g. the
+ * Vellum daemon's `message_complete`), not from stream silence, so this
+ * cap is the only time-based guard: a turn may sit silent for minutes
+ * (memory retrieval, extended thinking, long tool runs) without being
+ * cut off, and a run whose turn never completes fails loudly when the
+ * budget runs out.
  */
-export const EVENT_QUIET_MS = 15_000;
-export const EVENT_MAX_MS = 30_000;
+export const RUN_MAX_MS = 30 * 60_000;
+
+/**
+ * Quiet window for draining events that trail the turn-completion signal
+ * (usage records, sync notifications). Short: the daemon emits trailers
+ * immediately after the completion event.
+ */
+export const TURN_TRAILER_QUIET_MS = 2_000;
 
 export interface EvalRunInput {
   profile: Profile;
@@ -262,9 +261,9 @@ export function assistantContent(event: AgentEvent): string | undefined {
 export interface CollectAndPersistEventsResult {
   /**
    * Total number of events the collector returned. Zero means the
-   * assistant produced no events at all during the quiet/max window —
-   * a pipeline failure (no model response, dead event stream, …) that
-   * the caller should treat as a hard error.
+   * assistant produced no events at all within the run's wall-clock
+   * budget — a pipeline failure (no model response, dead event
+   * stream, …) that the caller should treat as a hard error.
    */
   eventCount: number;
   /**
@@ -275,6 +274,14 @@ export interface CollectAndPersistEventsResult {
    * a textual payload.
    */
   transcriptTurnCount: number;
+  /**
+   * Whether the adapter's turn-completion signal arrived. `false` means
+   * the event stream ended or the run's wall-clock budget elapsed while
+   * the turn was still in flight — the captured events are persisted,
+   * but the caller should fail the run rather than grade a truncated
+   * turn as a finished one.
+   */
+  turnCompleted: boolean;
 }
 
 /**
@@ -298,10 +305,15 @@ export async function collectAndPersistEvents(input: {
   collector: AgentEventCollector;
   assistantEvents: AgentEvent[];
   includeInTranscript: boolean;
+  /** The adapter's turn-completion signal (`BaseAgent.isTurnComplete`). */
+  isTurnComplete: (event: AgentEvent) => boolean;
+  /** Remaining wall-clock budget for the run (caps this turn's wait). */
+  maxMs: number;
 }): Promise<CollectAndPersistEventsResult> {
-  const events = await input.collector.collectUntilQuiet({
-    quietMs: EVENT_QUIET_MS,
-    maxMs: EVENT_MAX_MS,
+  const { events, completed } = await input.collector.collectUntilTurnComplete({
+    isComplete: input.isTurnComplete,
+    maxMs: input.maxMs,
+    graceQuietMs: TURN_TRAILER_QUIET_MS,
   });
   input.assistantEvents.push(...events);
   await appendAssistantEvents(input.runId, events);
@@ -322,7 +334,11 @@ export async function collectAndPersistEvents(input: {
   }
 
   await writeUsage(input.runId, summarizeAssistantUsage(input.assistantEvents));
-  return { eventCount: events.length, transcriptTurnCount };
+  return {
+    eventCount: events.length,
+    transcriptTurnCount,
+    turnCompleted: completed,
+  };
 }
 
 async function mergeRecordedUsage(input: {
@@ -485,6 +501,12 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
       detail: agent.conversationKey,
     });
 
+    // Single wall-clock budget for the whole conversation. Each turn's
+    // event collection waits for the adapter's turn-completion signal
+    // and draws on whatever budget remains — there is no per-turn or
+    // quiet-window cutoff.
+    const runDeadline = Date.now() + RUN_MAX_MS;
+
     for (;;) {
       const simulatorTurns = (await readTranscript(input.runId)).filter(
         (turn) => turn.role === "simulator",
@@ -549,19 +571,20 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
         message: "Waiting for assistant response",
         turn: simulatorTurns + 1,
       });
-      const { eventCount, transcriptTurnCount } = await collectAndPersistEvents(
-        {
+      const { eventCount, transcriptTurnCount, turnCompleted } =
+        await collectAndPersistEvents({
           runId: input.runId,
           collector,
           assistantEvents,
           includeInTranscript: true,
-        },
-      );
+          isTurnComplete: (event) => sendingAgent.isTurnComplete(event),
+          maxMs: Math.max(0, runDeadline - Date.now()),
+        });
       // A zero-event window means the event stream went silent for the
-      // full quiet/max budget without delivering anything — a pipeline
-      // failure (dead subscription, model never replied). Throw so the
-      // run fails loudly instead of dribbling into metrics with no
-      // assistant response.
+      // entire remaining run budget without delivering anything — a
+      // pipeline failure (dead subscription, model never replied). Throw
+      // so the run fails loudly instead of dribbling into metrics with
+      // no assistant response.
       //
       // We deliberately do NOT throw on `transcriptTurnCount === 0`
       // alone: tool-use-only responses (assistant emits a tool_use_*
@@ -571,6 +594,14 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
       if (eventCount === 0) {
         throw new Error(
           `assistant response collection produced no events for turn ${simulatorTurns + 1}`,
+        );
+      }
+      // Events arrived but the turn never signalled completion — the run
+      // budget elapsed (or the stream died) mid-turn. Grading a truncated
+      // turn would produce misleading scores, so fail loudly instead.
+      if (!turnCompleted) {
+        throw new Error(
+          `assistant turn ${simulatorTurns + 1} did not complete within the run budget (${RUN_MAX_MS / 60_000} min)`,
         );
       }
       progress({
