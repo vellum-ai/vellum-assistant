@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 
 import { retireAssistant } from "@/assistant/retire-service";
 import { Button } from "@vellumai/design-library/components/button";
-import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { RetireConfirmDialog } from "@/components/retire-confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
 
 interface RetireAssistantProps {
@@ -37,12 +37,8 @@ export function RetireAssistant({ assistantId }: RetireAssistantProps) {
       >
         Retire Assistant
       </Button>
-      <ConfirmDialog
+      <RetireConfirmDialog
         open={confirmOpen}
-        title="Retire Assistant"
-        message="This will permanently retire this assistant and all of its data. You will need to go through the onboarding flow again to create a new one. This action cannot be undone."
-        confirmLabel="Retire"
-        destructive
         isPending={isPending}
         onConfirm={handleRetire}
         onCancel={() => setConfirmOpen(false)}

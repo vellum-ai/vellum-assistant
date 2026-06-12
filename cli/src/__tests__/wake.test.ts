@@ -272,12 +272,23 @@ describe("vellum wake", () => {
     expect(leaseGuardianTokenMock).not.toHaveBeenCalled();
   });
 
-  test("skips re-provision when a guardian token already exists", async () => {
+  test("re-provisions even when a guardian token already exists", async () => {
+    // A connect can 401 off a token whose local state looks healthy
+    // (revoked, mis-seeded, wrong principal). The user explicitly confirmed
+    // the destructive repair, so the flag forces a re-lease instead of
+    // guessing from local token state and recreating the no-op loop.
     process.argv = ["bun", "vellum", "wake", "--repair-guardian", "local-assistant"];
-    // loadGuardianToken returns a token by default — recovery must not run.
+    // loadGuardianToken returns a healthy-looking token by default.
     await wake();
 
-    expect(resetGuardianBootstrapMock).not.toHaveBeenCalled();
-    expect(leaseGuardianTokenMock).not.toHaveBeenCalled();
+    expect(resetGuardianBootstrapMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:7830",
+      "generated-bootstrap-secret",
+    );
+    expect(leaseGuardianTokenMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:7830",
+      "local-assistant",
+      "generated-bootstrap-secret",
+    );
   });
 });

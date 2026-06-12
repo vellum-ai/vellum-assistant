@@ -688,6 +688,15 @@ export class HermesAgent implements BaseAgent {
     return sink.iterable();
   }
 
+  /**
+   * A Hermes turn is a single-shot `hermes -z` that synthesizes exactly
+   * one `message_chunk` event from its stdout once the shot finishes, so
+   * that event is itself the turn-completion signal.
+   */
+  isTurnComplete(event: AgentEvent): boolean {
+    return event.message?.type === HERMES_TRANSCRIPT_EVENT_TYPE;
+  }
+
   async readUsageRecords(): Promise<Array<Record<string, unknown>>> {
     return this.jail?.readUsageRecords() ?? [];
   }

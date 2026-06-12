@@ -10,7 +10,7 @@ import {
 } from "@/assistant/llm-model-catalog";
 
 import { OPENAI_COMPATIBLE_PROVIDER } from "@/domains/settings/ai/ai-types";
-import type { ConnectionModel, ProviderConnection } from "@/domains/settings/ai/provider-connections-client";
+import type { ConnectionModel, ConnectionProvider, ProviderConnection } from "@/domains/settings/ai/provider-connections-client";
 
 const ALL_PROVIDERS = Object.keys(MODELS_BY_PROVIDER) as (keyof typeof MODELS_BY_PROVIDER)[];
 
@@ -53,10 +53,10 @@ const MODEL_EMPTY_STATE_COPY = {
 // ---------------------------------------------------------------------------
 
 interface ProfileEditorProviderSectionProps {
-  provider: string;
+  provider: ConnectionProvider | "";
   model: string;
   providerConnection: string;
-  onProviderChange: (newProvider: string) => void;
+  onProviderChange: (newProvider: ConnectionProvider) => void;
   onModelChange: (newModel: string) => void;
   onConnectionChange: (newConnection: string) => void;
   connections: ProviderConnection[] | undefined;

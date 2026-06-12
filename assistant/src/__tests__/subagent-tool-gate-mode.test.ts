@@ -12,7 +12,10 @@
  *   non-allowlisted tool returns an error tool_result WITHOUT invoking the
  *   tool's executor (safety invariant), while allowlisted calls execute
  *   normally. The gate also covers the `skill_execute` indirection by
- *   gating the resolved inner tool name.
+ *   gating the resolved inner tool name, and runs BEFORE every in-executor
+ *   interception — including `switch_inference_profile`, which must not be
+ *   able to switch `ctx.toolRoutedProfile` mid-wake (allowlist bypass +
+ *   per-model prompt-cache parity break).
  */
 
 import { describe, expect, mock, test } from "bun:test";
@@ -38,7 +41,7 @@ const baseConfig = {
     toolExecutionTimeoutSec: 600,
   },
   services: {},
-  llm: {},
+  llm: { profiles: { speedy: { label: "Speedy" } } },
 };
 
 mock.module("../config/loader.js", () => ({
@@ -331,6 +334,75 @@ describe("createToolExecutor — execution-layer allowlist gate", () => {
       content: "This background pass may only use: file_read, remember.",
       isError: true,
     });
+    expect(calls).toHaveLength(0);
+  });
+
+  test("execution mode: switch_inference_profile is rejected BEFORE its interception runs", async () => {
+    const { executor, calls } = makeCapturingExecutor();
+    const ctx = makeSetupCtx({
+      subagentAllowedTools: new Set(["remember"]),
+      subagentToolGateMode: "execution",
+    });
+    const toolFn = makeToolFn(executor, ctx);
+
+    const result = await toolFn("switch_inference_profile", {
+      profile: "speedy",
+    });
+
+    // The gate must fire before the interception: the rejection tool_result
+    // comes back (NOT the interception's "Switched to ..." / "not found"
+    // responses) and the routed profile is untouched — switching it mid-wake
+    // would bypass the allowlist and break per-model prompt-cache parity.
+    expect(result).toEqual({
+      content: "This background pass may only use: remember.",
+      isError: true,
+    });
+    expect(ctx.toolRoutedProfile).toBeUndefined();
+    expect(calls).toHaveLength(0);
+  });
+
+  test("switch_inference_profile interception still works when the gate is inert (regression)", async () => {
+    // No execution-mode allowlist (wire mode) — the interception must keep
+    // its historical behavior: switch the routed profile without ever
+    // touching the tool executor pipeline.
+    const { executor, calls } = makeCapturingExecutor();
+    const ctx = makeSetupCtx({
+      subagentAllowedTools: new Set(["remember"]),
+      subagentToolGateMode: "wire",
+    });
+    const toolFn = makeToolFn(executor, ctx);
+
+    const result = await toolFn("switch_inference_profile", {
+      profile: "speedy",
+    });
+
+    expect(result).toEqual({
+      content: "Switched to Speedy profile. Continue with your response.",
+      isError: false,
+    });
+    expect(ctx.toolRoutedProfile).toBe("speedy");
+    expect(calls).toHaveLength(0);
+  });
+
+  test("execution mode: allowlisted switch_inference_profile still reaches the interception", async () => {
+    // When the orchestrator explicitly allowlists the routing tool, the gate
+    // passes and the interception behaves normally.
+    const { executor, calls } = makeCapturingExecutor();
+    const ctx = makeSetupCtx({
+      subagentAllowedTools: new Set(["remember", "switch_inference_profile"]),
+      subagentToolGateMode: "execution",
+    });
+    const toolFn = makeToolFn(executor, ctx);
+
+    const result = await toolFn("switch_inference_profile", {
+      profile: "speedy",
+    });
+
+    expect(result).toEqual({
+      content: "Switched to Speedy profile. Continue with your response.",
+      isError: false,
+    });
+    expect(ctx.toolRoutedProfile).toBe("speedy");
     expect(calls).toHaveLength(0);
   });
 

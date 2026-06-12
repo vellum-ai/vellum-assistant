@@ -80,6 +80,7 @@ import {
   recordRequestLog,
   setAgentLoopExitReasonOnLatestLog,
 } from "../memory/llm-request-log-store.js";
+import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
 import { isContextOverflowError, type Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 
@@ -205,6 +206,21 @@ export interface WakeOptions {
    * `allowedTools` is absent.
    */
   toolGateMode?: "wire" | "execution";
+  /**
+   * Explicit persona/channel slugs for the wake's system-prompt build,
+   * applied to the conversation for the duration of the run and restored
+   * afterwards. Wakes bypass the orchestrator's turn-start persona snapshot,
+   * so their prompt is otherwise built from whatever snapshot the
+   * conversation already holds — for a freshly hydrated conversation (the
+   * fork-retrospective case) that is the no-trust-context derivation
+   * (guardian persona + "vellum" channel) regardless of which actor/channel
+   * the conversation belongs to. Used by fork-based memory retrospectives to
+   * render the SOURCE conversation's persona sections — both for review
+   * quality and for byte-parity with the source's cached system-prompt
+   * prefix. Persona selection only; trust class and approval semantics are
+   * governed solely by `trustContext`.
+   */
+  personaOverride?: SystemPromptPersonaOverride;
 }
 
 /**
@@ -536,6 +552,20 @@ export async function wakeAgentForOpportunity(
     if (opts.trustContext) {
       conversation.setTrustContext(opts.trustContext);
     }
+
+    // Apply the caller's persona override for the duration of the run. The
+    // wake's agent loop builds the system prompt through the conversation's
+    // resolveSystemPrompt callback, which reads this field; cleared (below,
+    // before drainQueue) so a queued user turn never builds its prompt under
+    // the wake's override.
+    if (opts.personaOverride) {
+      conversation.wakePersonaOverride = opts.personaOverride;
+    }
+    const clearWakePersonaOverride = (): void => {
+      if (opts.personaOverride) {
+        conversation.wakePersonaOverride = undefined;
+      }
+    };
 
     // Honor the conversation's pinned inference-profile override (if any).
     // Without this, scheduled-task wakes and other opportunity wakes bypass
@@ -1110,6 +1140,7 @@ export async function wakeAgentForOpportunity(
       // processing to already be false). The finally block handles the
       // error/early-return paths where no tail was produced.
       restoreWakeAllowedTools();
+      clearWakePersonaOverride();
       try {
         conversation.setProcessing(false);
       } catch (err) {
@@ -1137,6 +1168,7 @@ export async function wakeAgentForOpportunity(
       // `drainedInTry` is still false.
       if (!drainedInTry) {
         restoreWakeAllowedTools();
+        clearWakePersonaOverride();
         try {
           conversation.setProcessing(false);
         } catch (err) {

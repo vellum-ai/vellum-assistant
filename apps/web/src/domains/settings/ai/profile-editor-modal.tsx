@@ -13,15 +13,15 @@ import { ChevronRight } from "lucide-react";
 import { getModelsForProvider } from "@/assistant/llm-model-catalog";
 import { inferenceProviderconnectionsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 
-import type { ProfileEntry, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
+import type { ProfileEntry, ProfilePatchEntry, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
 import { INFERENCE_PROVIDER_DISPLAY_NAMES } from "@/domains/settings/ai/ai-types";
 import {
     ProfileAdvancedParams,
     THINKING_LEVEL_INHERIT,
 } from "@/domains/settings/ai/profile-advanced-params";
 import { ProfileEditorProviderSection } from "@/domains/settings/ai/profile-editor-provider-section";
-import { resolveProfileParamVisibility } from "@/domains/settings/ai/profile-param-visibility";
-import { AUTO_PROFILE_NAME } from "@/domains/settings/ai/profile-pickers";
+import { type GeminiThinkingLevel, isGeminiThinkingLevel, resolveProfileParamVisibility } from "@/domains/settings/ai/profile-param-visibility";
+import { AUTO_PROFILE_NAME } from "@/assistant/profile-pickers";
 import { deriveProfileDefaults } from "@/domains/settings/ai/profile-prefill";
 import type { ConnectionProvider, ProviderConnection } from "@/domains/settings/ai/provider-connections-client";
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
@@ -72,7 +72,7 @@ export interface ProfileEditorModalProps {
    */
   onSave: (
     name: string,
-    entry: ProfileEntry,
+    entry: ProfilePatchEntry,
     options?: { mode?: "merge" | "replace" },
   ) => Promise<void>;
   onCancel: () => void;
@@ -130,7 +130,7 @@ interface ProfileEditorModalInnerProps {
   assistantId: string;
   onSave: (
     name: string,
-    entry: ProfileEntry,
+    entry: ProfilePatchEntry,
     options?: { mode?: "merge" | "replace" },
   ) => Promise<void>;
   onCancel: () => void;
@@ -167,7 +167,7 @@ function ProfileEditorModalInner({
   const [key, setKey] = useState(
     mode === "create" ? "" : (profileName ?? ""),
   );
-  const [provider, setProvider] = useState(initialValues?.provider ?? "");
+  const [provider, setProvider] = useState<NonNullable<ProfileEntry["provider"]> | "">(initialValues?.provider ?? "");
   const [model, setModel] = useState(initialValues?.model ?? "");
   // Per-profile provider-connection binding. Empty string means no explicit
   // binding — daemon falls back to its first-connection dispatch. Snake_case
@@ -203,11 +203,11 @@ function ProfileEditorModalInner({
 
   // Advanced params — segment controls
   // effort: "none" is the sentinel for "not overridden"
-  const [effort, setEffort] = useState<string>(initialValues?.effort ?? "none");
+  const [effort, setEffort] = useState<NonNullable<ProfileEntry["effort"]>>(initialValues?.effort ?? "none");
   // speed: "standard" is the sentinel for "not overridden"
-  const [speed, setSpeed] = useState<string>(initialValues?.speed ?? "standard");
+  const [speed, setSpeed] = useState<NonNullable<ProfileEntry["speed"]>>(initialValues?.speed ?? "standard");
   // verbosity: defaults to "medium"; always included when visible
-  const [verbosity, setVerbosity] = useState<string>(initialValues?.verbosity ?? "medium");
+  const [verbosity, setVerbosity] = useState<NonNullable<ProfileEntry["verbosity"]>>(initialValues?.verbosity ?? "medium");
 
   // Advanced params — temperature
   const [temperatureEnabled, setTemperatureEnabled] = useState<boolean>(
@@ -225,8 +225,8 @@ function ProfileEditorModalInner({
     initialValues?.thinking?.streamThinking ?? false,
   );
   // Gemini reasoning-depth knob. "default" = inherit the model default.
-  const [thinkingLevel, setThinkingLevel] = useState<string>(
-    initialValues?.thinking?.level ?? THINKING_LEVEL_INHERIT,
+  const [thinkingLevel, setThinkingLevel] = useState<GeminiThinkingLevel | typeof THINKING_LEVEL_INHERIT>(
+    isGeminiThinkingLevel(initialValues?.thinking?.level) ? initialValues.thinking.level : THINKING_LEVEL_INHERIT,
   );
 
   // Derived: selected model from catalog
@@ -292,7 +292,7 @@ function ProfileEditorModalInner({
     setLocallyCreatedConnections([]);
   }, [profileName, mode, resetDirty]);
 
-  function handleProviderChange(newProvider: string) {
+  function handleProviderChange(newProvider: ConnectionProvider) {
     if (newProvider === provider) return;
     setProvider(newProvider);
     setModel("");
@@ -455,7 +455,7 @@ function ProfileEditorModalInner({
     setSaving(true);
     setSaveError(null);
     try {
-      const entry: ProfileEntry = {};
+      const entry: ProfilePatchEntry = {};
       // Stale bindings are auto-cleared on save: if the saved
       // provider_connection doesn't match any known connection for the
       // current provider, treat it as cleared instead of silently
@@ -658,8 +658,8 @@ function ProfileEditorModalInner({
   // Providers with at least one connection, plus the always-present "+ Create
   // new provider" sentinel. First-run empty state shows ONLY the sentinel.
   const createModeProviderOptions = useMemo(() => {
-    const seen = new Set<string>();
-    const opts: { value: string; label: string }[] = [];
+    const seen = new Set<ConnectionProvider>();
+    const opts: { value: ConnectionProvider | typeof CREATE_NEW_PROVIDER_SENTINEL; label: string }[] = [];
     for (const c of effectiveConnections) {
       if (!seen.has(c.provider)) {
         seen.add(c.provider);
@@ -700,6 +700,7 @@ function ProfileEditorModalInner({
               setNewProviderNote(false);
               return;
             }
+            if (!next) return;
             setCreatingProvider(false);
             handleProviderChange(next);
           }}
@@ -723,9 +724,7 @@ function ProfileEditorModalInner({
           variant="inline"
           assistantId={assistantId}
           existingNames={effectiveConnections.map((c) => c.name)}
-          defaultProviderType={
-            (provider || undefined) as ConnectionProvider | undefined
-          }
+          defaultProviderType={provider || undefined}
           onCreated={handleProviderCreated}
           onCancel={() => setCreatingProvider(false)}
         />

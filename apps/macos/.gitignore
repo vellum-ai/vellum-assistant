@@ -10,3 +10,4 @@ resources/web-dist
 native/hotkey-helper/.build/
 native/mac-helper/.build/
 resources/cli-lockfile
+resources/.vellum-mac-helper.source-hash
