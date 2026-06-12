@@ -14,6 +14,7 @@
  * GET    /v1/messages/:id/content       — full message content
  * GET    /v1/messages/:id/llm-context   — LLM request logs for a message
  * GET    /v1/llm-request-logs/:id/payload — raw payload for a single log
+ * GET    /v1/llm-request-logs/:id/context — normalized context for a single log
  * DELETE /v1/messages/queued/:id        — delete queued message
  * POST   /v1/messages/queued/:id/steer — steer to a queued message
  */
@@ -21,6 +22,7 @@
 import { z } from "zod";
 
 import { LlmContextResponseSchema } from "../../api/responses/llm-context-response.js";
+import { LLMRequestLogEntrySchema } from "../../api/responses/llm-request-log-entry.js";
 import {
   deepMergeOverwrite,
   fillContextDefaultsForMissingKeys,
@@ -236,7 +238,26 @@ function applyStoredProviderToLlmContextResult(
   return { ...normalized, summary };
 }
 
-function normalizeLlmContextLog(log: LogRow): LlmContextRouteResult & {
+/**
+ * `full` returns the complete normalized entry including request/response
+ * sections; `summary` omits the sections so list responses stay small —
+ * sections for a single call are fetched lazily through
+ * `/v1/llm-request-logs/{logId}/context`.
+ */
+type LlmContextView = "full" | "summary";
+
+function resolveLlmContextView(view: string | undefined): LlmContextView {
+  if (view === undefined || view === "full") return "full";
+  if (view === "summary") return "summary";
+  throw new BadRequestError(
+    `Invalid view parameter: ${view}. Expected "full" or "summary".`,
+  );
+}
+
+function normalizeLlmContextLog(
+  log: LogRow,
+  view: LlmContextView = "full",
+): LlmContextRouteResult & {
   id: string;
   requestPayload: null;
   responsePayload: null;
@@ -283,6 +304,9 @@ function normalizeLlmContextLog(log: LogRow): LlmContextRouteResult & {
     // existing `agent_loop_exit_reason` column tells it WHICH error fired.
     callSite: log.callSite ?? null,
     ...result,
+    ...(view === "summary"
+      ? { requestSections: undefined, responseSections: undefined }
+      : {}),
   };
 }
 
@@ -898,11 +922,15 @@ function resolveConversationKind(
   return "user";
 }
 
-async function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
+async function handleGetLlmContext({
+  pathParams = {},
+  queryParams = {},
+}: RouteHandlerArgs) {
   const messageId = pathParams.id;
   if (!messageId) {
     throw new BadRequestError("message id is required");
   }
+  const view = resolveLlmContextView(queryParams.view);
   const source = await getLlmRequestLogSource();
   const logs = await source.getRequestLogsByMessageId(messageId);
   const turnMessageIds = getAssistantMessageIdsInTurn(messageId);
@@ -932,7 +960,7 @@ async function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
     messageId,
     conversationKind,
     conversationTotalEstimatedCostUsd,
-    logs: logs.map(normalizeLlmContextLog),
+    logs: logs.map((log) => normalizeLlmContextLog(log, view)),
     memoryRecall: memoryRecallLog ?? null,
     memoryV2Activation: memoryV2Activation ?? null,
     memoryV3Selection,
@@ -944,6 +972,7 @@ async function handleGetConversationLlmContext({
 }: RouteHandlerArgs) {
   const conversationKey = queryParams.conversationKey;
   const requestedConversationId = queryParams.conversationId;
+  const view = resolveLlmContextView(queryParams.view);
 
   let conversationId: string | undefined = requestedConversationId;
   if (!conversationId && conversationKey) {
@@ -1000,7 +1029,7 @@ async function handleGetConversationLlmContext({
     conversationId: conversation.id,
     conversationKind,
     conversationTotalEstimatedCostUsd,
-    logs: logs.map(normalizeLlmContextLog),
+    logs: logs.map((log) => normalizeLlmContextLog(log, view)),
     memoryRecall: null,
     memoryV2Activation: null,
     memoryV3Selection: null,
@@ -1032,6 +1061,21 @@ async function handleGetLlmRequestLogPayload({
     responsePayload = log.responsePayload;
   }
   return { id: log.id, requestPayload, responsePayload };
+}
+
+async function handleGetLlmRequestLogContext({
+  pathParams = {},
+}: RouteHandlerArgs) {
+  const logId = pathParams.id;
+  if (!logId) {
+    throw new BadRequestError("log id is required");
+  }
+  const source = await getLlmRequestLogSource();
+  const log = await source.getRequestLogById(logId);
+  if (!log) {
+    throw new NotFoundError("log not found");
+  }
+  return normalizeLlmContextLog(log);
 }
 
 function handleDeleteQueuedMessage({
@@ -1322,6 +1366,13 @@ export const ROUTES: RouteDefinition[] = [
         schema: { type: "string" },
         description: "Internal conversation identifier.",
       },
+      {
+        name: "view",
+        required: false,
+        schema: { type: "string", enum: ["full", "summary"] },
+        description:
+          "Response shape. 'summary' omits per-log request/response sections; defaults to 'full'.",
+      },
     ],
     responseBody: LlmContextResponseSchema,
     handler: handleGetConversationLlmContext,
@@ -1338,6 +1389,15 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Return request/response logs and memory recall data for a specific message.",
     tags: ["messages"],
+    queryParams: [
+      {
+        name: "view",
+        required: false,
+        schema: { type: "string", enum: ["full", "summary"] },
+        description:
+          "Response shape. 'summary' omits per-log request/response sections; defaults to 'full'.",
+      },
+    ],
     responseBody: LlmContextResponseSchema,
     handler: handleGetLlmContext,
   },
@@ -1359,6 +1419,21 @@ export const ROUTES: RouteDefinition[] = [
       responsePayload: z.unknown(),
     }),
     handler: handleGetLlmRequestLogPayload,
+  },
+  {
+    operationId: "llm_request_logs_context_get",
+    endpoint: "llm-request-logs/:id/context",
+    method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Get normalized context for a single LLM request log",
+    description:
+      "Return the normalized summary and request/response sections for a specific log entry.",
+    tags: ["messages"],
+    responseBody: LLMRequestLogEntrySchema,
+    handler: handleGetLlmRequestLogContext,
   },
   {
     operationId: "messages_queued_delete",

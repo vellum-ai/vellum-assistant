@@ -27,14 +27,14 @@ export type FingerprintAlgorithm = "sha256";
  * (forward-slash) paths relative to the plugin root so the baseline is stable
  * across platforms; values are lowercase hex digests of each file's bytes.
  */
-export interface PluginFingerprint {
+export interface Fingerprint {
   readonly algorithm: FingerprintAlgorithm;
   readonly files: Readonly<Record<string, string>>;
 }
 
 /**
  * Difference between a recorded fingerprint and the current on-disk tree.
- * Paths are POSIX-relative, matching {@link PluginFingerprint.files}. A rename
+ * Paths are POSIX-relative, matching {@link Fingerprint.files}. A rename
  * surfaces as one `removed` plus one `added` entry.
  */
 export interface FingerprintComparison {
@@ -58,10 +58,10 @@ function hashFile(absPath: string): string {
  * and install never materializes them); top-level entries named in `exclude`
  * are skipped so the provenance sidecar never fingerprints itself.
  */
-export function computePluginFingerprint(
+export function computeFingerprint(
   root: string,
   exclude: readonly string[] = [],
-): PluginFingerprint {
+): Fingerprint {
   const excluded = new Set(exclude);
   const files: Record<string, string> = {};
 
@@ -90,12 +90,12 @@ export function computePluginFingerprint(
  * applying the same `exclude` used to compute the baseline so the sidecar is
  * not counted as an addition.
  */
-export function comparePluginFingerprint(
+export function compareFingerprint(
   root: string,
-  baseline: PluginFingerprint,
+  baseline: Fingerprint,
   exclude: readonly string[] = [],
 ): FingerprintComparison {
-  const current = computePluginFingerprint(root, exclude).files;
+  const current = computeFingerprint(root, exclude).files;
   const modified: string[] = [];
   const added: string[] = [];
   const removed: string[] = [];
@@ -125,9 +125,7 @@ export function comparePluginFingerprint(
  * problem yields `null` so an older or hand-edited sidecar simply reports "no
  * recorded baseline" rather than throwing.
  */
-export function parsePluginFingerprint(
-  value: unknown,
-): PluginFingerprint | null {
+export function parseFingerprint(value: unknown): Fingerprint | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return null;
   }
@@ -147,4 +145,53 @@ export function parsePluginFingerprint(
     files[path] = digest;
   }
   return { algorithm: "sha256", files };
+}
+
+/**
+ * Aggregate SHA-256 digest over a tree's contents, returned as `v2:<hex>`.
+ *
+ * This is the same scheme skills record in their `install-meta.json`
+ * `contentHash` (see `src/skills/install-meta.ts`): files are visited in
+ * POSIX-relative path order and each contributes a length-prefixed path
+ * segment followed by its length-prefixed bytes, so neither path/content
+ * boundaries nor reordering can collide. The `v2:` prefix marks the hashing
+ * scheme so it can evolve without ambiguity. Unlike {@link Fingerprint}, this
+ * is a single whole-tree digest — useful as a compact integrity signal
+ * alongside the per-file map. Symlinks are skipped and top-level entries named
+ * in `exclude` (e.g. the sidecar itself) are omitted, matching
+ * {@link computeFingerprint}.
+ */
+export function computeContentHash(
+  root: string,
+  exclude: readonly string[] = [],
+): string {
+  const excluded = new Set(exclude);
+  const entries: Array<{ rel: string; abs: string }> = [];
+
+  const walk = (relDir: string): void => {
+    const absDir = relDir ? join(root, relDir) : root;
+    for (const entry of readdirSync(absDir, { withFileTypes: true })) {
+      if (relDir === "" && excluded.has(entry.name)) continue;
+      if (entry.isSymbolicLink()) continue;
+      const rel = relDir ? `${relDir}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        walk(rel);
+      } else if (entry.isFile()) {
+        entries.push({ rel, abs: join(root, rel) });
+      }
+    }
+  };
+  walk("");
+  entries.sort((a, b) => a.rel.localeCompare(b.rel));
+
+  const hash = createHash("sha256");
+  for (const { rel, abs } of entries) {
+    const pathBuf = Buffer.from(rel, "utf-8");
+    const content = readFileSync(abs);
+    hash.update(`${pathBuf.length}:`);
+    hash.update(pathBuf);
+    hash.update(`${content.length}:`);
+    hash.update(content);
+  }
+  return `v2:${hash.digest("hex")}`;
 }

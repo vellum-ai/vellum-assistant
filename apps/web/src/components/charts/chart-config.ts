@@ -1,13 +1,16 @@
 export const CHART_GRID_PROPS = {
   strokeDasharray: "3 3",
-  stroke: "#3a3f47",
+  stroke: "var(--border-subtle)",
   strokeOpacity: 0.4,
 } as const;
 
-export const CHART_AXIS_TICK = { fontSize: 12, fill: "#8d99a5" } as const;
+export const CHART_AXIS_TICK = {
+  fontSize: 12,
+  fill: "var(--content-tertiary)",
+} as const;
 
 export const CHART_AXIS_LINE = {
-  stroke: "#3a3f47",
+  stroke: "var(--border-subtle)",
   strokeOpacity: 0.4,
 } as const;
 

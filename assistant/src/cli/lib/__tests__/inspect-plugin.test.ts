@@ -18,7 +18,7 @@ import {
   PluginInspectNotFoundError,
 } from "../inspect-plugin.js";
 import type { FetchLike } from "../install-from-github.js";
-import { computePluginFingerprint } from "../plugin-fingerprint.js";
+import { computeFingerprint } from "../plugin-fingerprint.js";
 
 const SHA_A = "a".repeat(40);
 const SHA_B = "b".repeat(40);
@@ -85,11 +85,12 @@ function installPlugin(
     // Mirror install: fingerprint the tree before the sidecar is written so it
     // is not part of its own baseline.
     const fingerprint = opts.fingerprint
-      ? computePluginFingerprint(dir, [".vellum-plugin.json"])
+      ? computeFingerprint(dir, ["install-meta.json"])
       : undefined;
     writeFileSync(
-      join(dir, ".vellum-plugin.json"),
+      join(dir, "install-meta.json"),
       JSON.stringify({
+        origin: "vellum",
         name,
         source: {
           kind: "github",

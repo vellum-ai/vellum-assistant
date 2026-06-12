@@ -316,7 +316,9 @@ describe("report html", () => {
       kind: "execution",
       run: executionDetail,
     });
-    expect(executionHtml).toContain(">100.00%</div>");
+    // The execution page renders the aggregate score in the Score tab pill
+    // and each metric's score in the report card — both as percentages.
+    expect(executionHtml).toContain(">100.00%</span>");
   });
 
   test("metrics with unit: 'raw' opt out of percent rendering", () => {
@@ -387,6 +389,91 @@ describe("report html", () => {
     expect(html).not.toContain("Cost pricing");
     expect(html).not.toContain("Partial pricing");
     expect(html).not.toContain("Cost unavailable");
+  });
+
+  test("execution page Logs pill shows the total log size, not a count", () => {
+    // GIVEN a run with a subprocess log of known size
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        subprocessLogs: [
+          { name: "subprocess-hatch.log", content: "x".repeat(2048) },
+        ],
+      },
+    });
+
+    // THEN the Logs pill reports a byte size (KB), never a bare block count
+    const logsPill = html.slice(html.indexOf(">Logs<"));
+    expect(logsPill).toContain("KB");
+  });
+
+  test("execution page renders a per-request cost breakdown with per-row cost", () => {
+    // GIVEN two priced Anthropic requests of different sizes
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        usage: {
+          requests: [
+            {
+              provider: "anthropic",
+              model: "claude-haiku-4-5",
+              input_tokens: 1000,
+              output_tokens: 1000,
+            },
+            {
+              provider: "anthropic",
+              model: "claude-sonnet-4-6",
+              input_tokens: 1_000_000,
+              output_tokens: 1_000_000,
+            },
+          ],
+          costStatus: "ok",
+        },
+      },
+    });
+
+    // THEN the breakdown lists each model and its individually-priced cost
+    expect(html).toContain("Per-request breakdown");
+    expect(html).toContain("claude-haiku-4-5");
+    expect(html).toContain("claude-sonnet-4-6");
+    // sonnet-4-6 at 1M in + 1M out = $3 + $15 = $18.000000
+    expect(html).toContain("$18.000000");
+  });
+
+  test("execution page inlines captured request/response payloads, noting truncation", () => {
+    // GIVEN a request whose response payload was truncated by the recorder
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        usage: {
+          requests: [
+            {
+              provider: "anthropic",
+              model: "claude-haiku-4-5",
+              input_tokens: 10,
+              output_tokens: 10,
+              request_body: '{"messages":[]}',
+              request_body_bytes: 15,
+              request_body_truncated: false,
+              response_body: "STREAM-CHUNK-PREFIX",
+              response_body_bytes: 100000,
+              response_body_truncated: true,
+            },
+          ],
+          costStatus: "ok",
+        },
+      },
+    });
+
+    // THEN both payloads render and the truncated one notes the full size
+    expect(html).toContain("Request &amp; response payloads");
+    // React escapes double quotes in text content (&quot;).
+    expect(html).toContain("{&quot;messages&quot;:[]}");
+    expect(html).toContain("STREAM-CHUNK-PREFIX");
+    expect(html).toContain("showing first");
   });
 
   // -- no-silent-stuck UI surfaces -------------------------------------------
