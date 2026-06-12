@@ -1,3 +1,4 @@
+import type { LocalWakeOptions } from "@vellumai/ipc-contract";
 import { parseLockfile } from "@vellumai/local-mode/contract";
 import type {
   Lockfile,
@@ -86,6 +87,20 @@ export class GuardianTokenError extends Error {
     this.name = "GuardianTokenError";
     this.status = status;
   }
+}
+
+/**
+ * True when a connect failure means the guardian token is gone for good — the
+ * host reported it missing (404) or expired with a failed refresh (401) — so
+ * only a re-provision (`wake --repair-guardian`, or re-hatching) can recover.
+ * 403 (refused loopback boundary) and transient host/network failures return
+ * false; those are not fixable by re-provisioning.
+ */
+export function requiresGuardianReprovision(error: unknown): boolean {
+  return (
+    error instanceof GuardianTokenError &&
+    (error.status === 404 || error.status === 401)
+  );
 }
 
 /**
@@ -218,7 +233,7 @@ export async function retireLocalAssistantHost(
  */
 export async function wakeLocalAssistantHost(
   assistantId: string,
-  options?: { repairGuardian?: boolean },
+  options?: LocalWakeOptions,
 ): Promise<LocalWakeResult> {
   if (isElectron()) {
     const wake = window.vellum!.localMode.wake;
@@ -233,7 +248,7 @@ export async function wakeLocalAssistantHost(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       assistantId,
-      repairGuardian: options?.repairGuardian ?? false,
+      repairGuardian: options?.repairGuardian,
     }),
   });
   return res.json() as Promise<LocalWakeResult>;

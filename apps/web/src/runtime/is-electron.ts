@@ -29,6 +29,7 @@ import type {
   HotkeyEvent,
   HotkeyEventState,
   HotkeyScope,
+  LocalWakeOptions,
   NotificationActionEvent,
   NotificationCategory,
   PowerEvent,
@@ -187,7 +188,7 @@ declare global {
         retire(assistantId: string): Promise<{ ok: boolean; error?: string }>;
         wake?(
           assistantId: string,
-          options?: { repairGuardian?: boolean },
+          options?: LocalWakeOptions,
         ): Promise<{ ok: boolean; error?: string }>;
         guardianToken(
           assistantId: string,

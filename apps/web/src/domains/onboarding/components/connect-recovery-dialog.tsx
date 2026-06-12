@@ -4,6 +4,8 @@ import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Modal } from "@vellumai/design-library/components/modal";
 
+import { RetireConfirmDialog } from "@/components/retire-confirm-dialog";
+
 type RecoveryStep = "menu" | "confirm-repair" | "confirm-retire";
 
 interface ConnectRecoveryDialogProps {
@@ -73,20 +75,10 @@ function ConnectRecoveryDialog({
 
   if (step === "confirm-retire") {
     return (
-      <ConfirmDialog
+      <RetireConfirmDialog
         open={open}
-        title="Retire Assistant"
-        message={
-          <>
-            This will permanently retire this assistant and all of its data.
-            You will need to go through the onboarding flow again to create a
-            new one. This action cannot be undone.
-            {errorLine}
-          </>
-        }
-        confirmLabel="Retire"
-        destructive
         isPending={isPending}
+        extraMessage={errorLine}
         onConfirm={onRetire}
         onCancel={() => setStep("menu")}
       />
@@ -152,4 +144,3 @@ function ConnectRecoveryDialog({
 }
 
 export { ConnectRecoveryDialog };
-export type { ConnectRecoveryDialogProps };

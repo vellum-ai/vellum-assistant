@@ -43,7 +43,7 @@ import { UpdateToast } from "@/components/update-toast";
 import { retireAssistant } from "@/assistant/retire-service";
 import { setSelectedAssistant } from "@/assistant/selection";
 import { CreateAssistantDialog } from "@/components/create-assistant-dialog";
-import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { RetireConfirmDialog } from "@/components/retire-confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
 
 const ShareFeedbackModal = lazy(() =>
@@ -281,12 +281,8 @@ export function RootLayout() {
       {/* Destructive confirmation for the tray "Retire <assistant>…" command.
           Mirrors the settings RetireAssistant dialog so a retire triggered from
           the menu bar carries the same irreversible-action warning. */}
-      <ConfirmDialog
+      <RetireConfirmDialog
         open={retireId !== null}
-        title="Retire Assistant"
-        message="This will permanently retire this assistant and all of its data. You will need to go through the onboarding flow again to create a new one. This action cannot be undone."
-        confirmLabel="Retire"
-        destructive
         isPending={retirePending}
         onConfirm={handleConfirmRetire}
         onCancel={() => setRetireId(null)}
