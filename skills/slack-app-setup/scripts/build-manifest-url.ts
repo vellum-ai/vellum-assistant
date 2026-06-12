@@ -41,8 +41,7 @@ if (!name) {
   console.error(
     JSON.stringify({
       ok: false,
-      error:
-        "Missing bot name. Pass {\"name\":\"...\"} on stdin or set BOT_NAME.",
+      error: 'Missing bot name. Pass {"name":"..."} on stdin or set BOT_NAME.',
     }),
   );
   process.exit(1);

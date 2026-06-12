@@ -21,7 +21,7 @@ metadata:
 
 USE THIS SKILL WHEN:
 
-- The user says "set up Slack", "connect Slack", "add a Slack workspace", "get you on Slack", or any variant that means *connect this assistant to Slack*.
+- The user says "set up Slack", "connect Slack", "add a Slack workspace", "get you on Slack", or any variant that means _connect this assistant to Slack_.
 - A freshly-provisioned assistant needs a Slack bot identity (tokens, scopes, events) configured for the first time.
 - The user wants to switch the assistant to a new Slack workspace or rotate its tokens.
 
@@ -76,7 +76,7 @@ Output is JSON: `{ "ok": true, "data": { "url": "..." } }`. Extract `data.url`.
 
 ⚠️ CRITICAL — point of action: **Render the URL as a markdown link** — `[Click here to create your Slack app](URL)`. Do not paste the raw encoded URL into chat. It is ~1700 characters and will wrap, breaking the click.
 
-Tell the user: *"Click the link, pick your workspace, click **Create**. All scopes, events, and Socket Mode are pre-configured — you don't need to touch anything on the creation page."*
+Tell the user: _"Click the link, pick your workspace, click **Create**. All scopes, events, and Socket Mode are pre-configured — you don't need to touch anything on the creation page."_
 
 Wait for the user to confirm they clicked Create before moving to Step 3.
 
@@ -122,7 +122,7 @@ Load the **guardian-verify-setup** skill:
 
 - `skill_load` with `skill: "guardian-verify-setup"`.
 
-If the user wants to skip → continue to Step 5 (default if they say no), and let them know they can run it later by saying *"verify me on slack"*.
+If the user wants to skip → continue to Step 5 (default if they say no), and let them know they can run it later by saying _"verify me on slack"_.
 
 ## Step 5 — Report success
 
