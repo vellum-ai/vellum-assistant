@@ -78,18 +78,170 @@ function saveRawConfig(
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 }
 
+const LOCAL_ONLY_EXACT_PATHS = [
+  "/auth/token",
+  "/v1/pair",
+  "/v1/devices",
+  "/v1/devices/revoke",
+  "/v1/guardian/init",
+  "/v1/guardian/reset-bootstrap",
+];
+
+const GATEWAY_EXACT_PATHS = [
+  "/.well-known/agent-card.json",
+  "/healthz",
+  "/readyz",
+  "/schema",
+  "/webhooks/telegram",
+  "/webhooks/twilio/voice",
+  "/webhooks/twilio/status",
+  "/webhooks/twilio/connect-action",
+  "/webhooks/twilio/voice-verify",
+  "/webhooks/twilio/relay",
+  "/webhooks/twilio/media-stream",
+  "/webhooks/whatsapp",
+  "/webhooks/email",
+  "/webhooks/resend",
+  "/webhooks/mailgun",
+  "/webhooks/oauth/callback",
+  "/inbound/register",
+  "/integrations/status",
+  "/v1/health",
+  "/v1/healthz",
+  "/v1/ps",
+  "/v1/brain-graph",
+  "/v1/brain-graph-ui",
+  "/v1/contacts/guardian/channel",
+  "/v1/contacts/prompt/submit",
+  "/v1/contacts",
+  "/v1/contacts/merge",
+  "/v1/contacts/invites",
+  "/v1/contacts/invites/redeem",
+  "/v1/channel-verification-sessions",
+  "/v1/channel-verification-sessions/resend",
+  "/v1/channel-verification-sessions/status",
+  "/v1/channel-verification-sessions/revoke",
+  "/v1/guardian/refresh",
+  "/v1/integrations/telegram/config",
+  "/v1/integrations/telegram/commands",
+  "/v1/integrations/telegram/setup",
+  "/v1/integrations/vercel/config",
+  "/v1/integrations/twilio/config",
+  "/v1/integrations/twilio/credentials",
+  "/v1/integrations/twilio/numbers",
+  "/v1/integrations/twilio/numbers/provision",
+  "/v1/integrations/twilio/numbers/assign",
+  "/v1/integrations/twilio/numbers/release",
+  "/v1/slack/channels",
+  "/v1/slack/share",
+  "/v1/oauth/providers",
+  "/v1/oauth/apps",
+  "/v1/admin/upgrade-broadcast",
+  "/v1/admin/workspace-commit",
+  "/v1/admin/rollback-migrations",
+  "/v1/migrations/export",
+  "/v1/migrations/import",
+  "/v1/migrations/export-to-gcs",
+  "/v1/migrations/import-from-gcs",
+  "/v1/backups",
+  "/v1/backups/create",
+  "/v1/channels/readiness",
+  "/v1/channels/readiness/refresh",
+  "/v1/feature-flags",
+  "/v1/config/privacy",
+  "/v1/permissions/thresholds",
+  "/v1/logs/export",
+  "/v1/logs/tail",
+  "/v1/trust-rules",
+  "/v1/trust-rules/suggest",
+];
+
+const GATEWAY_REGEX_PATHS = [
+  "^/webhooks/twilio/media-stream/",
+  "^/v1/audio/[^/]+$",
+  "^/v1/contact-channels/[^/]+$",
+  "^/v1/contact-channels/[^/]+/verify$",
+  "^/v1/contacts/invites/[^/]+$",
+  "^/v1/contacts/invites/[^/]+/call$",
+  "^/v1/contacts/(?!invites/?$)[^/]+/?$",
+  "^/v1/assistants/[^/]+/contacts/(?!invites/?$)[^/]+/?$",
+  "^/v1/oauth/providers/[^/]+/?$",
+  "^/v1/oauth/apps/[^/]+/?$",
+  "^/v1/oauth/apps/[^/]+/connections/?$",
+  "^/v1/oauth/connections/[^/]+/?$",
+  "^/v1/oauth/apps/[^/]+/connect/?$",
+  "^/v1/migrations/import/[^/]+/status/?$",
+  "^/v1/migrations/jobs/[^/]+/?$",
+  "^/v1/assistants/[^/]+/backups/?$",
+  "^/v1/assistants/[^/]+/backups/create/?$",
+  "^/v1/assistants/[^/]+/channels/readiness/$",
+  "^/v1/assistants/[^/]+/integrations/status/$",
+  "^/v1/feature-flags/.+$",
+  "^/v1/assistants/[^/]+/feature-flags/?$",
+  "^/v1/assistants/[^/]+/feature-flags/.+$",
+  "^/v1/assistants/[^/]+/config/privacy/$",
+  "^/v1/assistants/[^/]+/permissions/thresholds/?$",
+  "^/v1/permissions/thresholds/conversations/[^/]+/?$",
+  "^/v1/assistants/[^/]+/permissions/thresholds/conversations/[^/]+/?$",
+  "^/v1/trust-rules/[^/]+/reset$",
+  "^/v1/trust-rules/[^/]+$",
+  "^/v1/assistants/[^/]+/trust-rules/?$",
+  "^/v1/assistants/[^/]+/trust-rules/suggest/?$",
+  "^/v1/assistants/[^/]+/trust-rules/[^/]+/reset/?$",
+  "^/v1/assistants/[^/]+/trust-rules/[^/]+/?$",
+];
+
+function buildProxyDirectives(gatewayPort: number): string {
+  return `proxy_pass http://127.0.0.1:${gatewayPort};
+      proxy_http_version 1.1;
+      proxy_request_buffering off;
+      proxy_buffering off;
+      proxy_read_timeout 1h;
+      proxy_set_header Host $host;
+      proxy_set_header X-Forwarded-For $remote_addr;
+      proxy_set_header X-Forwarded-Host $host;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection $connection_upgrade;`;
+}
+
+function buildExactLocation(path: string, body: string): string {
+  return `    location = ${path} {
+      ${body}
+    }`;
+}
+
+function buildRegexLocation(pattern: string, body: string): string {
+  return `    location ~ ${pattern} {
+      ${body}
+    }`;
+}
+
 /**
  * Build the nginx config that proxies gateway routes for remote ingress.
  *
  * Security properties (asserted by tests — do not weaken):
  * - Listens on 127.0.0.1 only; the tunnel agent bridges to the internet.
  * - Blocks local-only token/pair/bootstrap endpoints at the proxy.
+ * - Proxies only gateway-owned routes; unknown paths never hit the runtime
+ *   proxy catch-all in the gateway.
  * - Overwrites forwarded headers instead of appending client-supplied values.
  */
 export function buildIngressNginxConfig(opts: {
   gatewayPort: number;
   listenPort: number;
 }): string {
+  const proxyDirectives = buildProxyDirectives(opts.gatewayPort);
+  const blockedLocations = LOCAL_ONLY_EXACT_PATHS.map((path) =>
+    buildExactLocation(path, "return 403;"),
+  ).join("\n\n");
+  const exactProxyLocations = GATEWAY_EXACT_PATHS.map((path) =>
+    buildExactLocation(path, proxyDirectives),
+  ).join("\n\n");
+  const regexProxyLocations = GATEWAY_REGEX_PATHS.map((pattern) =>
+    buildRegexLocation(pattern, proxyDirectives),
+  ).join("\n\n");
+
   return `
 worker_processes 1;
 error_log stderr;
@@ -113,34 +265,14 @@ http {
     add_header X-Frame-Options "DENY" always;
     add_header Referrer-Policy "no-referrer" always;
 
-    location = /auth/token {
-      return 403;
-    }
+${blockedLocations}
 
-    location = /v1/pair {
-      return 403;
-    }
+${exactProxyLocations}
 
-    location = /v1/guardian/init {
-      return 403;
-    }
-
-    location = /v1/guardian/reset-bootstrap {
-      return 403;
-    }
+${regexProxyLocations}
 
     location / {
-      proxy_pass http://127.0.0.1:${opts.gatewayPort};
-      proxy_http_version 1.1;
-      proxy_request_buffering off;
-      proxy_buffering off;
-      proxy_read_timeout 1h;
-      proxy_set_header Host $host;
-      proxy_set_header X-Forwarded-For $remote_addr;
-      proxy_set_header X-Forwarded-Host $host;
-      proxy_set_header X-Forwarded-Proto $scheme;
-      proxy_set_header Upgrade $http_upgrade;
-      proxy_set_header Connection $connection_upgrade;
+      return 404;
     }
   }
 }

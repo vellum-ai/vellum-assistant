@@ -22,8 +22,23 @@ describe("buildIngressNginxConfig", () => {
     }
   });
 
-  test("proxies all routes to the gateway", () => {
+  test("proxies selected gateway-owned routes to the gateway", () => {
+    expect(conf).toContain("location = /webhooks/telegram");
+    expect(conf).toContain("location = /v1/contacts");
+    expect(conf).toContain("location = /v1/feature-flags");
+    expect(conf).toContain("location ~ ^/v1/oauth/apps/[^/]+/connect/?$");
+    expect(conf).toContain(
+      "location ~ ^/v1/assistants/[^/]+/trust-rules/[^/]+/?$",
+    );
     expect(conf).toContain("proxy_pass http://127.0.0.1:7830;");
+  });
+
+  test("does not pass unknown paths to the gateway runtime proxy", () => {
+    expect(conf).toContain(`    location / {
+      return 404;
+    }`);
+    expect(conf).not.toContain(`    location / {
+      proxy_pass`);
   });
 
   test("does not set a Vellum-specific forwarded marker", () => {
@@ -33,9 +48,11 @@ describe("buildIngressNginxConfig", () => {
   test("blocks local-only gateway endpoints at nginx", () => {
     expect(conf).toContain("location = /auth/token");
     expect(conf).toContain("location = /v1/pair");
+    expect(conf).toContain("location = /v1/devices");
+    expect(conf).toContain("location = /v1/devices/revoke");
     expect(conf).toContain("location = /v1/guardian/init");
     expect(conf).toContain("location = /v1/guardian/reset-bootstrap");
-    expect(conf.match(/return 403;/g)?.length).toBe(4);
+    expect(conf.match(/return 403;/g)?.length).toBe(6);
   });
 
   test("overwrites forwarded headers instead of appending client values", () => {
