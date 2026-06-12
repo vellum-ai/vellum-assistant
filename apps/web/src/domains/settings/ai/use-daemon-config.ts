@@ -20,7 +20,6 @@ import type { CallSiteOverrideDraft, DaemonConfig, DaemonConfigPatch, ProfileEnt
 import { applyConfigPatch, assertProvisionSuccess, buildOrderedProfiles, snapshotPatchedFields } from "@/domains/settings/ai/ai-utils";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { configGet, configPatch, secretsPost } from "@/generated/daemon/sdk.gen";
-import type { ConfigPatchData } from "@/generated/daemon/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -143,7 +142,7 @@ export function useDaemonConfigMutation() {
       const resolvedId = await resolveAssistantId();
       const { data } = await configPatch({
         path: { assistant_id: resolvedId },
-        body: body as ConfigPatchData["body"],
+        body: body as Parameters<typeof configPatch>[0]["body"],
         throwOnError: true,
       });
       return { data, resolvedId };
