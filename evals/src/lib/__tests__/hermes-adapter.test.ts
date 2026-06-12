@@ -755,19 +755,26 @@ describe("HermesAgent", () => {
     expect(
       selectInferenceSelection({
         ANTHROPIC_API_KEY: "present",
-        OPENAI_API_KEY: "present",
+        GEMINI_API_KEY: "present",
       }),
     ).toEqual({ provider: "anthropic", model: "claude-sonnet-4-6" });
 
     // Falls through to the next forwarded provider when Anthropic is absent.
-    expect(selectInferenceSelection({ OPENAI_API_KEY: "present" })).toEqual({
-      provider: "openai",
-      model: "gpt-5",
-    });
     expect(selectInferenceSelection({ GEMINI_API_KEY: "present" })).toEqual({
       provider: "gemini",
       model: "gemini-2.5-pro",
     });
+    expect(selectInferenceSelection({ GOOGLE_API_KEY: "present" })).toEqual({
+      provider: "gemini",
+      model: "gemini-2.5-pro",
+    });
+
+    // OPENAI_API_KEY has no native API-key backend in the pinned Hermes
+    // image (only the OAuth-based openai-codex provider), so it is not
+    // pinnable — selection falls through and Hermes resolves normally.
+    expect(
+      selectInferenceSelection({ OPENAI_API_KEY: "present" }),
+    ).toBeUndefined();
 
     // No recognized key → undefined (Hermes keeps its defaults).
     expect(selectInferenceSelection({})).toBeUndefined();

@@ -255,12 +255,20 @@ export interface HermesInferenceSelection {
  * provider, so we pin one too; the values are the current flagship for each
  * provider, matching the model the stock Vellum daemon uses, so vellum-bare
  * and hermes-bare compare on the same model.
+ *
+ * Only keys with a native API-key backend in the pinned image are mapped.
+ * `nousresearch/hermes-agent`'s `PROVIDER_REGISTRY` registers `anthropic`
+ * (reads `ANTHROPIC_API_KEY`) and `gemini` (reads `GOOGLE_API_KEY` /
+ * `GEMINI_API_KEY`), but has **no** plain `openai` provider — its only
+ * OpenAI backend is `openai-codex`, an OAuth/ChatGPT-subscription provider
+ * that takes no API key. So a forwarded `OPENAI_API_KEY` has nothing to pin
+ * to; pinning `HERMES_INFERENCE_PROVIDER=openai` would be rejected as an
+ * unknown provider. We omit it and let Hermes resolve normally.
  */
 export const HERMES_PROVIDER_INFERENCE: Readonly<
   Record<string, HermesInferenceSelection>
 > = {
   ANTHROPIC_API_KEY: { provider: "anthropic", model: "claude-sonnet-4-6" },
-  OPENAI_API_KEY: { provider: "openai", model: "gpt-5" },
   GOOGLE_API_KEY: { provider: "gemini", model: "gemini-2.5-pro" },
   GEMINI_API_KEY: { provider: "gemini", model: "gemini-2.5-pro" },
 };
