@@ -162,6 +162,17 @@ export function createToolExecutor(
     const { name: executionName, input: executionInput } =
       resolveToolInvocationAlias(name, input, ctx.allowedToolNames);
 
+    // The execution-layer gate must run FIRST — before any interception or
+    // pre-execution side effect (switch_inference_profile profile switching,
+    // DoorDash step marking) — so a non-allowlisted tool can neither run nor
+    // mutate conversation state. `skill_execute` is dispatch indirection: it
+    // is gated on its resolved inner tool name inside the interception below,
+    // mirroring how wire mode gates the underlying tool, not the wrapper.
+    if (executionName !== "skill_execute") {
+      const rejection = rejectNonAllowlistedTool(executionName);
+      if (rejection) return rejection;
+    }
+
     if (isDoordashCommand(executionName, executionInput)) {
       markDoordashStepInProgress(ctx, executionInput);
     }
@@ -320,9 +331,6 @@ export function createToolExecutor(
 
       return result;
     }
-
-    const rejection = rejectNonAllowlistedTool(executionName);
-    if (rejection) return rejection;
 
     const result = await executor.execute(
       executionName,
