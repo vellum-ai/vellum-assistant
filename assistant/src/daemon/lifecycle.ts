@@ -98,6 +98,7 @@ import {
   listWorkItems,
   updateWorkItem,
 } from "../work-items/work-item-store.js";
+import { getWorkflowRunManager } from "../workflows/run-manager.js";
 import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-thinking-repair.js";
 import { WorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
@@ -968,6 +969,26 @@ export async function runDaemon(): Promise<void> {
       recoverStaleSchedules();
     } catch (err) {
       log.error({ err }, "Schedule recovery failed — continuing startup");
+    }
+
+    // Reconcile workflow runs orphaned by a crash: any row still `running` was
+    // in flight when the process died (the engine always finishes its row on
+    // exit), so flip it to `interrupted` to make it eligible for an explicit
+    // resume. Status only — accounting counters are preserved. Never blocks
+    // startup on failure.
+    try {
+      const reconciled = getWorkflowRunManager().reconcileOrphanedRuns();
+      if (reconciled > 0) {
+        log.info(
+          { reconciled },
+          "Reconciled orphaned workflow runs to interrupted",
+        );
+      }
+    } catch (err) {
+      log.error(
+        { err },
+        "Workflow run reconciliation failed — continuing startup",
+      );
     }
 
     const scheduler = startScheduler(

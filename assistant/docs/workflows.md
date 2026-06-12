@@ -56,12 +56,13 @@ bounded by `maxConcurrentLeaves` (default 6).
 ### Scripts must be deterministic so runs can resume
 
 Every leaf call is journaled by a deterministic sequence number and an input
-hash. If the assistant restarts mid-run, re-invoking the same `runId` **replays
+hash. If the assistant restarts mid-run, resuming the same `runId` **replays
 the unchanged prefix from the journal** instead of re-spawning agents — so a
 long run survives a deploy or crash without redoing (or re-paying for) completed
-work. That guarantee only holds if the script is deterministic, so `Date.now()`,
-`Math.random()`, and argless `new Date()` **throw**. Pass any timestamps or seeds
-in through `args`.
+work. (Resume is explicit, not automatic — see
+[Recovering a crashed run](#recovering-a-crashed-run).) That guarantee only
+holds if the script is deterministic, so `Date.now()`, `Math.random()`, and
+argless `new Date()` **throw**. Pass any timestamps or seeds in through `args`.
 
 ---
 
@@ -430,8 +431,8 @@ Engine caps live under `workflows.*` in assistant config:
 Run state lives in two tables (migration 281):
 
 - **`workflow_runs`** — one row per run: status (`running` / `completed` /
-  `failed` / `aborted` / `cap_exceeded`), agent/token counts, script source +
-  hash, capabilities, and the originating conversation.
+  `failed` / `aborted` / `cap_exceeded` / `interrupted`), agent/token counts,
+  script source + hash, capability manifest, and the originating conversation.
 - **`workflow_journal`** — append-only `(run_id, seq)` log of every leaf call.
 
 Leaf cost is attributed in `llm_usage_events` under `call_site = 'workflowLeaf'`,
@@ -441,3 +442,21 @@ On resume (re-invoking the same `runId`), a journal entry whose `(run_id, seq)`
 and input hash match a completed prior call is replayed from cache without
 re-spawning the leaf — the longest-unchanged-prefix replays, and only changed or
 not-yet-run leaves execute.
+
+### Recovering a crashed run
+
+Resume is **not automatic**. If the assistant restarts mid-run, the run row is
+left `running`; at startup the assistant reconciles every such orphaned row to
+`interrupted` (status only — the agent/token accounting is preserved so the agent
+cap still carries across the restart). An `interrupted` run sits there until you
+explicitly resume it:
+
+- **From the assistant**: `manage_workflows` with `action: "resume"` and the
+  `run_id`.
+- **From the CLI**: `vellum workflows resume <run-id>`.
+
+Resuming re-invokes the engine with the same `runId`: it replays the completed
+prefix from the journal and continues from the first unfinished leaf, under the
+run's originally-declared capabilities and the same structural agent cap. Only
+`interrupted` runs are resumable; a `completed` / `failed` / `aborted` run is
+terminal.

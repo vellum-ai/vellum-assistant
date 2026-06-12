@@ -21,7 +21,8 @@ export type WorkflowRunStatus =
   | "completed"
   | "failed"
   | "aborted"
-  | "cap_exceeded";
+  | "cap_exceeded"
+  | "interrupted";
 
 export type WorkflowJournalKind = "agent" | "hostFn" | "workflow";
 
@@ -368,6 +369,29 @@ export function listRuns(options: ListRunsOptions): WorkflowRun[] {
         options.limit,
       );
   return rows.map(rowToRun);
+}
+
+// ---------------------------------------------------------------------------
+// Startup reconciliation
+// ---------------------------------------------------------------------------
+
+/**
+ * Flip every `running` run to `interrupted`. Called once at daemon startup: a
+ * row left in `running` means the process died mid-run (nothing else can leave
+ * a row `running` after the engine exits, which always finishes it). Marking it
+ * `interrupted` makes it eligible for an explicit resume.
+ *
+ * STATUS ONLY — `agents_spawned`/`input_tokens`/`output_tokens` are NOT touched.
+ * The run row is the source of truth for ACCOUNTING (it seeds the resumed run's
+ * cap counters) while the journal is the source of truth for REPLAY; rewriting
+ * the counters here would drift the cap accounting. Returns the number of rows
+ * reconciled.
+ */
+export function markRunningAsInterrupted(): number {
+  return rawRun(
+    /*sql*/ `UPDATE workflow_runs SET status = 'interrupted', updated_at = ? WHERE status = 'running'`,
+    Date.now(),
+  );
 }
 
 // ---------------------------------------------------------------------------

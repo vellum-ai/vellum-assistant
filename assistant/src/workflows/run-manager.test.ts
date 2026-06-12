@@ -18,6 +18,7 @@ import type {
   WorkflowRunStatus,
 } from "./journal-store.js";
 import {
+  WorkflowResumeNotPossibleError,
   WorkflowRunCapError,
   WorkflowRunManager,
   type WorkflowRunManagerDeps,
@@ -79,6 +80,26 @@ function makeFakeJournal() {
         return run;
       },
       getRun: (id: string): WorkflowRun | null => rows.get(id) ?? null,
+      updateRun: (
+        id: string,
+        patch: Partial<WorkflowRun>,
+      ): WorkflowRun | null => {
+        const existing = rows.get(id);
+        if (!existing) return null;
+        const updated = { ...existing, ...patch, updatedAt: Date.now() };
+        rows.set(id, updated);
+        return updated;
+      },
+      markRunningAsInterrupted: (): number => {
+        let n = 0;
+        for (const [id, run] of rows) {
+          if (run.status === "running") {
+            rows.set(id, { ...run, status: "interrupted" });
+            n += 1;
+          }
+        }
+        return n;
+      },
       listRuns: ({
         limit,
         status,
@@ -128,6 +149,8 @@ function makeHarness(opts?: {
   engine?: WorkflowRunManagerDeps["executeWorkflow"];
   /** Saved-workflow resolver for the `start({ name })` path. */
   getWorkflow?: WorkflowRunManagerDeps["getWorkflow"];
+  /** Live-conversation lookup for the `resume` trust reconstruction path. */
+  findConversation?: WorkflowRunManagerDeps["findConversation"];
 }): ManagerHarness {
   const fake = makeFakeJournal();
   const executeCalls: ExecuteWorkflowOptions[] = [];
@@ -185,6 +208,9 @@ function makeHarness(opts?: {
       return () => `run-${++n}`;
     })(),
     ...(opts?.getWorkflow ? { getWorkflow: opts.getWorkflow } : {}),
+    findConversation:
+      opts?.findConversation ??
+      ((() => undefined) as WorkflowRunManagerDeps["findConversation"]),
   };
 
   const manager = new WorkflowRunManager(deps);
@@ -447,5 +473,140 @@ describe("WorkflowRunManager.start — saved-workflow name resolution", () => {
     ).toThrow(WorkflowNotFoundError);
     expect(h.executeCalls).toHaveLength(0);
     expect(h.fake.rows.size).toBe(0);
+  });
+});
+
+// Seed a run row directly into the fake journal (bypassing `start`), so resume
+// tests can stand up a pre-existing `interrupted`/other-status row.
+function seedRun(
+  h: ManagerHarness,
+  overrides: Partial<WorkflowRun> & { id: string },
+): WorkflowRun {
+  const run: WorkflowRun = {
+    name: "seeded",
+    scriptSource: "export const meta = { name: 'seeded', description: 'd' }",
+    scriptHash: "hash",
+    args: { k: "v" },
+    capabilities: { tools: [], hostFunctions: [], persona: false },
+    status: "interrupted",
+    conversationId: null,
+    agentsSpawned: 3,
+    inputTokens: 100,
+    outputTokens: 50,
+    result: null,
+    error: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    finishedAt: null,
+    ...overrides,
+  };
+  h.fake.rows.set(run.id, run);
+  return run;
+}
+
+describe("WorkflowRunManager.reconcileOrphanedRuns", () => {
+  test("flips running rows to interrupted, leaving counters untouched", () => {
+    const h = makeHarness({});
+    seedRun(h, { id: "r-run", status: "running", agentsSpawned: 7 });
+    seedRun(h, { id: "r-done", status: "completed", agentsSpawned: 2 });
+
+    const n = h.manager.reconcileOrphanedRuns();
+
+    expect(n).toBe(1);
+    const reconciled = h.fake.rows.get("r-run")!;
+    expect(reconciled.status).toBe("interrupted");
+    // Accounting preserved — reconciliation is status-only.
+    expect(reconciled.agentsSpawned).toBe(7);
+    expect(reconciled.inputTokens).toBe(100);
+    expect(reconciled.outputTokens).toBe(50);
+    // A completed run is untouched.
+    expect(h.fake.rows.get("r-done")!.status).toBe("completed");
+  });
+});
+
+describe("WorkflowRunManager.resume", () => {
+  test("an interrupted run re-invokes the engine with the SAME runId and carries accounting", async () => {
+    const h = makeHarness({});
+    seedRun(h, {
+      id: "run-x",
+      status: "interrupted",
+      args: { foo: 1 },
+      agentsSpawned: 4,
+    });
+
+    const { runId } = h.manager.resume("run-x");
+    expect(runId).toBe("run-x");
+
+    // Engine invoked with the same runId + reconstructed args; no NEW row.
+    expect(h.executeCalls).toHaveLength(1);
+    expect(h.executeCalls[0]!.runId).toBe("run-x");
+    expect(h.executeCalls[0]!.args).toEqual({ foo: 1 });
+
+    // Status transitions interrupted → running before launch.
+    expect(h.fake.rows.get("run-x")!.status).toBe("running");
+
+    // The engine reports the carried-forward accounting (seed: 4 agents) plus
+    // newly spawned work — the count carries, it does NOT reset.
+    await h.resolveLatest({
+      status: "completed",
+      result: "done",
+      agentsSpawned: 6,
+      inputTokens: 200,
+      outputTokens: 90,
+    });
+
+    const run = h.manager.status("run-x");
+    expect(run?.status).toBe("completed");
+    expect(run?.agentsSpawned).toBe(6);
+    expect(h.manager.inflightCount()).toBe(0);
+  });
+
+  test("resume falls back to the internal guardian trust context when no conversation", () => {
+    const h = makeHarness({});
+    seedRun(h, { id: "run-x", status: "interrupted", conversationId: null });
+
+    h.manager.resume("run-x");
+
+    expect(h.executeCalls[0]!.trustContext.trustClass).toBe("guardian");
+  });
+
+  test("a non-interrupted run throws WorkflowResumeNotPossibleError and does not invoke the engine", () => {
+    const h = makeHarness({});
+    seedRun(h, { id: "run-done", status: "completed" });
+
+    expect(() => h.manager.resume("run-done")).toThrow(
+      WorkflowResumeNotPossibleError,
+    );
+    expect(h.executeCalls).toHaveLength(0);
+    // The row is untouched (still completed).
+    expect(h.fake.rows.get("run-done")!.status).toBe("completed");
+  });
+
+  test("an unknown run throws WorkflowResumeNotPossibleError", () => {
+    const h = makeHarness({});
+    expect(() => h.manager.resume("ghost")).toThrow(
+      WorkflowResumeNotPossibleError,
+    );
+    expect(h.executeCalls).toHaveLength(0);
+  });
+
+  test("resume respects the concurrent-run cap", () => {
+    const h = makeHarness({ maxConcurrentRuns: 1 });
+    // Occupy the single slot with a live run.
+    h.manager.start({
+      scriptSource: "export const meta = { name: 'x', description: 'y' }",
+      args: {},
+      manifest: { tools: [], hostFunctions: [], persona: false },
+      trustContext: TRUST,
+    });
+    seedRun(h, { id: "run-x", status: "interrupted" });
+
+    expect(() => h.manager.resume("run-x")).toThrow(WorkflowRunCapError);
+  });
+
+  test("resume is rejected when the flag is off", () => {
+    const h = makeHarness({ flagEnabled: false });
+    seedRun(h, { id: "run-x", status: "interrupted" });
+    expect(() => h.manager.resume("run-x")).toThrow(WorkflowsDisabledError);
   });
 });
