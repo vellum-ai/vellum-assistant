@@ -45,9 +45,15 @@ function dictationBridge() {
  * `SFSpeechRecognizer` — i.e. the macOS Electron shell with a preload new
  * enough to expose the dictation bridge. Settings uses this to decide
  * whether to offer the "macOS Native Dictation" STT provider at all.
+ *
+ * Requires the one-shot `transcribe`/`onTranscribed` surface, not just the
+ * partials methods: those members are optional for version-skew tolerance,
+ * and a forced-native session's transcript authority is the whole-recording
+ * transcribe — partials alone routinely miss short dictations.
  */
 export function isNativeDictationSupported(): boolean {
-  return !!dictationBridge();
+  const dictation = dictationBridge();
+  return !!dictation?.transcribe && !!dictation.onTranscribed;
 }
 
 export interface NativeDictationPartialsOptions {
