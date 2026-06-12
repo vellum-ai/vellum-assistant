@@ -103,6 +103,8 @@ async function handleSurfaceAction({
 }: RouteHandlerArgs): Promise<{
   ok: boolean;
   conversationId?: string;
+  applied?: boolean;
+  reason?: string;
 }> {
   const conversationId = body?.conversationId as string | null | undefined;
   const surfaceId = body?.surfaceId as string | undefined;
@@ -162,7 +164,11 @@ async function handleSurfaceAction({
         "Access request decision applied via surface action",
       );
     }
-    return { ok: true };
+    return {
+      ok: true,
+      applied: result.applied,
+      ...(!result.applied ? { reason: result.reason } : {}),
+    };
   }
 
   const conversation = await resolveSurfaceConversation(
@@ -307,6 +313,18 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .describe(
           "Id of a newly launched conversation when the action dispatched one. Omitted otherwise.",
+        )
+        .optional(),
+      applied: z
+        .boolean()
+        .describe(
+          "Whether the action was applied. Present only for guardian decision actions (apr:*). False when the request was already resolved, expired, or the actor lacks permission.",
+        )
+        .optional(),
+      reason: z
+        .string()
+        .describe(
+          "Explanation when applied is false (e.g. 'already_resolved', 'expired', 'principal_mismatch').",
         )
         .optional(),
     }),
