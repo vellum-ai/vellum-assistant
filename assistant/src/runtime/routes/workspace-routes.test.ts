@@ -5,7 +5,13 @@
  * directory listing, file metadata, write/mkdir/rename/delete, and raw
  * content serving with range support (HTTP-only).
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, test } from "bun:test";
 
@@ -674,6 +680,21 @@ describe("POST /v1/workspace/rename", () => {
         body: { oldPath: "hello.txt", newPath: "data.json" },
       }),
     ).toThrow(ConflictError);
+  });
+
+  // On case-insensitive filesystems (macOS default) the destination "exists"
+  // because it resolves to the source itself — must rename, not conflict.
+  test("allows case-only rename of the same file", () => {
+    const srcPath = join(testWorkspaceDir, "CaseFile.txt");
+    writeFileSync(srcPath, "case test");
+
+    const result = handler({
+      body: { oldPath: "CaseFile.txt", newPath: "casefile.txt" },
+    }) as { oldPath: string; newPath: string };
+    expect(result.newPath).toBe("casefile.txt");
+    const names = readdirSync(testWorkspaceDir);
+    expect(names).toContain("casefile.txt");
+    expect(names).not.toContain("CaseFile.txt");
   });
 
   test("rejects path traversal on oldPath", () => {

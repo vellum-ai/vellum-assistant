@@ -448,6 +448,22 @@ function handleWorkspaceMkdir({ body, headers }: RouteHandlerArgs) {
 // POST /v1/workspace/rename — rename/move files and directories
 // ---------------------------------------------------------------------------
 
+/**
+ * On case-insensitive filesystems (macOS/iOS defaults) a case-only rename's
+ * destination "exists" because it resolves to the source itself. Compare
+ * dev/inode so that case is treated as a rename of the same file rather
+ * than a conflict.
+ */
+function isSameFsEntry(a: string, b: string): boolean {
+  try {
+    const statA = statSync(a);
+    const statB = statSync(b);
+    return statA.dev === statB.dev && statA.ino === statB.ino;
+  } catch {
+    return false;
+  }
+}
+
 function handleWorkspaceRename({ body, headers }: RouteHandlerArgs) {
   const oldPath = body?.oldPath as string | undefined;
   const newPath = body?.newPath as string | undefined;
@@ -474,7 +490,7 @@ function handleWorkspaceRename({ body, headers }: RouteHandlerArgs) {
     throw new NotFoundError("Source path not found");
   }
 
-  if (existsSync(resolvedNew)) {
+  if (existsSync(resolvedNew) && !isSameFsEntry(resolvedOld, resolvedNew)) {
     throw new ConflictError("Destination already exists");
   }
 
