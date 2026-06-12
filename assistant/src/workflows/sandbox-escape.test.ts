@@ -191,6 +191,59 @@ describe("sandbox containment — determinism bans", () => {
 });
 
 describe("sandbox containment — resource guards", () => {
+  test("cumulative host-call latency beyond the deadline does NOT abort the run", async () => {
+    // Regression guard for a production-killing bug: the interrupt deadline used
+    // to bound TOTAL run wall-clock, which includes time the VM is suspended in
+    // asyncify awaiting host promises. Real workflows make many `agent()` host
+    // calls each costing seconds of LLM latency, so after a couple of leaves the
+    // run tripped the deadline and aborted on latency alone.
+    //
+    // Here three host calls each sleep ~250ms (cumulative ~750ms) under a 400ms
+    // deadline. Because the deadline measures CONTIGUOUS script CPU between host
+    // calls — reset around each host-call boundary — the suspended latency must
+    // NOT count, and the run must complete successfully.
+    const sb = createWorkflowSandbox({
+      hostFunctions: {
+        slow: async (n: unknown) => {
+          await new Promise((r) => setTimeout(r, 250));
+          return (n as number) + 1;
+        },
+      },
+      interruptDeadlineMs: 400,
+    });
+
+    const result = await sb.run(
+      `let n = 0;
+       for (let i = 0; i < 3; i++) {
+         n = slow(n); // each call sleeps ~250ms; cumulative ~750ms > 400ms deadline
+       }
+       return n;`,
+      null,
+    );
+    // slow(n) = n + 1, applied three times starting from 0 -> 3.
+    expect(result).toBe(3);
+  }, 20_000);
+
+  test("a tight CPU loop with no host calls is still interrupted (spin guard)", async () => {
+    // Companion to the latency test above: a genuine spin that never yields to a
+    // host call must STILL trip the deadline. Short deadline keeps the test fast.
+    const sb = createWorkflowSandbox({
+      hostFunctions: {},
+      interruptDeadlineMs: 200,
+    });
+    const start = Date.now();
+    let caught: unknown;
+    try {
+      await sb.run(`while (true) {}`, null);
+    } catch (e) {
+      caught = e;
+    }
+    const elapsed = Date.now() - start;
+    expect(caught).toBeInstanceOf(WorkflowResourceError);
+    // 200ms deadline; allow generous slack but assert it is bounded.
+    expect(elapsed).toBeLessThan(10_000);
+  }, 20_000);
+
   test("an infinite loop is interrupted within a bounded time", async () => {
     const start = Date.now();
     let caught: unknown;
