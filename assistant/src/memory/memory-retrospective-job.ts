@@ -61,6 +61,7 @@ import {
   getConversation,
   getMessages,
   getMessagesAfter,
+  resolveOverrideProfile,
 } from "./conversation-crud.js";
 import {
   enqueueMemoryJob,
@@ -453,6 +454,21 @@ async function runForkBasedRetrospective(
     throw err;
   }
 
+  // Run the retrospective under the source conversation's inference profile
+  // (when configured): provider prompt caches are byte-exact prefix matches
+  // scoped per model, and a thinking enable/disable mismatch invalidates the
+  // messages cache tier — so the fork's cached prefix is only reusable when
+  // the retro resolves the SAME model/thinking/effort as the source's own
+  // turns. `resolveOverrideProfile` applies the same expiry/conversation-type
+  // semantics live turns use, so a missing, expired, or non-interactive
+  // profile yields undefined and the wake keeps today's call-site default —
+  // as does a profile name that no longer exists in `llm.profiles` (the
+  // resolver's standard silent fall-through). The wake's `callSite` stays
+  // `memoryRetrospective`, so logging/attribution buckets are unchanged.
+  const matchedProfile = config.memory.retrospective.matchConversationProfile
+    ? resolveOverrideProfile(sourceConversation)
+    : undefined;
+
   // `skipHintInjection: true` because the instruction is already a
   // persisted message — the wake's hint sandwich would only duplicate it.
   let wakeSucceeded = false;
@@ -466,6 +482,9 @@ async function runForkBasedRetrospective(
       trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
       callSite: "memoryRetrospective",
       allowedTools: ["remember"],
+      ...(matchedProfile !== undefined
+        ? { forceOverrideProfile: matchedProfile }
+        : {}),
       hintRole: "user",
       skipHintInjection: true,
       suppressAutoCompaction: true,
