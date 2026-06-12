@@ -5,6 +5,7 @@ on:
     types: [synchronize, opened, reopened]
     paths:
       - 'apps/windows/**'
+      - 'packages/ipc-contract/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
       - '.github/workflows/pr-windows-electron.yaml'

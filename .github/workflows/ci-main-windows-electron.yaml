@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'apps/windows/**'
+      - 'packages/ipc-contract/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
       - '.github/workflows/ci-main-windows-electron.yaml'
