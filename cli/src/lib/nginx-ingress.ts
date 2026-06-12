@@ -25,9 +25,9 @@ import { GATEWAY_PORT } from "./constants.js";
  * port instead of the gateway port.
  */
 
-export const DEFAULT_INGRESS_PORT = 7840;
+export const DEFAULT_INGRESS_PORT = 8080;
 
-/** Listen port for the ingress, from VELLUM_INGRESS_PORT (default 7840). */
+/** Listen port for the ingress, from VELLUM_INGRESS_PORT (default 8080). */
 export function getIngressPort(): number {
   const raw = process.env.VELLUM_INGRESS_PORT;
   if (!raw) return DEFAULT_INGRESS_PORT;
