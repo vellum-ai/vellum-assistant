@@ -28,9 +28,16 @@ import {
 const DEFAULT_MEMORY_LIMIT_BYTES = 256 * 1024 * 1024;
 
 /**
- * Wall-clock budget for a single run. The interrupt handler — invoked
- * periodically by the VM as it executes — returns `true` once this elapses, so
- * a pure `while(true){}` is interrupted well before the daemon is starved.
+ * CPU budget for a single *contiguous* stretch of script execution between host
+ * calls. The interrupt handler — invoked periodically by the VM as it executes —
+ * returns `true` once this elapses, so a pure `while(true){}` (which never yields
+ * to a host call) is interrupted well before the daemon is starved.
+ *
+ * Crucially this bounds uninterrupted SCRIPT CPU, not total run wall-clock. The
+ * deadline is reset around every host-call boundary (see {@link installNativeBridge}),
+ * so seconds spent suspended in asyncify awaiting a host promise (each `agent()`
+ * leaf is a multi-second LLM round-trip) do NOT count against it. Total-runtime
+ * limits are the caller's responsibility via {@link CreateWorkflowSandboxOptions.signal}.
  */
 const INTERRUPT_DEADLINE_MS = 5_000;
 
@@ -78,6 +85,14 @@ export interface CreateWorkflowSandboxOptions {
   signal?: AbortSignal;
   /** Runtime memory ceiling. Defaults to 256 MiB. */
   memoryLimitBytes?: number;
+  /**
+   * CPU budget, in milliseconds, for a single contiguous stretch of script
+   * execution between host calls. Reset around every host-call boundary, so it
+   * never counts time suspended awaiting a host promise. Defaults to 5000.
+   * Primarily a test seam for exercising the interrupt guard with short delays;
+   * production should use the default.
+   */
+  interruptDeadlineMs?: number;
 }
 
 export interface WorkflowSandbox {
@@ -211,6 +226,7 @@ export function createWorkflowSandbox(
 ): WorkflowSandbox {
   const transpiler = new Bun.Transpiler({ loader: "ts" });
   const memoryLimitBytes = opts.memoryLimitBytes ?? DEFAULT_MEMORY_LIMIT_BYTES;
+  const interruptDeadlineMs = opts.interruptDeadlineMs ?? INTERRUPT_DEADLINE_MS;
   const hostFunctionNames = Object.keys(opts.hostFunctions);
 
   return {
@@ -238,14 +254,21 @@ export function createWorkflowSandbox(
       const runtime = vm.runtime;
       runtime.setMemoryLimit(memoryLimitBytes);
 
-      const deadline = Date.now() + INTERRUPT_DEADLINE_MS;
+      // The deadline bounds CONTIGUOUS script CPU between host calls, not total
+      // run wall-clock. It is held in a one-element box so the native bridge can
+      // reset it around each host-call boundary (where the VM is suspended in
+      // asyncify awaiting a host promise — time that must not count against the
+      // CPU guard). `signal.aborted` remains the hard, total-runtime stop.
+      const deadline = { at: Date.now() + interruptDeadlineMs };
       runtime.setInterruptHandler(() => {
         if (opts.signal?.aborted) return true;
-        return Date.now() > deadline;
+        return Date.now() > deadline.at;
       });
 
       try {
-        installNativeBridge(vm, opts);
+        installNativeBridge(vm, opts, () => {
+          deadline.at = Date.now() + interruptDeadlineMs;
+        });
         seedArgs(vm, args);
 
         // Bootstrap: strip capabilities, install bans, wire host fns.
@@ -278,6 +301,7 @@ export function createWorkflowSandbox(
 function installNativeBridge(
   vm: QuickJSAsyncContext,
   opts: CreateWorkflowSandboxOptions,
+  resetDeadline: () => void,
 ): void {
   // Single asyncified bridge for all host functions. Suspends the VM while the
   // host promise settles, then resumes with a JSON string (or undefined).
@@ -296,6 +320,11 @@ function installNativeBridge(
       // A host throw/rejection propagates as a VM exception the script can
       // catch, or — if uncaught — as a WorkflowScriptError to the caller.
       const result = await fn(...parsedArgs);
+      // The VM is about to resume script execution. Reset the CPU budget so the
+      // (possibly multi-second) host-call latency we just awaited does not count
+      // against the interrupt deadline — that guards contiguous script CPU only,
+      // not cumulative host-call wall-clock. `signal` remains the hard stop.
+      resetDeadline();
       // `undefined` JSON-stringifies to `undefined`; map it to the VM's
       // undefined so the sync wrapper returns `undefined` rather than NaN.
       if (result === undefined) return vm.undefined;
