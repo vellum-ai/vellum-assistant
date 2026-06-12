@@ -211,4 +211,20 @@ describe("LiveVoiceButton", () => {
     const button = getByLabelText("Stop voice mode");
     expect(button.style.transform).toContain("scale(");
   });
+
+  test("flag turning off mid-conversation deactivates the mode", () => {
+    // GIVEN an active conversation whose voice-mode flag has just dropped
+    // (flag refresh / dev toggle) — the component renders nothing, so the
+    // user has no stop control left
+    mockVoiceModeFlag = false;
+    mockState = "listening";
+    mockSessionState = "listening";
+
+    // WHEN the button renders in that state
+    const { container } = render(<LiveVoiceButton assistantId="a1" />);
+
+    // THEN it ends the conversation rather than stranding the loop + mic
+    expect(container.firstChild).toBeNull();
+    expect(deactivateSpy).toHaveBeenCalledTimes(1);
+  });
 });

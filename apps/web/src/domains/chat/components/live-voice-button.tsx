@@ -21,7 +21,7 @@
  */
 
 import { Loader2, Mic, StopCircle } from "lucide-react";
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 
 import { Button } from "@vellumai/design-library";
 
@@ -74,6 +74,14 @@ export function LiveVoiceButton({
     if (disabled) return;
     void activate();
   }, [active, connecting, deactivate, disabled, interrupt, activate, speaking]);
+
+  // If the voice-mode flag turns off while a conversation is active (flag
+  // refresh / dev toggle), this component stops rendering the only
+  // stop/interrupt control while the controller above keeps the loop and mic
+  // running — end the conversation instead of stranding it.
+  useEffect(() => {
+    if (!voiceModeFlag && active) void deactivate();
+  }, [voiceModeFlag, active, deactivate]);
 
   if (!voiceModeFlag) return null;
 
