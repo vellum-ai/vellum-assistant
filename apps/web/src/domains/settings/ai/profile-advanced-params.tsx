@@ -206,7 +206,7 @@ export function ProfileAdvancedParams({
           </label>
           <SegmentControl
             items={EFFORT_OPTIONS.map((v) => ({ value: v, label: v }))}
-            value={effort as (typeof EFFORT_OPTIONS)[number]}
+            value={effort}
             onChange={(v) => onEffortChange(v)}
             ariaLabel="Effort"
           />
@@ -221,7 +221,7 @@ export function ProfileAdvancedParams({
           </label>
           <SegmentControl
             items={SPEED_OPTIONS.map((v) => ({ value: v, label: v }))}
-            value={speed as (typeof SPEED_OPTIONS)[number]}
+            value={speed}
             onChange={(v) => onSpeedChange(v)}
             ariaLabel="Speed"
           />
@@ -236,7 +236,7 @@ export function ProfileAdvancedParams({
           </label>
           <SegmentControl
             items={VERBOSITY_OPTIONS.map((v) => ({ value: v, label: v }))}
-            value={verbosity as (typeof VERBOSITY_OPTIONS)[number]}
+            value={verbosity}
             onChange={(v) => onVerbosityChange(v)}
             ariaLabel="Verbosity"
           />

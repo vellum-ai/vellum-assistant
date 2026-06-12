@@ -724,9 +724,7 @@ function ProfileEditorModalInner({
           variant="inline"
           assistantId={assistantId}
           existingNames={effectiveConnections.map((c) => c.name)}
-          defaultProviderType={
-            (provider || undefined) as ConnectionProvider | undefined
-          }
+          defaultProviderType={provider || undefined}
           onCreated={handleProviderCreated}
           onCancel={() => setCreatingProvider(false)}
         />
