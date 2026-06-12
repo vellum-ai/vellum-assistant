@@ -883,6 +883,12 @@ export const VoiceInputButton = forwardRef<
         } finally {
           transcribeAbortRef.current = null;
         }
+        // Re-check after the awaited delivery: a cancel (overlay stop
+        // button) landing while `onTranscript` was in flight bumped the
+        // session id after the guard above. Delivery already started and
+        // can't be retracted, but the cancelled session must not overwrite
+        // the user's reset with a "done" flash.
+        if (sessionIdRef.current !== sessionId) return;
         vsFinalize();
       })();
     };
