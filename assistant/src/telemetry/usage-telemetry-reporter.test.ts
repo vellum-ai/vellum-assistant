@@ -184,13 +184,12 @@ initializeDb();
 let eventIdCounter = 0;
 
 // The reporter consumes `UnreportedUsageEvent` (UsageEvent + the
-// JOIN-computed fields `conversationType` and `turnIndex`, plus the
-// projected `llmCallCount` column). Build that shape directly so the
-// mock matches `queryUnreportedUsageEvents`' return type exactly.
-type UnreportedUsageEventFixture = Omit<UsageEvent, "llmCallCount"> & {
+// JOIN-computed fields `conversationType` and `turnIndex`). Build that
+// shape directly so the mock matches `queryUnreportedUsageEvents`'
+// return type exactly.
+type UnreportedUsageEventFixture = UsageEvent & {
   conversationType: string | null;
   turnIndex: number | null;
-  llmCallCount: number | null;
 };
 
 function makeUsageEvent(
