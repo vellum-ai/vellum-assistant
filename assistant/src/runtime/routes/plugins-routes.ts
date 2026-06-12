@@ -295,6 +295,12 @@ const pluginLocalInfoSchema = z
       .describe(
         "Resolved commit the copy was installed at; null when no provenance was recorded.",
       ),
+    committedAt: z
+      .string()
+      .nullable()
+      .describe(
+        "ISO-8601 committer timestamp (UTC) of the installed commit — the human-readable version; null for installs predating commit-timestamp capture. Distinct from `installedAt`.",
+      ),
     version: z
       .string()
       .nullable()
@@ -341,6 +347,12 @@ const pluginRemoteInfoSchema = z
       .string()
       .describe(
         "Pinned commit SHA the marketplace currently resolves installs to.",
+      ),
+    committedAt: z
+      .string()
+      .nullable()
+      .describe(
+        "ISO-8601 committer timestamp (UTC) of the pinned commit, resolved from GitHub; null when the commit metadata could not be fetched.",
       ),
     description: z.string().nullable(),
     homepage: z.string().nullable(),
@@ -413,10 +425,22 @@ const pluginUpgradeResponseSchema = z.object({
     .describe(
       "Installed commit before the upgrade; null when no provenance was recorded.",
     ),
+  fromTimestamp: z
+    .string()
+    .nullable()
+    .describe(
+      "ISO-8601 committer timestamp (UTC) of `fromCommit` — the version moved from; null when not recorded.",
+    ),
   toCommit: z
     .string()
     .describe(
       "Marketplace-pinned commit the install was (or would be) moved to.",
+    ),
+  toTimestamp: z
+    .string()
+    .nullable()
+    .describe(
+      "ISO-8601 committer timestamp (UTC) of `toCommit` — the version moved to; null when it could not be resolved.",
     ),
   target: z
     .string()
@@ -740,7 +764,9 @@ async function handleUpgradePlugin({
       name: result.name,
       outcome: result.outcome,
       fromCommit: result.fromCommit,
+      fromTimestamp: result.fromTimestamp,
       toCommit: result.toCommit,
+      toTimestamp: result.toTimestamp,
       target: result.target,
       fileCount: result.fileCount,
       dryRun: result.dryRun,
