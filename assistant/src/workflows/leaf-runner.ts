@@ -55,6 +55,7 @@ import type { Message, ToolDefinition } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
+import { getWorkspaceDir } from "../util/platform.js";
 
 const log = getLogger("workflow-leaf-runner");
 
@@ -401,7 +402,13 @@ async function runToolLeaf(
     toolExecutor: (name, input, onOutput) =>
       executeLeafTool(toolsByName, name, input, {
         ephemeralConversationId,
-        workingDir: process.cwd(),
+        // Bind leaf file tools to the WORKSPACE, not the daemon's cwd: the CLI
+        // starts the daemon with `cwd: dirname(daemonBinary)`, so `process.cwd()`
+        // is the install dir. File tools resolve relative paths and enforce the
+        // sandbox boundary against this dir, so a workspace path would resolve
+        // wrong / be rejected as out-of-bounds. Mirrors the scheduled-task path
+        // (`runtime/routes/task-routes.ts`), which also uses `getWorkspaceDir()`.
+        workingDir: getWorkspaceDir(),
         signal: opts.signal,
         onOutput,
         trustContext: opts.trustContext,

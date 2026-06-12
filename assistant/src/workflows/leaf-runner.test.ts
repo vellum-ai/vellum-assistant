@@ -143,6 +143,7 @@ import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { conversations } from "../memory/schema.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
+import { getWorkspaceDir } from "../util/platform.js";
 import { runLeaf, WorkflowUnknownProfileError } from "./leaf-runner.js";
 
 initializeDb();
@@ -373,6 +374,7 @@ describe("runLeaf — abort", () => {
 describe("runLeaf — tool path", () => {
   test("executes only the supplied toolset and returns usage + tool-call counts", async () => {
     const calls: Array<{ name: string; input: unknown }> = [];
+    let toolWorkingDir: string | undefined;
 
     const makeTool = (name: string): Tool => ({
       name,
@@ -383,9 +385,10 @@ describe("runLeaf — tool path", () => {
       input_schema: { type: "object", properties: {}, required: [] },
       async execute(
         input: Record<string, unknown>,
-        _ctx: ToolContext,
+        ctx: ToolContext,
       ): Promise<ToolExecutionResult> {
         calls.push({ name, input });
+        toolWorkingDir = ctx.workingDir;
         return { content: `${name} ran`, isError: false };
       },
     });
@@ -434,6 +437,12 @@ describe("runLeaf — tool path", () => {
     expect(lastSendCall?.options.tools?.map((t) => t.name)).toEqual([
       "allowed_tool",
     ]);
+
+    // Leaf file tools must be bound to the WORKSPACE, not the daemon's cwd
+    // (which is the install/binary dir) — otherwise sandbox-policy'd file tools
+    // resolve/reject workspace paths incorrectly.
+    expect(toolWorkingDir).toBe(getWorkspaceDir());
+    expect(toolWorkingDir).not.toBe(process.cwd());
 
     // No conversation rows created.
     expect(countConversations()).toBe(before);
