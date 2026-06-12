@@ -153,6 +153,21 @@ def request(flow) -> None:  # type: ignore[no-untyped-def]
         _log_warn(f"mock_github: hook raised {type(err).__name__}: {err}")
 
 
+def _decoded_body(message) -> bytes:  # type: ignore[no-untyped-def]
+    """Return an HTTP message body with any `Content-Encoding` removed.
+
+    mitmproxy's `content` property transparently decodes gzip/deflate/br/zstd;
+    `raw_content` is the compressed wire bytes. The usage parser reads JSON and
+    SSE text, so it needs the decoded body. If decoding raises (e.g. a
+    malformed encoding header), fall back to the raw bytes rather than dropping
+    the record outright.
+    """
+    try:
+        return message.content or b""
+    except Exception:  # noqa: BLE001 -- decode failure: fall back to raw bytes
+        return message.raw_content or b""
+
+
 def response(flow) -> None:  # type: ignore[no-untyped-def]
     """mitmproxy hook fired after the full response body is available."""
     try:
@@ -161,8 +176,15 @@ def response(flow) -> None:  # type: ignore[no-untyped-def]
         host = (request.pretty_host or "").lower()
         if host != "api.anthropic.com":
             return
-        request_body: bytes = request.raw_content or b""
-        response_body: bytes = response.raw_content or b""
+        # Use the content-decoded body, not `raw_content`. The Anthropic SDK
+        # negotiates `Accept-Encoding: gzip` (and brotli/zstd when those libs
+        # are present), so the on-the-wire `raw_content` is compressed and the
+        # JSON / SSE parser would always fail to read it. mitmproxy's `content`
+        # accessor strips the `Content-Encoding`; we fall back to `raw_content`
+        # only if decoding itself raises (malformed encoding header).
+        # https://docs.mitmproxy.org/stable/api/mitmproxy/http.html#Message.content
+        request_body = _decoded_body(request)
+        response_body = _decoded_body(response)
         content_type = response.headers.get("content-type", "")
         record: Optional[dict] = usage_parser.parse_anthropic_messages_response(
             request_path=request.path,
