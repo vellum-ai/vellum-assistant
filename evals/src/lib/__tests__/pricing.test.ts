@@ -244,4 +244,85 @@ describe("priceUsageRecord", () => {
     expect(result.costUsd).toBeCloseTo(0.0105, 6);
     expect(result.diagnostic).toBeUndefined();
   });
+
+  test("prices Anthropic cache read/write off the base input rate", () => {
+    /**
+     * Cache tokens must be billed using Anthropic's prompt-cache
+     * multipliers (read 0.1x, 5-minute write 1.25x), not dropped.
+     */
+    // GIVEN an Anthropic record whose tokens are entirely cache traffic
+    const record = {
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_input_tokens: 1_000,
+      cache_read_input_tokens: 10_000,
+    };
+
+    // WHEN it is priced
+    const result = priceUsageRecord(record);
+
+    // THEN cache write bills at 1.25x and cache read at 0.1x of the $3/1M
+    // base input rate: 1k * 3 * 1.25/1M + 10k * 3 * 0.1/1M
+    //                = 0.00375 + 0.003 = 0.00675
+    expect(result.costUsd).toBeCloseTo(0.00675, 6);
+    expect(result.diagnostic).toBeUndefined();
+  });
+
+  test("includes cache cost for a cache-heavy main-agent turn", () => {
+    /**
+     * Regression: a cached agentic turn reads a large context prefix, so
+     * `cache_read_input_tokens` dwarfs the uncached `input_tokens`.
+     * Pricing only input+output understates the real cost ~7x.
+     */
+    // GIVEN a sonnet turn observed in a real run (3 in / 69 out, 466
+    // cache-write, 15967 cache-read)
+    const record = {
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      input_tokens: 3,
+      output_tokens: 69,
+      cache_creation_input_tokens: 466,
+      cache_read_input_tokens: 15_967,
+    };
+
+    // WHEN it is priced
+    const result = priceUsageRecord(record);
+
+    // THEN the cache tokens dominate the cost rather than being dropped:
+    //   input  3     * 3/1M            = 0.000009
+    //   output 69    * 15/1M           = 0.001035
+    //   write  466   * 3 * 1.25/1M     = 0.00174750
+    //   read   15967 * 3 * 0.1/1M      = 0.00479010
+    //   total                          = 0.00758160
+    expect(result.costUsd).toBeCloseTo(0.0075816, 6);
+    // AND the input+output-only figure it replaces would have been ~7x lower
+    expect(result.costUsd!).toBeGreaterThan(0.001044 * 6);
+  });
+
+  test("folds cache tokens at the base input rate for non-Anthropic providers", () => {
+    /**
+     * The Anthropic cache multipliers are provider-specific. For other
+     * providers, cache tokens are folded in at the base input rate so
+     * they are never silently dropped.
+     */
+    // GIVEN an OpenAI record carrying cache tokens
+    const record = {
+      provider: "openai",
+      model: "gpt-4.1",
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation_input_tokens: 1_000,
+      cache_read_input_tokens: 1_000,
+    };
+
+    // WHEN it is priced
+    const result = priceUsageRecord(record);
+
+    // THEN both cache fields bill at the $2/1M base input rate (no
+    // Anthropic multipliers): 2k * 2/1M = 0.004
+    expect(result.costUsd).toBeCloseTo(0.004, 6);
+    expect(result.diagnostic).toBeUndefined();
+  });
 });

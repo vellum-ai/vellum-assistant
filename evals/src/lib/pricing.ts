@@ -17,14 +17,31 @@
  * exactly which provider/model pair lacks coverage instead of silently
  * counting it as $0.
  *
- * Cache reads/writes are folded into base input pricing — evals doesn't
- * yet attribute cache tiers separately and the cost figure is a
- * "good-enough for ranking profiles" estimate, not a billing source of
- * truth. Real billing comes from the daemon-side pricing module that
- * the assistant uses for its own usage-event ledger.
+ * Cache reads/writes are priced off the base input rate using
+ * Anthropic's standard prompt-cache multipliers (read = 0.1x, 5-minute
+ * write = 1.25x), mirroring the daemon-side pricing module
+ * (`assistant/src/util/pricing.ts`). Skipping them would drop the bulk
+ * of a cached agentic turn's cost — the main agent loop reuses a large
+ * cached system/context prefix, so `cache_read_input_tokens` typically
+ * dwarfs the uncached `input_tokens`. The figure is still a
+ * "good-enough for ranking profiles" estimate (the 5m/1h write split
+ * isn't tracked), not a billing source of truth.
  */
 
 import type { CostDiagnostic, CostDiagnosticReason } from "./metrics";
+
+/**
+ * Anthropic prompt-cache rates as multipliers on the base input rate,
+ * mirroring `ANTHROPIC_PROMPT_CACHE_MULTIPLIERS` in the daemon's
+ * `assistant/src/util/pricing.ts`. Evals records carry only the
+ * aggregate `cache_creation_input_tokens` (no 5m/1h split), so cache
+ * writes are priced at the 5-minute rate — the default TTL the agent
+ * loop uses.
+ */
+const ANTHROPIC_CACHE_MULTIPLIERS = {
+  read: 0.1,
+  write: 1.25,
+} as const;
 
 interface ModelRow {
   /** USD per 1,000,000 input tokens. */
@@ -69,10 +86,9 @@ const PRICING_TABLE: Record<string, ModelRow> = {
   // OpenAI — published rates, USD per 1M tokens. The gpt-5.x rows
   // mirror the base (non-long-context) tier in
   // `assistant/src/providers/model-catalog.ts`. Evals doesn't model
-  // OpenAI's long-context tier multiplier yet — same simplification
-  // we make for Anthropic cache tiers (see the file-level docstring).
-  // The catalog is the source of truth; drift is acceptable until a
-  // programmatic sync exists.
+  // OpenAI's long-context tier multiplier yet. The catalog is the
+  // source of truth; drift is acceptable until a programmatic sync
+  // exists.
   "openai:gpt-5.5-pro": { inputPer1M: 30.0, outputPer1M: 180.0 },
   "openai:gpt-5.5": { inputPer1M: 5.0, outputPer1M: 30.0 },
   "openai:gpt-5.4": { inputPer1M: 2.5, outputPer1M: 15.0 },
@@ -224,9 +240,33 @@ export function priceUsageRecord(
     return { diagnostic: { reason: "unpriced_model", provider, model } };
   }
 
-  const cost =
+  const cacheCreationTokens = readNumber(
+    record.cache_creation_input_tokens ?? record.cacheCreationInputTokens,
+  );
+  const cacheReadTokens = readNumber(
+    record.cache_read_input_tokens ?? record.cacheReadInputTokens,
+  );
+
+  let cost =
     ((inputTokens ?? 0) / 1_000_000) * pricing.inputPer1M +
     ((outputTokens ?? 0) / 1_000_000) * pricing.outputPer1M;
+
+  // Cache tokens are billed off the base input rate. For Anthropic, apply
+  // its published prompt-cache multipliers; for any other provider, fold
+  // them in at the base input rate so they're never silently dropped
+  // (evals only points at Anthropic for caching today).
+  const cacheWriteMultiplier =
+    provider === "anthropic" ? ANTHROPIC_CACHE_MULTIPLIERS.write : 1;
+  const cacheReadMultiplier =
+    provider === "anthropic" ? ANTHROPIC_CACHE_MULTIPLIERS.read : 1;
+  cost +=
+    ((cacheCreationTokens ?? 0) / 1_000_000) *
+      pricing.inputPer1M *
+      cacheWriteMultiplier +
+    ((cacheReadTokens ?? 0) / 1_000_000) *
+      pricing.inputPer1M *
+      cacheReadMultiplier;
+
   return { costUsd: cost };
 }
 
