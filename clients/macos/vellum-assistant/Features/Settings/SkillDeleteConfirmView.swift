@@ -13,7 +13,7 @@ struct SkillDeleteConfirmView: View {
                     .font(VFont.bodySmallEmphasised)
                     .foregroundStyle(VColor.contentDefault)
 
-                Text("Are you sure you want to delete \"\(skillName)\"? This will remove it from ~/.vellum/workspace/skills/.")
+                Text("Are you sure you want to delete \"\(skillName)\"? This will remove it from $VELLUM_WORKSPACE_DIR/skills/.")
                     .font(VFont.bodyMediumLighter)
                     .foregroundStyle(VColor.contentSecondary)
                     .multilineTextAlignment(.center)

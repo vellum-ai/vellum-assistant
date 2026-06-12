@@ -336,6 +336,48 @@ References:
 - [TkDodo — Working with Zustand](https://tkdodo.eu/blog/working-with-zustand) — React Query maintainer's guidance on the boundary between server state (RQ) and client/infrastructure state (Zustand)
 - [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components)
 
+### Event-driven cache updates
+
+When an external signal (SSE event, bus message) indicates server data
+has changed, the component rendering the data isn't the one responding
+to the signal — an event handler is. Hooks can't be called inside event
+handlers ([Rules of Hooks](https://react.dev/reference/rules/rules-of-hooks)),
+so use `queryClient.fetchQuery` with the generated query-options factory:
+
+```ts
+import { conversationsByIdGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+
+// Inside a bus subscriber or event handler:
+const data = await queryClient.fetchQuery({
+  ...conversationsByIdGetOptions({ path: { assistant_id: id, id: convId } }),
+  retry: false,
+});
+```
+
+`fetchQuery` [deduplicates concurrent
+requests](https://tanstack.com/query/latest/docs/reference/QueryClient#queryclientfetchquery)
+for the same query key, populates the TanStack Query cache (so
+mounted `useQuery` subscribers see the new data), and returns the
+typed response. Set `retry: false` when the event stream provides
+natural retry (the next event re-triggers the handler).
+
+| Context | Tool | Why |
+|---|---|---|
+| React component rendering data | Generated hook (`useXxxQuery()`) | Declarative; tied to component lifecycle |
+| Event handler, bus subscriber, loader | `queryClient.fetchQuery({ ...xxxOptions() })` | Imperative; outside React render cycle |
+| Optimistic cache write | `setXxxQueryData()` | Typed; no network round-trip |
+
+See [`CONVENTIONS.md` — Generated hooks vs factory
+functions](./CONVENTIONS.md#generated-hooks-vs-factory-functions) for
+the full generated-artifact catalog and
+[`EVENT_BUS.md` — Event-driven cache refresh](./EVENT_BUS.md#event-driven-cache-refresh-via-fetchquery)
+for a concrete example.
+
+References:
+- [TanStack Query — `fetchQuery`](https://tanstack.com/query/latest/docs/reference/QueryClient#queryclientfetchquery)
+- [HeyAPI — TanStack Query plugin](https://heyapi.dev/openapi-ts/plugins/tanstack-query)
+- [React — Rules of Hooks](https://react.dev/reference/rules/rules-of-hooks)
+
 ### When to use `useState`
 
 Not all state needs Zustand or React Query. Use plain `useState` when:

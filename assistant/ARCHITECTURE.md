@@ -868,7 +868,7 @@ graph LR
         SL["logs/session-*.json<br/>───────────────<br/>Per-session JSON log<br/>task, start/end times, result<br/>Per-turn: AX tree, screenshot,<br/>action, token usage"]
     end
 
-    subgraph "~/.vellum/workspace/data/db/assistant.db (SQLite + WAL)"
+    subgraph "$VELLUM_WORKSPACE_DIR/data/db/assistant.db (SQLite + WAL)"
         direction TB
         CONV["conversations<br/>───────────────<br/>id, title, timestamps<br/>token counts, estimated cost<br/>context_summary (compaction)<br/>conversation_type: 'standard' | 'background' | 'scheduled'<br/>memory_scope_id: 'default' | '_pkb_workspace' | 'subagent:&lt;id&gt;'"]
         MSG["messages<br/>───────────────<br/>id, conversation_id (FK)<br/>role: user | assistant<br/>content: JSON array<br/>created_at"]
@@ -891,7 +891,7 @@ graph LR
         TRUST["protected/trust.json<br/>Tool permission rules"]
     end
 
-    subgraph "~/.vellum/workspace/ (Workspace Files)"
+    subgraph "$VELLUM_WORKSPACE_DIR/ (Workspace Files)"
         CONFIG["config files<br/>Hot-reloaded by daemon"]
         ONBOARD_PLAYBOOKS["onboarding/playbooks/<br/>[channel]_onboarding.md<br/>assistant-updatable checklists"]
         ONBOARD_REGISTRY["onboarding/playbooks/registry.json<br/>channel-start index for fast-path + reconciliation"]
@@ -923,7 +923,7 @@ graph TB
         LOCAL_CLIENT["RuntimeClient"]
         LOCAL_HTTP["HTTP API<br/>localhost:RUNTIME_HTTP_PORT"]
         LOCAL_DAEMON["Local Daemon<br/>(same machine)"]
-        LOCAL_DB["~/.vellum/workspace/data/db/assistant.db"]
+        LOCAL_DB["$VELLUM_WORKSPACE_DIR/data/db/assistant.db"]
     end
 
     subgraph "Cloud Mode"
@@ -1157,7 +1157,7 @@ graph TB
 
     NATIVE -->|"macOS"| SBPL["sandbox-exec<br/>SBPL profile<br/>deny-default + allow workdir"]
     NATIVE -->|"Linux"| BWRAP["bwrap<br/>bubblewrap<br/>ro-root + rw-workdir<br/>unshare-net + unshare-pid"]
-    SBPL --> SB_FS["Sandbox filesystem root<br/>~/.vellum/workspace"]
+    SBPL --> SB_FS["Sandbox filesystem root<br/>$VELLUM_WORKSPACE_DIR"]
     BWRAP --> SB_FS
 
     EXEC -->|"host_file_* / host_bash"| HOST_TOOLS["Host-target tools<br/>(unchanged by backend choice)"]
@@ -1175,7 +1175,7 @@ graph TB
 - **Native backend**: Uses OS-level sandboxing — `sandbox-exec` with SBPL profiles on macOS, `bwrap` (bubblewrap) on Linux. Denies network access and restricts filesystem writes to the sandbox root, `/tmp`, `/private/tmp`, and `/var/folders` (macOS) or the sandbox root and `/tmp` (Linux).
 - **Fail-closed**: The native backend refuses to execute unsandboxed if its prerequisites are unavailable, throwing `ToolError` with actionable messages on failure.
 - **Host tools unchanged**: `host_bash`, `host_file_read`, `host_file_write`, and `host_file_edit` always execute directly on the host regardless of which sandbox backend is active.
-- Sandbox defaults: `file_*` and `bash` execute within `~/.vellum/workspace`.
+- Sandbox defaults: `file_*` and `bash` execute within `$VELLUM_WORKSPACE_DIR`.
 - Host access is explicit: `host_file_read`, `host_file_write`, `host_file_edit`, and `host_bash` are separate tools.
 - Prompt defaults: host tools and `computer_use_*` skill-projected actions default to `ask` unless a trust rule allowlists/denylists them.
 - Browser tool defaults: all `browser_*` tools are auto-allowed by default via seeded allow rules at priority 100, preserving the frictionless UX from when browser was a core tool.
@@ -1209,7 +1209,7 @@ Key behaviors:
 
 ## Dynamic Skill Authoring — Tool Flow
 
-The assistant can author, test, and persist new skills at runtime through a three-tool workflow. All operations target `~/.vellum/workspace/skills/` (managed skills directory) and require explicit user confirmation.
+The assistant can author, test, and persist new skills at runtime through a three-tool workflow. All operations target `$VELLUM_WORKSPACE_DIR/skills/` (managed skills directory) and require explicit user confirmation.
 
 ```mermaid
 graph TB
@@ -1225,7 +1225,7 @@ graph TB
     subgraph "2. Persist (Filesystem)"
         SCAFFOLD["scaffold_managed_skill<br/>───────────────<br/>RiskLevel: High<br/>Requires user consent"]
         MANAGED_STORE["managed-store.ts<br/>───────────────<br/>validateManagedSkillId()<br/>buildSkillMarkdown()<br/>createManagedSkill()"]
-        SKILL_DIR["~/.vellum/workspace/skills/&lt;id&gt;/<br/>SKILL.md (frontmatter + body)"]
+        SKILL_DIR["$VELLUM_WORKSPACE_DIR/skills/&lt;id&gt;/<br/>SKILL.md (frontmatter + body)"]
     end
 
     subgraph "3. Load & Use"
@@ -2093,44 +2093,44 @@ Connected channels are resolved at signal emission time: vellum is always includ
 
 ## Storage Summary
 
-| What                                     | Where                                                | Format                              | ORM/Driver                         | Retention                                               |
-| ---------------------------------------- | ---------------------------------------------------- | ----------------------------------- | ---------------------------------- | ------------------------------------------------------- |
-| API key                                  | CES / encrypted file store                           | Encrypted binary                    | CES API / `secure-keys.ts`         | Permanent                                               |
-| Credential secrets                       | CES / encrypted file store                           | Encrypted binary                    | `secure-keys.ts` wrapper           | Permanent (until deleted via tool)                      |
-| Credential metadata                      | `~/.vellum/workspace/data/credentials/metadata.json` | JSON                                | Atomic file write                  | Permanent (until deleted via tool)                      |
-| Integration OAuth tokens                 | CES / encrypted file store (via `secure-keys.ts`)    | Encrypted binary                    | `TokenManager` auto-refresh        | Until disconnected or revoked                           |
-| User preferences                         | UserDefaults                                         | plist                               | Foundation                         | Permanent                                               |
-| Session logs                             | `~/Library/.../logs/session-*.json`                  | JSON per session                    | Swift Codable                      | Unbounded                                               |
-| Conversations & messages                 | `~/.vellum/workspace/data/db/assistant.db`           | SQLite + WAL                        | Drizzle ORM (Bun)                  | Permanent                                               |
-| Memory segments                          | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent                                               |
-| Extracted facts                          | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent, deduped                                      |
-| Embeddings                               | `~/.vellum/workspace/data/db/assistant.db`           | JSON float arrays                   | Drizzle ORM                        | Permanent                                               |
-| Async job queue                          | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Completed jobs persist                                  |
-| Attachments                              | `~/.vellum/workspace/data/db/assistant.db`           | Base64 in SQLite                    | Drizzle ORM                        | Permanent                                               |
-| Sandbox filesystem                       | `~/.vellum/workspace`                                | Real filesystem tree                | Node FS APIs                       | Persistent across sessions                              |
-| Tool permission rules                    | `~/.vellum/protected/trust.json`                     | JSON                                | File I/O                           | Permanent                                               |
-| Web users & assistants                   | PostgreSQL                                           | Relational                          | Drizzle ORM (pg)                   | Permanent                                               |
-| Trace events                             | In-memory (TraceStore)                               | Structured events                   | Swift ObservableObject             | Max 5,000 per session, ephemeral                        |
-| Media embed settings                     | `~/.vellum/workspace/config.json` (`ui.mediaEmbeds`) | JSON                                | `WorkspaceConfigIO` (atomic merge) | Permanent                                               |
-| Media embed MIME cache                   | In-memory (`ImageMIMEProbe`)                         | `NSCache` (500 entries)             | HTTP HEAD                          | Ephemeral; cleared on app restart                       |
-| Tasks & task runs                        | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent                                               |
-| Work items (Task Queue)                  | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; archived items retained                      |
-| Recurrence schedules & runs              | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; supports cron and RRULE syntax               |
-| Watchers & events                        | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent, cascade on watcher delete                    |
-| Proxy CA cert + key                      | `{dataDir}/proxy-ca/`                                | PEM files (ca.pem, ca-key.pem)      | openssl CLI                        | Permanent (10-year validity)                            |
-| Proxy leaf certs                         | `{dataDir}/proxy-ca/issued/`                         | PEM files per hostname              | openssl CLI, cached                | 1-year validity, re-issued on CA change                 |
-| Proxy sessions                           | In-memory (SessionManager)                           | Map<ProxySessionId, ManagedSession> | Manual lifecycle                   | Ephemeral; 5min idle timeout, cleared on shutdown       |
-| Call sessions, events, pending questions | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent, cascade on session delete                    |
-| Active call controllers                  | In-memory (CallState)                                | Map<callSessionId, CallController>  | Manual lifecycle                   | Ephemeral; cleared on call end or destroy               |
-| Guardian bindings                        | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; revoked bindings retained                    |
-| Channel verification sessions            | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; consumed/expired sessions retained           |
-| Guardian approval requests               | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; decision outcome retained                    |
-| Contact invites                          | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; token hash stored, raw token never persisted |
-| Contacts & channels                      | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; revoked/blocked contacts retained            |
-| Notification events                      | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; deduplicated by dedupeKey                    |
-| Notification decisions                   | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; FK to notification_events                    |
-| Notification deliveries                  | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; FK to notification_decisions                 |
-| Notification preferences                 | `~/.vellum/workspace/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; per-assistant conversational preferences     |
+| What                                     | Where                                                  | Format                              | ORM/Driver                         | Retention                                               |
+| ---------------------------------------- | ------------------------------------------------------ | ----------------------------------- | ---------------------------------- | ------------------------------------------------------- |
+| API key                                  | CES / encrypted file store                             | Encrypted binary                    | CES API / `secure-keys.ts`         | Permanent                                               |
+| Credential secrets                       | CES / encrypted file store                             | Encrypted binary                    | `secure-keys.ts` wrapper           | Permanent (until deleted via tool)                      |
+| Credential metadata                      | `$VELLUM_WORKSPACE_DIR/data/credentials/metadata.json` | JSON                                | Atomic file write                  | Permanent (until deleted via tool)                      |
+| Integration OAuth tokens                 | CES / encrypted file store (via `secure-keys.ts`)      | Encrypted binary                    | `TokenManager` auto-refresh        | Until disconnected or revoked                           |
+| User preferences                         | UserDefaults                                           | plist                               | Foundation                         | Permanent                                               |
+| Session logs                             | `~/Library/.../logs/session-*.json`                    | JSON per session                    | Swift Codable                      | Unbounded                                               |
+| Conversations & messages                 | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite + WAL                        | Drizzle ORM (Bun)                  | Permanent                                               |
+| Memory segments                          | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent                                               |
+| Extracted facts                          | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent, deduped                                      |
+| Embeddings                               | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | JSON float arrays                   | Drizzle ORM                        | Permanent                                               |
+| Async job queue                          | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Completed jobs persist                                  |
+| Attachments                              | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | Base64 in SQLite                    | Drizzle ORM                        | Permanent                                               |
+| Sandbox filesystem                       | `$VELLUM_WORKSPACE_DIR`                                | Real filesystem tree                | Node FS APIs                       | Persistent across sessions                              |
+| Tool permission rules                    | `~/.vellum/protected/trust.json`                       | JSON                                | File I/O                           | Permanent                                               |
+| Web users & assistants                   | PostgreSQL                                             | Relational                          | Drizzle ORM (pg)                   | Permanent                                               |
+| Trace events                             | In-memory (TraceStore)                                 | Structured events                   | Swift ObservableObject             | Max 5,000 per session, ephemeral                        |
+| Media embed settings                     | `$VELLUM_WORKSPACE_DIR/config.json` (`ui.mediaEmbeds`) | JSON                                | `WorkspaceConfigIO` (atomic merge) | Permanent                                               |
+| Media embed MIME cache                   | In-memory (`ImageMIMEProbe`)                           | `NSCache` (500 entries)             | HTTP HEAD                          | Ephemeral; cleared on app restart                       |
+| Tasks & task runs                        | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent                                               |
+| Work items (Task Queue)                  | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; archived items retained                      |
+| Recurrence schedules & runs              | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; supports cron and RRULE syntax               |
+| Watchers & events                        | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent, cascade on watcher delete                    |
+| Proxy CA cert + key                      | `{dataDir}/proxy-ca/`                                  | PEM files (ca.pem, ca-key.pem)      | openssl CLI                        | Permanent (10-year validity)                            |
+| Proxy leaf certs                         | `{dataDir}/proxy-ca/issued/`                           | PEM files per hostname              | openssl CLI, cached                | 1-year validity, re-issued on CA change                 |
+| Proxy sessions                           | In-memory (SessionManager)                             | Map<ProxySessionId, ManagedSession> | Manual lifecycle                   | Ephemeral; 5min idle timeout, cleared on shutdown       |
+| Call sessions, events, pending questions | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent, cascade on session delete                    |
+| Active call controllers                  | In-memory (CallState)                                  | Map<callSessionId, CallController>  | Manual lifecycle                   | Ephemeral; cleared on call end or destroy               |
+| Guardian bindings                        | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; revoked bindings retained                    |
+| Channel verification sessions            | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; consumed/expired sessions retained           |
+| Guardian approval requests               | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; decision outcome retained                    |
+| Contact invites                          | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; token hash stored, raw token never persisted |
+| Contacts & channels                      | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; revoked/blocked contacts retained            |
+| Notification events                      | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; deduplicated by dedupeKey                    |
+| Notification decisions                   | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; FK to notification_events                    |
+| Notification deliveries                  | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; FK to notification_decisions                 |
+| Notification preferences                 | `$VELLUM_WORKSPACE_DIR/data/db/assistant.db`           | SQLite                              | Drizzle ORM                        | Permanent; per-assistant conversational preferences     |
 
 ### Sensitive Tool Output Placeholder Substitution
 

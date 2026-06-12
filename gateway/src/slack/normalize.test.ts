@@ -374,17 +374,15 @@ describe("normalizeSlackReactionRemoved", () => {
     expect(result).toBeNull();
   });
 
-  it("ignores reactions removed by the bot itself", () => {
+  // Self-authored reactions are now filtered upstream in processEventPayload,
+  // not by the normalizer.
+  it("does not filter reactions by bot user (handled upstream)", () => {
     const config = makeConfig();
     const event = makeReactionRemovedEvent({ user: "UBOT" });
-    const result = normalizeSlackReactionRemoved(
-      event,
-      "evt-r-6",
-      config,
-      "UBOT",
-    );
+    const result = normalizeSlackReactionRemoved(event, "evt-r-6", config);
 
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.event.actor.actorExternalId).toBe("UBOT");
   });
 
   it("returns null when routing rejects on a public channel", () => {
@@ -520,7 +518,6 @@ describe("Slack text rendering in normalized message content", () => {
       event,
       "evt-channel-label",
       config,
-      "UBOT",
       undefined,
       {
         userLabels: { UBOT: "assistant" },
@@ -791,7 +788,6 @@ describe("attachment extraction in normalize functions", () => {
           event,
           "evt-fs-mentions-dm",
           config,
-          "UBOT",
           undefined,
           { userLabels: { UBOT: "assistant", ULEO: "leo" } },
         );
@@ -865,7 +861,6 @@ describe("attachment extraction in normalize functions", () => {
           event,
           "evt-fs-mentions-channel",
           config,
-          "UBOT",
           undefined,
           { userLabels: { UBOT: "vex", ULEO: "leo" } },
         );
@@ -1074,16 +1069,18 @@ describe("normalizeSlackMessageEdit", () => {
     expect(result).toBeNull();
   });
 
-  it("ignores edits authored by the bot itself", () => {
+  // Self-authored edits are now filtered upstream in processEventPayload.
+  it("does not filter edits by bot user (handled upstream)", () => {
     const config = makeConfig({
       routingEntries: [
         { type: "conversation_id", key: "C456", assistantId: "ast-2" },
       ],
     });
     const event = makeMessageChangedEvent({ user: "UBOT" });
-    const result = normalizeSlackMessageEdit(event, "Ev4", config, "UBOT");
+    const result = normalizeSlackMessageEdit(event, "Ev4", config);
 
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.event.actor.actorExternalId).toBe("UBOT");
   });
 
   it("infers DM from channel ID prefix when channel_type is absent", () => {
@@ -1283,10 +1280,9 @@ describe("normalizeSlackMessageDelete", () => {
     expect(result!.event.source.chatType).toBeUndefined();
   });
 
-  it("returns null when previous_message author is the bot itself", () => {
-    // Slack echoes self-deletes back via Socket Mode. Without this filter,
-    // the bot's user ID flows through as the actor and triggers a spurious
-    // ingress access-request notification to the guardian.
+  it("does not filter deletes by bot user (handled upstream)", () => {
+    // Self-authored deletes are filtered in processEventPayload's single
+    // self-filter, not in the normalizer.
     const config = makeConfig();
     const event = makeMessageDeletedEvent({
       channel: "D789",
@@ -1297,14 +1293,11 @@ describe("normalizeSlackMessageDelete", () => {
         ts: "1700000000.000100",
       },
     });
-    const result = normalizeSlackMessageDelete(
-      event,
-      "evt-del-self",
-      config,
-      "UBOT",
-    );
+    // Self-authored deletes are now filtered upstream in processEventPayload.
+    const result = normalizeSlackMessageDelete(event, "evt-del-self", config);
 
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.event.actor.actorExternalId).toBe("UBOT");
   });
 });
 

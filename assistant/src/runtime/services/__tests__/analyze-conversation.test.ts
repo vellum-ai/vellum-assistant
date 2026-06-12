@@ -365,6 +365,44 @@ describe("analyzeConversation", () => {
     expect(mockAddMessage).not.toHaveBeenCalled();
   });
 
+  test.each(["memory-retrospective", "memory-retrospective-fork"])(
+    "auto: rejects when the source conversation is a %s conversation",
+    async (source) => {
+      // Fork-kind retrospective conversations carry a full copy of the
+      // source conversation's history; auto-analyzing one would re-process
+      // the entire source conversation and double-write memory.
+      mockGetConversationSource.mockImplementation(() => source);
+
+      const result = await analyzeConversation("conv-1", {
+        trigger: "auto",
+      });
+
+      expect("error" in result).toBe(true);
+      if (!("error" in result)) throw new Error("expected error");
+      expect(result.error.kind).toBe("BAD_REQUEST");
+      expect(result.error.status).toBe(400);
+
+      // Nothing downstream of the guard should have fired.
+      expect(mockFindAnalysisConversationFor).not.toHaveBeenCalled();
+      expect(mockCreateConversation).not.toHaveBeenCalled();
+      expect(mockAddMessage).not.toHaveBeenCalled();
+    },
+  );
+
+  test("manual: does NOT reject a memory-retrospective conversation (guard is auto-only)", async () => {
+    mockGetConversationSource.mockImplementation(
+      () => "memory-retrospective-fork",
+    );
+
+    const result = await analyzeConversation("conv-1", {
+      trigger: "manual",
+    });
+
+    expect("error" in result).toBe(false);
+    if ("error" in result) throw new Error("expected success");
+    expect(result.analysisConversationId).toBe("analysis-new");
+  });
+
   test("auto: routes the agent loop through callSite: 'analyzeConversation'", async () => {
     await analyzeConversation("conv-1", { trigger: "auto" });
 

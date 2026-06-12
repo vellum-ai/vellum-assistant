@@ -332,7 +332,7 @@ subgraph "Text Q&A Session"
             JOBS_WORKER["MemoryJobsWorker<br/>poll every 1.5s<br/>embed, extract, cleanup_stale"]
         end
 
-        subgraph "SQLite Database (~/.vellum/workspace/data/db/assistant.db)"
+        subgraph "SQLite Database ($VELLUM_WORKSPACE_DIR/data/db/assistant.db)"
             DB_CONV["conversations"]
             DB_MSG["messages"]
             DB_TOOL["tool_invocations"]
@@ -438,7 +438,7 @@ subgraph "Text Q&A Session"
         ENC_STORE["Encrypted Store<br/>(local: ~/.vellum/protected/keys.enc<br/>Docker: /ces-security/keys.enc)"]
         USERDEFAULTS["UserDefaults<br/>preferences / state"]
         APP_SUPPORT["~/Library/App Support/<br/>vellum-assistant/"]
-        APPS_DATA["~/.vellum/workspace/data/apps/<br/>app JSON + pages"]
+        APPS_DATA["$VELLUM_WORKSPACE_DIR/data/apps/<br/>app JSON + pages"]
         SESSION_LOGS["logs/session-*.json"]
     end
 

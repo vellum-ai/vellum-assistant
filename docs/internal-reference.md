@@ -82,7 +82,7 @@ bun run src/index.ts assistant start
 
 ### Sandbox and Host Access Model
 
-- Default tool workspace: `~/.vellum/workspace` (persistent global sandbox filesystem).
+- Default tool workspace: `$VELLUM_WORKSPACE_DIR` (persistent global sandbox filesystem).
 - Sandbox-scoped tools: `file_read`, `file_write`, `file_edit`, and `bash`.
 - Explicit host tools: `host_file_read`, `host_file_write`, `host_file_edit`, and `host_bash` (absolute host paths only for host file tools).
 - Host/computer-use prompts: `host_*` and `computer_use_*` tools default to `ask` unless allowlisted/denylisted in trust rules.
@@ -107,14 +107,14 @@ Host tools (`host_bash`, `host_file_read`, `host_file_write`, `host_file_edit`) 
 | `Docker CLI is not installed or not in PATH` | Docker is not installed | Install Docker: https://docs.docker.com/get-docker/ |
 | `Docker daemon is not running` | Docker Desktop is not started or systemd service is stopped | Start Docker Desktop, or run `sudo systemctl start docker` on Linux |
 | `Docker image "..." is not available locally` | The configured image has not been pulled | Run `docker pull <image>` with the full image reference including the sha256 digest |
-| `Cannot bind-mount the sandbox root into a Docker container` | Docker Desktop file sharing does not include the sandbox data directory | Open Docker Desktop > Settings > Resources > File Sharing and add the `~/.vellum/workspace` path (or your custom `dataDir` path) |
+| `Cannot bind-mount the sandbox root into a Docker container` | Docker Desktop file sharing does not include the sandbox data directory | Open Docker Desktop > Settings > Resources > File Sharing and add the `$VELLUM_WORKSPACE_DIR` path (or your custom `dataDir` path) |
 | `bwrap is not available or cannot create namespaces` (native backend, Linux) | bubblewrap is not installed or user namespaces are disabled | Install bubblewrap: `apt install bubblewrap` (Debian/Ubuntu) or `dnf install bubblewrap` (Fedora) |
 
 ### Credential Storage and Secret Security
 
 The assistant can store and use credentials (API keys, tokens, passwords) without exposing secret values to the LLM or logs.
 
-- **Storage**: Secret values are stored via the Credential Execution Service (CES) or the encrypted file store (`~/.vellum/protected/keys.enc`). The daemon resolves credential storage via CES RPC (primary), CES HTTP (containerized/Docker), or encrypted file store (fallback). Metadata (service, field, label, usage policy) is stored in a JSON file at `~/.vellum/workspace/data/credentials/metadata.json`.
+- **Storage**: Secret values are stored via the Credential Execution Service (CES) or the encrypted file store (`~/.vellum/protected/keys.enc`). The daemon resolves credential storage via CES RPC (primary), CES HTTP (containerized/Docker), or encrypted file store (fallback). Metadata (service, field, label, usage policy) is stored in a JSON file at `$VELLUM_WORKSPACE_DIR/data/credentials/metadata.json`.
 - **Secret prompt**: When a credential is needed, a floating `SecretPromptView` panel appears. The user enters the value in a `SecureField` — the LLM never sees it.
 - **Usage policy**: Each credential can specify `allowedTools` and `allowedDomains`. The `CredentialBroker` enforces these policies at use time.
 - **One-time send**: When `secretDetection.allowOneTimeSend` is enabled (default: `false`), a "Send Once" button lets users provide a value for immediate use without persisting it.
@@ -232,18 +232,18 @@ The assistant can create, test, and persist new skills at runtime. This is usefu
 #### Workflow
 
 1. **Evaluate**: The assistant drafts a TypeScript snippet and tests it in a sandbox via `evaluate_typescript_code`. Iterates until it passes.
-2. **Persist**: After successful evaluation and explicit user consent, the assistant calls `scaffold_managed_skill` to write the skill to `~/.vellum/workspace/skills/<id>/SKILL.md`.
+2. **Persist**: After successful evaluation and explicit user consent, the assistant calls `scaffold_managed_skill` to write the skill to `$VELLUM_WORKSPACE_DIR/skills/<id>/SKILL.md`.
 3. **Load**: The assistant calls `skill_load` with the new skill ID to load its instructions.
 4. **Delete**: To remove a managed skill, use `delete_managed_skill`.
 
-Installed managed skills are discovered from valid directories under `~/.vellum/workspace/skills/<id>/` that contain a top-level `SKILL.md` with standardized frontmatter. On startup and skill directory changes, the assistant parses that frontmatter and seeds Memory V2 entries under `skills/<id>`; those memory entries represent available skills to the assistant. The legacy `SKILLS.md` index is removed by workspace migration and is no longer created by current install or scaffold paths.
+Installed managed skills are discovered from valid directories under `$VELLUM_WORKSPACE_DIR/skills/<id>/` that contain a top-level `SKILL.md` with standardized frontmatter. On startup and skill directory changes, the assistant parses that frontmatter and seeds Memory V2 entries under `skills/<id>`; those memory entries represent available skills to the assistant. The legacy `SKILLS.md` index is removed by workspace migration and is no longer created by current install or scaffold paths.
 
 #### Tools
 
 | Tool | Risk Level | Description |
 |------|-----------|-------------|
 | `evaluate_typescript_code` | High | Run a TypeScript snippet in a sandbox. Returns structured JSON with `ok`, `exitCode`, `result`, `stdout`, `stderr`. |
-| `scaffold_managed_skill` | High | Write a managed skill to `~/.vellum/workspace/skills/<id>/`. Creates `SKILL.md` with frontmatter, including optional `includes` for child skills. |
+| `scaffold_managed_skill` | High | Write a managed skill to `$VELLUM_WORKSPACE_DIR/skills/<id>/`. Creates `SKILL.md` with frontmatter, including optional `includes` for child skills. |
 | `delete_managed_skill` | High | Remove a managed skill directory. |
 
 All three tools require explicit user approval before execution (Risk Level = High).
@@ -373,7 +373,7 @@ URLs inside code blocks and code spans are never converted to embeds.
 
 #### Settings
 
-Media embeds are controlled by settings under `ui.mediaEmbeds` in `~/.vellum/workspace/config.json`. These settings are also accessible from the standalone Settings window and the main-window settings panel.
+Media embeds are controlled by settings under `ui.mediaEmbeds` in `$VELLUM_WORKSPACE_DIR/config.json`. These settings are also accessible from the standalone Settings window and the main-window settings panel.
 
 | Setting | Default | Description |
 |---------|---------|-------------|

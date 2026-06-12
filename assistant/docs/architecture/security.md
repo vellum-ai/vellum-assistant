@@ -94,13 +94,13 @@ When `autoApproveUpTo` is `"none"`, `skill_load` without a matching rule is alwa
 
 Skills that use existing system tools (`bash`, `file_read`, `web_fetch`, etc.) **do not expand the assistant's capability surface**. The assistant already has access to these tools based on its trust rules; a skill that teaches `curl https://api.example.com/v1/endpoint -d "..."` presents identical risk to a user asking the assistant to run that same command directly. The risk is governed entirely by the bash risk classifier and the user's `autoApproveUpTo` threshold — the same path as any other bash invocation.
 
-The threat vectors that skills *do* introduce are:
+The threat vectors that skills _do_ introduce are:
 
-| Threat | Mitigation |
-|---|---|
+| Threat                                                                                                  | Mitigation                                                                                                              |
+| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | **Skill source file mutations** — editing a skill's own source files could inject behavior on next load | `isSkillSourcePath()` escalates `file_write`/`file_edit` targeting skill roots to **High**, requiring explicit approval |
-| **New skill-origin tools** — tools registered and invoked through the skill IPC contract | Skill-origin tools with no matching trust rule are always **prompted**, regardless of their risk level |
-| **Credential storage** — a skill collecting and storing an API key | Mediated by the `credential_store` approval flow |
+| **New skill-origin tools** — tools registered and invoked through the skill IPC contract                | Skill-origin tools with no matching trust rule are always **prompted**, regardless of their risk level                  |
+| **Credential storage** — a skill collecting and storing an API key                                      | Mediated by the `credential_store` approval flow                                                                        |
 
 What skills do **not** introduce:
 
@@ -278,11 +278,11 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 
 ### Storage Layout
 
-| Component           | Location                                             | What it stores                                                                                                                                                   |
-| ------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Secret values       | CES credential store or encrypted file store         | Encrypted credential values keyed as `credential/{service}/{field}`. Stored via CES RPC (primary), CES HTTP (containerized), or encrypted file store (fallback). |
-| Credential metadata | `~/.vellum/workspace/data/credentials/metadata.json` | Service, field, label, policy (allowedTools, allowedDomains), timestamps                                                                                         |
-| Config              | `~/.vellum/workspace/config.*`                       | `secretDetection` settings: enabled, blockIngress, allowOneTimeSend                                                                                              |
+| Component           | Location                                               | What it stores                                                                                                                                                   |
+| ------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Secret values       | CES credential store or encrypted file store           | Encrypted credential values keyed as `credential/{service}/{field}`. Stored via CES RPC (primary), CES HTTP (containerized), or encrypted file store (fallback). |
+| Credential metadata | `$VELLUM_WORKSPACE_DIR/data/credentials/metadata.json` | Service, field, label, policy (allowedTools, allowedDomains), timestamps                                                                                         |
+| Config              | `$VELLUM_WORKSPACE_DIR/config.*`                       | `secretDetection` settings: enabled, blockIngress, allowOneTimeSend                                                                                              |
 
 ### Key Files
 

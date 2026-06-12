@@ -3,35 +3,30 @@ import Capacitor
 import Foundation
 import UIKit
 
-/// Capacitor plugin that runs the WorkOS OIDC login flow through
+/// Capacitor plugin that runs app-held WorkOS PKCE login through
 /// `ASWebAuthenticationSession` and returns a session token to JS.
 ///
 /// Why this exists: Google (and many other IdPs) refuse OAuth in embedded
 /// WKWebViews with `disallowed_useragent`. The flow is:
 ///
 /// 1. JS calls `NativeAuth.startAuth({ baseURL })`.
-/// 2. This plugin generates a random `state`, builds
-///    `{baseURL}/accounts/native/start?state={state}`, and opens
-///    `ASWebAuthenticationSession`.  The server determines the callback
-///    scheme from its environment config (ATL-454).
-/// 3. Django's `/accounts/native/start` view initiates the OIDC flow and
-///    redirects directly to the WorkOS authorize URL — the user sees only
-///    the WorkOS AuthKit UI inside the Safari sheet (no intermediate login
-///    page).
-/// 4. After authentication, the allauth callback chain redirects through
-///    `/accounts/native/callback` which returns
-///    `{scheme}://auth/callback?code=<one-time-code>&state=<nonce>`.
-/// 5. `ASWebAuthenticationSession` intercepts the custom scheme and hands us
-///    back the URL.
-/// 6. We verify state, extract `code`, and POST it to
-///    `/accounts/native/exchange` to receive the session token.
-/// 7. JS sets `document.cookie = "sessionid=<token>; ..."` and navigates;
+/// 2. This plugin discovers the WorkOS client id from the platform's
+///    `/_allauth/app/v1/config`, generates `state` + a PKCE pair, builds
+///    the WorkOS `user_management/authorize` URL (redirect
+///    `{scheme}://auth/callback`), and opens `ASWebAuthenticationSession`.
+/// 3. The user authenticates in the WorkOS AuthKit UI inside the sheet.
+/// 4. WorkOS redirects to `{scheme}://auth/callback?code=…&state=…`, which
+///    the session intercepts.
+/// 5. We verify `state`, exchange the code at
+///    `user_management/authenticate` as a public client (no secret) for an
+///    access token, then POST it to `/_allauth/app/v1/auth/provider/token`
+///    (`provider: "workos"`) to receive the platform session token.
+/// 6. JS sets `document.cookie = "sessionid=<token>; ..."` and navigates;
 ///    the `AuthProvider` re-fetches `/_allauth/browser/v1/auth/session`
 ///    and the app is authenticated.
 ///
-/// Reference implementation: `vellum-assistant/clients/shared/App/Auth/
-/// AuthManager.swift` (native macOS/iOS). This plugin deliberately does NOT
-/// import or depend on that module — it's a standalone port.
+/// PKCE / WorkOS contract logic lives in `WorkOSAuth.swift`; this file is
+/// the `ASWebAuthenticationSession` + `URLSession` shell.
 @objc(NativeAuthPlugin)
 public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "NativeAuthPlugin"
@@ -113,169 +108,264 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
-        // Build `{baseURL}/accounts/native/start?state={state}`.
-        // The server determines the callback scheme from its environment
-        // config — the client no longer sends it (ATL-454).
         let loginHint = call.getString("loginHint")
         let providerHint = call.getString("providerHint")
+        let intent = call.getString("intent")
 
-        var startComponents = URLComponents()
-        startComponents.scheme = baseURL.scheme
-        startComponents.host = baseURL.host
-        startComponents.port = baseURL.port
-        startComponents.path = "/accounts/native/start"
-        var queryItems = [
-            URLQueryItem(name: "state", value: state),
-        ]
-        if let loginHint = loginHint, !loginHint.isEmpty {
-            queryItems.append(URLQueryItem(name: "login_hint", value: loginHint))
-        }
-        if let providerHint = providerHint, !providerHint.isEmpty {
-            queryItems.append(URLQueryItem(name: "provider_hint", value: providerHint))
-        }
-        // Forward the iOS bundle's short version string for server-side
-        // attribution in ``native_login_callback`` (ATL-466). Untrusted by
-        // the server — used only for log enrichment, never authorization.
-        if let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
-           !clientVersion.isEmpty {
-            queryItems.append(URLQueryItem(name: "client_version", value: clientVersion))
-        }
-        startComponents.queryItems = queryItems
-
-        guard let loginURL = startComponents.url else {
-            call.reject("Failed to build login URL")
+        guard let codeVerifier = WorkOSAuth.generateCodeVerifier() else {
+            // Same fail-closed rationale as `state`: no secure RNG, no PKCE.
+            call.reject("Failed to generate PKCE code verifier")
             return
         }
+        let codeChallenge = WorkOSAuth.codeChallenge(forVerifier: codeVerifier)
+        let redirectURI = "\(NativeAuthPlugin.callbackScheme)://auth/callback"
 
-        DispatchQueue.main.async { [weak self] in
+        // Discover the WorkOS client id from the platform's headless config,
+        // then open the AuthKit sheet against WorkOS directly. The platform
+        // is otherwise only involved in the final session-token exchange.
+        fetchWorkOSClientId(baseURL: baseURL) { [weak self] result in
             guard let self = self else { return }
-
-            // Double-tap / concurrent call safety: if a previous session is
-            // still alive, cancel it and drop our reference before creating
-            // the new one. The cancelled session's completion block fires
-            // async with `.canceledLogin` and rejects the earlier
-            // `CAPPluginCall`; by the time it runs, `self.authSession`
-            // already points at the new session, and the completion
-            // deliberately doesn't touch the ivar (see note below) so it
-            // can't wipe the new one out.
-            self.authSession?.cancel()
-            self.authSession = nil
-
-            let session = ASWebAuthenticationSession(
-                url: loginURL,
-                callbackURLScheme: NativeAuthPlugin.callbackScheme
-            ) { [weak self] callbackURL, error in
-                // Deliberately NOT clearing `self?.authSession` here: a
-                // late-firing completion from a cancelled prior session
-                // would otherwise wipe the replacement session that the
-                // outer call has since installed. The ivar is cleared only
-                // at the top of the next `startAuth` (via the cancel +
-                // nil-assign above), or when the plugin deinits. This
-                // leaves one `ASWebAuthenticationSession` reference held
-                // between a completed flow and the next `startAuth` —
-                // trivial memory cost, and safer than an identity check
-                // that would require a forward reference to `session`.
-                _ = self  // keep [weak self] non-empty for symmetry
-                if let authError = error as? ASWebAuthenticationSessionError,
-                   authError.code == .canceledLogin {
-                    call.reject("User cancelled login", "USER_CANCELLED")
-                    return
-                }
-                if let error = error {
-                    call.reject("Auth failed: \(error.localizedDescription)")
-                    return
-                }
-                guard let callbackURL = callbackURL,
-                      let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
-                      let queryItems = components.queryItems else {
-                    call.reject("Missing callback URL")
-                    return
-                }
-                // Check for an error param before requiring state — if the
-                // server redirects with an error but omits state, the user
-                // should see the actual auth error, not "Callback missing state".
-                if let authError = queryItems.first(where: { $0.name == "error" })?.value,
-                   !authError.isEmpty {
-                    call.reject(
-                        "Auth error: \(authError)",
-                        "AUTH_ERROR",
-                        nil,
-                        ["authError": authError]
-                    )
-                    return
-                }
-                guard let returnedState = queryItems.first(where: { $0.name == "state" })?.value else {
-                    call.reject("Callback missing state")
-                    return
-                }
-                guard returnedState == state else {
-                    call.reject("State mismatch — possible CSRF; ignoring callback")
-                    return
-                }
-
-                guard let code = queryItems.first(where: { $0.name == "code" })?.value,
-                      !code.isEmpty else {
-                    call.reject("Callback missing authorization code")
-                    return
-                }
-
-                // Exchange the one-time code for a session token via POST.
-                // The code is short-lived (30 s) and single-use (ATL-454).
-                var exchangeComponents = URLComponents()
-                exchangeComponents.scheme = baseURL.scheme
-                exchangeComponents.host = baseURL.host
-                exchangeComponents.port = baseURL.port
-                exchangeComponents.path = "/accounts/native/exchange"
-
-                guard let exchangeURL = exchangeComponents.url else {
-                    call.reject("Failed to build exchange URL")
-                    return
-                }
-
-                var request = URLRequest(url: exchangeURL)
-                request.httpMethod = "POST"
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.httpBody = try? JSONSerialization.data(withJSONObject: ["code": code])
-
-                URLSession.shared.dataTask(with: request) { data, response, networkError in
-                    if let networkError = networkError {
-                        call.reject("Code exchange failed: \(networkError.localizedDescription)")
-                        return
-                    }
-                    guard let httpResponse = response as? HTTPURLResponse else {
-                        call.reject("Code exchange returned no HTTP response")
-                        return
-                    }
-                    guard httpResponse.statusCode == 200 else {
-                        call.reject("Code exchange failed with status \(httpResponse.statusCode)")
-                        return
-                    }
-                    guard let data = data,
-                          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                          let sessionToken = json["session_token"] as? String,
-                          !sessionToken.isEmpty else {
-                        call.reject("Code exchange returned invalid response")
-                        return
-                    }
-                    call.resolve(["sessionToken": sessionToken])
-                }.resume()
+            let clientId: String
+            switch result {
+            case .success(let id):
+                clientId = id
+            case .failure(let error):
+                call.reject(error.message)
+                return
             }
 
-            // Use an ephemeral (private) session so each auth attempt starts
-            // with a clean cookie jar. Without this, stale WorkOS cookies
-            // from a previous failed attempt (e.g. signup_closed) cause
-            // the IdP to auto-redirect with the same error before the user
-            // can interact — creating an infinite error loop. The tradeoff
-            // is that users can't leverage an existing Safari Google session
-            // for SSO, but the app's own session management (Django session
-            // + biometric keychain) handles persistence after the first
-            // successful login.
-            session.prefersEphemeralWebBrowserSession = true
-            session.presentationContextProvider = self
+            guard let authorizeURL = WorkOSAuth.buildAuthorizeURL(
+                clientId: clientId,
+                redirectURI: redirectURI,
+                challenge: codeChallenge,
+                state: state,
+                loginHint: loginHint,
+                providerHint: providerHint,
+                intent: intent
+            ) else {
+                call.reject("Failed to build authorize URL")
+                return
+            }
 
-            self.authSession = session
-            session.start()
+            DispatchQueue.main.async {
+                self.presentAuthSession(
+                    authorizeURL: authorizeURL,
+                    expectedState: state,
+                    baseURL: baseURL,
+                    clientId: clientId,
+                    codeVerifier: codeVerifier,
+                    call: call
+                )
+            }
         }
+    }
+
+    /// Present the AuthKit sheet and, on a state-matched callback, run the
+    /// two token exchanges (WorkOS code → access token → platform session).
+    /// Must be called on the main thread.
+    private func presentAuthSession(
+        authorizeURL: URL,
+        expectedState: String,
+        baseURL: URL,
+        clientId: String,
+        codeVerifier: String,
+        call: CAPPluginCall
+    ) {
+        // Double-tap / concurrent call safety: cancel any in-flight session
+        // before creating the new one. The cancelled session's completion
+        // fires async with `.canceledLogin` and rejects the earlier call; by
+        // then `authSession` points at the new session, and the completion
+        // deliberately doesn't touch the ivar (see below) so it can't wipe
+        // the replacement.
+        self.authSession?.cancel()
+        self.authSession = nil
+
+        let session = ASWebAuthenticationSession(
+            url: authorizeURL,
+            callbackURLScheme: NativeAuthPlugin.callbackScheme
+        ) { [weak self] callbackURL, error in
+            // Deliberately NOT clearing `self.authSession` here: a late-firing
+            // completion from a cancelled prior session would otherwise wipe
+            // the replacement the outer call has since installed. Cleared only
+            // at the top of the next `startAuth` (cancel + nil above) or on
+            // deinit.
+            guard let self = self else { return }
+            if let authError = error as? ASWebAuthenticationSessionError,
+               authError.code == .canceledLogin {
+                call.reject("User cancelled login", "USER_CANCELLED")
+                return
+            }
+            if let error = error {
+                call.reject("Auth failed: \(error.localizedDescription)")
+                return
+            }
+            guard let callbackURL = callbackURL,
+                  let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
+                  let queryItems = components.queryItems else {
+                call.reject("Missing callback URL")
+                return
+            }
+            // Check for an error param before requiring state — if WorkOS
+            // redirects with an error but omits state, the user should see
+            // the actual auth error, not "Callback missing state".
+            if let authError = queryItems.first(where: { $0.name == "error" })?.value,
+               !authError.isEmpty {
+                call.reject(
+                    "Auth error: \(authError)",
+                    "AUTH_ERROR",
+                    nil,
+                    ["authError": authError]
+                )
+                return
+            }
+            guard let returnedState = queryItems.first(where: { $0.name == "state" })?.value else {
+                call.reject("Callback missing state")
+                return
+            }
+            guard returnedState == expectedState else {
+                call.reject("State mismatch — possible CSRF; ignoring callback")
+                return
+            }
+            guard let code = queryItems.first(where: { $0.name == "code" })?.value,
+                  !code.isEmpty else {
+                call.reject("Callback missing authorization code")
+                return
+            }
+
+            // Public-client code exchange at WorkOS, then swap the resulting
+            // access token for a platform session token.
+            self.exchangeCodeWithWorkOS(clientId: clientId, code: code, verifier: codeVerifier) { result in
+                let accessToken: String
+                switch result {
+                case .success(let token):
+                    accessToken = token
+                case .failure(let error):
+                    call.reject(error.message)
+                    return
+                }
+                self.exchangeForSession(baseURL: baseURL, clientId: clientId, accessToken: accessToken) { result in
+                    switch result {
+                    case .success(let sessionToken):
+                        call.resolve(["sessionToken": sessionToken])
+                    case .failure(let error):
+                        call.reject(error.message)
+                    }
+                }
+            }
+        }
+
+        // Ephemeral (private) session: a clean cookie jar per attempt. Without
+        // it, stale WorkOS cookies from a prior failed attempt auto-redirect
+        // with the same error before the user can interact (infinite error
+        // loop). The tradeoff — no Safari SSO cookie reuse — is acceptable
+        // since the app persists its own session token after first login.
+        session.prefersEphemeralWebBrowserSession = true
+        session.presentationContextProvider = self
+
+        self.authSession = session
+        session.start()
+    }
+
+    private struct AuthFlowError: Error {
+        let message: String
+    }
+
+    /// GET the headless config and pick the token-auth WorkOS client id.
+    private func fetchWorkOSClientId(
+        baseURL: URL,
+        completion: @escaping (Result<String, AuthFlowError>) -> Void
+    ) {
+        var components = URLComponents()
+        components.scheme = baseURL.scheme
+        components.host = baseURL.host
+        components.port = baseURL.port
+        components.path = "/_allauth/app/v1/config"
+        guard let url = components.url else {
+            completion(.failure(AuthFlowError(message: "Failed to build config URL")))
+            return
+        }
+        URLSession.shared.dataTask(with: url) { data, response, error in
+            if let error = error {
+                completion(.failure(AuthFlowError(message: "Failed to fetch auth config: \(error.localizedDescription)")))
+                return
+            }
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200, let data = data else {
+                completion(.failure(AuthFlowError(message: "Failed to fetch auth config")))
+                return
+            }
+            guard let clientId = WorkOSAuth.selectClientId(fromConfig: data) else {
+                completion(.failure(AuthFlowError(message: "Platform does not advertise a token-auth WorkOS provider")))
+                return
+            }
+            completion(.success(clientId))
+        }.resume()
+    }
+
+    /// Exchange the authorization code at WorkOS as a public client (no
+    /// secret, no API key).
+    private func exchangeCodeWithWorkOS(
+        clientId: String,
+        code: String,
+        verifier: String,
+        completion: @escaping (Result<String, AuthFlowError>) -> Void
+    ) {
+        guard let url = URL(string: "\(WorkOSAuth.apiBaseURL)/user_management/authenticate"),
+              let body = WorkOSAuth.authenticateRequestBody(clientId: clientId, code: code, verifier: verifier) else {
+            completion(.failure(AuthFlowError(message: "Failed to build WorkOS token request")))
+            return
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                completion(.failure(AuthFlowError(message: "WorkOS code exchange failed: \(error.localizedDescription)")))
+                return
+            }
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200, let data = data,
+                  let accessToken = WorkOSAuth.accessToken(fromAuthenticate: data) else {
+                completion(.failure(AuthFlowError(message: "WorkOS code exchange returned no access token")))
+                return
+            }
+            completion(.success(accessToken))
+        }.resume()
+    }
+
+    /// Exchange the WorkOS access token for a platform session token via the
+    /// headless `provider/token` endpoint.
+    private func exchangeForSession(
+        baseURL: URL,
+        clientId: String,
+        accessToken: String,
+        completion: @escaping (Result<String, AuthFlowError>) -> Void
+    ) {
+        var components = URLComponents()
+        components.scheme = baseURL.scheme
+        components.host = baseURL.host
+        components.port = baseURL.port
+        components.path = "/_allauth/app/v1/auth/provider/token"
+        guard let url = components.url,
+              let body = WorkOSAuth.providerTokenRequestBody(clientId: clientId, accessToken: accessToken) else {
+            completion(.failure(AuthFlowError(message: "Failed to build session exchange request")))
+            return
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                completion(.failure(AuthFlowError(message: "Session exchange failed: \(error.localizedDescription)")))
+                return
+            }
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200, let data = data,
+                  let sessionToken = WorkOSAuth.sessionToken(fromProviderToken: data) else {
+                completion(.failure(AuthFlowError(message: "Session exchange returned invalid response")))
+                return
+            }
+            completion(.success(sessionToken))
+        }.resume()
     }
 
     /// True only if `url`'s host exactly matches this build target's

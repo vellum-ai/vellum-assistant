@@ -2441,7 +2441,11 @@ jobs:
           GATEWAY_SRC_DIR="../../gateway"
           CES_SRC_DIR="../../credential-executor"
 
+          CLI_EXTERNAL_FLAGS=(--external react-devtools-core)
           DAEMON_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*")
+          # drizzle-kit ≥0.31 bundles dynamic imports for every supported DB driver;
+          # the gateway only uses SQLite — mark the rest external.
+          GATEWAY_EXTERNAL_FLAGS=(--external "@electric-sql/pglite" --external pg --external postgres --external "@vercel/postgres" --external "@neondatabase/serverless" --external mysql2 --external "mysql2/promise" --external "@planetscale/database" --external "@libsql/client" --external better-sqlite3 --external "@aws-sdk/client-rds-data")
           DAEMON_FLAGS=("${DAEMON_EXTERNAL_FLAGS[@]}")
           DISPLAY_VERSION="${{ steps.version.outputs.display_version }}"
           if [ -n "$DISPLAY_VERSION" ] && [ "$DISPLAY_VERSION" != "0.1.0" ]; then
@@ -2480,14 +2484,14 @@ jobs:
           # CLI
           (cd "$CLI_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
           mkdir -p cli-bin
-          bun build --compile "${ENV_DEFINE[@]}" --target=bun-darwin-x64 \
+          bun build --compile "${CLI_EXTERNAL_FLAGS[@]}" "${ENV_DEFINE[@]}" --target=bun-darwin-x64 \
             "$CLI_SRC_DIR/src/index.ts" --outfile cli-bin/vellum-cli
           chmod +x cli-bin/vellum-cli
 
           # Gateway
           (cd "$GATEWAY_SRC_DIR" && bun install --frozen-lockfile 2>/dev/null || bun install)
           mkdir -p gateway-bin
-          bun build --compile "${ENV_DEFINE[@]}" --target=bun-darwin-x64 \
+          bun build --compile "${GATEWAY_EXTERNAL_FLAGS[@]}" "${ENV_DEFINE[@]}" --target=bun-darwin-x64 \
             "$GATEWAY_SRC_DIR/src/index.ts" --outfile gateway-bin/vellum-gateway
           chmod +x gateway-bin/vellum-gateway
           cp "$GATEWAY_SRC_DIR/node_modules/web-tree-sitter/web-tree-sitter.wasm" gateway-bin/

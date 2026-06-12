@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { HardDrive, Loader2, RefreshCw, Server, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
@@ -9,9 +9,9 @@ import { formatResourceMb } from "@/domains/settings/components/assistant-status
 import { CapacityBar } from "@/domains/settings/components/capacity-bar";
 import { extractResizeError } from "@/domains/settings/components/resize-errors";
 import {
-    assistantsResizeMutation,
     organizationsBillingSubscriptionOnboardingRetrieveOptions,
     organizationsBillingSubscriptionRetrieveOptions,
+    useAssistantsResizeMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { MachineSizeEnum } from "@/generated/api/types.gen";
 import type { HealthzGetResponse } from "@/generated/daemon/types.gen";
@@ -103,8 +103,7 @@ export function ResizeCard({
   >(null);
   const [resizeError, setResizeError] = useState<string | null>(null);
 
-  const resizeMutation = useMutation({
-    ...assistantsResizeMutation(),
+  const resizeMutation = useAssistantsResizeMutation({
     onSuccess: (_data, variables) => {
       toast.success("Resize started. Changes will apply shortly.", {
         id: "assistant-resize",

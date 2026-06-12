@@ -5,7 +5,7 @@ from audit DB rows, daemon logs under `<workspace>/data/logs/`, and a
 sanitized `config.json` snapshot. This directory
 (`assistant/src/runtime/routes/log-export/`) houses the allowlist module
 that governs which subpaths of the user's workspace directory
-(`~/.vellum/workspace/`) are permitted to flow into that archive.
+(`$VELLUM_WORKSPACE_DIR/`) are permitted to flow into that archive.
 
 Workspace contents are **opt-in (allowlist), not opt-out**. The workspace
 contains arbitrary user files — skills, hooks, routes, conversations,

@@ -127,7 +127,7 @@ We have real users — maintain backwards compatibility for all interfaces, pers
 
 | What changed | Migration type | Location |
 |---|---|---|
-| Workspace files (renames, moves, format changes under `~/.vellum/workspace/`) | Workspace migration | `assistant/src/workspace/migrations/` — append to `WORKSPACE_MIGRATIONS` in `registry.ts` |
+| Workspace files (renames, moves, format changes under `$VELLUM_WORKSPACE_DIR/`) | Workspace migration | `assistant/src/workspace/migrations/` — append to `WORKSPACE_MIGRATIONS` in `registry.ts` |
 | Database schema or data (columns, indexes, backfills) | DB migration | `assistant/src/memory/migrations/` — add function and register in `db-init.ts` |
 
 Migrations must be **idempotent** (safe to re-run if interrupted) and **append-only** (never reorder or remove existing entries). Test migrations — see `assistant/src/__tests__/workspace-migration-*.test.ts` and `assistant/src/__tests__/db-*.test.ts` for patterns. Flag breaking changes in PR descriptions. If a migration is infeasible, call it out explicitly for human review.
