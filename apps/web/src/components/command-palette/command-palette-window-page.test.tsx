@@ -28,6 +28,10 @@ mock.module("@/assistant/use-lifecycle", () => ({
   useAssistantLifecycle: useAssistantLifecycleMock,
 }));
 
+mock.module("@/hooks/use-app-theme", () => ({
+  useAppTheme: () => undefined,
+}));
+
 const useClientFeatureFlagSyncMock = mock((_enabled: boolean) => undefined);
 mock.module("@/hooks/use-client-feature-flag-sync", () => ({
   useClientFeatureFlagSync: useClientFeatureFlagSyncMock,
