@@ -84,10 +84,10 @@ describe("buildAuthorizeUrl", () => {
   });
 
   test("login hint is forwarded", () => {
-    // generic-examples:ignore-next-line — reason: minimal email-like string for URL param forwarding test
-    const url = new URL(buildAuthorizeUrl({ ...base, loginHint: "a@b.co" }));
-    // generic-examples:ignore-next-line — reason: same test value as above
-    expect(url.searchParams.get("login_hint")).toBe("a@b.co");
+    const url = new URL(
+      buildAuthorizeUrl({ ...base, loginHint: "user@example.com" }),
+    );
+    expect(url.searchParams.get("login_hint")).toBe("user@example.com");
 
     const noHint = new URL(buildAuthorizeUrl(base));
     expect(noHint.searchParams.has("login_hint")).toBe(false);
