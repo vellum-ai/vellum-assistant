@@ -150,9 +150,6 @@ describe("DefaultPathResolver prompts/USER.md translation", () => {
     expect(resolver.resolve("prompts/SOUL.md")).toBe(
       join(WORKSPACE_ROOT, "SOUL.md"),
     );
-    expect(resolver.resolve("prompts/UPDATES.md")).toBe(
-      join(WORKSPACE_ROOT, "UPDATES.md"),
-    );
   });
 
   test("skips unknown prompt filenames regardless of guardian state", () => {

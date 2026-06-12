@@ -587,9 +587,9 @@ describe("orchestrate — cache-ordered pool (core + hot + finders)", () => {
     expect(lastPool.filter((s) => s === "topic-a")).toHaveLength(2);
     expect(lastPool[0]).toBe("topic-a");
     // The finder line shows the matched-section snippet.
-    expect(lastPoolLines.find((l) => /^\[2\] topic-a — /.test(l))).toContain(
-      "apple",
-    );
+    expect(
+      lastPoolLines.find((l) => /^\[2\] (?:\([^)]*\) )?topic-a — /.test(l)),
+    ).toContain("apple");
     // Selecting both ids still yields ONE selection (slug dedup), the finder
     // lane records the hit, and the matched section survives downstream.
     expect(result.selections).toEqual([{ slug: "topic-a", pinned: false }]);

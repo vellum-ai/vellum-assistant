@@ -54,7 +54,6 @@ const BACKGROUND_SOURCES = new Set([
   "reminder",
   "schedule",
   "task",
-  "update-bulletin",
 ]);
 const LOCAL_OWNER_INTERFACES = new Set(["macos", "web", "vellum", "cli"]);
 

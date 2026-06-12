@@ -30,12 +30,7 @@ const log = getLogger("vbundle-import-analyzer");
  * on import, its content is translated to `users/<slug>.md` at the
  * current guardian's location (see `DefaultPathResolver.resolve`).
  */
-const ALLOWED_PROMPT_FILENAMES = new Set([
-  "IDENTITY.md",
-  "SOUL.md",
-  "USER.md",
-  "UPDATES.md",
-]);
+const ALLOWED_PROMPT_FILENAMES = new Set(["IDENTITY.md", "SOUL.md", "USER.md"]);
 
 /** Archive path for the legacy guardian user persona file. */
 const LEGACY_USER_MD_ARCHIVE_PATH = "prompts/USER.md";

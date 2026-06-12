@@ -5,9 +5,10 @@
  *
  * 1. The default injectors ({@link defaultInjectors}) are listed in the
  *    documented order (disk-pressure-warning → workspace-context →
- *    background-turn → unified-turn-context → pkb-context → pkb-reminder →
- *    memory-v2-static → now-md → active-documents → document-comments →
- *    subagent-status → slack-messages → thread-focus).
+ *    background-turn → unified-turn-context → config-quarantine-notice →
+ *    pkb-context → pkb-reminder → memory-v2-static → now-md →
+ *    active-documents → document-comments → subagent-status →
+ *    slack-messages → thread-focus).
  * 2. The assembled {@link injectorChain} sorts the defaults together with the
  *    memory-v3 injector by ascending `order`, so memory-v3 (order 1000) lands
  *    last.
@@ -298,6 +299,7 @@ describe("injector chain", () => {
       "workspace-context",
       "background-turn",
       "unified-turn-context",
+      "config-quarantine-notice",
       "pkb-context",
       "pkb-reminder",
       "memory-v2-static",
@@ -323,6 +325,9 @@ describe("injector chain", () => {
     );
     expect(byName.get("unified-turn-context")).toBe(
       DEFAULT_INJECTOR_ORDER.unifiedTurnContext,
+    );
+    expect(byName.get("config-quarantine-notice")).toBe(
+      DEFAULT_INJECTOR_ORDER.configQuarantineNotice,
     );
     expect(byName.get("pkb-context")).toBe(DEFAULT_INJECTOR_ORDER.pkbContext);
     expect(byName.get("pkb-reminder")).toBe(DEFAULT_INJECTOR_ORDER.pkbReminder);

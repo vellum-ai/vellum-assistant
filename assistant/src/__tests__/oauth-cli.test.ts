@@ -25,8 +25,10 @@ import { describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
 
-let mockPlatformClientCreate: () => Promise<Record<string, unknown> | null> =
-  async () => null;
+let mockPlatformClientCreate: () => Promise<Record<
+  string,
+  unknown
+> | null> = async () => null;
 
 mock.module("../platform/client.js", () => ({
   VellumPlatformClient: {
@@ -49,18 +51,27 @@ mock.module("../config/loader.js", () => ({
   mergeDefaultWorkspaceConfig: () => {},
   getNestedValue: () => undefined,
   setNestedValue: () => {},
-  _appendQuarantineBulletin: () => {},
+  _writeQuarantineNotice: () => {},
   API_KEY_PROVIDERS: ["anthropic", "openai", "gemini"],
 }));
 
 mock.module("../util/logger.js", () => ({
-  getLogger: () => ({ info: () => {}, warn: () => {}, error: () => {}, debug: () => {} }),
-  getCliLogger: () => ({ info: () => {}, warn: () => {}, error: () => {}, debug: () => {} }),
+  getLogger: () => ({
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+  }),
+  getCliLogger: () => ({
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+  }),
 }));
 
-const { requirePlatformConnection } = await import(
-  "../cli/commands/oauth/shared.js"
-);
+const { requirePlatformConnection } =
+  await import("../cli/commands/oauth/shared.js");
 
 // ---------------------------------------------------------------------------
 // requirePlatformConnection

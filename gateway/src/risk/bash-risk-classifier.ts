@@ -175,7 +175,7 @@ function firstPositionalArg(
 // ── Safe-file downgrade for rm ────────────────────────────────────────────────
 // Bare filenames that `rm` is allowed to delete at Medium risk (instead of
 // High) in sandboxed bash.
-const RM_SAFE_BARE_FILES = new Set(["BOOTSTRAP.md", "UPDATES.md"]);
+const RM_SAFE_BARE_FILES = new Set(["BOOTSTRAP.md"]);
 
 // Flags that don't affect rm safety — they don't enable recursive deletion or
 // change which files are targeted.

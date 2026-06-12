@@ -45,6 +45,40 @@ describe("renderCard — annotation line", () => {
     ).toBe(true);
   });
 
+  test("renders a `current:` frontmatter line first, before the lane annotation", () => {
+    const page = `---
+title: Page A
+current: "bridge check owed before thursday's dry-run (as of jun 10)"
+---
+
+Lead paragraph for page a.
+`;
+    const card = renderCard("page-a", page, "[lane: fresh]");
+    expect(
+      card.startsWith(
+        "# memory/concepts/page-a.md\n[current: bridge check owed before thursday's dry-run (as of jun 10)]\n[lane: fresh]\nLead paragraph for page a.",
+      ),
+    ).toBe(true);
+  });
+
+  test("collapses whitespace and caps a runaway `current:` value", () => {
+    const long = `a  line  with   breaks ${"x".repeat(400)}`;
+    const card = renderCard(
+      "page-a",
+      `---\ncurrent: "${long}"\n---\n\nLead.\n`,
+    );
+    const line = card.split("\n")[1]!;
+    expect(line.startsWith("[current: a line with breaks x")).toBe(true);
+    expect(line.endsWith("…]")).toBe(true);
+    expect(line.length).toBeLessThan(300);
+  });
+
+  test("the `status:` draft marker does NOT render as a card line", () => {
+    const card = renderCard("page-a", `---\nstatus: cc-draft\n---\n\nLead.\n`);
+    expect(card).not.toContain("cc-draft");
+    expect(card).not.toContain("[current:");
+  });
+
   test("annotates a page with no head section without a dangling blank line", () => {
     const card = renderCard(
       "page-b",
