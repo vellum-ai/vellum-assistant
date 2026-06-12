@@ -73,15 +73,36 @@ interface NginxIngressTarget {
   gatewayPort: number;
 }
 
+function parsePortFromUrl(url: unknown): number | undefined {
+  if (typeof url !== "string" || !url.trim()) return undefined;
+  try {
+    const port = Number(new URL(url).port);
+    return Number.isInteger(port) && port > 0 && port <= 65535
+      ? port
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveEntryGatewayPort(entry: AssistantEntry | undefined): number {
+  return (
+    parsePortFromUrl(entry?.localUrl) ??
+    parsePortFromUrl(entry?.runtimeUrl) ??
+    GATEWAY_PORT
+  );
+}
+
 /**
  * Resolve which assistant nginx ingress fronts. Multi-instance hatches allocate
  * per-assistant gateway ports and workspaces, so both must come from the
- * resolved entry's resources — falling back to the legacy default paths only
- * when no resource configuration exists. Explicit names go through the shared
+ * resolved entry's resources. Entries without resources still record their
+ * reachable gateway URL, so derive the port from localUrl/runtimeUrl before
+ * falling back to the legacy default. Explicit names go through the shared
  * identifier lookup (see cli/AGENTS.md "Assistant targeting convention") so
  * display names resolve and ambiguous matches fail loudly.
  */
-function resolveNginxIngressTarget(
+export function resolveNginxIngressTarget(
   assistantName: string | null,
 ): NginxIngressTarget {
   let entry: AssistantEntry | undefined;
@@ -106,7 +127,7 @@ function resolveNginxIngressTarget(
     workspaceDir:
       process.env.VELLUM_WORKSPACE_DIR?.trim() ||
       join(homedir(), ".vellum", "workspace"),
-    gatewayPort: GATEWAY_PORT,
+    gatewayPort: resolveEntryGatewayPort(entry),
   };
 }
 
