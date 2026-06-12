@@ -274,6 +274,7 @@ export { createSkillLoadedEventsTable } from "./279-create-skill-loaded-events.j
 export { migrateConversationsSurfacedAt } from "./280-conversations-surfaced-at.js";
 export { migrateWorkflowRuns } from "./281-workflow-runs.js";
 export { migrateScheduleWorkflowMode } from "./282-schedule-workflow-mode.js";
+export { migrateWorkflowRunTrust } from "./283-workflow-run-trust.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

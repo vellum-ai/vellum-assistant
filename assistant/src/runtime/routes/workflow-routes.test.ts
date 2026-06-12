@@ -35,6 +35,7 @@ function makeRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
     capabilities: null,
     status: "running",
     conversationId: null,
+    trust: null,
     agentsSpawned: 2,
     inputTokens: 10,
     outputTokens: 5,

@@ -60,6 +60,7 @@ describe("workflow journal store", () => {
       args: { topic: "ai" },
       capabilities: ["search", "email"],
       conversationId: "conv-xyz",
+      trust: { sourceChannel: "slack", trustClass: "unknown" },
     });
 
     expect(run).toMatchObject({
@@ -71,6 +72,7 @@ describe("workflow journal store", () => {
       capabilities: ["search", "email"],
       status: "running",
       conversationId: "conv-xyz",
+      trust: { sourceChannel: "slack", trustClass: "unknown" },
       agentsSpawned: 0,
       inputTokens: 0,
       outputTokens: 0,
@@ -95,6 +97,7 @@ describe("workflow journal store", () => {
       args: null,
       capabilities: null,
       conversationId: null,
+      trust: null,
     });
   });
 
@@ -314,5 +317,53 @@ describe("workflow journal store", () => {
     expect(getJournal("old-done")).toHaveLength(0);
     expect(getRun("old-running")).not.toBeNull();
     expect(getRun("recent-done")).not.toBeNull();
+  });
+
+  test("pruneRuns never reaps a resumable 'interrupted' run, even past retention", () => {
+    const now = Date.now();
+
+    // Old interrupted run (crash-orphaned, awaiting resume) with a journal —
+    // pruning it would destroy resumability, so it MUST be kept.
+    createRun({ id: "old-interrupted", scriptSource: "s", scriptHash: "h" });
+    updateRun("old-interrupted", { status: "interrupted" });
+    appendJournalEntry({
+      runId: "old-interrupted",
+      seq: 0,
+      callHash: "c",
+      kind: "agent",
+      status: "completed",
+    });
+    getSqlite().exec(
+      `UPDATE workflow_runs SET created_at = ${now - 100 * DAY_MS} WHERE id = 'old-interrupted'`,
+    );
+
+    const deleted = pruneRuns(7);
+    expect(deleted).toBe(0);
+    expect(getRun("old-interrupted")).not.toBeNull();
+    // Its journal survives too, so resume can still replay.
+    expect(getJournal("old-interrupted")).toHaveLength(1);
+  });
+
+  test("pruneRuns reaps every TERMINAL status past retention", () => {
+    const now = Date.now();
+    const terminal = [
+      "completed",
+      "failed",
+      "aborted",
+      "cap_exceeded",
+    ] as const;
+    for (const status of terminal) {
+      createRun({ id: `old-${status}`, scriptSource: "s", scriptHash: "h" });
+      finishRun(`old-${status}`, { status });
+      getSqlite().exec(
+        `UPDATE workflow_runs SET created_at = ${now - 10 * DAY_MS} WHERE id = 'old-${status}'`,
+      );
+    }
+
+    const deleted = pruneRuns(7);
+    expect(deleted).toBe(terminal.length);
+    for (const status of terminal) {
+      expect(getRun(`old-${status}`)).toBeNull();
+    }
   });
 });

@@ -31,9 +31,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
-import { findConversation } from "../daemon/conversation-registry.js";
 import {
-  INTERNAL_GUARDIAN_TRUST_CONTEXT,
+  FALLBACK_TURN_TRUST,
   type TrustContext,
 } from "../daemon/trust-context.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
@@ -145,8 +144,6 @@ export interface WorkflowRunManagerDeps {
   newRunId: () => string;
   /** Resolve a saved workflow's source by name (for `start({ name })`). */
   getWorkflow: typeof library.getWorkflow;
-  /** Look up a live conversation (for `resume` trust reconstruction). */
-  findConversation: typeof findConversation;
 }
 
 function defaultDeps(): WorkflowRunManagerDeps {
@@ -161,7 +158,6 @@ function defaultDeps(): WorkflowRunManagerDeps {
     broadcast: broadcastMessage,
     newRunId: () => randomUUID(),
     getWorkflow: library.getWorkflow,
-    findConversation,
   };
 }
 
@@ -216,7 +212,10 @@ export class WorkflowRunManager {
     // re-open of the existing row is a true no-op rather than a divergent
     // overwrite. We persist the MANIFEST (a plain serializable grant), not the
     // resolved capabilities (which carry live Tool objects that don't survive a
-    // round-trip), so a later `resume` can re-resolve it deterministically.
+    // round-trip), so a later `resume` can re-resolve it deterministically. We
+    // also persist the originating TRUST CONTEXT (trust metadata, no secret
+    // material) so a crash-orphaned `resume` reconstructs the exact trust class
+    // the run started under — NEVER escalating to guardian on resume.
     this.deps.journal.createRun({
       id: runId,
       name: meta.name,
@@ -226,6 +225,7 @@ export class WorkflowRunManager {
       capabilities: opts.manifest,
       status: "running",
       conversationId: opts.conversationId ?? null,
+      trust: opts.trustContext,
     });
 
     const controller = new AbortController();
@@ -266,11 +266,13 @@ export class WorkflowRunManager {
    * Resume an `interrupted` run with the SAME `runId`, re-invoking the engine so
    * it replays the journaled prefix and continues from the first changed/new
    * leaf. Reconstructs the run's inputs from the persisted row (script source,
-   * args, capability manifest, conversation) and re-derives the trust context
-   * from the originating conversation (falling back to the internal guardian
-   * context). Enforces the `workflows` flag and the concurrent-run cap (a resume
-   * occupies a run slot). Returns the `runId` immediately — completion is
-   * surfaced via events and a conversation wake exactly like {@link start}.
+   * args, capability manifest, conversation) and the trust context from the
+   * persisted `trust` snapshot — so a resumed run NEVER runs with more trust
+   * than it started under. Legacy rows with no persisted trust fall back to the
+   * low-trust {@link FALLBACK_TURN_TRUST} (never guardian). Enforces the
+   * `workflows` flag and the concurrent-run cap (a resume occupies a run slot).
+   * Returns the `runId` immediately — completion is surfaced via events and a
+   * conversation wake exactly like {@link start}.
    *
    * Throws {@link WorkflowResumeNotPossibleError} when the run is missing, not
    * `interrupted`, or already in flight.
@@ -313,7 +315,7 @@ export class WorkflowRunManager {
       manifestFromStored(run.capabilities),
     );
     const label = run.name ?? runId;
-    const trustContext = this.resolveResumeTrustContext(run.conversationId);
+    const trustContext = reconstructResumeTrustContext(run.trust);
 
     // Flip back to `running` before launching so `status`/`list` reflect the
     // in-flight resume; the engine re-opens the same row idempotently.
@@ -336,25 +338,6 @@ export class WorkflowRunManager {
     );
 
     return { runId };
-  }
-
-  /**
-   * Reconstruct the trust context for a resumed run: prefer the originating
-   * conversation's resolved/per-turn trust (the context it ran under), falling
-   * back to the internal guardian context when the conversation is gone (it was
-   * a self-maintenance/background run, or the conversation evicted on restart).
-   */
-  private resolveResumeTrustContext(
-    conversationId: string | null,
-  ): TrustContext {
-    const conversation = this.deps.findConversation(
-      conversationId ?? undefined,
-    );
-    return (
-      conversation?.currentTurnTrustContext ??
-      conversation?.trustContext ??
-      INTERNAL_GUARDIAN_TRUST_CONTEXT
-    );
   }
 
   /**
@@ -503,6 +486,37 @@ interface RunContext {
   args: unknown;
   conversationId: string | undefined;
   trustContext: TrustContext;
+}
+
+/** The trust classes a persisted trust snapshot may legitimately carry. */
+const VALID_TRUST_CLASSES: ReadonlySet<TrustContext["trustClass"]> = new Set([
+  "guardian",
+  "trusted_contact",
+  "unknown",
+]);
+
+/**
+ * Reconstruct the {@link TrustContext} for a resumed run from its persisted
+ * `trust` snapshot. This is the security boundary on resume: a run must NEVER
+ * resume with more trust than it started under. When the snapshot is absent
+ * (legacy rows written before the `trust_json` column existed) or unusable
+ * (unparseable JSON, or a missing/unrecognized `trustClass`), we fall back to
+ * the low-trust {@link FALLBACK_TURN_TRUST} — biased to `unknown` — matching the
+ * start path's no-elevation discipline. We deliberately do NOT fall back to the
+ * internal guardian context, which would clear the side-effect approval gate.
+ */
+function reconstructResumeTrustContext(persisted: unknown): TrustContext {
+  if (persisted && typeof persisted === "object") {
+    const candidate = persisted as Partial<TrustContext>;
+    if (
+      typeof candidate.trustClass === "string" &&
+      VALID_TRUST_CLASSES.has(candidate.trustClass)
+    ) {
+      // The snapshot is a well-formed trust context — replay it verbatim.
+      return candidate as TrustContext;
+    }
+  }
+  return FALLBACK_TURN_TRUST;
 }
 
 /**
