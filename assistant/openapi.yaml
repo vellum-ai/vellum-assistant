@@ -8384,6 +8384,15 @@ paths:
           schema:
             type: string
           description: Internal conversation identifier.
+        - name: view
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - full
+              - summary
+          description: Response shape. 'summary' omits per-log request/response sections; defaults to 'full'.
   /v1/conversations/rename:
     post:
       operationId: conversations_rename_post
@@ -15282,6 +15291,191 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/llm-request-logs/{id}/context:
+    get:
+      operationId: llmrequestlogs_by_id_context_get
+      summary: Get normalized context for a single LLM request log
+      description: Return the normalized summary and request/response sections for a specific log entry.
+      tags:
+        - messages
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  createdAt:
+                    type: number
+                  requestPayload:
+                    type: "null"
+                  responsePayload:
+                    type: "null"
+                  provider:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  summary:
+                    anyOf:
+                      - type: object
+                        properties:
+                          provider:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          model:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          status:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          inputTokens:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          outputTokens:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          cacheCreationInputTokens:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          cacheReadInputTokens:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          stopReason:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          requestMessageCount:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          requestToolCount:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          responseMessageCount:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          responseToolCallCount:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          responsePreview:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          toolCallNames:
+                            anyOf:
+                              - type: array
+                                items:
+                                  type: string
+                              - type: "null"
+                          estimatedCostUsd:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          durationMs:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                        additionalProperties: false
+                      - type: "null"
+                  requestSections:
+                    anyOf:
+                      - type: array
+                        items:
+                          type: object
+                          properties:
+                            kind:
+                              type: string
+                            label:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            role:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            text:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            toolName:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            data: {}
+                            language:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                          required:
+                            - kind
+                          additionalProperties: false
+                      - type: "null"
+                  responseSections:
+                    anyOf:
+                      - type: array
+                        items:
+                          type: object
+                          properties:
+                            kind:
+                              type: string
+                            label:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            role:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            text:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            toolName:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            data: {}
+                            language:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                          required:
+                            - kind
+                          additionalProperties: false
+                      - type: "null"
+                  agentLoopExitReason:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  callSite:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                required:
+                  - id
+                  - createdAt
+                  - requestPayload
+                  - responsePayload
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/llm-request-logs/{id}/payload:
     get:
       operationId: llmrequestlogs_by_id_payload_get
@@ -17594,6 +17788,15 @@ paths:
           required: true
           schema:
             type: string
+        - name: view
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - full
+              - summary
+          description: Response shape. 'summary' omits per-log request/response sections; defaults to 'full'.
   /v1/messages/{messageId}/tts:
     post:
       operationId: messages_by_messageId_tts_post
