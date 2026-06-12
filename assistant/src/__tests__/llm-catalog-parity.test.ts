@@ -309,6 +309,22 @@ describe("LLM catalog parity: daemon vs client", () => {
     });
   });
 
+  test("MiniMax catalog includes MiniMax M3", () => {
+    const minimax = PROVIDER_CATALOG.find((entry) => entry.id === "minimax");
+    expect(
+      minimax?.models.find((model) => model.id === "MiniMax-M3"),
+    ).toMatchObject({
+      displayName: "MiniMax M3",
+      contextWindowTokens: 1000000,
+      defaultContextWindowTokens: 200000,
+      maxOutputTokens: 512000,
+      longContextMode: "native-model",
+      supportsThinking: true,
+      supportsVision: true,
+      supportsToolUse: true,
+    });
+  });
+
   // -----------------------------------------------------------------------
   // pricing.ts ↔ model-catalog.ts parity
   //

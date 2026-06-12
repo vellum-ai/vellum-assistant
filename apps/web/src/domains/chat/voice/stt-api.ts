@@ -3,6 +3,7 @@ import {
   secretsPost,
   sttTranscribePost,
 } from "@/generated/daemon/sdk.gen";
+import { isNativeDictationSupported } from "@/runtime/native-dictation-partials";
 import {
   getLocalSetting,
   removeLocalSetting,
@@ -47,6 +48,34 @@ export type SttTranscribeOutcome = SttTranscribeOk | SttTranscribeFailure;
 const LS_STT_PROVIDER = "vellum:voice:sttProvider";
 const LS_STT_API_KEY_PREFIX = "vellum:voice:sttApiKey:";
 const DEFAULT_STT_PROVIDER_ID = "deepgram";
+
+/**
+ * Provider id for the explicit "macOS Native Dictation" settings choice.
+ * Not a daemon provider: when selected, dictation routes through the mac
+ * helper's `SFSpeechRecognizer` and never calls `/v1/stt/transcribe`.
+ * Mirrors `MACOS_NATIVE_STT_PROVIDER_ID` in
+ * `@/domains/settings/ai/ai-types.ts` — cross-domain constants stay
+ * duplicated here, like the `LS_STT_*` keys above.
+ */
+const MACOS_NATIVE_STT_PROVIDER_ID = "macos-native";
+
+/**
+ * True when the user explicitly chose macOS native dictation as the STT
+ * provider in Settings → AI AND this renderer can honor it (the helper's
+ * dictation bridge is present). Callers should then skip the daemon
+ * streaming and batch STT paths entirely and rely on the helper recognizer.
+ *
+ * The capability gate matters: a persisted choice can outlive the bridge
+ * (older Electron preload, web/iOS) — suppressing the daemon paths there
+ * would leave dictation with no transcript source at all.
+ */
+export function prefersMacosNativeStt(): boolean {
+  return (
+    isNativeDictationSupported() &&
+    getLocalSetting(LS_STT_PROVIDER, DEFAULT_STT_PROVIDER_ID) ===
+      MACOS_NATIVE_STT_PROVIDER_ID
+  );
+}
 
 function normalizeSttProviderId(provider: string): string {
   if (provider === "openai" || provider === "whisper") return "openai-whisper";

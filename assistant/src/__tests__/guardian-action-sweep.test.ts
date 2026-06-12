@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -18,27 +18,11 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
-import {
-  createCallSession,
-  createPendingQuestion,
-  getPendingQuestion,
-} from "../calls/call-store.js";
-import {
-  startGuardianActionSweep,
-  stopGuardianActionSweep,
-  sweepExpiredGuardianActions,
-} from "../calls/guardian-action-sweep.js";
+import type { ExpiryDeliveryInfo } from "../calls/guardian-action-sweep.js";
+import { sendGuardianExpiryNotices } from "../calls/guardian-action-sweep.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import {
-  createGuardianActionDelivery,
-  createGuardianActionRequest,
-  getDeliveriesByRequestId,
-  getGuardianActionRequest,
-  updateDeliveryStatus,
-} from "../memory/guardian-action-store.js";
-import { conversations } from "../memory/schema.js";
-import { resetDbForTesting } from "./db-test-helpers.js";
+import { conversations, messages } from "../memory/schema.js";
 
 initializeDb();
 
@@ -55,218 +39,71 @@ function ensureConversation(id: string): void {
     .run();
 }
 
-function resetTables(): void {
-  const db = getDb();
-  db.run("DELETE FROM guardian_action_deliveries");
-  db.run("DELETE FROM guardian_action_requests");
-  db.run("DELETE FROM call_pending_questions");
-  db.run("DELETE FROM call_events");
-  db.run("DELETE FROM call_sessions");
-  db.run("DELETE FROM messages");
-  db.run("DELETE FROM conversations");
-  deliveredMessages.length = 0;
+function makeDelivery(
+  overrides: Partial<ExpiryDeliveryInfo> = {},
+): ExpiryDeliveryInfo {
+  return {
+    id: "delivery-1",
+    status: "sent",
+    destinationChannel: "telegram",
+    destinationConversationId: null,
+    destinationChatId: "chat-123",
+    ...overrides,
+  };
 }
 
-describe("guardian-action-sweep", () => {
+describe("sendGuardianExpiryNotices", () => {
   beforeEach(() => {
-    resetTables();
+    const db = getDb();
+    db.run("DELETE FROM messages");
+    db.run("DELETE FROM conversations");
+    deliveredMessages.length = 0;
   });
 
-  afterAll(() => {
-    stopGuardianActionSweep();
-    resetDbForTesting();
-  });
-
-  test("sweepExpiredGuardianActions expires requests past their expiresAt", async () => {
-    const convId = "conv-sweep-1";
-    ensureConversation(convId);
-
-    const session = createCallSession({
-      conversationId: convId,
-      provider: "twilio",
-      fromNumber: "+15550001111",
-      toNumber: "+15550002222",
-    });
-    const pq = createPendingQuestion(session.id, "What is the code?");
-
-    // Create request that has already expired
-    const request = createGuardianActionRequest({
-      kind: "ask_guardian",
-      sourceChannel: "phone",
-      sourceConversationId: convId,
-      callSessionId: session.id,
-      pendingQuestionId: pq.id,
-      questionText: pq.questionText,
-      expiresAt: Date.now() - 10_000, // expired 10s ago
-    });
-
-    ensureConversation("conv-mac-1");
-    createGuardianActionDelivery({
-      requestId: request.id,
-      destinationChannel: "vellum",
-      destinationConversationId: "conv-mac-1",
-    });
-    updateDeliveryStatus(
-      getDeliveriesByRequestId(request.id).find(
-        (d) => d.destinationChannel === "vellum",
-      )!.id,
-      "sent",
+  test("sends external channel expiry notices for sent deliveries", async () => {
+    await sendGuardianExpiryNotices(
+      [makeDelivery({ status: "sent" }), makeDelivery({ id: "d2", status: "pending", destinationChatId: "chat-456" })],
+      "assistant-1",
     );
 
-    await sweepExpiredGuardianActions();
-
-    const updatedRequest = getGuardianActionRequest(request.id);
-    expect(updatedRequest).not.toBeNull();
-    expect(updatedRequest!.status).toBe("expired");
-
-    const deliveries = getDeliveriesByRequestId(request.id);
-    expect(deliveries).toHaveLength(1);
-    expect(deliveries[0].status).toBe("expired");
+    expect(deliveredMessages).toHaveLength(2);
+    expect(deliveredMessages[0].url).toBe("/deliver/telegram");
+    expect(deliveredMessages[0].body.chatId).toBe("chat-123");
+    expect(deliveredMessages[0].body.assistantId).toBe("assistant-1");
+    expect(deliveredMessages[1].body.chatId).toBe("chat-456");
   });
 
-  test("sweepExpiredGuardianActions expires pending questions", async () => {
-    const convId = "conv-sweep-2";
-    ensureConversation(convId);
+  test("skips deliveries that are not sent or pending", async () => {
+    await sendGuardianExpiryNotices(
+      [
+        makeDelivery({ status: "failed" }),
+        makeDelivery({ id: "d2", status: "expired" }),
+      ],
+      "assistant-1",
+    );
 
-    const session = createCallSession({
-      conversationId: convId,
-      provider: "twilio",
-      fromNumber: "+15550001111",
-      toNumber: "+15550002222",
-    });
-    const pq = createPendingQuestion(session.id, "What is the gate code?");
-
-    createGuardianActionRequest({
-      kind: "ask_guardian",
-      sourceChannel: "phone",
-      sourceConversationId: convId,
-      callSessionId: session.id,
-      pendingQuestionId: pq.id,
-      questionText: pq.questionText,
-      expiresAt: Date.now() - 5_000,
-    });
-
-    // Verify the question is still pending before sweep
-    expect(getPendingQuestion(session.id)).not.toBeNull();
-
-    await sweepExpiredGuardianActions();
-
-    // Pending question should be expired
-    expect(getPendingQuestion(session.id)).toBeNull();
-  });
-
-  test("sweepExpiredGuardianActions does nothing when no expired requests exist", async () => {
-    const convId = "conv-sweep-3";
-    ensureConversation(convId);
-
-    const session = createCallSession({
-      conversationId: convId,
-      provider: "twilio",
-      fromNumber: "+15550001111",
-      toNumber: "+15550002222",
-    });
-    const pq = createPendingQuestion(session.id, "Still valid?");
-
-    // Request that expires in the future
-    const request = createGuardianActionRequest({
-      kind: "ask_guardian",
-      sourceChannel: "phone",
-      sourceConversationId: convId,
-      callSessionId: session.id,
-      pendingQuestionId: pq.id,
-      questionText: pq.questionText,
-      expiresAt: Date.now() + 60_000, // expires in 60s
-    });
-
-    await sweepExpiredGuardianActions();
-
-    const updatedRequest = getGuardianActionRequest(request.id);
-    expect(updatedRequest!.status).toBe("pending");
-    expect(getPendingQuestion(session.id)).not.toBeNull();
-  });
-
-  test("sweepExpiredGuardianActions sends external channel expiry notices for sent deliveries", async () => {
-    const convId = "conv-sweep-4";
-    ensureConversation(convId);
-
-    const session = createCallSession({
-      conversationId: convId,
-      provider: "twilio",
-      fromNumber: "+15550001111",
-      toNumber: "+15550002222",
-    });
-    const pq = createPendingQuestion(session.id, "External question?");
-
-    const request = createGuardianActionRequest({
-      kind: "ask_guardian",
-      sourceChannel: "phone",
-      sourceConversationId: convId,
-      callSessionId: session.id,
-      pendingQuestionId: pq.id,
-      questionText: pq.questionText,
-      expiresAt: Date.now() - 5_000,
-    });
-
-    const delivery = createGuardianActionDelivery({
-      requestId: request.id,
-      destinationChannel: "telegram",
-      destinationChatId: "chat-123",
-    });
-    updateDeliveryStatus(delivery.id, "sent");
-
-    await sweepExpiredGuardianActions();
-
-    // Wait for the fire-and-forget async delivery to complete
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    // The external delivery should trigger an HTTP POST to the gateway
-    expect(deliveredMessages.length).toBeGreaterThanOrEqual(1);
-  });
-
-  test("sweepExpiredGuardianActions skips failed deliveries", async () => {
-    const convId = "conv-sweep-5";
-    ensureConversation(convId);
-
-    const session = createCallSession({
-      conversationId: convId,
-      provider: "twilio",
-      fromNumber: "+15550001111",
-      toNumber: "+15550002222",
-    });
-    const pq = createPendingQuestion(session.id, "Skip this?");
-
-    const request = createGuardianActionRequest({
-      kind: "ask_guardian",
-      sourceChannel: "phone",
-      sourceConversationId: convId,
-      callSessionId: session.id,
-      pendingQuestionId: pq.id,
-      questionText: pq.questionText,
-      expiresAt: Date.now() - 5_000,
-    });
-
-    const delivery = createGuardianActionDelivery({
-      requestId: request.id,
-      destinationChannel: "telegram",
-      destinationChatId: "chat-456",
-    });
-    updateDeliveryStatus(delivery.id, "failed", "Network error");
-
-    deliveredMessages.length = 0;
-
-    await sweepExpiredGuardianActions();
-
-    // Should NOT have sent an expiry notice for a failed delivery
     expect(deliveredMessages).toHaveLength(0);
   });
 
-  test("startGuardianActionSweep and stopGuardianActionSweep manage timer", () => {
-    startGuardianActionSweep();
-    // Calling start again should be a no-op (idempotent)
-    startGuardianActionSweep();
+  test("adds an expiry message to vellum guardian conversations", async () => {
+    ensureConversation("guardian-conv");
 
-    stopGuardianActionSweep();
-    // Calling stop again should be safe
-    stopGuardianActionSweep();
+    await sendGuardianExpiryNotices(
+      [
+        makeDelivery({
+          destinationChannel: "vellum",
+          destinationConversationId: "guardian-conv",
+          destinationChatId: null,
+        }),
+      ],
+      "assistant-1",
+    );
+
+    expect(deliveredMessages).toHaveLength(0);
+    const db = getDb();
+    const rows = db.select().from(messages).all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].conversationId).toBe("guardian-conv");
+    expect(rows[0].content).toContain("expired");
   });
 });

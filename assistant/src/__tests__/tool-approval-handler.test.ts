@@ -532,6 +532,91 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
   });
 });
 
+describe("ToolApprovalHandler / unparseable tool args gate", () => {
+  const handler = new ToolApprovalHandler();
+  const events: ToolLifecycleEvent[] = [];
+  const emitLifecycleEvent = (event: ToolLifecycleEvent) => {
+    events.push(event);
+  };
+
+  beforeEach(() => {
+    clearTables();
+    events.length = 0;
+  });
+
+  test("input wrapped as { _raw } is rejected without executing", async () => {
+    const result = await handler.checkPreExecutionGates(
+      "bash",
+      { _raw: '{"command": "ls -' },
+      makeContext({ trustClass: "guardian" }),
+      "sandbox",
+      "low",
+      Date.now(),
+      emitLifecycleEvent,
+    );
+
+    expect(result.allowed).toBe(false);
+    if (result.allowed) return;
+    expect(result.result.isError).toBe(true);
+    expect(result.result.content).toContain("were not valid JSON");
+    expect(result.result.content).toContain('{"command": "ls -');
+    expect(result.result.content).toContain("Retry");
+
+    const errorEvents = events.filter((e) => e.type === "error");
+    expect(errorEvents).toHaveLength(1);
+    if (errorEvents[0].type === "error") {
+      expect(errorEvents[0].isExpected).toBe(true);
+      expect(errorEvents[0].errorCategory).toBe("tool_failure");
+    }
+  });
+
+  test("long raw args are truncated in the error message", async () => {
+    const raw = `{"data": "${"x".repeat(500)}`;
+    const result = await handler.checkPreExecutionGates(
+      "bash",
+      { _raw: raw },
+      makeContext({ trustClass: "guardian" }),
+      "sandbox",
+      "low",
+      Date.now(),
+      emitLifecycleEvent,
+    );
+
+    expect(result.allowed).toBe(false);
+    if (result.allowed) return;
+    expect(result.result.content).not.toContain(raw);
+    expect(result.result.content).toContain("…");
+  });
+
+  test("legitimate input containing a _raw field among others is not rejected", async () => {
+    const result = await handler.checkPreExecutionGates(
+      "bash",
+      { _raw: "something", command: "ls" },
+      makeContext({ trustClass: "guardian" }),
+      "sandbox",
+      "low",
+      Date.now(),
+      emitLifecycleEvent,
+    );
+
+    expect(result.allowed).toBe(true);
+  });
+
+  test("non-string _raw value is not treated as the marker", async () => {
+    const result = await handler.checkPreExecutionGates(
+      "bash",
+      { _raw: 42 },
+      makeContext({ trustClass: "guardian" }),
+      "sandbox",
+      "low",
+      Date.now(),
+      emitLifecycleEvent,
+    );
+
+    expect(result.allowed).toBe(true);
+  });
+});
+
 afterAll(() => {
   mock.restore();
 });

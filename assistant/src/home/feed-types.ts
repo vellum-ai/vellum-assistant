@@ -43,7 +43,7 @@ export {
 } from "../api/responses/home.js";
 
 /**
- * On-disk file format for `~/.vellum/workspace/data/home-feed.json`.
+ * On-disk file format for `$VELLUM_WORKSPACE_DIR/data/home-feed.json`.
  *
  * Written by the feed writer, read by the HTTP route and `parseFeedFile`
  * below. `version` is pinned to `2` (collapsed schema); pre-v2 files are

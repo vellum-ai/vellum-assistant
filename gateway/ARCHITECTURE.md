@@ -1048,7 +1048,7 @@ When a guardian question is dispatched while the macOS app is backgrounded, the 
 
 ### SQLite Tables
 
-All five tables live in `~/.vellum/workspace/data/db/assistant.db` alongside existing tables:
+All five tables live in `$VELLUM_WORKSPACE_DIR/data/db/assistant.db` alongside existing tables:
 
 - **`call_sessions`** — One row per call (inbound or outbound). Tracks conversation association, provider info (Twilio CallSid), phone numbers, task description (null for inbound calls), status lifecycle (`initiated` -> `ringing` -> `in_progress` -> `waiting_on_user` -> `completed`/`failed`), and timestamps. For inbound calls, the session is keyed by CallSid via `createInboundVoiceSession()` with idempotent replay protection. Foreign key to `conversations(id)` with cascade delete.
 

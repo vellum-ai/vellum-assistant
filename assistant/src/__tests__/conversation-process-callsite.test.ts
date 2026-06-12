@@ -36,11 +36,6 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
-mock.module("../memory/guardian-action-store.js", () => ({
-  getGuardianActionRequest: () => null,
-  resolveGuardianActionRequest: () => {},
-}));
-
 const mockProviderStub = { name: "mock-provider" };
 mock.module("../providers/registry.js", () => ({
   getProvider: () => mockProviderStub,

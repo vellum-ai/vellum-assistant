@@ -7,7 +7,7 @@
  * imported files, so we spawn a standalone bun process that runs an embed
  * worker script communicating via JSON-lines over stdin/stdout.
  *
- * The runtime is stored in ~/.vellum/workspace/embedding-models/ and used
+ * The runtime is stored in $VELLUM_WORKSPACE_DIR/embedding-models/ and used
  * by embedding-local.ts on demand.
  *
  * Follows the same download/install pattern as qdrant-manager.ts.

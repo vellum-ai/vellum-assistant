@@ -18,6 +18,7 @@ import {
   ContextOverflowError,
   extractOverflowTokensFromMessage,
 } from "../types.js";
+import { wrapUnparseableToolArgs } from "../unparseable-tool-args.js";
 
 /**
  * Detect OpenAI-compatible context-overflow signals on an `OpenAI.APIError`.
@@ -635,7 +636,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
         try {
           input = JSON.parse(tc.args);
         } catch {
-          input = { _raw: tc.args };
+          input = wrapUnparseableToolArgs(tc.args);
         }
         content.push({
           type: "tool_use",

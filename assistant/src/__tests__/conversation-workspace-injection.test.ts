@@ -21,11 +21,6 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
-mock.module("../memory/guardian-action-store.js", () => ({
-  getGuardianActionRequest: () => null,
-  resolveGuardianActionRequest: () => {},
-}));
-
 mock.module("../providers/registry.js", () => ({
   getProvider: () => ({ name: "mock-provider" }),
   initializeProviders: async () => {},

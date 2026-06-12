@@ -119,7 +119,7 @@ graph LR
         SL["logs/session-*.json<br/>───────────────<br/>Per-session JSON log<br/>task, start/end times, result<br/>Per-turn: AX tree, screenshot,<br/>action, token usage"]
     end
 
-    subgraph "~/.vellum/workspace/data/db/assistant.db (SQLite + WAL)"
+    subgraph "$VELLUM_WORKSPACE_DIR/data/db/assistant.db (SQLite + WAL)"
         direction TB
         CONV["conversations<br/>───────────────<br/>id, title, timestamps<br/>token counts, estimated cost<br/>context_summary (compaction)<br/>conversation_type: 'standard' | 'background' | 'scheduled'<br/>memory_scope_id: 'default' | '_pkb_workspace' | 'subagent:&lt;id&gt;'"]
         MSG["messages<br/>───────────────<br/>id, conversation_id (FK)<br/>role: user | assistant<br/>content: JSON array<br/>created_at"]
@@ -142,7 +142,7 @@ graph LR
         TRUST["protected/trust.json<br/>Tool permission rules"]
     end
 
-    subgraph "~/.vellum/workspace/ (Workspace Files)"
+    subgraph "$VELLUM_WORKSPACE_DIR/ (Workspace Files)"
         CONFIG["config files<br/>Hot-reloaded by daemon"]
         ONBOARD_PLAYBOOKS["onboarding/playbooks/<br/>[channel]_onboarding.md<br/>assistant-updatable checklists"]
         ONBOARD_REGISTRY["onboarding/playbooks/registry.json<br/>channel-start index for fast-path + reconciliation"]
@@ -453,7 +453,7 @@ The video webview applies three hardening layers:
 
 ### Settings Persistence
 
-Preferences that must be shared with the daemon live in the workspace config file (`~/.vellum/workspace/config.json`) under `ui`:
+Preferences that must be shared with the daemon live in the workspace config file (`$VELLUM_WORKSPACE_DIR/config.json`) under `ui`:
 
 ```json
 {
@@ -508,7 +508,7 @@ The avatar uses a simple image-based approach: a custom user-uploaded profile pi
 - `AvatarAppearanceManager` — Observable singleton that provides `chatAvatarImage` (custom PNG or initial-letter fallback). Watches the custom avatar file for live updates.
 - `AvatarCustomizationPanel` — User surface for uploading/clearing a custom profile picture
 
-**Custom avatar storage:** User-uploaded profile pictures are stored at `~/.vellum/workspace/data/avatar/avatar-image.png`. On first launch after upgrade, any legacy avatar from `~/Library/Application Support/vellum-assistant/` is automatically migrated (copied, not moved). The avatar customization panel is accessible from the Identity panel via a "Customize Avatar" CTA button.
+**Custom avatar storage:** User-uploaded profile pictures are stored at `$VELLUM_WORKSPACE_DIR/data/avatar/avatar-image.png`. On first launch after upgrade, any legacy avatar from `~/Library/Application Support/vellum-assistant/` is automatically migrated (copied, not moved). The avatar customization panel is accessible from the Identity panel via a "Customize Avatar" CTA button.
 
 **Fallback:** When no custom avatar exists, `buildInitialLetterAvatar(name:)` renders a Forest._600 circle with the assistant's first initial in white.
 

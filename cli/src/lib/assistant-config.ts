@@ -97,8 +97,6 @@ export interface AssistantEntry {
   sshUser?: string;
   zone?: string;
   hatchedAt?: string;
-  /** Installed service-group release version (no `v` prefix), written at hatch/upgrade/rollback. */
-  version?: string;
   /** Per-instance resource config. Present for local entries in multi-instance setups. */
   resources?: LocalInstanceResources;
   /** PID of the file watcher process for docker instances hatched with --watch. */
@@ -584,11 +582,6 @@ export function extractHostFromUrl(url: string): string {
   } catch {
     return url.replace(/^https?:\/\//, "").split(":")[0];
   }
-}
-
-/** Strip a leading `v` so stored versions match the healthz `version` format. */
-export function normalizeVersion(version: string): string {
-  return version.replace(/^v/, "");
 }
 
 export function saveAssistantEntry(entry: AssistantEntry): void {
