@@ -20,8 +20,9 @@ type ViewMode = "markdown" | "raw";
  * Prompt tab rendering each normalized request section as a card.
  * Text sections render as Markdown by default; a Markdown/Raw segmented
  * control flips the entire tab to plain `<pre>` text. Structured
- * payloads always render as `<pre>` regardless of mode, except tool
- * definitions, which render as an expandable per-tool breakdown —
+ * payloads and tool results always render as code-style `<pre>` text
+ * regardless of mode — tool output is program output, not prose.
+ * Tool definitions render as an expandable per-tool breakdown;
  * the raw provider JSON lives on the Raw tab.
  */
 export function PromptTab({ entry }: PromptTabProps): ReactNode {
@@ -124,7 +125,8 @@ function SectionCard({
   const kind = humanKindLabel(section.kind);
   const formatLabel = languageFormatLabel(section.language ?? null);
   const { text, isStructured } = renderContent(section);
-  const renderAsMarkdown = !isStructured && viewMode === "markdown";
+  const renderAsCode = isStructured || isToolResultKind(section.kind);
+  const renderAsMarkdown = !renderAsCode && viewMode === "markdown";
 
   return (
     <Card>
@@ -163,9 +165,9 @@ function SectionCard({
         />
       </div>
 
-      {isStructured ? (
+      {renderAsCode ? (
         <pre
-          className="mt-3 overflow-auto rounded-md p-3 text-body-small-default"
+          className="mt-3 overflow-auto whitespace-pre-wrap break-words rounded-md p-3 text-body-small-default"
           style={{
             background: "var(--surface-base)",
             color: "var(--content-default)",
@@ -191,6 +193,10 @@ function SectionCard({
       )}
     </Card>
   );
+}
+
+function isToolResultKind(kind: string): boolean {
+  return kind === "tool_result" || kind === "function_response";
 }
 
 function sectionTitle(section: LLMContextSection, index: number): string {
