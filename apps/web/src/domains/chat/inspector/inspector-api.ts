@@ -31,6 +31,12 @@ import type {
  *   The page enters this mode when the URL carries `?messageId=…` —
  *   either from the per-message "Inspect this message" hover action,
  *   or from the in-page "filter to this message" control.
+ *
+ * Both modes request `view=summary`, which omits the heavy per-log
+ * request/response sections. The selected call's sections are fetched
+ * lazily via `useLlmCallDetail` (`inspector-detail-api.ts`). Daemons
+ * that predate the param ignore it and return the full payload, which
+ * downstream consumers treat as already-loaded detail.
  */
 
 export class LlmContextRequestError extends Error {
@@ -125,7 +131,7 @@ export function useConversationCallNumbering(
       if (!assistantId || !conversationId) return null;
       const { data, response } = await conversationsLlmcontextGet({
         path: { assistant_id: assistantId },
-        query: { conversationId },
+        query: { conversationId, view: "summary" },
         signal,
         throwOnError: false,
       });
@@ -192,7 +198,7 @@ export async function fetchConversationLlmContext(
   // strictly more correct.
   const { data, error, response } = await conversationsLlmcontextGet({
     path: { assistant_id: assistantId },
-    query: { conversationId },
+    query: { conversationId, view: "summary" },
     signal,
     throwOnError: false,
   });
@@ -239,6 +245,7 @@ export async function fetchMessageLlmContextOrThrow(
 ): Promise<LlmContextResponse> {
   const { data, error, response } = await messagesByIdLlmcontextGet({
     path: { assistant_id: assistantId, id: messageId },
+    query: { view: "summary" },
     signal,
     throwOnError: false,
   });

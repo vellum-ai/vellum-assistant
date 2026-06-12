@@ -15,6 +15,10 @@ import {
     buildInspectorExportZipBlob,
 } from "@/domains/chat/inspector/inspector-export";
 import {
+    llmCallDetailQueryOptions,
+    useLlmCallDetail,
+} from "@/domains/chat/inspector/inspector-detail-api";
+import {
     llmLogPayloadQueryOptions,
     type LlmLogPayload,
 } from "@/domains/chat/inspector/inspector-payload-api";
@@ -232,7 +236,28 @@ function Header({
           return queryClient.fetchQuery(options);
         }),
       );
-      const blob = await buildInspectorExportZipBlob(context, payloads);
+      // The list is fetched with view=summary (no sections), so the
+      // export hydrates each call's sections from the per-log context
+      // endpoint. Falls back to the list entry's own sections when the
+      // daemon predates that endpoint (it then ignores view=summary).
+      const logsWithSections = await Promise.all(
+        context.logs.map(async (log): Promise<LLMRequestLogEntry> => {
+          if (log.requestSections || log.responseSections) return log;
+          const detail = await queryClient
+            .fetchQuery(llmCallDetailQueryOptions(assistantId, log.id))
+            .catch(() => null);
+          if (!detail) return log;
+          return {
+            ...log,
+            requestSections: detail.requestSections,
+            responseSections: detail.responseSections,
+          };
+        }),
+      );
+      const blob = await buildInspectorExportZipBlob(
+        { ...context, logs: logsWithSections },
+        payloads,
+      );
       const { saveFile } = await import("@/runtime/native-file");
       await saveFile(
         blob,
@@ -555,6 +580,40 @@ function Loaded({
 }: LoadedProps): ReactNode {
   const [tab, setTab] = useState<InspectorTab>("overview");
 
+  // The list is fetched with view=summary, so the selected call's
+  // request/response sections are loaded lazily here and merged into
+  // the entry. Older daemons ignore view=summary and return sections
+  // inline, in which case the list entry is used as-is.
+  const selectedLogHasSections = Boolean(
+    selectedLog && (selectedLog.requestSections || selectedLog.responseSections),
+  );
+  const {
+    data: detail,
+    isPending: isDetailPending,
+    isError: isDetailError,
+  } = useLlmCallDetail(
+    selectedLogHasSections ? undefined : assistantId,
+    selectedLogId,
+  );
+  const selectedEntry = useMemo<LLMRequestLogEntry | null>(() => {
+    if (!selectedLog) return null;
+    if (selectedLogHasSections || !detail) return selectedLog;
+    return {
+      ...selectedLog,
+      requestSections: detail.requestSections,
+      responseSections: detail.responseSections,
+    };
+  }, [selectedLog, selectedLogHasSections, detail]);
+  const detailState: DetailState = selectedLogHasSections
+    ? "loaded"
+    : isDetailError
+      ? "error"
+      : detail
+        ? "loaded"
+        : isDetailPending
+          ? "loading"
+          : "loaded";
+
   return (
     <>
       <aside
@@ -586,10 +645,11 @@ function Loaded({
         </div>
         <TabBar selected={tab} onSelect={setTab} />
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-          {selectedLog ? (
+          {selectedEntry ? (
             <TabContent
               tab={tab}
-              entry={selectedLog}
+              entry={selectedEntry}
+              detailState={detailState}
               logs={logs}
               buildCallHref={buildCallHref}
               assistantId={assistantId}
@@ -610,9 +670,12 @@ function Loaded({
   );
 }
 
+type DetailState = "loading" | "loaded" | "error";
+
 interface TabContentProps {
   tab: InspectorTab;
   entry: LLMRequestLogEntry;
+  detailState: DetailState;
   logs: LLMRequestLogEntry[];
   buildCallHref: (logId: string) => string;
   assistantId: string | undefined;
@@ -624,6 +687,7 @@ interface TabContentProps {
 function TabContent({
   tab,
   entry,
+  detailState,
   logs,
   buildCallHref,
   assistantId,
@@ -640,8 +704,14 @@ function TabContent({
         />
       );
     case "prompt":
+      if (detailState !== "loaded") {
+        return <DetailPlaceholder state={detailState} />;
+      }
       return <PromptTab entry={entry} />;
     case "response":
+      if (detailState !== "loaded") {
+        return <DetailPlaceholder state={detailState} />;
+      }
       return <ResponseTab entry={entry} />;
     case "raw":
       return <RawTab entry={entry} assistantId={assistantId} />;
@@ -658,6 +728,17 @@ function TabContent({
     case "memory":
       return <MemoryTab context={context} />;
   }
+}
+
+function DetailPlaceholder({ state }: { state: DetailState }): ReactNode {
+  if (state === "error") {
+    return (
+      <CenteredMessage>
+        Failed to load this call’s normalized context.
+      </CenteredMessage>
+    );
+  }
+  return <CenteredMessage tone="muted">Loading…</CenteredMessage>;
 }
 
 interface CenteredMessageProps {
