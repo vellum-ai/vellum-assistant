@@ -1,11 +1,42 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
 import { GATEWAY_PORT } from "./constants.js";
-import {
-  getDefaultWorkspaceDir,
-  loadRawConfig,
-  saveRawConfig,
-} from "./workspace-config.js";
+import { resolveTunnelTargetPort } from "./nginx-ingress.js";
+
+// ── Workspace config helpers (mirrors the pattern in ngrok.ts) ───────────────
+
+function getDefaultWorkspaceDir(): string {
+  return (
+    process.env.VELLUM_WORKSPACE_DIR?.trim() ||
+    join(homedir(), ".vellum", "workspace")
+  );
+}
+
+function getConfigPath(workspaceDir: string): string {
+  return join(workspaceDir, "config.json");
+}
+
+function loadRawConfig(workspaceDir: string): Record<string, unknown> {
+  const configPath = getConfigPath(workspaceDir);
+  if (!existsSync(configPath)) return {};
+  return JSON.parse(readFileSync(configPath, "utf-8")) as Record<
+    string,
+    unknown
+  >;
+}
+
+function saveRawConfig(
+  workspaceDir: string,
+  config: Record<string, unknown>,
+): void {
+  const configPath = getConfigPath(workspaceDir);
+  const dir = dirname(configPath);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+}
 
 function saveIngressUrl(workspaceDir: string, publicUrl: string): void {
   const config = loadRawConfig(workspaceDir);
@@ -168,7 +199,15 @@ export async function runCloudflareTunnel(
   console.log(`Using ${version}`);
 
   const workspaceDir = opts.workspaceDir ?? getDefaultWorkspaceDir();
-  const port = opts.port ?? GATEWAY_PORT;
+  const { port, viaIngress } = resolveTunnelTargetPort(
+    workspaceDir,
+    opts.port ?? GATEWAY_PORT,
+  );
+  if (viaIngress) {
+    console.log(
+      `nginx ingress detected — tunneling to it on 127.0.0.1:${port}.`,
+    );
+  }
 
   console.log(`Starting cloudflared quick tunnel to localhost:${port}...`);
   console.log("No Cloudflare account required — quick tunnels are free.");

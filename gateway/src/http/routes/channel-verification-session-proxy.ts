@@ -166,11 +166,12 @@ export function createChannelVerificationSessionProxyHandler(
         );
       }
 
-      // Defense-in-depth: reject requests forwarded by a trusted edge proxy.
-      // Every hop in that chain may be loopback, so the raw peer IP would
-      // otherwise misclassify a remote caller as local. The edge sets this
-      // marker unconditionally and it cannot be spoofed or stripped by the
-      // client when the edge overwrites inbound values.
+      // Defense-in-depth: reject requests forwarded by the self-hosted nginx
+      // edge (e.g. the SPA reached over an ngrok tunnel). Every hop in that
+      // chain is loopback, so the raw peer IP would otherwise misclassify a
+      // remote caller as local. The edge sets this marker unconditionally and
+      // it cannot be spoofed or stripped by the client. Only the self-hosted
+      // edge sets it, so this is safe across all deploy modes.
       if (requestArrivedViaEdgeProxy(req)) {
         log.warn("Guardian init rejected — edge-proxy-forwarded request");
         return Response.json(

@@ -168,8 +168,10 @@ describe("handlePair — Origin allowlist", () => {
     expect(res.status).toBe(400);
   });
 
-  // If a deployment edge sets this marker, a loopback peer alone is not enough
-  // to treat the request as local.
+  // The edge marker is set by the self-hosted nginx edge (SPA over a tunnel).
+  // Every hop in that chain is loopback, so the peer IP passed here is the
+  // legitimate-looking 127.0.0.1 — the marker is what proves the request did
+  // not come directly from a local client and must be rejected.
   test("rejects a request carrying the edge-forwarded marker even from a loopback peer", async () => {
     const req = makePairRequest({ origin: PROD_ORIGIN, edgeForwarded: true });
     const res = await handlePair(req, LOOPBACK_IP);

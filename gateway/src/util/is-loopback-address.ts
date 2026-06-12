@@ -3,27 +3,37 @@ import type { Server } from "bun";
 /**
  * Check whether the TCP peer of a Bun HTTP request is a loopback address.
  *
- * Loopback auth fallback is direct-only. A same-host tunnel or reverse proxy
- * can make the raw socket peer look local, so any request carrying forwarding
- * headers is treated as non-local regardless of its peer IP.
+ * When `trustProxy` is set, `X-Forwarded-For` is consulted to recover the real
+ * client behind a trusted reverse proxy — but ONLY when the raw socket peer is
+ * itself loopback (i.e. the request actually arrived over the same-host proxy
+ * hop). A direct connection from a non-loopback peer is never treated as
+ * loopback, so a remote caller hitting a directly-exposed gateway port cannot
+ * spoof `X-Forwarded-For: 127.0.0.1` to pass a loopback gate. (This assumes the
+ * proxy overwrites client-supplied X-Forwarded-For, which is the documented
+ * requirement for enabling trustProxy.)
  */
-export function isLoopbackPeer(server: Server<unknown>, req: Request): boolean {
-  if (hasForwardingHeaders(req)) return false;
-
+export function isLoopbackPeer(
+  server: Server<unknown>,
+  req: Request,
+  opts?: { trustProxy?: boolean },
+): boolean {
   const peer = server.requestIP(req);
-  return peer ? isLoopbackAddress(peer.address) : false;
-}
+  const peerIsLoopback = peer ? isLoopbackAddress(peer.address) : false;
 
-function hasForwardingHeaders(req: Request): boolean {
-  return (
-    req.headers.has("forwarded") ||
-    req.headers.has("via") ||
-    req.headers.has("x-forwarded-for") ||
-    req.headers.has("x-forwarded-host") ||
-    req.headers.has("x-forwarded-port") ||
-    req.headers.has("x-forwarded-proto") ||
-    req.headers.has("x-real-ip")
-  );
+  if (opts?.trustProxy) {
+    // Direct (non-proxied) connection — don't trust X-Forwarded-For at all.
+    if (!peerIsLoopback) return false;
+    const forwarded = req.headers.get("x-forwarded-for");
+    if (forwarded) {
+      const first = forwarded.split(",")[0]?.trim();
+      if (!first) return false;
+      return isLoopbackAddress(first);
+    }
+    // Loopback socket, no X-Forwarded-For → a genuinely local direct client.
+    return true;
+  }
+
+  return peerIsLoopback;
 }
 
 /**
