@@ -69,6 +69,7 @@ import {
   MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
   MEMORY_RETROSPECTIVE_SOURCE,
 } from "./memory-retrospective-constants.js";
+import { findForkBoundaryCreatedAt } from "./memory-retrospective-fork-boundary.js";
 import {
   bumpRetrospectiveLastRunAt,
   getRetrospectiveState,
@@ -652,40 +653,6 @@ function collectPriorRetrospectiveRemembers(
   }
 
   return extractRememberContents(messages);
-}
-
-/**
- * Locate the boundary timestamp between the fork's prefix and its post-fork
- * tail. Scans from the end for the last message whose metadata carries a
- * `forkSourceMessageId` stamp (the last copied source message); its
- * `createdAt` is the boundary. The stamp's value may point at any ancestor
- * when the source was itself a fork (`cloneForkMessageMetadata` preserves
- * pre-existing values), so we only check for presence, not equality.
- * Returns `null` only if no copied messages remain (corrupted fork metadata
- * or empty fork — caller logs + degrades).
- */
-function findForkBoundaryCreatedAt(
-  forkMessages: Array<{
-    id: string;
-    createdAt: number;
-    metadata: string | null;
-  }>,
-): number | null {
-  for (let i = forkMessages.length - 1; i >= 0; i--) {
-    const row = forkMessages[i]!;
-    if (!row.metadata) continue;
-    try {
-      const parsed = JSON.parse(row.metadata) as {
-        forkSourceMessageId?: unknown;
-      };
-      if (typeof parsed.forkSourceMessageId === "string") {
-        return row.createdAt;
-      }
-    } catch {
-      continue;
-    }
-  }
-  return null;
 }
 
 interface MessageLike {
