@@ -63,10 +63,10 @@ LEAF OPTIONS (\`opts\` for \`agent\`/\`leaf\`):
 
 CAPABILITIES (the \`capabilities\` argument — the SINGLE consent point for the whole run):
 - Leaves get a curated read-only baseline by default (file read/list, recall, web search/fetch).
-- To let leaves use SIDE-EFFECTING tools (writes, sends, shell, etc.), list them in \`capabilities.tools\`. This declaration is the only place consent is given — there are no per-call prompts inside a run.
+- To let leaves use SIDE-EFFECTING tools (writes, sends, shell, etc.), list them in \`capabilities.tools\`. Declaring ANY side-effecting tool (or host function) makes the LAUNCH prompt the user for approval ONCE — that single approval covers the whole run; there are no per-call prompts inside it. A read-only run (no declared tools) launches with no prompt. So declare the minimum you need.
 - \`capabilities.hostFunctions\` and \`capabilities.persona\` similarly grant host-function and persona access.
 
-Runs are autonomous but BOUNDED by an agent cap; you cannot exceed it. Spend is structurally capped and side effects are gated by the capability declaration above, not by per-call approval.
+Runs are autonomous but BOUNDED by an agent cap; you cannot exceed it. Spend is structurally capped. Side effects are consented to ONCE at launch (via the capability declaration above), not by per-call approval inside the run.
 
 EXAMPLE script:
   export const meta = { name: "rank-options", description: "Rank options and pick the best" };
@@ -144,11 +144,15 @@ async function executeRunWorkflow(
 export const runWorkflowTool = {
   name: "run_workflow",
   description: RUN_WORKFLOW_DESCRIPTION,
-  // Risk is "low" by deliberate design: launching a run is autonomous, but
-  // spend is structurally capped by the per-run agent cap and side effects are
-  // gated by the run's `capabilities` declaration (the single consent point) —
-  // NOT by per-call permission prompts. There is no unbounded action to gate at
-  // launch time, so an interactive approval here would be noise.
+  // Default risk is "low": a READ-ONLY run (no side-effecting capabilities)
+  // launches silently — spend is structurally capped by the per-run agent cap,
+  // and leaves can only read. But when the manifest grants side-effecting tools
+  // or host functions, the executor promotes the launch to a fresh interactive
+  // approval (`requireFreshApproval`, see executor.ts): the manifest is the
+  // single consent point, but it is declared by the model and leaves execute
+  // granted tools directly (no per-call prompt), so the launch is where the
+  // user consents to the grant. Per-call prompts inside a run are still never
+  // used — consent is once, at launch.
   defaultRiskLevel: RiskLevel.Low,
   input_schema: {
     type: "object",
@@ -186,13 +190,15 @@ export const runWorkflowTool = {
           },
           persona: {
             type: "boolean",
-            description: "Grant leaves access to persona (identity + memory) context.",
+            description:
+              "Grant leaves access to persona (identity + memory) context.",
           },
         },
       },
       label: {
         type: "string",
-        description: "Human-readable label for display; defaults to the script's meta.name.",
+        description:
+          "Human-readable label for display; defaults to the script's meta.name.",
       },
     },
   },

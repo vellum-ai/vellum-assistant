@@ -85,6 +85,33 @@ export const CapabilityManifestSchema = z.object({
 export type CapabilityManifest = z.infer<typeof CapabilityManifestSchema>;
 
 /**
+ * True if a `run_workflow` capability manifest grants any side-effecting
+ * capability beyond the read-only baseline — i.e. it declares one or more
+ * `tools` or `hostFunctions`.
+ *
+ * The tool executor uses this to force an interactive approval at LAUNCH for
+ * such runs. The manifest is the single consent point, but it is authored and
+ * declared BY THE MODEL, and a workflow's leaves execute granted tools directly
+ * (no per-call permission check) — so without a launch-time gate the model
+ * could self-grant `bash`/sends/writes and have leaves run them with no user
+ * consent, bypassing the gate those tools hit when the main agent calls them.
+ * The launch is the one point at which the user can consent to the grant. A
+ * read-only run (no declared `tools`/`hostFunctions`) needs no prompt.
+ *
+ * Total and best-effort: a malformed or absent manifest parses to "no grant"
+ * (false). That is safe — `run_workflow` re-parses the manifest at execute time
+ * and rejects a malformed one, so the run never starts; and this predicate must
+ * never throw from the risk-gating path. `persona` is deliberately NOT treated
+ * as side-effecting: it grants identity/memory context, not world-mutating
+ * tools.
+ */
+export function manifestGrantsSideEffects(rawCapabilities: unknown): boolean {
+  const parsed = CapabilityManifestSchema.safeParse(rawCapabilities ?? {});
+  if (!parsed.success) return false;
+  return parsed.data.tools.length > 0 || parsed.data.hostFunctions.length > 0;
+}
+
+/**
  * Error thrown when a manifest declares a tool that cannot be resolved — either
  * because it does not exist in the tool registry or because it is forbidden.
  */

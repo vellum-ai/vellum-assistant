@@ -12,6 +12,7 @@ import { TokenExpiredError } from "../security/token-manager.js";
 import { PermissionDeniedError, ToolError } from "../util/errors.js";
 import { pathExists, safeStatSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
+import { manifestGrantsSideEffects } from "../workflows/capabilities.js";
 import { resolveExecutionTarget } from "./execution-target.js";
 import { executeWithTimeout, safeTimeoutMs } from "./execution-timeout.js";
 import { PermissionChecker } from "./permission-checker.js";
@@ -135,6 +136,24 @@ export class ToolExecutor {
       // inherently high-impact.
       if (name === "manage_secure_command_tool") {
         context.forcePromptSideEffects = true;
+        context.requireFreshApproval = true;
+      }
+
+      // A workflow run whose capability manifest grants side-effecting tools or
+      // host functions (beyond the read-only baseline) must prompt at LAUNCH.
+      // The manifest is authored and declared by the model, and the run's
+      // leaves execute granted tools DIRECTLY (no per-call permission check) -
+      // so the launch is the single point at which the user can consent to the
+      // grant, which would otherwise bypass the gate those tools hit when the
+      // main agent calls them. requireFreshApproval promotes the otherwise
+      // low-risk launch to an interactive prompt that cached grants/trust rules
+      // cannot silently bypass (run_workflow is not itself a SIDE_EFFECT tool,
+      // so forcePromptSideEffects would not fire — requireFreshApproval is the
+      // self-sufficient promotion). Read-only runs stay low-risk and silent.
+      if (
+        name === "run_workflow" &&
+        manifestGrantsSideEffects(input.capabilities)
+      ) {
         context.requireFreshApproval = true;
       }
 

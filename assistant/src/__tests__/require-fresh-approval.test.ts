@@ -476,3 +476,88 @@ describe("requireFreshApproval: context flag propagation", () => {
     expect(ctx.requireFreshApproval).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Workflow launch consent: a run_workflow whose capability manifest grants
+// side-effecting tools/host functions must prompt at LAUNCH (the manifest is
+// model-declared and leaves execute granted tools directly, with no per-call
+// check). A read-only run launches silently.
+// ---------------------------------------------------------------------------
+
+describe("requireFreshApproval: workflow capability grants", () => {
+  beforeEach(() => {
+    fakeToolResult = { content: "ok", isError: false };
+    checkResultOverride = undefined;
+    scopeOptionsOverride = undefined;
+    riskOverride = "low";
+  });
+
+  afterEach(() => {});
+
+  function trackingPrompter(state: { prompted: boolean }): PermissionPrompter {
+    return {
+      prompt: async () => {
+        state.prompted = true;
+        return { decision: "allow" as const };
+      },
+      resolveConfirmation: () => {},
+      updateSender: () => {},
+      dispose: () => {},
+    } as unknown as PermissionPrompter;
+  }
+
+  test("run_workflow granting side-effecting tools prompts at launch", async () => {
+    // A grant of `bash` would normally auto-allow (mocked check() returns
+    // allow); requireFreshApproval promotes it to an interactive prompt.
+    checkResultOverride = { decision: "allow", reason: "allowed" };
+    const state = { prompted: false };
+    const executor = new ToolExecutor(trackingPrompter(state));
+    const ctx = makeContext();
+
+    const result = await executor.execute(
+      "run_workflow",
+      { script: "export const meta={};", capabilities: { tools: ["bash"] } },
+      ctx,
+    );
+
+    expect(ctx.requireFreshApproval).toBe(true);
+    expect(state.prompted).toBe(true);
+    expect(result.isError).toBe(false);
+  });
+
+  test("run_workflow granting host functions prompts at launch", async () => {
+    checkResultOverride = { decision: "allow", reason: "allowed" };
+    const state = { prompted: false };
+    const executor = new ToolExecutor(trackingPrompter(state));
+    const ctx = makeContext();
+
+    await executor.execute(
+      "run_workflow",
+      {
+        script: "export const meta={};",
+        capabilities: { hostFunctions: ["notify"] },
+      },
+      ctx,
+    );
+
+    expect(ctx.requireFreshApproval).toBe(true);
+    expect(state.prompted).toBe(true);
+  });
+
+  test("read-only run_workflow launches silently (no fresh approval, no prompt)", async () => {
+    checkResultOverride = { decision: "allow", reason: "allowed" };
+    const state = { prompted: false };
+    const executor = new ToolExecutor(trackingPrompter(state));
+    const ctx = makeContext();
+
+    const result = await executor.execute(
+      "run_workflow",
+      { script: "export const meta={};", capabilities: {} },
+      ctx,
+    );
+
+    expect(ctx.requireFreshApproval).toBeUndefined();
+    expect(state.prompted).toBe(false);
+    expect(result.isError).toBe(false);
+  });
+});

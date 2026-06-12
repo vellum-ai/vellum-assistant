@@ -10,6 +10,7 @@ import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 import {
   CapabilityManifestSchema,
   CapabilityResolutionError,
+  manifestGrantsSideEffects,
   resolveCapabilities,
   WORKFLOW_FORBIDDEN_TOOLS,
   WORKFLOW_READONLY_BASELINE,
@@ -149,5 +150,46 @@ describe("resolveCapabilities", () => {
     for (const forbidden of WORKFLOW_FORBIDDEN_TOOLS) {
       expect(names.has(forbidden)).toBe(false);
     }
+  });
+});
+
+describe("manifestGrantsSideEffects", () => {
+  // The launch-time consent gate keys off this predicate: a run that grants
+  // side-effecting tools/host functions must prompt; a read-only run must not.
+  test("false for an absent or empty manifest (read-only baseline only)", () => {
+    expect(manifestGrantsSideEffects(undefined)).toBe(false);
+    expect(manifestGrantsSideEffects(null)).toBe(false);
+    expect(manifestGrantsSideEffects({})).toBe(false);
+    expect(manifestGrantsSideEffects({ tools: [], hostFunctions: [] })).toBe(
+      false,
+    );
+  });
+
+  test("true when the manifest declares side-effecting tools", () => {
+    expect(manifestGrantsSideEffects({ tools: ["file_write"] })).toBe(true);
+    expect(manifestGrantsSideEffects({ tools: ["bash", "send_email"] })).toBe(
+      true,
+    );
+  });
+
+  test("true when the manifest declares host functions", () => {
+    expect(manifestGrantsSideEffects({ hostFunctions: ["notify"] })).toBe(true);
+  });
+
+  test("persona alone is NOT side-effecting (identity/memory, not tools)", () => {
+    expect(manifestGrantsSideEffects({ persona: true })).toBe(false);
+    expect(
+      manifestGrantsSideEffects({
+        tools: [],
+        hostFunctions: [],
+        persona: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("false (never throws) for a malformed manifest — execute re-parses and rejects it", () => {
+    expect(manifestGrantsSideEffects({ tools: "not-an-array" })).toBe(false);
+    expect(manifestGrantsSideEffects(42)).toBe(false);
+    expect(manifestGrantsSideEffects("nope")).toBe(false);
   });
 });
