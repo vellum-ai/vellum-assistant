@@ -17,7 +17,7 @@ import {
     gateAutoProfile,
     profilePickerLabel,
     visibleProfilesForPicker,
-} from "@/domains/settings/ai/profile-pickers";
+} from "@/assistant/profile-pickers";
 import { useDaemonConfigMutation, useDaemonConfigQuery } from "@/domains/settings/ai/use-daemon-config";
 import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
 

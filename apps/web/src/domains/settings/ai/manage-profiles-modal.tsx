@@ -13,7 +13,7 @@ import type { BlockedDeleteState } from "@/domains/settings/ai/manage-profiles-b
 import { BlockedDeleteModal } from "@/domains/settings/ai/manage-profiles-blocked-delete-modal";
 import { ProfileListItem } from "@/domains/settings/ai/manage-profiles-list-item";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
-import { gateAutoProfile } from "@/domains/settings/ai/profile-pickers";
+import { gateAutoProfile } from "@/assistant/profile-pickers";
 import { useDaemonConfigMutation, useDaemonConfigQuery } from "@/domains/settings/ai/use-daemon-config";
 import { inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 

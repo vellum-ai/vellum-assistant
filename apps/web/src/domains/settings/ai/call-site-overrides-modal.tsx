@@ -27,7 +27,7 @@ import {
     profilePickerLabel,
     selectSeedProfileForOverride,
     visibleProfilesForPicker,
-} from "@/domains/settings/ai/profile-pickers";
+} from "@/assistant/profile-pickers";
 import {
     useDaemonConfigMutation,
     useDaemonConfigQuery,
