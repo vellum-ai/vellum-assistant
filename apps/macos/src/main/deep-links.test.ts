@@ -67,12 +67,6 @@ mock.module("./main-window", () => ({
   ensureVisible: ensureMainWindowVisibleMock,
 }));
 
-// `./native-auth` is called from `handleDeepLink` for auth callbacks.
-const handleAuthCallbackMock = mock(async () => undefined);
-mock.module("./native-auth", () => ({
-  handleAuthCallback: handleAuthCallbackMock,
-}));
-
 const {
   __resetForTesting,
   extractDeepLinkFromArgv,
@@ -108,7 +102,6 @@ beforeEach(() => {
   ipcHandleMock.mockClear();
   ipcOnMock.mockClear();
   ensureMainWindowVisibleMock.mockClear();
-  handleAuthCallbackMock.mockClear();
   windows = [];
   appIsReady = true;
 });
@@ -199,50 +192,6 @@ describe("parseVellumUrl", () => {
     expect(parseVellumUrl("vellum://garbage")).toEqual({
       kind: "unknown",
       url: "vellum://garbage",
-    });
-  });
-
-  test("vellum-assistant://auth/callback?code=abc&state=xyz → authCallback", () => {
-    expect(
-      parseVellumUrl("vellum-assistant://auth/callback?code=abc&state=xyz"),
-    ).toEqual({
-      kind: "authCallback",
-      state: "xyz",
-      code: "abc",
-      error: undefined,
-    });
-  });
-
-  test("auth callback with error and no code", () => {
-    expect(
-      parseVellumUrl(
-        "vellum-assistant://auth/callback?state=xyz&error=signup_closed",
-      ),
-    ).toEqual({
-      kind: "authCallback",
-      state: "xyz",
-      code: undefined,
-      error: "signup_closed",
-    });
-  });
-
-  test("auth callback without state → unknown", () => {
-    expect(
-      parseVellumUrl("vellum-assistant://auth/callback?code=abc"),
-    ).toEqual({
-      kind: "unknown",
-      url: "vellum-assistant://auth/callback?code=abc",
-    });
-  });
-
-  test("auth callback works with vellum:// scheme too", () => {
-    expect(
-      parseVellumUrl("vellum://auth/callback?code=abc&state=xyz"),
-    ).toEqual({
-      kind: "authCallback",
-      state: "xyz",
-      code: "abc",
-      error: undefined,
     });
   });
 
@@ -612,45 +561,5 @@ describe("resolveAcceptedSchemes", () => {
     expect(accepted).toContain("vellum-assistant:");
     expect(accepted).toContain("vellum-assistant-local:");
     expect(accepted).toHaveLength(3);
-  });
-});
-
-describe("handleDeepLink — auth callback", () => {
-  test("routes auth callbacks to native-auth instead of broadcasting", () => {
-    const w = makeWindow();
-    windows = [w];
-
-    handleDeepLink("vellum-assistant://auth/callback?code=abc&state=xyz");
-
-    expect(handleAuthCallbackMock).toHaveBeenCalledWith("xyz", "abc", undefined);
-    expect(w.webContents.send).not.toHaveBeenCalled();
-  });
-
-  test("auth callbacks with errors are forwarded to native-auth", () => {
-    handleDeepLink(
-      "vellum-assistant://auth/callback?state=xyz&error=signup_closed",
-    );
-
-    expect(handleAuthCallbackMock).toHaveBeenCalledWith(
-      "xyz",
-      undefined,
-      "signup_closed",
-    );
-  });
-
-  test("auth callbacks bring the main window forward", () => {
-    handleDeepLink("vellum-assistant://auth/callback?code=abc&state=xyz");
-    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
-  });
-
-  test("auth callbacks are not buffered for the renderer", () => {
-    installDeepLinks();
-    const drainHandler = ipcHandleMock.mock.calls.find(
-      (c) => c[0] === "vellum:deepLinks:drain",
-    )![1] as (event: unknown) => unknown[];
-
-    handleDeepLink("vellum-assistant://auth/callback?code=abc&state=xyz");
-
-    expect(drainHandler(allowedEvent)).toEqual([]);
   });
 });
