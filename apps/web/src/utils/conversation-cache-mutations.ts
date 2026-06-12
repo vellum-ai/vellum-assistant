@@ -224,10 +224,7 @@ export async function refreshConversationRow(
     ]);
     return;
   }
-  updateConversationsCache(queryClient, assistantId, (conversations) => [
-    ...conversations,
-    result,
-  ]);
+  prependToConversationsCache(queryClient, assistantId, result);
 }
 
 export function resolveDraftKey(

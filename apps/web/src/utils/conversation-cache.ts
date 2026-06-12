@@ -36,6 +36,7 @@ import {
 import {
   conversationListInfiniteQueryKey,
   flattenConversationPages,
+  unreadCountQueryKey,
   type ConversationPage,
 } from "@/utils/conversation-list-fetchers";
 import type { Conversation } from "@/types/conversation-types";
@@ -134,6 +135,9 @@ export async function invalidateConversationQueries(
   const promises = [
     queryClient.invalidateQueries({
       queryKey: conversationListInfiniteQueryKey(assistantId),
+    }),
+    queryClient.invalidateQueries({
+      queryKey: unreadCountQueryKey(assistantId),
     }),
     ...flatConversationQueryKeys(assistantId).map((key) =>
       queryClient.invalidateQueries({ queryKey: key }),
