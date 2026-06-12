@@ -21,6 +21,7 @@ import { z } from "zod";
 import { getSoundsDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { publishSoundsConfigUpdated } from "../sync/resource-sync-events.js";
+import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -39,6 +40,27 @@ const soundsConfigSchema = z.object({
   volume: z.number(),
   events: z.record(z.string(), soundEventConfigSchema),
 });
+
+const lenientSoundEventSchema = z
+  .object({
+    enabled: z.boolean().catch(false),
+    sounds: z
+      .array(z.string().catch(""))
+      .catch([])
+      .transform((arr) => arr.filter(Boolean)),
+  })
+  .catch({ enabled: false, sounds: [] });
+
+const lenientSoundsConfigSchema = z
+  .object({
+    globalEnabled: z.boolean().catch(false),
+    volume: z
+      .number()
+      .catch(0.7)
+      .transform((v) => Math.max(0, Math.min(1, v))),
+    events: z.record(z.string(), lenientSoundEventSchema).catch({}),
+  })
+  .catch({ globalEnabled: false, volume: 0.7, events: {} });
 
 const availableSoundSchema = z.object({
   label: z.string(),
@@ -66,53 +88,23 @@ const SOUND_EVENT_IDS = [
   "random",
 ] as const;
 
-interface SoundEventConfig {
-  enabled: boolean;
-  sounds: string[];
-}
+type SoundsConfig = z.infer<typeof soundsConfigSchema>;
 
-interface SoundsConfig {
-  globalEnabled: boolean;
-  volume: number;
-  events: Record<string, SoundEventConfig>;
-}
-
-function defaultConfig(): SoundsConfig {
-  const events: Record<string, SoundEventConfig> = {};
+function defaultEvents(): Record<
+  string,
+  z.infer<typeof soundEventConfigSchema>
+> {
+  const events: Record<string, z.infer<typeof soundEventConfigSchema>> = {};
   for (const id of SOUND_EVENT_IDS) {
     events[id] = { enabled: false, sounds: [] };
   }
-  return { globalEnabled: false, volume: 0.7, events };
+  return events;
 }
 
 function normalise(input: unknown): SoundsConfig {
-  const base = defaultConfig();
-  if (!input || typeof input !== "object") return base;
-  const obj = input as Record<string, unknown>;
-
-  if (typeof obj.globalEnabled === "boolean") {
-    base.globalEnabled = obj.globalEnabled;
-  }
-  if (typeof obj.volume === "number" && Number.isFinite(obj.volume)) {
-    base.volume = Math.max(0, Math.min(1, obj.volume));
-  }
-
-  const eventsInput = obj.events;
-  if (eventsInput && typeof eventsInput === "object") {
-    const eventsObj = eventsInput as Record<string, unknown>;
-    for (const id of SOUND_EVENT_IDS) {
-      const raw = eventsObj[id];
-      if (!raw || typeof raw !== "object") continue;
-      const rec = raw as Record<string, unknown>;
-      const enabled = typeof rec.enabled === "boolean" ? rec.enabled : false;
-      const sounds = Array.isArray(rec.sounds)
-        ? rec.sounds.filter((s): s is string => typeof s === "string")
-        : [];
-      base.events[id] = { enabled, sounds };
-    }
-  }
-
-  return base;
+  const parsed = lenientSoundsConfigSchema.parse(input);
+  const mergedEvents = { ...defaultEvents(), ...parsed.events };
+  return { ...parsed, events: mergedEvents };
 }
 
 function readConfig(): SoundsConfig {
@@ -121,7 +113,7 @@ function readConfig(): SoundsConfig {
     const text = readFileSync(path, "utf-8");
     return normalise(JSON.parse(text));
   } catch {
-    return defaultConfig();
+    return normalise(undefined);
   }
 }
 
@@ -155,13 +147,17 @@ function handleGetSoundsConfig() {
 
 function handlePutSoundsConfig({ body }: RouteHandlerArgs) {
   if (!body) {
-    return readConfig();
+    throw new BadRequestError("Request body is required");
   }
   const parsed = soundsConfigSchema.safeParse(body);
   if (!parsed.success) {
-    return readConfig();
+    throw new BadRequestError(`Invalid sounds config: ${parsed.error.message}`);
   }
-  const config = normalise(parsed.data);
+  const config: SoundsConfig = {
+    ...parsed.data,
+    volume: Math.max(0, Math.min(1, parsed.data.volume)),
+    events: { ...defaultEvents(), ...parsed.data.events },
+  };
   writeConfig(config);
   publishSoundsConfigUpdated();
   return config;
