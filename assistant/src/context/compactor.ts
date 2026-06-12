@@ -244,6 +244,19 @@ export interface CompactionRunResult {
   reason?: string;
   /** True when the provider call threw and no compaction was applied. */
   summaryFailed?: boolean;
+  /**
+   * Set on a successful pass when the deterministic forward-cut advanced to the
+   * tail floor (the start of the most recent complete exchange) but the rebuilt
+   * history still exceeds `targetTokens`. The verbatim tail alone — the
+   * in-flight turn during a tool-heavy round — is over budget, and no boundary
+   * the cut can reach fits it. The window-manager's retry loop reads this to
+   * stop retrying immediately: a second full-context pass would land on the same
+   * floor and free nothing, just paying another full cache write. Omitted (and
+   * treated as `false`) on no-op / skipped / legacy (`targetTokens` absent)
+   * results. Internal-result-only — not persisted or emitted on any external
+   * wire payload.
+   */
+  tailFloorReached?: boolean;
 }
 
 export interface ParsedCompactionResult {
@@ -579,6 +592,20 @@ function isForwardCutBoundary(messages: Message[], index: number): boolean {
   return !m.content.some((block) => block.type === "tool_result");
 }
 
+/** Outcome of the deterministic forward-cut budget enforcement. */
+interface ForwardCutOutcome {
+  /** The chosen tail index (≥ `startIndex`, ≤ `floorIndex`). */
+  index: number;
+  /**
+   * True when the cut ran out of forward boundaries — it advanced to (or could
+   * not advance past) the tail floor — yet the rebuilt-history estimate still
+   * exceeds `targetTokens`. Signals to the retry loop that a second pass cannot
+   * do better: the floor is the same and another full-context LLM pass would
+   * land on the same over-budget tail. See {@link CompactionRunResult.tailFloorReached}.
+   */
+  tailFloorReached: boolean;
+}
+
 /**
  * Deterministic low-watermark enforcement. Given the model's tail choice
  * (already resolved + back-walked for tool pairing), advance the cut FORWARD —
@@ -592,6 +619,12 @@ function isForwardCutBoundary(messages: Message[], index: number): boolean {
  * Every candidate cut must pass {@link isForwardCutBoundary} so tool pairs are
  * never orphaned. Returns the original `startIndex` unchanged when no forward
  * boundary improves on it.
+ *
+ * Reports `tailFloorReached` when the cut exhausts its forward boundaries (the
+ * loop never broke early on a fit) while the best tail it found is still over
+ * `targetTokens` — the floor-dominated case where the verbatim tail (the
+ * in-flight turn during a tool-heavy round) alone exceeds the budget. The
+ * window-manager reads this to skip a futile second pass.
  */
 function advanceTailForBudget(args: {
   messages: Message[];
@@ -599,16 +632,23 @@ function advanceTailForBudget(args: {
   floorIndex: number;
   targetTokens: number;
   estimateTail: (tail: Message[]) => number;
-}): number {
+}): ForwardCutOutcome {
   const { messages, startIndex, floorIndex, targetTokens, estimateTail } = args;
   let chosen = startIndex;
+  // Seed with the model's starting tail so a no-advance run still reports
+  // whether that tail (the floor, when no forward boundary improves on it) fits.
+  let fits = estimateTail(messages.slice(startIndex)) <= targetTokens;
   for (let i = startIndex + 1; i <= floorIndex; i++) {
     if (!isForwardCutBoundary(messages, i)) continue;
     chosen = i;
     const estimate = estimateTail(messages.slice(i));
-    if (estimate <= targetTokens) break;
+    if (estimate <= targetTokens) {
+      fits = true;
+      break;
+    }
+    fits = false;
   }
-  return chosen;
+  return { index: chosen, tailFloorReached: !fits };
 }
 
 /**
@@ -983,6 +1023,12 @@ export async function runAssistantDrivenCompaction(
   // so growing the summarized region after the fact stays coherent without a
   // second LLM call.
   let tailIndex = pairedTailIndex;
+  // Whether the deterministic forward-cut hit the tail floor while still over
+  // `targetTokens` — propagated onto the success result so the window-manager's
+  // retry loop can skip a futile second full-context pass (the floor is the same
+  // next time, so it cannot do better). Only meaningful when a `targetTokens`
+  // budget drove the forward-cut.
+  let tailFloorReached = false;
   if (args.targetTokens != null && pairedTailIndex > 0) {
     const providerName =
       args.provider.tokenEstimationProvider ?? args.provider.name;
@@ -1007,8 +1053,9 @@ export async function runAssistantDrivenCompaction(
       targetTokens: args.targetTokens,
       estimateTail: estimateRebuilt,
     });
-    if (advanced !== pairedTailIndex) {
-      tailIndex = advanced;
+    tailFloorReached = advanced.tailFloorReached;
+    if (advanced.index !== pairedTailIndex) {
+      tailIndex = advanced.index;
       log.info(
         {
           conversationId: args.conversationId,
@@ -1016,6 +1063,7 @@ export async function runAssistantDrivenCompaction(
           tailIndex,
           floorIndex,
           targetTokens: args.targetTokens,
+          tailFloorReached,
         },
         "Advanced compaction tail forward to meet low-watermark token budget",
       );
@@ -1110,6 +1158,7 @@ export async function runAssistantDrivenCompaction(
     summaryText,
     keyState: parsed.keyState,
     summaryFailed: false,
+    tailFloorReached,
   };
 }
 

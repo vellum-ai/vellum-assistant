@@ -115,6 +115,13 @@ export interface ContextWindowResult {
    * `context_too_large`. Omitted on the ordinary compaction path.
    */
   autoCompressApplied?: boolean;
+  /**
+   * Propagated from the compactor: the deterministic forward-cut hit the tail
+   * floor while still over the low-watermark budget. {@link _maybeCompact} reads
+   * it to stop retrying — a second pass lands on the same floor and frees
+   * nothing. See {@link CompactionRunResult.tailFloorReached}.
+   */
+  tailFloorReached?: boolean;
 }
 
 export interface ShouldCompactResult {
@@ -737,6 +744,16 @@ export class ContextWindowManager {
       return { ...result, estimatedInputTokens };
     }
 
+    // The deterministic forward-cut already advanced to the tail floor (the
+    // most recent complete exchange) and still couldn't fit the budget — the
+    // verbatim tail alone is over budget (a tool-heavy in-flight turn). A
+    // second full-context pass would re-derive the same floor and free
+    // nothing, just paying another full cache write. Stop now and surface
+    // `exhausted` so reducers escalate instead of thrashing the compactor.
+    if (result.tailFloorReached) {
+      return { ...result, estimatedInputTokens, exhausted: true };
+    }
+
     // Still above the threshold after one pass — retry on the compacted
     // history, up to the remaining budget. Each retry runs against the
     // PREVIOUS attempt's output, building a tighter summary each time.
@@ -761,6 +778,9 @@ export class ContextWindowManager {
       if (estimatedInputTokens < thresholdTokens) {
         return { ...result, estimatedInputTokens };
       }
+      // Forward-cut hit the floor and still over budget — same stop condition
+      // as the first pass: another retry lands on the same floor.
+      if (nextResult.tailFloorReached) break;
       // Non-productive (compacted but didn't shrink) — stuck compactor.
       if (estimatedInputTokens >= previousEstimate) break;
       previousEstimate = estimatedInputTokens;

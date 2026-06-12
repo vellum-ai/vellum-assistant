@@ -932,6 +932,28 @@ export class AgentLoop {
     // `context_too_large`) instead of looping.
     let overflowLadderExhausted = false;
     let overflowAutoCompressApplied = false;
+    // Per-turn suppression for floor-dominated proactive-compaction thrash.
+    // Set when a proactive (non-overflow) pass completes WITHOUT clearing the
+    // mid-loop gate (the manager returned `exhausted` — it could not get below
+    // its success threshold). During a tool-heavy turn each tool round grows the
+    // PROTECTED in-flight region past the regrowth guard's re-arm delta, but
+    // that region is exactly what compaction cannot touch, so every subsequent
+    // gate check would fire another futile full-context pass. Once set, the
+    // budget gate skips proactive compaction for the rest of THIS turn; it
+    // clears when a later proactive pass succeeds (non-exhausted). Overflow-
+    // driven compaction always bypasses it — a provider-confirmed overflow must
+    // always compact.
+    //
+    // Lifetime is exactly one turn: this is a `run()`-local (like
+    // `budgetGateArmed` / `pendingOverflowSignal` / `overflowLadderExhausted`),
+    // not an instance field. The AgentLoop instance is constructed once per
+    // Conversation and `run()` is invoked once per turn (a checkpoint handoff
+    // breaks out of the loop and the queued message resumes in a fresh `run()`),
+    // so a `run()`-local resets implicitly at every turn start — no manual reset
+    // point is needed, and suppression can never leak across turns the way an
+    // instance field would. (The regrowth watermark, by contrast, lives on the
+    // cross-turn `compactionCircuit` precisely because it must persist.)
+    let proactiveCompactionFutileThisTurn = false;
     const rlog = log.child({ requestId });
 
     // Conversation directory for the result-time tool-result spool/stub pass.
@@ -1097,15 +1119,33 @@ export class AgentLoop {
               !overflowDriven &&
               watermark !== null &&
               estimated - watermark < minRegrowth;
-            if (shouldCompact && compactionAllowed && regrowthGuardSkip) {
+            // Floor-dominated thrash guard: a proactive pass earlier this turn
+            // already exhausted the compactor (couldn't clear the gate because
+            // the over-budget region is the protected in-flight turn). The
+            // regrowth guard cannot catch this — each tool round's growth lands
+            // in that protected region and re-arms the regrowth delta — so this
+            // per-turn latch is what stops the repeated futile passes. Overflow-
+            // driven compaction bypasses it.
+            const proactiveFutileSkip =
+              !overflowDriven && proactiveCompactionFutileThisTurn;
+            if (
+              shouldCompact &&
+              compactionAllowed &&
+              (regrowthGuardSkip || proactiveFutileSkip)
+            ) {
               rlog.info(
                 {
                   turn: toolUseTurns,
                   estimated,
                   postCompactionWatermark: watermark,
                   minRegrowth,
+                  reason: proactiveFutileSkip
+                    ? "proactive_compaction_exhausted_this_turn"
+                    : "history_not_regrown",
                 },
-                "Skipping compaction: history has not regrown past the post-compaction watermark — re-compacting would not free more",
+                proactiveFutileSkip
+                  ? "Skipping compaction: a proactive pass already exhausted the compactor this turn — the over-budget region is the protected in-flight turn, so re-compacting would free nothing"
+                  : "Skipping compaction: history has not regrown past the post-compaction watermark — re-compacting would not free more",
               );
             } else if (shouldCompact && compactionAllowed) {
               rlog.info(
@@ -1145,6 +1185,12 @@ export class AgentLoop {
                 // ends instead of looping.
                 overflowLadderExhausted = attempt.exhausted;
                 overflowAutoCompressApplied = attempt.autoCompressApplied;
+              } else {
+                // Proactive (non-overflow) pass. If it exhausted the compactor
+                // without clearing the gate, latch suppression so later gate
+                // checks this turn skip the futile re-pass; a pass that DID
+                // clear the gate (non-exhausted) releases the latch.
+                proactiveCompactionFutileThisTurn = attempt.exhausted;
               }
             }
           }

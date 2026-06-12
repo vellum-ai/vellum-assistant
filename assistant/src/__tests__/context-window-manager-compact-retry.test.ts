@@ -47,6 +47,7 @@ interface CompactionRunResult {
   summaryText: string;
   reason?: string;
   summaryFailed?: boolean;
+  tailFloorReached?: boolean;
 }
 
 let runCalls: Array<{
@@ -305,6 +306,69 @@ describe("ContextWindowManager.maybeCompact retry budget", () => {
     expect(runCalls.length).toBe(1);
     expect(result.exhausted).toBe(true);
     expect(result.estimatedInputTokens).toBe(165_000);
+  });
+
+  test("tailFloorReached after one pass → no futile retry, exhausted", async () => {
+    // Pass 1 compacted but stayed above threshold AND the forward-cut hit the
+    // tail floor — a second full-context pass would land on the same floor and
+    // free nothing. The manager must NOT run attempt 2 even though maxAttempts=3.
+    // Pre-compaction 180k → attempt-1 recompute 165k (above 140k threshold).
+    estimateReturns.push(180_000, 165_000);
+    runResults = [
+      compactResult({ estimatedInputTokens: 165_000, tailFloorReached: true }),
+      // Never consumed — proves no retry fired:
+      compactResult({ estimatedInputTokens: 50_000 }),
+    ];
+
+    const manager = buildManager(3);
+    const result = await manager.maybeCompact(makeMessages(10));
+
+    expect(runCalls.length).toBe(1);
+    expect(result.exhausted).toBe(true);
+    expect(result.estimatedInputTokens).toBe(165_000);
+  });
+
+  test("tailFloorReached but already under threshold → ship, not exhausted", async () => {
+    // The floor flag only forces exhaustion when still over the gate. A pass
+    // that cleared the threshold ships as a clean success regardless.
+    estimateReturns.push(180_000, 50_000);
+    runResults = [
+      compactResult({ estimatedInputTokens: 50_000, tailFloorReached: true }),
+    ];
+
+    const manager = buildManager(3);
+    const result = await manager.maybeCompact(makeMessages(10));
+
+    expect(runCalls.length).toBe(1);
+    expect(result.compacted).toBe(true);
+    expect(result.exhausted).toBeUndefined();
+    expect(result.estimatedInputTokens).toBe(50_000);
+  });
+
+  test("tailFloorReached on a retry pass → stops the retry loop", async () => {
+    // Pass 1 shrank but stayed above threshold WITHOUT hitting the floor, so a
+    // retry runs. Pass 2 shrinks further, still above threshold, and this time
+    // hits the floor — the loop must stop before attempt 3.
+    // 180k → attempt-1 165k → attempt-2 150k (both above 140k).
+    estimateReturns.push(180_000, 165_000, 150_000);
+    runResults = [
+      compactResult({ estimatedInputTokens: 165_000, compactedMessages: 3 }),
+      compactResult({
+        estimatedInputTokens: 150_000,
+        compactedMessages: 2,
+        tailFloorReached: true,
+      }),
+      // Never consumed:
+      compactResult({ estimatedInputTokens: 50_000 }),
+    ];
+
+    const manager = buildManager(3);
+    const result = await manager.maybeCompact(makeMessages(10));
+
+    expect(runCalls.length).toBe(2);
+    expect(result.exhausted).toBe(true);
+    expect(result.estimatedInputTokens).toBe(150_000);
+    expect(result.compactedMessages).toBe(5);
   });
 });
 

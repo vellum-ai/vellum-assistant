@@ -152,6 +152,10 @@ describe("runAssistantDrivenCompaction — low-watermark forward cut", () => {
     // index 8): far fewer tail messages survive than the model kept.
     expect(result.preservedTailMessages).toBeLessThan(messages.length - 8);
     expect(result.preservedTailMessages).toBeGreaterThan(0);
+
+    // The cut found a tail that fits the budget, so the floor was not the
+    // binding constraint — no futile-retry signal.
+    expect(result.tailFloorReached).toBe(false);
   });
 
   test("never advances past the most-recent-complete-exchange floor", async () => {
@@ -186,6 +190,10 @@ describe("runAssistantDrivenCompaction — low-watermark forward cut", () => {
       result.messages.length - (result.preservedTailMessages ?? 0),
     );
     expect(tail[0]?.role).toBe("user");
+    // The cut advanced to the floor but the surviving tail is still over the
+    // (unreachably tiny) target — this is the floor-dominated case the
+    // window-manager uses to skip a futile retry.
+    expect(result.tailFloorReached).toBe(true);
   });
 
   test("forward cut lands on a clean user boundary, never orphaning a tool_result", async () => {
