@@ -35,10 +35,13 @@ export type SubagentToolGateMode = "wire" | "execution";
  * transport interface, no channel capabilities), which drops client-gated
  * tools (`host_*`, `ui_*`, `app_open`, `request_system_permission`) from
  * the wire definitions and breaks the cache prefix anyway. When this pin is
- * set on the conversation, `isToolActiveForContext` reads `hasNoClient`,
- * `transportInterface`, and `channelCapabilities` exclusively from the pin
- * — an absent optional field pins the value to `undefined`; there is no
- * fall-through to the live conversation state.
+ * set on the conversation, `isToolActiveForContext` reads `hasNoClient` and
+ * `transportInterface` exclusively from the pin and treats channel
+ * capabilities as unset — an absent optional field pins the value to
+ * `undefined`; there is no fall-through to the live conversation state.
+ * (Interactive-interface turns never set channel capabilities, so unset IS
+ * parity for desktop/web sources; channel-routed sources resolve every tool
+ * gate identically under `hasNoClient: true` with or without them.)
  *
  * Tool-definition resolution ONLY. The executor callback and host-proxy
  * attachment paths never read the pin, so it cannot make a host tool
@@ -51,16 +54,6 @@ export interface WakeToolContextPin {
   hasNoClient: boolean;
   /** The interface the source's live turns ran on (e.g. `"macos"`). */
   transportInterface?: InterfaceId;
-  /**
-   * The source's live-turn channel capabilities. Interactive-interface
-   * (desktop/web HTTP) turns never set channel capabilities, so parity for
-   * those sources means leaving this unset.
-   */
-  channelCapabilities?: {
-    channel: string;
-    supportsDynamicUi: boolean;
-    clientOS?: string;
-  };
 }
 
 /**

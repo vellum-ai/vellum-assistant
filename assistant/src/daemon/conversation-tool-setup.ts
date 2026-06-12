@@ -536,13 +536,12 @@ export function isToolActiveForContext(
   // Execution-gate-mode wakes pin the client-context inputs so the wire tool
   // surface matches the SOURCE conversation's live turns rather than the
   // fork's clientless hydration (see {@link WakeToolContextPin}). When the
-  // pin is present it replaces all three values — absent pin fields pin
-  // `undefined`, never falling through to live state.
+  // pin is present it replaces all three values — channel capabilities pin
+  // to `undefined` (see the pin's doc for why unset IS parity), never
+  // falling through to live state.
   const pin = ctx.toolContextPin;
   const hasNoClient = pin ? pin.hasNoClient : ctx.hasNoClient;
-  const channelCapabilities = pin
-    ? pin.channelCapabilities
-    : ctx.channelCapabilities;
+  const channelCapabilities = pin ? undefined : ctx.channelCapabilities;
   const transportInterface = pin
     ? pin.transportInterface
     : ctx.transportInterface;
