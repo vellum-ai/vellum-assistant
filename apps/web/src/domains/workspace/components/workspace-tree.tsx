@@ -34,12 +34,11 @@ import {
 } from "lucide-react";
 import {
     type FormEvent,
-    type KeyboardEvent,
     useCallback,
     useMemo,
+    useRef,
     useState,
 } from "react";
-import { createPortal } from "react-dom";
 
 import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
 import { isHiddenPath } from "@/domains/workspace/utils/is-hidden-path";
@@ -61,8 +60,9 @@ import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { ContextMenu } from "@vellumai/design-library/components/context-menu";
 import { Input } from "@vellumai/design-library/components/input";
+import { Menu } from "@vellumai/design-library/components/menu";
+import { Modal } from "@vellumai/design-library/components/modal";
 import { PanelItem } from "@vellumai/design-library/components/panel-item";
-import { Popover } from "@vellumai/design-library/components/popover";
 
 export type { WorkspaceSortMode };
 
@@ -345,7 +345,7 @@ function TreeNode({
 }
 
 // ---------------------------------------------------------------------------
-// Name dialog (create / rename) — portaled to document.body
+// Name dialog (create / rename)
 // ---------------------------------------------------------------------------
 
 interface NameItemDialogProps {
@@ -371,6 +371,7 @@ function NameItemDialog({
   pending,
   error,
 }: NameItemDialogProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(initialName ?? "");
 
   const trimmed = name.trim();
@@ -381,62 +382,69 @@ function NameItemDialog({
     if (canSubmit) onConfirm(trimmed);
   };
 
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Escape") onCancel();
-  };
-
-  return createPortal(
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onKeyDown={handleKeyDown}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onCancel();
+  return (
+    <Modal.Root
+      open
+      onOpenChange={(next) => {
+        if (!next && !pending) onCancel();
       }}
     >
-      <form
-        onSubmit={handleSubmit}
-        className="mx-4 w-full max-w-sm rounded-xl border p-5 shadow-xl"
-        style={{
-          backgroundColor: "var(--surface-lift)",
-          borderColor: "var(--border-base)",
+      <Modal.Content
+        size="sm"
+        hideCloseButton
+        aria-describedby={undefined}
+        // Select-all on open so typing replaces a pre-filled name in one
+        // motion; the selection is deferred a frame because iOS Safari
+        // ignores selection APIs called synchronously during focus.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          const input = inputRef.current;
+          if (input) {
+            input.focus();
+            requestAnimationFrame(() => {
+              input.setSelectionRange(0, input.value.length);
+            });
+          }
+        }}
+        onEscapeKeyDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!pending) onCancel();
         }}
       >
-        <h2
-          className="mb-3 text-title-small"
-          style={{ color: "var(--content-default)" }}
-        >
-          {title}
-        </h2>
-        <Input
-          autoFocus
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder={placeholder}
-          errorText={error ?? undefined}
-          fullWidth
-          wrapperClassName="mb-3"
-          autoComplete="off"
-          spellCheck={false}
-        />
-        <div className="flex justify-end gap-2">
-          <Button
-            type="button"
-            variant="outlined"
-            onClick={onCancel}
-            disabled={pending}
-          >
-            Cancel
-          </Button>
-          <Button type="submit" disabled={!canSubmit}>
-            {pending ? pendingLabel : confirmLabel}
-          </Button>
-        </div>
-      </form>
-    </div>,
-    document.body,
+        <form onSubmit={handleSubmit}>
+          <Modal.Header>
+            <Modal.Title>{title}</Modal.Title>
+          </Modal.Header>
+          <Modal.Body>
+            <Input
+              ref={inputRef}
+              label="Name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={placeholder}
+              errorText={error ?? undefined}
+              autoComplete="off"
+              spellCheck={false}
+              fullWidth
+            />
+          </Modal.Body>
+          <Modal.Footer>
+            <Button
+              type="button"
+              variant="outlined"
+              onClick={onCancel}
+              disabled={pending}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" disabled={!canSubmit}>
+              {pending ? pendingLabel : confirmLabel}
+            </Button>
+          </Modal.Footer>
+        </form>
+      </Modal.Content>
+    </Modal.Root>
   );
 }
 
@@ -880,8 +888,8 @@ export function WorkspaceTreeCreateMenu({
   }
 
   return (
-    <Popover.Root open={open} onOpenChange={onOpenChange}>
-      <Popover.Trigger asChild>
+    <Menu.Root open={open} onOpenChange={onOpenChange}>
+      <Menu.Trigger asChild>
         <Button
           type="button"
           variant="ghost"
@@ -891,44 +899,21 @@ export function WorkspaceTreeCreateMenu({
           title="New file or folder"
           tintColor="var(--content-tertiary)"
         />
-      </Popover.Trigger>
-      <Popover.Content
-        align="end"
-        sideOffset={4}
-        role="menu"
-        className="w-44 overflow-hidden p-0"
-      >
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={() => onSelectKind("file")}
-          className="w-full justify-start rounded-none"
-          leftIcon={
-            <FilePlus
-              aria-hidden
-              style={{ color: "var(--content-tertiary)" }}
-            />
-          }
-          role="menuitem"
+      </Menu.Trigger>
+      <Menu.Content align="end" sideOffset={4}>
+        <Menu.Item
+          leftIcon={<FilePlus className="h-3.5 w-3.5" />}
+          onSelect={() => onSelectKind("file")}
         >
           New File
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={() => onSelectKind("folder")}
-          className="w-full justify-start rounded-none"
-          leftIcon={
-            <FolderPlus
-              aria-hidden
-              style={{ color: "var(--content-tertiary)" }}
-            />
-          }
-          role="menuitem"
+        </Menu.Item>
+        <Menu.Item
+          leftIcon={<FolderPlus className="h-3.5 w-3.5" />}
+          onSelect={() => onSelectKind("folder")}
         >
           New Folder
-        </Button>
-      </Popover.Content>
-    </Popover.Root>
+        </Menu.Item>
+      </Menu.Content>
+    </Menu.Root>
   );
 }
