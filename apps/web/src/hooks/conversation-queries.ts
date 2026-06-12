@@ -13,6 +13,7 @@
  * - https://tanstack.com/query/latest/docs/framework/react/guides/query-options
  */
 
+import { useCallback, useMemo } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 
 import {
@@ -76,9 +77,18 @@ export function useConversationListQuery(
     enabled: enabled && Boolean(assistantId) && isOrgReady,
   });
 
-  const conversations = query.data
-    ? flattenConversationPages(query.data.pages)
-    : EMPTY_CONVERSATIONS;
+  const conversations = useMemo(
+    () => (query.data ? flattenConversationPages(query.data.pages) : EMPTY_CONVERSATIONS),
+    [query.data],
+  );
+
+  const refetch = useCallback(() => {
+    void query.refetch();
+  }, [query.refetch]);
+
+  const fetchNextPage = useCallback(() => {
+    void query.fetchNextPage();
+  }, [query.fetchNextPage]);
 
   return {
     conversations,
@@ -86,12 +96,8 @@ export function useConversationListQuery(
     isPending: query.isPending,
     isError: query.isError,
     error: query.error,
-    refetch: () => {
-      void query.refetch();
-    },
-    fetchNextPage: () => {
-      void query.fetchNextPage();
-    },
+    refetch,
+    fetchNextPage,
     hasNextPage: query.hasNextPage,
     isFetchingNextPage: query.isFetchingNextPage,
   };

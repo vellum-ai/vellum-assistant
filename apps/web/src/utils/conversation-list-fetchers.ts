@@ -15,9 +15,15 @@
 import { queryOptions } from "@tanstack/react-query";
 import { captureError } from "@/lib/sentry/capture-error";
 import { conversationsGet } from "@/generated/daemon/sdk.gen";
-import { conversationsGetInfiniteQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import {
+  conversationsGetInfiniteQueryKey,
+  conversationsUnreadcountGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 import type { Options } from "@/generated/daemon/sdk.gen";
-import type { ConversationsGetData } from "@/generated/daemon/types.gen";
+import type {
+  ConversationsGetData,
+  ConversationsUnreadcountGetData,
+} from "@/generated/daemon/types.gen";
 import {
   ApiError,
   assertHasResponse,
@@ -119,6 +125,17 @@ export function flattenConversationPages(
   pages: ConversationPage[],
 ): Conversation[] {
   return pages.flatMap((page) => page.conversations);
+}
+
+/**
+ * Build the query key for the unread conversation count endpoint.
+ * Used by `invalidateConversationQueries` and optimistic updaters.
+ */
+export function unreadCountQueryKey(assistantId: string | null) {
+  const opts: Options<ConversationsUnreadcountGetData> = {
+    path: { assistant_id: assistantId ?? "" },
+  };
+  return conversationsUnreadcountGetQueryKey(opts);
 }
 
 // ---------------------------------------------------------------------------
