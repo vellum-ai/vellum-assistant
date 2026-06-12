@@ -458,7 +458,16 @@ BUN_BUNDLE_CACHE_DIR="$SCRIPT_DIR/.bun-bundle-cache/${BUN_VERSION}"
 # bundles and extracts it at runtime, but macOS rejects the dlopen because the
 # extracted binary's Team ID differs from the main process.  Externalising it
 # lets the lazy wrapper in avatar/resvg-lazy.ts handle the missing module.
-BUN_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*" --external "@resvg/resvg-js" --external "@resvg/resvg-js-darwin-arm64" --external "@resvg/resvg-js-darwin-x64")
+# react-devtools-core is an optional peer dep of Ink, only loaded when
+# process.env.DEV is truthy.  Ink's try/catch handles the missing module
+# gracefully, so there is no need to bundle it into the compiled binary.
+BUN_EXTERNAL_FLAGS=(--external electron --external "chromium-bidi/*" --external "@resvg/resvg-js" --external "@resvg/resvg-js-darwin-arm64" --external "@resvg/resvg-js-darwin-x64" --external react-devtools-core)
+
+# drizzle-kit ≥0.31 bundles dynamic imports for every supported database driver
+# in its api.mjs.  The gateway only uses SQLite via drizzle-orm — these optional
+# driver packages are never called at runtime.  Mark them external so
+# bun --compile doesn't fail trying to resolve them.
+GATEWAY_EXTERNAL_FLAGS=(--external "@electric-sql/pglite" --external pg --external postgres --external "@vercel/postgres" --external "@neondatabase/serverless" --external mysql2 --external "mysql2/promise" --external "@planetscale/database" --external "@libsql/client" --external better-sqlite3 --external "@aws-sdk/client-rds-data")
 
 # ---------------------------------------------------------------------------
 # build_bun_binary — compile a TypeScript project to a native binary via Bun.
@@ -709,12 +718,14 @@ build_binaries() {
         "$SCRIPT_DIR/assistant-bin" "vellum-assistant" "${cli_flags[@]}" &
     pids+=($!)
 
+    local vellum_cli_flags=("${BUN_EXTERNAL_FLAGS[@]}" "${env_flags[@]}")
     SKIP_BUN_INSTALL=1 build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/cli-bin" "vellum-cli" "${env_flags[@]}" &
+        "$SCRIPT_DIR/cli-bin" "vellum-cli" "${vellum_cli_flags[@]}" &
     pids+=($!)
 
+    local gateway_flags=("${GATEWAY_EXTERNAL_FLAGS[@]}" "${env_flags[@]}")
     SKIP_BUN_INSTALL=1 build_bun_binary "$GATEWAY_SRC_DIR" "$GATEWAY_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/gateway-bin" "vellum-gateway" "${env_flags[@]}" &
+        "$SCRIPT_DIR/gateway-bin" "vellum-gateway" "${gateway_flags[@]}" &
     pids+=($!)
 
     SKIP_BUN_INSTALL=1 build_bun_binary "$CES_SRC_DIR" "$CES_SRC_DIR/src/main.ts" \
@@ -1327,7 +1338,7 @@ if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$CLI_SRC_DIR/src" ] && command -v
 fi
 if [ "$CLI_BIN_NEEDS_BUILD" = true ]; then
     build_bun_binary "$CLI_SRC_DIR" "$CLI_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/cli-bin" "vellum-cli"
+        "$SCRIPT_DIR/cli-bin" "vellum-cli" "${BUN_EXTERNAL_FLAGS[@]}"
 fi
 
 # Also rebuild if CLI binary changed or newly added
@@ -1351,7 +1362,7 @@ if [ "${SKIP_BUN_REBUILD:-}" != "1" ] && [ -d "$GATEWAY_SRC_DIR/src" ] && comman
 fi
 if [ "$GATEWAY_BIN_NEEDS_BUILD" = true ]; then
     build_bun_binary "$GATEWAY_SRC_DIR" "$GATEWAY_SRC_DIR/src/index.ts" \
-        "$SCRIPT_DIR/gateway-bin" "vellum-gateway"
+        "$SCRIPT_DIR/gateway-bin" "vellum-gateway" "${GATEWAY_EXTERNAL_FLAGS[@]}"
 fi
 # Always refresh WASM assets (not embedded by bun --compile).
 # These must be copied even when the gateway binary is reused from a previous build.

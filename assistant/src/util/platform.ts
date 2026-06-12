@@ -72,7 +72,7 @@ export function normalizeAssistantId(assistantId: string): string {
 }
 
 /**
- * Returns the internal data directory (~/.vellum/workspace/data). Runtime
+ * Returns the internal data directory ($VELLUM_WORKSPACE_DIR/data). Runtime
  * databases, logs, memory indices, and other internal state live here.
  */
 export function getDataDir(): string {
@@ -96,7 +96,7 @@ export function getConfigQuarantineNoticePath(): string {
 }
 
 /**
- * Returns the embedding models directory (~/.vellum/workspace/embedding-models).
+ * Returns the embedding models directory ($VELLUM_WORKSPACE_DIR/embedding-models).
  * Downloaded embedding runtime (onnxruntime-node, transformers bundle, model weights)
  * is stored here, downloaded post-hatch rather than shipped with the app.
  */
@@ -113,7 +113,7 @@ export function getSandboxRootDir(): string {
 }
 
 /**
- * Returns the default sandbox working directory (~/.vellum/workspace).
+ * Returns the default sandbox working directory ($VELLUM_WORKSPACE_DIR).
  * This is the workspace root — tool working directories should use this
  * path unless explicitly overridden.
  */
@@ -122,7 +122,7 @@ export function getSandboxWorkingDir(): string {
 }
 
 /**
- * Returns the sounds directory (~/.vellum/workspace/data/sounds).
+ * Returns the sounds directory ($VELLUM_WORKSPACE_DIR/data/sounds).
  * Custom sound files and sound configuration live here.
  */
 export function getSoundsDir(): string {
@@ -137,7 +137,7 @@ export function getAvatarDir(): string {
 /** Canonical filename for the custom avatar PNG. */
 export const AVATAR_IMAGE_FILENAME = "avatar-image.png";
 
-/** Returns the canonical avatar image path (~/.vellum/workspace/data/avatar/avatar-image.png). */
+/** Returns the canonical avatar image path ($VELLUM_WORKSPACE_DIR/data/avatar/avatar-image.png). */
 export function getAvatarImagePath(): string {
   return join(getAvatarDir(), AVATAR_IMAGE_FILENAME);
 }
@@ -145,7 +145,7 @@ export function getAvatarImagePath(): string {
 /** Canonical filename for the avatar state manifest. */
 export const AVATAR_MANIFEST_FILENAME = "avatar.json";
 
-/** Returns the canonical avatar manifest path (~/.vellum/workspace/data/avatar/avatar.json). */
+/** Returns the canonical avatar manifest path ($VELLUM_WORKSPACE_DIR/data/avatar/avatar.json). */
 export function getAvatarManifestPath(): string {
   return join(getAvatarDir(), AVATAR_MANIFEST_FILENAME);
 }
@@ -203,7 +203,7 @@ export function getProtectedDir(): string {
   return join(vellumRoot(), "protected");
 }
 
-/** Returns ~/.vellum/workspace/signals — the directory for IPC signal files. */
+/** Returns $VELLUM_WORKSPACE_DIR/signals — the directory for IPC signal files. */
 export function getSignalsDir(): string {
   return join(getWorkspaceDir(), "signals");
 }
@@ -212,22 +212,22 @@ export function getSignalsDir(): string {
 // These expose specific root-level file paths so callers don't need to
 // import getRootDir() directly. getRootDir() is intentionally unexported.
 
-/** Returns the path to the daemon stderr log (~/.vellum/workspace/logs/daemon-stderr.log). */
+/** Returns the path to the daemon stderr log ($VELLUM_WORKSPACE_DIR/logs/daemon-stderr.log). */
 export function getDaemonStderrLogPath(): string {
   return join(getWorkspaceDir(), "logs", "daemon-stderr.log");
 }
 
-/** Returns the path to the daemon startup lock file (~/.vellum/workspace/daemon-startup.lock). */
+/** Returns the path to the daemon startup lock file ($VELLUM_WORKSPACE_DIR/daemon-startup.lock). */
 export function getDaemonStartupLockPath(): string {
   return join(getWorkspaceDir(), "daemon-startup.lock");
 }
 
-/** Returns the directory for externally-installed packages (~/.vellum/workspace/external). */
+/** Returns the directory for externally-installed packages ($VELLUM_WORKSPACE_DIR/external). */
 export function getExternalDir(): string {
   return join(getWorkspaceDir(), "external");
 }
 
-/** Returns the directory for installed binaries (~/.vellum/workspace/bin). */
+/** Returns the directory for installed binaries ($VELLUM_WORKSPACE_DIR/bin). */
 export function getBinDir(): string {
   return join(getWorkspaceDir(), "bin");
 }
@@ -237,7 +237,7 @@ export function getDotEnvPath(): string {
   return join(vellumRoot(), ".env");
 }
 
-/** Returns the path to the embed-worker PID file (~/.vellum/workspace/embed-worker.pid). */
+/** Returns the path to the embed-worker PID file ($VELLUM_WORKSPACE_DIR/embed-worker.pid). */
 export function getEmbedWorkerPidPath(): string {
   return join(getWorkspaceDir(), "embed-worker.pid");
 }
@@ -273,17 +273,17 @@ export function getWorkspaceDirDisplay(): string {
   return abs;
 }
 
-/** Returns ~/.vellum/workspace/config.json */
+/** Returns $VELLUM_WORKSPACE_DIR/config.json */
 export function getWorkspaceConfigPath(): string {
   return join(getWorkspaceDir(), "config.json");
 }
 
-/** Returns ~/.vellum/workspace/skills */
+/** Returns $VELLUM_WORKSPACE_DIR/skills */
 export function getWorkspaceSkillsDir(): string {
   return join(getWorkspaceDir(), "skills");
 }
 
-/** Returns ~/.vellum/workspace/hooks */
+/** Returns $VELLUM_WORKSPACE_DIR/hooks */
 export function getWorkspaceHooksDir(): string {
   return join(getWorkspaceDir(), "hooks");
 }
@@ -319,12 +319,12 @@ export function getWorkspaceRoutesDir(): string {
   return join(getWorkspaceDir(), "routes");
 }
 
-/** Returns ~/.vellum/workspace/deprecated — transitional files slated for removal. */
+/** Returns $VELLUM_WORKSPACE_DIR/deprecated — transitional files slated for removal. */
 export function getDeprecatedDir(): string {
   return join(getWorkspaceDir(), "deprecated");
 }
 
-/** Returns ~/.vellum/workspace/conversations */
+/** Returns $VELLUM_WORKSPACE_DIR/conversations */
 export function getConversationsDir(): string {
   return join(getWorkspaceDir(), "conversations");
 }

@@ -376,7 +376,6 @@ export interface LockfileAssistant {
   runtimeUrl?: string;
   species?: string;
   hatchedAt?: string;
-  version?: string;
   organizationId?: string;
   resources?: LocalAssistantResources;
 }

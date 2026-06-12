@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   geminiThinkingLevels,
+  modelSupportsThinking,
   resolveProfileParamVisibility,
   VISIBILITY_NONE,
 } from "@/domains/settings/ai/profile-param-visibility";
@@ -76,6 +77,18 @@ describe("resolveProfileParamVisibility", () => {
     expect(vis.temperature).toBe(false);
     expect(vis.thinking).toBe(false);
     expect(vis.thinkingLevel).toBe(false);
+  });
+});
+
+describe("modelSupportsThinking", () => {
+  test("matches mixed-case catalog ids case-insensitively (minimax)", () => {
+    // The web catalog stores minimax ids mixed-case ("MiniMax-M3") while
+    // resolveProfileParamVisibility lowercases the model id before the
+    // catalog lookup, so the exact-id find must be case-insensitive or the
+    // minimax entries are unreachable.
+    expect(modelSupportsThinking("minimax", "minimax-m3")).toBe(true);
+    expect(modelSupportsThinking("minimax", "MiniMax-M2.7")).toBe(true);
+    expect(modelSupportsThinking("minimax", "minimax-unknown")).toBe(false);
   });
 });
 

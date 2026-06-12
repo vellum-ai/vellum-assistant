@@ -30,10 +30,10 @@ import {
     channelsAvailableGetOptions,
     channelsReadinessGetOptions,
     channelsReadinessGetQueryKey,
-    contactchannelsByContactChannelIdPatchMutation,
     contactsGetOptions,
     contactsGetQueryKey,
-    contactsMergePostMutation,
+    useContactchannelsByContactChannelIdPatchMutation,
+    useContactsMergePostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
     channelsAvailableGet,
@@ -300,10 +300,7 @@ export function ContactsPage({
     onSettled: () => invalidateContacts(),
   });
 
-  const mergeMutation = useMutation({
-    ...contactsMergePostMutation({
-      path: { assistant_id: assistantId },
-    }),
+  const mergeMutation = useContactsMergePostMutation({
     onMutate: async () => {
       await queryClient.cancelQueries({ queryKey: contactsQueryKey });
     },
@@ -368,8 +365,7 @@ export function ContactsPage({
     onSettled: () => invalidateReadiness(),
   });
 
-  const revokeMutation = useMutation({
-    ...contactchannelsByContactChannelIdPatchMutation(),
+  const revokeMutation = useContactchannelsByContactChannelIdPatchMutation({
     onSuccess: () => invalidateContacts(),
   });
 

@@ -6,6 +6,7 @@ import {
 } from "@/components/command-palette/command-palette";
 import { useAssistantLifecycle } from "@/assistant/use-lifecycle";
 import { useCommandPaletteSections } from "@/domains/chat/hooks/use-command-palette-sections";
+import { useAppTheme } from "@/hooks/use-app-theme";
 import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";
 import { useConversationListQuery } from "@/hooks/conversation-queries";
 import { resolveSelectedAssistantId } from "@/assistant/selection";
@@ -76,8 +77,9 @@ export function CommandPaletteWindowPage() {
   const sessionStatus = useAuthStore.use.sessionStatus();
   const isSessionInitializing = useIsSessionInitializing();
   const hasPlatformSession = useHasPlatformSession();
-  // This standalone route intentionally bypasses RootLayout; run the small
-  // bootstrap slice that resolves the active assistant for recents/search.
+  // This standalone route bypasses RootLayout; bootstrap theme + feature flags
+  // so CSS custom properties resolve to the user's stored preference.
+  useAppTheme();
   useClientFeatureFlagSync(!isSessionInitializing);
   useAssistantLifecycle({
     sessionStatus,

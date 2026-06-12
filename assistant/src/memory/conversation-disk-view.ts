@@ -2,7 +2,7 @@
  * Write-through disk view for conversations.
  *
  * Projects conversation metadata, messages, and attachments to a browsable
- * filesystem layout under ~/.vellum/workspace/conversations/. This enables
+ * filesystem layout under $VELLUM_WORKSPACE_DIR/conversations/. This enables
  * the assistant to search/read/manipulate conversation data using standard
  * file tools.
  *

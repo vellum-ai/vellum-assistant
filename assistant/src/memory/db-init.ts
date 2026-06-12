@@ -136,6 +136,7 @@ import {
   migrateMemoryGraphImageRefs,
   migrateMemoryItemSupersession,
   migrateMemoryRecallLogsQueryContext,
+  migrateMemoryRetrospectiveRememberedLog,
   migrateMemoryRetrospectiveState,
   migrateMemoryV2ActivationLogs,
   migrateMemoryV2InjectionEvents,
@@ -498,6 +499,7 @@ export function initializeDb(): void {
     migrateToolInvocationsTelemetryColumns,
     createSkillLoadedEventsTable,
     migrateConversationsSurfacedAt,
+    migrateMemoryRetrospectiveRememberedLog,
   ];
 
   // Run each migration step, catching and logging individual failures so one

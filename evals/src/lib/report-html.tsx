@@ -21,6 +21,12 @@ import type {
   SubprocessLogFile,
 } from "./report-data";
 import type { TranscriptTurn } from "./transcript";
+import {
+  buildTranscriptView,
+  type AssistantBlock,
+  type AssistantMessageView,
+} from "./transcript-view";
+import type { AgentEvent } from "./adapter";
 import { priceUsageRecord } from "./pricing";
 
 function formatNumber(value: number | undefined, digits = 2): string {
@@ -265,6 +271,19 @@ td .row-link { display: block; }
 .turn.simulator { border-color: rgba(139,92,246,.24); }
 .turn-head { display: flex; justify-content: space-between; gap: 14px; color: var(--muted); font-size: 12px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; }
 .turn-body { white-space: pre-wrap; line-height: 1.5; }
+.turn-body + .turn-body, .turn .block-thinking + .turn-body, .turn .block-tool + .turn-body { margin-top: 10px; }
+.block-thinking { margin: 8px 0; border: 1px dashed rgba(180,190,255,.24); border-radius: 12px; background: rgba(255,255,255,.025); }
+.block-thinking > summary { cursor: pointer; padding: 8px 12px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; user-select: none; }
+.block-thinking-body { padding: 0 12px 10px; color: var(--muted); font-size: 13px; line-height: 1.5; white-space: pre-wrap; font-style: italic; }
+.block-tool { margin: 8px 0; border: 1px solid rgba(34,211,238,.2); border-radius: 12px; background: rgba(34,211,238,.04); }
+.block-tool > summary { cursor: pointer; padding: 8px 12px; display: flex; align-items: center; gap: 10px; user-select: none; }
+.block-tool > summary::-webkit-details-marker { display: none; }
+.block-tool-glyph { color: var(--accent2); font-size: 13px; }
+.block-tool-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; font-weight: 700; }
+.block-tool-io { padding: 0 12px 10px; }
+.block-tool-io-label { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .14em; font-weight: 800; margin-bottom: 4px; }
+.block-tool-io pre { margin: 0; max-height: 280px; overflow: auto; padding: 10px 12px; border-radius: 10px; background: rgba(0,0,0,.4); border: 1px solid var(--border); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.block-surface { border-color: rgba(139,92,246,.28); background: rgba(139,92,246,.06); }
 pre.log { max-height: 480px; overflow: auto; padding: 16px; border-radius: 16px; background: rgba(0,0,0,.45); border: 1px solid var(--border); color: #dbeafe; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 .log-line { display: flex; gap: 12px; padding: 2px 0; }
 .log-ts { color: var(--muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
@@ -1079,23 +1098,117 @@ function MetricReportCard({ metrics }: { metrics: MetricResult[] }) {
   );
 }
 
-function Transcript({ turns }: { turns: TranscriptTurn[] }) {
-  if (turns.length === 0) {
+function formatBlockJson(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2) ?? "";
+  } catch {
+    return String(value);
+  }
+}
+
+function ToolCallBlock({
+  block,
+}: {
+  block: Extract<AssistantBlock, { kind: "tool_call" }>;
+}) {
+  const statusLabel =
+    block.status === "running" ? "running" : block.isError ? "error" : "done";
+  const statusClassName =
+    block.status === "running" ? "warn" : block.isError ? "bad" : "good";
+  return (
+    <details className="block-tool">
+      <summary>
+        <span className="block-tool-glyph">⚙</span>
+        <span className="block-tool-name">{block.toolName || "tool"}</span>
+        <span className={`chip ${statusClassName}`}>{statusLabel}</span>
+      </summary>
+      {block.input !== undefined && (
+        <div className="block-tool-io">
+          <div className="block-tool-io-label">input</div>
+          <pre>{formatBlockJson(block.input)}</pre>
+        </div>
+      )}
+      {block.result !== undefined && (
+        <div className="block-tool-io">
+          <div className="block-tool-io-label">result</div>
+          <pre>{block.result}</pre>
+        </div>
+      )}
+    </details>
+  );
+}
+
+function AssistantMessage({ message }: { message: AssistantMessageView }) {
+  return (
+    <>
+      {message.blocks.map((block, index) => {
+        if (block.kind === "text") {
+          return (
+            <div key={index} className="turn-body">
+              {block.text}
+            </div>
+          );
+        }
+        if (block.kind === "thinking") {
+          return (
+            <details key={index} className="block-thinking">
+              <summary>Thinking</summary>
+              <div className="block-thinking-body">{block.thinking}</div>
+            </details>
+          );
+        }
+        if (block.kind === "tool_call") {
+          return <ToolCallBlock key={index} block={block} />;
+        }
+        return (
+          <details key={index} className="block-tool block-surface">
+            <summary>
+              <span className="block-tool-glyph">▢</span>
+              <span className="block-tool-name">
+                {block.surfaceType}
+                {block.title ? ` — ${block.title}` : ""}
+              </span>
+            </summary>
+            {block.data !== undefined && (
+              <div className="block-tool-io">
+                <pre>{formatBlockJson(block.data)}</pre>
+              </div>
+            )}
+          </details>
+        );
+      })}
+    </>
+  );
+}
+
+function Transcript({
+  turns,
+  assistantEvents,
+}: {
+  turns: TranscriptTurn[];
+  assistantEvents: AgentEvent[];
+}) {
+  const items = buildTranscriptView(turns, assistantEvents);
+  if (items.length === 0) {
     return <p className="muted">No transcript turns recorded.</p>;
   }
 
   return (
     <div className="transcript">
-      {turns.map((turn, index) => (
+      {items.map((item, index) => (
         <article
-          key={`${turn.emittedAt}-${index}`}
-          className={`turn ${turn.role}`}
+          key={`${item.emittedAt ?? ""}-${index}`}
+          className={`turn ${item.role}`}
         >
           <div className="turn-head">
-            <span>{turn.role}</span>
-            <span>{turn.emittedAt}</span>
+            <span>{item.role}</span>
+            <span>{item.emittedAt ?? ""}</span>
           </div>
-          <div className="turn-body">{turn.content}</div>
+          {item.role === "simulator" ? (
+            <div className="turn-body">{item.content}</div>
+          ) : (
+            <AssistantMessage message={item} />
+          )}
         </article>
       ))}
     </div>
@@ -1450,10 +1563,14 @@ function ExecutionTabs({ run }: { run: ReportRunDetail }) {
         <section className="tabpanel panel-turns">
           <h2>Transcript</h2>
           <p className="section-subtle">
-            The conversation between the simulated user and the assistant, turn
-            by turn.
+            Simulator turns interleaved with the assistant&apos;s reply — text,
+            thinking, tool calls, and surfaces grouped per assistant message,
+            folded from the container event stream.
           </p>
-          <Transcript turns={run.transcript} />
+          <Transcript
+            turns={run.transcript}
+            assistantEvents={run.assistantEvents}
+          />
         </section>
 
         <section className="tabpanel panel-cost">

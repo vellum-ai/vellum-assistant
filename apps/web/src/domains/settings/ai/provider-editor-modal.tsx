@@ -35,11 +35,14 @@ import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
 import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-credentials-list";
 
-// NOTE: The set of providers that support `platform` auth is sourced from
-// the catalog via `providerSupportsPlatformAuth()` — it's derived from the
-// daemon's `PLATFORM_PROVIDER_META` table at catalog build time so the UI
-// gate and the proxy routing table cannot drift. See
-// `web/scripts/sync-llm-model-catalog.ts` + `web/src/lib/llm-model-catalog.ts`.
+// NOTE: The `platform` auth gate is `providerSupportsPlatformAuth()`. The
+// daemon derives `supportsPlatformAuth` from `PLATFORM_PROVIDER_META`
+// (assistant/src/providers/platform-proxy/constants.ts) into
+// meta/llm-provider-catalog.json via `cd assistant && bun run
+// sync:llm-catalog`; the web mirrors it in the hand-maintained
+// `PROVIDER_SUPPORTS_PLATFORM_AUTH` map in
+// apps/web/src/assistant/llm-model-catalog.ts, with parity tests guarding
+// drift against the meta catalog.
 
 // ---------------------------------------------------------------------------
 // ProviderEditorContent

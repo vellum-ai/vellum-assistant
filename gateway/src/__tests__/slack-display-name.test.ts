@@ -406,7 +406,6 @@ describe("normalizeSlackAppMention with display name", () => {
       event,
       "evt-dn-1a",
       config,
-      undefined,
       "xoxb-test",
     );
     expect(result1).not.toBeNull();
@@ -420,7 +419,6 @@ describe("normalizeSlackAppMention with display name", () => {
       event,
       "evt-dn-1b",
       config,
-      undefined,
       "xoxb-test",
     );
     expect(result2).not.toBeNull();
@@ -456,7 +454,6 @@ describe("normalizeSlackAppMention with display name", () => {
       event,
       "evt-dn-pw",
       config,
-      undefined,
       "xoxb-test",
     );
     expect(result).not.toBeNull();
@@ -493,7 +490,6 @@ describe("normalizeSlackAppMention with display name", () => {
       event,
       "evt-tz-forward",
       config,
-      undefined,
       "xoxb-test",
     );
     expect(result).not.toBeNull();
@@ -541,7 +537,6 @@ describe("normalizeSlackAppMention with display name", () => {
       event,
       "evt-mention-cache",
       config,
-      "U123BOT",
       undefined,
       { userLabels: userInfo ? { ULEO: userInfo.displayName } : {} },
     );
@@ -569,7 +564,6 @@ describe("normalizeSlackAppMention with display name", () => {
       event,
       "evt-mention-fallback",
       config,
-      "U123BOT",
       undefined,
       { userLabels: userInfo ? { UFAIL: userInfo.displayName } : {} },
     );
@@ -603,7 +597,6 @@ describe("normalizeSlackAppMention with display name", () => {
       event,
       "evt-dn-3",
       config,
-      undefined,
       "xoxb-test",
     );
 

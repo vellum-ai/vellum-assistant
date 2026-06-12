@@ -194,13 +194,7 @@ export async function setActiveLockfileAssistant(
  * in `assistants` belongs to that org.
  */
 export async function syncPlatformAssistantsToLockfile(
-  assistants: Array<{
-    id: string;
-    name?: string;
-    is_local: boolean;
-    created: string;
-    current_release_version?: string | null;
-  }>,
+  assistants: Array<{ id: string; name?: string; is_local: boolean; created: string }>,
   organizationId?: string,
   shouldApply: () => boolean = () => true,
 ): Promise<void> {
@@ -219,9 +213,6 @@ export async function syncPlatformAssistantsToLockfile(
       cloud: "vellum",
       runtimeUrl: getPlatformRuntimeUrl(),
       hatchedAt: a.created,
-      ...(a.current_release_version != null && {
-        version: a.current_release_version.replace(/^v/, ""),
-      }),
       ...(organizationId != null && { organizationId }),
     }));
 

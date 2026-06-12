@@ -15,6 +15,7 @@ import type {
   SendMessageOptions,
 } from "../types.js";
 import { ContextOverflowError } from "../types.js";
+import { wrapUnparseableToolArgs } from "../unparseable-tool-args.js";
 import { detectOpenAICompatibleContextOverflow } from "./chat-completions-provider.js";
 
 const log = getLogger("openai-responses");
@@ -465,7 +466,7 @@ export class OpenAIResponsesProvider implements Provider {
         try {
           input = JSON.parse(tc.args);
         } catch {
-          input = { _raw: tc.args };
+          input = wrapUnparseableToolArgs(tc.args);
         }
         content.push({
           type: "tool_use",

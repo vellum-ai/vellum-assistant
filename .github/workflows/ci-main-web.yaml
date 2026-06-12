@@ -9,6 +9,9 @@ on:
       - 'packages/design-library/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
+      # The web LLM catalog parity test reads this file, so daemon-side catalog
+      # regenerations must run the web tests too.
+      - 'meta/llm-provider-catalog.json'
       - '.github/workflows/ci-main-web.yaml'
       - '.github/actions/install-shared-packages/**'
       # The deploy/publish logic lives in this reusable workflow, so a change to

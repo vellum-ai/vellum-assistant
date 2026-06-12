@@ -261,6 +261,21 @@ export function daemonUnreachableInterceptor(response: Response): Response {
 daemonClient.interceptors.request.use(daemonRequestInterceptor);
 daemonClient.interceptors.response.use(daemonUnreachableInterceptor);
 
+// Force JSON body parsing for all three generated clients. The default
+// `parseAs: 'auto'` infers the parsing strategy from the Content-Type
+// response header. When the header is absent (observed on iOS WKWebView
+// under concurrent fetch load), the client falls back to `'stream'`
+// mode and returns `response.body` (a ReadableStream or null) as
+// `data` — producing the "body=null" errors reported in LUM-2371.
+//
+// Every endpoint in these OpenAPI specs returns JSON; non-JSON call
+// sites (blob downloads) explicitly override `parseAs` per-request.
+//
+// Reference: https://heyapi.dev/openapi-ts/clients/fetch#parser
+for (const apiClient of [daemonClient, platformClient, authClient]) {
+  apiClient.setConfig({ parseAs: "json" });
+}
+
 for (const apiClient of [authClient, platformClient]) {
   apiClient.interceptors.request.use(requestInterceptor);
 }

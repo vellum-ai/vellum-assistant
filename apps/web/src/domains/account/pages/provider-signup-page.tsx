@@ -129,7 +129,7 @@ export function ProviderSignupPage() {
         footer={
           <Link
             to={routes.account.login}
-            className="text-sm text-stone-400 hover:text-stone-300"
+            className="text-sm text-[var(--content-secondary)] hover:text-[var(--content-default)]"
           >
             &larr; Back to sign in
           </Link>

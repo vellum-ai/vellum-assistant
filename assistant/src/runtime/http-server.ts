@@ -8,10 +8,6 @@
 import type { ServerWebSocket } from "bun";
 
 import {
-  startGuardianActionSweep,
-  stopGuardianActionSweep,
-} from "../calls/guardian-action-sweep.js";
-import {
   activeMediaStreamSessions,
   MediaStreamCallSession,
 } from "../calls/media-stream-server.js";
@@ -29,7 +25,6 @@ import { isHttpAuthDisabled } from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { createApprovalCopyGenerator } from "../daemon/approval-generators.js";
-import { createGuardianActionCopyGenerator } from "../daemon/guardian-action-generators.js";
 import { processMessage } from "../daemon/process-message.js";
 import { createLiveVoiceSession } from "../live-voice/live-voice-session.js";
 import { LiveVoiceSessionManager } from "../live-voice/live-voice-session-manager.js";
@@ -99,7 +94,6 @@ export { isPrivateAddress } from "./middleware/auth.js";
 
 import type {
   ApprovalCopyGenerator,
-  GuardianActionCopyGenerator,
   RuntimeHttpServerOptions,
 } from "./http-types.js";
 
@@ -162,7 +156,6 @@ export class RuntimeHttpServer {
   private hostname: string;
 
   private readonly approvalCopyGenerator: ApprovalCopyGenerator;
-  private readonly guardianActionCopyGenerator: GuardianActionCopyGenerator;
   private retrySweepTimer: ReturnType<typeof setInterval> | null = null;
   private sweepInProgress = false;
 
@@ -174,7 +167,6 @@ export class RuntimeHttpServer {
     this.hostname = options.hostname ?? DEFAULT_HOSTNAME;
 
     this.approvalCopyGenerator = createApprovalCopyGenerator();
-    this.guardianActionCopyGenerator = createGuardianActionCopyGenerator();
     this.liveVoiceSessionManager = new LiveVoiceSessionManager({
       createSession: (context) => createLiveVoiceSession(context),
     });
@@ -486,9 +478,6 @@ export class RuntimeHttpServer {
     startGuardianExpirySweep(this.approvalCopyGenerator);
     log.info("Guardian approval expiry sweep started");
 
-    startGuardianActionSweep(this.guardianActionCopyGenerator);
-    log.info("Guardian action expiry sweep started");
-
     startCanonicalGuardianExpirySweep();
     log.info("Canonical guardian request expiry sweep started");
 
@@ -498,7 +487,6 @@ export class RuntimeHttpServer {
 
   async stop(): Promise<void> {
     stopGuardianExpirySweep();
-    stopGuardianActionSweep();
     stopCanonicalGuardianExpirySweep();
     stopInferenceProfileSessionReaper();
     if (this.retrySweepTimer) {

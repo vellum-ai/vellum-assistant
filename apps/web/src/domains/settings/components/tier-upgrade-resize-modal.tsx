@@ -1,13 +1,13 @@
 import { ArrowRight, Cpu, HardDrive, Loader2, Server } from "lucide-react";
 import { useState } from "react";
 
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
 import { extractResizeError } from "@/domains/settings/components/resize-errors";
 import {
     assistantsActiveRetrieveOptions,
-    assistantsResizeMutation,
     organizationsBillingSubscriptionOnboardingRetrieveOptions,
+    useAssistantsResizeMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { MachineSizeEnum } from "@/generated/api/types.gen";
 import {
@@ -95,8 +95,7 @@ export function TierUpgradeResizeModal({
 
   const [resizeError, setResizeError] = useState<string | null>(null);
 
-  const resizeMutation = useMutation({
-    ...assistantsResizeMutation(),
+  const resizeMutation = useAssistantsResizeMutation({
     onSuccess: () => {
       toast.success("Resize started. Changes will apply shortly.", {
         id: "assistant-resize",
