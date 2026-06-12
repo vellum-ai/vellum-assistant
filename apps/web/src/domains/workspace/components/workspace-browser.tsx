@@ -66,6 +66,11 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
     });
   }, []);
 
+  const [lastRename, setLastRename] = useState<{
+    from: string;
+    to: string;
+  } | null>(null);
+
   const handlePathRenamed = useCallback((oldPath: string, newPath: string) => {
     const remap = (p: string) =>
       p === oldPath
@@ -84,6 +89,7 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
       }
       return changed ? next : prev;
     });
+    setLastRename({ from: oldPath, to: newPath });
   }, []);
 
   const treeProps = {
@@ -139,6 +145,7 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
             viewMode={viewMode}
             onChangeViewMode={setViewMode}
             onBrowse={() => setDrawerOpen(true)}
+            pathRename={lastRename}
           />
         </div>
       </div>

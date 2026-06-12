@@ -108,6 +108,25 @@ function workspaceTreeRetrieveOptions(opts: {
   });
 }
 
+/**
+ * The daemon's write and rename endpoints overwrite existing entries
+ * unconditionally, so creating or renaming onto an existing sibling would
+ * silently destroy it. Guard against that here.
+ */
+async function assertNameAvailable(
+  assistantId: string,
+  parentPath: string,
+  name: string,
+) {
+  const { data } = await workspaceTreeGet({
+    path: { assistant_id: assistantId },
+    query: parentPath ? { path: parentPath } : {},
+  });
+  if (data?.entries?.some((entry) => entry.name === name)) {
+    throw new Error(`"${name}" already exists here.`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
@@ -527,6 +546,7 @@ export function WorkspaceTree({
       const path = input.parentPath
         ? `${input.parentPath}/${input.name}`
         : input.name;
+      await assertNameAvailable(assistantId, input.parentPath, input.name);
       const { error, response } =
         input.kind === "file"
           ? await workspaceWritePost({
@@ -572,6 +592,7 @@ export function WorkspaceTree({
       const newPath = parentPath
         ? `${parentPath}/${input.newName}`
         : input.newName;
+      await assertNameAvailable(assistantId, parentPath, input.newName);
       const { error, response } = await workspaceRenamePost({
         path: { assistant_id: assistantId },
         body: { oldPath: input.oldPath, newPath },

@@ -456,6 +456,7 @@ export function WorkspaceFileViewer({
   viewMode,
   onChangeViewMode,
   onBrowse,
+  pathRename,
 }: {
   assistantId: string;
   selectedPath: string | null;
@@ -463,6 +464,8 @@ export function WorkspaceFileViewer({
   viewMode: WorkspaceViewMode;
   onChangeViewMode: (mode: WorkspaceViewMode) => void;
   onBrowse?: () => void;
+  /** Last successful workspace rename, so edit state can follow the file. */
+  pathRename?: { from: string; to: string } | null;
 }) {
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
@@ -478,6 +481,24 @@ export function WorkspaceFileViewer({
     path: string;
     content: string;
   } | null>(null);
+
+  // Keep an in-progress edit attached to the file when it (or an ancestor
+  // folder) is renamed — otherwise the draft is orphaned under the old path
+  // and silently disappears from the editor.
+  useEffect(() => {
+    if (!pathRename) return;
+    const { from, to } = pathRename;
+    const remap = (p: string) =>
+      p === from
+        ? to
+        : p.startsWith(`${from}/`)
+          ? to + p.slice(from.length)
+          : p;
+    setEditingPath((prev) => (prev == null ? prev : remap(prev)));
+    setEditOverride((prev) =>
+      prev == null ? prev : { ...prev, path: remap(prev.path) },
+    );
+  }, [pathRename]);
 
   const isEditing = editingPath != null && editingPath === selectedPath;
   const originalContent = data?.content ?? "";
