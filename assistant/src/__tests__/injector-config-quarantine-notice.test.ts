@@ -89,6 +89,19 @@ describe("config-quarantine-notice injector", () => {
     expect(existsSync(NOTICE_PATH)).toBe(true);
   });
 
+  test("injects nothing on non-guardian turns even when the sentinel is fresh", async () => {
+    writeNotice(new Date().toISOString());
+
+    for (const trustClass of ["trusted_contact", "unknown"] as const) {
+      const block = await injector.produce(
+        makeContext({ trust: { sourceChannel: "slack", trustClass } }),
+      );
+      expect(block).toBeNull();
+    }
+    // The sentinel is untouched — it remains for guardian turns.
+    expect(existsSync(NOTICE_PATH)).toBe(true);
+  });
+
   test("deletes the sentinel and injects nothing when it is stale (>7 days)", async () => {
     const eightDaysAgo = new Date(
       Date.now() - 8 * 24 * 60 * 60 * 1000,

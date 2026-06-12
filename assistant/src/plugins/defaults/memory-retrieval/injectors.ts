@@ -342,11 +342,18 @@ function readConfigQuarantineNotice(): ConfigQuarantineNotice | null {
  * agent should not lose to injection downgrade. The block is non-persisted
  * (re-evaluated every turn) so the notice naturally stops appearing once the
  * sentinel ages out or is removed.
+ *
+ * Guardian-only: turns driven by non-guardian actors (trusted contacts,
+ * unknown channel senders) must not see workspace file paths or be told the
+ * guardian's settings were reset — the notice is only actionable in guardian
+ * conversations.
  */
 const configQuarantineNoticeInjector: Injector = {
   name: "config-quarantine-notice",
   order: DEFAULT_INJECTOR_ORDER.configQuarantineNotice,
-  async produce(_ctx: TurnContext): Promise<InjectionBlock | null> {
+  async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+    if (ctx.trust.trustClass !== "guardian") return null;
+
     const notice = readConfigQuarantineNotice();
     if (!notice) return null;
 
