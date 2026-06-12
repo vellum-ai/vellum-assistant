@@ -1,10 +1,10 @@
 import { useEffect } from "react";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 
 import {
-    organizationsBillingPortalSessionCreateMutation,
     organizationsBillingSubscriptionRetrieveOptions,
+    useOrganizationsBillingPortalSessionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -121,35 +121,6 @@ export function getEffectiveCancelDate(
   return data.cancel_at ?? data.current_period_end ?? null;
 }
 
-/**
- * Builds the `useMutation` config the hook installs. Pulled out of the
- * hook body so tests can exercise the `onSuccess` / `onError` wiring
- * without going through React (which would require mocking `react` to
- * cope with the `useEffect` call below — a process-wide leak in
- * `bun:test`).
- */
-export function buildBillingPortalSessionMutationConfig(
-  snapshot: PortalReturnSnapshot | null,
-) {
-  return {
-    ...organizationsBillingPortalSessionCreateMutation(),
-    onSuccess: (data: { portal_url: string }) => {
-      if (snapshot) {
-        writePortalReturnSnapshot(snapshot);
-      }
-      // Capacitor-aware: routes through SFSafariViewController on native iOS
-      // (where same-tab navigation breaks the round-trip) and falls back to
-      // window.location.href on web.
-      void openUrl(data.portal_url);
-    },
-    onError: () => {
-      toast.error("Couldn't open the billing portal. Please try again.", {
-        id: "billing-portal-session-error",
-      });
-    },
-  };
-}
-
 export function useBillingPortalSession(snapshot: PortalReturnSnapshot | null) {
   const queryClient = useQueryClient();
 
@@ -167,5 +138,20 @@ export function useBillingPortalSession(snapshot: PortalReturnSnapshot | null) {
     });
   }, [queryClient]);
 
-  return useMutation(buildBillingPortalSessionMutationConfig(snapshot));
+  return useOrganizationsBillingPortalSessionCreateMutation({
+    onSuccess: (data) => {
+      if (snapshot) {
+        writePortalReturnSnapshot(snapshot);
+      }
+      // Capacitor-aware: routes through SFSafariViewController on native iOS
+      // (where same-tab navigation breaks the round-trip) and falls back to
+      // window.location.href on web.
+      void openUrl(data.portal_url);
+    },
+    onError: () => {
+      toast.error("Couldn't open the billing portal. Please try again.", {
+        id: "billing-portal-session-error",
+      });
+    },
+  });
 }
