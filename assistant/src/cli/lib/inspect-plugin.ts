@@ -19,6 +19,7 @@
 import {
   DEFAULT_PLUGIN_REF,
   type FetchLike,
+  INSTALL_MANIFEST_FILENAME,
   type InstallManifest,
   readInstallManifest,
   sanitizePluginName,
@@ -27,6 +28,10 @@ import {
   type InstalledPluginInfo,
   readInstalledPlugin,
 } from "./list-installed-plugins.js";
+import {
+  comparePluginFingerprint,
+  type FingerprintComparison,
+} from "./plugin-fingerprint.js";
 import {
   fetchMarketplaceEntries,
   type MarketplaceEntry,
@@ -73,6 +78,12 @@ export interface PluginLocalInfo {
   readonly installedAt: string | null;
   /** Source coordinates recorded at install time; `null` when no sidecar exists. */
   readonly source: InstallManifest["source"] | null;
+  /**
+   * Local-edit state relative to the install-time fingerprint: `null` when no
+   * fingerprint was recorded (an older or manually-copied install), so
+   * modification cannot be determined.
+   */
+  readonly localChanges: FingerprintComparison | null;
   /** Non-fatal issues with the installed copy (e.g. malformed `package.json`). */
   readonly issues: readonly string[];
 }
@@ -146,6 +157,13 @@ function readLocal(
     (manifest && FULL_SHA_RE.test(manifest.source.ref)
       ? manifest.source.ref
       : null);
+  // Compare the on-disk tree against the install-time baseline, applying the
+  // same exclusion so the sidecar is never counted as a local addition.
+  const localChanges = manifest?.fingerprint
+    ? comparePluginFingerprint(entry.target, manifest.fingerprint, [
+        INSTALL_MANIFEST_FILENAME,
+      ])
+    : null;
   return {
     target: entry.target,
     commit,
@@ -153,6 +171,7 @@ function readLocal(
     description: entry.packageJson?.description ?? null,
     installedAt: manifest?.installedAt || null,
     source: manifest?.source ?? null,
+    localChanges,
     issues: entry.issues,
   };
 }

@@ -23,6 +23,7 @@ import {
   PluginNotFoundError,
 } from "../lib/install-from-github.js";
 import { listInstalledPlugins } from "../lib/list-installed-plugins.js";
+import type { FingerprintComparison } from "../lib/plugin-fingerprint.js";
 import { registerCommand } from "../lib/register-command.js";
 import {
   InvalidSearchPatternError,
@@ -400,6 +401,23 @@ function statusLine(inspection: PluginInspection): string {
   }
 }
 
+/**
+ * Summarize local edits relative to the install-time fingerprint. Reports
+ * "unknown" when no baseline was recorded (an older or manually-copied
+ * install), "none" when the on-disk tree matches, or a per-category count.
+ */
+function localEditsLine(changes: FingerprintComparison | null): string {
+  if (!changes)
+    return "unknown (no recorded baseline; reinstall to record one)";
+  if (changes.clean) return "none";
+  const parts = [
+    `${changes.modified.length} modified`,
+    `${changes.added.length} added`,
+    `${changes.removed.length} removed`,
+  ];
+  return parts.join(", ");
+}
+
 /** Render an inspection as aligned, human-readable summary lines. */
 function formatInspection(inspection: PluginInspection): string[] {
   const { name, local, remote, remoteError } = inspection;
@@ -414,6 +432,7 @@ function formatInspection(inspection: PluginInspection): string[] {
       ? `  (${local.installedAt.slice(0, 10)})`
       : "";
     row("installed", `${shortSha(local.commit)}${installedAt}`);
+    row("local edits", localEditsLine(local.localChanges));
   }
 
   if (remote) {

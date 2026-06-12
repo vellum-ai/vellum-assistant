@@ -381,6 +381,14 @@ describe("installPlugin — marketplace resolution", () => {
       "63a91ecadbf4c4719a4602a5abb00883f9966034",
     );
     expect(manifest.commit).toBe("63a91ecadbf4c4719a4602a5abb00883f9966034");
+
+    // AND a content fingerprint baselines the materialized tree (excluding the
+    // sidecar) so later local edits are detectable.
+    expect(manifest.fingerprint.algorithm).toBe("sha256");
+    expect(manifest.fingerprint.files["package.json"]).toMatch(
+      /^[0-9a-f]{64}$/,
+    );
+    expect(manifest.fingerprint.files[".vellum-plugin.json"]).toBeUndefined();
   });
 
   test("refuses to install when the checked-out commit differs from the pinned SHA", async () => {
