@@ -88,6 +88,20 @@ type StubMessage = {
 };
 let messagesByConversationId: Record<string, StubMessage[]> = {};
 
+// In-memory conversation registry stub: id → live processing flag. Ids absent
+// from the map are "unloaded" (findConversation returns undefined), matching
+// the real registry's semantics for conversations not in memory.
+let loadedConversations: Record<string, { processing: boolean }> = {};
+
+mock.module("../../daemon/conversation-registry.js", () => ({
+  findConversation: (id: string | undefined) => {
+    if (!id) return undefined;
+    const entry = loadedConversations[id];
+    if (!entry) return undefined;
+    return { isProcessing: () => entry.processing };
+  },
+}));
+
 mock.module("../memory-retrospective-state.js", () => ({
   getRetrospectiveState: (_id: string) => mockState,
   upsertRetrospectiveState: (args: {
@@ -340,6 +354,7 @@ describe("memoryRetrospectiveJob", () => {
     addMessageCalls = [];
     conversationOverrides = {};
     messagesByConversationId = {};
+    loadedConversations = {};
   });
 
   test("first-run happy path: no state row, no prior retrospective, both pointer fields set on success", async () => {
@@ -609,6 +624,61 @@ describe("memoryRetrospectiveJob", () => {
 
     expect(forkCalls).toHaveLength(1);
     expect(forkCalls[0]!.throughMessageId).toBe("m3");
+  });
+
+  // -------------------------------------------------------------------------
+  // Mid-turn skip gate (fork path only)
+  // -------------------------------------------------------------------------
+
+  test("fork path: source mid-turn → skipped outcome, pointer unchanged, lastRunAt bumped, no fork", async () => {
+    forkFlagEnabled = true;
+    loadedConversations["src-conv-1"] = { processing: true };
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("source_processing");
+    // `lastProcessedMessageId` untouched — only the cooldown timestamp moves.
+    expect(stateUpserts).toHaveLength(0);
+    expect(lastRunAtBumps).toHaveLength(1);
+    expect(lastRunAtBumps[0]!.conversationId).toBe("src-conv-1");
+    // No fork, no instruction, no wake, no cleanup side effects.
+    expect(forkCalls).toHaveLength(0);
+    expect(addMessageCalls).toHaveLength(0);
+    expect(wakeCalls).toHaveLength(0);
+    expect(deletedConversationIds).toEqual([]);
+  });
+
+  test("fork path: source loaded but idle → normal run", async () => {
+    forkFlagEnabled = true;
+    loadedConversations["src-conv-1"] = { processing: false };
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    expect(forkCalls).toHaveLength(1);
+    expect(lastRunAtBumps).toHaveLength(0);
+    expect(stateUpserts).toHaveLength(1);
+  });
+
+  test("fork path: source unloaded (not in registry) → normal run", async () => {
+    forkFlagEnabled = true;
+    // `loadedConversations` is empty — findConversation returns undefined,
+    // and an unloaded conversation is by definition not processing.
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    expect(forkCalls).toHaveLength(1);
+    expect(lastRunAtBumps).toHaveLength(0);
+  });
+
+  test("legacy path: source mid-turn still runs (gate is fork-path only)", async () => {
+    loadedConversations["src-conv-1"] = { processing: true };
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    expect(wakeCalls).toHaveLength(1);
+    expect(lastRunAtBumps).toHaveLength(0);
   });
 
   test("fork path: prior fork-kind retrospective with nested-fork ancestry still surfaces its post-fork remembers in <already_remembered>", async () => {
