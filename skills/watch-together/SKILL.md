@@ -48,8 +48,8 @@ When the user says they want to watch something:
 1. Create the session directory and episode state file
 2. Give them the capture command with the current conversation ID:
    ```
-   bash $VELLUM_WORKSPACE_DIR/watch-together/scripts/capture-live.sh \
-     $VELLUM_WORKSPACE_DIR/watch-together/sessions/<session-id> \
+   bash "$VELLUM_WORKSPACE_DIR"/watch-together/scripts/capture-live.sh \
+     "$VELLUM_WORKSPACE_DIR"/watch-together/sessions/<session-id> \
      <conversation_id> \
      30
    ```

@@ -213,7 +213,7 @@ the meet subsystem, run this manual verification loop.
 5. **Inspect on-disk artifacts.** After the bot leaves, the workspace
    directory should contain the meeting's artifact tree:
    ```bash
-   ls -la $VELLUM_WORKSPACE_DIR/meets/<meetingId>/
+   ls -la "$VELLUM_WORKSPACE_DIR"/meets/<meetingId>/
    ```
    Expected files:
    - `audio.opus` — Opus-encoded audio, non-empty.

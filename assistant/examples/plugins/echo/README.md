@@ -60,8 +60,8 @@ directory in place is enough to enable it.
 From the repo root:
 
 ```bash
-mkdir -p $VELLUM_WORKSPACE_DIR/plugins
-ln -s "$(pwd)/assistant/examples/plugins/echo" $VELLUM_WORKSPACE_DIR/plugins/echo
+mkdir -p "$VELLUM_WORKSPACE_DIR"/plugins
+ln -s "$(pwd)/assistant/examples/plugins/echo" "$VELLUM_WORKSPACE_DIR"/plugins/echo
 ```
 
 Symlinks let you edit the plugin in-place and restart the assistant to
@@ -109,7 +109,7 @@ You should see one line per hook invocation, similar to:
 Remove the symlink (or the copied directory) and restart the assistant:
 
 ```bash
-rm $VELLUM_WORKSPACE_DIR/plugins/echo
+rm "$VELLUM_WORKSPACE_DIR"/plugins/echo
 vellum restart
 ```
 
