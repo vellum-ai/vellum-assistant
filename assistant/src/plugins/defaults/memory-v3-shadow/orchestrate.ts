@@ -11,7 +11,10 @@
  *          actively developing that the user's message references without
  *          naming — and
  *        - link-graph edge expansion (`edgeExpand`) over the top
- *          user-message needle+dense article seeds.
+ *          user-message needle+dense article seeds, and
+ *        - learned-edge expansion (`edgeExpand` over the co-selection NPMI
+ *          graph from `learned-edges.ts`) over the same seeds — behavioral
+ *          associations the authored link graph does not record.
  *      Each lane only ever ADDS candidates, so the pool is recall-safe by
  *      construction.
  *   2. Build the candidate pool in CACHE ORDER: the stable prefix —
@@ -102,6 +105,15 @@ export interface OrchestrateDeps {
   /** Hard cap on total edge-lane surfaced articles. When omitted, the edge
    *  lane's own default applies (canonical value: `memory.v3.edge.cap`). */
   edgeCap?: number;
+  /** The learned-edge graph (co-selection NPMI associations, built at lane
+   *  init). Omitted or empty → no learned pass. */
+  learnedGraph?: EdgeGraph;
+  /** Learned neighbours surfaced per expanded seed (canonical value:
+   *  `memory.v3.learnedEdges.perSeed`). */
+  learnedPerSeed?: number;
+  /** Hard cap on total learned-lane surfaced articles; `0` disables the pass
+   *  (canonical value: `memory.v3.learnedEdges.cap`). */
+  learnedCap?: number;
 }
 
 /** A finder-lane candidate: the slug, the descriptor that justified it, and
@@ -291,6 +303,34 @@ export async function orchestrate(
       neighbor.description ?? fallbackDescriptor,
       "edge",
     );
+  }
+
+  // Step 1d: learned-edge expansion over the SAME seeds, through the
+  // co-selection NPMI graph. Mirrors the static edge pass — no matched
+  // section (association, not lexical relevance, surfaced the page; injection
+  // falls back to the full page), `bestSection` text as the descriptor
+  // fallback — but tags `"learned"` so the lane's selection rate is
+  // measurable. Runs after the static lane: an association that duplicates an
+  // authored link keeps its `"edge"` attribution.
+  if (deps.learnedGraph && (deps.learnedCap ?? 0) > 0) {
+    const learned = edgeExpand(deps.learnedGraph, seeds, {
+      seedCount: deps.edgeSeeds,
+      perSeed: deps.learnedPerSeed,
+      cap: deps.learnedCap,
+      alive: (slug) => !finderSeen.has(slug) && !stablePrefix.has(slug),
+    });
+    for (const neighbor of learned) {
+      const best = deps.needle.bestSection(
+        neighbor.article,
+        turn.currentMessage,
+      );
+      addFinder(
+        neighbor.article,
+        undefined,
+        best >= 0 ? sections[best]?.text : undefined,
+        "learned",
+      );
+    }
   }
 
   // Step 2: assemble the selector pool in cache order — the stable prefix

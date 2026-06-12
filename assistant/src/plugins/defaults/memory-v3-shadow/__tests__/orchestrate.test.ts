@@ -457,6 +457,51 @@ describe("orchestrate — cache-ordered pool (core + hot + finders)", () => {
     expect(result.lanes.finder.some((c) => c.lane === "reply")).toBe(false);
   });
 
+  test('learned-edge expansion surfaces association neighbours tagged "learned", after the static edge lane', async () => {
+    const lanes = await buildLanes();
+    denseHits = [];
+    providerStub = selectProvider([]);
+
+    // Needle("apple") surfaces topic-a; static links expand a → d; the
+    // learned graph associates a → c (no authored link exists).
+    const learnedGraph = {
+      adjacency: new Map([["topic-a", new Map([["topic-c", undefined]])]]),
+      hubs: new Set<Slug>(),
+      slugs: new Set(SLUGS),
+    };
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { learnedGraph, learnedPerSeed: 3, learnedCap: 20 }),
+    );
+
+    expect(result.lanes.finder.map((c) => [c.slug, c.lane])).toEqual([
+      ["topic-a", "needle"],
+      ["topic-d", "edge"],
+      ["topic-c", "learned"],
+    ]);
+    // Association, not lexical relevance, surfaced topic-c — no matched
+    // section is recorded (injection falls back to the full page).
+    expect(result.matchedSections.has("topic-c")).toBe(false);
+  });
+
+  test("learnedCap = 0 disables the learned pass", async () => {
+    const lanes = await buildLanes();
+    denseHits = [];
+    providerStub = selectProvider([]);
+
+    const learnedGraph = {
+      adjacency: new Map([["topic-a", new Map([["topic-c", undefined]])]]),
+      hubs: new Set<Slug>(),
+      slugs: new Set(SLUGS),
+    };
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { learnedGraph, learnedCap: 0 }),
+    );
+
+    expect(result.lanes.finder.some((c) => c.lane === "learned")).toBe(false);
+  });
+
   test("the rendered stable prefix is byte-identical across turns with different queries", async () => {
     const lanes = await buildLanes();
     const deps = depsOf(lanes, {
