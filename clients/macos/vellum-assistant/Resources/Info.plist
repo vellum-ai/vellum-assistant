@@ -6,6 +6,8 @@
     <string>Vellum needs Screen Recording access to see what's on your screen during computer use tasks.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Vellum needs microphone access to transcribe voice commands.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Vellum needs camera access to capture photos when you ask your assistant to use the camera.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Vellum uses speech recognition to convert voice commands into tasks.</string>
     <key>CFBundleURLTypes</key>

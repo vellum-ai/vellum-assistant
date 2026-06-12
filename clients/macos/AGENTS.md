@@ -395,10 +395,10 @@ When adding a new keyboard shortcut to the macOS app, you **must** also add a co
 
 ### Entitlements and Sandboxing
 - The app is **not sandboxed** — it requires direct access to accessibility APIs, CGEvent injection, and file system paths outside the sandbox container.
-- The main app binary is signed with `app-entitlements.plist` ([`com.apple.security.device.audio-input`](https://developer.apple.com/documentation/BundleResources/Entitlements/com.apple.security.device.audio-input) — required for microphone access under [Hardened Runtime](https://developer.apple.com/documentation/xcode/configuring-the-hardened-runtime)).
-- The embedded daemon binary is signed with `daemon-entitlements.plist` (JIT, unsigned executable memory, network client).
+- The main app binary is signed with `app-entitlements.plist` ([`com.apple.security.device.audio-input`](https://developer.apple.com/documentation/BundleResources/Entitlements/com.apple.security.device.audio-input) and [`com.apple.security.device.camera`](https://developer.apple.com/documentation/BundleResources/Entitlements/com.apple.security.device.camera) — required for microphone/camera access under [Hardened Runtime](https://developer.apple.com/documentation/xcode/configuring-the-hardened-runtime)).
+- The embedded daemon binary is signed with `daemon-entitlements.plist` (JIT, unsigned executable memory, network client, camera — shell commands the assistant runs, e.g. an ffmpeg webcam capture, attribute their TCC camera request to the daemon as the responsible process).
 - All Bun-compiled binaries (`vellum-cli`, `vellum-gateway`, `credential-executor`) must be signed with daemon entitlements — hardened runtime blocks JIT by default, and these are JavaScript executables. See [`allow-jit`](https://developer.apple.com/documentation/bundleresources/entitlements/com_apple_security_cs_allow-jit).
-- If new hardware access is needed (e.g., camera), add the corresponding hardened runtime entitlement to `app-entitlements.plist`.
+- If new hardware access is needed, add the corresponding hardened runtime entitlement to `app-entitlements.plist` (and to `daemon-entitlements.plist` when assistant-run shell commands need the device), plus the matching `NS*UsageDescription` string in **both** the `build.sh` Info.plist heredoc (authoritative for built bundles) and `vellum-assistant/Resources/Info.plist`. Without a usage description, macOS denies the TCC request silently — no consent prompt ever appears.
 - Never add `com.apple.security.app-sandbox` — it would break core functionality.
 
 ### Code Signing
