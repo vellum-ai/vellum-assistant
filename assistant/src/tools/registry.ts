@@ -845,6 +845,8 @@ export async function initializeTools(): Promise<void> {
     explicitTools,
     getCesToolsIfEnabled,
     cesTools,
+    getWorkflowToolsIfEnabled,
+    workflowTools,
   } = await import("./tool-manifest.js");
 
   // Capture tool names already in the registry before any manifest
@@ -891,6 +893,12 @@ export async function initializeTools(): Promise<void> {
     registerTool(tool);
   }
 
+  // Workflow tools - registered only when the `workflows` feature flag is on.
+  const activeWorkflowTools = getWorkflowToolsIfEnabled();
+  for (const tool of activeWorkflowTools) {
+    registerTool(tool);
+  }
+
   registerUiSurfaceTools();
   registerAppTools();
   registerSystemTools();
@@ -913,6 +921,7 @@ export async function initializeTools(): Promise<void> {
       ...extEntries.map(({ tool }) => tool.name),
       ...hostTools.map((t) => t.name!),
       ...cesTools.map((t) => t.name!),
+      ...workflowTools.map((t) => t.name!),
       ...allUiSurfaceTools.map((t) => t.name!),
       ...coreAppProxyTools.map((t) => t.name!),
     ]);
