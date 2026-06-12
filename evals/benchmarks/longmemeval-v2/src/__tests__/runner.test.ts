@@ -130,6 +130,11 @@ function makeFakeAgent(
     // ingest→ask flow), but BaseAgent declares it as required so we
     // satisfy the interface.
     async runSetupCommand(_command: TestSetupCommand): Promise<void> {},
+    // Likewise unexercised: the ingest→ask flow uses quiet/sentinel
+    // windows rather than the turn-completion signal.
+    isTurnComplete(): boolean {
+      return false;
+    },
   };
 
   if (usageRecords) {

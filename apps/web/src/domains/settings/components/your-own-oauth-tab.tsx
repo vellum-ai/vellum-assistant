@@ -1,4 +1,4 @@
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
   Copy,
@@ -13,13 +13,13 @@ import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import {
   oauthAppsByAppIdConnectionsGetOptions,
   oauthAppsByAppIdConnectionsGetQueryKey,
-  oauthAppsByAppIdConnectPostMutation,
-  oauthAppsByIdDeleteMutation,
   oauthAppsGetOptions,
   oauthAppsGetQueryKey,
-  oauthAppsPostMutation,
-  oauthConnectionsByIdDeleteMutation,
   oauthProvidersByProviderKeyGetOptions,
+  useOauthAppsByAppIdConnectPostMutation,
+  useOauthAppsByIdDeleteMutation,
+  useOauthAppsPostMutation,
+  useOauthConnectionsByIdDeleteMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type {
   OauthAppsByAppIdConnectionsGetResponses,
@@ -114,8 +114,7 @@ export function YourOwnTab({
     query: { provider_key: providerKey },
   });
 
-  const createAppMutation = useMutation({
-    ...oauthAppsPostMutation(),
+  const createAppMutation = useOauthAppsPostMutation({
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: appsQueryKey });
       setClientId("");
@@ -128,8 +127,7 @@ export function YourOwnTab({
     },
   });
 
-  const deleteAppMutation = useMutation({
-    ...oauthAppsByIdDeleteMutation(),
+  const deleteAppMutation = useOauthAppsByIdDeleteMutation({
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: appsQueryKey });
       toast.success("OAuth app deleted.");
@@ -139,8 +137,7 @@ export function YourOwnTab({
     },
   });
 
-  const connectMutation = useMutation({
-    ...oauthAppsByAppIdConnectPostMutation(),
+  const connectMutation = useOauthAppsByAppIdConnectPostMutation({
     onSuccess: (data) => {
       if ("auth_url" in data) {
         window.location.href = data.auth_url;
@@ -151,9 +148,7 @@ export function YourOwnTab({
     },
   });
 
-  const disconnectMutation = useMutation({
-    ...oauthConnectionsByIdDeleteMutation(),
-  });
+  const disconnectMutation = useOauthConnectionsByIdDeleteMutation();
 
   // --- Ephemeral UI state ---
 

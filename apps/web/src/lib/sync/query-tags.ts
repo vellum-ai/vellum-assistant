@@ -1,9 +1,16 @@
 import {
   configGetQueryKey,
   groupsGetQueryKey,
+  soundsAvailableGetQueryKey,
+  soundsConfigGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { Options } from "@/generated/daemon/sdk.gen";
-import type { ConfigGetData, GroupsGetData } from "@/generated/daemon/types.gen";
+import type {
+  ConfigGetData,
+  GroupsGetData,
+  SoundsAvailableGetData,
+  SoundsConfigGetData,
+} from "@/generated/daemon/types.gen";
 
 export const AVATAR_QUERY_KEY_PREFIX = "assistantAvatar";
 
@@ -66,14 +73,18 @@ export function assistantDaemonConfigQueryKey(
 
 export function assistantSoundsConfigQueryKey(
   assistantId: string | null | undefined,
-) {
-  return ["soundsConfig", assistantId] as const;
+): ReturnType<typeof soundsConfigGetQueryKey> {
+  return soundsConfigGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+  } as Options<SoundsConfigGetData>);
 }
 
 export function assistantSoundsAvailableQueryKey(
   assistantId: string | null | undefined,
-) {
-  return ["soundsAvailable", assistantId] as const;
+): ReturnType<typeof soundsAvailableGetQueryKey> {
+  return soundsAvailableGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+  } as Options<SoundsAvailableGetData>);
 }
 
 export function assistantSchedulesQueryKey(

@@ -161,6 +161,7 @@ function FeatureCard({
 interface ResourceCardProps {
   icon: ReactNode;
   iconBg: string;
+  iconColor?: string;
   title: string;
   description: string;
   href: string;
@@ -169,6 +170,7 @@ interface ResourceCardProps {
 function ResourceCard({
   icon,
   iconBg,
+  iconColor = "white",
   title,
   description,
   href,
@@ -187,8 +189,8 @@ function ResourceCard({
         <div className="flex flex-col gap-4">
           <div className="flex items-start justify-between">
             <span
-              className="flex size-10 items-center justify-center rounded-lg text-white"
-              style={{ backgroundColor: iconBg }}
+              className="flex size-10 items-center justify-center rounded-lg"
+              style={{ backgroundColor: iconBg, color: iconColor }}
             >
               {icon}
             </span>
@@ -287,7 +289,8 @@ export function CommunityPage() {
           />
           <ResourceCard
             icon={<XLogo size={20} />}
-            iconBg="#0f172a"
+            iconBg="var(--content-default)"
+            iconColor="var(--surface-base)"
             title="Follow on X"
             description="Product updates, releases, and behind-the-scenes."
             href="https://x.com/vellum_ai"

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     ArrowDownToLine,
     ArrowLeft,
@@ -21,14 +21,14 @@ import {
     usePluginDrift,
 } from "@/domains/intelligence/use-plugin-drift";
 import {
-    pluginsByNameDeleteMutation,
     pluginsByNameGetOptions,
     pluginsByNameGetQueryKey,
     pluginsByNameInspectGetQueryKey,
-    pluginsByNameUpgradePostMutation,
     pluginsGetQueryKey,
-    pluginsInstallPostMutation,
     pluginsSearchGetQueryKey,
+    usePluginsByNameDeleteMutation,
+    usePluginsByNameUpgradePostMutation,
+    usePluginsInstallPostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -101,21 +101,18 @@ export function PluginDetailPage() {
     }
   }, [assistantId, name, queryClient]);
 
-  const installMutation = useMutation({
-    ...pluginsInstallPostMutation(),
+  const installMutation = usePluginsInstallPostMutation({
     onSuccess: () => {
       invalidate();
       toast.success(`Installed ${name ?? "plugin"}`);
     },
   });
 
-  const removeMutation = useMutation({
-    ...pluginsByNameDeleteMutation(),
+  const removeMutation = usePluginsByNameDeleteMutation({
     onSuccess: invalidate,
   });
 
-  const upgradeMutation = useMutation({
-    ...pluginsByNameUpgradePostMutation(),
+  const upgradeMutation = usePluginsByNameUpgradePostMutation({
     onSuccess: (result) => {
       invalidate();
       toast.success(

@@ -11,7 +11,9 @@
 
 import type { QueryClient } from "@tanstack/react-query";
 
-import type { GroupsGetResponse } from "@/generated/daemon/types.gen";
+import type { GroupsGetData } from "@/generated/daemon/types.gen";
+import { groupsGetSetQueryData } from "@/generated/daemon/@tanstack/react-query.gen";
+import type { Options } from "@/generated/daemon/sdk.gen";
 import type { Conversation, ConversationGroup } from "@/types/conversation-types";
 import {
   isBackgroundConversation,
@@ -25,10 +27,9 @@ import {
   updateScheduledConversationsCache,
 } from "@/utils/conversation-cache";
 import {
-  CONVERSATION_NOT_FOUND,
+  ConversationNotFoundError,
   fetchConversationDetail,
 } from "@/utils/fetch-conversation-detail";
-import { conversationGroupsQueryKey } from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------
 // Conversation cache helpers
@@ -159,9 +160,9 @@ export function surfaceConversationInCaches(
  *   `serializeConversationSummary`).
  * - Row absent from cache but server returns a payload: append; the
  *   row will sort into place on the next list refetch.
- * - Server returns 404 (`CONVERSATION_NOT_FOUND`): remove the row from
- *   the cache. Mirrors how `deleteConversation` cleans up after a local
- *   deletion.
+ * - Server returns 404 ({@link ConversationNotFoundError}): remove the
+ *   row from the cache. Mirrors how `deleteConversation` cleans up
+ *   after a local deletion.
  * - Network / other errors: rethrown to the caller so the SSE consumer
  *   can log/sentry-capture without silently dropping the signal.
  */
@@ -171,10 +172,16 @@ export async function refreshConversationRow(
   conversationId: string,
 ): Promise<void> {
   if (!assistantId) return;
-  const result = await fetchConversationDetail(assistantId, conversationId);
-  if (result === CONVERSATION_NOT_FOUND) {
-    removeConversation(queryClient, assistantId, conversationId);
-    return;
+
+  let result: Conversation;
+  try {
+    result = await fetchConversationDetail(queryClient, assistantId, conversationId);
+  } catch (err) {
+    if (err instanceof ConversationNotFoundError) {
+      removeConversation(queryClient, assistantId, conversationId);
+      return;
+    }
+    throw err;
   }
 
   // Replace the row in whichever cache already holds it. Only when it lives
@@ -244,15 +251,13 @@ function updateGroupsCache(
   assistantId: string | null,
   updater: (groups: ConversationGroup[]) => ConversationGroup[],
 ): void {
-  queryClient.setQueryData<GroupsGetResponse>(
-    conversationGroupsQueryKey(assistantId),
-    (prev) => {
-      const list = prev?.groups ?? [];
-      const next = updater(list);
-      if (next === list) return prev;
-      return { ...prev, groups: next };
-    },
-  );
+  const opts: Options<GroupsGetData> = { path: { assistant_id: assistantId ?? "" } };
+  groupsGetSetQueryData(queryClient, opts, (prev) => {
+    const list = prev?.groups ?? [];
+    const next = updater(list);
+    if (next === list) return prev;
+    return { ...prev, groups: next };
+  });
 }
 
 export function appendGroup(

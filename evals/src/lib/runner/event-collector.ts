@@ -101,4 +101,53 @@ export class AgentEventCollector {
     });
     return { events, sentinelSeen: input.isDone(events) };
   }
+
+  /**
+   * Drain events until one satisfies `isComplete` — the adapter's
+   * turn-completion signal (e.g. the Vellum daemon's `message_complete`)
+   * — then drain trailing events (usage records, sync notifications)
+   * with a short `graceQuietMs` quiet window before returning.
+   *
+   * Unlike `collectUntilQuiet` there is **no quiet window before the
+   * completion event**: a turn that sits silent for a long pre-loop
+   * phase (memory retrieval, embedding, first-token latency) is still
+   * in flight, and only the `maxMs` hard cap — the caller's remaining
+   * wall-clock budget for the run — bounds the wait. `completed: false`
+   * means the stream ended or the cap elapsed without the turn ever
+   * signalling completion; callers should fail loudly rather than
+   * grading a truncated turn.
+   */
+  async collectUntilTurnComplete(input: {
+    isComplete: (event: AgentEvent) => boolean;
+    maxMs: number;
+    graceQuietMs: number;
+    onEvent?: (event: AgentEvent) => void | Promise<void>;
+  }): Promise<{ events: AgentEvent[]; completed: boolean }> {
+    const hardDeadline = Date.now() + input.maxMs;
+    const events: AgentEvent[] = [];
+    let completed = false;
+
+    while (!completed) {
+      const waitMs = hardDeadline - Date.now();
+      if (waitMs <= 0) return { events, completed };
+
+      const result = await Promise.race([this.next(), timeout(waitMs)]);
+      if (result === TIMEOUT) return { events, completed };
+
+      this.pending = undefined;
+      if (result.done) return { events, completed };
+
+      events.push(result.value);
+      if (input.onEvent) await input.onEvent(result.value);
+      if (input.isComplete(result.value)) completed = true;
+    }
+
+    const trailing = await this.drain({
+      quietMs: input.graceQuietMs,
+      maxMs: Math.max(0, hardDeadline - Date.now()),
+      onEvent: input.onEvent,
+    });
+    events.push(...trailing);
+    return { events, completed };
+  }
 }

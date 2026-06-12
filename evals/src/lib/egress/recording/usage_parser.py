@@ -15,8 +15,11 @@ Two response shapes are recognized:
 1. **Non-streaming `/v1/messages`** — request body has `stream != true`,
    response is a single JSON document with a top-level `usage` object
    (see https://docs.anthropic.com/en/api/messages). The dict carries
-   `input_tokens`, `output_tokens`, and optionally
-   `cache_creation_input_tokens` + `cache_read_input_tokens`.
+   `input_tokens`, `output_tokens`, optionally
+   `cache_creation_input_tokens` + `cache_read_input_tokens`, and — when
+   prompt caching is in play — a `cache_creation` object splitting the
+   write into `ephemeral_5m_input_tokens` / `ephemeral_1h_input_tokens`
+   (priced at different TTL rates).
 
 2. **Streaming `/v1/messages`** — request body has `stream: true`,
    response is a `text/event-stream` body. The model emits a
@@ -59,12 +62,21 @@ def _usage_record_from_anthropic_usage(
 ) -> dict:
     """Project an Anthropic `usage` object onto the evals usage record shape.
 
-    Only fields the evals pricing table needs are pulled out. Extra
-    fields the Anthropic API emits (e.g. `service_tier`) are not
-    forwarded — we don't price them and keeping the record narrow makes
-    NDJSON inspection easier.
+    The flat token counters (`input_tokens`, `output_tokens`,
+    `cache_creation_input_tokens`, `cache_read_input_tokens`) are pulled
+    up to the top level so `summarizeAssistantUsage` and the report's
+    per-request breakdown can read them without descending into the raw
+    object.
+
+    The full `usage` object is also forwarded verbatim under a `usage`
+    key. Anthropic prices cache writes by TTL tier — a 5-minute ephemeral
+    write costs 1.25x base input, a 1-hour write 2x — and surfaces the
+    split in `usage.cache_creation.{ephemeral_5m,ephemeral_1h}_input_tokens`.
+    Keeping the whole object means the harness can attribute those tiers
+    (and any future usage fields) instead of collapsing every write into a
+    single rate.
     """
-    record: dict = {"provider": "anthropic"}
+    record: dict = {"provider": "anthropic", "usage": usage}
     if model:
         record["model"] = model
     input_tokens = _coerce_int(usage.get("input_tokens"))
@@ -79,6 +91,9 @@ def _usage_record_from_anthropic_usage(
         record["cache_creation_input_tokens"] = cache_creation
     if cache_read is not None:
         record["cache_read_input_tokens"] = cache_read
+    cache_creation_breakdown = usage.get("cache_creation")
+    if isinstance(cache_creation_breakdown, dict):
+        record["cache_creation"] = cache_creation_breakdown
     return record
 
 

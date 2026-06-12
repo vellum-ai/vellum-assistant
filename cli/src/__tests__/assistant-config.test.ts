@@ -75,12 +75,11 @@ describe("assistant-config", () => {
   });
 
   test("saveAssistantEntry and loadAllAssistants round-trip", () => {
-    const entry = makeEntry("test-1", undefined, { version: "0.7.0" });
+    const entry = makeEntry("test-1");
     saveAssistantEntry(entry);
     const all = loadAllAssistants();
     expect(all).toHaveLength(1);
     expect(all[0].assistantId).toBe("test-1");
-    expect(all[0].version).toBe("0.7.0");
   });
 
   test("findAssistantByName returns matching entry", () => {

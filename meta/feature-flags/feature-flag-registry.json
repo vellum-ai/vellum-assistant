@@ -14,7 +14,7 @@
       "scope": "assistant",
       "key": "memory-retrospective-fork",
       "label": "Fork-based memory retrospective",
-      "description": "Fork the source conversation through its latest message for memory retrospectives, instead of rendering the slice into a transcript and waking an empty background conversation. Lets the retrospective hit the provider prompt cache and read compaction summary + tail messages natively.",
+      "description": "Fork the source conversation through its latest message for memory retrospectives, instead of rendering the slice into a transcript and waking an empty background conversation. The retrospective reads the conversation natively, including any inherited compaction summary and tail messages. Provider prompt-cache reuse additionally requires memory.retrospective.matchConversationProfile.",
       "defaultEnabled": false
     },
     {
@@ -36,12 +36,12 @@
     },
     {
       "id": "experiment-activation-flow-2026-06-03",
-      "scope": "client",
+      "scope": "both",
       "key": "experiment-activation-flow-2026-06-03",
       "label": "Activation Flow Experiment 2026-06-03",
-      "description": "Multivariate activation-flow experiment. control = standard flow; variant-a = activation rail. Targeted via LaunchDarkly.",
+      "description": "Multivariate activation-flow experiment. control = standard flow; variant-a = activation rail; personal-page = preseeded personal-page app (read by the daemon, hence scope \"both\"). Targeted via LaunchDarkly.",
       "defaultEnabled": "control",
-      "values": ["control", "variant-a"]
+      "values": ["control", "variant-a", "personal-page"]
     },
     {
       "id": "local-docker-enabled",

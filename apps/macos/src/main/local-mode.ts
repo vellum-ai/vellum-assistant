@@ -17,6 +17,7 @@ import {
   type CliInvocation,
   type LockfileWriteResult,
   type TokenResult,
+  type WakeOptions,
 } from "@vellumai/local-mode";
 import { handle } from "./ipc";
 
@@ -122,14 +123,17 @@ async function retire(assistantId: string): Promise<RetireResult> {
  * guardian token. The non-destructive repair primitive. Mirrors `hatch`'s
  * never-reject contract.
  */
-async function wake(assistantId: string): Promise<WakeResult> {
+async function wake(
+  assistantId: string,
+  options?: WakeOptions,
+): Promise<WakeResult> {
   let invocation: CliInvocation;
   try {
     invocation = await resolveCliInvocation();
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }
-  const result = await runWake(invocation, assistantId);
+  const result = await runWake(invocation, assistantId, options);
   return result.ok ? { ok: true } : { ok: false, error: result.error };
 }
 
@@ -144,6 +148,14 @@ const assistantRecord = z.record(z.string(), z.unknown());
 // renderer renders, rather than rejecting the invoke. The id is therefore
 // optional on the wire and validated in the body.
 const assistantIdArgs = z.tuple([z.string().optional()]);
+
+// `wake` additionally takes an options object so a user-confirmed repair can
+// pass `repairGuardian` through to the CLI's `--repair-guardian` flag. Both
+// members stay optional so older renderers' single-argument invokes parse.
+const wakeArgs = z.tuple([
+  z.string().optional(),
+  z.object({ repairGuardian: z.boolean().optional() }).optional(),
+]);
 
 let installed = false;
 
@@ -216,9 +228,9 @@ export const installLocalMode = (): void => {
     return retire(assistantId);
   });
 
-  handle("vellum:localMode:wake", assistantIdArgs, ([assistantId]) => {
+  handle("vellum:localMode:wake", wakeArgs, ([assistantId, options]) => {
     if (!assistantId) return { ok: false, error: "Missing assistantId" };
-    return wake(assistantId);
+    return wake(assistantId, options);
   });
 
   handle(

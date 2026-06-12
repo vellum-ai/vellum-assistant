@@ -183,6 +183,16 @@ export interface SendMessageConfig {
    */
   overrideProfile?: string;
   /**
+   * When true, the resolver floats `overrideProfile` above the call-site
+   * layers (named site profile + call-site override) for non-main-agent call
+   * sites — see `ResolveCallSiteOpts.forceOverrideProfile`. Used by callers
+   * that must run a background call site under a specific conversation's
+   * inference profile (e.g. fork-based memory retrospectives). A
+   * resolution/routing-time concern only; stripped before any provider wire
+   * request.
+   */
+  forceOverrideProfile?: boolean;
+  /**
    * Per-conversation seed for deterministic `mix`-profile expansion. The agent
    * loop sets this to the conversation id so every resolver call this send
    * triggers — provider/transport selection, wire-param normalization, usage

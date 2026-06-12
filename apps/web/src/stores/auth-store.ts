@@ -488,6 +488,15 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
    * the token must already be minted for the new gateway — and a failed
    * connect leaves the previous selection in place.
    *
+   * After the selection write we explicitly drive `checkAssistant()` rather
+   * than trusting the selection subscription to publish `activeAssistantId`.
+   * That subscription only fires when `selectedAssistantId` actually changes
+   * (and not while the lifecycle is still `loading`), so reconnecting to the
+   * assistant that's already selected — the common case after guardian-token
+   * repair, where the user retries the very assistant they were connecting to
+   * — would otherwise leave the active id stale. In gateway mode the call is a
+   * synchronous, idempotent republish.
+   *
    * Unlike {@link AuthActions.initSession}, which is the best-effort boot
    * probe and swallows failures, this rethrows so the caller can surface the
    * reason — including the typed `GuardianTokenError` from the host seam — and
@@ -504,6 +513,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     await primeLocalGatewayConnectionWithRepair(target);
     await setSelectedAssistant(assistantId);
     set(authenticatedLocalUser());
+    await lifecycleService.checkAssistant();
     probePlatformSessionIfReachable(set);
   },
 

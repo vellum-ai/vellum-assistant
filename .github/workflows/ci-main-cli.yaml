@@ -44,7 +44,7 @@ jobs:
         run: bun run typecheck
 
       - name: Compile check
-        run: bun build --compile src/index.ts --outfile /dev/null
+        run: bun run compile:check
 
       - name: Test with coverage
         run: bun test --coverage

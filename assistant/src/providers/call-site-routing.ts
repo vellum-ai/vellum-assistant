@@ -141,13 +141,16 @@ export class CallSiteRoutingProvider implements Provider {
     if (!callSite) return this.defaultProvider;
 
     const overrideProfile = options?.config?.overrideProfile;
-    // Forward the per-conversation mix seed so transport selection picks the
-    // same mix arm as wire-param normalization in `retry.ts` — otherwise a mix
-    // spanning providers could route the transport to a different arm than the
+    // Forward `forceOverrideProfile` and the per-conversation mix seed so
+    // transport selection resolves the same profile/arm as wire-param
+    // normalization in `retry.ts` — otherwise a forced profile (or a mix)
+    // spanning providers could route the transport differently than the
     // request params.
+    const forceOverrideProfile = options?.config?.forceOverrideProfile;
     const selectionSeed = options?.config?.selectionSeed;
     const resolved = resolveCallSiteConfig(callSite, getConfig().llm, {
       overrideProfile,
+      forceOverrideProfile,
       selectionSeed,
     });
 

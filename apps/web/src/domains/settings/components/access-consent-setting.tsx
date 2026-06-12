@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-react";
 
 import {
     assistantsAccessConsentRetrieveOptions,
-    assistantsAccessConsentRetrieveQueryKey,
+    assistantsAccessConsentRetrieveSetQueryData,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { assistantsAccessConsentPartialUpdate } from "@/generated/api/sdk.gen";
 import {
@@ -52,8 +52,9 @@ export function AccessConsentSetting() {
       return updated;
     },
     onSuccess: (updated) => {
-      queryClient.setQueryData(
-        assistantsAccessConsentRetrieveQueryKey(),
+      assistantsAccessConsentRetrieveSetQueryData(
+        queryClient,
+        undefined,
         updated,
       );
       toast.success(

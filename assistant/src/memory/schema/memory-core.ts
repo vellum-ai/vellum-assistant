@@ -106,6 +106,10 @@ export const memoryRetrospectiveState = sqliteTable(
     conversationId: text("conversation_id").primaryKey(),
     lastProcessedMessageId: text("last_processed_message_id").notNull(),
     lastRunAt: integer("last_run_at").notNull(),
+    // JSON array of strings — cumulative `remember` contents from prior
+    // retrospective passes (capped; see memory-retrospective-state.ts).
+    // NULL for rows that predate migration 281 or have no saves yet.
+    rememberedLog: text("remembered_log"),
   },
 );
 

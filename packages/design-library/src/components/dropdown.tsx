@@ -41,7 +41,7 @@ export interface DropdownOption<T extends string> {
 
 export interface DropdownProps<T extends string> {
   readonly options: ReadonlyArray<DropdownOption<T>>;
-  readonly value: T;
+  readonly value: T | "";
   readonly onChange: (value: T) => void;
   readonly placeholder?: string;
   readonly disabled?: boolean;

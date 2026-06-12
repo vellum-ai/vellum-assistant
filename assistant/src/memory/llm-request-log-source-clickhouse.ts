@@ -25,7 +25,11 @@ import {
   messageMetadataSchema,
 } from "./conversation-crud.js";
 import type { LlmRequestLogSource } from "./llm-request-log-source.js";
-import type { LogRow } from "./llm-request-log-store.js";
+import type {
+  CompactionAgentLogRow,
+  LogMetaRow,
+  LogRow,
+} from "./llm-request-log-store.js";
 
 const log = getLogger("clickhouse-llm-request-log-source");
 
@@ -69,6 +73,23 @@ interface ClickHouseRow {
    */
   call_site: string;
 }
+
+/** Metadata-only wire row — `ClickHouseRow` without the payload columns. */
+type ClickHouseMetaRow = Omit<
+  ClickHouseRow,
+  "request_payload" | "response_payload"
+>;
+
+/**
+ * Wire row for the compaction-trail query: metadata plus the summarizer
+ * response payload and a message count computed server-side. ClickHouse's
+ * `JSONLength` returns 0 for missing/invalid paths; `exec` callers map the
+ * `nullif(…, 0)` result, so the field arrives as `number | null`.
+ */
+type ClickHouseCompactionRow = ClickHouseMetaRow & {
+  response_payload: string;
+  request_message_count: number | string | null;
+};
 
 /** Injectable fetch override for tests. Defaults to globalThis.fetch. */
 export type ClickHouseFetch = typeof fetch;
@@ -143,8 +164,34 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
       ORDER BY created_at DESC
       LIMIT 1
       FORMAT JSONEachRow`;
-    const rows = await this.exec(sql, { assistant_id: aid, log_id: logId });
+    const rows = await this.exec<ClickHouseRow>(sql, {
+      assistant_id: aid,
+      log_id: logId,
+    });
     return rows[0] ? this.toLogRow(rows[0]) : null;
+  }
+
+  async getRequestLogMetaById(logId: string): Promise<LogMetaRow | null> {
+    const aid = await this.assistantId();
+    const sql = `SELECT
+        id,
+        conversation_id,
+        message_id,
+        provider,
+        toUnixTimestamp64Milli(created_at) AS created_at,
+        agent_loop_exit_reason,
+        call_site
+      FROM ${this.tableRef()}
+      WHERE assistant_id = {assistant_id:String}
+        AND id = {log_id:String}
+      ORDER BY created_at DESC
+      LIMIT 1
+      FORMAT JSONEachRow`;
+    const rows = await this.exec<ClickHouseMetaRow>(sql, {
+      assistant_id: aid,
+      log_id: logId,
+    });
+    return rows[0] ? this.toLogMetaRow(rows[0]) : null;
   }
 
   async getRequestLogsByMessageId(messageId: string): Promise<LogRow[]> {
@@ -202,7 +249,7 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
       ORDER BY created_at ASC, id ASC
       LIMIT 1 BY id
       FORMAT JSONEachRow`;
-    const rows = await this.exec(sql, {
+    const rows = await this.exec<ClickHouseRow>(sql, {
       assistant_id: aid,
       conversation_id: conversationId,
     });
@@ -213,7 +260,7 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
     conversationId: string,
     afterCreatedAt: number | null,
     beforeCreatedAt: number,
-  ): Promise<LogRow[]> {
+  ): Promise<CompactionAgentLogRow[]> {
     const aid = await this.assistantId();
     // `call_site` is bound as a literal via type-bound parameter (not
     // string interpolation) for parity with the rest of this class —
@@ -237,13 +284,23 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
       afterPredicate =
         " AND created_at > fromUnixTimestamp64Milli({after_created_at:Int64})";
     }
+    // The request payload — an entire near-limit context window per
+    // compaction — is never transferred: the trail only needs the count
+    // of messages it contained, computed server-side across the three
+    // provider shapes (`messages`, `contents`, `input`). `JSONLength`
+    // returns 0 for missing paths or invalid JSON; `nullif` maps that
+    // back to NULL.
     const sql = `SELECT
         id,
         conversation_id,
         message_id,
         provider,
-        request_payload,
         response_payload,
+        nullif(greatest(
+          JSONLength(request_payload, 'messages'),
+          JSONLength(request_payload, 'contents'),
+          JSONLength(request_payload, 'input')
+        ), 0) AS request_message_count,
         toUnixTimestamp64Milli(created_at) AS created_at,
         agent_loop_exit_reason,
         call_site
@@ -255,8 +312,15 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
       ORDER BY created_at ASC, id ASC
       LIMIT 1 BY id
       FORMAT JSONEachRow`;
-    const rows = await this.exec(sql, params);
-    return rows.map((r) => this.toLogRow(r));
+    const rows = await this.exec<ClickHouseCompactionRow>(sql, params);
+    return rows.map((r) => ({
+      ...this.toLogMetaRow(r),
+      responsePayload: r.response_payload,
+      requestMessageCount:
+        r.request_message_count === null
+          ? null
+          : Number(r.request_message_count),
+    }));
   }
 
   private async selectByMessageIds(ids: string[]): Promise<LogRow[]> {
@@ -293,7 +357,7 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
       ORDER BY created_at ASC, id ASC
       LIMIT 1 BY id
       FORMAT JSONEachRow`;
-    const rows = await this.exec(sql, params);
+    const rows = await this.exec<ClickHouseRow>(sql, params);
     return rows.map((r) => this.toLogRow(r));
   }
 
@@ -304,10 +368,10 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
     return `\`${this.config.table.replace(/`/g, "``")}\``;
   }
 
-  private async exec(
+  private async exec<Row>(
     sql: string,
     params: Record<string, string>,
-  ): Promise<ClickHouseRow[]> {
+  ): Promise<Row[]> {
     const baseUrl = await this.url();
     const password = await this.password();
 
@@ -352,12 +416,12 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
     const text = await res.text();
     if (text.trim().length === 0) return [];
 
-    const rows: ClickHouseRow[] = [];
+    const rows: Row[] = [];
     for (const line of text.split("\n")) {
       const trimmed = line.trim();
       if (trimmed.length === 0) continue;
       try {
-        rows.push(JSON.parse(trimmed) as ClickHouseRow);
+        rows.push(JSON.parse(trimmed) as Row);
       } catch (err) {
         throw new Error(
           `Failed to parse ClickHouse JSONEachRow line: ${err instanceof Error ? err.message : String(err)}`,
@@ -369,6 +433,14 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
 
   private toLogRow(row: ClickHouseRow): LogRow {
     return {
+      ...this.toLogMetaRow(row),
+      requestPayload: row.request_payload,
+      responsePayload: row.response_payload,
+    };
+  }
+
+  private toLogMetaRow(row: ClickHouseMetaRow): LogMetaRow {
+    return {
       id: row.id,
       conversationId: row.conversation_id,
       // The mirror writes empty-string for missing message_id/provider
@@ -376,8 +448,6 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
       // overhead). Map empty back to null to match the local LogRow shape.
       messageId: row.message_id === "" ? null : row.message_id,
       provider: row.provider === "" ? null : row.provider,
-      requestPayload: row.request_payload,
-      responsePayload: row.response_payload,
       createdAt: Number(row.created_at),
       agentLoopExitReason:
         row.agent_loop_exit_reason === "" ? null : row.agent_loop_exit_reason,

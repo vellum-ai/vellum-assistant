@@ -25,6 +25,10 @@ import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import type { ServerMessage } from "./message-protocol.js";
+import type {
+  SubagentToolGateMode,
+  WakeToolContextPin,
+} from "./tool-setup-types.js";
 
 const log = getLogger("wake-conversation-ops");
 
@@ -256,14 +260,28 @@ export async function persistWakeTailMessage(
  * reusing the conversation's subagent allowlist slot. Returns a restore
  * callback that reinstates the previous allowlist so the wake can release
  * the scope before any queued user turn is drained.
+ *
+ * `gateMode` controls how the allowlist is enforced — see
+ * {@link SubagentToolGateMode}. `toolContextPin`, when provided
+ * (execution-gate-mode cache-parity wakes), freezes the client-context
+ * inputs for tool-definition resolution — see {@link WakeToolContextPin}.
+ * Both are set and restored alongside the allowlist.
  */
 export function scopeWakeAllowedTools(
   conversation: Conversation,
   tools: ReadonlySet<string>,
+  gateMode: SubagentToolGateMode = "wire",
+  toolContextPin?: WakeToolContextPin,
 ): () => void {
   const previous = conversation.subagentAllowedTools;
+  const previousGateMode = conversation.subagentToolGateMode;
+  const previousToolContextPin = conversation.toolContextPin;
   conversation.setSubagentAllowedTools(new Set(tools));
+  conversation.subagentToolGateMode = gateMode;
+  conversation.toolContextPin = toolContextPin;
   return () => {
     conversation.setSubagentAllowedTools(previous);
+    conversation.subagentToolGateMode = previousGateMode;
+    conversation.toolContextPin = previousToolContextPin;
   };
 }

@@ -74,23 +74,19 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     thinking: { enabled: false, streamThinking: false },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
-  // Open-weight economy option: Kimi K2.6 served by Fireworks via managed
-  // platform inference. Carries the `suppress-cjk` logit-bias preset to
-  // discourage the model from spontaneously emitting Chinese in English
-  // output; the preset is profile-scoped and only forwarded on the Fireworks
-  // path (see `providers/inference/logit-bias.ts`).
+  // Open-weight economy option: MiniMax M3 served by Fireworks via managed
+  // platform inference.
   "balanced-economy": {
     intent: "balanced",
     provider: "fireworks",
     connectionName: "fireworks-managed",
     source: "managed",
     label: "Balanced Economy",
-    description: "Strong open model (Kimi K2.6) at a lower price point",
-    maxTokens: 16000,
+    description: "Strong open model (MiniMax M3) at a lower price point",
+    maxTokens: 32000,
     effort: "high",
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
-    logitBias: "suppress-cjk",
   },
 };
 

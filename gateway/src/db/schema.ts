@@ -66,6 +66,33 @@ export const slackLastSeenTs = sqliteTable("slack_last_seen_ts", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+/**
+ * Persisted bot identity for any channel adapter.
+ *
+ * Each channel adapter (Slack, Telegram, Discord, etc.) resolves the bot's
+ * own identity via a provider-specific API call (e.g. Slack `auth.test`,
+ * Telegram `getMe`). The bot's identity is a deployment constant — it
+ * never changes for a given token. Persisting it here decouples the gateway
+ * from a successful API call at every startup: the first successful
+ * resolution writes the row, and subsequent startups load it directly.
+ * The provider API is still called to validate the token; a transient
+ * failure falls back to the persisted value instead of leaving the gateway
+ * unable to identify its own messages.
+ *
+ * One row per channel type. `channel_type` is the primary key.
+ */
+export const channelBotIdentity = sqliteTable("channel_bot_identity", {
+  /** Channel adapter type (e.g. `'slack'`, `'telegram'`, `'discord'`). */
+  channelType: text("channel_type").primaryKey(),
+  /** The bot's user ID on the channel (e.g. Slack `U01ABC123`, Telegram numeric ID). */
+  userId: text("user_id").notNull(),
+  /** The bot's display name / username on the channel. */
+  username: text("username"),
+  /** Channel-specific metadata as JSON (e.g. Slack team name, Telegram first_name). */
+  metadata: text("metadata"),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 // ---------------------------------------------------------------------------
 // Data migrations
 // ---------------------------------------------------------------------------

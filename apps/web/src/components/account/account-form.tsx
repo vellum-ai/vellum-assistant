@@ -67,7 +67,7 @@ export function AccountInput(
   return (
     <input
       {...props}
-      className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-stone-500 focus:border-[var(--primary-base)]/50"
+      className="w-full rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] px-4 py-3 text-sm text-[var(--content-default)] outline-none placeholder:text-[var(--content-tertiary)] focus:border-[var(--primary-base)]/50"
     />
   );
 }
@@ -81,10 +81,10 @@ export function AccountHeading({
 }) {
   return (
     <div className="mb-8 text-center">
-      <h1 className="mb-2 font-serif text-[2rem] font-bold italic text-white">
+      <h1 className="mb-2 font-serif text-[2rem] font-bold italic text-[var(--content-default)]">
         {title}
       </h1>
-      {subtitle && <p className="text-sm text-stone-400">{subtitle}</p>}
+      {subtitle && <p className="text-sm text-[var(--content-secondary)]">{subtitle}</p>}
     </div>
   );
 }

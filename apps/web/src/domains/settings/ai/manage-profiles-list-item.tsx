@@ -6,7 +6,7 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import type { ProfileWithName } from "@/domains/settings/ai/ai-types";
-import { AUTO_PROFILE_NAME } from "@/domains/settings/ai/profile-pickers";
+import { AUTO_PROFILE_NAME } from "@/assistant/profile-pickers";
 
 // ---------------------------------------------------------------------------
 // Types

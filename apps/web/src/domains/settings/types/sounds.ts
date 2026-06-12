@@ -61,38 +61,6 @@ export function defaultSoundsConfig(): SoundsConfig {
   };
 }
 
-export function normaliseSoundsConfig(input: unknown): SoundsConfig {
-  const base = defaultSoundsConfig();
-  if (!input || typeof input !== "object") {
-    return base;
-  }
-  const obj = input as Record<string, unknown>;
-
-  if (typeof obj.globalEnabled === "boolean") {
-    base.globalEnabled = obj.globalEnabled;
-  }
-  if (typeof obj.volume === "number" && Number.isFinite(obj.volume)) {
-    base.volume = Math.max(0, Math.min(1, obj.volume));
-  }
-
-  const eventsInput = obj.events;
-  if (eventsInput && typeof eventsInput === "object") {
-    const eventsObj = eventsInput as Record<string, unknown>;
-    for (const id of SOUND_EVENT_IDS) {
-      const raw = eventsObj[id];
-      if (!raw || typeof raw !== "object") continue;
-      const rec = raw as Record<string, unknown>;
-      const enabled = typeof rec.enabled === "boolean" ? rec.enabled : false;
-      const sounds = Array.isArray(rec.sounds)
-        ? rec.sounds.filter((s): s is string => typeof s === "string")
-        : [];
-      base.events[id] = { enabled, sounds };
-    }
-  }
-
-  return base;
-}
-
 export function soundExtension(filename: string): string {
   const idx = filename.lastIndexOf(".");
   if (idx < 0 || idx === filename.length - 1) return "";

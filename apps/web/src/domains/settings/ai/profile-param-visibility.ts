@@ -87,7 +87,15 @@ function isGeminiProModel(modelId: string): boolean {
  * omit "minimal". The daemon clamps anything below a model's floor, so this is
  * a UX nicety rather than a correctness guarantee.
  */
-export function geminiThinkingLevels(modelId: string): readonly string[] {
+export type GeminiThinkingLevel = (typeof GEMINI_THINKING_LEVELS_FULL)[number];
+
+const GEMINI_THINKING_LEVELS_SET: ReadonlySet<string> = new Set(GEMINI_THINKING_LEVELS_FULL);
+
+export function isGeminiThinkingLevel(v: unknown): v is GeminiThinkingLevel {
+  return typeof v === "string" && GEMINI_THINKING_LEVELS_SET.has(v);
+}
+
+export function geminiThinkingLevels(modelId: string): readonly GeminiThinkingLevel[] {
   return isGeminiProModel(modelId.toLowerCase())
     ? GEMINI_THINKING_LEVELS_PRO
     : GEMINI_THINKING_LEVELS_FULL;

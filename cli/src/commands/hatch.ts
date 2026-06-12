@@ -5,7 +5,6 @@ import cliPkg from "../../package.json";
 
 import { buildOpenclawStartupScript } from "../adapters/openclaw";
 import {
-  normalizeVersion,
   saveAssistantEntry,
   setActiveAssistant,
 } from "../lib/assistant-config";
@@ -639,9 +638,6 @@ async function hatchVellumPlatform(): Promise<void> {
     cloud: "vellum",
     species: "vellum",
     hatchedAt: new Date().toISOString(),
-    ...(result.current_release_version != null && {
-      version: normalizeVersion(result.current_release_version),
-    }),
   });
   setActiveAssistant(result.id);
 
