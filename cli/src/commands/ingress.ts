@@ -1,9 +1,13 @@
+import { join } from "node:path";
+
 import { AssistantClient } from "../lib/assistant-client.js";
+import { resolveAssistant } from "../lib/assistant-config";
 import { GATEWAY_PORT } from "../lib/constants";
 import { waitForDaemonReady } from "../lib/http-client.js";
 import {
   DEFAULT_INGRESS_PORT,
   getIngressPaths,
+  getIngressPid,
   getIngressPort,
   getNginxVersion,
   isIngressRunning,
@@ -11,7 +15,6 @@ import {
   startIngressNginx,
   stopIngressNginx,
 } from "../lib/nginx-ingress.js";
-import { isProcessAlive } from "../lib/process.js";
 import { getDefaultWorkspaceDir } from "../lib/workspace-config.js";
 
 const FLAG_KEY = "web-remote-ingress";
@@ -19,7 +22,7 @@ const FLAG_KEY = "web-remote-ingress";
 const READY_TIMEOUT_MS = 5_000;
 
 function printHelp(): void {
-  console.log("Usage: vellum ingress <subcommand> [options]");
+  console.log("Usage: vellum ingress <subcommand> [<name>] [options]");
   console.log("");
   console.log(
     "Manage the nginx reverse proxy that fronts the gateway for remote web",
@@ -36,6 +39,11 @@ function printHelp(): void {
   console.log("  down     Stop the proxy");
   console.log("  status   Show whether the proxy is running and where");
   console.log("");
+  console.log("Arguments:");
+  console.log(
+    "  <name>   Name of the assistant (defaults to active or only local)",
+  );
+  console.log("");
   console.log("Options:");
   console.log("  --help, -h   Show this help");
   console.log("");
@@ -49,6 +57,40 @@ function printHelp(): void {
   console.log(`  $ vellum flags set ${FLAG_KEY} true`);
 }
 
+interface IngressTarget {
+  assistantId: string | undefined;
+  workspaceDir: string;
+  gatewayPort: number;
+}
+
+/**
+ * Resolve which assistant the ingress fronts. Multi-instance hatches allocate
+ * per-assistant gateway ports and workspaces, so both must come from the
+ * resolved entry's resources — falling back to the legacy default paths only
+ * when no resource configuration exists (mirrors `vellum tunnel`).
+ */
+function resolveIngressTarget(assistantName: string | null): IngressTarget {
+  const entry = resolveAssistant(assistantName ?? undefined);
+  if (!entry && assistantName) {
+    throw new Error(
+      `No assistant instance found with name '${assistantName}'.`,
+    );
+  }
+  const resources = entry?.resources;
+  if (resources) {
+    return {
+      assistantId: entry.assistantId,
+      workspaceDir: join(resources.instanceDir, ".vellum", "workspace"),
+      gatewayPort: resources.gatewayPort,
+    };
+  }
+  return {
+    assistantId: entry?.assistantId,
+    workspaceDir: getDefaultWorkspaceDir(),
+    gatewayPort: GATEWAY_PORT,
+  };
+}
+
 type FlagsResponse = {
   flags: Array<{ key: string; enabled: boolean }>;
 };
@@ -58,10 +100,12 @@ type FlagsResponse = {
  * state. Doubles as the "is the gateway running?" precondition — if the
  * gateway is unreachable this throws a clear error before nginx is spawned.
  */
-async function requireFeatureFlag(): Promise<void> {
+async function requireFeatureFlag(
+  assistantId: string | undefined,
+): Promise<void> {
   let client: AssistantClient;
   try {
-    client = new AssistantClient();
+    client = new AssistantClient(assistantId ? { assistantId } : undefined);
   } catch {
     throw new Error("No assistant found. Hatch one with 'vellum hatch' first.");
   }
@@ -86,11 +130,11 @@ async function requireFeatureFlag(): Promise<void> {
   }
 }
 
-async function up(): Promise<void> {
-  const workspaceDir = getDefaultWorkspaceDir();
+async function up(target: IngressTarget): Promise<void> {
+  const { workspaceDir, gatewayPort } = target;
   const listenPort = getIngressPort();
 
-  await requireFeatureFlag();
+  await requireFeatureFlag(target.assistantId);
 
   const version = getNginxVersion();
   if (!version) {
@@ -108,18 +152,18 @@ async function up(): Promise<void> {
 
   if (isIngressRunning(workspaceDir)) {
     console.log("Ingress is already running.");
-    await status();
+    await status(target);
     return;
   }
 
   console.log(`Using ${version}`);
   console.log(
-    `Starting nginx ingress on 127.0.0.1:${listenPort} → gateway 127.0.0.1:${GATEWAY_PORT}...`,
+    `Starting nginx ingress on 127.0.0.1:${listenPort} → gateway 127.0.0.1:${gatewayPort}...`,
   );
 
   const child = startIngressNginx({
     workspaceDir,
-    gatewayPort: GATEWAY_PORT,
+    gatewayPort,
     listenPort,
   });
   child.unref();
@@ -154,25 +198,24 @@ async function up(): Promise<void> {
   console.log("  vellum ingress down              # stop the proxy");
 }
 
-async function down(): Promise<void> {
-  const workspaceDir = getDefaultWorkspaceDir();
-  const stopped = await stopIngressNginx(workspaceDir);
+async function down(target: IngressTarget): Promise<void> {
+  const stopped = await stopIngressNginx(target.workspaceDir);
   console.log(stopped ? "Ingress stopped." : "Ingress is not running.");
 }
 
-async function status(): Promise<void> {
-  const workspaceDir = getDefaultWorkspaceDir();
-  const { confPath, logPath, pidPath } = getIngressPaths(workspaceDir);
-  const { alive, pid } = isProcessAlive(pidPath);
-  if (!alive) {
+async function status(target: IngressTarget): Promise<void> {
+  const { workspaceDir, gatewayPort } = target;
+  const { confPath, logPath } = getIngressPaths(workspaceDir);
+  const pid = getIngressPid(workspaceDir);
+  if (pid === null) {
     console.log("Ingress: not running");
     return;
   }
-  const { port } = resolveTunnelTargetPort(workspaceDir);
+  const { port } = resolveTunnelTargetPort(workspaceDir, gatewayPort);
   console.log("Ingress: running");
   console.log(`  PID:     ${pid}`);
   console.log(`  Listen:  http://127.0.0.1:${port}`);
-  console.log(`  Gateway: http://127.0.0.1:${GATEWAY_PORT}`);
+  console.log(`  Gateway: http://127.0.0.1:${gatewayPort}`);
   console.log(`  Config:  ${confPath}`);
   console.log(`  Log:     ${logPath}`);
 }
@@ -186,9 +229,12 @@ export async function ingress(): Promise<void> {
     process.exit(sub ? 0 : 1);
   }
 
-  if (sub === "up") return up();
-  if (sub === "down") return down();
-  if (sub === "status") return status();
+  const positional = args.slice(1).filter((a) => !a.startsWith("-"));
+  const target = resolveIngressTarget(positional[0] ?? null);
+
+  if (sub === "up") return up(target);
+  if (sub === "down") return down(target);
+  if (sub === "status") return status(target);
 
   console.error(`Error: Unknown subcommand '${sub}'.`);
   console.error("Run 'vellum ingress --help' for usage.");

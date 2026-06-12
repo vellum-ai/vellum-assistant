@@ -1,9 +1,20 @@
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { closeSync, mkdirSync, openSync, writeFileSync } from "node:fs";
+import {
+  execFileSync,
+  spawn,
+  spawnSync,
+  type ChildProcess,
+} from "node:child_process";
+import {
+  closeSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { GATEWAY_PORT } from "./constants";
-import { isProcessAlive, stopProcessByPidFile } from "./process.js";
 import { loadRawConfig, saveRawConfig } from "./workspace-config.js";
 
 /**
@@ -126,8 +137,56 @@ export function getNginxVersion(): string | null {
   return output || null;
 }
 
+/*
+ * PID handling is deliberately self-contained rather than reusing the
+ * process.ts helpers: stopProcessByPidFile's isVellumProcess() guard only
+ * matches command lines containing a vellum path, which fails for a custom
+ * VELLUM_WORKSPACE_DIR and would silently leave nginx running (the same
+ * reason local.ts kills ngrok directly). This module is also imported by
+ * sleep/retire, whose tests mock.module() process.js process-globally —
+ * depending on it here would couple this lib's behavior to those mocks.
+ */
+
+function readPidFile(pidPath: string): number | null {
+  try {
+    const pid = parseInt(readFileSync(pidPath, "utf-8").trim(), 10);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Check whether a PID belongs to an nginx process via its command line. */
+function isNginxProcess(pid: number): boolean {
+  try {
+    const output = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
+      encoding: "utf-8",
+      timeout: 3000,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return /nginx/.test(output);
+  } catch {
+    return false;
+  }
+}
+
+/** The ingress nginx PID when it is recorded and alive, null otherwise. */
+export function getIngressPid(workspaceDir: string): number | null {
+  const pid = readPidFile(getIngressPaths(workspaceDir).pidPath);
+  return pid !== null && isPidAlive(pid) ? pid : null;
+}
+
 export function isIngressRunning(workspaceDir: string): boolean {
-  return isProcessAlive(getIngressPaths(workspaceDir).pidPath).alive;
+  return getIngressPid(workspaceDir) !== null;
 }
 
 interface IngressState {
@@ -193,14 +252,36 @@ export function startIngressNginx(opts: {
   return child;
 }
 
+const STOP_TIMEOUT_MS = 2_000;
+
 /**
  * Stop a running ingress nginx via its pidfile and clear the recorded state.
  * Returns true if a process was stopped.
+ *
+ * Verifies the PID still belongs to nginx before killing to avoid hitting an
+ * unrelated process if the OS has reused the PID (the same pattern local.ts
+ * uses for ngrok). SIGTERM is nginx fast shutdown; escalate to SIGKILL if it
+ * doesn't exit within the timeout.
  */
 export async function stopIngressNginx(workspaceDir: string): Promise<boolean> {
   const { pidPath } = getIngressPaths(workspaceDir);
   clearIngressState(workspaceDir);
-  return stopProcessByPidFile(pidPath, "nginx ingress");
+
+  const pid = readPidFile(pidPath);
+  let stopped = false;
+  if (pid !== null && isPidAlive(pid) && isNginxProcess(pid)) {
+    process.kill(pid, "SIGTERM");
+    const deadline = Date.now() + STOP_TIMEOUT_MS;
+    while (Date.now() < deadline && isPidAlive(pid)) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    if (isPidAlive(pid)) {
+      process.kill(pid, "SIGKILL");
+    }
+    stopped = true;
+  }
+  rmSync(pidPath, { force: true });
+  return stopped;
 }
 
 /**
