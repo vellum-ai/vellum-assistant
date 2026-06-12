@@ -12,6 +12,7 @@ import {
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { reconcileSnapshot } from "@/domains/chat/utils/reconcile-snapshot";
 import { getLocalSeq, recordLocalSeq } from "@/lib/streaming/local-seq";
+import { getSeqGeneration } from "@/lib/streaming/seq-generation";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { mapMessageToolCalls } from "@/domains/chat/utils/map-message-tool-calls";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
@@ -363,12 +364,19 @@ export function useMessageReconciliation({
           return;
         }
         const snapshotTurnId = useTurnStore.getState().activeTurnId;
+        const fetchSeqGeneration = getSeqGeneration();
 
         fetchConversationMessages(ctx.assistantId, ctx.conversationId)
           .then((snapshot) => {
             if (epoch !== useStreamStore.getState().streamEpoch) return;
             const serverMessages = snapshot?.messages ?? [];
-            const serverSeq = snapshot?.seq ?? null;
+            // A snapshot fetched against an abandoned seq space carries an
+            // old-space seq that must not be recorded as a frontier. Apply
+            // the messages, but drop the seq.
+            const serverSeq =
+              fetchSeqGeneration === getSeqGeneration()
+                ? (snapshot?.seq ?? null)
+                : null;
             recordDiagnostic("reconciliation_fetch", {
               assistantId: ctx.assistantId,
               conversationId: ctx.conversationId,
@@ -454,6 +462,7 @@ export function useMessageReconciliation({
       // in the store prevents stale reconciliation from idling it.
       const snapshotTurnId = useTurnStore.getState().activeTurnId;
       const snapshotEpoch = streamState.streamEpoch;
+      const fetchSeqGeneration = getSeqGeneration();
 
       try {
         const snapshot = await fetchConversationMessages(
@@ -461,7 +470,13 @@ export function useMessageReconciliation({
           ctx.conversationId,
         );
         const serverMessages = snapshot?.messages ?? [];
-        const serverSeq = snapshot?.seq ?? null;
+        // A snapshot fetched against an abandoned seq space carries an
+        // old-space seq that must not be recorded as a frontier. Apply
+        // the messages, but drop the seq.
+        const serverSeq =
+          fetchSeqGeneration === getSeqGeneration()
+            ? (snapshot?.seq ?? null)
+            : null;
         if (useConversationStore.getState().activeConversationId !== ctx.conversationId) return empty;
         // If the epoch changed during the fetch (e.g. page went hidden
         // and back), this reconciliation is stale — bail out.

@@ -79,6 +79,7 @@ import {
   getReconnectCursor,
   replaceReconnectCursor,
 } from "@/lib/streaming/reconnect-cursor";
+import { bumpSeqGeneration } from "@/lib/streaming/seq-generation";
 import { resetServerSeqs } from "@/lib/streaming/server-seq";
 import type { AssistantEvent } from "@/types/event-types";
 
@@ -153,6 +154,10 @@ export function createSseEventConsumer(
           // until reload. Clear them so the new space applies cleanly.
           resetLocalSeqs();
           resetServerSeqs();
+          // Invalidate in-flight snapshot fetches started against the old
+          // space, so a late-resolving response can't re-record an
+          // old-space frontier after the clear above.
+          bumpSeqGeneration();
           gapDeferred = true;
           // Fire-and-forget: cursor is already replaced above (the old
           // seq space is meaningless after a restart). Swallow rejection

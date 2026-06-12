@@ -30,6 +30,7 @@ import { lifecycleService } from "@/assistant/lifecycle-service";
 import { publish, subscribe } from "@/lib/event-bus";
 import { resetLocalSeqs } from "@/lib/streaming/local-seq";
 import { resetReconnectCursor } from "@/lib/streaming/reconnect-cursor";
+import { bumpSeqGeneration } from "@/lib/streaming/seq-generation";
 import { resetServerSeqs } from "@/lib/streaming/server-seq";
 import {
   clearSseReconnectHandler,
@@ -70,6 +71,7 @@ export const sseService: SseService = {
     // new connection and must start cold with it.
     resetLocalSeqs();
     resetServerSeqs();
+    bumpSeqGeneration();
 
     let current: EventStream | null = null;
     let cancelled = false;

@@ -26,6 +26,7 @@ import type {
 } from "@/domains/chat/types/types";
 import { reconcileSnapshot } from "@/domains/chat/utils/reconcile-snapshot";
 import { getLocalSeq, recordLocalSeq } from "@/lib/streaming/local-seq";
+import { getSeqGeneration } from "@/lib/streaming/seq-generation";
 import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope";
 import { resolveEditChatDraftConversationId } from "@/utils/edit-chat-session";
 import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure";
@@ -435,13 +436,20 @@ export function useSendMessage({
           }
           let serverMessages: ConversationMessage[] = [];
           let serverSeq: number | null = null;
+          const fetchSeqGeneration = getSeqGeneration();
           try {
             const snapshot = await fetchConversationMessages(
               postResult.assistantId,
               effectiveConversationId,
             );
             serverMessages = snapshot?.messages ?? [];
-            serverSeq = snapshot?.seq ?? null;
+            // A snapshot fetched against an abandoned seq space carries an
+            // old-space seq that must not be recorded as a frontier. Apply
+            // the messages, but drop the seq.
+            serverSeq =
+              fetchSeqGeneration === getSeqGeneration()
+                ? (snapshot?.seq ?? null)
+                : null;
           } catch {
             // Reconciliation is best-effort
           }

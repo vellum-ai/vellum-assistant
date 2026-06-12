@@ -104,6 +104,10 @@ export interface PaginatedHistoryResult {
    *  that omits the field). Used to align the snapshot with the `/events`
    *  stream. */
   seq?: number | null;
+  /** Seq-space generation captured when the fetch started. When it no
+   *  longer matches the live generation, `seq` belongs to an abandoned
+   *  seq space and must not be recorded as a frontier. */
+  seqGeneration?: number;
 }
 
 /** Snapshot of the transcript pagination state held by the scroll

@@ -27,9 +27,11 @@ import { useStreamStore } from "@/domains/chat/stream-store";
 import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/chat/turn-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import {
+  getLocalSeq,
   resetLocalSeqs,
   recordLocalSeq,
 } from "@/lib/streaming/local-seq";
+import { bumpSeqGeneration } from "@/lib/streaming/seq-generation";
 
 // ---------------------------------------------------------------------------
 // Mocks — module mocks MUST come before importing the subject under test.
@@ -1183,5 +1185,27 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
 
     // Tool call should remain running since the turn is still active
     expect(isToolCallRunning(messages[1]!.toolCalls![0]!)).toBe(true);
+  });
+
+  test("a snapshot from an abandoned seq space does not record its seq as a frontier", async () => {
+    mockFetchResult = [
+      makeServerMessage({ id: "m1", role: "user", ...wireTextBody("Hello") }),
+      makeServerMessage({ id: "m2", role: "assistant", ...wireTextBody("Response") }),
+    ];
+    mockFetchSeq = 1795;
+    // The seq space is abandoned (daemon restart) while the fetch is
+    // in flight — the frontiers were just reset, and the snapshot's seq
+    // belongs to the old space.
+    mockFetchSideEffect = () => bumpSeqGeneration();
+    const { reconcileActiveConversation } = createHarness({
+      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
+      activeConversationId: "conv-1",
+    });
+    const result = await reconcileActiveConversation();
+    // Messages still apply…
+    expect(result.changed).toBe(true);
+    // …but the old-space seq must not become the frontier, or every
+    // new-space event (seq near 1) would be dropped as a replay.
+    expect(getLocalSeq("conv-1")).toBeNull();
   });
 });

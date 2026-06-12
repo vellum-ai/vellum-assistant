@@ -17,6 +17,7 @@ import {
   extractErrorMessage,
 } from "@/utils/api-errors";
 import { recordDiagnostic } from "@/lib/diagnostics";
+import { getSeqGeneration } from "@/lib/streaming/seq-generation";
 import { summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics";
 
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
@@ -76,6 +77,11 @@ async function fetchPaginatedHistory(
   assistantId: string,
   query: HistoryQuery,
 ): Promise<PaginatedHistoryResult> {
+  // Capture the seq-space generation at request time. The applier compares
+  // it against the live generation so a page fetched against an abandoned
+  // seq space (daemon restart, assistant switch) can't record its
+  // old-space `seq` as a frontier.
+  const seqGeneration = getSeqGeneration();
   const { data, error, response } = await messagesGet({
     path: { assistant_id: assistantId },
     query,
@@ -97,7 +103,7 @@ async function fetchPaginatedHistory(
     throw new ApiError(response.status, message);
   }
 
-  const result = parsePaginatedResponse(data);
+  const result = { ...parsePaginatedResponse(data), seqGeneration };
   recordDiagnostic("history_page_fetch", {
     assistantId,
     query,

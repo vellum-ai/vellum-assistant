@@ -28,6 +28,7 @@ import { recordDiagnostic } from "@/lib/diagnostics";
 import { recordServerSeq } from "@/lib/streaming/server-seq";
 import { getLocalSeq, recordLocalSeq } from "@/lib/streaming/local-seq";
 import { anchorColdStartReplay } from "@/lib/streaming/cold-anchor";
+import { getSeqGeneration } from "@/lib/streaming/seq-generation";
 import { summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
@@ -118,7 +119,16 @@ export function useConversationHistory({
     // client state, so an out-of-order or aborted fetch (which never becomes
     // committed query data) can't regress the baseline. Older-page loads keep
     // the same `latestPage`, so re-running here records the same seq.
-    const latestPageSeq = pagination.latestPage?.seq ?? null;
+    // A page fetched against an abandoned seq space (daemon restart,
+    // assistant switch) carries an old-space `seq` that must not be
+    // recorded as a frontier — it would classify every new-space event
+    // as an already-applied replay. Its messages still apply normally.
+    const pageSeqIsCurrent =
+      pagination.latestPage?.seqGeneration === undefined ||
+      pagination.latestPage.seqGeneration === getSeqGeneration();
+    const latestPageSeq = pageSeqIsCurrent
+      ? (pagination.latestPage?.seq ?? null)
+      : null;
     // Capture the local seq `L` before advancing it so the merge below
     // can tell whether this page moved the frontier (`S > L`).
     const priorLocalSeq = getLocalSeq(activeConversationId);
