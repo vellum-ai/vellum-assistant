@@ -97,13 +97,24 @@ describe("recordWatcherInventoryIfDue", () => {
     expect(checkpoints.get(INVENTORY_KEY)).toBe(String(BASE + 1));
   });
 
-  test("swallows storage errors", () => {
+  test("swallows storage errors and leaves the checkpoint for retry", () => {
     fakeEnabledWatchers = [{ providerId: "gmail" }];
     recordImpl = () => {
       throw new Error("db unavailable");
     };
 
     expect(() => recordWatcherInventoryIfDue(BASE + 2)).not.toThrow();
+    // Checkpoint must not advance on failure: the next tick retries
+    // instead of skipping a day of inventory.
+    expect(checkpoints.get(INVENTORY_KEY)).toBeUndefined();
+
+    recordImpl = (name) => {
+      recordedEvents.push(name);
+    };
+    recordWatcherInventoryIfDue(BASE + 3);
+
+    expect(recordedEvents).toEqual(["watcher_enabled:gmail"]);
+    expect(checkpoints.get(INVENTORY_KEY)).toBe(String(BASE + 3));
   });
 });
 

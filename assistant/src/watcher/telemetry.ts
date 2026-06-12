@@ -35,17 +35,20 @@ export const WATCHER_INVENTORY_INTERVAL_MS = 24 * 60 * 60 * 1000;
 /**
  * Record one `watcher_enabled:<providerId>` lifecycle event per enabled
  * watcher, at most once per 24h. Called from every watcher tick; the
- * checkpoint advances even when no watchers are enabled so the inventory
- * query runs once per interval rather than every tick.
+ * checkpoint advances only after the events are recorded, so a transient
+ * storage failure retries on the next tick instead of skipping a day.
+ * Retries can duplicate events for watchers recorded before the failure
+ * point — an acceptable overcount for best-effort telemetry, where losing
+ * a full day's inventory would not be.
  */
 export function recordWatcherInventoryIfDue(now: number): void {
   try {
     const last = Number(getMemoryCheckpoint(INVENTORY_CHECKPOINT_KEY) ?? "0");
     if (now - last < WATCHER_INVENTORY_INTERVAL_MS) return;
-    setMemoryCheckpoint(INVENTORY_CHECKPOINT_KEY, String(now));
     for (const watcher of listWatchers({ enabledOnly: true })) {
       recordLifecycleEvent(`watcher_enabled:${watcher.providerId}`);
     }
+    setMemoryCheckpoint(INVENTORY_CHECKPOINT_KEY, String(now));
   } catch (err) {
     log.warn({ err }, "Failed to record watcher inventory telemetry");
   }
