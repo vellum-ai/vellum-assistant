@@ -602,9 +602,17 @@ function beginAssistantAudioIfNeeded(session: SessionContext): void {
  * socket — we tear the session down and the user starts a fresh one for the next
  * turn (mirrors the macOS `closeCompletedUtteranceSessionAfterPlayback`).
  * Forwarding is suspended during the drain so playback audio captured by the
- * (still-open) mic isn't streamed back. A barge-in during the drain already
- * tore this session down and reconnected (generation bumped / state no longer
- * `speaking`), so we leave that fresh session alone.
+ * (still-open) mic isn't streamed back. Any teardown that raced the drain —
+ * barge-in (which reconnects a fresh session), stop(), unmount — bumped the
+ * generation, so the stale-session guard below covers all of them.
+ *
+ * Runs for silent turns too: `tts_done` can arrive without any prior
+ * `tts_audio` (no speakable text, or a zero-chunk TTS stream), in which case
+ * the session never reached `speaking` (it is still `thinking`). The drain
+ * resolves immediately and the turn must still complete — and report
+ * `completed` so the voice-mode loop opens the next listening session — the
+ * same way the macOS `syncLiveVoiceState` restarts the loop when a turn lands
+ * on `idle` without speaking.
  */
 async function finishResponseAfterPlayback(
   session: SessionContext,
@@ -617,8 +625,6 @@ async function finishResponseAfterPlayback(
   await session.player.waitUntilDrained();
   if (session.generation !== generation) return;
 
-  // A barge-in mid-drain already reconnected a fresh session; don't tear it down.
-  if (useLiveVoiceStore.getState().state !== "speaking") return;
   teardown();
   session.notifySessionEnd("completed");
 }

@@ -209,6 +209,25 @@ describe("conversation loop", () => {
     expect(h.view.result.current.state).toBe("listening");
   });
 
+  test("a silent (no-TTS) response still advances the loop to the next turn", async () => {
+    // tts_done with no tts_audio: the session never reaches `speaking`, but
+    // the loop must re-listen anyway (mirrors the macOS idle auto-restart)
+    // rather than hanging in `processing` until the user stops it.
+    const h = renderVoiceMode();
+    await activateToListening(h);
+
+    await act(async () => {
+      h.client().emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      h.client().emit("ttsDone", { type: "tts_done", seq: 3, turnId: "t1" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(h.clients).toHaveLength(2);
+    await emitReady(h);
+    expect(h.view.result.current.state).toBe("listening");
+  });
+
   test("voice barge-in while speaking interrupts and resumes listening", async () => {
     const h = renderVoiceMode();
     await activateToListening(h);

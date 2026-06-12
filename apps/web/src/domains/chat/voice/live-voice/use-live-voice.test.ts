@@ -492,6 +492,26 @@ describe("onSessionEnd", () => {
     expect(ends).toEqual([{ reason: "completed", conversationId: "conv-1" }]);
   });
 
+  test("a silent turn (tts_done without tts_audio) still completes the session", async () => {
+    // The server sends tts_done even when a turn produced no speakable text
+    // (or the TTS stream yielded zero chunks), so the session never reaches
+    // `speaking`. The turn must still end — and report `completed` so the
+    // voice-mode loop opens the next listening session instead of hanging in
+    // processing.
+    const { h, ends } = recordingEnds();
+    await startListening(h);
+
+    await act(async () => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      h.client.emit("ttsDone", { type: "tts_done", seq: 3, turnId: "t1" });
+      await Promise.resolve();
+    });
+
+    expect(h.view.result.current.state).toBe("idle");
+    expect(h.client.closed).toBe(true);
+    expect(ends).toEqual([{ reason: "completed", conversationId: "conv-1" }]);
+  });
+
   test("the server-issued conversation id from `ready` is reported when start() had none", async () => {
     const { h, ends } = recordingEnds();
     await act(async () => {
