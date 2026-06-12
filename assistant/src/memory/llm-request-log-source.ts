@@ -17,11 +17,23 @@
  * Config edits take effect on the next request without an invalidation hook.
  */
 import { getConfig } from "../config/loader.js";
-import type { LogRow } from "./llm-request-log-store.js";
+import type {
+  CompactionAgentLogRow,
+  LogMetaRow,
+  LogRow,
+} from "./llm-request-log-store.js";
 
 export interface LlmRequestLogSource {
   /** Fetch a single log row by its primary key. Returns null if not found. */
   getRequestLogById(logId: string): Promise<LogRow | null>;
+
+  /**
+   * Fetch a single log row's metadata (no payloads) by its primary key.
+   * Prefer this when the caller only needs to locate or validate the row
+   * — request payloads can be entire context windows, so loading them for
+   * a conversation-scope check or a `createdAt` anchor is wasteful.
+   */
+  getRequestLogMetaById(logId: string): Promise<LogMetaRow | null>;
 
   /**
    * Fetch every LLM request log associated with the given message,
@@ -54,7 +66,7 @@ export interface LlmRequestLogSource {
     conversationId: string,
     afterCreatedAt: number | null,
     beforeCreatedAt: number,
-  ): Promise<LogRow[]>;
+  ): Promise<CompactionAgentLogRow[]>;
 }
 
 /**

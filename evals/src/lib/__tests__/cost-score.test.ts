@@ -14,23 +14,25 @@ describe("scoreCostAgainstBaseline", () => {
     expect(scoreCostAgainstBaseline(0, baseline)).toBe(1);
   });
 
-  test("the score decays linearly between the baseline and twice the baseline", () => {
+  test("the score decays as the inverse cost ratio past the baseline", () => {
     // GIVEN a baseline budget
     const baseline = 0.02;
 
-    // WHEN the run spends 1.5× the baseline
-    // THEN the score is halfway down to zero
-    expect(scoreCostAgainstBaseline(0.03, baseline)).toBeCloseTo(0.5, 10);
+    // WHEN the run spends 2× and 4× the baseline
+    // THEN the score is the inverse ratio: 1/2 and 1/4
+    expect(scoreCostAgainstBaseline(0.04, baseline)).toBeCloseTo(0.5, 10);
+    expect(scoreCostAgainstBaseline(0.08, baseline)).toBeCloseTo(0.25, 10);
   });
 
-  test("spending twice the baseline or more scores zero", () => {
+  test("the score approaches but never reaches zero for runaway cost", () => {
     // GIVEN a baseline budget
     const baseline = 0.02;
 
-    // WHEN the run spends 2× or well beyond
-    // THEN the score floors at 0 (never negative)
-    expect(scoreCostAgainstBaseline(0.04, baseline)).toBe(0);
-    expect(scoreCostAgainstBaseline(1, baseline)).toBe(0);
+    // WHEN the run spends far beyond the baseline
+    // THEN the score stays a small positive fraction rather than flooring at 0
+    const score = scoreCostAgainstBaseline(1, baseline);
+    expect(score).toBeGreaterThan(0);
+    expect(score).toBeCloseTo(0.02, 10);
   });
 
   test("a non-positive baseline cannot define a budget and scores zero", () => {

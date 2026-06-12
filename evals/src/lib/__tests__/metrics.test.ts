@@ -65,7 +65,7 @@ describe("timeline-recall metrics", () => {
   });
 
   test("cost metric scores cost as a 0-1 fraction against the baseline", async () => {
-    // GIVEN a run that spent under the timeline-recall cost baseline ($0.02)
+    // GIVEN a run that spent under the timeline-recall cost baseline ($0.05)
     const runId = await freshRunId("cost");
     await writeUsage(runId, { requests: [], totalCostUsd: 0.0123 });
 
@@ -78,13 +78,13 @@ describe("timeline-recall metrics", () => {
     expect(result).not.toHaveProperty("unit");
     expect(result.score).toBe(1);
     expect(result.metadata).toMatchObject({
-      baselineUsd: 0.02,
+      baselineUsd: 0.05,
       costUsd: 0.0123,
     });
   });
 
   test("cost metric scores 0 when metering is only partial, even if the priced subtotal is under budget", async () => {
-    // GIVEN a run whose priced subtotal ($0.0007) is well under the $0.02
+    // GIVEN a run whose priced subtotal ($0.0007) is well under the $0.05
     // baseline, but some model traffic went unpriced (costStatus "partial")
     const runId = await freshRunId("cost-partial");
     await writeUsage(runId, {
@@ -104,14 +104,14 @@ describe("timeline-recall metrics", () => {
   });
 
   test("cost metric decays toward zero as spend exceeds the baseline", async () => {
-    // GIVEN a run that spent 1.5× the $0.02 baseline
+    // GIVEN a run that spent 2× the $0.05 baseline
     const runId = await freshRunId("cost-over");
-    await writeUsage(runId, { requests: [], totalCostUsd: 0.03 });
+    await writeUsage(runId, { requests: [], totalCostUsd: 0.1 });
 
     // WHEN the cost metric scores it
     const result = await scoreAssistantCost({ runId });
 
-    // THEN the score is halfway down to zero
+    // THEN the score is the inverse cost ratio (half marks at 2× the baseline)
     expect(result.score).toBeCloseTo(0.5, 10);
   });
 
