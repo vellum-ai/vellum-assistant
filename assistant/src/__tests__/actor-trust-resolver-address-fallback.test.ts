@@ -116,7 +116,6 @@ describe("resolveActorTrust — address fallback", () => {
   });
 
   test("address lookup is the sole member resolution path", () => {
-    // Only the address-based lookup is used — externalUserId is not consulted.
     _byExternalId = makeContact("contact", "active", PHONE);
     _byAddress = makeContact("contact", "active", null);
 

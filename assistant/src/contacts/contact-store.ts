@@ -731,9 +731,6 @@ export function findContactByChannelExternalId(
   channelType: string,
   externalUserId: string,
 ): ContactWithChannels | null {
-  // address is always the canonicalized form of externalUserId, so
-  // querying by (type, address) is equivalent and uses the primary
-  // unique constraint (migration 105).
   return findContactByAddress(channelType, externalUserId);
 }
 

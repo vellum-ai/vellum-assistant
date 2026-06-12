@@ -340,8 +340,7 @@ describe("migration 282 — contact_channels unique (type, external_user_id)", (
 
     migrateContactChannelsUniqueExtUser(db);
 
-    // The unique index on external_user_id no longer exists, so duplicate
-    // externalUserId values are allowed (identity is enforced via address).
+    // No unique constraint on external_user_id — identity is enforced via address.
     expect(() =>
       insertChannel(raw, {
         id: "ch2",

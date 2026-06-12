@@ -200,7 +200,6 @@ export function resolveActorTrust(
   );
 
   // --- Member lookup via contacts ---
-  // address is the canonical identity for all channel types.
   let memberRecord: ActorTrustContext["memberRecord"] = null;
   const byAddress = findContactByAddress(
     input.sourceChannel,

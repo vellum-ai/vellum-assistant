@@ -66,8 +66,8 @@ export function migrateContactChannelsUniqueExtUser(database: DrizzleDb): void {
     );
   }
 
-  // Step 2: Drop the unique index on (type, external_user_id) — all identity
-  // lookups now use the (type, address) constraint from migration 105.
+  // Step 2: Drop the (type, external_user_id) indexes — identity is
+  // enforced via the (type, address) unique constraint (migration 105).
   raw.run(
     /*sql*/ `DROP INDEX IF EXISTS idx_contact_channels_type_ext_user_unique`,
   );

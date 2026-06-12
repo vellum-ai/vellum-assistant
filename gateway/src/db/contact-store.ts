@@ -47,8 +47,6 @@ export class ContactStore {
     channelType: string,
     externalUserId: string,
   ): Contact | undefined {
-    // address is the canonical identity for all channel types — it always
-    // equals canonicalize(externalUserId) for channels that have one.
     return this.db
       .select({
         id: contacts.id,
