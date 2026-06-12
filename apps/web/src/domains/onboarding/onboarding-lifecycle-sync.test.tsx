@@ -317,6 +317,10 @@ mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   assistantsActiveRetrieveOptions: () => ({}),
   assistantsOauthConnectionsListOptions: () => ({}),
   assistantsOauthStartCreateMutation: () => ({}),
+  useAssistantsOauthStartCreateMutation: () => ({
+    mutate: mock(() => {}),
+    isPending: false,
+  }),
 }));
 
 mock.module("@/hooks/use-prefilled-input", () => ({
