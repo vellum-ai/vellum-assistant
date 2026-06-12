@@ -117,6 +117,70 @@ class ResponseHookGzipTest(unittest.TestCase):
         self.assertEqual(records[0]["output_tokens"], 70)
         self.assertEqual(records[0]["model"], "claude-sonnet-4-5")
 
+    def test_request_and_response_payloads_are_inlined(self) -> None:
+        """The hook stores the decoded request/response bodies on the record."""
+        # GIVEN an Anthropic response with a distinct request and response body
+        request_body = b'{"model":"claude-sonnet-4-5","messages":[]}'
+        response_body = _anthropic_response_json()
+        flow = _FakeFlow(
+            request=_FakeRequest(
+                path="/v1/messages",
+                decoded=request_body,
+                raw=request_body,
+            ),
+            response=_FakeResponse(
+                decoded=response_body,
+                raw=response_body,
+                content_type="application/json",
+            ),
+        )
+
+        # WHEN the response hook records it
+        addon.response(flow)
+
+        # THEN both payloads are inlined with their full byte length and an
+        # un-truncated flag, so the report can show what each request sent/got
+        record = self._records()[0]
+        self.assertEqual(record["request_body"], request_body.decode())
+        self.assertEqual(record["request_body_bytes"], len(request_body))
+        self.assertFalse(record["request_body_truncated"])
+        self.assertEqual(record["response_body"], response_body.decode())
+        self.assertEqual(record["response_body_bytes"], len(response_body))
+        self.assertFalse(record["response_body_truncated"])
+
+    def test_oversized_payload_is_truncated_but_byte_count_preserved(self) -> None:
+        """Payloads over the cap are truncated; the full byte length survives."""
+        # GIVEN a response body larger than the payload cap
+        self._orig_cap = addon.MAX_PAYLOAD_CHARS
+        addon.MAX_PAYLOAD_CHARS = 16
+        self.addCleanup(setattr, addon, "MAX_PAYLOAD_CHARS", self._orig_cap)
+        big_text = "x" * 100
+        response_body = json.dumps(
+            {
+                "model": "claude-sonnet-4-5",
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+                "pad": big_text,
+            }
+        ).encode("utf-8")
+        flow = _FakeFlow(
+            request=_FakeRequest(path="/v1/messages", decoded=b"{}", raw=b"{}"),
+            response=_FakeResponse(
+                decoded=response_body,
+                raw=response_body,
+                content_type="application/json",
+            ),
+        )
+
+        # WHEN the response hook records it
+        addon.response(flow)
+
+        # THEN the stored text is capped but the real byte length is preserved
+        # and the truncation flag is set
+        record = self._records()[0]
+        self.assertEqual(len(record["response_body"]), 16)
+        self.assertEqual(record["response_body_bytes"], len(response_body))
+        self.assertTrue(record["response_body_truncated"])
+
     def test_falls_back_to_raw_when_decode_raises(self) -> None:
         body = _anthropic_response_json()
 

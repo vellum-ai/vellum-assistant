@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     ArrowDownToLine,
     ArrowLeft,
+    ArrowUpCircle,
     Download,
     ExternalLink,
     Loader2,
@@ -13,10 +14,18 @@ import { Link, Navigate, useParams } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { FileMarkdown } from "@/components/file-markdown";
+import { UpdateAvailableBadge } from "@/domains/intelligence/components/plugins/update-available-badge";
+import {
+    hasLocalEdits,
+    type PluginDrift,
+    usePluginDrift,
+} from "@/domains/intelligence/use-plugin-drift";
 import {
     pluginsByNameDeleteMutation,
     pluginsByNameGetOptions,
     pluginsByNameGetQueryKey,
+    pluginsByNameInspectGetQueryKey,
+    pluginsByNameUpgradePostMutation,
     pluginsGetQueryKey,
     pluginsInstallPostMutation,
     pluginsSearchGetQueryKey,
@@ -26,10 +35,18 @@ import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-st
 import { routes } from "@/utils/routes";
 import { Button, Card, ConfirmDialog, toast } from "@vellumai/design-library";
 
+/** First 7 chars of a commit SHA, matching git's default short form. */
+function shortSha(sha: string | null): string {
+  return sha ? sha.slice(0, 7) : "unknown";
+}
+
 /**
  * Detail page for a single plugin, reached by clicking a row in the
  * Plugins tab. Renders the plugin's README plus the metadata we track
- * (source, homepage, license, version) and an Install / Remove action.
+ * (source, homepage, license, version) and Install / Upgrade / Remove
+ * actions. When the installed copy is behind the marketplace pin, an
+ * "Update available" badge and an Upgrade button appear; upgrading a
+ * locally-edited copy prompts for confirmation first.
  *
  * Mounted under `IntelligenceLayout` so the "About Assistant" heading
  * and tab bar stay in place (the Plugins tab reads active via the
@@ -44,6 +61,7 @@ export function PluginDetailPage() {
   const { name } = useParams<{ name: string }>();
   const queryClient = useQueryClient();
   const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const [confirmingUpgrade, setConfirmingUpgrade] = useState(false);
 
   const detailQuery = useQuery({
     ...pluginsByNameGetOptions({
@@ -51,6 +69,14 @@ export function PluginDetailPage() {
     }),
     enabled: Boolean(assistantId) && Boolean(name),
   });
+
+  const installed = detailQuery.data?.installed ?? false;
+  const driftQuery = usePluginDrift({
+    assistantId,
+    name: name ?? "",
+    enabled: installed,
+  });
+  const drift = driftQuery.data;
 
   const invalidate = useCallback(() => {
     void queryClient.invalidateQueries({
@@ -64,6 +90,11 @@ export function PluginDetailPage() {
     if (name) {
       void queryClient.invalidateQueries({
         queryKey: pluginsByNameGetQueryKey({
+          path: { assistant_id: assistantId, name },
+        }),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: pluginsByNameInspectGetQueryKey({
           path: { assistant_id: assistantId, name },
         }),
       });
@@ -81,6 +112,18 @@ export function PluginDetailPage() {
   const removeMutation = useMutation({
     ...pluginsByNameDeleteMutation(),
     onSuccess: invalidate,
+  });
+
+  const upgradeMutation = useMutation({
+    ...pluginsByNameUpgradePostMutation(),
+    onSuccess: (result) => {
+      invalidate();
+      toast.success(
+        result.outcome === "already-up-to-date"
+          ? `${name ?? "Plugin"} is already up to date`
+          : `Upgraded ${name ?? "plugin"} to ${shortSha(result.toCommit)}`,
+      );
+    },
   });
 
   // Wait for the first /feature-flags response before deciding to
@@ -112,6 +155,28 @@ export function PluginDetailPage() {
     });
   };
 
+  const runUpgrade = () => {
+    upgradeMutation.mutate({
+      path: { assistant_id: assistantId, name },
+      body: {},
+    });
+  };
+
+  // Local edits would be clobbered by the re-install, so confirm first;
+  // a clean copy upgrades directly.
+  const handleUpgrade = () => {
+    if (hasLocalEdits(drift)) {
+      setConfirmingUpgrade(true);
+      return;
+    }
+    runUpgrade();
+  };
+
+  const confirmUpgrade = () => {
+    setConfirmingUpgrade(false);
+    runUpgrade();
+  };
+
   const plugin = detailQuery.data ?? null;
 
   return (
@@ -125,19 +190,26 @@ export function PluginDetailPage() {
         <Header
           name={name}
           plugin={plugin}
+          drift={drift}
           onInstall={handleInstall}
           onRemove={() => setConfirmingRemove(true)}
+          onUpgrade={handleUpgrade}
           isInstalling={installMutation.isPending}
           isRemoving={removeMutation.isPending}
+          isUpgrading={upgradeMutation.isPending}
         />
       </div>
 
-      {(installMutation.isError || removeMutation.isError) && (
+      {(installMutation.isError ||
+        removeMutation.isError ||
+        upgradeMutation.isError) && (
         <ActionError
           message={
             installMutation.isError
               ? "Failed to install plugin. Please try again."
-              : "Failed to remove plugin. Please try again."
+              : removeMutation.isError
+                ? "Failed to remove plugin. Please try again."
+                : "Failed to upgrade plugin. Please try again."
           }
         />
       )}
@@ -175,6 +247,16 @@ export function PluginDetailPage() {
         onConfirm={confirmRemove}
         onCancel={() => setConfirmingRemove(false)}
       />
+
+      <ConfirmDialog
+        open={confirmingUpgrade}
+        title="Upgrade plugin"
+        message={`"${plugin?.name ?? name}" has local edits that will be overwritten by the upgrade. Continue?`}
+        confirmLabel="Upgrade anyway"
+        destructive
+        onConfirm={confirmUpgrade}
+        onCancel={() => setConfirmingUpgrade(false)}
+      />
     </div>
   );
 }
@@ -182,23 +264,35 @@ export function PluginDetailPage() {
 interface HeaderProps {
   name: string;
   plugin: PluginsByNameGetResponse | null;
+  drift: PluginDrift | undefined;
   onInstall: () => void;
   onRemove: () => void;
+  onUpgrade: () => void;
   isInstalling: boolean;
   isRemoving: boolean;
+  isUpgrading: boolean;
 }
 
 function Header({
   name,
   plugin,
+  drift,
   onInstall,
   onRemove,
+  onUpgrade,
   isInstalling,
   isRemoving,
+  isUpgrading,
 }: HeaderProps) {
   const installed = plugin?.installed ?? false;
   const isExternal = plugin?.source?.kind === "github";
   const artifact = plugin?.artifact ?? null;
+  const updateAvailable = drift?.status === "update-available";
+  const upgradeTitle = updateAvailable
+    ? `Upgrade ${shortSha(drift?.local?.commit ?? null)} \u2192 ${shortSha(
+        drift?.remote?.commit ?? null,
+      )}`
+    : undefined;
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center">
@@ -233,6 +327,7 @@ function Header({
                 external
               </span>
             ) : null}
+            {updateAvailable ? <UpdateAvailableBadge /> : null}
           </div>
           {plugin?.description ? (
             <p
@@ -253,6 +348,23 @@ function Header({
                 <a href={artifact.url} download>
                   {artifact.label ?? "Download"}
                 </a>
+              </Button>
+            ) : null}
+            {updateAvailable ? (
+              <Button
+                type="button"
+                onClick={onUpgrade}
+                disabled={isUpgrading}
+                title={upgradeTitle}
+                leftIcon={
+                  isUpgrading ? (
+                    <Loader2 className="animate-spin" aria-hidden />
+                  ) : (
+                    <ArrowUpCircle aria-hidden />
+                  )
+                }
+              >
+                Upgrade
               </Button>
             ) : null}
             <Button

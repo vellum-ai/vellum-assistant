@@ -833,8 +833,10 @@ bun run dev                       # predev regenerates automatically
 Plugins (configured in `openapi-ts.config.ts`):
 - `@hey-api/client-fetch` — Fetch-based HTTP client, bundled inline
   in the generated output ([no runtime dep needed](https://github.com/hey-api/openapi-ts/pull/790))
-- `@tanstack/react-query` — generates `*Options()` helpers for
-  `useQuery` / `useMutation` / `useInfiniteQuery`
+- `@tanstack/react-query` — generates ready-to-use hooks
+  (`useXxxQuery()`, `useXxxMutation()`) plus factory functions
+  (`xxxOptions()`, `xxxMutation()`) and typed cache helpers
+  (`setXxxQueryData()`)
 - `@hey-api/typescript` — generates TypeScript types from schemas
   (included by default, does not need explicit config)
 
@@ -842,14 +844,42 @@ References:
 - [HeyAPI — Configuration](https://heyapi.dev/openapi-ts/configuration)
 - [HeyAPI — TanStack Query plugin](https://heyapi.dev/openapi-ts/plugins/tanstack-query)
 
+### Generated hooks vs factory functions
+
+The TanStack Query plugin generates two layers per endpoint:
+
+| Generated artifact | Example | Use when |
+|---|---|---|
+| **Hook** (`useXxxQuery`, `useXxxMutation`) | `useAssistantsListQuery()` | Default — inside React components |
+| **Factory** (`xxxOptions`, `xxxMutation`) | `assistantsListOptions()` | Outside React — `prefetchQuery()`, `fetchQuery()`, `ensureQueryData()`, route loaders |
+| **Cache helper** (`setXxxQueryData`) | `setAssistantsListQueryData()` | Typed optimistic writes to the query cache |
+
+**Use the generated hooks by default.** They handle query key
+construction, type inference, and the `useQuery`/`useMutation` wiring
+internally:
+
+```ts
+// Preferred — generated hook, no manual wiring
+const { data } = useAssistantsListQuery({ query: { hosting: "platform" } });
+const mutation = useAssistantsDoctorSessionsCreateMutation({
+  onSuccess(data) { /* ... */ },
+});
+
+// Only when you need the options object outside a hook:
+await queryClient.prefetchQuery(assistantsListOptions());
+```
+
+Do not spread factory functions into `useQuery()`/`useMutation()` in
+new code — that's the legacy pattern being migrated away.
+
 ### Prefer generated clients over hand-written fetch
 
-For backend API routes, use the generated HeyAPI hooks (`*Options()`
-helpers with `useQuery` / `useMutation`) over hand-written `fetch`
-wrappers. Do not create new direct `fetch()` calls with hardcoded
-backend prefixes unless the generated client cannot support the use case
-(e.g. SSE/streaming endpoints that need custom `EventSource` handling).
-If bypassing, add a comment explaining why.
+For backend API routes, use the generated HeyAPI hooks over
+hand-written `fetch` wrappers. Do not create new direct `fetch()`
+calls with hardcoded backend prefixes unless the generated client
+cannot support the use case (e.g. SSE/streaming endpoints that need
+custom `EventSource` handling). If bypassing, add a comment explaining
+why.
 
 ---
 
@@ -1045,8 +1075,7 @@ resolved as platform-hosted" check on the query's `enabled`:
 const platformGate = usePlatformGate({ platformHostedOnly: true });
 const isPlatformHosted = useActiveAssistantIsPlatformHosted();
 
-const query = useQuery({
-  ...someOrgScopedOptions(),
+const query = useSomeOrgScopedQuery({
   enabled: platformGate === "full" && isPlatformHosted,
 });
 ```
