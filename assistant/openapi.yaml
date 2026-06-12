@@ -26592,6 +26592,14 @@ paths:
                   conversationId:
                     type: string
                     description: Id of a newly launched conversation when the action dispatched one. Omitted otherwise.
+                  applied:
+                    type: boolean
+                    description:
+                      Whether the action was applied. Present only for guardian decision actions (apr:*). False when the request
+                      was already resolved, expired, or the actor lacks permission.
+                  reason:
+                    type: string
+                    description: Explanation when applied is false (e.g. 'already_resolved', 'expired', 'principal_mismatch').
                 required:
                   - ok
                 additionalProperties: false
