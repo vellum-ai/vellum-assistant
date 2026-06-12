@@ -64,7 +64,10 @@ import {
   type DiskPressureTurnPolicyDecision,
 } from "../daemon/disk-pressure-policy.js";
 import { looksLikeContextOverflowError } from "../daemon/parse-actual-tokens-from-error.js";
-import type { SubagentToolGateMode } from "../daemon/tool-setup-types.js";
+import type {
+  SubagentToolGateMode,
+  WakeToolContextPin,
+} from "../daemon/tool-setup-types.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import {
   broadcastWakeSurface,
@@ -210,6 +213,17 @@ export interface WakeOptions {
    * when `allowedTools` is absent.
    */
   toolGateMode?: SubagentToolGateMode;
+  /**
+   * Client-context pin applied (and restored) alongside `allowedTools` for
+   * the duration of the wake — see {@link WakeToolContextPin}. Pass only
+   * with `toolGateMode: "execution"`: it exists purely so the wire tool
+   * definitions resolve under the SOURCE conversation's client context
+   * (provider prompt-cache parity) and is pointless when the wire is
+   * allowlist-filtered anyway. Definition resolution only — pinned-in tools
+   * remain execution-rejected by the gate. Ignored when `allowedTools` is
+   * absent.
+   */
+  toolContextPin?: WakeToolContextPin;
   /**
    * Explicit persona/channel slugs for the wake's system-prompt build,
    * applied to the conversation for the duration of the run and restored
@@ -952,6 +966,7 @@ export async function wakeAgentForOpportunity(
           conversation,
           new Set(opts.allowedTools),
           opts.toolGateMode,
+          opts.toolContextPin,
         );
         return true;
       } catch (err) {

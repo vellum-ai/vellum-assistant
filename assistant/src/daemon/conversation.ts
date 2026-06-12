@@ -150,6 +150,7 @@ import {
 import type {
   SubagentToolGateMode,
   ToolSetupContext,
+  WakeToolContextPin,
 } from "./conversation-tool-setup.js";
 import {
   createResolveToolsCallback,
@@ -245,14 +246,20 @@ export class Conversation {
   /** @internal */ preactivatedSkillIds?: string[];
   /** @internal */ subagentAllowedTools?: Set<string>;
   /**
-   * How {@link subagentAllowedTools} is enforced — absent/`"wire"` filters
-   * the provider tool definitions (historical behavior); `"execution"`
-   * keeps the full tool surface on the wire for prompt-cache parity and
-   * rejects non-allowlisted calls at execution time. Set and restored
-   * alongside the allowlist by `scopeWakeAllowedTools`.
+   * How {@link subagentAllowedTools} is enforced — see
+   * {@link SubagentToolGateMode}. Set and restored alongside the allowlist
+   * by `scopeWakeAllowedTools`.
    * @internal
    */
   subagentToolGateMode?: SubagentToolGateMode;
+  /**
+   * Client-context pin for execution-gate-mode wakes — see
+   * {@link WakeToolContextPin}. Set and restored alongside the allowlist by
+   * `scopeWakeAllowedTools`; read only by tool-DEFINITION resolution
+   * (`isToolActiveForContext`), never by executor or host-proxy paths.
+   * @internal
+   */
+  toolContextPin?: WakeToolContextPin;
   /** @internal */ coreToolNames: Set<string>;
   /** @internal */ readonly skillProjectionState = new Map<string, string>();
   /** @internal */ readonly skillProjectionCache: SkillProjectionCache = {};

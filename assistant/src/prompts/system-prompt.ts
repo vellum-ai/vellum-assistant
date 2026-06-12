@@ -324,7 +324,9 @@ export interface SystemPromptPersonaOverride {
    * mismatch breaks byte-parity with a cached prefix even when persona and
    * profile match. Used by fork-based memory retrospectives: the fork is
    * hydrated clientless (`hasNoClient = true`) while the source's live turns
-   * ran with `hasNoClient = false`.
+   * ran under the source's own client state (`false` for interactive
+   * interfaces, `true` for channel-routed sources) — the pin carries that
+   * live-turn value.
    */
   hasNoClient?: boolean;
 }

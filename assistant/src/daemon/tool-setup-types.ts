@@ -25,6 +25,45 @@ import type { TrustContext } from "./trust-context.js";
 export type SubagentToolGateMode = "wire" | "execution";
 
 /**
+ * Client-context inputs frozen for tool-DEFINITION resolution during a wake
+ * that runs with `subagentToolGateMode: "execution"`.
+ *
+ * Execution gate mode exists to keep the wire tool array byte-identical to
+ * the source conversation's live turns (see {@link SubagentToolGateMode}),
+ * but the definitions themselves are resolved from the live context: a
+ * fork-retrospective wake hydrates clientless (`hasNoClient = true`, no
+ * transport interface, no channel capabilities), which drops client-gated
+ * tools (`host_*`, `ui_*`, `app_open`, `request_system_permission`) from
+ * the wire definitions and breaks the cache prefix anyway. When this pin is
+ * set on the conversation, `isToolActiveForContext` reads `hasNoClient`,
+ * `transportInterface`, and `channelCapabilities` exclusively from the pin
+ * — an absent optional field pins the value to `undefined`; there is no
+ * fall-through to the live conversation state.
+ *
+ * Tool-definition resolution ONLY. The executor callback and host-proxy
+ * attachment paths never read the pin, so it cannot make a host tool
+ * runnable: in execution gate mode every non-allowlisted call is rejected
+ * before its executor runs, so a pinned-in tool can appear on the wire but
+ * can never execute.
+ */
+export interface WakeToolContextPin {
+  /** The source conversation's live-turn `hasNoClient` value. */
+  hasNoClient: boolean;
+  /** The interface the source's live turns ran on (e.g. `"macos"`). */
+  transportInterface?: InterfaceId;
+  /**
+   * The source's live-turn channel capabilities. Interactive-interface
+   * (desktop/web HTTP) turns never set channel capabilities, so parity for
+   * those sources means leaving this unset.
+   */
+  channelCapabilities?: {
+    channel: string;
+    supportsDynamicUi: boolean;
+    clientOS?: string;
+  };
+}
+
+/**
  * Subset of Conversation state that the tool executor callback reads at
  * call time (not construction time). These are captured by the
  * returned closure, so they must be live references.
