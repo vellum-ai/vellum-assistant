@@ -346,7 +346,13 @@ function readNowContext(): string | null {
  */
 function buildSituationalContext(): string {
   const now = readNowContext();
-  const today = `Today is ${new Date().toDateString()}.`;
+  const at = new Date();
+  // Clock time matters, not just the date: fresh cards carry absolute
+  // `updated <time>` stamps, and hour-grain windows ("while I was asleep",
+  // "this morning") are only computable against a current-time anchor —
+  // measured on a state-recall turn, the anchor alone moved selection more
+  // than prompt steering did.
+  const today = `Today is ${at.toDateString()}, ${at.toISOString().slice(11, 16)} UTC.`;
   return now ? `${today}\n\n${now}` : today;
 }
 
