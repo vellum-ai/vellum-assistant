@@ -216,6 +216,7 @@ import {
   migrateVoiceInviteColumns,
   migrateVoiceInviteDisplayMetadata,
   migrateWorkflowRuns,
+  migrateWorkflowRunTrust,
   recoverCrashedMigrations,
   runComplexMigrations,
   runLateMigrations,
@@ -502,6 +503,7 @@ export function initializeDb(): void {
     migrateConversationsSurfacedAt,
     migrateWorkflowRuns,
     migrateScheduleWorkflowMode,
+    migrateWorkflowRunTrust,
   ];
 
   // Run each migration step, catching and logging individual failures so one

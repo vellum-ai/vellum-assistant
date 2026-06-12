@@ -67,6 +67,7 @@ function makeFakeJournal() {
           capabilities: input.capabilities ?? null,
           status: input.status ?? "running",
           conversationId: input.conversationId ?? null,
+          trust: input.trust ?? null,
           agentsSpawned: 0,
           inputTokens: 0,
           outputTokens: 0,
@@ -149,8 +150,6 @@ function makeHarness(opts?: {
   engine?: WorkflowRunManagerDeps["executeWorkflow"];
   /** Saved-workflow resolver for the `start({ name })` path. */
   getWorkflow?: WorkflowRunManagerDeps["getWorkflow"];
-  /** Live-conversation lookup for the `resume` trust reconstruction path. */
-  findConversation?: WorkflowRunManagerDeps["findConversation"];
 }): ManagerHarness {
   const fake = makeFakeJournal();
   const executeCalls: ExecuteWorkflowOptions[] = [];
@@ -208,9 +207,6 @@ function makeHarness(opts?: {
       return () => `run-${++n}`;
     })(),
     ...(opts?.getWorkflow ? { getWorkflow: opts.getWorkflow } : {}),
-    findConversation:
-      opts?.findConversation ??
-      ((() => undefined) as WorkflowRunManagerDeps["findConversation"]),
   };
 
   const manager = new WorkflowRunManager(deps);
@@ -490,6 +486,7 @@ function seedRun(
     capabilities: { tools: [], hostFunctions: [], persona: false },
     status: "interrupted",
     conversationId: null,
+    trust: null,
     agentsSpawned: 3,
     inputTokens: 100,
     outputTokens: 50,
@@ -561,13 +558,84 @@ describe("WorkflowRunManager.resume", () => {
     expect(h.manager.inflightCount()).toBe(0);
   });
 
-  test("resume falls back to the internal guardian trust context when no conversation", () => {
+  test("resume replays the SAME (non-guardian) trust the run started under — never escalates", () => {
     const h = makeHarness({});
-    seedRun(h, { id: "run-x", status: "interrupted", conversationId: null });
+    // A run started by a low-trust actor: persisted trust is NOT guardian.
+    const lowTrust: TrustContext = {
+      sourceChannel: "slack",
+      trustClass: "unknown",
+      requesterIdentifier: "@someone",
+    };
+    seedRun(h, {
+      id: "run-x",
+      status: "interrupted",
+      conversationId: null,
+      trust: lowTrust,
+    });
 
     h.manager.resume("run-x");
 
-    expect(h.executeCalls[0]!.trustContext.trustClass).toBe("guardian");
+    const replayed = h.executeCalls[0]!.trustContext;
+    // SECURITY: resume must reconstruct the exact trust the run started under,
+    // never elevate to guardian (which would clear the side-effect gate).
+    expect(replayed.trustClass).toBe("unknown");
+    expect(replayed.trustClass).not.toBe("guardian");
+    expect(replayed.sourceChannel).toBe("slack");
+  });
+
+  test("resume of a trusted_contact run keeps trusted_contact (no escalation)", () => {
+    const h = makeHarness({});
+    seedRun(h, {
+      id: "run-tc",
+      status: "interrupted",
+      trust: { sourceChannel: "slack", trustClass: "trusted_contact" },
+    });
+
+    h.manager.resume("run-tc");
+
+    expect(h.executeCalls[0]!.trustContext.trustClass).toBe("trusted_contact");
+  });
+
+  test("SECURITY: a legacy run row with no persisted trust resumes at LOW trust, never guardian", () => {
+    const h = makeHarness({});
+    // Legacy row: written before the trust_json column existed → trust is null.
+    seedRun(h, { id: "run-legacy", status: "interrupted", trust: null });
+
+    h.manager.resume("run-legacy");
+
+    const replayed = h.executeCalls[0]!.trustContext;
+    expect(replayed.trustClass).toBe("unknown");
+    expect(replayed.trustClass).not.toBe("guardian");
+  });
+
+  test("a persisted trust with an unrecognized trustClass falls back to LOW trust", () => {
+    const h = makeHarness({});
+    seedRun(h, {
+      id: "run-bad",
+      status: "interrupted",
+      // Corrupt/forward-incompatible snapshot: not a known trust class.
+      trust: { sourceChannel: "slack", trustClass: "superuser" },
+    });
+
+    h.manager.resume("run-bad");
+
+    expect(h.executeCalls[0]!.trustContext.trustClass).toBe("unknown");
+  });
+
+  test("start persists the originating trust context on the run row", () => {
+    const h = makeHarness({});
+    const startTrust: TrustContext = {
+      sourceChannel: "slack",
+      trustClass: "unknown",
+    };
+    const { runId } = h.manager.start({
+      scriptSource: "export const meta = { name: 'x', description: 'y' }",
+      args: {},
+      manifest: { tools: [], hostFunctions: [], persona: false },
+      trustContext: startTrust,
+    });
+
+    expect(h.fake.rows.get(runId)?.trust).toEqual(startTrust);
   });
 
   test("a non-interrupted run throws WorkflowResumeNotPossibleError and does not invoke the engine", () => {

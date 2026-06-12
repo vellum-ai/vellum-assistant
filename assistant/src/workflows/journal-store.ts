@@ -41,6 +41,12 @@ export interface WorkflowRun {
   capabilities: unknown;
   status: WorkflowRunStatus;
   conversationId: string | null;
+  /**
+   * Originating trust context (parsed), or null for legacy rows written before
+   * the column existed. Reconstructed on resume so a run never resumes with more
+   * trust than it started under — see {@link CreateRunInput.trust}.
+   */
+  trust: unknown;
   agentsSpawned: number;
   inputTokens: number;
   outputTokens: number;
@@ -72,6 +78,13 @@ export interface CreateRunInput {
   capabilities?: unknown;
   status?: WorkflowRunStatus;
   conversationId?: string | null;
+  /**
+   * Originating trust context (trust metadata — `{ sourceChannel, trustClass,
+   * ... }`, no secret material), serialized so a crash-orphaned run can
+   * reconstruct the exact trust class it started under when resumed. Omit on
+   * legacy callers; resume then falls back to low trust, never guardian.
+   */
+  trust?: unknown;
 }
 
 export interface UpdateRunInput {
@@ -111,6 +124,7 @@ interface WorkflowRunRow {
   capabilities_json: string | null;
   status: string;
   conversation_id: string | null;
+  trust_json: string | null;
   agents_spawned: number;
   input_tokens: number;
   output_tokens: number;
@@ -157,6 +171,7 @@ function rowToRun(row: WorkflowRunRow): WorkflowRun {
     capabilities: parseJsonColumn(row.capabilities_json),
     status: row.status as WorkflowRunStatus,
     conversationId: row.conversation_id,
+    trust: parseJsonColumn(row.trust_json),
     agentsSpawned: row.agents_spawned,
     inputTokens: row.input_tokens,
     outputTokens: row.output_tokens,
@@ -193,9 +208,9 @@ export function createRun(input: CreateRunInput): WorkflowRun {
     /*sql*/ `
     INSERT INTO workflow_runs (
       id, name, script_source, script_hash, args_json, capabilities_json,
-      status, conversation_id, agents_spawned, input_tokens, output_tokens,
-      result_json, error, created_at, updated_at, finished_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, NULL, NULL, ?, ?, NULL)
+      status, conversation_id, trust_json, agents_spawned, input_tokens,
+      output_tokens, result_json, error, created_at, updated_at, finished_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, NULL, NULL, ?, ?, NULL)
     `,
     input.id,
     input.name ?? null,
@@ -205,6 +220,7 @@ export function createRun(input: CreateRunInput): WorkflowRun {
     serializeJsonColumn(input.capabilities),
     status,
     input.conversationId ?? null,
+    serializeJsonColumn(input.trust),
     now,
     now,
   );
@@ -404,10 +420,29 @@ export function markRunningAsInterrupted(): number {
 // ---------------------------------------------------------------------------
 
 /**
- * Delete finished runs older than `retentionDays` (by `created_at`) and their
- * journal entries. Running (un-finished) runs are never pruned, regardless of
- * age, so an in-flight long run can't be reaped out from under the engine.
- * Returns the number of runs deleted.
+ * Set of genuinely TERMINAL run statuses — the only rows `pruneRuns` may reap.
+ * A run is non-terminal (and therefore retained regardless of age) when it is
+ * still `running` OR `interrupted`: an `interrupted` run is a crash-orphaned
+ * row awaiting an explicit resume, so pruning it would destroy resumability.
+ */
+const TERMINAL_RUN_STATUSES: readonly WorkflowRunStatus[] = [
+  "completed",
+  "failed",
+  "aborted",
+  "cap_exceeded",
+];
+
+/** SQL list literal of the terminal statuses, e.g. `'completed','failed',...`. */
+const TERMINAL_RUN_STATUS_SQL = TERMINAL_RUN_STATUSES.map((s) => `'${s}'`).join(
+  ", ",
+);
+
+/**
+ * Delete TERMINAL runs older than `retentionDays` (by `created_at`) and their
+ * journal entries. Non-terminal runs are never pruned, regardless of age:
+ * `running` rows could be reaped out from under the engine, and `interrupted`
+ * rows are crash-orphaned and still resumable — deleting either would destroy
+ * an in-flight or resumable run. Returns the number of runs deleted.
  */
 export function pruneRuns(retentionDays: number): number {
   const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
@@ -416,7 +451,8 @@ export function pruneRuns(retentionDays: number): number {
     DELETE FROM workflow_journal
     WHERE run_id IN (
       SELECT id FROM workflow_runs
-      WHERE status != 'running' AND created_at IS NOT NULL AND created_at < ?
+      WHERE status IN (${TERMINAL_RUN_STATUS_SQL})
+        AND created_at IS NOT NULL AND created_at < ?
     )
     `,
     cutoff,
@@ -424,7 +460,8 @@ export function pruneRuns(retentionDays: number): number {
   return rawRun(
     /*sql*/ `
     DELETE FROM workflow_runs
-    WHERE status != 'running' AND created_at IS NOT NULL AND created_at < ?
+    WHERE status IN (${TERMINAL_RUN_STATUS_SQL})
+      AND created_at IS NOT NULL AND created_at < ?
     `,
     cutoff,
   );
