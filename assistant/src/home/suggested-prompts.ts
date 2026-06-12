@@ -127,13 +127,14 @@ export async function refreshAssistantSuggestedPrompts(): Promise<boolean> {
 
   try {
     const llmPrompts = await generateAssistantPrompts();
-    if (llmPrompts.length === 0) {
-      return false;
-    }
-    // Only report success when the cache write landed — otherwise the
-    // coordinator would publish home_feed_updated for content the next
-    // GET cannot serve, and every Home load would regenerate.
-    return writeCachedPrompts(llmPrompts);
+    // Cache empty results too — an empty or unparseable LLM response
+    // would otherwise leave the cache unpopulated and every Home feed
+    // GET would re-trigger generation until the TTL window closed.
+    // Only report success when the cache write landed AND there is new
+    // content — otherwise the coordinator would publish
+    // home_feed_updated for content the next GET cannot serve.
+    const wrote = writeCachedPrompts(llmPrompts);
+    return wrote && llmPrompts.length > 0;
   } catch (err) {
     log.warn({ err }, "Failed to refresh assistant suggested prompts");
     return false;

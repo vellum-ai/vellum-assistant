@@ -122,12 +122,17 @@ describe("getSuggestedPrompts", () => {
     expect(await getSuggestedPrompts()).toEqual([]);
   });
 
-  test("handles empty LLM response gracefully", async () => {
+  test("handles empty LLM response gracefully and caches the empty result", async () => {
     mockSidechainText = "";
 
-    await refreshAssistantSuggestedPrompts();
-    const prompts = await getSuggestedPrompts();
-    expect(prompts).toEqual([]);
+    expect(await refreshAssistantSuggestedPrompts()).toBe(false);
+    expect(await getSuggestedPrompts()).toEqual([]);
+
+    // The empty result is cached: the next refresh within the TTL must
+    // not hit the LLM again (prevents a generation loop on every Home
+    // feed GET while the model returns nothing usable).
+    expect(await refreshAssistantSuggestedPrompts()).toBe(false);
+    expect(sidechainCalls).toBe(1);
   });
 
   test("handles malformed LLM response gracefully", async () => {
