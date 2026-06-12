@@ -66,6 +66,7 @@ mock.module("../config/loader.js", () => ({
     deepMergeForTest(target, overrides);
   },
   getConfig: () => rawConfig,
+  getDeploymentContextDefaults: () => ({}),
   invalidateConfigCache: () => {},
   withSuppressedConfigDiskWrites: async (fn: () => unknown) => fn(),
   withSuppressedConfigDiskWritesSync: (fn: () => unknown) => fn(),
@@ -321,7 +322,7 @@ describe("PATCH /v1/config — managed profile deletion guard", () => {
     const result = await patchRoute.handler({
       body: { llm: { profiles: { "custom-balanced": null } } },
     });
-    expect(result).toEqual({ ok: true });
+    expect(result).toHaveProperty("llm");
   });
 
   test("allows deletion of a user-defined profile via null", async () => {
@@ -329,14 +330,14 @@ describe("PATCH /v1/config — managed profile deletion guard", () => {
     const result = await patchRoute.handler({
       body: { llm: { profiles: { "my-custom": null } } },
     });
-    expect(result).toEqual({ ok: true });
+    expect(result).toHaveProperty("llm");
   });
 
   test("allows non-profile config patches", async () => {
     const result = await patchRoute.handler({
       body: { someOtherKey: "value" },
     });
-    expect(result).toEqual({ ok: true });
+    expect(result).toHaveProperty("llm");
   });
 
   test("clears stale Velay ownership when manually patching public base URL", async () => {
@@ -353,7 +354,7 @@ describe("PATCH /v1/config — managed profile deletion guard", () => {
       },
     });
 
-    expect(result).toEqual({ ok: true });
+    expect(result).toHaveProperty("ingress");
     expect(savedRaw).toEqual({
       ingress: {
         publicBaseUrl: "https://manual.example.test",
@@ -371,7 +372,7 @@ describe("PATCH /v1/config — managed profile deletion guard", () => {
         },
       },
     });
-    expect(result).toEqual({ ok: true });
+    expect(result).toHaveProperty("llm");
   });
 
   test("rejects nulling the entire profiles map", async () => {
