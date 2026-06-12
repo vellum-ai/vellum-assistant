@@ -10,16 +10,23 @@
  */
 import type { LlmRequestLogSource } from "./llm-request-log-source.js";
 import {
+  type CompactionAgentLogRow,
   getCompactionLogsBetween,
   getRequestLogById,
+  getRequestLogMetaById,
   getRequestLogsByConversationId,
   getRequestLogsByMessageId,
+  type LogMetaRow,
   type LogRow,
 } from "./llm-request-log-store.js";
 
 export class LocalLlmRequestLogSource implements LlmRequestLogSource {
   async getRequestLogById(logId: string): Promise<LogRow | null> {
     return getRequestLogById(logId);
+  }
+
+  async getRequestLogMetaById(logId: string): Promise<LogMetaRow | null> {
+    return getRequestLogMetaById(logId);
   }
 
   async getRequestLogsByMessageId(messageId: string): Promise<LogRow[]> {
@@ -36,7 +43,7 @@ export class LocalLlmRequestLogSource implements LlmRequestLogSource {
     conversationId: string,
     afterCreatedAt: number | null,
     beforeCreatedAt: number,
-  ): Promise<LogRow[]> {
+  ): Promise<CompactionAgentLogRow[]> {
     return getCompactionLogsBetween(
       conversationId,
       afterCreatedAt,
