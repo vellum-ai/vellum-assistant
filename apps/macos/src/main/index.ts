@@ -23,7 +23,10 @@ import { handleSync } from "./ipc";
 import { resolveAppProtocolPath } from "./app-protocol";
 import { registerVellumAppProtocol } from "./vellumapp-protocol";
 import { planGatewayForward } from "./gateway-forward";
-import { planPlatformForward } from "./platform-forward";
+import {
+  fetchForwardPlanWithRetry,
+  planPlatformForward,
+} from "./platform-forward";
 import {
   extractDeepLinkFromArgv,
   handleDeepLink,
@@ -291,22 +294,33 @@ const forwardPlatformRequest = async (
     return new Response(plan.message, { status: plan.status });
   }
 
-  try {
-    return await net.fetch(plan.url, {
-      method: plan.method,
-      headers: plan.headers,
-      body: plan.hasBody ? request.body : undefined,
-      ...(plan.hasBody ? { duplex: "half" } : {}),
-      redirect: "manual",
-      // Auth is header-based (X-Session-Token), not cookie-based.
-      // Omit credentials so stale session cookies in the main process's
-      // default session store never shadow the renderer's token header.
-      credentials: "omit",
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Platform unreachable";
-    return new Response(message, { status: 502 });
-  }
+  // Transient net-stack failures (e.g. ERR_NETWORK_CHANGED while Wi-Fi
+  // reassociates after sleep) retry in-proxy for GET/HEAD; whatever still
+  // fails becomes a structured 502 the renderer can classify, never a raw
+  // `net::ERR_*` body (LUM-2402).
+  return fetchForwardPlanWithRetry(
+    plan,
+    () =>
+      net.fetch(plan.url, {
+        method: plan.method,
+        headers: plan.headers,
+        body: plan.hasBody ? request.body : undefined,
+        ...(plan.hasBody ? { duplex: "half" } : {}),
+        redirect: "manual",
+        // Auth is header-based (X-Session-Token), not cookie-based.
+        // Omit credentials so stale session cookies in the main process's
+        // default session store never shadow the renderer's token header.
+        credentials: "omit",
+      }),
+    {
+      onError: (err, attempt) => {
+        console.error(
+          `[platform-forward] net.fetch failed (attempt ${attempt + 1}) for ${plan.method} ${plan.url}:`,
+          err,
+        );
+      },
+    },
+  );
 };
 
 // ---------------------------------------------------------------------------

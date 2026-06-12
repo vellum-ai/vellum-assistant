@@ -33,9 +33,12 @@ import {
 import { subscribeAssistantUnreachable } from "@/assistant/unreachable-bus";
 import {
   buildInitializingTimeoutError,
+  errorRetryDelayMs,
   INITIALIZING_TIMEOUT_MS,
   resolveAssistantLifecycleState,
+  TRANSPORT_ERROR_MESSAGE,
 } from "@/assistant/lifecycle";
+import { subscribe } from "@/lib/event-bus";
 import {
   ASSISTANT_QUERY_KEY,
   assistantQueryKey,
@@ -100,9 +103,22 @@ class AssistantLifecycleService {
     selectedPlatformAssistantId: null,
   };
   private probeTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Auto-retry for transient (transport-shaped) error states —
+   * armed by `transition` on entering such a state, cleared on
+   * leaving it. The attempt counter drives the backoff schedule and
+   * resets once the lifecycle leaves `error` entirely.
+   */
+  private errorRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private errorRetryAttempt = 0;
 
   constructor() {
     subscribeAssistantUnreachable(() => this.onUnreachable());
+    // Network-back signal: retry a transient error immediately (no
+    // point waiting out the backoff once the browser says we're
+    // online) and re-check a degraded-active session so the
+    // "Reconnecting…" banner clears as soon as possible.
+    subscribe("app.online", () => this.onNetworkOnline());
     // Republish `activeAssistantId` whenever the selection changes, at the
     // store funnel so every writer (and future ones) is covered — gateway-auth
     // mode has no other republish path while connected (the React effect's
@@ -243,11 +259,42 @@ class AssistantLifecycleService {
       console.error("Error checking assistant status:", err);
       captureError(err, { context: "check_assistant" });
       if (generation !== this.generation) return;
+      // A thrown fetch is a transport failure (the request never got
+      // an HTTP answer) — same degrade/auto-retry semantics as a
+      // proxy-synthesized network error result.
+      if (this.degradeOnTransportFailure()) return;
       this.transition({
         kind: "error",
-        message: "Network error. Please check your connection and try again.",
+        transient: true,
+        message: TRANSPORT_ERROR_MESSAGE,
       });
     }
+  }
+
+  /**
+   * Shared handling for transport-shaped failures (wake-time network
+   * flap, device offline): a live or in-progress surface must not be
+   * torn down for a connectivity blip (LUM-2402, the post-sleep
+   * `net::ERR_NETWORK_CHANGED` full-screen error).
+   *
+   * Returns true when the failure was absorbed:
+   *   - `active` → degrade to `reachable: false` (existing probe loop
+   *     + "Reconnecting…" banner) and self-heal when the probe lands.
+   *   - `initializing` / `cleaning_up` → stay put; the background
+   *     poll keeps reporting and the stuck-initializing watchdog is
+   *     the backstop for a real outage.
+   * Returns false for `loading`/`error`, where there is no surface to
+   * preserve — the caller transitions to a transient error state,
+   * whose auto-retry takes over.
+   */
+  private degradeOnTransportFailure(): boolean {
+    if (this.state.kind === "active") {
+      this.triggerReachabilityProbe();
+      return true;
+    }
+    return (
+      this.state.kind === "initializing" || this.state.kind === "cleaning_up"
+    );
   }
 
   retryAssistant(): void {
@@ -298,6 +345,55 @@ class AssistantLifecycleService {
     // arrived or be arriving via SSE).
     if (next.kind !== "initializing" && next.kind !== "active") {
       this.clearExpectingFirstMessage();
+    }
+    // Auto-retry edge-trigger: entering a transient (transport-shaped)
+    // error arms the next backoff step — including error → error
+    // re-entries, which are how a failed retry schedules the following
+    // one. Leaving `error` entirely resets the backoff schedule; a
+    // non-transient error stops auto-retrying but keeps the attempt
+    // count (it's terminal until the user or a network signal acts).
+    if (next.kind === "error" && next.transient) {
+      this.armErrorRetry();
+    } else {
+      this.clearErrorRetry(next.kind !== "error");
+    }
+  }
+
+  private clearErrorRetry(resetAttempts: boolean): void {
+    if (this.errorRetryTimer) {
+      clearTimeout(this.errorRetryTimer);
+      this.errorRetryTimer = null;
+    }
+    if (resetAttempts) this.errorRetryAttempt = 0;
+  }
+
+  private armErrorRetry(): void {
+    if (this.errorRetryTimer) clearTimeout(this.errorRetryTimer);
+    const delay = errorRetryDelayMs(this.errorRetryAttempt);
+    this.errorRetryAttempt += 1;
+    this.errorRetryTimer = setTimeout(() => {
+      this.errorRetryTimer = null;
+      void this.checkAssistant();
+    }, delay);
+  }
+
+  /**
+   * `app.online` — the browser observed the network coming back.
+   * Skip the remaining backoff and retry now: a transient error
+   * re-checks the assistant from scratch (backoff reset so a
+   * follow-up flap starts the schedule over), and a degraded-active
+   * session re-checks so its banner clears without waiting for the
+   * probe loop's next tick.
+   */
+  private onNetworkOnline(): void {
+    if (!this.ready) return;
+    if (this.state.kind === "error" && this.state.transient) {
+      this.clearErrorRetry(true);
+      void this.checkAssistant();
+      return;
+    }
+    if (this.state.kind === "active" && this.state.reachable === false) {
+      void this.checkAssistant();
     }
   }
 
@@ -398,6 +494,18 @@ class AssistantLifecycleService {
   ): Promise<void> {
     const generation = this.generation;
     const nextState = resolveAssistantLifecycleState(result);
+
+    // Transport-shaped failure: absorb it before any store writes so
+    // a degraded-active session keeps its operational-status id (the
+    // status banner's polling target) along with its surface.
+    if (
+      nextState.kind === "error" &&
+      nextState.transient &&
+      this.degradeOnTransportFailure()
+    ) {
+      return;
+    }
+
     if (result.ok) {
       this.setOperationalStatusAssistantId(result.data.id);
     } else {
@@ -500,6 +608,7 @@ class AssistantLifecycleService {
       this.initializingTimeout = null;
     }
     this.cancelProbeTimer();
+    this.clearErrorRetry(true);
     this.state = { kind: "loading" };
     this.generation = 0;
     this.ready = false;
