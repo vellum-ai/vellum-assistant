@@ -304,6 +304,20 @@ export function applyBootstrapTemplate(
   }
 }
 
+/**
+ * Explicit persona-selection override for prompt builds that run outside the
+ * inbound-turn pipeline (agent wakes). Each slug, when present, takes
+ * precedence over the corresponding trust-context/channel-capabilities
+ * derivation in {@link buildSystemPrompt}. Persona selection only — trust
+ * class and approval semantics are unaffected.
+ */
+export interface SystemPromptPersonaOverride {
+  /** Renders `users/<slug>.md` as the user persona section. */
+  userSlug?: string;
+  /** Renders `channels/<slug>.md` as the channel persona section. */
+  channelSlug?: string;
+}
+
 export interface BuildSystemPromptOptions {
   hasNoClient?: boolean;
   excludeBootstrap?: boolean;
@@ -311,6 +325,15 @@ export interface BuildSystemPromptOptions {
   trustContext?: TrustContext;
   channelCapabilities?: ChannelCapabilities;
   onboardingContext?: OnboardingContext;
+  /**
+   * Explicit persona/channel slugs, taking precedence over the
+   * trust-context-derived `userSlug` and capabilities-derived `channelSlug`.
+   * Used by fork-based memory retrospectives so the fork's prompt renders the
+   * SOURCE conversation's persona sections (review quality + byte-parity with
+   * the source's cached system-prompt prefix) even though the wake itself
+   * carries an internal guardian trust context with no requester identity.
+   */
+  personaOverride?: SystemPromptPersonaOverride;
   /**
    * Conversation this prompt is being built for. Optional because several
    * callers build a prompt outside a conversation (e.g. home greeting,
@@ -344,8 +367,15 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // `users/<slug>.md → users/default.md` fallback lives in the
   // section's `workspacePath` array.  `channelSlug` is the channel
   // identifier from `channelCapabilities`, defaulting to "vellum".
-  const userSlug = resolveUserSlug(options?.trustContext) ?? "default";
-  const channelSlug = options?.channelCapabilities?.channel ?? "vellum";
+  // An explicit `personaOverride` slug wins over either derivation.
+  const userSlug =
+    options?.personaOverride?.userSlug ??
+    resolveUserSlug(options?.trustContext) ??
+    "default";
+  const channelSlug =
+    options?.personaOverride?.channelSlug ??
+    options?.channelCapabilities?.channel ??
+    "vellum";
 
   // Section render context.  Workspace section frontmatter `enabled:`
   // predicates, `{{key}}` / `{{#flag}}...{{/flag}}` body interpolation,
