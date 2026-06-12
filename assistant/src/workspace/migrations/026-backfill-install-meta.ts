@@ -1,7 +1,7 @@
 /**
  * Workspace migration 026: Backfill install-meta.json for existing skills
  *
- * Scans ~/.vellum/workspace/skills/ for installed skill directories and writes
+ * Scans $VELLUM_WORKSPACE_DIR/skills/ for installed skill directories and writes
  * an install-meta.json for each skill that lacks one, inferring the origin
  * from legacy version.json and .integrity.json files.
  *
