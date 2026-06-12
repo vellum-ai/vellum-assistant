@@ -1,7 +1,12 @@
 import { join } from "node:path";
 
 import { AssistantClient } from "../lib/assistant-client.js";
-import { resolveAssistant } from "../lib/assistant-config";
+import {
+  formatAssistantLookupError,
+  lookupAssistantByIdentifier,
+  resolveAssistant,
+} from "../lib/assistant-config";
+import type { AssistantEntry } from "../lib/assistant-config";
 import { GATEWAY_PORT } from "../lib/constants";
 import { waitForDaemonReady } from "../lib/http-client.js";
 import {
@@ -67,21 +72,26 @@ interface IngressTarget {
  * Resolve which assistant the ingress fronts. Multi-instance hatches allocate
  * per-assistant gateway ports and workspaces, so both must come from the
  * resolved entry's resources — falling back to the legacy default paths only
- * when no resource configuration exists (mirrors `vellum tunnel`).
+ * when no resource configuration exists. Explicit names go through the shared
+ * identifier lookup (see cli/AGENTS.md "Assistant targeting convention") so
+ * display names resolve and ambiguous matches fail loudly.
  */
 function resolveIngressTarget(assistantName: string | null): IngressTarget {
-  const entry = resolveAssistant(assistantName ?? undefined);
-  if (!entry && assistantName) {
-    throw new Error(
-      `No assistant instance found with name '${assistantName}'.`,
-    );
+  let entry: AssistantEntry | undefined;
+  if (assistantName) {
+    const result = lookupAssistantByIdentifier(assistantName);
+    if (result.status !== "found") {
+      throw new Error(formatAssistantLookupError(assistantName, result));
+    }
+    entry = result.entry;
+  } else {
+    entry = resolveAssistant() ?? undefined;
   }
-  const resources = entry?.resources;
-  if (resources) {
+  if (entry?.resources) {
     return {
       assistantId: entry.assistantId,
-      workspaceDir: join(resources.instanceDir, ".vellum", "workspace"),
-      gatewayPort: resources.gatewayPort,
+      workspaceDir: join(entry.resources.instanceDir, ".vellum", "workspace"),
+      gatewayPort: entry.resources.gatewayPort,
     };
   }
   return {

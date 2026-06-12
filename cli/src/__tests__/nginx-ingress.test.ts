@@ -49,11 +49,14 @@ describe("buildIngressNginxConfig", () => {
     expect(gatewaySource).toContain('"x-vellum-edge-forwarded"');
   });
 
-  test("never uses the client-influencable XFF append", () => {
-    // Appending keeps a client-spoofed leftmost X-Forwarded-For entry, which
-    // the gateway's trustProxy logic reads. The marker is the trust boundary;
-    // XFF is passthrough-only.
+  test("strips client-influencable X-Forwarded-For", () => {
+    // The gateway keys auth rate limiting on the leftmost XFF entry under
+    // trustProxy; forwarding (or appending to) the inbound header would let a
+    // remote caller rotate XFF values to dodge rate-limit buckets. The edge
+    // marker is the trust boundary; client XFF must not reach the gateway.
+    expect(conf).toContain('proxy_set_header X-Forwarded-For "";');
     expect(conf).not.toContain("$proxy_add_x_forwarded_for");
+    expect(conf).not.toContain("$http_x_forwarded_for");
   });
 
   test("sets response security headers", () => {

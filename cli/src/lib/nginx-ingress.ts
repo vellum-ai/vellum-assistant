@@ -68,10 +68,13 @@ export function getIngressPaths(workspaceDir: string): IngressPaths {
  *   marker-carrying requests as non-loopback regardless of X-Forwarded-For.
  *   The header name literal mirrors EDGE_FORWARDED_HEADER in
  *   gateway/src/http/edge-forwarded-header.ts — keep the two in sync.
- * - X-Forwarded-For is passed through as the tunnel provided it, for logging
- *   only. It must never drive trust decisions: the leftmost entry is
- *   client-influencable through appending tunnels, which is exactly why the
- *   marker exists. ($proxy_add_x_forwarded_for is deliberately not used.)
+ * - X-Forwarded-For is STRIPPED, not forwarded. Its leftmost entry is
+ *   client-influencable through appending tunnels, and the gateway keys auth
+ *   rate limiting on that entry under trustProxy — forwarding it would let a
+ *   remote caller rotate XFF values to dodge rate-limit buckets. With the
+ *   header stripped the gateway keys on the raw peer instead, which a remote
+ *   caller cannot vary. ($proxy_add_x_forwarded_for is deliberately not used
+ *   either.)
  */
 export function buildIngressNginxConfig(opts: {
   gatewayPort: number;
@@ -108,7 +111,7 @@ http {
       proxy_read_timeout 1h;
       proxy_set_header Host $host;
       proxy_set_header X-Vellum-Edge-Forwarded "1";
-      proxy_set_header X-Forwarded-For $http_x_forwarded_for;
+      proxy_set_header X-Forwarded-For "";
       proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
       proxy_set_header Upgrade $http_upgrade;
       proxy_set_header Connection $connection_upgrade;
