@@ -1,7 +1,7 @@
 import { getLogger } from "../../util/logger.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 
-const log = getLogger("migration-281");
+const log = getLogger("migration-282");
 
 /**
  * Deduplicate contact_channels rows sharing the same (type, external_user_id)

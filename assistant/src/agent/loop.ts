@@ -493,6 +493,16 @@ export interface AgentLoopRunOptions {
    * call-site named profile. Missing profile names silently fall through.
    */
   overrideProfile?: string;
+  /**
+   * Float the override profile above the call-site layers (named site
+   * profile + call-site override) for non-main-agent call sites — the
+   * resolver's `forceOverrideProfile` escape hatch. Threaded onto each
+   * send's `SendMessageOptions.config` alongside `overrideProfile`. Used by
+   * wakes that must run a background call site under a specific
+   * conversation's inference profile (e.g. fork-based memory
+   * retrospectives).
+   */
+  forceOverrideProfile?: boolean;
   resolveOverrideProfile?: () => string | undefined;
   /**
    * Resolves the orchestrator's effective context window for this turn: the
@@ -856,6 +866,7 @@ export class AgentLoop {
       callSite,
       trust,
       overrideProfile,
+      forceOverrideProfile = false,
       resolveOverrideProfile,
       resolveContextWindow,
       compactInPlace = false,
@@ -1195,6 +1206,9 @@ export class AgentLoop {
         const effectiveOverrideProfile = resolveEffectiveOverrideProfile();
         if (effectiveOverrideProfile) {
           providerConfig.overrideProfile = effectiveOverrideProfile;
+          if (forceOverrideProfile) {
+            providerConfig.forceOverrideProfile = true;
+          }
         }
 
         // Rate-limit consecutive LLM calls to prevent spin when tools return instantly

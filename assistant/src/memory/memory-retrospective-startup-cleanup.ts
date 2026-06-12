@@ -24,11 +24,15 @@
 //     conversation might be the active one. We're conservative and only
 //     sweep when no job exists at all, since the worst-case false-positive
 //     is leaving a few extra orphans for the next sweep to catch.)
-//   - AND the row is NOT the most-recent retrospective for its source
+//   - AND the row is NOT the preserved dedup baseline for its source
 //     conversation. The next retrospective run reads the most-recent prior
 //     retro via `findMostRecentRetrospectiveFor` to seed its
 //     `<already_remembered>` dedup block; sweeping it would force the
-//     next run to re-save facts the prior pass already captured.
+//     next run to re-save facts the prior pass already captured. The
+//     baseline is the most recent row that actually produced output (see
+//     `selectPreservedBaseline`) — a crash orphan with no post-fork
+//     assistant message would seed an EMPTY dedup block, so when an older
+//     row with output exists we preserve that one instead.
 //
 // The sweep is skipped entirely when `memory.retrospective.keepSupersededRuns`
 // is true — see the comment inside the function.
@@ -47,14 +51,27 @@ import {
 
 import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
-import { deleteConversation } from "./conversation-crud.js";
+import { deleteConversation, getMessages } from "./conversation-crud.js";
 import { getDb } from "./db-connection.js";
-import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
+import {
+  MEMORY_RETROSPECTIVE_FORK_SOURCE,
+  MEMORY_RETROSPECTIVE_SOURCES,
+} from "./memory-retrospective-constants.js";
+import { findForkBoundaryCreatedAt } from "./memory-retrospective-fork-boundary.js";
 import { conversations, memoryJobs } from "./schema.js";
 
 const log = getLogger("memory-retrospective-startup-cleanup");
 
 const ORPHAN_AGE_MS = 60 * 60 * 1000;
+
+/**
+ * How many of the newest retrospective rows per source the baseline selector
+ * will load messages for when looking for one with output. Bounds the
+ * per-startup query volume — after GC (`deleteSupersededPriorRetrospective`)
+ * a source normally has 1–2 retro rows, so this only matters for pathological
+ * crash pileups, where the older rows are orphans too.
+ */
+const MAX_BASELINE_CANDIDATES_PER_SOURCE = 3;
 
 export interface CleanupResult {
   swept: number;
@@ -104,13 +121,14 @@ export function sweepOrphanMemoryRetrospectiveConversations(
     .map((row) => row.conversationId)
     .filter((id): id is string => typeof id === "string" && id.length > 0);
 
-  // Compute the most-recent retro per source so we can preserve it.
-  // `findMostRecentRetrospectiveFor` (called by the next retrospective run)
-  // pulls dedup context from this row; sweeping it would re-introduce the
+  // Compute the preserved dedup baseline per source. The next retrospective
+  // run pulls dedup context from the most-recent prior retro (via
+  // `findMostRecentRetrospectiveFor`); sweeping it would re-introduce the
   // unbounded retrospective growth this cleanup exists to prevent.
   const allRetros = db
     .select({
       id: conversations.id,
+      source: conversations.source,
       forkParentConversationId: conversations.forkParentConversationId,
       createdAt: conversations.createdAt,
     })
@@ -122,21 +140,21 @@ export function sweepOrphanMemoryRetrospectiveConversations(
       ),
     )
     .all();
-  const mostRecentPerSource = new Map<
-    string,
-    { id: string; createdAt: number }
-  >();
+  const retrosPerSource = new Map<string, RetroRow[]>();
   for (const row of allRetros) {
     const parent = row.forkParentConversationId;
     if (parent === null) continue;
-    const cur = mostRecentPerSource.get(parent);
-    if (!cur || row.createdAt > cur.createdAt) {
-      mostRecentPerSource.set(parent, { id: row.id, createdAt: row.createdAt });
+    const rows = retrosPerSource.get(parent);
+    if (rows) {
+      rows.push(row);
+    } else {
+      retrosPerSource.set(parent, [row]);
     }
   }
-  const preservedIds = new Set(
-    Array.from(mostRecentPerSource.values(), (v) => v.id),
-  );
+  const preservedIds = new Set<string>();
+  for (const rows of retrosPerSource.values()) {
+    preservedIds.add(selectPreservedBaseline(rows));
+  }
 
   const orphans = db
     .select({ id: conversations.id })
@@ -186,4 +204,67 @@ export function sweepOrphanMemoryRetrospectiveConversations(
     );
   }
   return { swept };
+}
+
+interface RetroRow {
+  id: string;
+  source: string | null;
+  createdAt: number;
+}
+
+/**
+ * Pick which retrospective row to preserve as the source's dedup baseline:
+ * the most recent row that actually produced output (a crash orphan with no
+ * post-fork assistant message would seed the next run with an EMPTY
+ * `<already_remembered>` block and cause re-saves). Falls back to the plain
+ * most-recent row when no candidate qualifies — preserves the previous
+ * behavior when every row is an orphan, and an orphan baseline at least
+ * keeps `findMostRecentRetrospectiveFor` stable until a successful run
+ * supersedes it.
+ *
+ * PR-E's persisted `remembered_log` reduces the impact of preserving a bad
+ * baseline (the next run can fall back to the persisted log), but the log
+ * fallback path still reads the preserved conversation, so the sweep should
+ * keep preferring a row that's actually useful.
+ *
+ * Only loads messages for the newest `MAX_BASELINE_CANDIDATES_PER_SOURCE`
+ * rows — never for every retro row.
+ */
+function selectPreservedBaseline(rows: RetroRow[]): string {
+  const sorted = [...rows].sort((a, b) => b.createdAt - a.createdAt);
+  const withOutput = sorted
+    .slice(0, MAX_BASELINE_CANDIDATES_PER_SOURCE)
+    .find(retrospectiveHasOutput);
+  return (withOutput ?? sorted[0]!).id;
+}
+
+/**
+ * Whether the retrospective row produced any assistant output of its own.
+ * Fork-kind rows carry the full copied source prefix (including the source's
+ * own assistant turns), so only assistant messages strictly after the fork
+ * boundary count; a fork with no detectable boundary contributes nothing to
+ * dedup (`collectPriorRetrospectiveRemembers` treats it as empty), so it
+ * doesn't qualify either. Legacy-kind rows start empty, so any assistant
+ * message counts. Best-effort: a message-load failure disqualifies the row
+ * rather than failing the sweep.
+ */
+function retrospectiveHasOutput(row: RetroRow): boolean {
+  let messages: ReturnType<typeof getMessages>;
+  try {
+    messages = getMessages(row.id);
+  } catch (err) {
+    log.warn(
+      { err, conversationId: row.id },
+      "Failed to load retrospective messages while selecting the preserved dedup baseline; treating row as having no output",
+    );
+    return false;
+  }
+  if (row.source === MEMORY_RETROSPECTIVE_FORK_SOURCE) {
+    const boundaryCreatedAt = findForkBoundaryCreatedAt(messages);
+    if (boundaryCreatedAt == null) return false;
+    return messages.some(
+      (m) => m.role === "assistant" && m.createdAt > boundaryCreatedAt,
+    );
+  }
+  return messages.some((m) => m.role === "assistant");
 }

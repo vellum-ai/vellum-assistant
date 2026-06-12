@@ -15,6 +15,7 @@ type StateRow = {
   conversationId: string;
   lastProcessedMessageId: string;
   lastRunAt: number;
+  rememberedLog?: string[];
 } | null;
 
 let mockState: StateRow = null;
@@ -22,6 +23,7 @@ let stateUpserts: Array<{
   conversationId: string;
   lastProcessedMessageId: string;
   lastRunAt: number;
+  rememberedLog?: string[];
 }> = [];
 let lastRunAtBumps: Array<{ conversationId: string; lastRunAt: number }> = [];
 
@@ -73,6 +75,9 @@ type ConversationStub = {
   source: string;
   forkParentMessageId: string | null;
   title?: string;
+  conversationType?: string | null;
+  inferenceProfile?: string | null;
+  inferenceProfileExpiresAt?: number | null;
 };
 let conversationOverrides: Record<string, ConversationStub> = {};
 
@@ -86,18 +91,40 @@ type StubMessage = {
 };
 let messagesByConversationId: Record<string, StubMessage[]> = {};
 
+// In-memory conversation registry stub: id → live processing flag. Ids absent
+// from the map are "unloaded" (findConversation returns undefined), matching
+// the real registry's semantics for conversations not in memory.
+let loadedConversations: Record<string, { processing: boolean }> = {};
+
+mock.module("../../daemon/conversation-registry.js", () => ({
+  findConversation: (id: string | undefined) => {
+    if (!id) return undefined;
+    const entry = loadedConversations[id];
+    if (!entry) return undefined;
+    return { isProcessing: () => entry.processing };
+  },
+}));
+
 mock.module("../memory-retrospective-state.js", () => ({
   getRetrospectiveState: (_id: string) => mockState,
   upsertRetrospectiveState: (args: {
     conversationId: string;
     lastProcessedMessageId: string;
     lastRunAt: number;
+    rememberedLog?: string[];
   }) => {
     stateUpserts.push(args);
   },
   bumpRetrospectiveLastRunAt: (conversationId: string, lastRunAt: number) => {
     lastRunAtBumps.push({ conversationId, lastRunAt });
   },
+  // Cap behavior is unit-tested in memory-retrospective-state.test.ts; the
+  // job tests only assert what the handler appends, so a plain concat keeps
+  // assertions readable.
+  appendToRememberedLog: (existing: string[], newEntries: string[]) => [
+    ...existing,
+    ...newEntries,
+  ],
 }));
 
 mock.module("../conversation-crud.js", () => ({
@@ -153,6 +180,29 @@ mock.module("../conversation-crud.js", () => ({
       throw new Error(`delete failed for ${id}`);
     }
     deletedConversationIds.push(id);
+  },
+  // Mirrors the real helper's semantics (interactive-only, expiry-aware) so
+  // matchConversationProfile tests exercise the same fallback behavior.
+  resolveOverrideProfile: (
+    fields: {
+      conversationType?: string | null;
+      inferenceProfile?: string | null;
+      inferenceProfileExpiresAt?: number | null;
+    } | null,
+  ) => {
+    if (
+      fields?.conversationType === "background" ||
+      fields?.conversationType === "scheduled"
+    ) {
+      return undefined;
+    }
+    if (
+      fields?.inferenceProfileExpiresAt != null &&
+      fields.inferenceProfileExpiresAt <= Date.now()
+    ) {
+      return undefined;
+    }
+    return fields?.inferenceProfile ?? undefined;
   },
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
@@ -239,6 +289,7 @@ function makeConfig(
     userTimezone?: string;
     detectedTimezone?: string;
     keepSupersededRuns?: boolean;
+    matchConversationProfile?: boolean;
   } = {},
 ): Parameters<typeof memoryRetrospectiveJob>[1] {
   return {
@@ -246,6 +297,7 @@ function makeConfig(
       v2: { enabled: true },
       retrospective: {
         keepSupersededRuns: overrides.keepSupersededRuns ?? false,
+        matchConversationProfile: overrides.matchConversationProfile ?? false,
       },
     },
     ui: {
@@ -330,6 +382,7 @@ describe("memoryRetrospectiveJob", () => {
     addMessageCalls = [];
     conversationOverrides = {};
     messagesByConversationId = {};
+    loadedConversations = {};
   });
 
   test("first-run happy path: no state row, no prior retrospective, both pointer fields set on success", async () => {
@@ -599,6 +652,131 @@ describe("memoryRetrospectiveJob", () => {
 
     expect(forkCalls).toHaveLength(1);
     expect(forkCalls[0]!.throughMessageId).toBe("m3");
+  });
+
+  // -------------------------------------------------------------------------
+  // Mid-turn skip gate (fork path only)
+  // -------------------------------------------------------------------------
+
+  test("fork path: source mid-turn → skipped outcome, pointer unchanged, lastRunAt bumped, no fork", async () => {
+    forkFlagEnabled = true;
+    loadedConversations["src-conv-1"] = { processing: true };
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("source_processing");
+    // `lastProcessedMessageId` untouched — only the cooldown timestamp moves.
+    expect(stateUpserts).toHaveLength(0);
+    expect(lastRunAtBumps).toHaveLength(1);
+    expect(lastRunAtBumps[0]!.conversationId).toBe("src-conv-1");
+    // No fork, no instruction, no wake, no cleanup side effects.
+    expect(forkCalls).toHaveLength(0);
+    expect(addMessageCalls).toHaveLength(0);
+    expect(wakeCalls).toHaveLength(0);
+    expect(deletedConversationIds).toEqual([]);
+  });
+
+  test("fork path: source loaded but idle → normal run", async () => {
+    forkFlagEnabled = true;
+    loadedConversations["src-conv-1"] = { processing: false };
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    expect(forkCalls).toHaveLength(1);
+    expect(lastRunAtBumps).toHaveLength(0);
+    expect(stateUpserts).toHaveLength(1);
+  });
+
+  test("fork path: source unloaded (not in registry) → normal run", async () => {
+    forkFlagEnabled = true;
+    // `loadedConversations` is empty — findConversation returns undefined,
+    // and an unloaded conversation is by definition not processing.
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    expect(forkCalls).toHaveLength(1);
+    expect(lastRunAtBumps).toHaveLength(0);
+  });
+
+  test("fork path: matchConversationProfile on + source inferenceProfile present → wake carries forceOverrideProfile", async () => {
+    forkFlagEnabled = true;
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+      conversationType: "standard",
+      inferenceProfile: "profile-x",
+    };
+
+    const outcome = await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ matchConversationProfile: true }),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.opts.forceOverrideProfile).toBe("profile-x");
+    // Attribution bucket is unchanged — only the resolved profile floats.
+    expect(wakeCalls[0]!.opts.callSite).toBe("memoryRetrospective");
+  });
+
+  test("fork path: matchConversationProfile off (default) → wake carries no forceOverrideProfile", async () => {
+    forkFlagEnabled = true;
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+      conversationType: "standard",
+      inferenceProfile: "profile-x",
+    };
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(wakeCalls).toHaveLength(1);
+    expect("forceOverrideProfile" in wakeCalls[0]!.opts).toBe(false);
+  });
+
+  test("fork path: matchConversationProfile on but source has no inferenceProfile → wake carries no forceOverrideProfile", async () => {
+    forkFlagEnabled = true;
+
+    await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ matchConversationProfile: true }),
+    );
+
+    expect(wakeCalls).toHaveLength(1);
+    expect("forceOverrideProfile" in wakeCalls[0]!.opts).toBe(false);
+  });
+
+  test("fork path: matchConversationProfile on but the profile session expired → wake carries no forceOverrideProfile", async () => {
+    forkFlagEnabled = true;
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+      conversationType: "standard",
+      inferenceProfile: "profile-x",
+      inferenceProfileExpiresAt: Date.now() - 1000,
+    };
+
+    await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ matchConversationProfile: true }),
+    );
+
+    expect(wakeCalls).toHaveLength(1);
+    expect("forceOverrideProfile" in wakeCalls[0]!.opts).toBe(false);
+  });
+
+  test("legacy path: source mid-turn still runs (gate is fork-path only)", async () => {
+    loadedConversations["src-conv-1"] = { processing: true };
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    expect(wakeCalls).toHaveLength(1);
+    expect(lastRunAtBumps).toHaveLength(0);
   });
 
   test("fork path: prior fork-kind retrospective with nested-fork ancestry still surfaces its post-fork remembers in <already_remembered>", async () => {
@@ -910,6 +1088,222 @@ describe("memoryRetrospectiveJob", () => {
     outcome = await memoryRetrospectiveJob(makeJob(), config);
     expect(outcome.kind).toBe("invoked");
     expect(deletedConversationIds).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Cumulative remembered_log (persisted dedup baseline)
+  // -------------------------------------------------------------------------
+
+  test("legacy path: this run's remembers are appended to the stored log and persisted with the pointer upsert", async () => {
+    mockState = {
+      conversationId: "src-conv-1",
+      lastProcessedMessageId: "prev-msg",
+      lastRunAt: Date.now() - 60 * 60 * 1000,
+      rememberedLog: ["old pass save"],
+    };
+    messagesByConversationId["bg-conv-new"] = [
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          {
+            type: "tool_use",
+            name: "remember",
+            input: { content: "fresh save from this run" },
+          },
+        ]),
+        createdAt: 5000,
+        metadata: null,
+      },
+    ];
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    expect(stateUpserts).toHaveLength(1);
+    expect(stateUpserts[0]!.rememberedLog).toEqual([
+      "old pass save",
+      "fresh save from this run",
+    ]);
+  });
+
+  test("dedup baseline prefers the persisted log over scanning the prior conversation", async () => {
+    mockState = {
+      conversationId: "src-conv-1",
+      lastProcessedMessageId: "prev-msg",
+      lastRunAt: Date.now() - 60 * 60 * 1000,
+      rememberedLog: ["from the persisted log"],
+    };
+    priorRetroId = "prior-retro-conv-1";
+    priorRetroMessages = [priorRetroMessage(["from the conversation scan"])];
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    const hint = wakeCalls[0]!.hint;
+    expect(hint).toContain("- from the persisted log");
+    expect(hint).not.toContain("from the conversation scan");
+  });
+
+  test("empty stored log falls back to the prior-conversation scan and the scan seeds the persisted log", async () => {
+    // Pre-migration / never-logged state row: the dedup baseline comes from
+    // scanning the prior, and the success-path upsert must seed the log from
+    // that scan so the prior's saves survive its GC below.
+    mockState = {
+      conversationId: "src-conv-1",
+      lastProcessedMessageId: "prev-msg",
+      lastRunAt: Date.now() - 60 * 60 * 1000,
+      rememberedLog: [],
+    };
+    priorRetroId = "prior-retro-conv-1";
+    priorRetroMessages = [priorRetroMessage(["scanned prior save"])];
+    messagesByConversationId["bg-conv-new"] = [
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          {
+            type: "tool_use",
+            name: "remember",
+            input: { content: "this run's save" },
+          },
+        ]),
+        createdAt: 5000,
+        metadata: null,
+      },
+    ];
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    const hint = wakeCalls[0]!.hint;
+    expect(hint).toContain("- scanned prior save");
+    expect(stateUpserts[0]!.rememberedLog).toEqual([
+      "scanned prior save",
+      "this run's save",
+    ]);
+    // The prior was GC'd, but its saves live on in the log.
+    expect(deletedConversationIds).toEqual(["prior-retro-conv-1"]);
+  });
+
+  test("empty-string-sentinel state row with no log behaves as first-pass dedup (no baseline)", async () => {
+    // Failure-only rows seed lastProcessedMessageId="" and no log; the
+    // baseline must stay empty rather than crashing or leaking stale data.
+    mockState = {
+      conversationId: "src-conv-1",
+      lastProcessedMessageId: "",
+      lastRunAt: Date.now() - 60 * 60 * 1000,
+      rememberedLog: [],
+    };
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    const hint = wakeCalls[0]!.hint;
+    expect(hint).toContain(
+      "(none — this is your first retrospective over this conversation)",
+    );
+    expect(stateUpserts[0]!.rememberedLog).toEqual([]);
+  });
+
+  test("fork path: this run's extraction scopes to the post-fork tail, excluding source-inline remembers", async () => {
+    forkFlagEnabled = true;
+    // The job's own fork conversation: copied prefix (stamped with
+    // forkSourceMessageId, contains a source-inline remember) followed by
+    // the retrospective's post-fork tail save.
+    conversationOverrides["fork-conv-1"] = {
+      source: "memory-retrospective-fork",
+      forkParentMessageId: null,
+    };
+    messagesByConversationId["fork-conv-1"] = [
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          {
+            type: "tool_use",
+            name: "remember",
+            input: { content: "source-inline save — excluded" },
+          },
+        ]),
+        createdAt: 1000,
+        metadata: JSON.stringify({ forkSourceMessageId: "m-src-1" }),
+      },
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          {
+            type: "tool_use",
+            name: "remember",
+            input: { content: "post-fork tail save — included" },
+          },
+        ]),
+        createdAt: 2000,
+        metadata: null,
+      },
+    ];
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    expect(stateUpserts).toHaveLength(1);
+    expect(stateUpserts[0]!.rememberedLog).toEqual([
+      "post-fork tail save — included",
+    ]);
+  });
+
+  test("fork path: stored log carries into the appended log alongside this run's tail saves", async () => {
+    forkFlagEnabled = true;
+    mockState = {
+      conversationId: "src-conv-1",
+      lastProcessedMessageId: "prev-msg",
+      lastRunAt: Date.now() - 60 * 60 * 1000,
+      rememberedLog: ["older pass save"],
+    };
+    conversationOverrides["fork-conv-1"] = {
+      source: "memory-retrospective-fork",
+      forkParentMessageId: null,
+    };
+    messagesByConversationId["fork-conv-1"] = [
+      {
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "hi" }]),
+        createdAt: 1000,
+        metadata: JSON.stringify({ forkSourceMessageId: "m-src-1" }),
+      },
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          {
+            type: "tool_use",
+            name: "remember",
+            input: { content: "fork tail save" },
+          },
+        ]),
+        createdAt: 2000,
+        metadata: null,
+      },
+    ];
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    const instructionText = persistedInstructionText();
+    expect(instructionText).toContain("- older pass save");
+    expect(stateUpserts[0]!.rememberedLog).toEqual([
+      "older pass save",
+      "fork tail save",
+    ]);
+  });
+
+  test("wake failure persists no log update", async () => {
+    mockState = {
+      conversationId: "src-conv-1",
+      lastProcessedMessageId: "prev-msg",
+      lastRunAt: Date.now() - 60 * 60 * 1000,
+      rememberedLog: ["existing entry"],
+    };
+    mockWakeResult = { invoked: false, reason: "timeout" };
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("wake_failed");
+    expect(stateUpserts).toHaveLength(0);
   });
 
   test("failure to delete the superseded prior is non-fatal — job still reports invoked with state advanced", async () => {

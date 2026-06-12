@@ -121,6 +121,19 @@ export interface WakeOptions {
    */
   callSite?: LLMCallSite;
   /**
+   * Run the wake's LLM calls under this inference profile, floated ABOVE the
+   * call site's named profile and call-site overrides (the resolver's
+   * `forceOverrideProfile` escape hatch). When set, it replaces the
+   * conversation's own pinned-profile lookup. Used by fork-based memory
+   * retrospectives to resolve the SAME model/thinking/effort as the source
+   * conversation's turns so the provider prompt-cache prefix can be reused.
+   * A profile name that no longer exists in `llm.profiles` silently falls
+   * back to normal call-site resolution (the resolver's standard
+   * missing-reference semantics). Logging/attribution still bucket under
+   * `callSite`.
+   */
+  forceOverrideProfile?: string;
+  /**
    * Role to use for the injected hint message. Defaults to `"assistant"` so
    * the hint is sandwiched between two static user bookends — the canonical
    * anti-injection pattern for hints that may carry text from an external
@@ -509,18 +522,24 @@ export async function wakeAgentForOpportunity(
     // Honor the conversation's pinned inference-profile override (if any).
     // Without this, scheduled-task wakes and other opportunity wakes bypass
     // `runAgentLoopImpl` entirely and execute under workspace defaults,
-    // silently violating the user's pinned preference. Resolve the effective
-    // context budget here as well because wakes bypass the normal user-turn
-    // path that computes it for tool-result truncation. Read before
+    // silently violating the user's pinned preference. A caller-supplied
+    // `forceOverrideProfile` replaces that lookup and additionally floats the
+    // profile above the call-site layers (see the option's doc). Resolve the
+    // effective context budget here as well because wakes bypass the normal
+    // user-turn path that computes it for tool-result truncation. Read before
     // `setProcessing(true)` so a thrown DB/config read can't strand the
     // processing flag.
-    const overrideProfile = getConversationOverrideProfile(conversationId);
+    const forceOverrideProfile = opts.forceOverrideProfile !== undefined;
+    const overrideProfile =
+      opts.forceOverrideProfile ??
+      getConversationOverrideProfile(conversationId);
     const callSite = opts.callSite ?? "mainAgent";
     const config = getConfig();
     const effectiveContextWindow = resolveEffectiveContextWindow({
       llm: config.llm,
       callSite,
       overrideProfile,
+      forceOverrideProfile,
     });
 
     // Mark processing for the duration of the wake — including the pre-run
@@ -984,6 +1003,7 @@ export async function wakeAgentForOpportunity(
           callSite,
           trust: wakeTrust,
           overrideProfile,
+          forceOverrideProfile,
           // The wake's compaction lives in the pre-run gate above
           // (`conversation.maybeCompact()`), never in the loop: the in-loop
           // budget gate and overflow-recovery ladder stay disabled because
