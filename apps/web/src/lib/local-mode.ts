@@ -280,15 +280,18 @@ export function isPlatformAssistant(a: LockfileAssistant): boolean {
 
 /**
  * True when the CLI's `wake --repair-guardian` can actually re-provision this
- * assistant's guardian token. Only plain `cloud: "local"` entries reach the
- * repair block — `wake` returns early for Docker containers and refuses
+ * assistant's guardian token. Only plain local entries reach the repair
+ * block — `wake` returns early for Docker containers and refuses
  * apple-container entries — so recovery UI must not offer repair for those.
+ * `cloud` is optional in the lockfile contract; legacy entries omit it and
+ * the CLI treats them as local, so they stay repairable here too.
  */
 export function isGuardianRepairable(assistantId: string): boolean {
   const entry = getLockfile().assistants.find(
     (a) => a.assistantId === assistantId,
   );
-  return entry?.cloud === "local";
+  if (!entry || !isLocalAssistant(entry)) return false;
+  return entry.cloud == null || entry.cloud === "local";
 }
 
 export function getLocalAssistants(): LockfileAssistant[] {
