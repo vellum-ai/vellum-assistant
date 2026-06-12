@@ -220,6 +220,77 @@ describe("runLeaf — schema path", () => {
     expect(countConversations()).toBe(before);
   });
 
+  test("accepts a plain JSON Schema object (sandbox-marshaled) directly", async () => {
+    // A workflow script can't hold a Zod object, so its `schema` reaches
+    // runLeaf as a JSON-marshaled JSON Schema object. The runner duck-types it,
+    // uses it directly as the forced-tool input_schema, and validates the
+    // returned input via z.fromJSONSchema.
+    const jsonSchema = {
+      type: "object",
+      properties: { answer: { type: "string" }, score: { type: "number" } },
+      required: ["answer", "score"],
+      additionalProperties: false,
+    };
+    responseQueue = [
+      {
+        content: [
+          {
+            type: "tool_use",
+            name: "emit_result",
+            id: "tu-json",
+            input: { answer: "yes", score: 7 },
+          },
+        ],
+        model: "test",
+        usage: { inputTokens: 5, outputTokens: 2 },
+        stopReason: "tool_use",
+      },
+    ];
+
+    const result = await runLeaf({
+      prompt: "Answer the question.",
+      schema: jsonSchema,
+      trustContext,
+    });
+
+    expect(result.output).toEqual({ answer: "yes", score: 7 });
+    // The JSON Schema is used verbatim as the synthetic tool's input_schema.
+    const tool = lastSendCall?.options.tools?.[0];
+    expect(tool?.name).toBe("emit_result");
+    expect(tool?.input_schema).toMatchObject({
+      type: "object",
+      properties: { answer: { type: "string" }, score: { type: "number" } },
+    });
+  });
+
+  test("throws when JSON-Schema-path output fails validation", async () => {
+    const jsonSchema = {
+      type: "object",
+      properties: { answer: { type: "string" } },
+      required: ["answer"],
+      additionalProperties: false,
+    };
+    responseQueue = [
+      {
+        content: [
+          {
+            type: "tool_use",
+            name: "emit_result",
+            id: "tu-json-bad",
+            input: { answer: 5 },
+          },
+        ],
+        model: "test",
+        usage: { inputTokens: 1, outputTokens: 1 },
+        stopReason: "tool_use",
+      },
+    ];
+
+    await expect(
+      runLeaf({ prompt: "x", schema: jsonSchema, trustContext }),
+    ).rejects.toThrow(/schema validation/i);
+  });
+
   test("throws when provider output fails schema validation", async () => {
     const schema = z.object({ answer: z.string() });
     responseQueue = [
