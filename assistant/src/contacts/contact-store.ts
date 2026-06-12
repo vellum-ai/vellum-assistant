@@ -394,8 +394,9 @@ function syncChannels(
       continue;
     }
 
-    // Check if this channel exists for a different contact (unique constraint)
-    const conflicting = db
+    // Check if this channel exists for a different contact — covers both
+    // unique constraints: (type, address) and (type, external_user_id).
+    const conflictByAddress = db
       .select()
       .from(contactChannels)
       .where(
@@ -405,6 +406,22 @@ function syncChannels(
         ),
       )
       .get();
+
+    const conflictByExtUserId =
+      ch.externalUserId != null
+        ? db
+            .select()
+            .from(contactChannels)
+            .where(
+              and(
+                eq(contactChannels.type, ch.type),
+                eq(contactChannels.externalUserId, ch.externalUserId),
+              ),
+            )
+            .get()
+        : undefined;
+
+    const conflicting = conflictByAddress ?? conflictByExtUserId;
 
     if (conflicting) {
       if (reassignConflicting) {
@@ -440,6 +457,18 @@ function syncChannels(
           .set(reassignSet)
           .where(eq(contactChannels.id, conflicting.id))
           .run();
+
+        // If both constraints matched different rows, clean up the other one
+        // to avoid a constraint violation on the subsequent insert/update.
+        if (
+          conflictByAddress &&
+          conflictByExtUserId &&
+          conflictByAddress.id !== conflictByExtUserId.id
+        ) {
+          db.delete(contactChannels)
+            .where(eq(contactChannels.id, conflictByExtUserId.id))
+            .run();
+        }
       }
       // When not reassigning, skip to avoid unique constraint violation.
       // The caller should use contact_merge to combine the two contacts.
@@ -978,8 +1007,9 @@ export function updateContactPrincipalAndChannel(
     .get();
   if (!channel) return false;
 
-  // Guard: check if another channel row already holds this (type, address).
-  const conflicting = db
+  // Guard: check if another channel row already holds this (type, address)
+  // or (type, externalUserId) — both have unique constraints.
+  const conflictByAddress = db
     .select()
     .from(contactChannels)
     .where(
@@ -990,7 +1020,22 @@ export function updateContactPrincipalAndChannel(
     )
     .get();
 
-  if (conflicting && conflicting.id !== channelId) {
+  if (conflictByAddress && conflictByAddress.id !== channelId) {
+    return false;
+  }
+
+  const conflictByExtUserId = db
+    .select()
+    .from(contactChannels)
+    .where(
+      and(
+        eq(contactChannels.type, channel.type),
+        eq(contactChannels.externalUserId, newPrincipalId),
+      ),
+    )
+    .get();
+
+  if (conflictByExtUserId && conflictByExtUserId.id !== channelId) {
     return false;
   }
 
