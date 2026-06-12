@@ -66,6 +66,26 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
     });
   }, []);
 
+  const handlePathRenamed = useCallback((oldPath: string, newPath: string) => {
+    const remap = (p: string) =>
+      p === oldPath
+        ? newPath
+        : p.startsWith(`${oldPath}/`)
+          ? newPath + p.slice(oldPath.length)
+          : p;
+    setSelectedPath((prev) => (prev === null ? prev : remap(prev)));
+    setExpandedPaths((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const p of prev) {
+        const mapped = remap(p);
+        if (mapped !== p) changed = true;
+        next.add(mapped);
+      }
+      return changed ? next : prev;
+    });
+  }, []);
+
   const treeProps = {
     assistantId,
     expandedPaths,
@@ -78,6 +98,7 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
     onToggleShowHidden: () => setShowHidden((v) => !v),
     onChangeSortMode: setSortMode,
     onPathDeleted: handlePathDeleted,
+    onPathRenamed: handlePathRenamed,
   };
 
   return (

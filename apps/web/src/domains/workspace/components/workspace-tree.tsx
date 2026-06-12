@@ -1,7 +1,10 @@
 /**
  * File tree sidebar for the workspace browser. Fetches the assistant's
  * workspace directory listing, renders a recursive expandable tree, and
- * provides search filtering plus file/folder creation.
+ * provides search filtering plus file/folder creation. Each row carries a
+ * context menu (right-click / long-press) with New File / New Folder (on
+ * directories), Delete, and Rename — mirroring the original native macOS
+ * app's workspace panel.
  */
 
 import {
@@ -22,6 +25,7 @@ import {
     Folder,
     FolderPlus,
     Image as ImageIcon,
+    Pencil,
     Plus,
     Search,
     Trash2,
@@ -46,6 +50,7 @@ import {
 import {
     workspaceDeletePost,
     workspaceMkdirPost,
+    workspaceRenamePost,
     workspaceTreeGet,
     workspaceWritePost,
 } from "@/generated/daemon/sdk.gen";
@@ -54,6 +59,7 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { BottomSheet } from "@vellumai/design-library/components/bottom-sheet";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { ContextMenu } from "@vellumai/design-library/components/context-menu";
 import { Input } from "@vellumai/design-library/components/input";
 import { PanelItem } from "@vellumai/design-library/components/panel-item";
 import { Popover } from "@vellumai/design-library/components/popover";
@@ -66,11 +72,15 @@ export type { WorkspaceSortMode };
 
 type WorkspaceTreeEntry = WorkspaceTreeGetResponse["entries"][number];
 
-interface DeleteTarget {
+interface EntryTarget {
   path: string;
   name: string;
   isDirectory: boolean;
 }
+
+type TreeDialog =
+  | { type: "create"; kind: "file" | "folder"; parentPath: string }
+  | { type: "rename"; path: string; name: string };
 
 function workspaceTreeRetrieveOptions(opts: {
   path: { assistant_id: string };
@@ -146,6 +156,8 @@ function TreeNode({
   onToggleExpand,
   onSelectPath,
   onRequestDelete,
+  onRequestRename,
+  onRequestCreate,
   depth,
 }: {
   entry: WorkspaceTreeEntry;
@@ -157,7 +169,12 @@ function TreeNode({
   searchLower: string;
   onToggleExpand: (path: string) => void;
   onSelectPath: (path: string) => void;
-  onRequestDelete: (target: DeleteTarget) => void;
+  onRequestDelete: (target: EntryTarget) => void;
+  onRequestRename: (target: EntryTarget) => void;
+  onRequestCreate: (input: {
+    kind: "file" | "folder";
+    parentPath: string;
+  }) => void;
   depth: number;
 }) {
   const entryPath = entry.path ?? "";
@@ -166,9 +183,9 @@ function TreeNode({
   const isExpanded = expandedPaths.has(entryPath);
   const isSelected = selectedPath === entryPath;
   const isHidden = entryName.startsWith(".");
-  // The daemon rejects deletes on paths with hidden segments, so don't offer
-  // the action for them.
-  const canDelete = !isHiddenPath(entryPath);
+  // The daemon rejects writes, renames, and deletes on paths with hidden
+  // segments, so don't offer the context menu for them.
+  const hasMenu = !isHiddenPath(entryPath);
 
   // Expand directories whose names match during search so their children are visible.
   const effectivelyExpanded =
@@ -207,72 +224,100 @@ function TreeNode({
     }
   };
 
+  const row = (
+    <button
+      onClick={handleClick}
+      className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-body-medium-lighter transition-colors hover:bg-[var(--surface-hover)]"
+      style={{
+        paddingLeft: `${depth * 14 + 8}px`,
+        paddingRight: "8px",
+        color: isSelected
+          ? "var(--content-default)"
+          : isHidden
+            ? "var(--content-tertiary)"
+            : "var(--content-default)",
+        backgroundColor: isSelected
+          ? "color-mix(in oklab, var(--primary-base) 12%, transparent)"
+          : undefined,
+        opacity: isHidden && !isSelected ? 0.7 : 1,
+      }}
+    >
+      {isDirectory ? (
+        effectivelyExpanded ? (
+          <ChevronDown
+            className="h-3 w-3 shrink-0"
+            style={{ color: "var(--content-tertiary)" }}
+          />
+        ) : (
+          <ChevronRight
+            className="h-3 w-3 shrink-0"
+            style={{ color: "var(--content-tertiary)" }}
+          />
+        )
+      ) : (
+        <span className="h-3 w-3 shrink-0" />
+      )}
+      <FileIconForEntry entry={entry} />
+      <span className="min-w-0 flex-1 truncate">{entryName}</span>
+      {entry.size != null && (
+        <span
+          className="shrink-0 text-label-medium-default tabular-nums"
+          style={{ color: "var(--content-tertiary)" }}
+        >
+          {formatFileSize(entry.size)}
+        </span>
+      )}
+    </button>
+  );
+
   return (
     <div>
-      <div className="group relative">
-        <button
-          onClick={handleClick}
-          className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-body-medium-lighter transition-colors hover:bg-[var(--surface-hover)]"
-          style={{
-            paddingLeft: `${depth * 14 + 8}px`,
-            paddingRight: "8px",
-            color: isSelected
-              ? "var(--content-default)"
-              : isHidden
-                ? "var(--content-tertiary)"
-                : "var(--content-default)",
-            backgroundColor: isSelected
-              ? "color-mix(in oklab, var(--primary-base) 12%, transparent)"
-              : undefined,
-            opacity: isHidden && !isSelected ? 0.7 : 1,
-          }}
-        >
-          {isDirectory ? (
-            effectivelyExpanded ? (
-              <ChevronDown
-                className="h-3 w-3 shrink-0"
-                style={{ color: "var(--content-tertiary)" }}
-              />
-            ) : (
-              <ChevronRight
-                className="h-3 w-3 shrink-0"
-                style={{ color: "var(--content-tertiary)" }}
-              />
-            )
-          ) : (
-            <span className="h-3 w-3 shrink-0" />
-          )}
-          <FileIconForEntry entry={entry} />
-          <span className="min-w-0 flex-1 truncate">{entryName}</span>
-          {entry.size != null && (
-            <span
-              className={`shrink-0 text-label-medium-default tabular-nums${canDelete ? " max-md:invisible md:group-hover:invisible md:group-focus-within:invisible" : ""}`}
-              style={{ color: "var(--content-tertiary)" }}
+      {hasMenu ? (
+        <ContextMenu.Root>
+          <ContextMenu.Trigger>{row}</ContextMenu.Trigger>
+          <ContextMenu.Content>
+            {isDirectory && (
+              <>
+                <ContextMenu.Item
+                  leftIcon={<FilePlus className="h-3.5 w-3.5" />}
+                  onSelect={() =>
+                    onRequestCreate({ kind: "file", parentPath: entryPath })
+                  }
+                >
+                  New File
+                </ContextMenu.Item>
+                <ContextMenu.Item
+                  leftIcon={<FolderPlus className="h-3.5 w-3.5" />}
+                  onSelect={() =>
+                    onRequestCreate({ kind: "folder", parentPath: entryPath })
+                  }
+                >
+                  New Folder
+                </ContextMenu.Item>
+                <ContextMenu.Separator />
+              </>
+            )}
+            <ContextMenu.Item
+              leftIcon={<Trash2 className="h-3.5 w-3.5" />}
+              onSelect={() =>
+                onRequestDelete({ path: entryPath, name: entryName, isDirectory })
+              }
             >
-              {formatFileSize(entry.size)}
-            </span>
-          )}
-        </button>
-        {canDelete && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="compact"
-            iconOnly={<Trash2 aria-hidden />}
-            onClick={() =>
-              onRequestDelete({
-                path: entryPath,
-                name: entryName,
-                isDirectory,
-              })
-            }
-            aria-label={`Delete ${entryName}`}
-            title="Delete"
-            className="absolute right-1 top-1/2 -translate-y-1/2 transition-opacity max-md:opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"
-            tintColor="var(--content-tertiary)"
-          />
-        )}
-      </div>
+              Delete
+            </ContextMenu.Item>
+            <ContextMenu.Item
+              leftIcon={<Pencil className="h-3.5 w-3.5" />}
+              onSelect={() =>
+                onRequestRename({ path: entryPath, name: entryName, isDirectory })
+              }
+            >
+              Rename
+            </ContextMenu.Item>
+          </ContextMenu.Content>
+        </ContextMenu.Root>
+      ) : (
+        row
+      )}
       {isDirectory && effectivelyExpanded && children.length > 0 && (
         <div>
           {children.map((child) => (
@@ -288,6 +333,8 @@ function TreeNode({
               onToggleExpand={onToggleExpand}
               onSelectPath={onSelectPath}
               onRequestDelete={onRequestDelete}
+              onRequestRename={onRequestRename}
+              onRequestCreate={onRequestCreate}
               depth={depth + 1}
             />
           ))}
@@ -298,25 +345,33 @@ function TreeNode({
 }
 
 // ---------------------------------------------------------------------------
-// Create item dialog — portaled to document.body
+// Name dialog (create / rename) — portaled to document.body
 // ---------------------------------------------------------------------------
 
-interface CreateItemDialogProps {
-  kind: "file" | "folder";
+interface NameItemDialogProps {
+  title: string;
+  placeholder: string;
+  confirmLabel: string;
+  pendingLabel: string;
+  initialName?: string;
   onCancel: () => void;
   onConfirm: (name: string) => void;
   pending: boolean;
   error: string | null;
 }
 
-function CreateItemDialog({
-  kind,
+function NameItemDialog({
+  title,
+  placeholder,
+  confirmLabel,
+  pendingLabel,
+  initialName,
   onCancel,
   onConfirm,
   pending,
   error,
-}: CreateItemDialogProps) {
-  const [name, setName] = useState("");
+}: NameItemDialogProps) {
+  const [name, setName] = useState(initialName ?? "");
 
   const trimmed = name.trim();
   const canSubmit = trimmed.length > 0 && !pending;
@@ -352,14 +407,14 @@ function CreateItemDialog({
           className="mb-3 text-title-small"
           style={{ color: "var(--content-default)" }}
         >
-          {kind === "file" ? "New File" : "New Folder"}
+          {title}
         </h2>
         <Input
           autoFocus
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder={kind === "file" ? "filename.md" : "folder-name"}
+          placeholder={placeholder}
           errorText={error ?? undefined}
           fullWidth
           wrapperClassName="mb-3"
@@ -376,7 +431,7 @@ function CreateItemDialog({
             Cancel
           </Button>
           <Button type="submit" disabled={!canSubmit}>
-            {pending ? "Creating…" : "Create"}
+            {pending ? pendingLabel : confirmLabel}
           </Button>
         </div>
       </form>
@@ -401,6 +456,7 @@ export function WorkspaceTree({
   onToggleShowHidden,
   onChangeSortMode,
   onPathDeleted,
+  onPathRenamed,
 }: {
   assistantId: string;
   expandedPaths: Set<string>;
@@ -413,6 +469,7 @@ export function WorkspaceTree({
   onToggleShowHidden: () => void;
   onChangeSortMode: (next: WorkspaceSortMode) => void;
   onPathDeleted: (path: string) => void;
+  onPathRenamed: (oldPath: string, newPath: string) => void;
 }) {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -420,8 +477,13 @@ export function WorkspaceTree({
 
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const [dialogKind, setDialogKind] = useState<"file" | "folder" | null>(null);
+  const [dialog, setDialog] = useState<TreeDialog | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
+
+  const closeDialog = useCallback(() => {
+    setDialog(null);
+    setDialogError(null);
+  }, []);
 
   const { data, isLoading } = useQuery(
     workspaceTreeRetrieveOptions({
@@ -442,17 +504,24 @@ export function WorkspaceTree({
   }, [queryClient]);
 
   const createMutation = useMutation({
-    mutationFn: async (input: { kind: "file" | "folder"; name: string }) => {
+    mutationFn: async (input: {
+      kind: "file" | "folder";
+      parentPath: string;
+      name: string;
+    }) => {
+      const path = input.parentPath
+        ? `${input.parentPath}/${input.name}`
+        : input.name;
       const { error, response } =
         input.kind === "file"
           ? await workspaceWritePost({
               path: { assistant_id: assistantId },
-              body: { path: input.name, content: "", encoding: "utf8" },
+              body: { path, content: "", encoding: "utf8" },
               throwOnError: false,
             })
           : await workspaceMkdirPost({
               path: { assistant_id: assistantId },
-              body: { path: input.name },
+              body: { path },
               throwOnError: false,
             });
       if (error || !response?.ok) {
@@ -462,16 +531,18 @@ export function WorkspaceTree({
             : "Failed to create — check the name and try again.",
         );
       }
-      return input;
+      return { ...input, path };
     },
     onSuccess: (input) => {
-      setDialogKind(null);
-      setDialogError(null);
+      closeDialog();
       invalidateTree();
+      if (input.parentPath) {
+        onExpandPath(input.parentPath);
+      }
       if (input.kind === "file") {
-        onSelectPath(input.name);
+        onSelectPath(input.path);
       } else {
-        onExpandPath(input.name);
+        onExpandPath(input.path);
       }
     },
     onError: (err: unknown) => {
@@ -479,19 +550,54 @@ export function WorkspaceTree({
     },
   });
 
-  const handleConfirm = useCallback(
-    (name: string) => {
-      if (!dialogKind) return;
-      setDialogError(null);
-      createMutation.mutate({ kind: dialogKind, name });
+  const renameMutation = useMutation({
+    mutationFn: async (input: { oldPath: string; newName: string }) => {
+      const slash = input.oldPath.lastIndexOf("/");
+      const parentPath = slash === -1 ? "" : input.oldPath.slice(0, slash);
+      const newPath = parentPath
+        ? `${parentPath}/${input.newName}`
+        : input.newName;
+      const { error, response } = await workspaceRenamePost({
+        path: { assistant_id: assistantId },
+        body: { oldPath: input.oldPath, newPath },
+        throwOnError: false,
+      });
+      if (error || !response?.ok) {
+        throw new Error(
+          typeof error === "string"
+            ? error
+            : "Failed to rename — check the name and try again.",
+        );
+      }
+      return { oldPath: input.oldPath, newPath };
     },
-    [dialogKind, createMutation],
+    onSuccess: ({ oldPath, newPath }) => {
+      closeDialog();
+      invalidateTree();
+      onPathRenamed(oldPath, newPath);
+    },
+    onError: (err: unknown) => {
+      setDialogError(err instanceof Error ? err.message : "Failed to rename.");
+    },
+  });
+
+  const handleRequestCreate = useCallback(
+    (input: { kind: "file" | "folder"; parentPath: string }) => {
+      setDialogError(null);
+      setDialog({ type: "create", ...input });
+    },
+    [],
   );
 
-  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const handleRequestRename = useCallback((target: EntryTarget) => {
+    setDialogError(null);
+    setDialog({ type: "rename", path: target.path, name: target.name });
+  }, []);
+
+  const [deleteTarget, setDeleteTarget] = useState<EntryTarget | null>(null);
 
   const deleteMutation = useMutation({
-    mutationFn: async (target: DeleteTarget) => {
+    mutationFn: async (target: EntryTarget) => {
       const { error, response } = await workspaceDeletePost({
         path: { assistant_id: assistantId },
         body: { path: target.path },
@@ -512,7 +618,7 @@ export function WorkspaceTree({
   });
 
   const handleRequestDelete = useCallback(
-    (target: DeleteTarget) => {
+    (target: EntryTarget) => {
       deleteMutation.reset();
       setDeleteTarget(target);
     },
@@ -575,8 +681,7 @@ export function WorkspaceTree({
             onOpenChange={setMenuOpen}
             onSelectKind={(kind) => {
               setMenuOpen(false);
-              setDialogError(null);
-              setDialogKind(kind);
+              handleRequestCreate({ kind, parentPath: "" });
             }}
           />
         </div>
@@ -638,22 +743,53 @@ export function WorkspaceTree({
               onToggleExpand={onToggleExpand}
               onSelectPath={onSelectPath}
               onRequestDelete={handleRequestDelete}
+              onRequestRename={handleRequestRename}
+              onRequestCreate={handleRequestCreate}
               depth={0}
             />
           ))
         )}
       </div>
 
-      {dialogKind !== null && (
-        <CreateItemDialog
-          key={dialogKind}
-          kind={dialogKind}
-          onCancel={() => {
-            setDialogKind(null);
+      {dialog?.type === "create" && (
+        <NameItemDialog
+          key={`create-${dialog.kind}-${dialog.parentPath}`}
+          title={dialog.kind === "file" ? "New File" : "New Folder"}
+          placeholder={dialog.kind === "file" ? "filename.md" : "folder-name"}
+          confirmLabel="Create"
+          pendingLabel="Creating…"
+          onCancel={closeDialog}
+          onConfirm={(name) => {
             setDialogError(null);
+            createMutation.mutate({
+              kind: dialog.kind,
+              parentPath: dialog.parentPath,
+              name,
+            });
           }}
-          onConfirm={handleConfirm}
           pending={createMutation.isPending}
+          error={dialogError}
+        />
+      )}
+
+      {dialog?.type === "rename" && (
+        <NameItemDialog
+          key={`rename-${dialog.path}`}
+          title="Rename"
+          placeholder={dialog.name}
+          confirmLabel="Rename"
+          pendingLabel="Renaming…"
+          initialName={dialog.name}
+          onCancel={closeDialog}
+          onConfirm={(name) => {
+            if (name === dialog.name) {
+              closeDialog();
+              return;
+            }
+            setDialogError(null);
+            renameMutation.mutate({ oldPath: dialog.path, newName: name });
+          }}
+          pending={renameMutation.isPending}
           error={dialogError}
         />
       )}
