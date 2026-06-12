@@ -24,11 +24,17 @@ async function executeManageWorkflows(
   switch (action) {
     case "status": {
       if (!runId) {
-        return { content: '"run_id" is required for action "status".', isError: true };
+        return {
+          content: '"run_id" is required for action "status".',
+          isError: true,
+        };
       }
       const run = manager.status(runId);
       if (!run) {
-        return { content: JSON.stringify({ runId, found: false }), isError: false };
+        return {
+          content: JSON.stringify({ runId, found: false }),
+          isError: false,
+        };
       }
       return {
         content: JSON.stringify({
@@ -45,7 +51,10 @@ async function executeManageWorkflows(
     }
     case "abort": {
       if (!runId) {
-        return { content: '"run_id" is required for action "abort".', isError: true };
+        return {
+          content: '"run_id" is required for action "abort".',
+          isError: true,
+        };
       }
       manager.abort(runId);
       return {
@@ -55,6 +64,29 @@ async function executeManageWorkflows(
         }),
         isError: false,
       };
+    }
+    case "resume": {
+      if (!runId) {
+        return {
+          content: '"run_id" is required for action "resume".',
+          isError: true,
+        };
+      }
+      try {
+        const { runId: resumedId } = manager.resume(runId);
+        return {
+          content: JSON.stringify({
+            runId: resumedId,
+            status: "running",
+            message:
+              "Workflow resumed. The completed prefix is replayed from the journal and the run continues from the first unfinished step. You will be notified in this conversation when it completes — do NOT poll.",
+          }),
+          isError: false,
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { content: `Failed to resume workflow: ${msg}`, isError: true };
+      }
     }
     case "list_runs": {
       const runs = manager.list();
@@ -72,7 +104,8 @@ async function executeManageWorkflows(
     }
     default:
       return {
-        content: 'Unknown action. Use one of: "status", "abort", "list_runs".',
+        content:
+          'Unknown action. Use one of: "status", "abort", "resume", "list_runs".',
         isError: true,
       };
   }
@@ -81,21 +114,24 @@ async function executeManageWorkflows(
 export const manageWorkflowsTool = {
   name: "manage_workflows",
   description:
-    'Inspect or control workflow runs started by run_workflow. action="status" (requires run_id) returns a run\'s status and counts; action="abort" (requires run_id) signals an in-flight run to stop; action="list_runs" returns recent runs newest-first.',
+    'Inspect or control workflow runs started by run_workflow. action="status" (requires run_id) returns a run\'s status and counts; action="abort" (requires run_id) signals an in-flight run to stop; action="resume" (requires run_id) restarts an interrupted run (one orphaned by an assistant restart), replaying its journaled prefix and continuing from the first unfinished step; action="list_runs" returns recent runs newest-first.',
   // Low risk: status/list are pure reads; abort only signals an existing run to
-  // stop and can never spawn work or cause side effects.
+  // stop; resume replays a journaled prefix and continues a previously-consented
+  // run under the same structural agent cap — none can introduce new unbounded
+  // work or side effects beyond what the run already declared.
   defaultRiskLevel: RiskLevel.Low,
   input_schema: {
     type: "object",
     properties: {
       action: {
         type: "string",
-        enum: ["status", "abort", "list_runs"],
+        enum: ["status", "abort", "resume", "list_runs"],
         description: "What to do.",
       },
       run_id: {
         type: "string",
-        description: 'Target run id (required for "status" and "abort").',
+        description:
+          'Target run id (required for "status", "abort", and "resume").',
       },
     },
     required: ["action"],

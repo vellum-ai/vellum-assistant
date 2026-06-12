@@ -3,7 +3,15 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { AssistantConfig } from "../../config/schema.js";
 import type { WorkflowRun } from "../../workflows/journal-store.js";
 import type { SavedWorkflowEntry } from "../../workflows/library.js";
-import { NotFoundError } from "./errors.js";
+import {
+  WorkflowResumeNotPossibleError,
+  WorkflowRunCapError,
+} from "../../workflows/run-manager.js";
+import {
+  ConflictError,
+  NotFoundError,
+  TooManyRequestsError,
+} from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 import { __setWorkflowRoutesDeps, ROUTES } from "./workflow-routes.js";
 
@@ -46,18 +54,23 @@ interface FakeManager {
   }) => WorkflowRun[];
   status: (id: string) => WorkflowRun | null;
   abort: (id: string) => void;
+  resume: (id: string) => { runId: string };
 }
 
 function setup(opts: {
   flagEnabled?: boolean;
   runs?: WorkflowRun[];
   saved?: SavedWorkflowEntry[];
+  /** Custom resume impl; defaults to a success that records the id. */
+  resume?: (id: string) => { runId: string };
 }): {
   aborted: string[];
+  resumed: string[];
   listCalls: Array<{ limit?: number; status?: string }>;
 } {
   const runs = opts.runs ?? [];
   const aborted: string[] = [];
+  const resumed: string[] = [];
   const listCalls: Array<{ limit?: number; status?: string }> = [];
   const manager: FakeManager = {
     list: (o) => {
@@ -71,6 +84,12 @@ function setup(opts: {
     abort: (id) => {
       aborted.push(id);
     },
+    resume:
+      opts.resume ??
+      ((id) => {
+        resumed.push(id);
+        return { runId: id };
+      }),
   };
   __setWorkflowRoutesDeps({
     getManager: () => manager,
@@ -78,7 +97,7 @@ function setup(opts: {
     getConfig: () => ({}) as AssistantConfig,
     isFlagEnabled: () => opts.flagEnabled ?? true,
   });
-  return { aborted, listCalls };
+  return { aborted, resumed, listCalls };
 }
 
 afterEach(() => {
@@ -149,6 +168,48 @@ describe("workflow routes (flag on)", () => {
     expect(aborted).toEqual(["run-1"]);
   });
 
+  test("resumeWorkflowRun resumes an interrupted run", async () => {
+    const { resumed } = setup({
+      flagEnabled: true,
+      runs: [makeRun({ id: "run-1", status: "interrupted" })],
+    });
+    const result = (await route("resumeWorkflowRun").handler({
+      pathParams: { id: "run-1" },
+    })) as { ok: boolean; runId: string };
+    expect(result).toEqual({ ok: true, runId: "run-1" });
+    expect(resumed).toEqual(["run-1"]);
+  });
+
+  test("resumeWorkflowRun maps a non-interrupted run to a 409 ConflictError", () => {
+    setup({
+      flagEnabled: true,
+      runs: [makeRun({ id: "run-1", status: "completed" })],
+      resume: (id) => {
+        throw new WorkflowResumeNotPossibleError(
+          id,
+          "not_interrupted",
+          "completed",
+        );
+      },
+    });
+    expect(() =>
+      route("resumeWorkflowRun").handler({ pathParams: { id: "run-1" } }),
+    ).toThrow(ConflictError);
+  });
+
+  test("resumeWorkflowRun maps a cap error to a 429 TooManyRequestsError", () => {
+    setup({
+      flagEnabled: true,
+      runs: [makeRun({ id: "run-1", status: "interrupted" })],
+      resume: () => {
+        throw new WorkflowRunCapError(3);
+      },
+    });
+    expect(() =>
+      route("resumeWorkflowRun").handler({ pathParams: { id: "run-1" } }),
+    ).toThrow(TooManyRequestsError);
+  });
+
   test("listSavedWorkflows returns saved entries", async () => {
     const result = (await route("listSavedWorkflows").handler({})) as {
       workflows: SavedWorkflowEntry[];
@@ -182,6 +243,14 @@ describe("workflow routes (unknown run)", () => {
     ).toThrow(NotFoundError);
     expect(aborted).toEqual([]);
   });
+
+  test("resumeWorkflowRun throws NotFoundError for an unknown id", () => {
+    const { resumed } = setup({ flagEnabled: true, runs: [] });
+    expect(() =>
+      route("resumeWorkflowRun").handler({ pathParams: { id: "nope" } }),
+    ).toThrow(NotFoundError);
+    expect(resumed).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -197,6 +266,7 @@ describe("workflow routes (flag off)", () => {
     ["listWorkflowRuns", { queryParams: {} }],
     ["getWorkflowRun", { pathParams: { id: "run-1" } }],
     ["abortWorkflowRun", { pathParams: { id: "run-1" } }],
+    ["resumeWorkflowRun", { pathParams: { id: "run-1" } }],
     ["listSavedWorkflows", {}],
   ] as const)("%s throws NotFoundError when the flag is off", (op, args) => {
     expect(() => route(op).handler(args)).toThrow(NotFoundError);

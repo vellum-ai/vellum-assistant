@@ -20,10 +20,16 @@ import type { WorkflowRun } from "../../workflows/journal-store.js";
 import { listWorkflows } from "../../workflows/library.js";
 import {
   getWorkflowRunManager,
+  WorkflowResumeNotPossibleError,
+  WorkflowRunCapError,
   type WorkflowRunManager,
 } from "../../workflows/run-manager.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { NotFoundError } from "./errors.js";
+import {
+  ConflictError,
+  NotFoundError,
+  TooManyRequestsError,
+} from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -31,7 +37,10 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 // ---------------------------------------------------------------------------
 
 export interface WorkflowRoutesDeps {
-  getManager: () => Pick<WorkflowRunManager, "list" | "status" | "abort">;
+  getManager: () => Pick<
+    WorkflowRunManager,
+    "list" | "status" | "abort" | "resume"
+  >;
   listWorkflows: typeof listWorkflows;
   getConfig: () => AssistantConfig;
   isFlagEnabled: (config: AssistantConfig) => boolean;
@@ -66,6 +75,7 @@ const VALID_RUN_STATUSES = [
   "failed",
   "aborted",
   "cap_exceeded",
+  "interrupted",
 ] as const;
 
 const workflowRunSchema = z.object({
@@ -170,6 +180,33 @@ function handleAbortRun(id: string) {
   return { ok: true, runId: id };
 }
 
+function handleResumeRun(id: string) {
+  assertFlagEnabled();
+  const manager = deps.getManager();
+  // status() is the source of truth for existence, so 404 an unknown id here
+  // (matching abort) rather than letting resume's "not_found" reach the client
+  // as a 409.
+  if (!manager.status(id)) {
+    throw new NotFoundError(`Workflow run ${id} not found`);
+  }
+  try {
+    const { runId } = manager.resume(id);
+    return { ok: true, runId };
+  } catch (err) {
+    if (err instanceof WorkflowResumeNotPossibleError) {
+      if (err.reason === "not_found") {
+        throw new NotFoundError(`Workflow run ${id} not found`);
+      }
+      // not_interrupted / in_flight — the run exists but isn't resumable now.
+      throw new ConflictError(err.message);
+    }
+    if (err instanceof WorkflowRunCapError) {
+      throw new TooManyRequestsError(err.message);
+    }
+    throw err;
+  }
+}
+
 function handleListSavedWorkflows() {
   assertFlagEnabled();
   return { workflows: deps.listWorkflows() };
@@ -201,7 +238,7 @@ export const ROUTES: RouteDefinition[] = [
         name: "status",
         schema: { type: "string" },
         description:
-          "Filter by run status (running, completed, failed, aborted, cap_exceeded).",
+          "Filter by run status (running, completed, failed, aborted, cap_exceeded, interrupted).",
       },
     ],
     responseBody: z.object({
@@ -243,6 +280,30 @@ export const ROUTES: RouteDefinition[] = [
     additionalResponses: { "404": { description: "Run not found" } },
     handler: ({ pathParams }: RouteHandlerArgs) =>
       handleAbortRun(pathParams!.id),
+  },
+  {
+    operationId: "resumeWorkflowRun",
+    endpoint: "workflows/runs/:id/resume",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Resume workflow run",
+    description:
+      "Resume an interrupted workflow run (one orphaned by an assistant restart), replaying its journaled prefix and continuing from the first unfinished step.",
+    tags: ["workflows"],
+    responseBody: z.object({
+      ok: z.boolean(),
+      runId: z.string(),
+    }),
+    additionalResponses: {
+      "404": { description: "Run not found" },
+      "409": { description: "Run is not resumable (not interrupted)" },
+      "429": { description: "Concurrent-run cap reached" },
+    },
+    handler: ({ pathParams }: RouteHandlerArgs) =>
+      handleResumeRun(pathParams!.id),
   },
   {
     operationId: "listSavedWorkflows",

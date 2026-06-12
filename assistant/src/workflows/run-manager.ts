@@ -31,7 +31,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import { findConversation } from "../daemon/conversation-registry.js";
+import {
+  INTERNAL_GUARDIAN_TRUST_CONTEXT,
+  type TrustContext,
+} from "../daemon/trust-context.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
@@ -70,6 +74,31 @@ export class WorkflowRunCapError extends Error {
         `(maxConcurrentRuns).`,
     );
     this.name = "WorkflowRunCapError";
+  }
+}
+
+/**
+ * Thrown by `resume` when the target run cannot be resumed: it does not exist,
+ * is already in a terminal-but-not-resumable state, or is currently in flight.
+ * Only an `interrupted` run (a `running` row reconciled at startup after a
+ * crash) is resumable.
+ */
+export class WorkflowResumeNotPossibleError extends Error {
+  readonly code = "workflow_resume_not_possible" as const;
+  constructor(
+    readonly runId: string,
+    readonly reason: "not_found" | "not_interrupted" | "in_flight",
+    readonly status?: WorkflowRun["status"],
+  ) {
+    super(
+      reason === "not_found"
+        ? `Workflow run ${runId} not found.`
+        : reason === "in_flight"
+          ? `Workflow run ${runId} is already in flight.`
+          : `Workflow run ${runId} is not resumable (status: ${status}). ` +
+            `Only interrupted runs can be resumed.`,
+    );
+    this.name = "WorkflowResumeNotPossibleError";
   }
 }
 
@@ -116,6 +145,8 @@ export interface WorkflowRunManagerDeps {
   newRunId: () => string;
   /** Resolve a saved workflow's source by name (for `start({ name })`). */
   getWorkflow: typeof library.getWorkflow;
+  /** Look up a live conversation (for `resume` trust reconstruction). */
+  findConversation: typeof findConversation;
 }
 
 function defaultDeps(): WorkflowRunManagerDeps {
@@ -130,6 +161,7 @@ function defaultDeps(): WorkflowRunManagerDeps {
     broadcast: broadcastMessage,
     newRunId: () => randomUUID(),
     getWorkflow: library.getWorkflow,
+    findConversation,
   };
 }
 
@@ -182,14 +214,16 @@ export class WorkflowRunManager {
     // Create the row up front (so `status`/`list` see it immediately) with the
     // same name + script hash the engine would compute, so its idempotent
     // re-open of the existing row is a true no-op rather than a divergent
-    // overwrite.
+    // overwrite. We persist the MANIFEST (a plain serializable grant), not the
+    // resolved capabilities (which carry live Tool objects that don't survive a
+    // round-trip), so a later `resume` can re-resolve it deterministically.
     this.deps.journal.createRun({
       id: runId,
       name: meta.name,
       scriptSource,
       scriptHash: createHash("sha256").update(scriptSource).digest("hex"),
       args: opts.args,
-      capabilities,
+      capabilities: opts.manifest,
       status: "running",
       conversationId: opts.conversationId ?? null,
     });
@@ -203,12 +237,124 @@ export class WorkflowRunManager {
       runId,
       label,
       scriptSource,
-      opts,
       capabilities,
       controller,
+      {
+        args: opts.args,
+        conversationId: opts.conversationId,
+        trustContext: opts.trustContext,
+      },
     );
 
     return { runId };
+  }
+
+  /**
+   * Mark every `running` run `interrupted` at daemon startup. A row left in
+   * `running` means the process died mid-run (the engine always finishes its
+   * row on exit, so nothing else leaves one `running`). This makes the run
+   * eligible for an explicit {@link resume}; it does NOT auto-resume (that would
+   * be surprising and possibly unsafe). STATUS ONLY — accounting counters are
+   * never touched (see {@link journalStore.markRunningAsInterrupted}). Returns
+   * the number of runs reconciled.
+   */
+  reconcileOrphanedRuns(): number {
+    return this.deps.journal.markRunningAsInterrupted();
+  }
+
+  /**
+   * Resume an `interrupted` run with the SAME `runId`, re-invoking the engine so
+   * it replays the journaled prefix and continues from the first changed/new
+   * leaf. Reconstructs the run's inputs from the persisted row (script source,
+   * args, capability manifest, conversation) and re-derives the trust context
+   * from the originating conversation (falling back to the internal guardian
+   * context). Enforces the `workflows` flag and the concurrent-run cap (a resume
+   * occupies a run slot). Returns the `runId` immediately — completion is
+   * surfaced via events and a conversation wake exactly like {@link start}.
+   *
+   * Throws {@link WorkflowResumeNotPossibleError} when the run is missing, not
+   * `interrupted`, or already in flight.
+   */
+  resume(runId: string): { runId: string } {
+    const config = this.deps.getConfig();
+    if (!this.deps.isFlagEnabled(config)) {
+      throw new WorkflowsDisabledError();
+    }
+
+    if (this.inflight.has(runId)) {
+      throw new WorkflowResumeNotPossibleError(runId, "in_flight");
+    }
+
+    const run = this.deps.journal.getRun(runId);
+    if (!run) {
+      throw new WorkflowResumeNotPossibleError(runId, "not_found");
+    }
+    // Gate to `interrupted`: only a startup-reconciled crash leaves a resumable
+    // row. A `running` row that is NOT in our in-flight map is a stale row from
+    // a still-booting/other process — refuse rather than racing it.
+    if (run.status !== "interrupted") {
+      throw new WorkflowResumeNotPossibleError(
+        runId,
+        "not_interrupted",
+        run.status,
+      );
+    }
+
+    const limit = config.workflows.maxConcurrentRuns;
+    if (this.inflight.size >= limit) {
+      throw new WorkflowRunCapError(limit);
+    }
+
+    // Re-resolve capabilities from the persisted manifest (re-resolution throws
+    // synchronously on an unknown/forbidden tool, leaving the row interrupted).
+    // The engine re-validates the script's `meta` on re-invoke, so we don't
+    // re-extract it here — the persisted `name` is the display label.
+    const capabilities = resolveCapabilities(
+      manifestFromStored(run.capabilities),
+    );
+    const label = run.name ?? runId;
+    const trustContext = this.resolveResumeTrustContext(run.conversationId);
+
+    // Flip back to `running` before launching so `status`/`list` reflect the
+    // in-flight resume; the engine re-opens the same row idempotently.
+    this.deps.journal.updateRun(runId, { status: "running" });
+
+    const controller = new AbortController();
+    this.inflight.set(runId, controller);
+
+    void this.runToCompletion(
+      runId,
+      label,
+      run.scriptSource,
+      capabilities,
+      controller,
+      {
+        args: run.args,
+        conversationId: run.conversationId ?? undefined,
+        trustContext,
+      },
+    );
+
+    return { runId };
+  }
+
+  /**
+   * Reconstruct the trust context for a resumed run: prefer the originating
+   * conversation's resolved/per-turn trust (the context it ran under), falling
+   * back to the internal guardian context when the conversation is gone (it was
+   * a self-maintenance/background run, or the conversation evicted on restart).
+   */
+  private resolveResumeTrustContext(
+    conversationId: string | null,
+  ): TrustContext {
+    const conversation = this.deps.findConversation(
+      conversationId ?? undefined,
+    );
+    return (
+      conversation?.currentTurnTrustContext ??
+      conversation?.trustContext ??
+      INTERNAL_GUARDIAN_TRUST_CONTEXT
+    );
   }
 
   /**
@@ -261,21 +407,21 @@ export class WorkflowRunManager {
     runId: string,
     label: string,
     scriptSource: string,
-    opts: StartWorkflowOptions,
     capabilities: ReturnType<typeof resolveCapabilities>,
     controller: AbortController,
+    ctx: RunContext,
   ): Promise<void> {
     const config = this.deps.getConfig();
     try {
       const result = await this.deps.executeWorkflow({
         runId,
         scriptSource,
-        args: opts.args,
+        args: ctx.args,
         capabilities,
         config: config.workflows,
         journal: this.deps.journal,
         leafRunner: this.deps.leafRunner,
-        trustContext: opts.trustContext,
+        trustContext: ctx.trustContext,
         signal: controller.signal,
         onProgress: (event) => {
           const run = this.deps.journal.getRun(runId);
@@ -309,7 +455,7 @@ export class WorkflowRunManager {
         summary,
       });
 
-      await this.injectCompletionSummary(opts, summary);
+      await this.injectCompletionSummary(ctx, summary);
     } catch (err) {
       // The engine finishes the run row even on internal errors, so this only
       // fires for an unexpected throw (e.g. a bug in the manager glue). Log and
@@ -328,24 +474,72 @@ export class WorkflowRunManager {
    * thrown (the run already completed; events already fired).
    */
   private async injectCompletionSummary(
-    opts: StartWorkflowOptions,
+    ctx: RunContext,
     summary: string,
   ): Promise<void> {
-    if (!opts.conversationId) return;
+    if (!ctx.conversationId) return;
     try {
       await this.deps.wake({
-        conversationId: opts.conversationId,
+        conversationId: ctx.conversationId,
         hint: summary,
         source: WORKFLOW_WAKE_SOURCE,
-        trustContext: opts.trustContext,
+        trustContext: ctx.trustContext,
       });
     } catch (err) {
       log.warn(
-        { err, conversationId: opts.conversationId },
+        { err, conversationId: ctx.conversationId },
         "Workflow run manager: completion wake failed (non-fatal)",
       );
     }
   }
+}
+
+/**
+ * The per-run inputs `runToCompletion` needs, decoupled from how the run was
+ * launched. Both {@link WorkflowRunManager.start} (from `StartWorkflowOptions`)
+ * and {@link WorkflowRunManager.resume} (from the persisted run row) build one.
+ */
+interface RunContext {
+  args: unknown;
+  conversationId: string | undefined;
+  trustContext: TrustContext;
+}
+
+/**
+ * Normalize a run row's persisted `capabilities` back into a
+ * {@link CapabilityManifest} for re-resolution on resume.
+ *
+ * New rows persist the manifest verbatim (`tools`/`hostFunctions` as
+ * string arrays). Older rows persisted the RESOLVED set, whose `tools` are Tool
+ * objects (their functions dropped on JSON round-trip) — for those we recover
+ * the declared tool names from the objects' `name` fields. Either way the
+ * resulting manifest is fed back through `resolveCapabilities`, which re-unions
+ * the read-only baseline and re-validates every name.
+ */
+function manifestFromStored(stored: unknown): CapabilityManifest {
+  const obj =
+    stored && typeof stored === "object"
+      ? (stored as Record<string, unknown>)
+      : {};
+  const toolNames = Array.isArray(obj.tools)
+    ? obj.tools
+        .map((t) =>
+          typeof t === "string"
+            ? t
+            : t && typeof t === "object"
+              ? ((t as Record<string, unknown>).name as string | undefined)
+              : undefined,
+        )
+        .filter((n): n is string => typeof n === "string")
+    : [];
+  const hostFunctions = Array.isArray(obj.hostFunctions)
+    ? obj.hostFunctions.filter((n): n is string => typeof n === "string")
+    : [];
+  return {
+    tools: toolNames,
+    hostFunctions,
+    persona: obj.persona === true,
+  };
 }
 
 /**

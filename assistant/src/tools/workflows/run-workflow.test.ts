@@ -52,6 +52,11 @@ const startMock = mock((opts: Record<string, unknown>) => {
 const statusMock = mock(() => null as unknown);
 const abortMock = mock(() => {});
 const listMock = mock(() => [] as unknown[]);
+let resumeThrows: Error | null = null;
+const resumeMock = mock((runId: string) => {
+  if (resumeThrows) throw resumeThrows;
+  return { runId };
+});
 
 mock.module("../../workflows/run-manager.js", () => ({
   getWorkflowRunManager: () => ({
@@ -59,6 +64,7 @@ mock.module("../../workflows/run-manager.js", () => ({
     status: statusMock,
     abort: abortMock,
     list: listMock,
+    resume: resumeMock,
   }),
 }));
 
@@ -81,10 +87,12 @@ beforeEach(() => {
   configThrows = false;
   startThrows = null;
   lastStartArgs = null;
+  resumeThrows = null;
   startMock.mockClear();
   statusMock.mockClear();
   abortMock.mockClear();
   listMock.mockClear();
+  resumeMock.mockClear();
 });
 
 describe("workflow tool registration gating", () => {
@@ -147,7 +155,9 @@ describe("run_workflow launch", () => {
       manifest: { tools: ["file_write"], hostFunctions: [], persona: true },
     });
     // Trust context falls back to the tool context's trust class.
-    expect((lastStartArgs as Record<string, unknown>).trustContext).toMatchObject({
+    expect(
+      (lastStartArgs as Record<string, unknown>).trustContext,
+    ).toMatchObject({
       trustClass: "guardian",
     });
   });
@@ -158,7 +168,9 @@ describe("run_workflow launch", () => {
       name: "saved-flow",
       manifest: { tools: [], hostFunctions: [], persona: false },
     });
-    expect((lastStartArgs as Record<string, unknown>).scriptSource).toBeUndefined();
+    expect(
+      (lastStartArgs as Record<string, unknown>).scriptSource,
+    ).toBeUndefined();
   });
 
   test("surfaces a run-manager start error as a tool error", async () => {
@@ -220,6 +232,35 @@ describe("manage_workflows", () => {
     );
     expect(res.isError).toBe(false);
     expect(JSON.parse(res.content).found).toBe(false);
+  });
+
+  test("resume requires run_id and delegates to resume()", async () => {
+    const missing = await manageWorkflowsTool.execute(
+      { action: "resume" },
+      makeContext(),
+    );
+    expect(missing.isError).toBe(true);
+    expect(resumeMock).not.toHaveBeenCalled();
+
+    const ok = await manageWorkflowsTool.execute(
+      { action: "resume", run_id: "r9" },
+      makeContext(),
+    );
+    expect(ok.isError).toBe(false);
+    expect(resumeMock).toHaveBeenCalledWith("r9");
+    expect(JSON.parse(ok.content).runId).toBe("r9");
+  });
+
+  test("resume surfaces a run-manager error as a tool error", async () => {
+    resumeThrows = new Error(
+      "Workflow run r9 is not resumable (status: completed).",
+    );
+    const res = await manageWorkflowsTool.execute(
+      { action: "resume", run_id: "r9" },
+      makeContext(),
+    );
+    expect(res.isError).toBe(true);
+    expect(res.content).toContain("not resumable");
   });
 
   test("rejects an unknown action", async () => {

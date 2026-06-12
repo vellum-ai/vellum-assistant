@@ -117,19 +117,36 @@ seconds). While it is running, restart the assistant with **SIGTERM**:
 > costly recovery on the next start (and can corrupt an in-flight run). Use a
 > graceful stop / `vellum sleep` / SIGTERM with grace.
 
-After restart, re-invoke the **same `runId`** (re-run the same workflow with the
-same run id). Then assert journal replay:
+After restart, the run that was in flight when the process stopped is no longer
+`running` — at startup the assistant reconciles every orphaned `running` row to
+`interrupted` (status only; the accounting counters are preserved). Resume is
+**not automatic**. Confirm the run shows up as interrupted, then trigger an
+explicit resume:
 
-- Re-running does **not** double the `agentsSpawned` count or the
+```bash
+# The crashed run is now interrupted, not running.
+vellum workflows runs --status interrupted
+
+# Trigger the resume (or: manage_workflows with action="resume" from chat).
+vellum workflows resume <run-id>
+```
+
+Resuming re-invokes the engine with the **same `runId`**, so the completed prefix
+replays from the journal. Assert:
+
+- Resuming does **not** double the `agentsSpawned` count or the
   `llm_usage_events` rows for `call_site = 'workflowLeaf'` — the completed prefix
-  replays from the journal rather than re-spawning leaves.
+  replays from the journal rather than re-spawning leaves. The agent count
+  **carries** across the restart (it seeds from the persisted run row) instead of
+  resetting to zero.
 - Only leaves that had not completed before the restart produce new usage rows.
+- The run transitions `interrupted` → `running` → a terminal status.
 
 ```sql
--- Before and after the re-invoke, this count should not grow for already-done leaves.
+-- Before and after the resume, this count should not grow for already-done leaves.
 SELECT COUNT(*) FROM llm_usage_events WHERE call_site = 'workflowLeaf';
 
--- The journal holds one row per completed (run_id, seq); re-running does not duplicate them.
+-- The journal holds one row per completed (run_id, seq); resuming does not duplicate them.
 SELECT run_id, COUNT(*) FROM workflow_journal GROUP BY run_id;
 ```
 

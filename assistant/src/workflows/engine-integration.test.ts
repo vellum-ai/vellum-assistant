@@ -179,7 +179,11 @@ import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { resolveCapabilities } from "./capabilities.js";
 import { executeWorkflow } from "./engine.js";
 import * as journalStore from "./journal-store.js";
-import { getJournal, getRun } from "./journal-store.js";
+import {
+  getJournal,
+  getRun,
+  markRunningAsInterrupted,
+} from "./journal-store.js";
 import { runLeaf } from "./leaf-runner.js";
 
 initializeDb();
@@ -373,6 +377,62 @@ return [a, b, c];
     // `resume rewrites a changed leaf's journal entry` test.todo below for the
     // known `INSERT OR IGNORE` staleness bug. The engine's returned value
     // (asserted above) is correct; only the persisted journal row is stale.
+  });
+
+  test("restart→reconcile→resume: an interrupted run replays its prefix and carries accounting", async () => {
+    // Stage 1 — a first pass that journals a 2-leaf prefix, mirroring a run that
+    // got partway before the process died.
+    const scriptSource = `
+export const meta = { name: "reconcile-resume", description: "sequential agents" };
+const a = agent("step-1");
+const b = agent("step-2");
+const c = agent(args.tail);
+return [a, b, c];
+`;
+    const first = await executeWorkflow({
+      ...baseOptions("wf-reconcile", scriptSource),
+      args: { tail: "step-3" },
+      config: makeConfig(),
+    });
+    expect(first.status).toBe("completed");
+    expect(first.agentsSpawned).toBe(3);
+    const agentsBefore = getRun("wf-reconcile")!.agentsSpawned;
+    expect(agentsBefore).toBe(3);
+
+    // Simulate a crash: force the persisted row back to `running` (the state a
+    // mid-flight run leaves on disk), then run startup reconciliation.
+    journalStore.updateRun("wf-reconcile", { status: "running" });
+    const reconciled = markRunningAsInterrupted();
+    expect(reconciled).toBeGreaterThanOrEqual(1);
+    const interrupted = getRun("wf-reconcile")!;
+    expect(interrupted.status).toBe("interrupted");
+    // Reconciliation is STATUS ONLY — the accounting total is untouched.
+    expect(interrupted.agentsSpawned).toBe(agentsBefore);
+
+    sendCallCount = 0;
+    sendMessage.mockClear();
+
+    // Stage 2 — resume re-invokes the engine with the SAME runId. The unchanged
+    // prefix (seq 0,1) replays from the journal with ZERO provider calls; only
+    // the changed tail re-runs. Accounting SEEDS from the persisted total (3)
+    // and grows — it does not reset to 0.
+    const resumed = await executeWorkflow({
+      ...baseOptions("wf-reconcile", scriptSource),
+      args: { tail: "step-3-CHANGED" },
+      config: makeConfig(),
+    });
+
+    expect(resumed.status).toBe("completed");
+    // Only the changed tail hit the provider — the prefix replayed.
+    expect(sendCallCount).toBe(1);
+    expect(resumed.result).toEqual([
+      "processed:step-1",
+      "processed:step-2",
+      "processed:step-3-CHANGED",
+    ]);
+    // Accounting carried: seeded from 3, the single re-run tail makes it 4.
+    expect(resumed.agentsSpawned).toBe(4);
+    expect(getRun("wf-reconcile")!.agentsSpawned).toBe(4);
   });
 
   test("cap abort: a low maxAgentsPerRun yields cap_exceeded with partials persisted", async () => {

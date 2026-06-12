@@ -90,6 +90,9 @@ function printHelp(): void {
   console.log("  runs              List recent workflow runs");
   console.log("  show <run-id>     Show details for a single run");
   console.log("  abort <run-id>    Abort an in-flight run");
+  console.log(
+    "  resume <run-id>   Resume an interrupted run (orphaned by a restart)",
+  );
   console.log("");
   console.log("Options:");
   console.log(
@@ -218,6 +221,18 @@ async function abortRun(runId: string, assistantName?: string): Promise<void> {
   console.log(`Abort signalled for workflow run ${runId}.`);
 }
 
+async function resumeRun(runId: string, assistantName?: string): Promise<void> {
+  const client = createClient(assistantName);
+  await requestJson<{ ok: boolean; runId: string }>(
+    client,
+    "post",
+    `/workflows/runs/${runId}/resume`,
+  );
+  console.log(
+    `Resumed workflow run ${runId}. It replays its completed steps and continues from where it was interrupted.`,
+  );
+}
+
 /**
  * Strip `--assistant <name>` from argv and return the captured value.
  * Mutates the input array so downstream positional parsing is clean.
@@ -291,6 +306,16 @@ export async function workflows(): Promise<void> {
       process.exit(1);
     }
     await abortRun(runId, assistantName);
+    return;
+  }
+
+  if (subcommand === "resume") {
+    const runId = args[1];
+    if (!runId) {
+      console.error("Usage: vellum workflows resume <run-id>");
+      process.exit(1);
+    }
+    await resumeRun(runId, assistantName);
     return;
   }
 
