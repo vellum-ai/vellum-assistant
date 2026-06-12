@@ -1,19 +1,21 @@
-/**
- * Generates a pre-filled Slack app manifest creation URL.
- *
- * Usage: bun skills/slack-app-setup/generate-manifest-url.ts <bot-name> [bot-description]
- *
- * The manifest is the single source of truth for all required scopes,
- * event subscriptions, and settings.
- */
+#!/usr/bin/env bun
+// Builds a Slack app manifest creation URL.
+//
+// Usage:
+//   BOT_NAME="My Bot" BOT_DESC="Optional description" \
+//     bun run skills/slack-app-setup/scripts/build-manifest-url.ts
+//
+// Inputs are read from env vars (not argv) so special characters in the
+// bot name or description can never break the JSON or URL encoding.
+//
+// Output: JSON `{ "ok": true, "data": { "url": "..." } }` on success,
+//         JSON `{ "ok": false, "error": "..." }` on failure.
 
-const name = process.argv[2];
-const desc = process.argv[3] ?? "";
+const name = process.env.BOT_NAME;
+const desc = process.env.BOT_DESC ?? "";
 
 if (!name) {
-  console.error(
-    "Usage: bun generate-manifest-url.ts <bot-name> [bot-description]",
-  );
+  console.error('{"ok": false, "error": "BOT_NAME env var required"}');
   process.exit(1);
 }
 
@@ -86,9 +88,7 @@ const manifest = {
         "reaction_added",
       ],
     },
-    interactivity: {
-      is_enabled: true,
-    },
+    interactivity: { is_enabled: true },
     org_deploy_enabled: false,
     socket_mode_enabled: true,
     token_rotation_enabled: false,
@@ -99,4 +99,4 @@ const url =
   "https://api.slack.com/apps?new_app=1&manifest_json=" +
   encodeURIComponent(JSON.stringify(manifest));
 
-console.log(url);
+console.log(JSON.stringify({ ok: true, data: { url } }));
