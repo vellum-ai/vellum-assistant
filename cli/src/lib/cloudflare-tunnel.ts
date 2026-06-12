@@ -113,7 +113,7 @@ export function waitForCloudflareTunnelUrl(
       reject(
         new Error(
           `cloudflared tunnel URL did not appear within ${timeoutMs / 1000}s. ` +
-            `Ensure cloudflared is working: try running 'cloudflared tunnel --url http://localhost:8080' manually.`,
+            `Ensure cloudflared is working: try running 'cloudflared tunnel --url http://localhost:7840' manually.`,
         ),
       );
     }, timeoutMs);

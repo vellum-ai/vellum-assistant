@@ -25,7 +25,7 @@ import { GATEWAY_PORT } from "./constants.js";
  * port instead of the gateway port.
  */
 
-export const DEFAULT_NGINX_INGRESS_PORT = 8080;
+export const DEFAULT_NGINX_INGRESS_PORT = 7840;
 
 /** Listen port for nginx ingress, from VELLUM_NGINX_INGRESS_PORT. */
 export function getNginxIngressPort(): number {

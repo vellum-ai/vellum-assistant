@@ -18,10 +18,10 @@ import {
 } from "../lib/nginx-ingress.js";
 
 describe("buildIngressNginxConfig", () => {
-  const conf = buildIngressNginxConfig({ gatewayPort: 7830, listenPort: 8080 });
+  const conf = buildIngressNginxConfig({ gatewayPort: 7830, listenPort: 7840 });
 
   test("listens on loopback only", () => {
-    expect(conf).toContain("listen 127.0.0.1:8080;");
+    expect(conf).toContain("listen 127.0.0.1:7840;");
     const listens = conf.match(/listen [^;]+;/g) ?? [];
     expect(listens.length).toBeGreaterThan(0);
     for (const directive of listens) {
