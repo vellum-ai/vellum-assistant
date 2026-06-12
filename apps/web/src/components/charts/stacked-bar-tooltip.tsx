@@ -10,7 +10,7 @@ export type TooltipRowItem = {
 
 export function TooltipRow({ item }: { item: TooltipRowItem }) {
   return (
-    <div className="flex items-center gap-2 py-0.5 text-[13px] text-[#f6f5f4]">
+    <div className="flex items-center gap-2 py-0.5 text-[13px] text-[var(--content-default)]">
       <span
         className="h-2 w-2 shrink-0 rounded-full"
         style={{ backgroundColor: item.color }}
@@ -75,15 +75,15 @@ export function StackedBarTooltip({
   const total = items.reduce((sum, i) => sum + i.numericValue, 0);
 
   return (
-    <div className="rounded-lg border border-[#2d3339] bg-[#1c2024] px-3.5 py-2.5 shadow-[0_4px_12px_rgba(0,0,0,0.3)]">
-      <div className="mb-1.5 text-xs font-medium text-[#a9b2bb]">
+    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-overlay)] px-3.5 py-2.5 shadow-[var(--shadow-popover)]">
+      <div className="mb-1.5 text-xs font-medium text-[var(--content-secondary)]">
         {(formatLabel ?? formatDateLabel)(String(label))}
       </div>
       {hovered && (
         <>
           <TooltipRow item={hovered} />
           {rest.length > 0 && (
-            <div className="my-1.5 border-t border-[#3a3f47]" />
+            <div className="my-1.5 border-t border-[var(--border-subtle)]" />
           )}
         </>
       )}
@@ -91,7 +91,7 @@ export function StackedBarTooltip({
         <TooltipRow key={item.key} item={item} />
       ))}
       {showTotal && (
-        <div className="mt-1 flex items-center gap-2 border-t border-white/15 pt-1.5 text-[13px] font-semibold text-[#f6f5f4]">
+        <div className="mt-1 flex items-center gap-2 border-t border-[var(--border-subtle)] pt-1.5 text-[13px] font-semibold text-[var(--content-default)]">
           <span>Total: {formatValue(total)}</span>
         </div>
       )}
