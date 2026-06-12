@@ -767,6 +767,27 @@ describe("ChatComposer — live-voice integration", () => {
     expect(voiceModeDeactivateSpy).toHaveBeenCalledTimes(1);
   });
 
+  test("voice conversation keeps the voice controls mounted while a response streams", () => {
+    // GIVEN voice mode is speaking AND the turn pipeline reports a stoppable
+    // response (a voice turn streams through the normal turn events, so
+    // canStopGenerating goes true mid-conversation)
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    mockVoiceModeState = "speaking";
+    mockLiveVoiceState = "speaking";
+
+    // WHEN the composer renders in the stoppable-generation state
+    const { getByLabelText, queryByLabelText } = renderVoiceComposer({
+      canStopGenerating: true,
+    });
+
+    // THEN the controls are NOT swapped for the stop-generation button —
+    // unmounting LiveVoiceButton would tear down the live session mid-response
+    // and remove the interrupt control exactly while speaking
+    expect(getByLabelText("Interrupt and speak")).toBeTruthy();
+    expect(queryByLabelText("Stop generating")).toBeNull();
+  });
+
   test("flag ON but no transcript content: surface stays empty when idle", () => {
     // GIVEN the flag is on but the session is idle
     useTurnStore.setState(INITIAL_TURN_STATE);

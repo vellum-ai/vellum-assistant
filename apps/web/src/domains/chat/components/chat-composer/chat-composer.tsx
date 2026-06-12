@@ -594,7 +594,15 @@ export function ChatComposer({
                 {contextWindowIndicatorSlot}
               </div>
               <div className="flex items-center gap-1">
-                {canStopGenerating ? (
+                {/* A live voice conversation pins the regular controls: a voice
+                turn streams through the normal turn pipeline, so
+                canStopGenerating goes true mid-conversation — swapping to the
+                stop-generation branch would unmount LiveVoiceButton, whose
+                single useVoiceMode controller tears down the live session on
+                unmount (cutting off the spoken response and removing the
+                interrupt control exactly while speaking). While voice mode is
+                active the voice button is the stop/interrupt affordance. */}
+                {canStopGenerating && !isLiveVoiceActive ? (
                   <>
                     {/* Desktop: always show stop. Mobile: show stop only when user has no input. */}
                     {(!isMobile || (!input.trim() && !canSendAttachments)) && (
