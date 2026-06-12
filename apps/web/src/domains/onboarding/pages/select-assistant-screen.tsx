@@ -110,6 +110,10 @@ export function SelectAssistantScreen() {
     setRecoveryAssistant(null);
     setRecoveryPending(false);
     setRecoveryError(null);
+    // If recovery interrupted an auto-skip, dismissing it must land on the
+    // chooser — leaving autoSkipping set would re-render the indefinite
+    // "Connecting…" screen with no way out.
+    setAutoSkipping(false);
   };
 
   const handleRecoveryRepair = async () => {
