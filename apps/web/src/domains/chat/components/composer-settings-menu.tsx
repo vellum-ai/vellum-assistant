@@ -171,12 +171,15 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
           await setGlobalThresholds(assistantId, { interactive: preset.riskThreshold });
           void queryClient.invalidateQueries({
             queryKey: ["globalThresholds", assistantId],
+          }).then(() => {
+            setOptimisticPreset(null);
+            setOptimisticIsOverride(null);
           });
         } catch {
           // Rollback: clear optimistic state to fall back to server values.
+          setOptimisticPreset(null);
+          setOptimisticIsOverride(null);
         }
-        setOptimisticPreset(null);
-        setOptimisticIsOverride(null);
         return;
       }
 
@@ -191,6 +194,9 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
         }
         void queryClient.invalidateQueries({
           queryKey: ["conversationThresholdOverride", assistantId, conversationId],
+        }).then(() => {
+          setOptimisticPreset(null);
+          setOptimisticIsOverride(null);
         });
       } catch {
         if (conversationIdRef.current !== conversationId) return;
@@ -198,9 +204,9 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
         void queryClient.invalidateQueries({
           queryKey: ["conversationThresholdOverride", assistantId, conversationId],
         });
+        setOptimisticPreset(null);
+        setOptimisticIsOverride(null);
       }
-      setOptimisticPreset(null);
-      setOptimisticIsOverride(null);
     },
     [assistantId, conversationId, serverGlobalInteractive, queryClient],
   );
@@ -320,28 +326,11 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
           setOpen(false);
           openProfileQuickAdd({
             existingNames: existingProfileNames,
-            onCreated: (name, label) => {
-              // Optimistically add the profile to the shared config cache so
-              // the picker renders it immediately (all consumers see the update).
-              const configKey = configGetQueryKey({ path: { assistant_id: assistantId } });
-              queryClient.setQueryData<ConfigGetResponse>(configKey, (old) => {
-                if (!old) return old;
-                const currentOrder = old.llm?.profileOrder ?? [];
-                return {
-                  ...old,
-                  llm: {
-                    ...old.llm,
-                    profiles: { ...old.llm?.profiles, [name]: { label } },
-                    profileOrder: currentOrder.includes(name)
-                      ? currentOrder
-                      : [...currentOrder, name],
-                  },
-                };
-              });
-              // Don't invalidate here — the background refetch could race with
-              // the creation and overwrite the optimistic entry. The profile
-              // selection below invalidates on success, which is the right
-              // reconciliation point (by then the server has the profile).
+            onCreated: (name, _label) => {
+              // ProfileQuickAddProvider already wrote the full PATCH response
+              // (merged config including the new profile's provider/model/etc.)
+              // to the shared config query cache via configGetSetQueryData.
+              // No cache write needed here — just autoselect the new profile.
               void handleProfileSelect(name).then((selected) => {
                 if (!selected) {
                   toast.error("Profile created, but couldn't switch to it");
