@@ -90,12 +90,11 @@ function formatCost(value: number | undefined): string {
  * Render a metric `score` using its declared unit.
  *
  * `MetricResult.unit` defaults to `"fraction"` — the score is a 0-1
- * quality fraction, displayed as `XX.XX%` per Vargas's round-3 evals
- * feedback ("scores rendering as raw numbers, need 0-100% display").
+ * quality fraction, displayed as `XX.XX%`.
  *
- * `"raw"` opts out — the score carries units that have no meaning as a
- * percent (e.g. `assistant-cost-usd` returns negative dollars). Those
- * fall back to plain number formatting.
+ * `"raw"` opts out — for a score that carries units with no meaning as a
+ * percent (e.g. a latency in milliseconds). Those fall back to plain
+ * number formatting.
  *
  * `undefined` is treated as `"fraction"` so older metric files that
  * don't set the field automatically get the new percent display.

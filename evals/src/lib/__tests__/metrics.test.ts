@@ -9,7 +9,6 @@ import {
   DEFAULT_HEARTBEAT_TIMEOUT_MS,
   ensureRunArtifacts,
   readRunMetadata,
-  readUsage,
   runMetrics,
   RUNS_DIR,
   scavengeAbandonedRuns,
@@ -65,15 +64,35 @@ describe("timeline-recall metrics", () => {
     expect(result.score).toBe(0);
   });
 
-  test("cost metric scores negative assistant cost", async () => {
+  test("cost metric scores cost as a 0-1 fraction against the baseline", async () => {
+    // GIVEN a run that spent under the timeline-recall cost baseline ($0.02)
     const runId = await freshRunId("cost");
     await writeUsage(runId, { requests: [], totalCostUsd: 0.0123 });
 
+    // WHEN the cost metric scores it
     const result = await scoreAssistantCost({ runId });
 
+    // THEN it reports a 0-1 fraction (not raw negative dollars) and, being
+    // under budget, earns full marks
     expect(result.name).toBe("assistant-cost-usd");
-    expect(result.score).toBe(-0.0123);
-    expect(await readUsage(runId)).toMatchObject({ totalCostUsd: 0.0123 });
+    expect(result).not.toHaveProperty("unit");
+    expect(result.score).toBe(1);
+    expect(result.metadata).toMatchObject({
+      baselineUsd: 0.02,
+      costUsd: 0.0123,
+    });
+  });
+
+  test("cost metric decays toward zero as spend exceeds the baseline", async () => {
+    // GIVEN a run that spent 1.5× the $0.02 baseline
+    const runId = await freshRunId("cost-over");
+    await writeUsage(runId, { requests: [], totalCostUsd: 0.03 });
+
+    // WHEN the cost metric scores it
+    const result = await scoreAssistantCost({ runId });
+
+    // THEN the score is halfway down to zero
+    expect(result.score).toBeCloseTo(0.5, 10);
   });
 
   test("runs metric files in parallel", async () => {
