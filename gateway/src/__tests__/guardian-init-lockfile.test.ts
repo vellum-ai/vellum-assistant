@@ -283,7 +283,7 @@ describe("guardian/init bootstrap secret", () => {
 });
 
 describe("guardian/init edge-proxy guard", () => {
-  // The self-hosted nginx edge (SPA over an ngrok tunnel) sets this marker.
+  // A trusted edge proxy may set this marker.
   // Every hop in that chain is loopback, so clientIp is the legitimate-looking
   // 127.0.0.1 — the marker is the unspoofable proof the request was forwarded
   // by the edge and must be rejected, regardless of deploy mode.

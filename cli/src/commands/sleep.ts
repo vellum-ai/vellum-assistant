@@ -7,7 +7,6 @@ import {
 } from "../lib/assistant-config.js";
 import type { AssistantEntry } from "../lib/assistant-config.js";
 import { dockerResourceNames, sleepContainers } from "../lib/docker.js";
-import { stopIngressNginx } from "../lib/nginx-ingress.js";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
 
 const ACTIVE_CALL_LEASES_FILE = "active-call-leases.json";
@@ -157,12 +156,5 @@ export async function sleep(): Promise<void> {
     console.log("Gateway is not running.");
   } else {
     console.log("Gateway stopped.");
-  }
-
-  // Stop the nginx ingress if one is fronting this gateway — otherwise it
-  // keeps running against a dead upstream and serves 502s.
-  const ingressStopped = await stopIngressNginx(join(vellumDir, "workspace"));
-  if (ingressStopped) {
-    console.log("nginx ingress stopped.");
   }
 }

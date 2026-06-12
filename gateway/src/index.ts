@@ -1520,7 +1520,7 @@ async function main() {
     path: "/auth/token",
     method: "POST",
     auth: "custom",
-    handler: (req) => handleCreateToken(req, server, config.trustProxy),
+    handler: (req) => handleCreateToken(req, server),
   });
 
   // Runtime proxy catch-all — must be last so specific routes are checked first.
@@ -1533,12 +1533,14 @@ async function main() {
 
   const router = createRouter(routes, {
     authRateLimiter,
-    trustProxy: config.trustProxy,
   });
 
-  /** Stamp the assistant version header on a response. */
-  function stampVersion<T extends Response>(res: T): T {
+  /** Stamp gateway-wide headers on a response. */
+  function stampGatewayHeaders<T extends Response>(res: T): T {
     res.headers.set(VERSION_HEADER_NAME, VERSION_HEADER_VALUE);
+    res.headers.set("X-Content-Type-Options", "nosniff");
+    res.headers.set("X-Frame-Options", "DENY");
+    res.headers.set("Referrer-Policy", "no-referrer");
     return res;
   }
 
@@ -1597,7 +1599,7 @@ async function main() {
     },
     error(err) {
       if (err instanceof CircuitBreakerOpenError) {
-        return stampVersion(
+        return stampGatewayHeaders(
           Response.json(
             {
               error: "Service temporarily unavailable — runtime is unreachable",
@@ -1610,14 +1612,14 @@ async function main() {
         );
       }
       log.error({ err }, "Unhandled gateway error");
-      return stampVersion(
+      return stampGatewayHeaders(
         Response.json({ error: "Internal server error" }, { status: 500 }),
       );
     },
     async fetch(req, svr) {
       svr.timeout(req, 1800);
       const inner = await routeRequest(req, svr);
-      if (inner) stampVersion(inner);
+      if (inner) stampGatewayHeaders(inner);
       return inner;
     },
   });

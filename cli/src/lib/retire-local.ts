@@ -5,7 +5,6 @@ import { basename, dirname, join } from "path";
 
 import { getDaemonPidPath, loadAllAssistants } from "./assistant-config.js";
 import type { AssistantEntry } from "./assistant-config.js";
-import { stopIngressNginx } from "./nginx-ingress.js";
 import {
   stopOrphanedDaemonProcesses,
   stopProcessByPidFile,
@@ -80,10 +79,6 @@ export async function retireLocal(
   const qdrantLegacyPidFile = join(vellumDir, "qdrant.pid");
   await stopProcessByPidFile(qdrantPidFile, "qdrant", undefined, 5000);
   await stopProcessByPidFile(qdrantLegacyPidFile, "qdrant", undefined, 5000);
-
-  // Stop the nginx ingress if one is fronting this gateway — it would
-  // otherwise be orphaned when the instance directory is archived.
-  await stopIngressNginx(join(vellumDir, "workspace"));
 
   // If the PID file didn't track a running daemon, scan for orphaned
   // daemon processes that may have been started without writing a PID.

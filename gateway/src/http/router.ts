@@ -69,12 +69,6 @@ export interface RouteDefinition {
 
 export interface RouterDeps {
   authRateLimiter: AuthRateLimiter;
-  /**
-   * When true, a trusted reverse proxy is declared in front of the gateway, so
-   * the loopback auth fallback judges callers by the real client IP from
-   * X-Forwarded-For instead of the raw socket peer. Defaults to false.
-   */
-  trustProxy?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -97,7 +91,7 @@ export function createRouter(
   getClientIp: GetClientIp,
   server?: Server<unknown>,
 ) => Promise<Response | null> {
-  const { authRateLimiter, trustProxy = false } = deps;
+  const { authRateLimiter } = deps;
 
   return async (
     req: Request,
@@ -126,7 +120,6 @@ export function createRouter(
           const { requireEdgeAuth } = createAuthMiddleware(
             authRateLimiter,
             getClientIp,
-            trustProxy,
           );
           const authError = await requireEdgeAuth(req, server);
           if (authError) return authError;
@@ -137,7 +130,6 @@ export function createRouter(
           const { requireEdgeAuthWithScope } = createAuthMiddleware(
             authRateLimiter,
             getClientIp,
-            trustProxy,
           );
           const authError = await requireEdgeAuthWithScope(
             req,
@@ -152,7 +144,6 @@ export function createRouter(
           const { requireEdgeGuardianAuth } = createAuthMiddleware(
             authRateLimiter,
             getClientIp,
-            trustProxy,
           );
           const authError = await requireEdgeGuardianAuth(req, server);
           if (authError) return authError;

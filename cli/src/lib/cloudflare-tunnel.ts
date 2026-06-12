@@ -1,7 +1,6 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 
 import { GATEWAY_PORT } from "./constants.js";
-import { resolveTunnelTargetPort } from "./nginx-ingress.js";
 import {
   getDefaultWorkspaceDir,
   loadRawConfig,
@@ -169,17 +168,7 @@ export async function runCloudflareTunnel(
   console.log(`Using ${version}`);
 
   const workspaceDir = opts.workspaceDir ?? getDefaultWorkspaceDir();
-  // While the nginx ingress is running, tunnel to it instead of the gateway —
-  // it stamps the edge marker and security headers on the way through.
-  const { port, viaIngress } = resolveTunnelTargetPort(
-    workspaceDir,
-    opts.port ?? GATEWAY_PORT,
-  );
-  if (viaIngress) {
-    console.log(
-      `nginx ingress detected — tunneling to it on 127.0.0.1:${port}.`,
-    );
-  }
+  const port = opts.port ?? GATEWAY_PORT;
 
   console.log(`Starting cloudflared quick tunnel to localhost:${port}...`);
   console.log("No Cloudflare account required — quick tunnels are free.");

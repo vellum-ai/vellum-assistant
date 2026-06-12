@@ -17,7 +17,6 @@ import {
 } from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
 import { httpHealthCheck, waitForDaemonReady } from "./http-client.js";
-import { stopIngressNginx } from "./nginx-ingress.js";
 import {
   resolveProcessState,
   stopProcess,
@@ -1241,8 +1240,4 @@ export async function stopLocalProcesses(
       unlinkSync(ngrokPidFile);
     } catch {}
   }
-
-  // Stop the nginx ingress if one is fronting this gateway (it guards against
-  // PID reuse itself, mirroring the ngrok handling above).
-  await stopIngressNginx(join(vellumDir, "workspace"));
 }

@@ -76,7 +76,7 @@ function auditDeny(
  * `Response` if any check fails, or `null` if the request is loopback-local.
  *
  * Rejects, in order: Velay-bridged requests, requests forwarded by the
- * self-hosted nginx edge, non-loopback peer IPs, non-loopback `Host` headers,
+ * trusted edge proxy, non-loopback peer IPs, non-loopback `Host` headers,
  * and any request carrying `X-Forwarded-For`.
  */
 export function enforceLoopbackOnly(
@@ -91,8 +91,8 @@ export function enforceLoopbackOnly(
     return errorResponse("FORBIDDEN", "endpoint is local-only", 403);
   }
 
-  // The self-hosted nginx edge (e.g. the SPA over an ngrok tunnel) sets this
-  // marker unconditionally; it cannot be spoofed or stripped by the client.
+  // A trusted edge proxy may set this marker unconditionally; it cannot be
+  // spoofed or stripped by the client when the edge overwrites inbound values.
   if (requestArrivedViaEdgeProxy(req)) {
     auditDeny(req, clientIp, auditTag, "edge_proxy_forwarded");
     return errorResponse("FORBIDDEN", "endpoint is local-only", 403);

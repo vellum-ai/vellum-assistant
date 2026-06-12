@@ -2,8 +2,8 @@ import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { GATEWAY_PORT } from "./constants.js";
 import { loopbackSafeFetch } from "./loopback-fetch.js";
-import { resolveTunnelTargetPort } from "./nginx-ingress.js";
 import {
   getDefaultWorkspaceDir,
   loadRawConfig,
@@ -303,14 +303,7 @@ export async function runNgrokTunnel(
   console.log(`Using ${version}`);
 
   const workspaceDir = opts.workspaceDir ?? getDefaultWorkspaceDir();
-  // While the nginx ingress is running, tunnel to it instead of the gateway —
-  // it stamps the edge marker and security headers on the way through.
-  const { port, viaIngress } = resolveTunnelTargetPort(workspaceDir, opts.port);
-  if (viaIngress) {
-    console.log(
-      `nginx ingress detected — tunneling to it on 127.0.0.1:${port}.`,
-    );
-  }
+  const port = opts.port ?? GATEWAY_PORT;
 
   // Check for an existing ngrok tunnel pointing at the gateway
   const existingUrl = await findExistingTunnel(port);

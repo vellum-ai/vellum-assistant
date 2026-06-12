@@ -86,13 +86,10 @@ function recordDerivedActorToken(
 export async function handleCreateToken(
   req: Request,
   server: Server<unknown> | undefined,
-  trustProxy = false,
 ): Promise<Response> {
-  // With a trusted reverse proxy declared, judge loopback-ness by the real
-  // client IP (first X-Forwarded-For entry) rather than the raw socket peer,
-  // which is always 127.0.0.1 behind a same-host proxy/tunnel. Defaults false,
-  // so direct-loopback callers are unaffected.
-  if (!server || !isLoopbackPeer(server, req, { trustProxy })) {
+  // Token minting is direct-loopback only. Forwarded requests do not qualify
+  // even when the same-host tunnel/proxy connects over 127.0.0.1.
+  if (!server || !isLoopbackPeer(server, req)) {
     log.warn("Token create rejected: not a loopback peer");
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
