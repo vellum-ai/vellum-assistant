@@ -124,4 +124,17 @@ describe("resolveTunnelTargetPort", () => {
       viaIngress: true,
     });
   });
+
+  test("falls back when nginx ingress is not preferred", () => {
+    const ws = makeWorkspace();
+    writeIngressState(ws, 7841);
+    writePidFile(ws, process.pid);
+    execFileSyncMock.mockReturnValue("nginx: master process nginx");
+    expect(
+      resolveTunnelTargetPort(ws, 7830, { preferNginxIngress: false }),
+    ).toEqual({
+      port: 7830,
+      viaIngress: false,
+    });
+  });
 });

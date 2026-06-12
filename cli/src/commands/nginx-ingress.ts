@@ -9,6 +9,11 @@ import {
 import type { AssistantEntry } from "../lib/assistant-config.js";
 import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import { GATEWAY_PORT } from "../lib/constants.js";
+import {
+  formatFeatureFlagGateMessage,
+  isAssistantFeatureFlagEnabled,
+  WEB_REMOTE_INGRESS_FLAG,
+} from "../lib/feature-flags.js";
 import { waitForDaemonReady } from "../lib/http-client.js";
 import {
   DEFAULT_NGINX_INGRESS_PORT,
@@ -55,9 +60,15 @@ function printHelp(): void {
     `  VELLUM_NGINX_INGRESS_PORT   Loopback listen port (default ${DEFAULT_NGINX_INGRESS_PORT})`,
   );
   console.log("  NGINX_BIN             Path to the nginx binary");
+  console.log("");
+  console.log("Feature flags:");
+  console.log(
+    `  ${WEB_REMOTE_INGRESS_FLAG} must be enabled to start nginx ingress`,
+  );
 }
 
 interface NginxIngressTarget {
+  assistantId?: string;
   workspaceDir: string;
   gatewayPort: number;
 }
@@ -85,11 +96,13 @@ function resolveNginxIngressTarget(
   }
   if (entry?.resources) {
     return {
+      assistantId: entry.assistantId,
       workspaceDir: join(entry.resources.instanceDir, ".vellum", "workspace"),
       gatewayPort: entry.resources.gatewayPort,
     };
   }
   return {
+    assistantId: entry?.assistantId,
     workspaceDir:
       process.env.VELLUM_WORKSPACE_DIR?.trim() ||
       join(homedir(), ".vellum", "workspace"),
@@ -97,9 +110,37 @@ function resolveNginxIngressTarget(
   };
 }
 
+async function assertWebRemoteIngressEnabled(
+  target: NginxIngressTarget,
+): Promise<void> {
+  if (!target.assistantId) {
+    throw new Error(formatFeatureFlagGateMessage(WEB_REMOTE_INGRESS_FLAG));
+  }
+
+  let enabled: boolean;
+  try {
+    enabled = await isAssistantFeatureFlagEnabled(
+      target.assistantId,
+      WEB_REMOTE_INGRESS_FLAG,
+    );
+  } catch (err) {
+    throw new Error(
+      `Could not verify the \`${WEB_REMOTE_INGRESS_FLAG}\` feature flag. Is the assistant running? Try \`vellum wake\` and retry. ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
+  if (!enabled) {
+    throw new Error(formatFeatureFlagGateMessage(WEB_REMOTE_INGRESS_FLAG));
+  }
+}
+
 async function up(target: NginxIngressTarget): Promise<void> {
   const { workspaceDir, gatewayPort } = target;
   const listenPort = getNginxIngressPort();
+
+  await assertWebRemoteIngressEnabled(target);
 
   const version = getNginxVersion();
   if (!version) {

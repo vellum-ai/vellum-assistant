@@ -2,6 +2,10 @@ import { join } from "path";
 
 import { resolveAssistant } from "../lib/assistant-config";
 import { runCloudflareTunnel } from "../lib/cloudflare-tunnel.js";
+import {
+  isAssistantFeatureFlagEnabled,
+  WEB_REMOTE_INGRESS_FLAG,
+} from "../lib/feature-flags.js";
 import { runNgrokTunnel } from "../lib/ngrok";
 
 const VALID_PROVIDERS = ["vellum", "ngrok", "cloudflare", "tailscale"] as const;
@@ -88,6 +92,17 @@ function parseArgs(): TunnelArgs {
   return { assistantName, provider };
 }
 
+async function shouldPreferNginxIngress(assistantId: string): Promise<boolean> {
+  try {
+    return await isAssistantFeatureFlagEnabled(
+      assistantId,
+      WEB_REMOTE_INGRESS_FLAG,
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function tunnel(): Promise<void> {
   const { assistantName, provider } = parseArgs();
 
@@ -105,7 +120,7 @@ export async function tunnel(): Promise<void> {
   }
 
   const resources = entry.resources;
-  const tunnelOpts = resources
+  const baseTunnelOpts = resources
     ? {
         port: resources.gatewayPort,
         workspaceDir: join(resources.instanceDir, ".vellum", "workspace"),
@@ -113,12 +128,18 @@ export async function tunnel(): Promise<void> {
     : {};
 
   if (provider === "ngrok") {
-    await runNgrokTunnel(tunnelOpts);
+    await runNgrokTunnel({
+      ...baseTunnelOpts,
+      preferNginxIngress: await shouldPreferNginxIngress(entry.assistantId),
+    });
     return;
   }
 
   if (provider === "cloudflare") {
-    await runCloudflareTunnel(tunnelOpts);
+    await runCloudflareTunnel({
+      ...baseTunnelOpts,
+      preferNginxIngress: await shouldPreferNginxIngress(entry.assistantId),
+    });
     return;
   }
 

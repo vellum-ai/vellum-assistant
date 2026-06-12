@@ -310,6 +310,8 @@ export interface RunNgrokTunnelOptions {
   port?: number;
   /** Workspace directory for config read/write. Defaults to ~/.vellum/workspace. */
   workspaceDir?: string;
+  /** Prefer nginx ingress over the gateway port when it is running. */
+  preferNginxIngress?: boolean;
 }
 
 /**
@@ -337,9 +339,11 @@ export async function runNgrokTunnel(
   console.log(`Using ${version}`);
 
   const workspaceDir = opts.workspaceDir ?? getDefaultWorkspaceDir();
+  const gatewayPort = opts.port ?? GATEWAY_PORT;
   const { port, viaIngress } = resolveTunnelTargetPort(
     workspaceDir,
-    opts.port ?? GATEWAY_PORT,
+    gatewayPort,
+    { preferNginxIngress: opts.preferNginxIngress === true },
   );
   if (viaIngress) {
     console.log(

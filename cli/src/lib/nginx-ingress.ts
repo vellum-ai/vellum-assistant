@@ -293,7 +293,12 @@ export async function stopIngressNginx(workspaceDir: string): Promise<boolean> {
 export function resolveTunnelTargetPort(
   workspaceDir: string,
   gatewayPort: number = GATEWAY_PORT,
+  opts: { preferNginxIngress?: boolean } = {},
 ): { port: number; viaIngress: boolean } {
+  if (opts.preferNginxIngress === false) {
+    return { port: gatewayPort, viaIngress: false };
+  }
+
   const state = readIngressState(workspaceDir);
   if (state && isIngressRunning(workspaceDir)) {
     return { port: state.listenPort, viaIngress: true };
