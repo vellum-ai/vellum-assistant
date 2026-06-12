@@ -417,8 +417,8 @@ export function buildAccessRequestSeedContentBlocks(
   if (p.messagePreview) {
     bodyParts.push(`> "${sanitizeMessagePreview(p.messagePreview)}"`);
   }
-  if (warnings.length > 0) {
-    bodyParts.push(warnings.map((w) => `⚠️ ${w}`).join("\n"));
+  for (const w of warnings) {
+    bodyParts.push(`⚠️ ${w}`);
   }
   if (p.sourceChannel === "slack" && p.conversationExternalId && p.messageTs) {
     const permalink = buildSlackMessagePermalink(

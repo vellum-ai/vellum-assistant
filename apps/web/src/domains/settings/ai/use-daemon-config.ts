@@ -17,6 +17,7 @@ import { useCallback, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { CallSiteOverrideDraft, DaemonConfig, DaemonConfigPatch, ProfileEntry } from "@/domains/settings/ai/ai-types";
+import type { ConfigPatchData } from "@/generated/daemon/types.gen";
 import { applyConfigPatch, assertProvisionSuccess, buildOrderedProfiles, snapshotPatchedFields } from "@/domains/settings/ai/ai-utils";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { configGet, configPatch, secretsPost } from "@/generated/daemon/sdk.gen";
@@ -142,7 +143,7 @@ export function useDaemonConfigMutation() {
       const resolvedId = await resolveAssistantId();
       const { data } = await configPatch({
         path: { assistant_id: resolvedId },
-        body,
+        body: body as ConfigPatchData["body"],
         throwOnError: true,
       });
       return { data, resolvedId };
