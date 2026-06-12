@@ -48,6 +48,20 @@ export type LogRow = {
   callSite: string | null;
 };
 
+/** `LogRow` without the payload columns — for reads that only need metadata. */
+export type LogMetaRow = Omit<LogRow, "requestPayload" | "responsePayload">;
+
+/**
+ * Compaction-trail row: metadata plus the (small) summarizer response
+ * payload and a message count computed in SQL. The request payload — an
+ * entire near-limit context window per compaction — is deliberately never
+ * loaded; the trail only needs the count of messages it contained.
+ */
+export type CompactionAgentLogRow = LogMetaRow & {
+  responsePayload: string;
+  requestMessageCount: number | null;
+};
+
 /**
  * Build the structured response-payload object recorded in
  * `llm_request_logs.responsePayload` for a provider-rejected LLM call.
@@ -426,7 +440,7 @@ export function getCompactionLogsBetween(
   conversationId: string,
   afterCreatedAt: number | null,
   beforeCreatedAt: number,
-): LogRow[] {
+): CompactionAgentLogRow[] {
   const db = getDb();
   const predicates = [
     eq(llmRequestLogs.conversationId, conversationId),
@@ -442,8 +456,18 @@ export function getCompactionLogsBetween(
       conversationId: llmRequestLogs.conversationId,
       messageId: llmRequestLogs.messageId,
       provider: llmRequestLogs.provider,
-      requestPayload: llmRequestLogs.requestPayload,
       responsePayload: llmRequestLogs.responsePayload,
+      // Count the request's messages in SQL instead of loading the payload:
+      // `messages` (Anthropic / OpenAI chat-completions), `contents`
+      // (Gemini), `input` (OpenAI Responses). NULL when the payload is
+      // malformed or none of the arrays exist.
+      requestMessageCount: sql<
+        number | null
+      >`CASE WHEN json_valid(${llmRequestLogs.requestPayload}) THEN coalesce(
+          json_array_length(${llmRequestLogs.requestPayload}, '$.messages'),
+          json_array_length(${llmRequestLogs.requestPayload}, '$.contents'),
+          json_array_length(${llmRequestLogs.requestPayload}, '$.input')
+        ) ELSE NULL END`,
       createdAt: llmRequestLogs.createdAt,
       agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
       callSite: llmRequestLogs.callSite,
@@ -452,6 +476,31 @@ export function getCompactionLogsBetween(
     .where(and(...predicates))
     .orderBy(asc(llmRequestLogs.createdAt), asc(llmRequestLogs.id))
     .all();
+}
+
+/**
+ * Metadata-only lookup by primary key. Used where the caller needs to
+ * locate or validate a log (conversation scoping, `createdAt` anchoring)
+ * without paying to load its payloads — a single request payload can be a
+ * full context window.
+ */
+export function getRequestLogMetaById(logId: string): LogMetaRow | null {
+  const db = getDb();
+  return (
+    db
+      .select({
+        id: llmRequestLogs.id,
+        conversationId: llmRequestLogs.conversationId,
+        messageId: llmRequestLogs.messageId,
+        provider: llmRequestLogs.provider,
+        createdAt: llmRequestLogs.createdAt,
+        agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
+        callSite: llmRequestLogs.callSite,
+      })
+      .from(llmRequestLogs)
+      .where(eq(llmRequestLogs.id, logId))
+      .get() ?? null
+  );
 }
 
 export function getRequestLogById(logId: string): LogRow | null {

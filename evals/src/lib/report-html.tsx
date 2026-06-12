@@ -93,6 +93,17 @@ function formatCost(value: number | undefined): string {
 }
 
 /**
+ * Headline/summary cost, rounded to the nearest cent. Used for the at-a-glance
+ * totals (tab pill, run/profile/test list columns, the Cost stat card) where a
+ * full six-decimal figure is noise. The per-request breakdown keeps
+ * `formatCost`'s full precision so sub-cent per-call costs stay legible.
+ */
+function formatCostCents(value: number | undefined): string {
+  if (value === undefined) return "—";
+  return `$${value.toFixed(2)}`;
+}
+
+/**
  * Render a metric `score` using its declared unit.
  *
  * `MetricResult.unit` defaults to `"fraction"` — the score is a 0-1
@@ -744,7 +755,7 @@ function ProfileSummaryRow({
       </td>
       <td>
         <a href={url} className="row-link muted">
-          {formatCost(profile.totalCostUsd)}
+          {formatCostCents(profile.totalCostUsd)}
         </a>
       </td>
     </tr>
@@ -973,7 +984,7 @@ function ProfileTestRow({
       </td>
       <td>
         <a href={url} className="row-link muted">
-          {formatCost(entry.totalCostUsd)}
+          {formatCostCents(entry.totalCostUsd)}
         </a>
       </td>
     </tr>
@@ -1543,7 +1554,9 @@ function ExecutionTabs({ run }: { run: ReportRunDetail }) {
         </label>
         <label className="tab-pill" htmlFor="exec-tab-cost">
           <span className="tab-pill-label">Cost</span>
-          <span className="tab-pill-value">{formatCost(run.totalCostUsd)}</span>
+          <span className="tab-pill-value">
+            {formatCostCents(run.totalCostUsd)}
+          </span>
         </label>
         <label className="tab-pill" htmlFor="exec-tab-logs">
           <span className="tab-pill-label">Logs</span>
@@ -1580,7 +1593,7 @@ function ExecutionTabs({ run }: { run: ReportRunDetail }) {
             jail&apos;s observed model traffic.
           </p>
           <div className="cards">
-            <StatCard label="Cost" value={formatCost(run.totalCostUsd)} />
+            <StatCard label="Cost" value={formatCostCents(run.totalCostUsd)} />
             <StatCard
               label="Input tokens"
               value={formatNumber(run.totalInputTokens, 0)}
@@ -1818,8 +1831,7 @@ function CostRequestsTable({ usage }: { usage: UsageSummary }) {
  * Otherwise renders a chip (`Partial pricing` / `Cost unavailable`) and a
  * compact per-request breakdown so the reader can see exactly which
  * usage records lacked provider/model/tokens or fell outside the
- * pricing table. Pairs with Vargas's round-3 ask: "costs stuck at 0,
- * add telemetry as to why".
+ * pricing table.
  */
 function CostDiagnosticsPanel({ usage }: { usage: UsageSummary }) {
   const chip = costStatusChip(usage.costStatus);

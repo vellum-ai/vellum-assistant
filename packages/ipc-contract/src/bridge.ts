@@ -41,6 +41,16 @@ import type {
   VellumCommand,
 } from "./types";
 
+/**
+ * Options for `localMode.wake`. `repairGuardian` re-provisions a
+ * missing/expired guardian token via the CLI's `--repair-guardian` — it
+ * revokes the assistant's other device-bound tokens, so callers must gate it
+ * behind explicit user confirmation, never silent auto-repair.
+ */
+export interface LocalWakeOptions {
+  repairGuardian?: boolean;
+}
+
 export interface VellumBridge {
   platform: "electron";
   app: {
@@ -148,7 +158,10 @@ export interface VellumBridge {
       organizationId?: string,
     ): Promise<LockfileWriteResult>;
     retire(assistantId: string): Promise<{ ok: boolean; error?: string }>;
-    wake(assistantId: string): Promise<{ ok: boolean; error?: string }>;
+    wake(
+      assistantId: string,
+      options?: LocalWakeOptions,
+    ): Promise<{ ok: boolean; error?: string }>;
     guardianToken(
       assistantId: string,
     ): Promise<

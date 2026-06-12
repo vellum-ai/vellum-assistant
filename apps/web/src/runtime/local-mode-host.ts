@@ -1,3 +1,4 @@
+import type { LocalWakeOptions } from "@vellumai/ipc-contract";
 import { parseLockfile } from "@vellumai/local-mode/contract";
 import type {
   Lockfile,
@@ -86,6 +87,20 @@ export class GuardianTokenError extends Error {
     this.name = "GuardianTokenError";
     this.status = status;
   }
+}
+
+/**
+ * True when a connect failure means the guardian token is gone for good — the
+ * host reported it missing (404) or expired with a failed refresh (401) — so
+ * only a re-provision (`wake --repair-guardian`, or re-hatching) can recover.
+ * 403 (refused loopback boundary) and transient host/network failures return
+ * false; those are not fixable by re-provisioning.
+ */
+export function requiresGuardianReprovision(error: unknown): boolean {
+  return (
+    error instanceof GuardianTokenError &&
+    (error.status === 404 || error.status === 401)
+  );
 }
 
 /**
@@ -206,25 +221,35 @@ export async function retireLocalAssistantHost(
  * This is the non-destructive repair primitive: it revives a stopped or
  * mis-seeded assistant in place without touching its data or identity, the
  * counterpart to {@link retireLocalAssistantHost}'s destructive removal.
+ * A plain wake (no options) is the safe auto-repair primitive. Passing
+ * `repairGuardian: true` re-provisions the guardian token and revokes the
+ * assistant's other device-bound tokens, so it must only be passed from
+ * explicitly user-confirmed flows — never from silent auto-repair paths.
  * Older Electron hosts that predate this IPC channel resolve `wake` as
  * `undefined`; callers treat that as a no-op repair and fall through to the
- * underlying connect error.
+ * underlying connect error. Older preloads whose `wake` takes one parameter
+ * silently ignore the extra options argument at the JS level, so a plain
+ * wake still succeeds — the same graceful degradation for version skew.
  */
 export async function wakeLocalAssistantHost(
   assistantId: string,
+  options?: LocalWakeOptions,
 ): Promise<LocalWakeResult> {
   if (isElectron()) {
     const wake = window.vellum!.localMode.wake;
     if (!wake) {
       return { ok: false, error: "Wake is not supported by this app version" };
     }
-    return wake(assistantId);
+    return wake(assistantId, options);
   }
 
   const res = await fetch("/assistant/__local/wake", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ assistantId }),
+    body: JSON.stringify({
+      assistantId,
+      repairGuardian: options?.repairGuardian,
+    }),
   });
   return res.json() as Promise<LocalWakeResult>;
 }

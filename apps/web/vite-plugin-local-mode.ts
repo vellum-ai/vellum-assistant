@@ -345,12 +345,15 @@ function wakeMiddleware(baseDir: string): Connect.NextHandleFunction {
     req.on("data", (chunk: Buffer) => chunks.push(chunk));
     req.on("end", () => {
       let assistantId: string | undefined;
+      let repairGuardian = false;
       if (chunks.length > 0) {
         try {
           const body = JSON.parse(Buffer.concat(chunks).toString()) as {
             assistantId?: string;
+            repairGuardian?: boolean;
           };
           assistantId = body.assistantId;
+          repairGuardian = body.repairGuardian === true;
         } catch {
           res.statusCode = 400;
           res.setHeader("Content-Type", "application/json");
@@ -381,7 +384,7 @@ function wakeMiddleware(baseDir: string): Connect.NextHandleFunction {
         return;
       }
 
-      runWake(invocation, assistantId).then((result) => {
+      runWake(invocation, assistantId, { repairGuardian }).then((result) => {
         res.statusCode = result.ok ? 200 : result.status;
         res.setHeader("Content-Type", "application/json");
         res.end(

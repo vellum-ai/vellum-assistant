@@ -38,6 +38,7 @@
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/types.js";
 import { extractTurnContextTimestamp } from "../context/compactor.js";
+import { findConversation } from "../daemon/conversation-registry.js";
 import {
   formatLocalTimestamp,
   resolveTurnTimezoneContext,
@@ -60,6 +61,7 @@ import {
   getConversation,
   getMessages,
   getMessagesAfter,
+  resolveOverrideProfile,
 } from "./conversation-crud.js";
 import {
   enqueueMemoryJob,
@@ -103,6 +105,7 @@ const FOLLOW_UP_JOB_TYPES: readonly MemoryJobType[] = [] as const;
 export type MemoryRetrospectiveOutcome =
   | { kind: "disabled" }
   | { kind: "no_new_messages" }
+  | { kind: "source_processing" }
   | { kind: "wake_failed"; reason?: string; conversationId?: string }
   | {
       kind: "invoked";
@@ -329,6 +332,24 @@ async function runForkBasedRetrospective(
     return { kind: "no_new_messages" };
   }
 
+  // Forking mid-turn would capture a half-finished display turn — incremental
+  // checkpoint persistence writes complete tool turns to the DB while the
+  // agent loop is still running. Peek the in-memory registry only (an
+  // unloaded conversation is by definition not processing); never load the
+  // conversation just to check. Bump `lastRunAt` so the cooldown gate
+  // applies, leave `lastProcessedMessageId` untouched so the next
+  // interval/message-count trigger re-processes the same messages — nothing
+  // is lost. Returning (not throwing) keeps the jobs-worker from
+  // retry-with-backoff.
+  if (findConversation(sourceConversationId)?.isProcessing()) {
+    bumpRetrospectiveLastRunAt(sourceConversationId, Date.now());
+    log.info(
+      { sourceConversationId },
+      "memory-retrospective (fork): source conversation is mid-turn; skipping",
+    );
+    return { kind: "source_processing" };
+  }
+
   const state = getRetrospectiveState(sourceConversationId);
   const lastProcessedMessageId = state?.lastProcessedMessageId ?? null;
   const newMessages = getMessagesAfter(
@@ -433,6 +454,21 @@ async function runForkBasedRetrospective(
     throw err;
   }
 
+  // Run the retrospective under the source conversation's inference profile
+  // (when configured): provider prompt caches are byte-exact prefix matches
+  // scoped per model, and a thinking enable/disable mismatch invalidates the
+  // messages cache tier — so the fork's cached prefix is only reusable when
+  // the retro resolves the SAME model/thinking/effort as the source's own
+  // turns. `resolveOverrideProfile` applies the same expiry/conversation-type
+  // semantics live turns use, so a missing, expired, or non-interactive
+  // profile yields undefined and the wake keeps today's call-site default —
+  // as does a profile name that no longer exists in `llm.profiles` (the
+  // resolver's standard silent fall-through). The wake's `callSite` stays
+  // `memoryRetrospective`, so logging/attribution buckets are unchanged.
+  const matchedProfile = config.memory.retrospective.matchConversationProfile
+    ? resolveOverrideProfile(sourceConversation)
+    : undefined;
+
   // `skipHintInjection: true` because the instruction is already a
   // persisted message — the wake's hint sandwich would only duplicate it.
   let wakeSucceeded = false;
@@ -446,6 +482,19 @@ async function runForkBasedRetrospective(
       trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
       callSite: "memoryRetrospective",
       allowedTools: ["remember"],
+      // When matching the source's profile for cache parity, also keep the
+      // source's full tool surface on the wire: the provider cache prefix is
+      // `tools → system → messages`, so wire-filtering the tool array to
+      // ["remember"] would invalidate the cached prefix the profile match
+      // just preserved. The allowlist still holds — non-`remember` calls are
+      // rejected at execution time. Without profile matching there is no
+      // cache to preserve, and the smaller wire-filtered request is cheaper.
+      ...(config.memory.retrospective.matchConversationProfile
+        ? { toolGateMode: "execution" as const }
+        : {}),
+      ...(matchedProfile !== undefined
+        ? { forceOverrideProfile: matchedProfile }
+        : {}),
       hintRole: "user",
       skipHintInjection: true,
       suppressAutoCompaction: true,

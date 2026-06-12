@@ -75,6 +75,9 @@ type ConversationStub = {
   source: string;
   forkParentMessageId: string | null;
   title?: string;
+  conversationType?: string | null;
+  inferenceProfile?: string | null;
+  inferenceProfileExpiresAt?: number | null;
 };
 let conversationOverrides: Record<string, ConversationStub> = {};
 
@@ -87,6 +90,20 @@ type StubMessage = {
   metadata: string | null;
 };
 let messagesByConversationId: Record<string, StubMessage[]> = {};
+
+// In-memory conversation registry stub: id → live processing flag. Ids absent
+// from the map are "unloaded" (findConversation returns undefined), matching
+// the real registry's semantics for conversations not in memory.
+let loadedConversations: Record<string, { processing: boolean }> = {};
+
+mock.module("../../daemon/conversation-registry.js", () => ({
+  findConversation: (id: string | undefined) => {
+    if (!id) return undefined;
+    const entry = loadedConversations[id];
+    if (!entry) return undefined;
+    return { isProcessing: () => entry.processing };
+  },
+}));
 
 mock.module("../memory-retrospective-state.js", () => ({
   getRetrospectiveState: (_id: string) => mockState,
@@ -163,6 +180,29 @@ mock.module("../conversation-crud.js", () => ({
       throw new Error(`delete failed for ${id}`);
     }
     deletedConversationIds.push(id);
+  },
+  // Mirrors the real helper's semantics (interactive-only, expiry-aware) so
+  // matchConversationProfile tests exercise the same fallback behavior.
+  resolveOverrideProfile: (
+    fields: {
+      conversationType?: string | null;
+      inferenceProfile?: string | null;
+      inferenceProfileExpiresAt?: number | null;
+    } | null,
+  ) => {
+    if (
+      fields?.conversationType === "background" ||
+      fields?.conversationType === "scheduled"
+    ) {
+      return undefined;
+    }
+    if (
+      fields?.inferenceProfileExpiresAt != null &&
+      fields.inferenceProfileExpiresAt <= Date.now()
+    ) {
+      return undefined;
+    }
+    return fields?.inferenceProfile ?? undefined;
   },
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
@@ -249,6 +289,7 @@ function makeConfig(
     userTimezone?: string;
     detectedTimezone?: string;
     keepSupersededRuns?: boolean;
+    matchConversationProfile?: boolean;
   } = {},
 ): Parameters<typeof memoryRetrospectiveJob>[1] {
   return {
@@ -256,6 +297,7 @@ function makeConfig(
       v2: { enabled: true },
       retrospective: {
         keepSupersededRuns: overrides.keepSupersededRuns ?? false,
+        matchConversationProfile: overrides.matchConversationProfile ?? false,
       },
     },
     ui: {
@@ -340,6 +382,7 @@ describe("memoryRetrospectiveJob", () => {
     addMessageCalls = [];
     conversationOverrides = {};
     messagesByConversationId = {};
+    loadedConversations = {};
   });
 
   test("first-run happy path: no state row, no prior retrospective, both pointer fields set on success", async () => {
@@ -609,6 +652,142 @@ describe("memoryRetrospectiveJob", () => {
 
     expect(forkCalls).toHaveLength(1);
     expect(forkCalls[0]!.throughMessageId).toBe("m3");
+  });
+
+  // -------------------------------------------------------------------------
+  // Mid-turn skip gate (fork path only)
+  // -------------------------------------------------------------------------
+
+  test("fork path: source mid-turn → skipped outcome, pointer unchanged, lastRunAt bumped, no fork", async () => {
+    forkFlagEnabled = true;
+    loadedConversations["src-conv-1"] = { processing: true };
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("source_processing");
+    // `lastProcessedMessageId` untouched — only the cooldown timestamp moves.
+    expect(stateUpserts).toHaveLength(0);
+    expect(lastRunAtBumps).toHaveLength(1);
+    expect(lastRunAtBumps[0]!.conversationId).toBe("src-conv-1");
+    // No fork, no instruction, no wake, no cleanup side effects.
+    expect(forkCalls).toHaveLength(0);
+    expect(addMessageCalls).toHaveLength(0);
+    expect(wakeCalls).toHaveLength(0);
+    expect(deletedConversationIds).toEqual([]);
+  });
+
+  test("fork path: source loaded but idle → normal run", async () => {
+    forkFlagEnabled = true;
+    loadedConversations["src-conv-1"] = { processing: false };
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    expect(forkCalls).toHaveLength(1);
+    expect(lastRunAtBumps).toHaveLength(0);
+    expect(stateUpserts).toHaveLength(1);
+  });
+
+  test("fork path: source unloaded (not in registry) → normal run", async () => {
+    forkFlagEnabled = true;
+    // `loadedConversations` is empty — findConversation returns undefined,
+    // and an unloaded conversation is by definition not processing.
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    expect(forkCalls).toHaveLength(1);
+    expect(lastRunAtBumps).toHaveLength(0);
+  });
+
+  test("fork path: matchConversationProfile on + source inferenceProfile present → wake carries forceOverrideProfile", async () => {
+    forkFlagEnabled = true;
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+      conversationType: "standard",
+      inferenceProfile: "profile-x",
+    };
+
+    const outcome = await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ matchConversationProfile: true }),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.opts.forceOverrideProfile).toBe("profile-x");
+    // Attribution bucket is unchanged — only the resolved profile floats.
+    expect(wakeCalls[0]!.opts.callSite).toBe("memoryRetrospective");
+    // Cache parity also requires the conversation's full tool surface on the
+    // wire (tool defs lead the provider cache prefix) — the allowlist is
+    // enforced at execution time instead.
+    expect(wakeCalls[0]!.opts.toolGateMode).toBe("execution");
+  });
+
+  test("fork path: matchConversationProfile off (default) → wake carries no forceOverrideProfile", async () => {
+    forkFlagEnabled = true;
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+      conversationType: "standard",
+      inferenceProfile: "profile-x",
+    };
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(wakeCalls).toHaveLength(1);
+    expect("forceOverrideProfile" in wakeCalls[0]!.opts).toBe(false);
+    // Wire mode (default) when not matching the profile — there is no cache
+    // to preserve, so the smaller filtered request wins.
+    expect("toolGateMode" in wakeCalls[0]!.opts).toBe(false);
+  });
+
+  test("fork path: matchConversationProfile on but source has no inferenceProfile → wake carries no forceOverrideProfile", async () => {
+    forkFlagEnabled = true;
+
+    await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ matchConversationProfile: true }),
+    );
+
+    expect(wakeCalls).toHaveLength(1);
+    expect("forceOverrideProfile" in wakeCalls[0]!.opts).toBe(false);
+    // toolGateMode is gated on the config flag, not on a resolved profile:
+    // without a pinned profile the source's turns ran the call-site default,
+    // and keeping the full tool surface still preserves that cached prefix.
+    expect(wakeCalls[0]!.opts.toolGateMode).toBe("execution");
+  });
+
+  test("fork path: matchConversationProfile on but the profile session expired → wake carries no forceOverrideProfile", async () => {
+    forkFlagEnabled = true;
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+      conversationType: "standard",
+      inferenceProfile: "profile-x",
+      inferenceProfileExpiresAt: Date.now() - 1000,
+    };
+
+    await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ matchConversationProfile: true }),
+    );
+
+    expect(wakeCalls).toHaveLength(1);
+    expect("forceOverrideProfile" in wakeCalls[0]!.opts).toBe(false);
+  });
+
+  test("legacy path: source mid-turn still runs (gate is fork-path only)", async () => {
+    loadedConversations["src-conv-1"] = { processing: true };
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    expect(wakeCalls).toHaveLength(1);
+    expect(lastRunAtBumps).toHaveLength(0);
   });
 
   test("fork path: prior fork-kind retrospective with nested-fork ancestry still surfaces its post-fork remembers in <already_remembered>", async () => {

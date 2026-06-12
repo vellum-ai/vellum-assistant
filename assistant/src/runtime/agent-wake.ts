@@ -121,6 +121,19 @@ export interface WakeOptions {
    */
   callSite?: LLMCallSite;
   /**
+   * Run the wake's LLM calls under this inference profile, floated ABOVE the
+   * call site's named profile and call-site overrides (the resolver's
+   * `forceOverrideProfile` escape hatch). When set, it replaces the
+   * conversation's own pinned-profile lookup. Used by fork-based memory
+   * retrospectives to resolve the SAME model/thinking/effort as the source
+   * conversation's turns so the provider prompt-cache prefix can be reused.
+   * A profile name that no longer exists in `llm.profiles` silently falls
+   * back to normal call-site resolution (the resolver's standard
+   * missing-reference semantics). Logging/attribution still bucket under
+   * `callSite`.
+   */
+  forceOverrideProfile?: string;
+  /**
    * Role to use for the injected hint message. Defaults to `"assistant"` so
    * the hint is sandwiched between two static user bookends — the canonical
    * anti-injection pattern for hints that may carry text from an external
@@ -171,9 +184,27 @@ export interface WakeOptions {
   /**
    * Optional exact tool allowlist for this wake. Used by internal maintenance
    * jobs that need the assistant's judgment but must not execute arbitrary
-   * side-effect tools.
+   * side-effect tools. Enforcement depends on `toolGateMode`: in `"wire"`
+   * mode (default) the tool definitions sent to the provider are filtered to
+   * the allowlist; in `"execution"` mode the full tool surface stays on the
+   * wire and non-allowlisted calls are rejected with an error tool_result
+   * before their executor runs. Either way, only allowlisted tools can
+   * execute during the wake.
    */
   allowedTools?: readonly string[];
+  /**
+   * How `allowedTools` is enforced. Defaults to `"wire"` — the historical
+   * behavior, byte-identical when absent: the provider request's tool array
+   * is filtered down to the allowlist. Pass `"execution"` to keep the
+   * conversation's full tool surface on the wire and enforce the allowlist
+   * at execution time instead. Provider prompt caches key on the rendered
+   * `tools → system → messages` prefix, so wire-filtering the tool array
+   * invalidates the source conversation's cached prefix; execution mode
+   * preserves it. Used by fork-based memory retrospectives when matching
+   * the source conversation's inference profile. Ignored when
+   * `allowedTools` is absent.
+   */
+  toolGateMode?: "wire" | "execution";
 }
 
 /**
@@ -509,18 +540,24 @@ export async function wakeAgentForOpportunity(
     // Honor the conversation's pinned inference-profile override (if any).
     // Without this, scheduled-task wakes and other opportunity wakes bypass
     // `runAgentLoopImpl` entirely and execute under workspace defaults,
-    // silently violating the user's pinned preference. Resolve the effective
-    // context budget here as well because wakes bypass the normal user-turn
-    // path that computes it for tool-result truncation. Read before
+    // silently violating the user's pinned preference. A caller-supplied
+    // `forceOverrideProfile` replaces that lookup and additionally floats the
+    // profile above the call-site layers (see the option's doc). Resolve the
+    // effective context budget here as well because wakes bypass the normal
+    // user-turn path that computes it for tool-result truncation. Read before
     // `setProcessing(true)` so a thrown DB/config read can't strand the
     // processing flag.
-    const overrideProfile = getConversationOverrideProfile(conversationId);
+    const forceOverrideProfile = opts.forceOverrideProfile !== undefined;
+    const overrideProfile =
+      opts.forceOverrideProfile ??
+      getConversationOverrideProfile(conversationId);
     const callSite = opts.callSite ?? "mainAgent";
     const config = getConfig();
     const effectiveContextWindow = resolveEffectiveContextWindow({
       llm: config.llm,
       callSite,
       overrideProfile,
+      forceOverrideProfile,
     });
 
     // Mark processing for the duration of the wake — including the pre-run
@@ -866,6 +903,7 @@ export async function wakeAgentForOpportunity(
         restoreWakeToolScope = scopeWakeAllowedTools(
           conversation,
           new Set(opts.allowedTools),
+          opts.toolGateMode,
         );
         return true;
       } catch (err) {
@@ -984,6 +1022,7 @@ export async function wakeAgentForOpportunity(
           callSite,
           trust: wakeTrust,
           overrideProfile,
+          forceOverrideProfile,
           // The wake's compaction lives in the pre-run gate above
           // (`conversation.maybeCompact()`), never in the loop: the in-loop
           // budget gate and overflow-recovery ladder stay disabled because
