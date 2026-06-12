@@ -183,7 +183,7 @@ function isNginxProcess(pid: number): boolean {
 /** The ingress nginx PID when it is recorded and alive, null otherwise. */
 export function getIngressPid(workspaceDir: string): number | null {
   const pid = readPidFile(getIngressPaths(workspaceDir).pidPath);
-  return pid !== null && isPidAlive(pid) ? pid : null;
+  return pid !== null && isPidAlive(pid) && isNginxProcess(pid) ? pid : null;
 }
 
 export function isIngressRunning(workspaceDir: string): boolean {

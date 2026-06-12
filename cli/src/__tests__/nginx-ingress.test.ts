@@ -1,9 +1,16 @@
-import { spawnSync } from "node:child_process";
+import * as childProcess from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
+
+const execFileSyncMock = mock(childProcess.execFileSync);
+
+mock.module("node:child_process", () => ({
+  ...childProcess,
+  execFileSync: execFileSyncMock,
+}));
 
 import {
   buildIngressNginxConfig,
@@ -46,6 +53,7 @@ describe("resolveTunnelTargetPort", () => {
   const workspaces: string[] = [];
 
   afterEach(() => {
+    execFileSyncMock.mockReset();
     for (const dir of workspaces.splice(0)) {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -72,7 +80,7 @@ describe("resolveTunnelTargetPort", () => {
 
   /** A PID guaranteed dead: a short-lived child that has already exited. */
   function deadPid(): number {
-    const result = spawnSync("sh", ["-c", "exit 0"]);
+    const result = childProcess.spawnSync("sh", ["-c", "exit 0"]);
     if (!result.pid) throw new Error("failed to spawn probe process");
     return result.pid;
   }
@@ -95,10 +103,22 @@ describe("resolveTunnelTargetPort", () => {
     });
   });
 
-  test("targets the ingress when state exists and the process is alive", () => {
+  test("falls back when the recorded PID belongs to a non-nginx process", () => {
     const ws = makeWorkspace();
     writeIngressState(ws, 7841);
     writePidFile(ws, process.pid);
+    execFileSyncMock.mockReturnValue("bun test");
+    expect(resolveTunnelTargetPort(ws, 7830)).toEqual({
+      port: 7830,
+      viaIngress: false,
+    });
+  });
+
+  test("targets the ingress when state exists and the PID is nginx", () => {
+    const ws = makeWorkspace();
+    writeIngressState(ws, 7841);
+    writePidFile(ws, process.pid);
+    execFileSyncMock.mockReturnValue("nginx: master process nginx");
     expect(resolveTunnelTargetPort(ws, 7830)).toEqual({
       port: 7841,
       viaIngress: true,
