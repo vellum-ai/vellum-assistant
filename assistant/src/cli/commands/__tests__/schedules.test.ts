@@ -98,8 +98,10 @@ describe("schedules command", () => {
     expect(schedules).toBeDefined();
     expect(schedules!.commands.map((command) => command.name())).toEqual([
       "list",
+      "get",
       "runs",
       "create",
+      "update",
       "enable",
       "disable",
       "cancel",
@@ -249,6 +251,102 @@ describe("schedules list", () => {
       ok: false,
       error: "daemon unavailable",
     });
+  });
+});
+
+describe("schedules get", () => {
+  const scheduleFixture = {
+    id: "schedule-1",
+    name: "Heartbeat",
+    enabled: true,
+    syntax: "cron",
+    expression: "*/30 * * * *",
+    cronExpression: "*/30 * * * *",
+    timezone: "UTC",
+    message: "run heartbeat",
+    script: null,
+    nextRunAt: 1_778_800_000_000,
+    lastRunAt: 1_778_799_000_000,
+    lastStatus: "ok",
+    retryCount: 0,
+    maxRetries: 3,
+    retryBackoffMs: 60_000,
+    timeoutMs: null,
+    createdFromConversationId: "conv-abc",
+    description: "Authored heartbeat check",
+    cadenceDescription: "Every 30 minutes",
+    mode: "execute",
+    status: "active",
+    routingIntent: "all_channels",
+    reuseConversation: false,
+    wakeConversationId: null,
+    isOneShot: false,
+  };
+
+  test("calls getSchedule with the schedule ID path param", async () => {
+    mockIpcResult = { ok: true, result: { schedule: scheduleFixture } };
+
+    const { exitCode } = await runCommand(["schedules", "get", "schedule-1"]);
+
+    expect(exitCode).toBe(0);
+    expect(ipcCalls).toEqual([
+      {
+        method: "getSchedule",
+        params: { pathParams: { id: "schedule-1" } },
+      },
+    ]);
+  });
+
+  test("renders a detail view for human output", async () => {
+    mockIpcResult = { ok: true, result: { schedule: scheduleFixture } };
+
+    const { exitCode } = await runCommand(["schedules", "get", "schedule-1"]);
+
+    expect(exitCode).toBe(0);
+    const output = logLines.join("\n");
+    expect(output).toContain("ID:");
+    expect(output).toContain("schedule-1");
+    expect(output).toContain("Heartbeat");
+    expect(output).toContain("Authored heartbeat check");
+    expect(output).toContain("Every 30 minutes (UTC)");
+    expect(output).toContain("run heartbeat");
+    expect(output).toContain("all_channels");
+    expect(output).toContain("conv-abc");
+  });
+
+  test("emits JSON result when --json is set", async () => {
+    mockIpcResult = { ok: true, result: { schedule: scheduleFixture } };
+
+    const { stdout, exitCode } = await runCommand([
+      "schedules",
+      "get",
+      "schedule-1",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({
+      schedule: expect.objectContaining({
+        id: "schedule-1",
+        name: "Heartbeat",
+        description: "Authored heartbeat check",
+      }),
+    });
+    expect(logLines).toEqual([]);
+  });
+
+  test("routes IPC failure through exitFromIpcResult", async () => {
+    mockIpcResult = { ok: false, error: "Schedule not found" };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "get",
+      "missing-schedule",
+    ]);
+
+    expect(exitCode).toBe(10);
+    expect(exitFromIpcResultCalls).toEqual([mockIpcResult]);
+    expect(errorLines).toEqual([]);
   });
 });
 
@@ -582,6 +680,223 @@ describe("schedules create", () => {
       "noop",
       "--description",
       "Invalid test schedule",
+    ]);
+
+    expect(exitCode).toBe(10);
+    expect(exitFromIpcResultCalls).toEqual([mockIpcResult]);
+    expect(errorLines).toEqual([]);
+  });
+});
+
+describe("schedules update", () => {
+  test("calls updateSchedule with only the provided flags", async () => {
+    mockIpcResult = { ok: true, result: { schedules: [] } };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "update",
+      "schedule-1",
+      "--name",
+      "Renamed",
+      "--expression",
+      "0 9 * * MON-FRI",
+      "--timezone",
+      "America/New_York",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(ipcCalls).toEqual([
+      {
+        method: "updateSchedule",
+        params: {
+          pathParams: { id: "schedule-1" },
+          body: {
+            name: "Renamed",
+            expression: "0 9 * * MON-FRI",
+            timezone: "America/New_York",
+          },
+        },
+      },
+    ]);
+    expect(logLines).toEqual(["Updated schedule: schedule-1"]);
+  });
+
+  test("errors when no update flags are provided", async () => {
+    const { exitCode } = await runCommand([
+      "schedules",
+      "update",
+      "schedule-1",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(ipcCalls).toEqual([]);
+    expect(errorLines.join("\n")).toContain(
+      "At least one update flag is required",
+    );
+  });
+
+  test("parses numeric retry and timeout flags into numbers", async () => {
+    mockIpcResult = { ok: true, result: { schedules: [] } };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "update",
+      "schedule-1",
+      "--max-retries",
+      "5",
+      "--retry-backoff-ms",
+      "30000",
+      "--timeout-ms",
+      "5000",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(ipcCalls).toEqual([
+      {
+        method: "updateSchedule",
+        params: {
+          pathParams: { id: "schedule-1" },
+          body: { maxRetries: 5, retryBackoffMs: 30_000, timeoutMs: 5000 },
+        },
+      },
+    ]);
+  });
+
+  test("rejects a non-integer --max-retries", async () => {
+    const { exitCode } = await runCommand([
+      "schedules",
+      "update",
+      "schedule-1",
+      "--max-retries",
+      "lots",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(ipcCalls).toEqual([]);
+    expect(errorLines.join("\n")).toContain("--max-retries must be an integer");
+  });
+
+  test("sends timeoutMs null with --clear-timeout", async () => {
+    mockIpcResult = { ok: true, result: { schedules: [] } };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "update",
+      "schedule-1",
+      "--clear-timeout",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(ipcCalls).toEqual([
+      {
+        method: "updateSchedule",
+        params: {
+          pathParams: { id: "schedule-1" },
+          body: { timeoutMs: null },
+        },
+      },
+    ]);
+  });
+
+  test("rejects --timeout-ms combined with --clear-timeout", async () => {
+    const { exitCode } = await runCommand([
+      "schedules",
+      "update",
+      "schedule-1",
+      "--timeout-ms",
+      "5000",
+      "--clear-timeout",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(ipcCalls).toEqual([]);
+    expect(errorLines.join("\n")).toContain("mutually exclusive");
+  });
+
+  test("sends boolean false for negated flags", async () => {
+    mockIpcResult = { ok: true, result: { schedules: [] } };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "update",
+      "schedule-1",
+      "--no-quiet",
+      "--no-reuse-conversation",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(ipcCalls).toEqual([
+      {
+        method: "updateSchedule",
+        params: {
+          pathParams: { id: "schedule-1" },
+          body: { quiet: false, reuseConversation: false },
+        },
+      },
+    ]);
+  });
+
+  test("emits JSON result when --json is set", async () => {
+    mockIpcResult = {
+      ok: true,
+      result: {
+        schedules: [
+          {
+            id: "schedule-1",
+            name: "Renamed",
+            enabled: true,
+            syntax: "cron",
+            expression: "0 9 * * MON-FRI",
+            cronExpression: "0 9 * * MON-FRI",
+            timezone: "America/New_York",
+            message: "run heartbeat",
+            script: null,
+            nextRunAt: 1_778_800_000_000,
+            lastRunAt: null,
+            lastStatus: "ok",
+            retryCount: 0,
+            maxRetries: 3,
+            retryBackoffMs: 60_000,
+            description: "Authored heartbeat check",
+            cadenceDescription: "At 9:00 AM, Monday through Friday",
+            mode: "execute",
+            status: "active",
+            routingIntent: "all_channels",
+            reuseConversation: false,
+            wakeConversationId: null,
+            isOneShot: false,
+          },
+        ],
+      },
+    };
+
+    const { stdout, exitCode } = await runCommand([
+      "schedules",
+      "update",
+      "schedule-1",
+      "--name",
+      "Renamed",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({
+      schedules: [
+        expect.objectContaining({ id: "schedule-1", name: "Renamed" }),
+      ],
+    });
+    expect(logLines).toEqual([]);
+  });
+
+  test("routes IPC failure through exitFromIpcResult", async () => {
+    mockIpcResult = { ok: false, error: "Schedule not found" };
+
+    const { exitCode } = await runCommand([
+      "schedules",
+      "update",
+      "missing-schedule",
+      "--name",
+      "Renamed",
     ]);
 
     expect(exitCode).toBe(10);

@@ -200,8 +200,10 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "routes inspect",
   "schedules",
   "schedules list",
+  "schedules get",
   "schedules runs",
   "schedules create",
+  "schedules update",
   "schedules enable",
   "schedules disable",
   "schedules cancel",
@@ -541,6 +543,12 @@ const riskOverrides: AssistantRiskOverride[] = [
     risk: "medium",
     reason:
       "Creates a new recurring schedule that fires assistant-side messages",
+  },
+  {
+    path: "schedules update",
+    risk: "medium",
+    reason:
+      "Updates schedule fields (expression, message, mode, script) and mutates assistant schedule state",
   },
   {
     path: "schedules enable",
