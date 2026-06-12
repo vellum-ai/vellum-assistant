@@ -7,6 +7,7 @@
  */
 import {
   existsSync,
+  linkSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -679,6 +680,23 @@ describe("POST /v1/workspace/rename", () => {
     expect(() =>
       handler({
         body: { oldPath: "hello.txt", newPath: "data.json" },
+      }),
+    ).toThrow(ConflictError);
+  });
+
+  // Hard links share an inode while being distinct entries, and POSIX
+  // rename() between two hard links is a silent no-op — must 409 instead
+  // of reporting a successful rename that never happened.
+  test("throws ConflictError when renaming a hard link over its sibling link", () => {
+    writeFileSync(join(testWorkspaceDir, "hard-a.txt"), "hard");
+    linkSync(
+      join(testWorkspaceDir, "hard-a.txt"),
+      join(testWorkspaceDir, "hard-b.txt"),
+    );
+
+    expect(() =>
+      handler({
+        body: { oldPath: "hard-a.txt", newPath: "hard-b.txt" },
       }),
     ).toThrow(ConflictError);
   });
