@@ -144,6 +144,12 @@ export type ConsolidationOutcome =
       kind: "invoked";
       conversationId: string;
       cutoff: string;
+      /**
+       * Buffer entries beyond `consolidation_max_entries_per_run` left for a
+       * follow-up pass via the pulled-back cutoff. `0` when the whole buffer
+       * fit in one run.
+       */
+      deferredEntries: number;
       followUpJobIds: string[];
     };
 
@@ -174,20 +180,61 @@ export async function memoryV2ConsolidateJob(
   }
 
   try {
-    // Step 2: capture cutoff. Formatted to match `buffer.md` entry timestamps
-    // (`Mon D, h:mm AM/PM`, see `formatBufferTimestamp`) so the agent's
-    // "timestamp ≥ cutoff" check compares like-with-like at minute precision.
-    // Same-minute entries land on the next pass — conservative but loss-free.
-    // Captured here (not at enqueue time) so late-claimed rows get a fresh
-    // cutoff.
-    const cutoff = formatBufferTimestamp(new Date());
-
-    // Step 3: bail on empty buffer. Nothing for the agent to consolidate.
+    // Step 2: bail on empty buffer. Nothing for the agent to consolidate.
     // The lock is released in finally below.
     const bufferContent = readBufferContent(bufferPath);
     if (bufferContent.trim().length === 0) {
       log.debug("buffer.md empty; consolidation skipped");
       return { kind: "empty_buffer" };
+    }
+
+    // Step 3: capture cutoff. Formatted to match `buffer.md` entry timestamps
+    // (`Mon D, h:mm AM/PM`, see `formatBufferTimestamp`) so the agent's
+    // "timestamp ≥ cutoff" check compares like-with-like at minute precision.
+    // Same-minute entries land on the next pass — conservative but loss-free.
+    // Captured here (not at enqueue time) so late-claimed rows get a fresh
+    // cutoff.
+    //
+    // Chunking: when the buffer holds more than
+    // `consolidation_max_entries_per_run` entries (a backlog from missed or
+    // failed runs), pull the cutoff back to the first over-cap entry's
+    // timestamp. The agent's existing "≥ cutoff stays" rule then defers the
+    // overflow loss-free, and the `consolidation_max_buffer_lines` size
+    // trigger re-fires while the remainder stays over threshold — so one run
+    // never has to read an unbounded backlog into context. Entries sharing
+    // the over-cap entry's minute are also deferred (conservative). A line
+    // whose timestamp can't be extracted falls back to the full-buffer
+    // cutoff — today's behavior.
+    let cutoff = formatBufferTimestamp(new Date());
+    let deferredEntries = 0;
+    const maxEntries = config.memory.v2.consolidation_max_entries_per_run;
+    if (maxEntries != null) {
+      const entryLines = bufferContent
+        .split("\n")
+        .filter((line) => line.trim().length > 0);
+      if (entryLines.length > maxEntries) {
+        const overflowTimestamp = extractBufferEntryTimestamp(
+          entryLines[maxEntries],
+        );
+        if (overflowTimestamp !== null) {
+          cutoff = overflowTimestamp;
+          deferredEntries = entryLines.length - maxEntries;
+          log.info(
+            {
+              bufferEntries: entryLines.length,
+              maxEntries,
+              deferredEntries,
+              cutoff,
+            },
+            "consolidation chunked: buffer over per-run cap, overflow deferred to next pass",
+          );
+        } else {
+          log.warn(
+            { line: entryLines[maxEntries].slice(0, 80) },
+            "consolidation: could not extract timestamp from over-cap buffer entry; processing full buffer",
+          );
+        }
+      }
     }
 
     // Step 4: hand off to the centralized background-job runner. The runner
@@ -272,6 +319,7 @@ export async function memoryV2ConsolidateJob(
       {
         conversationId: runResult.conversationId,
         cutoff,
+        deferredEntries,
         followUpJobIds,
       },
       "consolidation invoked",
@@ -280,6 +328,7 @@ export async function memoryV2ConsolidateJob(
       kind: "invoked",
       conversationId: runResult.conversationId,
       cutoff,
+      deferredEntries,
       followUpJobIds,
     };
   } finally {
@@ -298,6 +347,18 @@ function readBufferContent(bufferPath: string): string {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return "";
     throw err;
   }
+}
+
+/**
+ * Extract the bracketed timestamp from a `buffer.md` entry line
+ * (`- [Mon D, h:mm AM/PM] …`, see `formatBufferEntry`). Returned verbatim so
+ * it can serve directly as a consolidation cutoff — both sides of the agent's
+ * "timestamp ≥ cutoff" comparison then share the exact `formatBufferTimestamp`
+ * shape. Returns `null` for lines that don't carry the bracketed prefix.
+ */
+function extractBufferEntryTimestamp(line: string): string | null {
+  const match = /^\s*-\s*\[([^\]]+)\]/.exec(line);
+  return match ? match[1] : null;
 }
 
 /**

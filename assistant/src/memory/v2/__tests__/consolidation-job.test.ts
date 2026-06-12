@@ -141,14 +141,32 @@ const { CUTOFF_PLACEHOLDER, CONSOLIDATION_PROMPT } =
   await import("../prompts/consolidation.js");
 
 // The handler only reads `config.memory.enabled`, `config.memory.v2.enabled`,
-// and `config.memory.v2.consolidation_prompt_path`, so a minimal stand-in
-// covers those call sites without materializing the full default config.
+// `config.memory.v2.consolidation_prompt_path`, and
+// `config.memory.v2.consolidation_max_entries_per_run`, so a minimal
+// stand-in covers those call sites without materializing the full default
+// config.
 const CONFIG = {
   memory: {
     enabled: true,
     v2: { enabled: true, consolidation_prompt_path: null },
   },
 } as Parameters<typeof memoryV2ConsolidateJob>[1];
+
+/** CONFIG plus a per-run entry cap for the chunked-cutoff tests. */
+function configWithMaxEntries(
+  maxEntries: number | null,
+): Parameters<typeof memoryV2ConsolidateJob>[1] {
+  return {
+    memory: {
+      enabled: true,
+      v2: {
+        enabled: true,
+        consolidation_prompt_path: null,
+        consolidation_max_entries_per_run: maxEntries,
+      },
+    },
+  } as Parameters<typeof memoryV2ConsolidateJob>[1];
+}
 const CONFIG_DISABLED = {
   memory: {
     enabled: true,
@@ -204,6 +222,92 @@ beforeEach(() => {
 });
 
 // ---------------------------------------------------------------------------
+
+describe("memoryV2ConsolidateJob — chunked cutoff (consolidation_max_entries_per_run)", () => {
+  const FIVE_ENTRIES = [
+    "- [Apr 27, 9:00 AM] Alice prefers VS Code.",
+    "- [Apr 27, 9:01 AM] Bob takes his coffee black.",
+    "- [Apr 27, 9:02 AM] Carol loves jazz.",
+    "- [Apr 27, 9:03 AM] Dave runs marathons.",
+    "- [Apr 27, 9:04 AM] Erin paints watercolors.",
+  ].join("\n");
+
+  test("buffer over the cap → cutoff is the first over-cap entry's timestamp; overflow deferred", async () => {
+    writeFileSync(bufferPath(), FIVE_ENTRIES + "\n");
+
+    const outcome = await memoryV2ConsolidateJob(
+      makeJob(),
+      configWithMaxEntries(3),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    if (outcome.kind !== "invoked") throw new Error("unreachable");
+    expect(outcome.cutoff).toBe("Apr 27, 9:03 AM");
+    expect(outcome.deferredEntries).toBe(2);
+    expect(runnerCalls).toBe(1);
+    expect(runnerLastArgs!.prompt as string).toContain("Apr 27, 9:03 AM");
+  });
+
+  test("buffer at or under the cap → full-buffer cutoff, nothing deferred", async () => {
+    writeFileSync(bufferPath(), FIVE_ENTRIES + "\n");
+
+    const outcome = await memoryV2ConsolidateJob(
+      makeJob(),
+      configWithMaxEntries(5),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    if (outcome.kind !== "invoked") throw new Error("unreachable");
+    expect(outcome.deferredEntries).toBe(0);
+    // Cutoff is the run-start timestamp, not any buffer entry's.
+    expect(outcome.cutoff).not.toBe("Apr 27, 9:03 AM");
+  });
+
+  test("null cap → full buffer processed regardless of size", async () => {
+    writeFileSync(bufferPath(), FIVE_ENTRIES + "\n");
+
+    const outcome = await memoryV2ConsolidateJob(
+      makeJob(),
+      configWithMaxEntries(null),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    if (outcome.kind !== "invoked") throw new Error("unreachable");
+    expect(outcome.deferredEntries).toBe(0);
+  });
+
+  test("cap absent from config (hand-crafted stand-in) → full buffer processed", async () => {
+    writeFileSync(bufferPath(), FIVE_ENTRIES + "\n");
+
+    const outcome = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(outcome.kind).toBe("invoked");
+    if (outcome.kind !== "invoked") throw new Error("unreachable");
+    expect(outcome.deferredEntries).toBe(0);
+  });
+
+  test("over-cap line without a bracketed timestamp → falls back to the full-buffer cutoff", async () => {
+    writeFileSync(
+      bufferPath(),
+      [
+        "- [Apr 27, 9:00 AM] Alice prefers VS Code.",
+        "- [Apr 27, 9:01 AM] Bob takes his coffee black.",
+        "a stray unstructured line with no timestamp",
+        "- [Apr 27, 9:03 AM] Dave runs marathons.",
+      ].join("\n") + "\n",
+    );
+
+    const outcome = await memoryV2ConsolidateJob(
+      makeJob(),
+      configWithMaxEntries(2),
+    );
+
+    expect(outcome.kind).toBe("invoked");
+    if (outcome.kind !== "invoked") throw new Error("unreachable");
+    expect(outcome.deferredEntries).toBe(0);
+    expect(outcome.cutoff).not.toBe("Apr 27, 9:03 AM");
+  });
+});
 
 describe("memoryV2ConsolidateJob — v2 disabled", () => {
   test("returns disabled without invoking the runner when memory.enabled is false", async () => {
