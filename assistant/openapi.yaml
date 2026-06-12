@@ -26191,6 +26191,151 @@ paths:
                 - appId
                 - channelId
               additionalProperties: false
+  /v1/sounds/available:
+    get:
+      operationId: sounds_available_get
+      summary: List available sound files
+      description: Return audio files in data/sounds/ that can be assigned to sound events.
+      tags:
+        - sounds
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sounds:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        label:
+                          type: string
+                        filename:
+                          type: string
+                      required:
+                        - label
+                        - filename
+                      additionalProperties: false
+                required:
+                  - sounds
+                additionalProperties: false
+  /v1/sounds/config:
+    get:
+      operationId: sounds_config_get
+      summary: Get sounds configuration
+      description: Return the sounds configuration from data/sounds/config.json, normalised with defaults.
+      tags:
+        - sounds
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  globalEnabled:
+                    type: boolean
+                  volume:
+                    type: number
+                  events:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                        sounds:
+                          type: array
+                          items:
+                            type: string
+                      required:
+                        - enabled
+                        - sounds
+                      additionalProperties: false
+                required:
+                  - globalEnabled
+                  - volume
+                  - events
+                additionalProperties: false
+    put:
+      operationId: sounds_config_put
+      summary: Update sounds configuration
+      description: Replace the sounds configuration in data/sounds/config.json.
+      tags:
+        - sounds
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  globalEnabled:
+                    type: boolean
+                  volume:
+                    type: number
+                  events:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                        sounds:
+                          type: array
+                          items:
+                            type: string
+                      required:
+                        - enabled
+                        - sounds
+                      additionalProperties: false
+                required:
+                  - globalEnabled
+                  - volume
+                  - events
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                globalEnabled:
+                  type: boolean
+                volume:
+                  type: number
+                events:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      sounds:
+                        type: array
+                        items:
+                          type: string
+                    required:
+                      - enabled
+                      - sounds
+                    additionalProperties: false
+              required:
+                - globalEnabled
+                - volume
+                - events
+              additionalProperties: false
   /v1/stt/providers:
     get:
       operationId: stt_providers_get
