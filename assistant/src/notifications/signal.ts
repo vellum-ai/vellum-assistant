@@ -163,6 +163,8 @@ export interface AccessRequestContextPayload {
   isStranger?: boolean;
   /** Slack-specific: user is a guest / restricted account. */
   isRestricted?: boolean;
+  /** Slack message timestamp (e.g. "1234567890.123456") for permalink construction. */
+  messageTs?: string;
 }
 
 export interface GuardianChannelActivationPayload {

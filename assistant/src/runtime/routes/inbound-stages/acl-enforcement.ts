@@ -141,6 +141,12 @@ export async function enforceIngressAcl(
   const isStranger = sourceMetadata?.isStranger === true ? true : undefined;
   const isRestricted = sourceMetadata?.isRestricted === true ? true : undefined;
 
+  // Slack message timestamp for permalink construction.
+  const messageTs =
+    typeof sourceMetadata?.messageId === "string"
+      ? sourceMetadata.messageId
+      : undefined;
+
   let resolvedMember: ResolvedMember | null = null;
 
   // /start gv_<token> bootstrap commands must also bypass ACL — the user
@@ -299,6 +305,7 @@ export async function enforceIngressAcl(
                 ),
                 isStranger,
                 isRestricted,
+                messageTs,
               });
             } catch (err) {
               log.error(
@@ -373,6 +380,7 @@ export async function enforceIngressAcl(
                 ),
                 isStranger,
                 isRestricted,
+                messageTs,
               });
             } catch (err) {
               log.error(
@@ -411,6 +419,7 @@ export async function enforceIngressAcl(
             ),
             isStranger,
             isRestricted,
+            messageTs,
           });
           guardianNotified = accessResult.notified;
         } catch (err) {
@@ -587,6 +596,7 @@ export async function enforceIngressAcl(
                   ),
                   isStranger,
                   isRestricted,
+                  messageTs,
                 });
               } catch (err) {
                 log.error(
@@ -654,6 +664,7 @@ export async function enforceIngressAcl(
                 ),
                 isStranger,
                 isRestricted,
+                messageTs,
               });
               guardianNotified = accessResult.notified;
             } catch (err) {

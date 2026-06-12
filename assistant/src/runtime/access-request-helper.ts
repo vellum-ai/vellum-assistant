@@ -60,6 +60,8 @@ export interface AccessRequestParams {
   isStranger?: boolean;
   /** Slack-specific: user is a guest / restricted account. */
   isRestricted?: boolean;
+  /** Slack message timestamp for permalink construction. */
+  messageTs?: string;
 }
 
 export type AccessRequestResult =
@@ -98,6 +100,7 @@ export function notifyGuardianOfAccessRequest(
     messagePreview,
     isStranger,
     isRestricted,
+    messageTs,
   } = params;
 
   if (!actorExternalId) {
@@ -246,6 +249,7 @@ export function notifyGuardianOfAccessRequest(
       messagePreview: messagePreview ?? null,
       ...(isStranger !== undefined ? { isStranger } : {}),
       ...(isRestricted !== undefined ? { isRestricted } : {}),
+      ...(messageTs ? { messageTs } : {}),
     },
     dedupeKey: `access-request:${canonicalRequest.id}`,
     onConversationCreated: (info) => {

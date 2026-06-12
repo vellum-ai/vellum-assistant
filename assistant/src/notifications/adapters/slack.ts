@@ -102,14 +102,28 @@ function buildAccessRequestBlocks(payload: Record<string, unknown>): unknown[] {
       typeof payload.conversationExternalId === "string"
         ? payload.conversationExternalId
         : undefined;
+    const messageTs =
+      typeof payload.messageTs === "string" ? payload.messageTs : undefined;
     let channelDisplay = sourceChannel;
     if (sourceChannel === "slack" && conversationExternalId) {
+      // Build a permalink to the specific message when we have the timestamp.
+      // Format: https://slack.com/archives/{channelId}/p{ts_without_dot}
+      // This is workspace-agnostic and resolves for any authenticated viewer.
+      const permalink =
+        messageTs && conversationExternalId
+          ? `https://slack.com/archives/${conversationExternalId}/p${messageTs.replace(".", "")}`
+          : undefined;
+
       // C = public/private channels, G = group DMs / MPIMs / legacy private channels.
       // Both support the <#ID> mrkdwn deep-link. D = 1:1 DMs (no linkable channel).
       if (/^[CG][A-Z0-9]+$/i.test(conversationExternalId)) {
-        channelDisplay = `Slack — <#${conversationExternalId}>`;
+        channelDisplay = permalink
+          ? `Slack — <#${conversationExternalId}> · <${permalink}|View message>`
+          : `Slack — <#${conversationExternalId}>`;
       } else {
-        channelDisplay = "Slack — Direct message";
+        channelDisplay = permalink
+          ? `Slack — Direct message · <${permalink}|View message>`
+          : "Slack — Direct message";
       }
     }
     fields.push({ type: "mrkdwn", text: `*Source:*\n${channelDisplay}` });
