@@ -76,6 +76,17 @@ export interface BaseAgent {
    */
   isTurnComplete(event: AgentEvent): boolean;
   readUsageRecords?(): Promise<Array<Record<string, unknown>>>;
+  /**
+   * Read the agent's own per-call-site usage accounting, when the
+   * species keeps one (e.g. the Vellum daemon's usage ledger).
+   * Complements `readUsageRecords()`: the egress jail observes wire
+   * traffic, while the ledger carries the agent's internal attribution
+   * (which call site — main agent vs compaction vs background — spent
+   * the tokens, including cache-creation/read splits). Returns `null`
+   * when the species has no ledger or the read fails; callers treat it
+   * as a best-effort diagnostic, never as the cost authority.
+   */
+  readUsageLedger?(): Promise<Record<string, unknown> | null>;
   shutdown(): Promise<void>;
   /**
    * Write a file into the agent's workspace. Optional capability:

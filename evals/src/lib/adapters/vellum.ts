@@ -1,4 +1,5 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -296,6 +297,47 @@ export class VellumAgent implements BaseAgent {
     //   under our `instanceName` are ours.
     let hatchSucceeded = false;
     try {
+      // Generate the bundled feature-flag registry copies BEFORE hatch.
+      //
+      // The gateway/assistant Docker images need
+      // `gateway/src/feature-flag-registry.json` +
+      // `assistant/src/config/feature-flag-registry.json`. Those are
+      // generated (gitignored) from the canonical
+      // `meta/feature-flags/feature-flag-registry.json` by
+      // `sync-bundled-copies.ts` — normally run via postinstall or CI
+      // before image builds. But the Docker build context excludes
+      // `meta/`, so a fresh worktree that runs evals (which
+      // `vellum hatch --source <repoRoot>`) produces a gateway with NO
+      // registry: it then rejects every `vellum flags set` with
+      // "Unknown flag key" and hatch hard-fails. Running the sync here,
+      // against the repo root, makes a fresh checkout self-sufficient.
+      //
+      // Skipped silently when the script is absent (gateway-only
+      // layouts or a species whose source tree doesn't ship meta/).
+      const repoRoot = repoRootFromAdapter();
+      const registrySyncScript = join(
+        repoRoot,
+        "meta",
+        "feature-flags",
+        "sync-bundled-copies.ts",
+      );
+      if (existsSync(registrySyncScript)) {
+        const registrySync = await this.runner.run(
+          "bun",
+          ["run", "meta/feature-flags/sync-bundled-copies.ts"],
+          {
+            cwd: repoRoot,
+            logPath:
+              runArtifacts(this.id).runDir + "/subprocess-registry-sync.log",
+            logStep: "registry-sync",
+          },
+        );
+        assertSuccess(
+          registrySync,
+          `sync bundled feature-flag registry for profile ${this.profile.id}`,
+        );
+      }
+
       // Forward LLM provider API keys from the eval process env into the
       // hatch subprocess explicitly. The Vellum docker StatefulSet spec
       // conditionally re-forwards each of these from `vellum hatch`'s env
@@ -670,6 +712,44 @@ export class VellumAgent implements BaseAgent {
     return this.jail?.readUsageRecords() ?? [];
   }
 
+  /**
+   * Dump the daemon's persisted usage ledger, grouped by call site,
+   * plus all-time totals. The ledger records every LLM call with cache
+   * token splits and the call site that spent it (main agent vs
+   * compaction vs background work), so it directly answers "what
+   * fraction of spend was compaction" — the question the
+   * compaction-thrash benchmark exists to ask. Best-effort: returns
+   * `null` on any failure so a missing CLI surface never fails a run
+   * at collection time.
+   */
+  async readUsageLedger(): Promise<Record<string, unknown> | null> {
+    this.assertHatched();
+    try {
+      const read = async (subcommand: string): Promise<unknown> => {
+        const result = await this.runner.run(this.cliCommand, [
+          "exec",
+          this.id,
+          "--",
+          ...shellWords(`assistant usage ${subcommand} --range all --json`),
+        ]);
+        if (result.exitCode !== 0) return null;
+        try {
+          return JSON.parse(result.stdout);
+        } catch {
+          return null;
+        }
+      };
+      const [byCallSite, totals] = await Promise.all([
+        read("breakdown --group-by call_site"),
+        read("totals"),
+      ]);
+      if (byCallSite === null && totals === null) return null;
+      return { byCallSite, totals };
+    } catch {
+      return null;
+    }
+  }
+
   async shutdown(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
@@ -722,9 +802,12 @@ export class VellumAgent implements BaseAgent {
     let retireResult: { exitCode: number; stderr: string } | undefined;
     let retireError: unknown;
     try {
+      // `--yes`: retire prompts for confirmation and refuses outright in a
+      // non-interactive terminal, which is where every eval run lives.
       retireResult = await this.runner.run(this.cliCommand, [
         "retire",
         this.id,
+        "--yes",
       ]);
     } catch (err) {
       retireError = err;

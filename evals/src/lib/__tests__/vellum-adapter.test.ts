@@ -117,8 +117,22 @@ describe("VellumAgent", () => {
 
     expect(agent.id).toBe("eval-run-1");
     expect(agent.conversationKey).toBe("evals:timeline-recall:eval-run-1");
-    // Recording sidecar adds docker build + run calls
+    // runs[0] is the bundled feature-flag registry sync — it runs
+    // BEFORE hatch so a fresh worktree (where the gitignored registry
+    // copies don't exist yet) produces a gateway that recognizes flag
+    // keys. `meta/feature-flags/sync-bundled-copies.ts` exists in this
+    // repo, so the existsSync guard fires here.
     expect(runner.runs[0]).toEqual({
+      command: "bun",
+      args: ["run", "meta/feature-flags/sync-bundled-copies.ts"],
+      opts: {
+        cwd: ADAPTER_REPO_ROOT,
+        logPath: expect.stringMatching(/\/subprocess-registry-sync\.log$/),
+        logStep: "registry-sync",
+      },
+    });
+    // Recording sidecar adds docker build + run calls
+    expect(runner.runs[1]).toEqual({
       command: "vellum",
       args: [
         "hatch",
@@ -142,18 +156,18 @@ describe("VellumAgent", () => {
         logStep: "hatch",
       },
     });
-    expect(runner.runs[1]).toEqual({
+    expect(runner.runs[2]).toEqual({
       command: "docker",
       args: ["rm", "-f", "eval-run-1-assistant-egress-jail"],
     });
     // Build command
-    expect(runner.runs[2].command).toBe("docker");
-    expect(runner.runs[2].args[0]).toBe("build");
-    expect(runner.runs[2].args[1]).toBe("-t");
-    expect(runner.runs[2].args[2]).toBe("vellum-evals-recording-jail:local");
-    // Run command (detached recording jail)
     expect(runner.runs[3].command).toBe("docker");
-    expect(runner.runs[3].args.slice(0, 6)).toEqual([
+    expect(runner.runs[3].args[0]).toBe("build");
+    expect(runner.runs[3].args[1]).toBe("-t");
+    expect(runner.runs[3].args[2]).toBe("vellum-evals-recording-jail:local");
+    // Run command (detached recording jail)
+    expect(runner.runs[4].command).toBe("docker");
+    expect(runner.runs[4].args.slice(0, 6)).toEqual([
       "run",
       "-d",
       "--name",
@@ -161,14 +175,14 @@ describe("VellumAgent", () => {
       "--network",
       "container:eval-run-1-assistant",
     ]);
-    expect(runner.runs[3].args).toContain("--cap-add");
-    expect(runner.runs[3].args).toContain("NET_ADMIN");
-    expect(runner.runs[3].args).toContain("evals.vellum.ai/egress-recording=1");
+    expect(runner.runs[4].args).toContain("--cap-add");
+    expect(runner.runs[4].args).toContain("NET_ADMIN");
+    expect(runner.runs[4].args).toContain("evals.vellum.ai/egress-recording=1");
     // Species default feature flag — runs between jail apply (which
-    // now includes the CA handoff at runs[4..5]) and the first setup
+    // now includes the CA handoff at runs[5..6]) and the first setup
     // command. See VELLUM_DEFAULT_FEATURE_FLAGS in the adapter for the
     // canonical list.
-    expect(runner.runs[6]).toEqual({
+    expect(runner.runs[7]).toEqual({
       command: "vellum",
       args: [
         "flags",
@@ -184,7 +198,7 @@ describe("VellumAgent", () => {
       },
     });
     // Setup command — gets a per-step subprocess-setup-N.log
-    expect(runner.runs[7]).toEqual({
+    expect(runner.runs[8]).toEqual({
       command: "vellum",
       args: [
         "exec",
@@ -249,17 +263,19 @@ describe("VellumAgent", () => {
     await preStageRecordingCa(agent.id);
     await agent.hatch();
 
-    // runs[0..3] are hatch + jail rm/build/run; runs[4..5] are the CA
-    // handoff (docker cp + docker exec update-ca-certificates) — same
-    // as the canonical happy-path test. Confirm the count to anchor
-    // the indices: 6 pre-flag steps + 1 species default flag
-    // (`external-plugins`) + 1 setup command = 8.
-    expect(runner.runs.length).toBe(8);
-    expect(runner.runs[0].args[0]).toBe("hatch");
+    // runs[0] is the registry sync; runs[1] is hatch; runs[2..4] are
+    // jail rm/build/run; runs[5..6] are the CA handoff (docker cp +
+    // docker exec update-ca-certificates) — same as the canonical
+    // happy-path test. Confirm the count to anchor the indices: 7
+    // pre-flag steps + 1 species default flag (`external-plugins`) + 1
+    // setup command = 9.
+    expect(runner.runs.length).toBe(9);
+    expect(runner.runs[0].command).toBe("bun");
+    expect(runner.runs[1].args[0]).toBe("hatch");
 
     // Species default: `external-plugins` is always flipped ON for
     // vellum hatches, regardless of manifest contents.
-    expect(runner.runs[6]).toEqual({
+    expect(runner.runs[7]).toEqual({
       command: "vellum",
       args: [
         "flags",
@@ -277,7 +293,7 @@ describe("VellumAgent", () => {
 
     // Setup command lands AFTER the species default flag — this is the
     // chicken-and-egg property the ordering protects.
-    expect(runner.runs[7]).toEqual({
+    expect(runner.runs[8]).toEqual({
       command: "vellum",
       args: [
         "exec",
@@ -317,10 +333,10 @@ describe("VellumAgent", () => {
     await preStageRecordingCa(agent.id);
     await agent.hatch();
 
-    // hatch + jail rm/build/run + CA install (cp + update-ca-certs) + 1
-    // species default flag = 7. No setup commands.
-    expect(runner.runs.length).toBe(7);
-    expect(runner.runs[6]).toEqual({
+    // registry sync + hatch + jail rm/build/run + CA install (cp +
+    // update-ca-certs) + 1 species default flag = 8. No setup commands.
+    expect(runner.runs.length).toBe(8);
+    expect(runner.runs[7]).toEqual({
       command: "vellum",
       args: [
         "flags",
@@ -464,7 +480,7 @@ describe("VellumAgent", () => {
         "hello",
       ],
       ["docker", "rm", "-f", "eval-run-2-assistant-egress-jail"],
-      ["vellum", "retire", "eval-run-2"],
+      ["vellum", "retire", "eval-run-2", "--yes"],
       ["docker", "rm", "-f", "eval-run-2-assistant"],
       ["docker", "rm", "-f", "eval-run-2-gateway"],
       ["docker", "rm", "-f", "eval-run-2-credential-executor"],
