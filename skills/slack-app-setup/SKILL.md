@@ -137,7 +137,14 @@ bash {
 The `slack_channel/bot_token` credential auto-injects via the proxy. Response is JSON:
 
 ```json
-{ "ok": true, "url": "https://...", "team": "<workspace>", "user": "<botUsername>", "team_id": "...", "user_id": "..." }
+{
+  "ok": true,
+  "url": "https://...",
+  "team": "<workspace>",
+  "user": "<botUsername>",
+  "team_id": "...",
+  "user_id": "..."
+}
 ```
 
 Extract `user` → botUsername, `team` → workspace. If `ok: false` or the call errors, fall back to `your bot` / `your workspace` rather than typing placeholder strings.
