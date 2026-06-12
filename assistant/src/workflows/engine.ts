@@ -59,6 +59,7 @@ import type { WorkflowsConfig } from "../config/schemas/workflows.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { getLogger } from "../util/logger.js";
 import type { ResolvedCapabilities } from "./capabilities.js";
+import { deterministicStringify } from "./deterministic-stringify.js";
 import type * as JournalStore from "./journal-store.js";
 import type { WorkflowRunStatus } from "./journal-store.js";
 import type { runLeaf } from "./leaf-runner.js";
@@ -238,21 +239,6 @@ function stripTopLevelExports(scriptSource: string): string {
     /^(\s*)export\s+(const|let|var|function|class|async\s+function)\b/gm,
     "$1$2",
   );
-}
-
-/** Stable, sorted-key JSON stringify so hashes are insertion-order-independent. */
-function deterministicStringify(value: unknown): string {
-  return JSON.stringify(sortValue(value)) ?? "null";
-}
-
-function sortValue(value: unknown): unknown {
-  if (value === null || typeof value !== "object") return value;
-  if (Array.isArray(value)) return value.map(sortValue);
-  const out: Record<string, unknown> = {};
-  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-    out[key] = sortValue((value as Record<string, unknown>)[key]);
-  }
-  return out;
 }
 
 function callHashOf(prompt: string, opts: LeafCallOptions): string {

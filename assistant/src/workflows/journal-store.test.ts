@@ -170,8 +170,8 @@ describe("workflow journal store", () => {
       runId: "wf-j",
       seq: 0,
       callHash: "c0",
-      kind: "hostFn",
-      request: { fn: "now" },
+      kind: "agent",
+      request: { prompt: "b" },
       result: 123,
       status: "completed",
     });
@@ -182,8 +182,8 @@ describe("workflow journal store", () => {
       runId: "wf-j",
       seq: 0,
       callHash: "c0",
-      kind: "hostFn",
-      request: { fn: "now" },
+      kind: "agent",
+      request: { prompt: "b" },
       result: 123,
       status: "completed",
     });

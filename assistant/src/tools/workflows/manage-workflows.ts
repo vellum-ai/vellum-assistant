@@ -3,6 +3,14 @@
  * {@link WorkflowRunManager}: check a run's status, abort a run, or list recent
  * runs. All state lives in the run manager / journal; this tool only delegates
  * and compacts the result to JSON.
+ *
+ * NOTE: this tool runs in-process and returns a `runId`-keyed, deliberately
+ * trimmed projection for the model — a DIFFERENT contract from the HTTP wire
+ * shape (`id`-keyed `toWireRun`/`workflowRunSchema` in
+ * `runtime/routes/workflow-routes.ts`). The two are intentionally not unified:
+ * converging on `toWireRun` here would change this tool's emitted JSON. Both
+ * project from the same `WorkflowRun` source type, so field renames are caught
+ * by the type checker.
  */
 
 import { getWorkflowRunManager } from "../../workflows/run-manager.js";
