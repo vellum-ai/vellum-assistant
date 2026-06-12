@@ -86,15 +86,17 @@ Slack lands the user on **Basic Information** after Create. The app token lives 
 
 ### Step 3a — App-Level Token (Basic Information page)
 
-Tell the user:
+Do both of the following in the **same response** — the instruction text and the `credential_store` prompt go out together:
 
-> Scroll to **App-Level Tokens** → **Generate Token and Scopes** → name it "Socket Mode" → add scope `connections:write` → **Generate**. Copy the token (starts with `xapp-`).
->
-> **Don't paste it in chat — I'll send you a secure prompt to enter it.**
+1. Tell the user:
 
-Then collect:
+   > Scroll to **App-Level Tokens** → **Generate Token and Scopes** → name it "Socket Mode" → add scope `connections:write` → **Generate**. Copy the token (starts with `xapp-`).
+   >
+   > **Don't paste it in chat — I'll send you a secure prompt to enter it.**
 
-- Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "app_token"`, `label: "App-Level Token"`, `placeholder: "xapp-..."`, `description: "Paste the App-Level Token you just generated"`.
+2. In the same response, call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "app_token"`, `label: "App-Level Token"`, `placeholder: "xapp-..."`, `description: "Paste the App-Level Token you just generated"`.
+
+⚠️ CRITICAL — point of action: **Fire the `credential_store` prompt in this same response. Do not wait for the user to say "okay I have it" before firing it.** The secure prompt queues silently; the user fills it when they're ready. Waiting for verbal confirmation leaves the user stuck staring at instructions with no input field.
 
 ⚠️ CRITICAL — point of action: **Always route the token through `credential_store` prompt.** Do NOT ask the user to paste tokens in chat. Do NOT use `ui_show` for collection. Do NOT call `assistant credentials reveal`. The prompt is the only handler that validates and stores securely.
 
@@ -122,6 +124,26 @@ If the user wants to skip → continue to Step 5 (default if they say no), and l
 
 ## Step 5 — Report success
 
+**First, fetch the real bot identity** so the success message shows the actual handle + workspace name — not literal `{botUsername}` / `{workspace}` placeholder strings.
+
+```
+bash {
+  command: "curl -s -X POST https://slack.com/api/auth.test"
+  network_mode: "proxied"
+  activity: "to fetch bot identity for the success message"
+}
+```
+
+The `slack_channel/bot_token` credential auto-injects via the proxy. Response is JSON:
+
+```json
+{ "ok": true, "url": "https://...", "team": "<workspace>", "user": "<botUsername>", "team_id": "...", "user_id": "..." }
+```
+
+Extract `user` → botUsername, `team` → workspace. If `ok: false` or the call errors, fall back to `your bot` / `your workspace` rather than typing placeholder strings.
+
+⚠️ CRITICAL — point of action: **Never post the success message with literal `{botUsername}` or `{workspace}` in it.** Those are placeholders. Run `auth.test` first, substitute real values, then post.
+
 If identity was verified:
 
 > Setup complete!
@@ -130,8 +152,8 @@ If identity was verified:
 > ✅ Connection active
 > ✅ Connection tested
 >
-> Connected: @{botUsername} in {workspace}
-> Channels: @mention the bot in any channel to add it, or use `/invite @{botUsername}`. DMs work immediately.
+> Connected: @<botUsername> in <workspace>
+> Channels: @mention the bot in any channel to add it, or use `/invite @<botUsername>`. DMs work immediately.
 > Identity: verified
 >
 > Want full workspace visibility (read every channel you're in, even ones the bot isn't a member of)? Ask me to _add a User OAuth Token_ later.
