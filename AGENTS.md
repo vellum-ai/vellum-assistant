@@ -106,6 +106,17 @@ Proactively remove unused code during every change. Remove code your change make
 
 **Exception — migrations**: Database and data migration files must never be deleted, even when the tables or logic they create have moved elsewhere. Migrations run sequentially on existing installs and skipping an entry breaks the chain. When a migration's responsibility has moved (e.g. a table migrated to another database), keep the file in place and add a comment documenting where the logic now lives.
 
+## Code Comments
+
+**Comments describe the present; PRs describe the history.** Code comments should describe what the code *is* and *does* right now — never how it got there, what it replaced, or what changed in a PR. History, reasoning, and migration context belong in PR descriptions and commit messages, which are the permanent record of *how we got here*.
+
+- Do NOT use temporal language: "now uses", "no longer", "was previously", "instead of the old approach", "after the refactor".
+- Do NOT describe the diff: "externalUserId is not consulted", "moved from X to Y", "fix for when Z happens".
+- DO describe the code in present tense: "identity is enforced via the (type, address) unique constraint".
+- If a comment only makes sense to someone reading the diff, move it to the PR description.
+
+Default to no comment — bias aggressively toward terseness and rely on good naming. Follow the commenting density of the surrounding code.
+
 ## Generic Examples
 
 Never include personal user data — real names, emails, phone numbers, account IDs, or other identifying details of specific people — anywhere in the codebase. This covers code, tests, fixtures, documentation, comments, commit messages, and AGENTS.md files. Always use generic placeholders:
