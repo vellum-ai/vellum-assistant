@@ -177,3 +177,107 @@ export function planPlatformForward(
     hasBody: request.method !== "GET" && request.method !== "HEAD",
   };
 }
+
+/**
+ * Error code carried in the JSON body of a proxy-synthesized 502 so the
+ * renderer can tell "the proxy's own `net.fetch` failed" apart from a real
+ * platform answer. Mirrors `PROXY_NETWORK_ERROR_CODE` in
+ * `apps/web/src/assistant/lifecycle.ts`; the two must stay in sync, but
+ * there is no shared package between the renderer and the Electron main
+ * bundle to host the constant.
+ */
+export const PROXY_NETWORK_ERROR_CODE = "proxy_network_error";
+
+/** Marker header on proxy-synthesized error responses. */
+export const PROXY_ERROR_HEADER = "X-Vellum-Proxy-Error";
+
+const PROXY_NETWORK_ERROR_DETAIL =
+  "Couldn't reach Vellum. Check your internet connection and try again.";
+
+/**
+ * Chromium net-stack failures that resolve on their own within seconds —
+ * the classic case is `ERR_NETWORK_CHANGED` while Wi-Fi reassociates after
+ * sleep/wake (LUM-2402). Worth a quick in-proxy retry before bothering the
+ * renderer.
+ */
+const TRANSIENT_NET_ERROR_CODES = [
+  "ERR_NETWORK_CHANGED",
+  "ERR_INTERNET_DISCONNECTED",
+  "ERR_NAME_NOT_RESOLVED",
+  "ERR_CONNECTION_RESET",
+] as const;
+
+export function isTransientNetworkError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return TRANSIENT_NET_ERROR_CODES.some((code) => err.message.includes(code));
+}
+
+/**
+ * The 502 returned when the proxy's own `net.fetch` rejected. Structured
+ * (JSON `detail` + `code`, marker header) instead of the raw Chromium
+ * message so the renderer never renders `net::ERR_*` strings and can
+ * classify the failure as transport-shaped.
+ */
+export function buildProxyNetworkErrorResponse(): Response {
+  return new Response(
+    JSON.stringify({
+      detail: PROXY_NETWORK_ERROR_DETAIL,
+      code: PROXY_NETWORK_ERROR_CODE,
+    }),
+    {
+      status: 502,
+      headers: {
+        "Content-Type": "application/json",
+        [PROXY_ERROR_HEADER]: "network",
+      },
+    },
+  );
+}
+
+export interface ForwardFetchRetryOptions {
+  /** Extra attempts after the first failure. */
+  retries?: number;
+  retryDelayMs?: number;
+  /** Injectable for tests. */
+  sleep?: (ms: number) => Promise<void>;
+  /** Per-failure observer (logging); receives every rejected attempt. */
+  onError?: (err: unknown, attempt: number) => void;
+}
+
+const defaultSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Run a forward plan's fetch with retry-on-transient-failure semantics.
+ * Only bodiless idempotent requests (GET/HEAD) retry — anything with a
+ * body streams `request.body`, which is single-use, and non-idempotent
+ * methods must not be silently replayed. Exhausted or non-transient
+ * failures collapse into the structured 502 instead of rejecting, so the
+ * protocol handler never propagates a raw error to the renderer.
+ */
+export async function fetchForwardPlanWithRetry(
+  plan: { method: string; hasBody: boolean },
+  doFetch: () => Promise<Response>,
+  options: ForwardFetchRetryOptions = {},
+): Promise<Response> {
+  const {
+    retries = 2,
+    retryDelayMs = 500,
+    sleep = defaultSleep,
+    onError,
+  } = options;
+  const retryable =
+    !plan.hasBody && ["GET", "HEAD"].includes(plan.method.toUpperCase());
+
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await doFetch();
+    } catch (err) {
+      onError?.(err, attempt);
+      const canRetry =
+        retryable && attempt < retries && isTransientNetworkError(err);
+      if (!canRetry) return buildProxyNetworkErrorResponse();
+      await sleep(retryDelayMs);
+    }
+  }
+}

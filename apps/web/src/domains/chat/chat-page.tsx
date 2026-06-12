@@ -90,11 +90,13 @@ export function ChatPage() {
   // Lifecycle guards — non-active assistant states
   // -------------------------------------------------------------------------
   if (assistantState.kind === "error") {
+    // Transient (transport-shaped) errors auto-retry in the lifecycle
+    // service; the button is just the impatient-user shortcut.
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
         <p className="text-[var(--text-secondary)]">{assistantState.message}</p>
         <Button variant="primary" onClick={retryAssistant}>
-          Try again
+          {assistantState.transient ? "Retry now" : "Try again"}
         </Button>
       </div>
     );
