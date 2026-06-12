@@ -19,8 +19,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { CallSiteOverrideDraft, DaemonConfig, DaemonConfigPatch, ProfileEntry } from "@/domains/settings/ai/ai-types";
 import { applyConfigPatch, assertProvisionSuccess, buildOrderedProfiles, snapshotPatchedFields } from "@/domains/settings/ai/ai-utils";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
-import type { ConfigPatchData } from "@/generated/daemon/types.gen";
-import { configGet, configPatch, secretsPost } from "@/generated/daemon/sdk.gen";
+import type { ConfigGetData, ConfigGetResponse, ConfigPatchData } from "@/generated/daemon/types.gen";
+import { type Options, configGet, configPatch, secretsPost } from "@/generated/daemon/sdk.gen";
+import { configGetSetQueryData } from "@/generated/daemon/@tanstack/react-query.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 import { toast } from "@vellumai/design-library/components/toast";
@@ -72,10 +73,9 @@ export function useDaemonConfigQuery(
         path: { assistant_id: assistantId },
         throwOnError: true,
       });
-      // The daemon config endpoint's OpenAPI spec doesn't define a typed
-      // response body yet — the generated type is `unknown`. This cast is
-      // the single point where we bridge to the hand-written DaemonConfig
-      // interface until the spec is updated.
+      // The generated ConfigGetResponse is wider (index sigs, literal unions)
+      // than the hand-written DaemonConfig used by downstream consumers.
+      // This cast bridges the two until DaemonConfig is fully replaced.
       return data as DaemonConfig;
     },
     enabled: !!assistantId && enabled,
@@ -155,20 +155,25 @@ export function useDaemonConfigMutation() {
     },
     onMutate: async (body) => {
       if (!assistantId) return;
+      const opts = { path: { assistant_id: assistantId } } as Options<ConfigGetData>;
       const queryKey = assistantDaemonConfigQueryKey(assistantId);
       await queryClient.cancelQueries({ queryKey });
       const current = queryClient.getQueryData<DaemonConfig>(queryKey);
       const rollback = current ? snapshotPatchedFields(current, body) : undefined;
-      queryClient.setQueryData<DaemonConfig>(queryKey, (old) =>
-        old ? applyConfigPatch(old, body) : old,
+      configGetSetQueryData(queryClient, opts, (old) =>
+        old
+          ? (applyConfigPatch(old as DaemonConfig, body) as ConfigGetResponse)
+          : old,
       );
-      return { rollback, queryKey };
+      return { rollback, opts };
     },
     onError: (_err, _body, context) => {
-      const { queryKey, rollback } = context ?? {};
-      if (queryKey && rollback) {
-        queryClient.setQueryData<DaemonConfig>(queryKey, (old) =>
-          old ? applyConfigPatch(old, rollback) : old,
+      const { opts, rollback } = context ?? {};
+      if (opts && rollback) {
+        configGetSetQueryData(queryClient, opts, (old) =>
+          old
+            ? (applyConfigPatch(old as DaemonConfig, rollback) as ConfigGetResponse)
+            : old,
         );
       }
     },
