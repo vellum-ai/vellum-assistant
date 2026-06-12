@@ -1,9 +1,10 @@
 /**
- * Domain-level cache mutation helpers for conversations and groups.
+ * Domain-level cache mutation helpers for conversations.
  *
  * Each function is a thin `queryClient.setQueryData` wrapper so call sites
  * stay declarative. Low-level cache primitives (`updateConversationsCache`,
  * `findConversation`, `patchConversation`) live in `@/utils/conversation-cache`.
+ * Group cache mutations live in `@/utils/conversation-group-cache-mutations`.
  *
  * References:
  * - https://tanstack.com/query/latest/docs/framework/react/guides/updates-from-mutation-responses
@@ -11,10 +12,7 @@
 
 import type { QueryClient } from "@tanstack/react-query";
 
-import type { GroupsGetData } from "@/generated/daemon/types.gen";
-import { groupsGetSetQueryData } from "@/generated/daemon/@tanstack/react-query.gen";
-import type { Options } from "@/generated/daemon/sdk.gen";
-import type { Conversation, ConversationGroup } from "@/types/conversation-types";
+import type { Conversation } from "@/types/conversation-types";
 import {
   isBackgroundConversation,
   isScheduledConversation,
@@ -120,8 +118,8 @@ export function surfaceConversationInCaches(
     lastMessageAt: Math.max(conversation.lastMessageAt ?? 0, lastMessageAt),
   };
 
-  // Update the conversation in background/scheduled/archived caches in place.
-  updateBackgroundConversationsCache(queryClient, assistantId, (conversations) => {
+  // Update the conversation in background/scheduled caches in place.
+  const replaceInPlace = (conversations: Conversation[]) => {
     let changed = false;
     const next = conversations.map((c) => {
       if (c.conversationId !== conversation.conversationId) return c;
@@ -129,16 +127,9 @@ export function surfaceConversationInCaches(
       return surfacedConversation;
     });
     return changed ? next : conversations;
-  });
-  updateScheduledConversationsCache(queryClient, assistantId, (conversations) => {
-    let changed = false;
-    const next = conversations.map((c) => {
-      if (c.conversationId !== conversation.conversationId) return c;
-      changed = true;
-      return surfacedConversation;
-    });
-    return changed ? next : conversations;
-  });
+  };
+  updateBackgroundConversationsCache(queryClient, assistantId, replaceInPlace);
+  updateScheduledConversationsCache(queryClient, assistantId, replaceInPlace);
 
   // Remove from foreground pages then prepend to the top.
   updateConversationsCache(queryClient, assistantId, (conversations) =>
@@ -244,103 +235,4 @@ export function resolveDraftKey(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Group cache helpers
-// ---------------------------------------------------------------------------
 
-function updateGroupsCache(
-  queryClient: QueryClient,
-  assistantId: string | null,
-  updater: (groups: ConversationGroup[]) => ConversationGroup[],
-): void {
-  const opts: Options<GroupsGetData> = { path: { assistant_id: assistantId ?? "" } };
-  groupsGetSetQueryData(queryClient, opts, (prev) => {
-    const list = prev?.groups ?? [];
-    const next = updater(list);
-    if (next === list) return prev;
-    return { ...prev, groups: next };
-  });
-}
-
-export function appendGroup(
-  queryClient: QueryClient,
-  assistantId: string | null,
-  group: ConversationGroup,
-): void {
-  updateGroupsCache(queryClient, assistantId, (groups) => [
-    ...groups,
-    {
-      ...group,
-      sortPosition: group.sortPosition ?? groups.length,
-    },
-  ]);
-}
-
-export function patchGroup(
-  queryClient: QueryClient,
-  assistantId: string | null,
-  groupId: string,
-  patch: Partial<ConversationGroup>,
-): void {
-  updateGroupsCache(queryClient, assistantId, (groups) => {
-    let changed = false;
-    const next = groups.map((g) => {
-      if (g.id !== groupId) return g;
-      changed = true;
-      return { ...g, ...patch };
-    });
-    return changed ? next : groups;
-  });
-}
-
-export function replaceOptimisticGroup(
-  queryClient: QueryClient,
-  assistantId: string | null,
-  optimisticId: string,
-  group: ConversationGroup,
-): void {
-  updateGroupsCache(queryClient, assistantId, (groups) => {
-    let changed = false;
-    const next = groups.map((g) => {
-      if (g.id !== optimisticId) return g;
-      changed = true;
-      return group;
-    });
-    return changed ? next : groups;
-  });
-}
-
-export function removeGroup(
-  queryClient: QueryClient,
-  assistantId: string | null,
-  groupId: string,
-): void {
-  updateGroupsCache(queryClient, assistantId, (groups) => {
-    const filtered = groups.filter((g) => g.id !== groupId);
-    return filtered.length === groups.length ? groups : filtered;
-  });
-}
-
-/**
- * Atomically delete a group and clear its `groupId` from every affected
- * conversation in the conversations cache.
- */
-export function deleteGroupAndResetConversations(
-  queryClient: QueryClient,
-  assistantId: string | null,
-  groupId: string,
-): void {
-  removeGroup(queryClient, assistantId, groupId);
-  const clearGroupId = (conversations: Conversation[]) => {
-    let changed = false;
-    const next = conversations.map((c) => {
-      if (c.groupId !== groupId) {
-        return c;
-      }
-      changed = true;
-      return { ...c, groupId: undefined };
-    });
-    return changed ? next : conversations;
-  };
-  updateAllConversationCaches(queryClient, assistantId, clearGroupId);
-}

@@ -235,10 +235,11 @@ export function useConversationGroupsQuery(
   enabled: boolean = true,
 ): { conversationGroups: ConversationGroup[]; isLoading: boolean } {
   const isOrgReady = useIsOrgReady();
+  const opts: Options<GroupsGetData> = {
+    path: { assistant_id: assistantId ?? "" },
+  };
   const query = useQuery({
-    ...groupsGetOptions({
-      path: { assistant_id: assistantId ?? "" },
-    } as Options<GroupsGetData>),
+    ...groupsGetOptions(opts),
     select: (data) => data.groups,
     enabled: enabled && Boolean(assistantId) && isOrgReady,
     staleTime: 30_000,

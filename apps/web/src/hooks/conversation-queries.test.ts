@@ -3,16 +3,18 @@ import { describe, expect, it } from "bun:test";
 import { QueryClient, type InfiniteData } from "@tanstack/react-query";
 
 import {
-  appendGroup,
-  deleteGroupAndResetConversations,
   markConversationSeenLocal,
-  patchGroup,
   prependConversation,
   removeConversation,
-  removeGroup,
-  replaceOptimisticGroup,
   resolveDraftKey,
 } from "@/utils/conversation-cache-mutations";
+import {
+  appendGroup,
+  deleteGroupAndResetConversations,
+  patchGroup,
+  removeGroup,
+  replaceOptimisticGroup,
+} from "@/utils/conversation-group-cache-mutations";
 import {
   backgroundConversationsQueryKey,
   conversationGroupsQueryKey,

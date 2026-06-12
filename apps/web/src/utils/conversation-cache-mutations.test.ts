@@ -21,12 +21,14 @@ import {
   shouldSurfaceConversationOnUserSend,
   surfaceConversationInCaches,
   resolveDraftKey,
+} from "./conversation-cache-mutations";
+import {
   appendGroup,
   patchGroup,
   replaceOptimisticGroup,
   removeGroup,
   deleteGroupAndResetConversations,
-} from "./conversation-cache-mutations";
+} from "./conversation-group-cache-mutations";
 
 // ---------------------------------------------------------------------------
 // Helpers

@@ -21,7 +21,7 @@ import {
   patchGroup,
   removeGroup,
   replaceOptimisticGroup,
-} from "@/utils/conversation-cache-mutations";
+} from "@/utils/conversation-group-cache-mutations";
 import { cancelConversationQueries, invalidateConversationQueries } from "@/utils/conversation-cache";
 import { conversationGroupsQueryKey } from "@/lib/sync/query-tags";
 
