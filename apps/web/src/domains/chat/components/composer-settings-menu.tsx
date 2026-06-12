@@ -11,8 +11,9 @@ import {
 } from "@/assistant/profile-pickers";
 import { useProfileQuickAdd } from "@/components/profile-quick-add-provider";
 import { activeProfileModelQueryKey } from "@/domains/chat/hooks/use-active-profile-model";
-import { client } from "@/generated/api/client.gen";
 import {
+    configGet,
+    configPatch,
     conversationsByIdGet,
     conversationsByIdInferenceprofilePut,
 } from "@/generated/daemon/sdk.gen";
@@ -132,8 +133,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
     (async () => {
       try {
         const [configResult, convResult] = await Promise.allSettled([
-          client.get<Record<string, unknown>, unknown>({
-            url: `/v1/assistants/{assistant_id}/config`,
+          configGet({
             path: { assistant_id: assistantId },
             throwOnError: false,
           }),
@@ -254,11 +254,9 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
           });
         } else {
           // No active conversation: update global active profile.
-          await client.patch({
-            url: `/v1/assistants/{assistant_id}/config`,
+          await configPatch({
             path: { assistant_id: assistantId },
             body: { llm: { activeProfile: name } },
-            headers: { "Content-Type": "application/json" },
             throwOnError: true,
           });
           globalActiveProfileRef.current = name;

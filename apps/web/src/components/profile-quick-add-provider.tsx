@@ -18,8 +18,8 @@
  * The create-persistence here is a re-implementation, not a copy, of
  * `ManageProfilesModal`'s create path: that modal lives in the settings
  * domain and uses its `useDaemonConfigMutation` hook, which this provider
- * cannot import (`local/no-cross-domain-imports`). So it persists via raw
- * `client.get`/`client.patch`, sources `profileOrder` from a fresh
+ * cannot import (`local/no-cross-domain-imports`). So it persists via
+ * `configGet`/`configPatch` (generated SDK functions), sources `profileOrder` from a fresh
  * authoritative server fetch (not a captured prop), and adds a server-side
  * duplicate-existence guard the modal does not have. See `handleSave`.
  *
@@ -40,8 +40,8 @@ import {
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { ProfileEntry } from "@/domains/settings/ai/ai-types";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
-import { client } from "@/generated/api/client.gen";
 import { inferenceProviderconnectionsGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import { configGet, configPatch } from "@/generated/daemon/sdk.gen";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -106,8 +106,8 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
   // This re-implements (rather than reuses) ManageProfilesModal's create path:
   // that modal goes through the settings-domain `useDaemonConfigMutation` hook,
   // which this cross-domain provider cannot import
-  // (`local/no-cross-domain-imports`). So it persists via raw `client.get`/
-  // `client.patch` and adds the server-side duplicate guard below.
+  // (`local/no-cross-domain-imports`). So it persists via `configGet`/
+  // `configPatch` and adds the server-side duplicate guard below.
   //
   // The order is computed from a FRESH server fetch rather than the
   // `profileOrder` captured when the modal opened. The caller may have opened
@@ -125,8 +125,7 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
       // existing key) on a merely transient read failure. Letting it throw
       // propagates to the modal's save handler, which surfaces the error inline
       // and keeps the modal open — no PATCH, no success toast.
-      const configResult = await client.get<Record<string, unknown>, unknown, true>({
-        url: `/v1/assistants/{assistant_id}/config`,
+      const configResult = await configGet({
         path: { assistant_id: assistantId },
         throwOnError: true,
       });
@@ -149,8 +148,7 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
         throw new Error(`A profile with the key "${name}" already exists.`);
       }
 
-      await client.patch({
-        url: `/v1/assistants/{assistant_id}/config`,
+      await configPatch({
         path: { assistant_id: assistantId },
         body: {
           llm: {
@@ -158,7 +156,6 @@ export function ProfileQuickAddProvider({ children }: { children: ReactNode }) {
             profileOrder: [...serverOrder, name],
           },
         },
-        headers: { "Content-Type": "application/json" },
         throwOnError: true,
       });
       // This raw PATCH bypasses `useDaemonConfigMutation`, which is what would

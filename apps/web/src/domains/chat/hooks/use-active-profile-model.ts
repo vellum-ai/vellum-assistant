@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { client } from "@/generated/api/client.gen";
-import { conversationsByIdGet } from "@/generated/daemon/sdk.gen";
+import { configGet, conversationsByIdGet } from "@/generated/daemon/sdk.gen";
 
 /**
  * Resolves the (provider, model) pair currently in effect for a chat
@@ -107,8 +106,7 @@ export function useActiveProfileModel(
     queryFn: async (): Promise<ActiveProfileModel | null> => {
       if (!assistantId) return null;
       const [configResult, convResult] = await Promise.allSettled([
-        client.get<Record<string, unknown>, unknown>({
-          url: `/v1/assistants/{assistant_id}/config`,
+        configGet({
           path: { assistant_id: assistantId },
           throwOnError: false,
         }),

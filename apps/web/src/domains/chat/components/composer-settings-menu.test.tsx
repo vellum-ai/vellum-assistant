@@ -131,14 +131,12 @@ const clientPatch = mock(
 );
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
+  configGet: clientGet,
+  configPatch: clientPatch,
   conversationsByIdGet: async () => ({
     data: { conversation: { inferenceProfile: null } },
   }),
   conversationsByIdInferenceprofilePut: inferenceprofilePut,
-}));
-
-mock.module("@/generated/api/client.gen", () => ({
-  client: { get: clientGet, patch: clientPatch },
 }));
 
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
