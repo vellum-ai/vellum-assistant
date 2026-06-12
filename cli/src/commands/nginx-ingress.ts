@@ -61,6 +61,11 @@ function printHelp(): void {
   );
   console.log("  NGINX_BIN             Path to the nginx binary");
   console.log("");
+  console.log("Examples:");
+  console.log("  $ vellum nginx-ingress up");
+  console.log("  $ vellum nginx-ingress status");
+  console.log("  $ vellum nginx-ingress down my-assistant");
+  console.log("");
   console.log("Feature flags:");
   console.log(
     `  ${WEB_REMOTE_INGRESS_FLAG} must be enabled to start nginx ingress`,
