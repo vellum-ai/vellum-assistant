@@ -78,6 +78,7 @@ type ConversationStub = {
   conversationType?: string | null;
   inferenceProfile?: string | null;
   inferenceProfileExpiresAt?: number | null;
+  originChannel?: string | null;
 };
 let conversationOverrides: Record<string, ConversationStub> = {};
 
@@ -263,6 +264,19 @@ mock.module("../../daemon/trust-context.js", () => ({
   INTERNAL_GUARDIAN_TRUST_CONTEXT: { trustClass: "guardian" },
 }));
 
+// Guardian persona slug resolution for the fork wake's persona override.
+// The real resolver reads the contacts table; the stub records the trust
+// context it was handed (the job must pass `undefined` — the live-turn
+// guardian branch) and returns a scripted slug.
+let mockResolvedUserSlug: string | null = "alice";
+let resolveUserSlugCalls: unknown[] = [];
+mock.module("../../prompts/persona-resolver.js", () => ({
+  resolveUserSlug: (trustContext: unknown) => {
+    resolveUserSlugCalls.push(trustContext);
+    return mockResolvedUserSlug;
+  },
+}));
+
 mock.module("../../runtime/agent-wake.js", () => ({
   wakeAgentForOpportunity: async (
     opts: { conversationId: string; hint: string } & Record<string, unknown>,
@@ -383,6 +397,8 @@ describe("memoryRetrospectiveJob", () => {
     conversationOverrides = {};
     messagesByConversationId = {};
     loadedConversations = {};
+    mockResolvedUserSlug = "alice";
+    resolveUserSlugCalls = [];
   });
 
   test("first-run happy path: no state row, no prior retrospective, both pointer fields set on success", async () => {
@@ -778,6 +794,91 @@ describe("memoryRetrospectiveJob", () => {
 
     expect(wakeCalls).toHaveLength(1);
     expect("forceOverrideProfile" in wakeCalls[0]!.opts).toBe(false);
+  });
+
+  test("fork path: local/vellum source → wake carries the guardian persona + vellum channel override", async () => {
+    forkFlagEnabled = true;
+    // Default source stub has no originChannel — a local/desktop conversation.
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.opts.personaOverride).toEqual({
+      userSlug: "alice",
+      channelSlug: "vellum",
+    });
+    // Resolved via the live-turn guardian branch: undefined trust context,
+    // never the wake's internal guardian context.
+    expect(resolveUserSlugCalls).toEqual([undefined]);
+  });
+
+  test("fork path: explicit vellum originChannel → override present", async () => {
+    forkFlagEnabled = true;
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+      originChannel: "vellum",
+    };
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.opts.personaOverride).toEqual({
+      userSlug: "alice",
+      channelSlug: "vellum",
+    });
+  });
+
+  test("fork path: channel-routed source → no persona override (identity not recoverable)", async () => {
+    forkFlagEnabled = true;
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+      originChannel: "telegram",
+    };
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(wakeCalls).toHaveLength(1);
+    expect("personaOverride" in wakeCalls[0]!.opts).toBe(false);
+    expect(resolveUserSlugCalls).toEqual([]);
+  });
+
+  test("fork path: no guardian resolvable → override falls back to the default persona slug", async () => {
+    forkFlagEnabled = true;
+    mockResolvedUserSlug = null;
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.opts.personaOverride).toEqual({
+      userSlug: "default",
+      channelSlug: "vellum",
+    });
+  });
+
+  test("fork path: persona override is not gated on matchConversationProfile", async () => {
+    forkFlagEnabled = true;
+
+    await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ matchConversationProfile: true }),
+    );
+
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.opts.personaOverride).toEqual({
+      userSlug: "alice",
+      channelSlug: "vellum",
+    });
+  });
+
+  test("legacy path: wake carries no persona override", async () => {
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(wakeCalls).toHaveLength(1);
+    expect("personaOverride" in wakeCalls[0]!.opts).toBe(false);
+    expect(resolveUserSlugCalls).toEqual([]);
   });
 
   test("legacy path: source mid-turn still runs (gate is fork-path only)", async () => {

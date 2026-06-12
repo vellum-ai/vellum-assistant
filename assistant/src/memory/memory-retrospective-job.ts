@@ -49,12 +49,15 @@ import {
 } from "../daemon/identity-helpers.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 import { formatMessageSliceForTranscript } from "../export/transcript-formatter.js";
+import { resolveUserSlug } from "../prompts/persona-resolver.js";
+import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { bootstrapConversation } from "./conversation-bootstrap.js";
 import {
   addMessage,
+  type ConversationRow,
   deleteConversation,
   findMostRecentRetrospectiveFor,
   forkConversation,
@@ -469,6 +472,14 @@ async function runForkBasedRetrospective(
     ? resolveOverrideProfile(sourceConversation)
     : undefined;
 
+  // Render the fork's system prompt under the SOURCE conversation's persona
+  // and channel — the same sections its live turns rendered. Passed
+  // unconditionally (not gated on matchConversationProfile): the correct
+  // persona is a review-quality fix on its own; with profile matching it
+  // additionally preserves the source's cached system-prompt prefix.
+  // `undefined` (identity not recoverable) keeps today's behavior.
+  const personaOverride = resolveSourcePersonaOverride(sourceConversation);
+
   // `skipHintInjection: true` because the instruction is already a
   // persisted message — the wake's hint sandwich would only duplicate it.
   let wakeSucceeded = false;
@@ -495,6 +506,7 @@ async function runForkBasedRetrospective(
       ...(matchedProfile !== undefined
         ? { forceOverrideProfile: matchedProfile }
         : {}),
+      ...(personaOverride !== undefined ? { personaOverride } : {}),
       hintRole: "user",
       skipHintInjection: true,
       suppressAutoCompaction: true,
@@ -580,6 +592,37 @@ function enqueueFollowUpJobs(): string[] {
     }
   }
   return followUpJobIds;
+}
+
+/**
+ * Resolve the persona/channel override the fork wake should render — the
+ * same user and channel persona sections a live turn on the SOURCE
+ * conversation rendered.
+ *
+ * Local/desktop sources (`originChannel` null or `"vellum"`): live turns
+ * resolve the guardian contact's userFile — either via the
+ * undefined-trust-context branch of `resolveUserFilename` (desktop/native,
+ * no gateway) or via its guardian-class `findGuardianForChannel("vellum")`
+ * fallback (managed desktop, whose JWT-principal `requesterExternalUserId`
+ * never matches a contact channel row). `resolveUserSlug(undefined)`
+ * reproduces both, falling back to `"default"` exactly as the live prompt
+ * build does when no guardian resolves. Channel persona is `"vellum"`.
+ *
+ * Channel-routed sources: live-turn persona resolution keys off the
+ * requester's `requesterExternalUserId` (contact lookup per actor, possibly
+ * different across turns), which is not stored on the conversation row —
+ * the live-turn result is not recoverable here. Return `undefined` so the
+ * wake keeps today's behavior.
+ */
+function resolveSourcePersonaOverride(
+  source: Pick<ConversationRow, "originChannel">,
+): SystemPromptPersonaOverride | undefined {
+  const channel = source.originChannel;
+  if (channel != null && channel !== "vellum") return undefined;
+  return {
+    userSlug: resolveUserSlug(undefined) ?? "default",
+    channelSlug: "vellum",
+  };
 }
 
 function safeDeleteForkOnFailure(forkId: string): void {
