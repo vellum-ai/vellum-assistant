@@ -61,6 +61,7 @@ import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-m
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { useViewerStore } from "@/stores/viewer-store";
+import { cmdEnterToSend } from "@/utils/composer-settings";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
 import { lifecycleService } from "@/assistant/lifecycle-service";
@@ -739,9 +740,12 @@ export function ChatMainPanel({
     onMaintenanceExited: handleMaintenanceExited,
   };
 
+  const cmdEnterMode = cmdEnterToSend.useValue();
+
   const chatBodyComposerProps = {
     input,
     setInput,
+    cmdEnterMode,
     placeholder: isEmptyConversation
       ? emptyStatePlaceholder
       : "What would you like to do?",

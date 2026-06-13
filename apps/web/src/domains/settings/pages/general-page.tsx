@@ -13,6 +13,7 @@ import {
     useAssistantWithHealthz,
 } from "@/domains/settings/components/assistant-status-panel";
 import { AssistantUpgrades } from "@/domains/settings/components/assistant-upgrades";
+import { ComposerSendCard } from "@/domains/settings/components/composer-send-card";
 import { DeleteAccountSection } from "@/domains/settings/components/delete-account-section";
 import { IOSAppCard } from "@/domains/settings/components/ios-app-card";
 import { LaunchAtLoginCard } from "@/domains/settings/components/launch-at-login-card";
@@ -302,6 +303,8 @@ export function GeneralPage() {
       )}
 
       <ThemeCard />
+
+      <ComposerSendCard />
 
       {isElectron() && <LaunchAtLoginCard />}
 
