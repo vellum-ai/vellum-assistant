@@ -136,6 +136,16 @@ function handleSecret({ body }: RouteHandlerArgs) {
     throw new NotFoundError("No pending interaction found for this requestId");
   }
 
+  // /v1/secret only settles secret prompts. A requestId belonging to another
+  // interaction kind (a confirmation or host-proxy request posted here from
+  // stale or mismatched client state) must not be consumed or resolved with a
+  // SecretPromptResult, which would strand its real approval/result endpoint.
+  if (interaction.kind !== "secret") {
+    throw new NotFoundError(
+      "No pending secret request found for this requestId",
+    );
+  }
+
   // When a live conversation owns the request, route through it so the
   // SecretPrompter's ownership tracking and dispose path stay consistent (this
   // also drives the voice auto-resolve path). The prompter owns deregistration.

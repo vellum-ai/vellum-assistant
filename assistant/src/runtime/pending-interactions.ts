@@ -213,6 +213,16 @@ export function removeByConversation(
     ) {
       // resolve() clears the stored timer and detaches abort listeners.
       resolve(requestId, state);
+      // Secret prompts have no abort-signal teardown (unlike questions) and
+      // are not pre-settled by denyAllPendingConfirmations (unlike
+      // confirmations), so removing the entry alone would leave the caller's
+      // Promise — the CLI `credentials prompt` command or the in-conversation
+      // SecretPrompter — hanging until its IPC client times out. Settle it
+      // with a cancelled result, matching the prompt timeout path. rpcResolve
+      // is idempotent, so any later resolveSecret/dispose call is a no-op.
+      if (interaction.kind === "secret") {
+        interaction.rpcResolve?.({ value: null, delivery: "store" });
+      }
     }
   }
 }

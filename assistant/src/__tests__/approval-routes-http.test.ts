@@ -688,6 +688,47 @@ describe("standalone approval endpoints — HTTP layer", () => {
 
       await stopServer();
     });
+
+    test("rejects a non-secret requestId without consuming it", async () => {
+      /**
+       * /v1/secret only settles secret prompts. A confirmation (or any other
+       * interaction kind) posted here from stale client state must be rejected
+       * so its real approval endpoint still finds an intact pending interaction
+       * rather than one consumed and resolved with a SecretPromptResult.
+       */
+      // GIVEN a running server
+      await startServer(() => makeIdleSession());
+
+      // AND a pending confirmation interaction whose resolver would be corrupted
+      let resolverCalled = false;
+      pendingInteractions.register("confirm-not-secret", {
+        conversationId: "conv-1",
+        kind: "confirmation",
+        rpcResolve: () => {
+          resolverCalled = true;
+        },
+      });
+
+      // WHEN that confirmation's requestId is posted to /v1/secret
+      const res = await fetch(url("secret"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+        body: JSON.stringify({
+          requestId: "confirm-not-secret",
+          value: "leaked",
+          delivery: "store",
+        }),
+      });
+
+      // THEN the request is rejected
+      expect(res.status).toBe(404);
+
+      // AND the confirmation interaction is left intact and unresolved
+      expect(pendingInteractions.get("confirm-not-secret")).toBeDefined();
+      expect(resolverCalled).toBe(false);
+
+      await stopServer();
+    });
   });
 
   // ── POST /v1/trust-rules ─────────────────────────────────────────────
