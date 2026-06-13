@@ -51,7 +51,12 @@ export interface ConfirmationDetails {
 }
 
 export interface PendingInteraction {
-  conversationId: string;
+  /**
+   * Owning conversation, when the interaction was raised inside one. Absent
+   * for interactions raised outside any conversation (e.g. the CLI
+   * `credentials prompt` command), which resolve via {@link rpcResolve}.
+   */
+  conversationId?: string;
   kind:
     | "confirmation"
     | "secret"
@@ -140,6 +145,10 @@ function emitResolved(
     },
     "Pending interaction resolved",
   );
+  // interaction_resolved is conversation-scoped on the wire; a conversation-less
+  // interaction has no conversation for clients to route the event to, so skip
+  // the broadcast.
+  if (interaction.conversationId === undefined) return;
   broadcastMessage({
     type: "interaction_resolved",
     requestId,

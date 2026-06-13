@@ -11,6 +11,10 @@ import { z } from "zod";
 
 import { findConversation } from "../../daemon/conversation-registry.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
+import type {
+  SecretDelivery,
+  SecretPromptResult,
+} from "../../permissions/secret-prompter.js";
 import type { UserDecision } from "../../permissions/types.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -127,24 +131,37 @@ function handleSecret({ body }: RouteHandlerArgs) {
     throw new BadRequestError('delivery must be "store" or "transient_send"');
   }
 
-  // Use get() — SecretPrompter.resolveSecret() owns deregistration.
   const interaction = pendingInteractions.get(requestId);
   if (!interaction) {
     throw new NotFoundError("No pending interaction found for this requestId");
   }
 
-  const conversation = findConversation(interaction.conversationId);
-  if (!conversation) {
-    throw new NotFoundError(
-      "Conversation not found for this pending secret request",
+  // When a live conversation owns the request, route through it so the
+  // SecretPrompter's ownership tracking and dispose path stay consistent (this
+  // also drives the voice auto-resolve path). The prompter owns deregistration.
+  const conversation = interaction.conversationId
+    ? findConversation(interaction.conversationId)
+    : undefined;
+  if (conversation?.hasPendingSecret(requestId)) {
+    conversation.handleSecretResponse(
+      requestId,
+      value,
+      delivery as "store" | "transient_send" | undefined,
     );
+    return { accepted: true };
   }
 
-  conversation.handleSecretResponse(
+  // Conversation-less requests (e.g. the CLI `credentials prompt` command) and
+  // any request no live conversation owns resolve generically via the resolver
+  // stored on the interaction, with no Conversation in the loop.
+  const resolved = pendingInteractions.resolve(
     requestId,
-    value,
-    delivery as "store" | "transient_send" | undefined,
+    value === undefined ? "cancelled" : "answered",
   );
+  (resolved?.rpcResolve as ((r: SecretPromptResult) => void) | undefined)?.({
+    value: value ?? null,
+    delivery: (delivery as SecretDelivery) ?? "store",
+  });
   return { accepted: true };
 }
 
@@ -321,7 +338,7 @@ export const ROUTES: RouteDefinition[] = [
         .array(
           z.object({
             requestId: z.string(),
-            conversationId: z.string(),
+            conversationId: z.string().optional(),
             kind: z.string(),
             toolName: z.string().optional(),
             riskLevel: z.string().optional(),

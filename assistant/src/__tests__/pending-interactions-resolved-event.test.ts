@@ -102,6 +102,28 @@ describe("pendingInteractions.resolve emits interaction_resolved", () => {
     expect(publishedMessages).toHaveLength(0);
   });
 
+  test("no event is emitted for a conversation-less interaction", () => {
+    /**
+     * Conversation-less interactions (e.g. the CLI `credentials prompt`
+     * command) resolve through their own resolver rather than a conversation.
+     * The `interaction_resolved` envelope requires a conversationId, so the
+     * tracker skips the broadcast instead of emitting an invalid event.
+     */
+    // GIVEN a registered interaction with no owning conversation
+    pendingInteractions.register("req-detached", { kind: "secret" });
+
+    // WHEN it is resolved
+    const returned = pendingInteractions.resolve("req-detached", "answered");
+
+    // THEN the entry is still returned to its caller
+    expect(returned).toBeDefined();
+
+    // AND no interaction_resolved envelope is published
+    expect(
+      publishedMessages.filter((m) => m.type === "interaction_resolved"),
+    ).toHaveLength(0);
+  });
+
   test("a single resolve emits exactly one event", () => {
     pendingInteractions.register("req-once", {
       conversationId: "conv-e",
