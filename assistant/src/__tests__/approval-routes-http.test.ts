@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { SecretPromptResult } from "../permissions/secret-prompter.js";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -196,6 +197,7 @@ function makeIdleSession(opts?: {
       pendingInteractions.resolve(requestId);
       opts?.onConfirmation?.(requestId, decision);
     },
+    hasPendingSecret: () => true,
     handleSecretResponse: (
       requestId: string,
       value?: string,
@@ -593,6 +595,54 @@ describe("standalone approval endpoints — HTTP layer", () => {
       await stopServer();
     });
 
+    test("resolves a conversation-less secret request via its resolver", async () => {
+      /**
+       * The CLI `credentials prompt` command registers a conversation-less
+       * secret interaction whose resolver lives in pendingInteractions. POST
+       * /v1/secret must drive that resolver directly — with no owning
+       * conversation — so the standalone prompt completes instead of only
+       * timing out.
+       */
+      // GIVEN a running server
+      await startServer(() => makeIdleSession());
+
+      // AND a conversation-less secret interaction whose resolver is captured
+      let resolved: SecretPromptResult | undefined;
+      pendingInteractions.register("standalone-secret-1", {
+        kind: "secret",
+        rpcResolve: (value: unknown) => {
+          resolved = value as SecretPromptResult;
+        },
+      });
+
+      // WHEN the secret is submitted for that requestId
+      const res = await fetch(url("secret"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+        body: JSON.stringify({
+          requestId: "standalone-secret-1",
+          value: "cli-secret-value",
+          delivery: "store",
+        }),
+      });
+      const body = (await res.json()) as { accepted: boolean };
+
+      // THEN the request is accepted
+      expect(res.status).toBe(200);
+      expect(body.accepted).toBe(true);
+
+      // AND the standalone resolver receives the value and delivery
+      expect(resolved).toEqual({
+        value: "cli-secret-value",
+        delivery: "store",
+      });
+
+      // AND the interaction is removed after resolution
+      expect(pendingInteractions.get("standalone-secret-1")).toBeUndefined();
+
+      await stopServer();
+    });
+
     test("returns 404 for unknown requestId", async () => {
       await startServer(() => makeIdleSession());
 
@@ -635,6 +685,47 @@ describe("standalone approval endpoints — HTTP layer", () => {
       });
 
       expect(res.status).toBe(400);
+
+      await stopServer();
+    });
+
+    test("rejects a non-secret requestId without consuming it", async () => {
+      /**
+       * /v1/secret only settles secret prompts. A confirmation (or any other
+       * interaction kind) posted here from stale client state must be rejected
+       * so its real approval endpoint still finds an intact pending interaction
+       * rather than one consumed and resolved with a SecretPromptResult.
+       */
+      // GIVEN a running server
+      await startServer(() => makeIdleSession());
+
+      // AND a pending confirmation interaction whose resolver would be corrupted
+      let resolverCalled = false;
+      pendingInteractions.register("confirm-not-secret", {
+        conversationId: "conv-1",
+        kind: "confirmation",
+        rpcResolve: () => {
+          resolverCalled = true;
+        },
+      });
+
+      // WHEN that confirmation's requestId is posted to /v1/secret
+      const res = await fetch(url("secret"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+        body: JSON.stringify({
+          requestId: "confirm-not-secret",
+          value: "leaked",
+          delivery: "store",
+        }),
+      });
+
+      // THEN the request is rejected
+      expect(res.status).toBe(404);
+
+      // AND the confirmation interaction is left intact and unresolved
+      expect(pendingInteractions.get("confirm-not-secret")).toBeDefined();
+      expect(resolverCalled).toBe(false);
 
       await stopServer();
     });
