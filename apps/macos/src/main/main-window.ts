@@ -25,15 +25,11 @@ import {
 // below its content.
 const ONBOARDING_CONTENT_SIZE = { width: 440, height: 660 } as const;
 
-// Default state for the main window once onboarding is done: native macOS
-// fullscreen. The 1280×800 rectangle is the windowed size the user lands on
-// when they exit fullscreen. Applies only until a real session is persisted —
-// after that, `window-state` restores whatever mode the user left.
-const MAIN_DEFAULT_BOUNDS = {
-  width: 1280,
-  height: 800,
-  fullscreen: true,
-} as const;
+// Default state for the main window once onboarding is done: maximized — a
+// normal window filling the display's work area, deliberately NOT native
+// macOS fullscreen. Applies only until a real session is persisted; after
+// that, `window-state` restores whatever bounds/mode the user left.
+const MAIN_DEFAULT_STATE = "maximized";
 
 // Minimum size for the main-app window, mirroring the macOS Swift client's
 // main window (`MainWindow.swift`: `contentMinSize` 800×600). The window can't
@@ -200,14 +196,13 @@ const createMainWindow = (): BrowserWindow => {
   const loadTarget = getRendererRootUrl(app.isPackaged);
 
   // Onboarding opens at the 440×660 default; otherwise restore the user's
-  // saved main-app state — which defaults to fullscreen when nothing has
-  // been persisted yet (`MAIN_DEFAULT_BOUNDS`). The `fullscreen` flag rides
-  // the spread into the `BrowserWindow` constructor, the same path a saved
-  // fullscreen session restores through. Both layouts are resizable larger,
-  // but each carries its own minimum (`minWidth`/`minHeight`): the compact
-  // onboarding flow can't be dragged below its 440×660 content, and the main
-  // app can't be dragged below 800×600 (mirroring the Swift client's
-  // `contentMinSize`).
+  // saved main-app state — which defaults to maximized (work-area bounds)
+  // when nothing has been persisted yet. A saved fullscreen session's
+  // `fullscreen` flag rides the spread into the `BrowserWindow` constructor.
+  // Both layouts are resizable larger, but each carries its own minimum
+  // (`minWidth`/`minHeight`): the compact onboarding flow can't be dragged
+  // below its 440×660 content, and the main app can't be dragged below
+  // 800×600 (mirroring the Swift client's `contentMinSize`).
   // The persisted flag lets a relaunch *during* onboarding rebuild the small
   // window directly (no flash); the absent-flag default is `false` (open large) so we
   // never cramp the `/account/*` screens that render outside RootLayout —
@@ -222,7 +217,7 @@ const createMainWindow = (): BrowserWindow => {
         useContentSize: true,
       }
     : {
-        ...restoreBounds("main", MAIN_DEFAULT_BOUNDS),
+        ...restoreBounds("main", MAIN_DEFAULT_STATE),
         minWidth: MAIN_MIN_SIZE.width,
         minHeight: MAIN_MIN_SIZE.height,
       };
@@ -397,10 +392,9 @@ export const dispatchToMain = (command: VellumCommand): void => {
  * navigation) is a cheap no-op past the early return.
  *
  * Native fullscreen is handled on both transitions: entering onboarding
- * leaves fullscreen first (the fresh-install default opens fullscreen at the
- * pre-onboarding `/account/*` screens), and leaving onboarding re-enters it
- * when the restored state — including that same fresh-install default —
- * calls for it.
+ * leaves fullscreen first (a restored fullscreen session, or a green-button
+ * press at the pre-onboarding `/account/*` screens), and leaving onboarding
+ * re-enters it when the saved session being restored was fullscreen.
  */
 export const setOnboarding = (active: boolean): void => {
   const wasActive = readOnboardingActive();
@@ -431,7 +425,7 @@ export const setOnboarding = (active: boolean): void => {
   } else {
     // Swap the onboarding floor for the roomier 800×600 main-app floor.
     win.setMinimumSize(MAIN_MIN_SIZE.width, MAIN_MIN_SIZE.height);
-    const bounds = restoreBounds("main", MAIN_DEFAULT_BOUNDS);
+    const bounds = restoreBounds("main", MAIN_DEFAULT_STATE);
     win.setBounds({ width: bounds.width, height: bounds.height });
     if (bounds.x !== undefined && bounds.y !== undefined) {
       win.setPosition(bounds.x, bounds.y);

@@ -167,8 +167,15 @@ mock.module("electron", () => ({
 }));
 
 // What the mocked `restoreBounds()` returns. Defaults to a saved windowed
-// state; tests exercising the fresh-install fullscreen default override it.
-let restoredBounds: { width: number; height: number; fullscreen?: boolean } = {
+// state; tests exercising the fresh-install maximized default or a saved
+// fullscreen session override it.
+let restoredBounds: {
+  x?: number;
+  y?: number;
+  width: number;
+  height: number;
+  fullscreen?: boolean;
+} = {
   width: 1280,
   height: 800,
 };
@@ -497,8 +504,7 @@ describe("onboarding window sizing", () => {
     expect(win.opts.minHeight).toBe(600);
     expect(win.opts.resizable).toBeUndefined();
     expect(win.stub.isResizable()).toBe(true);
-    // A saved windowed state stays windowed — the fullscreen default only
-    // applies while nothing has been persisted.
+    // A saved windowed state stays windowed — never upgraded to fullscreen.
     expect(win.opts.fullscreen).toBeUndefined();
   });
 
@@ -628,8 +634,38 @@ describe("onboarding window sizing", () => {
   });
 });
 
-describe("fullscreen default", () => {
-  test("constructs the main window fullscreen when the restored state says so (fresh-install default)", () => {
+describe("maximized default", () => {
+  test("constructs the main window at the restored work-area bounds (fresh-install default)", () => {
+    restoredBounds = { x: 0, y: 25, width: 1512, height: 944 };
+    ensureVisible();
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+    expect(win.opts.x).toBe(0);
+    expect(win.opts.y).toBe(25);
+    expect(win.opts.width).toBe(1512);
+    expect(win.opts.height).toBe(944);
+    // Maximized means work-area bounds — a normal window, never native
+    // fullscreen.
+    expect(win.opts.fullscreen).toBeUndefined();
+  });
+
+  test("setOnboarding(false) applies the work-area bounds without entering fullscreen", () => {
+    onboardingActive = true;
+    ensureVisible();
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+    restoredBounds = { x: 0, y: 25, width: 1512, height: 944 };
+
+    setOnboarding(false);
+
+    expect(win.stub.setBounds).toHaveBeenCalledWith({ width: 1512, height: 944 });
+    expect(win.stub.setPosition).toHaveBeenCalledWith(0, 25);
+    expect(win.stub.setFullScreen).not.toHaveBeenCalled();
+  });
+});
+
+describe("fullscreen session restore", () => {
+  test("constructs the main window fullscreen when the saved session was fullscreen", () => {
     restoredBounds = { width: 1280, height: 800, fullscreen: true };
     ensureVisible();
     const win = constructed[0];
