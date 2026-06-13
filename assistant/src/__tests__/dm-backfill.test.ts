@@ -372,9 +372,7 @@ describe("PR 23 — Slack DM cold-start backfill", () => {
     expect(row.slackMeta?.actorExternalUserId).toBe(SLACK_DM_USER_ID);
     expect(row.provenanceTrustClass).toBe("guardian");
     expect(row.provenanceSourceChannel).toBe("slack");
-    expect(row.provenanceGuardianExternalUserId).toBe(
-      SLACK_DM_USER_ID.toLowerCase(),
-    );
+    expect(row.provenanceGuardianExternalUserId).toBe(SLACK_DM_USER_ID);
     expect(row.provenanceRequesterIdentifier).toBe(SLACK_DM_USER_ID);
   });
 
