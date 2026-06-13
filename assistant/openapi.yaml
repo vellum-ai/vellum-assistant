@@ -19746,7 +19746,7 @@ paths:
                   processes:
                     type: array
                     items:
-                      $ref: "#/components/schemas/__schema0"
+                      $ref: "#/components/schemas/ProcessEntry"
                 required:
                   - processes
                 additionalProperties: false
@@ -28217,7 +28217,7 @@ components:
         - updatedAt
         - isManaged
       additionalProperties: false
-    __schema0:
+    ProcessEntry:
       type: object
       properties:
         name:
@@ -28231,7 +28231,7 @@ components:
         children:
           type: array
           items:
-            $ref: "#/components/schemas/__schema0"
+            $ref: "#/components/schemas/ProcessEntry"
         info:
           type: string
       required:
