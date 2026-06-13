@@ -168,6 +168,9 @@ async function handleSurfaceAction({
       ok: true,
       applied: result.applied,
       ...(!result.applied ? { reason: result.reason } : {}),
+      ...(result.applied && result.replyText
+        ? { replyText: result.replyText }
+        : {}),
     };
   }
 
@@ -325,6 +328,12 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .describe(
           "Explanation when applied is false (e.g. 'already_resolved', 'expired', 'principal_mismatch').",
+        )
+        .optional(),
+      replyText: z
+        .string()
+        .describe(
+          "Guardian-facing reply from the resolver (e.g. verification code for access-request approvals). Present only when applied is true and the resolver produced a reply.",
         )
         .optional(),
     }),
