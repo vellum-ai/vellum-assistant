@@ -22732,6 +22732,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -22796,6 +22800,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -22888,6 +22893,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -22952,6 +22961,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -23004,6 +23014,13 @@ paths:
                   description: Saved workflow to trigger (required for workflow mode)
                 workflowArgs:
                   description: Args passed to the workflow run (workflow mode)
+                inferenceProfile:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                  description:
+                    Inference profile (llm.profiles key) the schedule's runs use. Omitted or null = default, i.e. the mainAgent
+                    call-site model selection.
               required:
                 - name
                 - expression
@@ -23078,6 +23095,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -23142,6 +23163,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -23231,6 +23253,10 @@ paths:
                         anyOf:
                           - type: number
                           - type: "null"
+                      inferenceProfile:
+                        anyOf:
+                          - type: string
+                          - type: "null"
                       createdFromConversationId:
                         anyOf:
                           - type: string
@@ -23295,6 +23321,7 @@ paths:
                       - maxRetries
                       - retryBackoffMs
                       - timeoutMs
+                      - inferenceProfile
                       - createdFromConversationId
                       - createdFromConversationExists
                       - createdFromConversationArchivedAt
@@ -23386,6 +23413,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -23450,6 +23481,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -23523,6 +23555,13 @@ paths:
                     - type: number
                     - type: "null"
                   description: Script-mode execution timeout in ms; null = use default
+                inferenceProfile:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                  description:
+                    Inference profile (llm.profiles key) the schedule's runs use; null clears it back to the default mainAgent
+                    call-site model selection
               additionalProperties: false
   /v1/schedules/{id}/cancel:
     post:
@@ -23593,6 +23632,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -23657,6 +23700,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -23749,6 +23793,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -23813,6 +23861,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -24006,6 +24055,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -24070,6 +24123,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -27148,6 +27202,19 @@ paths:
                   conversationId:
                     type: string
                     description: Id of a newly launched conversation when the action dispatched one. Omitted otherwise.
+                  applied:
+                    type: boolean
+                    description:
+                      Whether the action was applied. Present only for guardian decision actions (apr:*). False when the request
+                      was already resolved, expired, or the actor lacks permission.
+                  reason:
+                    type: string
+                    description: Explanation when applied is false (e.g. 'already_resolved', 'expired', 'principal_mismatch').
+                  replyText:
+                    type: string
+                    description:
+                      Guardian-facing reply from the resolver (e.g. verification code for access-request approvals). Present only
+                      when applied is true and the resolver produced a reply.
                 required:
                   - ok
                 additionalProperties: false

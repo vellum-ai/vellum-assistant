@@ -5355,6 +5355,10 @@ public struct UsageUpdate: Codable, Sendable {
     public let conversationId: String?
     public let inputTokens: Int
     public let outputTokens: Int
+    /// Per-call prompt-cache token counts, as reported by the provider.
+    /// Optional: older daemons omit them. `inputTokens` already includes these.
+    public let cacheCreationInputTokens: Int?
+    public let cacheReadInputTokens: Int?
     public let totalInputTokens: Int
     public let totalOutputTokens: Int
     public let estimatedCost: Double
@@ -5363,6 +5367,8 @@ public struct UsageUpdate: Codable, Sendable {
     public let contextWindowMaxTokens: Int?
 
     public init(type: String, conversationId: String? = nil, inputTokens: Int, outputTokens: Int,
+                cacheCreationInputTokens: Int? = nil,
+                cacheReadInputTokens: Int? = nil,
                 totalInputTokens: Int, totalOutputTokens: Int,
                 estimatedCost: Double, model: String,
                 contextWindowTokens: Int? = nil,
@@ -5371,6 +5377,8 @@ public struct UsageUpdate: Codable, Sendable {
         self.conversationId = conversationId
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
+        self.cacheCreationInputTokens = cacheCreationInputTokens
+        self.cacheReadInputTokens = cacheReadInputTokens
         self.totalInputTokens = totalInputTokens
         self.totalOutputTokens = totalOutputTokens
         self.estimatedCost = estimatedCost

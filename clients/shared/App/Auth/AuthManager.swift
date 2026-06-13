@@ -145,81 +145,79 @@ public final class AuthManager {
         state = .validationFailed(lastError: lastError ?? AuthServiceError.networkError(URLError(.unknown)))
     }
 
+    /// Logs in via app-held WorkOS User Management PKCE.
+    ///
+    /// The client drives WorkOS directly (rather than letting Django run the
+    /// OAuth flow server-side) and exchanges the resulting WorkOS access
+    /// token for its own Django session token:
+    ///   1. Discover the WorkOS UM client id from the platform's headless
+    ///      config.
+    ///   2. Generate an S256 PKCE pair + CSRF `state`.
+    ///   3. Authorize at WorkOS via `ASWebAuthenticationSession`, receiving
+    ///      the one-time code on `{scheme}://auth/callback`.
+    ///   4. Exchange the code at WorkOS as a PUBLIC client → `access_token`.
+    ///   5. Exchange the access token for a Django session token via allauth's
+    ///      headless `auth/provider/token` endpoint, then store it.
     public func startWorkOSLogin() async {
         isSubmitting = true
         errorMessage = nil
         defer { isSubmitting = false }
 
         do {
-            guard let stateParam = generateRandomString(length: 32) else {
-                throw AuthServiceError.authCallbackFailed("Failed to generate secure random state.")
+            // 1. Discover the token-auth WorkOS UM client id. During the
+            // coexistence window two `workos-oidc` entries are listed; the
+            // OAuth2 one (provider_token flow, no OIDC discovery URL) is the
+            // usable one.
+            let config = try await authService.getConfig()
+            let providers = config.data?.socialaccount?.providers ?? []
+            guard let clientID = WorkOSPKCE.selectWorkosClientId(providers) else {
+                throw WorkOSPKCE.PkceError.noTokenAuthProvider
             }
 
-            // Build /accounts/native/start?state={state}. The server
-            // determines the callback scheme from settings.ENVIRONMENT
-            // — the client no longer sends it (ATL-454).
-            //
-            // ``client_version`` is forwarded so the server can attribute
-            // callback hits to a specific macOS build in
-            // ``native_login_callback`` (ATL-466). Absence of the param on
-            // the server-side fallback branch is the signal that a
-            // pre-ATL-454 (≤ v0.7.2) build initiated the flow — when that
-            // signal disappears from the logs, ``session_token`` can be
-            // dropped from the legacy redirect.
-            guard var startComponents = URLComponents(string: VellumEnvironment.resolvedWebURL) else {
-                throw AuthServiceError.invalidURL
-            }
-            startComponents.path = "/accounts/native/start"
-            var queryItems = [URLQueryItem(name: "state", value: stateParam)]
-            if let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
-               !clientVersion.isEmpty {
-                queryItems.append(URLQueryItem(name: "client_version", value: clientVersion))
-            }
-            startComponents.queryItems = queryItems
-
-            guard let loginURL = startComponents.url else {
-                throw AuthServiceError.invalidURL
+            // 2. PKCE pair + CSRF state.
+            guard let pkce = WorkOSPKCE.generatePkcePair(),
+                  let stateParam = WorkOSPKCE.randomBase64URLString(byteCount: 32) else {
+                throw WorkOSPKCE.PkceError.randomGenerationFailed
             }
 
-            let callbackURL = try await performWebAuth(url: loginURL, callbackScheme: Self.callbackScheme)
+            // 3. Authorize at WorkOS. The redirect URI is the app's custom
+            // scheme from CFBundleURLSchemes (vellum-assistant in prod,
+            // vellum-assistant-{env} otherwise). performWebAuth keeps its
+            // non-ephemeral session so existing Safari IdP cookies are reused.
+            let redirectURI = WorkOSPKCE.redirectURI(scheme: Self.callbackScheme)
+            let authURL = try WorkOSPKCE.buildAuthorizeURL(
+                clientID: clientID,
+                redirectURI: redirectURI,
+                challenge: pkce.challenge,
+                state: stateParam
+            )
 
-            guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
-                  let queryItems = components.queryItems else {
-                throw AuthServiceError.authCallbackFailed("Missing callback URL components.")
-            }
+            let callbackURL = try await performWebAuth(url: authURL, callbackScheme: Self.callbackScheme)
+            let code = try WorkOSPKCE.extractCode(from: callbackURL, expectedState: stateParam)
 
-            let returnedState = queryItems.first(where: { $0.name == "state" })?.value
+            // 4. Exchange the code at WorkOS as a public client (no secret).
+            let accessToken = try await authService.exchangeWorkOSCode(
+                clientID: clientID,
+                code: code,
+                verifier: pkce.verifier
+            )
 
-            if let authError = queryItems.first(where: { $0.name == "error" })?.value, !authError.isEmpty {
-                throw AuthServiceError.authCallbackFailed("Auth error: \(authError)")
-            }
-
-            guard let returnedState else {
-                throw AuthServiceError.authCallbackFailed("Callback missing state.")
-            }
-
-            guard returnedState == stateParam else {
-                throw AuthServiceError.authCallbackFailed("State mismatch — possible CSRF.")
-            }
-
-            guard let code = queryItems.first(where: { $0.name == "code" })?.value, !code.isEmpty else {
-                throw AuthServiceError.authCallbackFailed("Callback missing authorization code.")
-            }
-
-            // Exchange the one-time code for a session token via POST.
-            // The code is short-lived (30 s) and single-use (ATL-454).
-            let sessionToken = try await exchangeCodeForSession(code: code)
+            // 5. Exchange the WorkOS access token for a Django session token.
+            let sessionToken = try await authService.exchangeWorkOSAccessTokenForSession(
+                clientID: clientID,
+                accessToken: accessToken
+            )
 
             await SessionTokenManager.setTokenAsync(sessionToken)
 
             let session = try await authService.getSession()
             if session.status == 200, session.meta?.is_authenticated != false, let user = session.data?.user {
                 state = .authenticated(user)
-                log.info("Login completed via native auth flow for user \(user.id ?? user.email ?? "unknown", privacy: .public)")
+                log.info("Login completed via WorkOS PKCE for user \(user.id ?? user.email ?? "unknown", privacy: .public)")
                 await resolveOrganizationIdAfterAuth()
                 await postAuthenticationHook?()
             } else {
-                log.error("Session validation after native auth flow did not return authenticated user. status=\(session.status, privacy: .public)")
+                log.error("Session validation after WorkOS PKCE did not return authenticated user. status=\(session.status, privacy: .public)")
                 errorMessage = "Authentication was not completed. Please try again."
             }
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
@@ -228,38 +226,6 @@ public final class AuthManager {
             log.error("Login failed: baseURL=\(VellumEnvironment.resolvedPlatformURL, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             errorMessage = "Unable to sign in. Please try again."
         }
-    }
-
-    /// Exchange a one-time authorization code for a session token.
-    private func exchangeCodeForSession(code: String) async throws -> String {
-        guard var exchangeComponents = URLComponents(string: VellumEnvironment.resolvedWebURL) else {
-            throw AuthServiceError.invalidURL
-        }
-        exchangeComponents.path = "/accounts/native/exchange"
-
-        guard let exchangeURL = exchangeComponents.url else {
-            throw AuthServiceError.invalidURL
-        }
-
-        var request = URLRequest(url: exchangeURL)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["code": code])
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-            throw AuthServiceError.authCallbackFailed("Code exchange failed with status \(statusCode).")
-        }
-
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let sessionToken = json["session_token"] as? String,
-              !sessionToken.isEmpty else {
-            throw AuthServiceError.authCallbackFailed("Code exchange returned invalid response.")
-        }
-
-        return sessionToken
     }
 
     /// Logs out by deleting the server session, clearing local tokens and
@@ -297,17 +263,6 @@ public final class AuthManager {
         } catch {
             log.warning("Failed to resolve organization ID post-auth: \(error.localizedDescription, privacy: .public)")
         }
-    }
-
-    /// Generate a cryptographically random base64url string.
-    /// Returns `nil` if the system RNG is unavailable — callers must
-    /// treat this as a fatal condition since the state parameter is the
-    /// sole CSRF defense on the auth callback.
-    private func generateRandomString(length: Int) -> String? {
-        var bytes = [UInt8](repeating: 0, count: length)
-        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
-        guard status == errSecSuccess else { return nil }
-        return Data(bytes).base64URLEncodedString()
     }
 
     private func performWebAuth(url: URL, callbackScheme: String) async throws -> URL {

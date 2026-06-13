@@ -1259,6 +1259,30 @@ the `Vellum-Organization-Id` header and uses bearer auth instead.
 
   Reference: [Zustand — Testing](https://zustand.docs.pmnd.rs/guides/testing)
 
+### Storybook
+
+Stories are tests, not just visual demos. They verify that a component
+renders correctly given the data it actually receives in production.
+
+- **Use the component's prop types, not ad-hoc shapes.** Each story
+  should construct props that match the component's typed interface.
+  If the component accepts `Surface`, construct a valid `Surface` —
+  the type system enforces correctness.
+- **Data must match production format.** Story data should reflect what
+  the backend actually produces. If the backend has a bug (e.g.
+  warnings rendering on one line), fix the backend — don't patch the
+  story data to compensate. Backend builder correctness is verified by
+  backend unit tests; stories verify the component renders that data
+  correctly.
+- **Keep helpers thin.** A story helper that constructs the prop object
+  (e.g. filling in `surfaceId`, `surfaceType`, `actions`) is fine as
+  long as it accepts the component's data shape directly. Don't create
+  helpers that transform a different input format into the prop shape —
+  that adds a layer of indirection that hides what the component
+  actually receives.
+
+Reference: [Storybook — Writing stories](https://storybook.js.org/docs/writing-stories)
+
 ---
 
 ## Dead code and cleanup

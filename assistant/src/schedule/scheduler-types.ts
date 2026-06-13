@@ -16,6 +16,12 @@ export interface ScheduleMessageOptions {
    * the default `mainAgent` route.
    */
   callSite?: LLMCallSite;
+  /**
+   * Optional ad-hoc inference-profile override (`llm.profiles` key) applied
+   * to every LLM call the run issues — a schedule's pinned profile. Omitted
+   * = the call site's default resolution (main-agent model selection).
+   */
+  overrideProfile?: string;
 }
 
 export type ScheduleMessageProcessor = (

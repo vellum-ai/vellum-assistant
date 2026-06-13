@@ -994,6 +994,9 @@ export async function runDaemon(): Promise<void> {
                     }
                   : {}),
                 ...(options.taskRunId ? { taskRunId: options.taskRunId } : {}),
+                ...(options.overrideProfile
+                  ? { overrideProfile: options.overrideProfile }
+                  : {}),
               }
             : undefined,
         );

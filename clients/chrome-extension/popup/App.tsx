@@ -119,10 +119,15 @@ export function App() {
       assistants?: CloudAssistant[];
       assistantsError?: string;
       error?: string;
+      cancelled?: boolean;
     }>({ type: 'cloud-login' }).then((response) => {
       setSigningIn(false);
 
       if (!response?.ok) {
+        // User dismissed the auth window — return to the idle state quietly.
+        if (response?.cancelled) {
+          return;
+        }
         setSignInError(response?.error ?? 'Sign-in failed. Please try again.');
         return;
       }
