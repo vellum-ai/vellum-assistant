@@ -517,6 +517,91 @@ describe("report html", () => {
     }
   });
 
+  test("a dynamic_page surface renders as a sandboxed iframe, not raw JSON", () => {
+    // GIVEN an assistant stream that shows a dynamic_page surface whose html
+    // touches localStorage during init (as generated apps commonly do)
+    const pageHtml =
+      "<!DOCTYPE html><html><head><title>Calc</title></head><body>" +
+      '<script>localStorage.setItem("k", "v")</script>' +
+      '<div id="app">Calculator</div></body></html>';
+
+    // WHEN we render the execution page
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        transcript: [
+          {
+            role: "simulator",
+            content: "build me a calculator",
+            emittedAt: "2026-05-15T12:00:00.000Z",
+          },
+        ],
+        assistantEvents: [
+          {
+            message: {
+              type: "ui_surface_show",
+              surfaceType: "dynamic_page",
+              title: "Calculator",
+              data: { html: pageHtml, height: 520 },
+            },
+            emittedAt: "2026-05-15T12:00:01.000Z",
+          },
+        ],
+      },
+    });
+
+    // THEN the surface renders in an iframe sandboxed without same-origin, so
+    // its scripts run but can't reach the report's origin, cookies, or storage
+    expect(html).toMatch(/<iframe\b/i);
+    expect(html).toContain('sandbox="allow-scripts"');
+    expect(html).not.toContain("allow-same-origin");
+    // AND the page html rides in the (HTML-escaped) srcDoc attribute, so no
+    // live <script> leaks into the report document itself
+    expect(html).toMatch(/srcdoc=/i);
+    expect(html).not.toMatch(/<script\b/i);
+    // AND a storage polyfill is injected so sandboxed pages that touch
+    // localStorage during init still render (sessionStorage appears only here)
+    expect(html).toContain("sessionStorage");
+    // AND the numeric height hint sizes the frame
+    expect(html).toContain("520px");
+    // AND the raw payload stays available under a collapsible
+    expect(html).toContain("Surface data");
+  });
+
+  test("non-dynamic_page surfaces still render their payload as JSON", () => {
+    // GIVEN an assistant stream that shows a non-dynamic_page surface
+    // WHEN we render the execution page
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        transcript: [
+          {
+            role: "simulator",
+            content: "hi",
+            emittedAt: "2026-05-15T12:00:00.000Z",
+          },
+        ],
+        assistantEvents: [
+          {
+            message: {
+              type: "ui_surface_show",
+              surfaceType: "card",
+              title: "Limit reached",
+              data: { body: "Continue?" },
+            },
+            emittedAt: "2026-05-15T12:00:01.000Z",
+          },
+        ],
+      },
+    });
+
+    // THEN the card surface keeps the JSON fallback rather than an iframe
+    expect(html).not.toMatch(/<iframe\b/i);
+    expect(html).toContain("Continue?");
+  });
+
   test("execution page inlines docker forensics in the same block shape as subprocess logs", () => {
     // Vargas's request: the Docker snapshot section reads in the same
     // scroll as the subprocess logs below it — no clicking through to

@@ -295,6 +295,12 @@ td .row-link { display: block; }
 .block-tool-io-label { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .14em; font-weight: 800; margin-bottom: 4px; }
 .block-tool-io pre { margin: 0; max-height: 280px; overflow: auto; padding: 10px 12px; border-radius: 10px; background: rgba(0,0,0,.4); border: 1px solid var(--border); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 .block-surface { border-color: rgba(139,92,246,.28); background: rgba(139,92,246,.06); }
+.block-page { padding: 8px; }
+.block-page-head { display: flex; align-items: center; gap: 10px; padding: 4px 6px 8px; }
+.block-page-frame { display: block; width: 100%; height: 480px; border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+.block-page-source { margin-top: 8px; }
+.block-page-source > summary { cursor: pointer; padding: 4px 6px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; font-weight: 800; user-select: none; }
+.block-page-source > summary::-webkit-details-marker { display: none; }
 pre.log { max-height: 480px; overflow: auto; padding: 16px; border-radius: 16px; background: rgba(0,0,0,.45); border: 1px solid var(--border); color: #dbeafe; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 .log-line { display: flex; gap: 12px; padding: 2px 0; }
 .log-ts { color: var(--muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
@@ -1117,6 +1123,69 @@ function formatBlockJson(value: unknown): string {
   }
 }
 
+/**
+ * Narrow a `dynamic_page` surface payload to its renderable HTML plus an
+ * optional pixel-height hint. Returns undefined when the payload carries no
+ * usable html string, so the caller falls back to the JSON view.
+ */
+function dynamicPageHtml(
+  data: unknown,
+): { html: string; height?: number } | undefined {
+  if (typeof data !== "object" || data === null || !("html" in data)) {
+    return undefined;
+  }
+  const { html } = data;
+  if (typeof html !== "string" || html.length === 0) {
+    return undefined;
+  }
+  let height: number | undefined;
+  if ("height" in data) {
+    const raw = data.height;
+    if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) {
+      height = Math.min(Math.max(Math.round(raw), 200), 1200);
+    }
+  }
+  return { html, height };
+}
+
+/**
+ * In-memory `localStorage` / `sessionStorage` shim prepended into the
+ * sandboxed surface iframe. Without `allow-same-origin` those globals throw a
+ * `SecurityError`, breaking any page that touches them during init. Mirrors
+ * the canonical bridge in apps/web/src/utils/sandbox-bridge.ts (the web chat
+ * renders the same surfaces); kept inline because evals is a separate build
+ * unit that can't import the web app.
+ */
+const SURFACE_STORAGE_POLYFILL = `<script>
+(function(){
+  var store={};
+  var shim={
+    getItem:function(k){return Object.prototype.hasOwnProperty.call(store,k)?store[k]:null;},
+    setItem:function(k,v){store[k]=String(v);},
+    removeItem:function(k){delete store[k];},
+    clear:function(){store={};},
+    get length(){return Object.keys(store).length;},
+    key:function(i){return Object.keys(store)[i]||null;}
+  };
+  try{Object.defineProperty(window,'localStorage',{value:shim,writable:true,configurable:true});}catch(e){window.localStorage=shim;}
+  try{Object.defineProperty(window,'sessionStorage',{value:shim,writable:true,configurable:true});}catch(e){window.sessionStorage=shim;}
+})();
+</script>`;
+
+/**
+ * Prepend the storage polyfill so it runs before any inline page script.
+ * Insertion priority matches the web app's bridge: right after `<head>`,
+ * else prepended to the raw markup.
+ */
+function prepareSurfaceHtml(html: string): string {
+  const headMatch = /<head(\s[^>]*)?>/i.exec(html);
+  if (headMatch) {
+    const at = headMatch.index + headMatch[0].length;
+    return html.slice(0, at) + SURFACE_STORAGE_POLYFILL + html.slice(at);
+  }
+  return SURFACE_STORAGE_POLYFILL + html;
+}
+
 function ToolCallBlock({
   block,
 }: {
@@ -1171,14 +1240,42 @@ function AssistantMessage({ message }: { message: AssistantMessageView }) {
         if (block.kind === "tool_call") {
           return <ToolCallBlock key={index} block={block} />;
         }
+        const label = `${block.surfaceType}${block.title ? ` — ${block.title}` : ""}`;
+        const page =
+          block.surfaceType === "dynamic_page"
+            ? dynamicPageHtml(block.data)
+            : undefined;
+        if (page) {
+          return (
+            <div key={index} className="block-tool block-surface block-page">
+              <div className="block-page-head">
+                <span className="block-tool-glyph">▢</span>
+                <span className="block-tool-name">{label}</span>
+              </div>
+              {/* Untrusted assistant-generated HTML: sandbox without
+                  allow-same-origin so scripts run but can't reach the report
+                  origin, cookies, or storage. */}
+              <iframe
+                className="block-page-frame"
+                title={label}
+                sandbox="allow-scripts"
+                srcDoc={prepareSurfaceHtml(page.html)}
+                style={page.height ? { height: `${page.height}px` } : undefined}
+              />
+              <details className="block-page-source">
+                <summary>Surface data</summary>
+                <div className="block-tool-io">
+                  <pre>{formatBlockJson(block.data)}</pre>
+                </div>
+              </details>
+            </div>
+          );
+        }
         return (
           <details key={index} className="block-tool block-surface">
             <summary>
               <span className="block-tool-glyph">▢</span>
-              <span className="block-tool-name">
-                {block.surfaceType}
-                {block.title ? ` — ${block.title}` : ""}
-              </span>
+              <span className="block-tool-name">{label}</span>
             </summary>
             {block.data !== undefined && (
               <div className="block-tool-io">
