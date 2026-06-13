@@ -192,6 +192,7 @@ import {
   migrateRenameVerificationTable,
   migrateRenameVoiceToPhone,
   migrateScheduleDescription,
+  migrateScheduleInferenceProfile,
   migrateScheduleOneShotRouting,
   migrateScheduleQuietFlag,
   migrateScheduleRetryPolicy,
@@ -501,6 +502,7 @@ export function initializeDb(): void {
     createSkillLoadedEventsTable,
     migrateConversationsSurfacedAt,
     migrateMemoryRetrospectiveRememberedLog,
+    migrateScheduleInferenceProfile,
     migrateContactChannelsUniqueExtUser,
   ];
 

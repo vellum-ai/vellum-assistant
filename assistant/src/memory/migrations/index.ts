@@ -273,7 +273,8 @@ export { migrateToolInvocationsTelemetryColumns } from "./278-tool-invocations-t
 export { createSkillLoadedEventsTable } from "./279-create-skill-loaded-events.js";
 export { migrateConversationsSurfacedAt } from "./280-conversations-surfaced-at.js";
 export { migrateMemoryRetrospectiveRememberedLog } from "./281-memory-retrospective-remembered-log.js";
-export { migrateContactChannelsUniqueExtUser } from "./282-contact-channels-unique-ext-user.js";
+export { migrateScheduleInferenceProfile } from "./282-schedule-inference-profile.js";
+export { migrateContactChannelsUniqueExtUser } from "./283-contact-channels-unique-ext-user.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

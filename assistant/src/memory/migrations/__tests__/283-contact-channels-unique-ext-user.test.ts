@@ -5,7 +5,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getSqliteFrom } from "../../db-connection.js";
 import * as schema from "../../schema.js";
-import { migrateContactChannelsUniqueExtUser } from "../282-contact-channels-unique-ext-user.js";
+import { migrateContactChannelsUniqueExtUser } from "../283-contact-channels-unique-ext-user.js";
 
 interface IndexRow {
   name: string;
@@ -120,7 +120,7 @@ function getIndexes(raw: Database): IndexRow[] {
     .all();
 }
 
-describe("migration 282 — contact_channels unique (type, external_user_id)", () => {
+describe("migration 283 — contact_channels unique (type, external_user_id)", () => {
   test("no-op on clean database (no duplicates)", () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);

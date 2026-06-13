@@ -17,6 +17,8 @@ export interface AgentEvent {
     input?: Record<string, unknown>;
     result?: string;
     isError?: boolean;
+    riskLevel?: string;
+    riskReason?: string;
     content?: string;
     message?: string;
     chunk?: string;
@@ -57,6 +59,21 @@ export interface ConfirmationDecision {
   requestId: string;
   /** Whether to approve or reject the pending tool call. */
   decision: "allow" | "deny";
+}
+
+/**
+ * Extract the `requestId` from a pending tool-confirmation event, or
+ * `undefined` if the event isn't a `confirmation_request`. A hatched
+ * assistant runs headless with no interactive approver, so any tool the
+ * agent reaches for above the auto-approve risk threshold stalls on such
+ * an event until something answers it.
+ */
+export function confirmationRequestId(event: AgentEvent): string | undefined {
+  if (event.message.type !== "confirmation_request") return undefined;
+  const requestId = event.message.requestId;
+  return typeof requestId === "string" && requestId.length > 0
+    ? requestId
+    : undefined;
 }
 
 export interface BaseAgent {

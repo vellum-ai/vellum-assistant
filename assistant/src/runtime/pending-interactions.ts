@@ -51,7 +51,12 @@ export interface ConfirmationDetails {
 }
 
 export interface PendingInteraction {
-  conversationId: string;
+  /**
+   * Owning conversation, when the interaction was raised inside one. Absent
+   * for interactions raised outside any conversation (e.g. the CLI
+   * `credentials prompt` command), which resolve via {@link rpcResolve}.
+   */
+  conversationId?: string;
   kind:
     | "confirmation"
     | "secret"
@@ -140,6 +145,10 @@ function emitResolved(
     },
     "Pending interaction resolved",
   );
+  // interaction_resolved is conversation-scoped on the wire; a conversation-less
+  // interaction has no conversation for clients to route the event to, so skip
+  // the broadcast.
+  if (interaction.conversationId === undefined) return;
   broadcastMessage({
     type: "interaction_resolved",
     requestId,
@@ -204,6 +213,16 @@ export function removeByConversation(
     ) {
       // resolve() clears the stored timer and detaches abort listeners.
       resolve(requestId, state);
+      // Secret prompts have no abort-signal teardown (unlike questions) and
+      // are not pre-settled by denyAllPendingConfirmations (unlike
+      // confirmations), so removing the entry alone would leave the caller's
+      // Promise — the CLI `credentials prompt` command or the in-conversation
+      // SecretPrompter — hanging until its IPC client times out. Settle it
+      // with a cancelled result, matching the prompt timeout path. rpcResolve
+      // is idempotent, so any later resolveSecret/dispose call is a no-op.
+      if (interaction.kind === "secret") {
+        interaction.rpcResolve?.({ value: null, delivery: "store" });
+      }
     }
   }
 }

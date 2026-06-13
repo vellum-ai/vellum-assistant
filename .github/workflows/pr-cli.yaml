@@ -19,6 +19,9 @@ jobs:
   checks:
     name: Lint, Type Check & Test
     runs-on: ubuntu-latest
+    # The suite normally finishes in ~1 minute; without a cap, a hung
+    # `bun test` occupies a runner for GitHub's 6-hour default.
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: cli

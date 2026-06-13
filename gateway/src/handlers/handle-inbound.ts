@@ -153,6 +153,8 @@ export async function handleInbound(
           timezone: event.actor.timezone,
           timezoneLabel: event.actor.timezoneLabel,
           timezoneOffsetSeconds: event.actor.timezoneOffsetSeconds,
+          isStranger: event.actor.isStranger,
+          isRestricted: event.actor.isRestricted,
           ...(transportHints.length > 0 ? { hints: transportHints } : {}),
           ...(transportUxBrief ? { uxBrief: transportUxBrief } : {}),
           ...(options?.sourceMetadata ?? {}),
@@ -175,7 +177,9 @@ export async function handleInbound(
         duplicate: response.duplicate,
         hasReply: !!response.assistantMessage,
         denied: response.denied ?? false,
-        deniedReason: response.denied ? (response.reason ?? "unknown") : undefined,
+        deniedReason: response.denied
+          ? (response.reason ?? "unknown")
+          : undefined,
       },
       response.denied
         ? "Inbound event denied by runtime"

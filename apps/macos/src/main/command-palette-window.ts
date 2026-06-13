@@ -51,7 +51,6 @@ const payloadlessCommandKindSchema = z.enum([
   "zoomOut",
   "actualSize",
   "createAssistant",
-  "cancelActiveAction",
   "replayOnboarding",
   "previewPrechat",
   "openComponentGallery",

@@ -6227,8 +6227,14 @@ paths:
                         - createdAt
                       additionalProperties: false
                     description: Consolidation run records
+                  nextCursor:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description: Cursor for fetching older runs (pass as `before`); null when no older runs exist
                 required:
                   - runs
+                  - nextCursor
                 additionalProperties: false
       parameters:
         - name: limit
@@ -6237,6 +6243,12 @@ paths:
           schema:
             type: integer
           description: Max runs to return (default 20, max 100)
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: "Cursor for older runs: pass the previous page's `nextCursor` to return runs strictly older than it."
   /v1/contact-channels/{contactChannelId}:
     patch:
       operationId: contactchannels_by_contactChannelId_patch
@@ -10549,6 +10561,8 @@ paths:
                       - hostPattern
                       - injectionType
                     additionalProperties: false
+                conversationId:
+                  type: string
               required:
                 - service
                 - field
@@ -13423,8 +13437,14 @@ paths:
                         - createdAt
                       additionalProperties: false
                     description: Heartbeat run records
+                  nextCursor:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description: Cursor for fetching older runs (pass as `before`); null when no older runs exist
                 required:
                   - runs
+                  - nextCursor
                 additionalProperties: false
       parameters:
         - name: limit
@@ -13433,6 +13453,12 @@ paths:
           schema:
             type: integer
           description: Max runs to return (default 20, max 100)
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: "Cursor for older runs: pass the previous page's `nextCursor` to return runs strictly older than it."
   /v1/home/feed:
     get:
       operationId: home_feed_get
@@ -20880,7 +20906,6 @@ paths:
                           type: string
                       required:
                         - requestId
-                        - conversationId
                         - kind
                       additionalProperties: false
                     description: All pending interactions (returned when no filters given)
@@ -22428,6 +22453,174 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/retrospective/config:
+    get:
+      operationId: retrospective_config_get
+      summary: Get memory retrospective config
+      description:
+        Return the memory retrospective configuration. Retrospectives are event-driven background passes triggered
+        per conversation after activity (time/message thresholds, pre-compaction) — there is no global schedule, so
+        `nextRunAt` is always null and no run-now endpoint exists. `intervalMs` is the per-conversation time threshold
+        (`memory.retrospective.timeThresholdMs`), `lastRunAt` is the `createdAt` of the most recent retrospective
+        conversation across both legacy and fork sources, and `available` gates on `memory.enabled` (not
+        `memory.v2.enabled`).
+      tags:
+        - retrospective
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available:
+                    type: boolean
+                  enabled:
+                    type: boolean
+                  intervalMs:
+                    type: number
+                  nextRunAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  lastRunAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  success:
+                    type: boolean
+                required:
+                  - available
+                  - enabled
+                  - intervalMs
+                  - nextRunAt
+                  - lastRunAt
+                  - success
+                additionalProperties: false
+  /v1/retrospective/runs:
+    get:
+      operationId: retrospective_runs_get
+      summary: List memory retrospective runs
+      description:
+        "Return recent memory retrospective conversations as run records, merged across both sources
+        (`memory-retrospective` → kind `legacy`, `memory-retrospective-fork` → kind `fork`) and sorted newest first.
+        Each retrospective dispatch creates exactly one background conversation; that conversation IS the run. Shape
+        mirrors `consolidation/runs` (synthetic `id`/`scheduledFor`/`startedAt` from the conversation row,
+        `finishedAt`/`status` from assistant-message presence, `skipReason`/`error` always null) plus `kind` and `title`
+        (fork runs are titled '<source title> (Retrospective)', which identifies what was reviewed). For fork runs,
+        copied source messages keep their original timestamps, so only assistant messages at or after the fork's
+        creation count as agent output. NOTE: superseded runs are garbage-collected by default
+        (`memory.retrospective.keepSupersededRuns: false` deletes the prior run when a newer one succeeds), so this
+        lists what currently exists — typically the most recent run per source conversation unless the operator retains
+        history."
+      tags:
+        - retrospective
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        scheduledFor:
+                          type: number
+                        startedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        finishedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        durationMs:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        status:
+                          type: string
+                          enum:
+                            - ok
+                            - running
+                        skipReason:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        error:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        conversationId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        conversationExists:
+                          type: boolean
+                        conversationArchivedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        estimatedCostUsd:
+                          type: number
+                        createdAt:
+                          type: number
+                        kind:
+                          type: string
+                          enum:
+                            - legacy
+                            - fork
+                        title:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - id
+                        - scheduledFor
+                        - startedAt
+                        - finishedAt
+                        - durationMs
+                        - status
+                        - skipReason
+                        - error
+                        - conversationId
+                        - conversationExists
+                        - conversationArchivedAt
+                        - estimatedCostUsd
+                        - createdAt
+                        - kind
+                        - title
+                      additionalProperties: false
+                    description: Retrospective run records
+                  nextCursor:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description: Cursor for fetching older runs (pass as `before`); null when no older runs exist
+                required:
+                  - runs
+                  - nextCursor
+                additionalProperties: false
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Max runs to return (default 20, max 100)
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: "Cursor for older runs: pass the previous page's `nextCursor` to return runs strictly older than it."
   /v1/sanity/connect:
     post:
       operationId: sanity_connect_post
@@ -22540,6 +22733,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -22599,6 +22796,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -22690,6 +22888,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -22749,6 +22951,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -22795,6 +22998,13 @@ paths:
                 mode:
                   type: string
                   description: Currently must be 'execute'
+                inferenceProfile:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                  description:
+                    Inference profile (llm.profiles key) the schedule's runs use. Omitted or null = default, i.e. the mainAgent
+                    call-site model selection.
               required:
                 - name
                 - expression
@@ -22869,6 +23079,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -22928,6 +23142,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -22943,6 +23158,158 @@ paths:
                     description: Updated schedule list
                 required:
                   - schedules
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+    get:
+      operationId: schedules_by_id_get
+      summary: Get schedule
+      description: Return a single schedule by ID.
+      tags:
+        - schedules
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schedule:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      name:
+                        type: string
+                      enabled:
+                        type: boolean
+                      syntax:
+                        type: string
+                        enum:
+                          - cron
+                          - rrule
+                      expression:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      cronExpression:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      timezone:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      message:
+                        type: string
+                      script:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      nextRunAt:
+                        type: number
+                      lastRunAt:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      lastStatus:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      retryCount:
+                        type: number
+                      maxRetries:
+                        type: number
+                      retryBackoffMs:
+                        type: number
+                      timeoutMs:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      inferenceProfile:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      createdFromConversationId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      createdFromConversationExists:
+                        type: boolean
+                      createdFromConversationArchivedAt:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      description:
+                        type: string
+                      cadenceDescription:
+                        type: string
+                      mode:
+                        type: string
+                        enum:
+                          - notify
+                          - execute
+                          - script
+                          - wake
+                      status:
+                        type: string
+                        enum:
+                          - active
+                          - firing
+                          - fired
+                          - cancelled
+                      routingIntent:
+                        type: string
+                        enum:
+                          - single_channel
+                          - multi_channel
+                          - all_channels
+                      reuseConversation:
+                        type: boolean
+                      wakeConversationId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      isOneShot:
+                        type: boolean
+                    required:
+                      - id
+                      - name
+                      - enabled
+                      - syntax
+                      - expression
+                      - cronExpression
+                      - timezone
+                      - message
+                      - script
+                      - nextRunAt
+                      - lastRunAt
+                      - lastStatus
+                      - retryCount
+                      - maxRetries
+                      - retryBackoffMs
+                      - timeoutMs
+                      - inferenceProfile
+                      - createdFromConversationId
+                      - createdFromConversationExists
+                      - createdFromConversationArchivedAt
+                      - description
+                      - cadenceDescription
+                      - mode
+                      - status
+                      - routingIntent
+                      - reuseConversation
+                      - wakeConversationId
+                      - isOneShot
+                    additionalProperties: false
+                    description: Schedule object
+                required:
+                  - schedule
                 additionalProperties: false
       parameters:
         - name: id
@@ -23018,6 +23385,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -23077,6 +23448,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -23142,6 +23514,13 @@ paths:
                     - type: number
                     - type: "null"
                   description: Script-mode execution timeout in ms; null = use default
+                inferenceProfile:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                  description:
+                    Inference profile (llm.profiles key) the schedule's runs use; null clears it back to the default mainAgent
+                    call-site model selection
               additionalProperties: false
   /v1/schedules/{id}/cancel:
     post:
@@ -23212,6 +23591,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -23271,6 +23654,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -23362,6 +23746,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -23421,6 +23809,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -23517,8 +23906,14 @@ paths:
                         - createdAt
                       additionalProperties: false
                     description: Schedule run objects
+                  nextCursor:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description: Cursor for fetching older runs (pass as `before`); null when no older runs exist
                 required:
                   - runs
+                  - nextCursor
                 additionalProperties: false
       parameters:
         - name: id
@@ -23532,6 +23927,12 @@ paths:
           schema:
             type: integer
           description: Max runs to return (default 10, max 100)
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: "Cursor for older runs: pass the previous page's `nextCursor` to return runs strictly older than it."
   /v1/schedules/{id}/toggle:
     post:
       operationId: schedules_by_id_toggle_post
@@ -23601,6 +24002,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -23660,6 +24065,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -26737,6 +27143,19 @@ paths:
                   conversationId:
                     type: string
                     description: Id of a newly launched conversation when the action dispatched one. Omitted otherwise.
+                  applied:
+                    type: boolean
+                    description:
+                      Whether the action was applied. Present only for guardian decision actions (apr:*). False when the request
+                      was already resolved, expired, or the actor lacks permission.
+                  reason:
+                    type: string
+                    description: Explanation when applied is false (e.g. 'already_resolved', 'expired', 'principal_mismatch').
+                  replyText:
+                    type: string
+                    description:
+                      Guardian-facing reply from the resolver (e.g. verification code for access-request approvals). Present only
+                      when applied is true and the resolver produced a reply.
                 required:
                   - ok
                 additionalProperties: false

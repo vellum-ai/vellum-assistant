@@ -1334,10 +1334,12 @@ export class SlackSocketModeClient {
       this.store.trackThread(threadTs, channelId, ACTIVE_THREAD_TTL_MS);
     }
 
-    // Enrich actor display name if the sync cache missed.
-    // resolveSlackUser is fast on cache hit and deduplicates in-flight fetches,
-    // so this adds negligible latency on subsequent messages. A 3s timeout
-    // ensures the event is always emitted even if the Slack API hangs.
+    // Enrich actor metadata when the sync cache missed.
+    // resolveSlackUser is fast on cache hit, deduplicates in-flight fetches,
+    // and returns undefined on failure. We block here so trust signals
+    // (isStranger, isRestricted) are available before ACL enforcement, but
+    // bound the wait to prevent a hanging TCP connection from stalling all
+    // event processing.
     const actor = normalized.event.actor;
     if (actor?.actorExternalId && !actor.displayName) {
       const mentionedLabel = userLabels[actor.actorExternalId];

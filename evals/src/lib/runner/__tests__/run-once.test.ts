@@ -357,6 +357,36 @@ describe("collectAndPersistEvents", () => {
     expect(usage.totalOutputTokens).toBe(5);
   });
 
+  test("invokes onEvent for every collected event", async () => {
+    // GIVEN a stream with a confirmation_request before the completion
+    // signal (the hook is how the runner routes tool confirmations to
+    // the simulator in a headless hatch)
+    const runId = await freshRunId("on-event");
+    const assistantEvents: AgentEvent[] = [];
+    const collector = new AgentEventCollector(
+      streamIterator([
+        { message: { type: "confirmation_request", requestId: "req-1" } },
+        messageCompleteEvent(),
+      ]),
+    );
+    const seen: string[] = [];
+
+    // WHEN the turn is collected with an onEvent hook
+    await collectAndPersistEvents({
+      runId,
+      collector,
+      assistantEvents,
+      includeInTranscript: true,
+      ...turnCompletionArgs(),
+      onEvent: (event) => {
+        seen.push(event.message.type);
+      },
+    });
+
+    // THEN the hook observed every event in stream order
+    expect(seen).toEqual(["confirmation_request", "message_complete"]);
+  });
+
   test("skips transcript writes when includeInTranscript is false", async () => {
     const runId = await freshRunId("no-transcript");
     const assistantEvents: AgentEvent[] = [];

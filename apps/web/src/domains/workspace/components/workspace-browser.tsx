@@ -57,6 +57,44 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
     setDrawerOpen(false);
   }, []);
 
+  const [lastDelete, setLastDelete] = useState<{ path: string } | null>(null);
+
+  const handlePathDeleted = useCallback((path: string) => {
+    const isDeleted = (p: string) => p === path || p.startsWith(`${path}/`);
+    setSelectedPath((prev) => (prev !== null && isDeleted(prev) ? null : prev));
+    setExpandedPaths((prev) => {
+      const next = new Set([...prev].filter((p) => !isDeleted(p)));
+      return next.size === prev.size ? prev : next;
+    });
+    setLastDelete({ path });
+  }, []);
+
+  const [lastRename, setLastRename] = useState<{
+    from: string;
+    to: string;
+  } | null>(null);
+
+  const handlePathRenamed = useCallback((oldPath: string, newPath: string) => {
+    const remap = (p: string) =>
+      p === oldPath
+        ? newPath
+        : p.startsWith(`${oldPath}/`)
+          ? newPath + p.slice(oldPath.length)
+          : p;
+    setSelectedPath((prev) => (prev === null ? prev : remap(prev)));
+    setExpandedPaths((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const p of prev) {
+        const mapped = remap(p);
+        if (mapped !== p) changed = true;
+        next.add(mapped);
+      }
+      return changed ? next : prev;
+    });
+    setLastRename({ from: oldPath, to: newPath });
+  }, []);
+
   const treeProps = {
     assistantId,
     expandedPaths,
@@ -68,6 +106,8 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
     onSelectPath: handleSelectPath,
     onToggleShowHidden: () => setShowHidden((v) => !v),
     onChangeSortMode: setSortMode,
+    onPathDeleted: handlePathDeleted,
+    onPathRenamed: handlePathRenamed,
   };
 
   return (
@@ -108,6 +148,8 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
             viewMode={viewMode}
             onChangeViewMode={setViewMode}
             onBrowse={() => setDrawerOpen(true)}
+            pathRename={lastRename}
+            pathDelete={lastDelete}
           />
         </div>
       </div>

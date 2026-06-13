@@ -214,6 +214,8 @@ export function recordUsage(
     conversationId: ctx.conversationId,
     inputTokens,
     outputTokens,
+    cacheCreationInputTokens: normalizedCacheCreationInputTokens,
+    cacheReadInputTokens: normalizedCacheReadInputTokens,
     totalInputTokens: ctx.usageStats.inputTokens,
     totalOutputTokens: ctx.usageStats.outputTokens,
     estimatedCost,
