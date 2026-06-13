@@ -6,6 +6,8 @@ import {
   fetchConsolidationRuns,
   fetchHeartbeatConfig,
   fetchHeartbeatRuns,
+  fetchRetrospectiveConfig,
+  fetchRetrospectiveRuns,
   runConsolidationNow,
   runHeartbeatNow,
   updateHeartbeatConfig,
@@ -30,9 +32,10 @@ import type { SystemTaskKind } from "@/domains/settings/types/schedules";
 
 /**
  * Encapsulates all TanStack Query composition + mutation logic for
- * system tasks (heartbeat, consolidation). Exposes a unified interface
- * that the page orchestrator consumes without managing 6 queries and
- * 5 callbacks itself.
+ * system tasks (heartbeat, consolidation, memory retrospective). Exposes
+ * a unified interface that the page orchestrator consumes without managing
+ * the queries and callbacks itself. Retrospectives are event-driven, so
+ * they have no run-now mutation or toggle.
  */
 export function useSystemTasks(assistantId: string | undefined, tz: string) {
   const queryClient = useQueryClient();
@@ -65,6 +68,18 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
   } = useQuery({
     queryKey: ["consolidation-config", assistantId],
     queryFn: () => fetchConsolidationConfig(assistantId!),
+    enabled: !!assistantId,
+    staleTime: 10_000,
+  });
+
+  const {
+    data: retrospectiveConfig,
+    isLoading: isRetrospectiveLoading,
+    isError: isRetrospectiveError,
+    refetch: refetchRetrospective,
+  } = useQuery({
+    queryKey: ["retrospective-config", assistantId],
+    queryFn: () => fetchRetrospectiveConfig(assistantId!),
     enabled: !!assistantId,
     staleTime: 10_000,
   });
@@ -105,6 +120,24 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
     queryFn: () =>
       fetchConsolidationRuns(assistantId!, SYSTEM_TASK_STATS_RUN_LIMIT),
     enabled: !!assistantId && consolidationConfig?.available === true,
+    staleTime: 10_000,
+  });
+
+  const {
+    data: retrospectiveRunsForStats,
+    isLoading: isRetrospectiveStatsLoading,
+    isError: isRetrospectiveStatsError,
+    refetch: refetchRetrospectiveStats,
+  } = useQuery({
+    queryKey: [
+      "system-task-runs-summary",
+      assistantId,
+      "retrospective",
+      SYSTEM_TASK_STATS_RUN_LIMIT,
+    ],
+    queryFn: () =>
+      fetchRetrospectiveRuns(assistantId!, SYSTEM_TASK_STATS_RUN_LIMIT),
+    enabled: !!assistantId && retrospectiveConfig?.available === true,
     staleTime: 10_000,
   });
 
@@ -153,6 +186,24 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
     systemStatsRange,
   ]);
 
+  const retrospectiveUsage: ScheduleRowUsage = useMemo(() => {
+    if (isRetrospectiveStatsLoading) return { status: "loading" };
+    if (isRetrospectiveStatsError) return { status: "error" };
+    return {
+      status: "ready",
+      summary: summarizeRunsForUsage(
+        SYSTEM_TASK_URL_IDS.retrospective,
+        retrospectiveRunsForStats,
+        systemStatsRange,
+      ),
+    };
+  }, [
+    retrospectiveRunsForStats,
+    isRetrospectiveStatsError,
+    isRetrospectiveStatsLoading,
+    systemStatsRange,
+  ]);
+
   // -------------------------------------------------------------------------
   // Running state + timeout cleanup
   // -------------------------------------------------------------------------
@@ -184,6 +235,9 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
   const handleRunNow = useCallback(
     async (kind: SystemTaskKind) => {
       if (!assistantId) return;
+      // Retrospectives are event-driven per conversation — there is nothing
+      // global to trigger, so no run-now exists for that kind.
+      if (kind === "retrospective") return;
       const setRunning =
         kind === "heartbeat" ? setIsHeartbeatRunning : setIsConsolidationRunning;
       const runFn = kind === "heartbeat" ? runHeartbeatNow : runConsolidationNow;
@@ -255,13 +309,17 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
   const refetchAll = useCallback(() => {
     void refetchHeartbeat();
     void refetchConsolidation();
+    void refetchRetrospective();
     void refetchHeartbeatStats();
     void refetchConsolidationStats();
+    void refetchRetrospectiveStats();
   }, [
     refetchConsolidation,
     refetchConsolidationStats,
     refetchHeartbeat,
     refetchHeartbeatStats,
+    refetchRetrospective,
+    refetchRetrospectiveStats,
   ]);
 
   // -------------------------------------------------------------------------
@@ -279,18 +337,24 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
   return {
     heartbeatConfig,
     consolidationConfig,
+    retrospectiveConfig,
     heartbeatUsage,
     consolidationUsage,
-    isLoading: isHeartbeatLoading || isConsolidationLoading,
-    hasError: isHeartbeatError || isConsolidationError,
+    retrospectiveUsage,
+    isLoading:
+      isHeartbeatLoading || isConsolidationLoading || isRetrospectiveLoading,
+    hasError: isHeartbeatError || isConsolidationError || isRetrospectiveError,
     isHeartbeatRunning,
     isConsolidationRunning,
     isHeartbeatLoading,
     isHeartbeatError,
     isConsolidationLoading,
     isConsolidationError,
+    isRetrospectiveLoading,
+    isRetrospectiveError,
     refetchHeartbeat,
     refetchConsolidation,
+    refetchRetrospective,
     handleRunNow,
     handleToggle,
     refetchAll,

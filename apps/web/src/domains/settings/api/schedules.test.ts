@@ -5,6 +5,7 @@ import * as sdkGen from "@/generated/daemon/sdk.gen";
 import type {
   ConsolidationRunsGetResponse,
   HeartbeatRunsGetResponse,
+  RetrospectiveRunsGetResponse,
   SchedulesGetResponse,
   SchedulesUsagesummaryGetResponse,
 } from "@/generated/daemon/types.gen";
@@ -65,6 +66,26 @@ const consolidationRows: ConsolidationRunsGetResponse["runs"] = [
   },
 ];
 
+const retrospectiveRows: RetrospectiveRunsGetResponse["runs"] = [
+  {
+    id: "conv-retro-1",
+    scheduledFor: 1_761_792_000_000,
+    startedAt: 1_761_792_001_000,
+    finishedAt: 1_761_792_004_000,
+    durationMs: 3000,
+    status: "ok",
+    skipReason: null,
+    error: null,
+    conversationId: "conv-retro-1",
+    conversationExists: true,
+    conversationArchivedAt: null,
+    estimatedCostUsd: 0.0456,
+    createdAt: 1_761_792_000_000,
+    kind: "fork",
+    title: "Planning chat (Retrospective)",
+  },
+];
+
 const heartbeatRows: HeartbeatRunsGetResponse["runs"] = [
   {
     id: "heartbeat-run-1",
@@ -86,6 +107,7 @@ const heartbeatRows: HeartbeatRunsGetResponse["runs"] = [
 let usageSummaryCalls: UsageSummaryCall[] = [];
 let schedulesCalls: SchedulesCall[] = [];
 let consolidationRunsCalls: ConsolidationRunsCall[] = [];
+let retrospectiveRunsCalls: ConsolidationRunsCall[] = [];
 let heartbeatRunsCalls: HeartbeatRunsCall[] = [];
 let heartbeatConfigPutCalls: ConfigUpdateCall[] = [];
 let scheduleRows: SchedulesGetResponse["schedules"] = [];
@@ -106,6 +128,14 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     consolidationRunsCalls.push(opts);
     return Promise.resolve({
       data: responseOk ? { runs: consolidationRows } : undefined,
+      error: undefined,
+      response: { ok: responseOk, status: responseStatus },
+    });
+  },
+  retrospectiveRunsGet: (opts: ConsolidationRunsCall) => {
+    retrospectiveRunsCalls.push(opts);
+    return Promise.resolve({
+      data: responseOk ? { runs: retrospectiveRows } : undefined,
       error: undefined,
       response: { ok: responseOk, status: responseStatus },
     });
@@ -152,6 +182,7 @@ const {
   fetchSchedules,
   fetchConsolidationRuns,
   fetchHeartbeatRuns,
+  fetchRetrospectiveRuns,
   fetchScheduleUsageSummary,
   updateHeartbeatConfig,
 } = await import("./schedules");
@@ -160,6 +191,7 @@ afterEach(() => {
   usageSummaryCalls = [];
   schedulesCalls = [];
   consolidationRunsCalls = [];
+  retrospectiveRunsCalls = [];
   heartbeatRunsCalls = [];
   heartbeatConfigPutCalls = [];
   scheduleRows = [];
@@ -270,6 +302,38 @@ describe("fetchConsolidationRuns", () => {
         conversationArchivedAt: null,
         estimatedCostUsd: 0.1234,
         createdAt: 1_761_792_000_000,
+      },
+    ]);
+  });
+});
+
+describe("fetchRetrospectiveRuns", () => {
+  test("maps daemon retrospective runs into shared schedule run rows with the title", async () => {
+    const result = await fetchRetrospectiveRuns("assistant-1");
+
+    expect(retrospectiveRunsCalls).toEqual([
+      {
+        path: { assistant_id: "assistant-1" },
+        query: { limit: 10 },
+        throwOnError: false,
+      },
+    ]);
+    expect(result).toEqual([
+      {
+        id: "conv-retro-1",
+        jobId: "retrospective",
+        status: "ok",
+        startedAt: 1_761_792_001_000,
+        finishedAt: 1_761_792_004_000,
+        durationMs: 3000,
+        output: null,
+        error: null,
+        conversationId: "conv-retro-1",
+        conversationExists: true,
+        conversationArchivedAt: null,
+        estimatedCostUsd: 0.0456,
+        createdAt: 1_761_792_000_000,
+        title: "Planning chat (Retrospective)",
       },
     ]);
   });

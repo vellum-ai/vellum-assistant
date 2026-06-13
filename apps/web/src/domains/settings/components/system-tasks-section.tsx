@@ -7,6 +7,7 @@ import {
   formatScheduleCost,
   formatTimestamp,
   heartbeatSubtitle,
+  RETROSPECTIVE_SUBTITLE,
   type ScheduleRowUsage,
 } from "@/domains/settings/utils/schedule-formatters";
 import { Collapsible } from "@vellumai/design-library/components/collapsible";
@@ -16,6 +17,7 @@ import { Tag, type TagTone } from "@vellumai/design-library/components/tag";
 import type {
   ConsolidationConfigGetResponse,
   HeartbeatConfigGetResponse,
+  RetrospectiveConfigGetResponse,
 } from "@/generated/daemon/types.gen";
 
 // ---------------------------------------------------------------------------
@@ -107,30 +109,38 @@ export function SystemTaskRow({
 interface SystemTasksSectionProps {
   heartbeatConfig: HeartbeatConfigGetResponse | undefined;
   consolidationConfig: ConsolidationConfigGetResponse | undefined;
+  retrospectiveConfig: RetrospectiveConfigGetResponse | undefined;
   heartbeatUsage: ScheduleRowUsage;
   consolidationUsage: ScheduleRowUsage;
+  retrospectiveUsage: ScheduleRowUsage;
   isLoading: boolean;
   hasError: boolean;
   onRetry: () => void;
   onSelectHeartbeat: () => void;
   onSelectConsolidation: () => void;
+  onSelectRetrospective: () => void;
 }
 
 export function SystemTasksSection({
   heartbeatConfig,
   consolidationConfig,
+  retrospectiveConfig,
   heartbeatUsage,
   consolidationUsage,
+  retrospectiveUsage,
   isLoading,
   hasError,
   onRetry,
   onSelectHeartbeat,
   onSelectConsolidation,
+  onSelectRetrospective,
 }: SystemTasksSectionProps) {
   const showHeartbeat = heartbeatConfig != null;
   const showConsolidation = consolidationConfig?.available === true;
+  const showRetrospective = retrospectiveConfig?.available === true;
+  const showAny = showHeartbeat || showConsolidation || showRetrospective;
 
-  if (!isLoading && !hasError && !showHeartbeat && !showConsolidation) {
+  if (!isLoading && !hasError && !showAny) {
     return null;
   }
 
@@ -139,6 +149,7 @@ export function SystemTasksSection({
   const readyUsages = [
     ...(showHeartbeat ? [heartbeatUsage] : []),
     ...(showConsolidation ? [consolidationUsage] : []),
+    ...(showRetrospective ? [retrospectiveUsage] : []),
   ].filter(
     (usage): usage is Extract<ScheduleRowUsage, { status: "ready" }> =>
       usage.status === "ready",
@@ -152,7 +163,7 @@ export function SystemTasksSection({
     <div className="flex items-center justify-center py-8">
       <Loader2 className="h-5 w-5 animate-spin text-stone-400" />
     </div>
-  ) : hasError && !showHeartbeat && !showConsolidation ? (
+  ) : hasError && !showAny ? (
     <Notice tone="error">
       Failed to load system jobs.{" "}
       <button
@@ -192,6 +203,26 @@ export function SystemTasksSection({
           statusLabel={consolidationConfig.enabled ? undefined : "Paused"}
           statusTone="warning"
           onClick={onSelectConsolidation}
+        />
+      ) : null}
+      {showRetrospective ? (
+        <SystemTaskRow
+          name="Memory retrospective"
+          subtitle={RETROSPECTIVE_SUBTITLE}
+          enabled={retrospectiveConfig.enabled}
+          helperText={
+            retrospectiveConfig.enabled
+              ? undefined
+              : "Memory is off, so retrospectives are paused."
+          }
+          // Always null — retrospectives are event-driven, not scheduled;
+          // the row simply omits the "Next:" timestamp.
+          nextRunAt={retrospectiveConfig.nextRunAt}
+          lastRunAt={retrospectiveConfig.lastRunAt}
+          usage={retrospectiveUsage}
+          statusLabel={retrospectiveConfig.enabled ? undefined : "Paused"}
+          statusTone="warning"
+          onClick={onSelectRetrospective}
         />
       ) : null}
       {hasError ? (

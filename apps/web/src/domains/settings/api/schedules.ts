@@ -11,6 +11,8 @@ import {
   heartbeatConfigPut,
   heartbeatRunnowPost,
   heartbeatRunsGet,
+  retrospectiveConfigGet,
+  retrospectiveRunsGet,
   schedulesByIdDelete,
   schedulesByIdPatch,
   schedulesByIdRunPost,
@@ -25,6 +27,7 @@ import type {
   HeartbeatConfigGetResponse,
   HeartbeatConfigPutResponse,
   HeartbeatRunnowPostResponse,
+  RetrospectiveConfigGetResponse,
 } from "@/generated/daemon/types.gen";
 import {
   ApiError,
@@ -258,6 +261,40 @@ export async function fetchConsolidationRuns(
   }));
 }
 
+export async function fetchRetrospectiveRuns(
+  assistantId: string,
+  limit = 10,
+): Promise<ScheduleRun[]> {
+  const { data, error, response } = await retrospectiveRunsGet({
+    path: { assistant_id: assistantId },
+    query: { limit },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to load retrospective runs.");
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(error, response, "Failed to load retrospective runs."),
+    );
+  }
+  return (data?.runs ?? []).map((run) => ({
+    id: run.id,
+    jobId: "retrospective",
+    status: run.status,
+    startedAt: run.startedAt ?? run.scheduledFor,
+    finishedAt: run.finishedAt,
+    durationMs: run.durationMs,
+    output: null,
+    error: run.error,
+    conversationId: run.conversationId,
+    conversationExists: run.conversationExists,
+    conversationArchivedAt: run.conversationArchivedAt,
+    estimatedCostUsd: run.estimatedCostUsd,
+    createdAt: run.createdAt,
+    title: run.title,
+  }));
+}
+
 export async function fetchHeartbeatConfig(
   assistantId: string,
 ): Promise<HeartbeatConfigGetResponse> {
@@ -345,6 +382,27 @@ export async function fetchConsolidationConfig(
         error,
         response,
         "Failed to load consolidation config.",
+      ),
+    );
+  }
+  return data;
+}
+
+export async function fetchRetrospectiveConfig(
+  assistantId: string,
+): Promise<RetrospectiveConfigGetResponse> {
+  const { data, error, response } = await retrospectiveConfigGet({
+    path: { assistant_id: assistantId },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to load retrospective config.");
+  if (!response.ok || !data) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(
+        error,
+        response,
+        "Failed to load retrospective config.",
       ),
     );
   }

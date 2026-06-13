@@ -20,6 +20,7 @@ import {
   groupSchedules,
   heartbeatSubtitle,
   pastOneTimeStatus,
+  RETROSPECTIVE_SUBTITLE,
   scheduleUsageSummaryQueryOptions,
   SYSTEM_TASK_URL_IDS,
   systemTaskKindFromUrlId,
@@ -133,7 +134,7 @@ export function SchedulesPage() {
   );
 
   // -------------------------------------------------------------------------
-  // System tasks (heartbeat + consolidation)
+  // System tasks (heartbeat + consolidation + memory retrospective)
   // -------------------------------------------------------------------------
 
   const systemTasks = useSystemTasks(assistantId, tz);
@@ -271,6 +272,31 @@ export function SchedulesPage() {
     );
   }
 
+  if (
+    selectedSystemTask === "retrospective" &&
+    systemTasks.retrospectiveConfig?.available === true
+  ) {
+    // Event-driven task: no onRunNow (nothing global to trigger) and
+    // nextRunAt is always null by design.
+    return (
+      <SystemTaskDetailView
+        key="retrospective"
+        kind="retrospective"
+        assistantId={assistantId}
+        name="Memory retrospective"
+        subtitle={RETROSPECTIVE_SUBTITLE}
+        enabled={systemTasks.retrospectiveConfig.enabled}
+        nextRunAt={systemTasks.retrospectiveConfig.nextRunAt}
+        lastRunAt={systemTasks.retrospectiveConfig.lastRunAt}
+        isRunning={false}
+        onBack={navigateToSchedules}
+        onOpenMemorySettings={
+          canOpenMemorySettings ? navigateToMemorySettings : undefined
+        }
+      />
+    );
+  }
+
   if (selectedSchedule) {
     return (
       <ScheduleDetailView
@@ -319,15 +345,21 @@ export function SchedulesPage() {
       <div className="mx-auto max-w-[940px] space-y-3">
         <Notice tone="error">
           Failed to load{" "}
-          {selectedSystemTask === "heartbeat" ? "heartbeat" : "consolidation"}{" "}
+          {selectedSystemTask === "heartbeat"
+            ? "heartbeat"
+            : selectedSystemTask === "consolidation"
+              ? "consolidation"
+              : "memory retrospective"}{" "}
           schedule.{" "}
           <button
             type="button"
             onClick={() => {
               if (selectedSystemTask === "heartbeat") {
                 void systemTasks.refetchHeartbeat();
-              } else {
+              } else if (selectedSystemTask === "consolidation") {
                 void systemTasks.refetchConsolidation();
+              } else {
+                void systemTasks.refetchRetrospective();
               }
             }}
             className="cursor-pointer underline hover:no-underline"
@@ -430,8 +462,10 @@ export function SchedulesPage() {
       <SystemTasksSection
         heartbeatConfig={systemTasks.heartbeatConfig}
         consolidationConfig={systemTasks.consolidationConfig}
+        retrospectiveConfig={systemTasks.retrospectiveConfig}
         heartbeatUsage={systemTasks.heartbeatUsage}
         consolidationUsage={systemTasks.consolidationUsage}
+        retrospectiveUsage={systemTasks.retrospectiveUsage}
         isLoading={systemTasks.isLoading}
         hasError={systemTasks.hasError}
         onRetry={systemTasks.refetchAll}
@@ -440,6 +474,9 @@ export function SchedulesPage() {
         }
         onSelectConsolidation={() =>
           navigateToSchedule(SYSTEM_TASK_URL_IDS.consolidation)
+        }
+        onSelectRetrospective={() =>
+          navigateToSchedule(SYSTEM_TASK_URL_IDS.retrospective)
         }
       />
 
