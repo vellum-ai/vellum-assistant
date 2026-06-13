@@ -50,6 +50,11 @@ export interface ScheduleJob {
   retryBackoffMs: number;
   /** Script-mode execution timeout override (ms); null = use the default. */
   timeoutMs: number | null;
+  /**
+   * Inference profile (`llm.profiles` key) applied to the schedule's
+   * LLM-executed runs; null = default main-agent model selection.
+   */
+  inferenceProfile: string | null;
   createdFromConversationId: string | null;
   createdBy: string;
   mode: ScheduleMode;
@@ -105,6 +110,7 @@ export function createSchedule(params: {
   maxRetries?: number;
   retryBackoffMs?: number;
   timeoutMs?: number | null;
+  inferenceProfile?: string | null;
   createdFromConversationId?: string | null;
 }): ScheduleJob {
   const expression = params.expression ?? params.cronExpression ?? null;
@@ -142,6 +148,7 @@ export function createSchedule(params: {
   const maxRetries = params.maxRetries ?? 3;
   const retryBackoffMs = params.retryBackoffMs ?? 60000;
   const timeoutMs = params.timeoutMs ?? null;
+  const inferenceProfile = params.inferenceProfile ?? null;
   const createdFromConversationId = params.createdFromConversationId ?? null;
   const description = normalizeDescription(
     params.description,
@@ -175,6 +182,7 @@ export function createSchedule(params: {
     maxRetries,
     retryBackoffMs,
     timeoutMs,
+    inferenceProfile,
     createdFromConversationId,
     createdBy: params.createdBy ?? "agent",
     mode,
@@ -276,6 +284,7 @@ export function updateSchedule(
     maxRetries?: number;
     retryBackoffMs?: number;
     timeoutMs?: number | null;
+    inferenceProfile?: string | null;
     createdFromConversationId?: string | null;
   },
 ): ScheduleJob | null {
@@ -344,6 +353,8 @@ export function updateSchedule(
   if (updates.retryBackoffMs !== undefined)
     set.retryBackoffMs = updates.retryBackoffMs;
   if (updates.timeoutMs !== undefined) set.timeoutMs = updates.timeoutMs;
+  if (updates.inferenceProfile !== undefined)
+    set.inferenceProfile = updates.inferenceProfile;
   if (updates.createdFromConversationId !== undefined)
     set.createdFromConversationId = updates.createdFromConversationId;
 
@@ -1020,6 +1031,7 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
     maxRetries: row.maxRetries ?? 3,
     retryBackoffMs: row.retryBackoffMs ?? 60000,
     timeoutMs: row.timeoutMs ?? null,
+    inferenceProfile: row.inferenceProfile ?? null,
     createdFromConversationId: row.createdFromConversationId ?? null,
     createdBy: row.createdBy,
     mode: (row.mode ?? "execute") as ScheduleMode,

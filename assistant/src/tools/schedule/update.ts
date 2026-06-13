@@ -1,3 +1,4 @@
+import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import { validateRruleSetLines } from "../../schedule/recurrence-engine.js";
 import {
   detectScheduleSyntax,
@@ -127,6 +128,27 @@ export async function executeScheduleUpdate(
     updates.retryBackoffMs = input.retry_backoff_ms;
   }
 
+  // Inference profile override (null clears it, reverting to the default
+  // main-agent model selection)
+  if (input.inference_profile !== undefined) {
+    if (input.inference_profile === null) {
+      updates.inferenceProfile = null;
+    } else {
+      const inferenceProfile = input.inference_profile;
+      if (typeof inferenceProfile !== "string") {
+        return {
+          content: "Error: inference_profile must be a string or null",
+          isError: true,
+        };
+      }
+      const profileError = validateScheduleInferenceProfile(inferenceProfile);
+      if (profileError) {
+        return { content: `Error: ${profileError}`, isError: true };
+      }
+      updates.inferenceProfile = inferenceProfile;
+    }
+  }
+
   // Script execution timeout override (null clears it, reverting to default)
   if (input.timeout_ms !== undefined) {
     if (input.timeout_ms === null) {
@@ -210,6 +232,7 @@ export async function executeScheduleUpdate(
         maxRetries?: number;
         retryBackoffMs?: number;
         timeoutMs?: number | null;
+        inferenceProfile?: string | null;
       },
     );
 
@@ -231,6 +254,7 @@ export async function executeScheduleUpdate(
         `  Description: ${job.description}`,
         `  Syntax: ${job.syntax}`,
         `  Mode: ${job.mode}`,
+        `  Inference profile: ${job.inferenceProfile ?? "default (mainAgent)"}`,
         `  Schedule: ${scheduleDescription}${job.timezone ? ` (${job.timezone})` : ""}`,
         `  Enabled: ${job.enabled}`,
         `  Next run: ${job.enabled ? formatLocalDate(job.nextRunAt) : "n/a (disabled)"}`,

@@ -23,6 +23,7 @@ interface ScheduleRecord {
   maxRetries: number;
   retryBackoffMs: number;
   timeoutMs: number | null;
+  inferenceProfile: string | null;
   createdFromConversationId: string | null;
   description: string | null;
   cadenceDescription: string | null;
@@ -219,7 +220,8 @@ Arguments:
 Behavior:
   Prints every stored field of the schedule: name, description, mode,
   expression/syntax, timezone, enabled state, status, next/last run times,
-  message or script body, routing intent, and retry policy. Works for
+  message or script body, inference profile (shown as 'default (mainAgent)'
+  when none is pinned), routing intent, and retry policy. Works for
   deferred schedules that 'assistant schedules list' hides by default.
 
 Examples:
@@ -268,6 +270,10 @@ Examples:
             ["One-shot", schedule.isOneShot ? "yes" : "no"],
             ["Message", schedule.message || "—"],
             ["Script", schedule.script ?? "—"],
+            [
+              "Inference profile",
+              schedule.inferenceProfile ?? "default (mainAgent)",
+            ],
             ["Routing intent", schedule.routingIntent],
             ["Reuse conversation", schedule.reuseConversation ? "yes" : "no"],
             ["Wake conversation", schedule.wakeConversationId ?? "—"],
@@ -415,6 +421,10 @@ Examples:
           "-t, --timezone <tz>",
           "IANA timezone for the expression (e.g. America/New_York)",
         )
+        .option(
+          "--profile <name>",
+          "Inference profile (llm.profiles key) the schedule's runs use; defaults to the mainAgent model selection when omitted",
+        )
         .option("--no-enabled", "Create the schedule in a disabled state")
         .option("--json", "Machine-readable compact JSON output")
         .addHelpText(
@@ -425,6 +435,9 @@ Options:
   -d, --description <text>  Authored description explaining what the schedule is for.
   -m, --message <text>      Message body sent on each fire.
   -t, --timezone <tz>       IANA timezone applied to the expression.
+  --profile <name>          Inference profile (llm.profiles key) the schedule's
+                            runs use. When omitted, runs use the default —
+                            the mainAgent call site's model selection.
   --no-enabled              Create the schedule disabled. Defaults to enabled.
   --json                    Output the updated schedule list as compact JSON.
 
@@ -460,6 +473,7 @@ Examples:
               description: string;
               message: string;
               timezone?: string;
+              profile?: string;
               enabled: boolean;
               json?: boolean;
             },
@@ -497,6 +511,7 @@ Examples:
               enabled: opts.enabled,
             };
             if (opts.timezone != null) body.timezone = opts.timezone;
+            if (opts.profile != null) body.inferenceProfile = opts.profile;
 
             const result = await cliIpcCall<ListSchedulesResponse>(
               "createSchedule",
@@ -567,6 +582,14 @@ Examples:
           "--clear-timeout",
           "Clear the script timeout override and use the assistant default",
         )
+        .option(
+          "--profile <name>",
+          "Inference profile (llm.profiles key) the schedule's runs use; the default when unset is the mainAgent model selection",
+        )
+        .option(
+          "--clear-profile",
+          "Clear the inference profile and revert to the default mainAgent model selection",
+        )
         .option("--json", "Machine-readable compact JSON output")
         .addHelpText(
           "after",
@@ -588,6 +611,12 @@ Options:
   --timeout-ms <ms>         Script-mode execution timeout in milliseconds.
   --clear-timeout           Remove the timeout override (mutually exclusive
                             with --timeout-ms).
+  --profile <name>          Inference profile (llm.profiles key) the schedule's
+                            runs use. When no profile is set, runs use the
+                            default — the mainAgent call site's model selection.
+  --clear-profile           Remove the inference profile and revert to the
+                            default mainAgent model selection (mutually
+                            exclusive with --profile).
   --json                    Output the updated schedule list as compact JSON.
 
 Arguments:
@@ -625,6 +654,8 @@ Examples:
               retryBackoffMs?: string;
               timeoutMs?: string;
               clearTimeout?: boolean;
+              profile?: string;
+              clearProfile?: boolean;
               json?: boolean;
             },
             cmd: Command,
@@ -654,6 +685,13 @@ Examples:
             if (opts.clearTimeout && opts.timeoutMs != null) {
               fail(
                 "--timeout-ms and --clear-timeout are mutually exclusive; pass --timeout-ms to set a timeout or --clear-timeout to remove it",
+              );
+              return;
+            }
+
+            if (opts.clearProfile && opts.profile != null) {
+              fail(
+                "--profile and --clear-profile are mutually exclusive; pass --profile to set a profile or --clear-profile to revert to the default mainAgent model selection",
               );
               return;
             }
@@ -710,6 +748,8 @@ Examples:
               body.timeoutMs = parsed;
             }
             if (opts.clearTimeout) body.timeoutMs = null;
+            if (opts.profile != null) body.inferenceProfile = opts.profile;
+            if (opts.clearProfile) body.inferenceProfile = null;
 
             if (Object.keys(body).length === 0) {
               fail(

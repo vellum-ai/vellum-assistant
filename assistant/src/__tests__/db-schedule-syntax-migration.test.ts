@@ -51,6 +51,7 @@ describe("schedule_syntax column migration", () => {
         script TEXT,
         wake_conversation_id TEXT,
         timeout_ms INTEGER,
+        inference_profile TEXT,
         description TEXT NOT NULL DEFAULT '',
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL

@@ -534,6 +534,9 @@ export async function processMessage(
       isInteractive: options?.isInteractive ?? false,
       isUserMessage: true,
       ...(options?.callSite ? { callSite: options.callSite } : {}),
+      ...(options?.overrideProfile
+        ? { overrideProfile: options.overrideProfile }
+        : {}),
     });
   } finally {
     if (
@@ -591,6 +594,9 @@ export async function processMessageInBackground(
       isInteractive: options?.isInteractive ?? false,
       isUserMessage: true,
       ...(options?.callSite ? { callSite: options.callSite } : {}),
+      ...(options?.overrideProfile
+        ? { overrideProfile: options.overrideProfile }
+        : {}),
     })
     .finally(() => {
       if (

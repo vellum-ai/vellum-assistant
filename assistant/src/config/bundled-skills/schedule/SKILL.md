@@ -99,6 +99,10 @@ The `mode` parameter controls what happens when a schedule fires:
 
 Use `notify` for simple reminders ("remind me to take medicine at 9am"), `execute` for tasks that need assistant action ("check my calendar at 8am and send me a digest"), and `script` for lightweight shell automations that don't need LLM involvement ("refresh a cache", "poll an API", "rotate logs").
 
+## Inference Profile
+
+Execute-mode runs use the default `mainAgent` model selection unless the schedule pins an `inference_profile` (a key from `llm.profiles`). Pin a profile when a recurring task should run on a specific model — e.g. a cost-optimized profile for a high-frequency digest. Pass `inference_profile: null` on update to revert to the default. The pinned profile is shown on the schedule's details page in settings.
+
 ## Conversation Reuse
 
 Recurring schedules reuse the same conversation across runs by default — subsequent runs continue the conversation from the last successful run, preserving context and channel thread continuity. Set `reuse_conversation: false` explicitly if each run should start with a fresh conversation (e.g. independent reports that shouldn't accumulate prior context). One-shot schedules always create a fresh conversation.

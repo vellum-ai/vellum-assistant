@@ -16,7 +16,7 @@ import {
 } from "@/domains/logs/components/usage-trend-chart";
 import { formatCost, formatTokens } from "@/domains/logs/format";
 import { decorateUsageBreakdownGroups } from "@/domains/logs/group-labels";
-import { fetchUsageProfileMetadata } from "@/domains/logs/profile-metadata";
+import { fetchUsageProfileMetadata } from "@/utils/profile-metadata";
 import {
     fetchUsageBreakdown,
     fetchUsageDaily,

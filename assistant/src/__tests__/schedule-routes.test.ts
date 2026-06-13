@@ -18,6 +18,14 @@ mock.module("../config/loader.js", () => ({
       timezone: null,
     },
   }),
+  getConfigReadOnly: () => ({
+    llm: {
+      profiles: {
+        balanced: { model: "test-model" },
+        "cost-optimized": { model: "test-model-small" },
+      },
+    },
+  }),
   invalidateConfigCache: () => {},
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
@@ -1141,7 +1149,9 @@ describe("POST /schedules — create", () => {
 
   function postCreate(body: Record<string, unknown>) {
     const route = findRoute("schedules", "POST");
-    return route.handler({ body }) as { schedules: Array<{ id: string }> };
+    return route.handler({ body }) as {
+      schedules: Array<{ id: string; inferenceProfile: string | null }>;
+    };
   }
 
   test("creates a recurring execute schedule with defaults", () => {
@@ -1266,6 +1276,52 @@ describe("POST /schedules — create", () => {
     const job = listSchedules()[0];
     expect(job.enabled).toBe(false);
   });
+
+  test("persists a valid inferenceProfile and serializes it", () => {
+    const result = postCreate({
+      name: "Cheap digest",
+      description: "High-frequency digest on a cheap model",
+      expression: "0 * * * *",
+      message: "write the digest",
+      inferenceProfile: "cost-optimized",
+    });
+    expect(result.schedules[0].inferenceProfile).toBe("cost-optimized");
+    expect(listSchedules()[0].inferenceProfile).toBe("cost-optimized");
+  });
+
+  test("defaults inferenceProfile to null when omitted", () => {
+    const result = postCreate({
+      name: "Default profile",
+      description: "Runs on the main-agent selection",
+      expression: "0 9 * * *",
+      message: "hi",
+    });
+    expect(result.schedules[0].inferenceProfile).toBeNull();
+  });
+
+  test("rejects an unknown inferenceProfile", () => {
+    expect(() =>
+      postCreate({
+        name: "Bad profile",
+        description: "Unknown profile",
+        expression: "0 9 * * *",
+        message: "hi",
+        inferenceProfile: "does-not-exist",
+      }),
+    ).toThrow('Inference profile "does-not-exist" is not defined');
+  });
+
+  test("rejects a non-string inferenceProfile", () => {
+    expect(() =>
+      postCreate({
+        name: "Bad profile type",
+        description: "Wrong type",
+        expression: "0 9 * * *",
+        message: "hi",
+        inferenceProfile: 42,
+      }),
+    ).toThrow("inferenceProfile must be a string or null");
+  });
 });
 
 // ── PATCH /schedules/:id — description ───────────────────────────────────
@@ -1297,6 +1353,37 @@ describe("PATCH /schedules/:id — description", () => {
       description: "Updated description",
     });
     expect(listSchedules()[0].description).toBe("Updated description");
+  });
+
+  test("sets, validates, and clears inferenceProfile", () => {
+    const schedule = createSchedule({
+      name: "Profile pin",
+      description: "Pinned profile schedule",
+      cronExpression: "0 9 * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+    const route = findRoute("schedules/:id", "PATCH");
+
+    route.handler({
+      pathParams: { id: schedule.id },
+      body: { inferenceProfile: "balanced" },
+    });
+    expect(listSchedules()[0].inferenceProfile).toBe("balanced");
+
+    expect(() =>
+      route.handler({
+        pathParams: { id: schedule.id },
+        body: { inferenceProfile: "does-not-exist" },
+      }),
+    ).toThrow('Inference profile "does-not-exist" is not defined');
+    expect(listSchedules()[0].inferenceProfile).toBe("balanced");
+
+    route.handler({
+      pathParams: { id: schedule.id },
+      body: { inferenceProfile: null },
+    });
+    expect(listSchedules()[0].inferenceProfile).toBeNull();
   });
 
   test("re-derives syntax when the expression switches cron to rrule", () => {

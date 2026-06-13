@@ -20392,6 +20392,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -20451,6 +20455,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -20503,6 +20508,13 @@ paths:
                 mode:
                   type: string
                   description: Currently must be 'execute'
+                inferenceProfile:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                  description:
+                    Inference profile (llm.profiles key) the schedule's runs use. Omitted or null = default, i.e. the mainAgent
+                    call-site model selection.
               required:
                 - name
                 - expression
@@ -20569,6 +20581,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -20628,6 +20644,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -20719,6 +20736,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -20778,6 +20799,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -20866,6 +20888,10 @@ paths:
                         anyOf:
                           - type: number
                           - type: "null"
+                      inferenceProfile:
+                        anyOf:
+                          - type: string
+                          - type: "null"
                       createdFromConversationId:
                         anyOf:
                           - type: string
@@ -20925,6 +20951,7 @@ paths:
                       - maxRetries
                       - retryBackoffMs
                       - timeoutMs
+                      - inferenceProfile
                       - createdFromConversationId
                       - createdFromConversationExists
                       - createdFromConversationArchivedAt
@@ -20996,6 +21023,13 @@ paths:
                     - type: number
                     - type: "null"
                   description: Script-mode execution timeout in ms; null = use default
+                inferenceProfile:
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                  description:
+                    Inference profile (llm.profiles key) the schedule's runs use; null clears it back to the default mainAgent
+                    call-site model selection
       responses:
         "200":
           description: Successful response
@@ -21058,6 +21092,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -21117,6 +21155,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -21208,6 +21247,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -21267,6 +21310,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -21358,6 +21402,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -21417,6 +21465,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
@@ -21621,6 +21670,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        inferenceProfile:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         createdFromConversationId:
                           anyOf:
                             - type: string
@@ -21680,6 +21733,7 @@ paths:
                         - maxRetries
                         - retryBackoffMs
                         - timeoutMs
+                        - inferenceProfile
                         - createdFromConversationId
                         - createdFromConversationExists
                         - createdFromConversationArchivedAt
