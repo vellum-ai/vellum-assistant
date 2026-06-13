@@ -30,7 +30,7 @@ import { useChatLayoutDrawer } from "@/domains/chat/hooks/use-chat-layout-drawer
 import { useChatLayoutShortcuts } from "@/domains/chat/hooks/use-chat-layout-shortcuts";
 import { useConversationActions } from "@/domains/chat/hooks/use-conversation-actions";
 import { useConversationGroupActions } from "@/domains/chat/hooks/use-conversation-group-actions";
-import { canUseLlmInspector } from "@/domains/chat/inspector/access";
+import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
 import {
     navigateToConversation,
     navigateToNewConversation,
@@ -47,7 +47,6 @@ import { useIsNativePlatform } from "@/runtime/native-auth";
 import { openPopoutWindow } from "@/runtime/popout-window";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { useAuthStore } from "@/stores/auth-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { Conversation } from "@/types/conversation-types";
@@ -192,8 +191,7 @@ export function ChatLayout() {
   const topBarCenterSlot = useChatLayoutSlotsStore.use.topBarCenter();
   const headerSupplements = useChatLayoutSlotsStore.use.headerSupplements();
   const topBarRightSlot = useChatLayoutSlotsStore.use.topBarRightSlot();
-  const authUser = useAuthStore.use.user();
-  const showLlmInspector = canUseLlmInspector(authUser);
+  const showLlmInspector = useCanUseLlmInspector();
   const isNative = useIsNativePlatform();
 
   // --- Assistant identity from store (written by ChatPage) ---
