@@ -15,6 +15,19 @@ import { completeSubmittedSurface } from "@/domains/chat/utils/send-message-util
 import { submitSurfaceAction } from "@/domains/chat/api/surfaces";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
+const DECISION_REASON_LABELS: Record<string, string> = {
+  already_resolved: "Already resolved",
+  expired: "Request expired",
+  identity_mismatch: "Not authorized",
+  not_found: "Request not found",
+  resolver_failed: "Action failed",
+};
+
+function formatDecisionReason(reason?: string): string {
+  if (!reason) return "Not applied";
+  return DECISION_REASON_LABELS[reason] ?? "Not applied";
+}
+
 /**
  * Submit a user action on a rendered surface (e.g. form submit, button click).
  * Validates the surface exists, sends the action to the daemon, marks the
@@ -67,11 +80,9 @@ export async function handleSurfaceAction(
     useTurnStore.getState().requestSend();
   }
 
-  // For not-applied decisions (expired, already resolved, principal mismatch),
-  // show the reason instead of the action label.
   const completionText =
     isGuardianDecision && result.applied === false
-      ? result.reason ?? "Not applied"
+      ? formatDecisionReason(result.reason)
       : result.replyText;
 
   useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) =>
