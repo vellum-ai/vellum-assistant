@@ -19,11 +19,11 @@
 import { readFileSync } from "node:fs";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { Readable } from "node:stream";
 
 import { stringify } from "yaml";
 import { z } from "zod";
 import type {
+  oas31,
   ZodOpenApiOperationObject,
   ZodOpenApiPathsObject,
   ZodOpenApiResponseObject,
@@ -52,13 +52,13 @@ const RouteQueryParamSchema = z.object({
  * JSON-Schema-style object for backward compatibility with inline routes.
  */
 const RouteBodySchemaSchema = z.any().refine(
-  (v) =>
+  (v): v is z.ZodType | oas31.SchemaObject =>
     v != null &&
     typeof v === "object" &&
     // Zod schema instance (Zod 4 uses _zod branded property)
     ("_zod" in v ||
       // Plain JSON Schema fallback
-      typeof (v as Record<string, unknown>).type === "string"),
+      "type" in v),
   { message: "Expected a Zod schema or a plain JSON Schema object" },
 );
 
@@ -117,6 +117,17 @@ const RouteEntrySchema = z.object({
 
 type RouteEntry = z.infer<typeof RouteEntrySchema>;
 
+type ContentSchema = z.ZodType | oas31.SchemaObject;
+
+type HttpStatusCode = `${1 | 2 | 3 | 4 | 5}${string}`;
+
+function toHttpStatus(status: string): HttpStatusCode {
+  if (!/^[1-5]\d{2}$/.test(status)) {
+    throw new Error(`Invalid HTTP status code: ${status}`);
+  }
+  return status as HttpStatusCode;
+}
+
 /**
  * Resolve a schema source to a value suitable for zod-openapi's
  * `schema` field. If it's a Zod schema, pass it through directly (so
@@ -124,9 +135,11 @@ type RouteEntry = z.infer<typeof RouteEntrySchema>;
  * For plain JSON Schema objects (backward compat), pass as-is —
  * createDocument accepts SchemaObject too.
  */
-function resolveSchemaForDocument(schemaSource: unknown): unknown {
-  if (schemaSource == null || typeof schemaSource !== "object") return {};
-  return schemaSource;
+function resolveSchemaForDocument(schemaSource: unknown): ContentSchema {
+  if (schemaSource == null || typeof schemaSource !== "object") {
+    return { type: "object" } satisfies oas31.SchemaObject;
+  }
+  return schemaSource as ContentSchema;
 }
 
 // ---------------------------------------------------------------------------
@@ -263,18 +276,20 @@ interface OpenApiParameter {
  * `application/json`; the explicit `{ contentType, schema }` form carries its
  * own media type (e.g. `application/octet-stream` for binary bodies).
  */
+function hasContentType(
+  body: unknown,
+): body is { contentType: string; schema: unknown } {
+  return typeof body === "object" && body !== null && "contentType" in body;
+}
+
 function resolveBodyContent(body: unknown): {
   contentType: string;
   schemaSource: unknown;
 } {
-  const hasContentType =
-    typeof body === "object" && body !== null && "contentType" in body;
-  return {
-    contentType: hasContentType
-      ? (body as { contentType: string }).contentType
-      : "application/json",
-    schemaSource: hasContentType ? (body as { schema: unknown }).schema : body,
-  };
+  if (hasContentType(body)) {
+    return { contentType: body.contentType, schemaSource: body.schema };
+  }
+  return { contentType: "application/json", schemaSource: body };
 }
 
 /** Derive a tag name from a route module filename (e.g. "secret-routes.ts" → "secrets"). */
@@ -389,12 +404,7 @@ function buildSpec(
     // Build the operation. Default success status is 200; async endpoints
     // that enqueue a job and return immediately set responseStatus: "202"
     // so the generated spec matches the handler's actual response code.
-    const successStatus = (entry.responseStatus ?? "200") as `${
-      | 1
-      | 2
-      | 3
-      | 4
-      | 5}${string}`;
+    const successStatus = toHttpStatus(entry.responseStatus ?? "200");
     let successResponse: ZodOpenApiResponseObject = {
       description: "Successful response",
     };
@@ -406,9 +416,7 @@ function buildSpec(
         description: "Successful response",
         content: {
           [contentType]: {
-            schema: resolveSchemaForDocument(schemaSource) as
-              | z.ZodType
-              | Record<string, unknown>,
+            schema: resolveSchemaForDocument(schemaSource),
           },
         },
       };
@@ -435,9 +443,7 @@ function buildSpec(
         required: true,
         content: {
           [contentType]: {
-            schema: resolveSchemaForDocument(schemaSource) as
-              | z.ZodType
-              | Record<string, unknown>,
+            schema: resolveSchemaForDocument(schemaSource),
           },
         },
       };
@@ -446,16 +452,13 @@ function buildSpec(
     // Extra documented response variants (e.g. 502 fetch_failed).
     if (entry.additionalResponses) {
       for (const [status, resp] of Object.entries(entry.additionalResponses)) {
-        const statusKey = status as `${1 | 2 | 3 | 4 | 5}${string}`;
-        operation.responses[statusKey] = {
+        operation.responses[toHttpStatus(status)] = {
           description: resp.description,
           ...(resp.schema
             ? {
                 content: {
                   "application/json": {
-                    schema: resolveSchemaForDocument(resp.schema) as
-                      | z.ZodType
-                      | Record<string, unknown>,
+                    schema: resolveSchemaForDocument(resp.schema),
                   },
                 },
               }
@@ -482,7 +485,7 @@ function buildSpec(
       },
     ],
     paths,
-  }) as unknown as Record<string, unknown>;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -512,10 +515,8 @@ async function main() {
     stringify(spec, { lineWidth: 120 });
 
   // Format with prettier so the output matches what the pre-commit hook produces.
-  // Use a Node.js Readable stream for stdin — Bun.spawn with Blob stdin produces
-  // empty output on some platforms (Bun 1.3.x Linux sandbox).
   const prettierProc = Bun.spawn(["bunx", "prettier", "--parser", "yaml"], {
-    stdin: Readable.from([rawYaml]) as unknown as Blob,
+    stdin: new Blob([rawYaml]),
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -610,10 +611,12 @@ async function main() {
   await writeFile(OUTPUT_PATH, yamlOutput);
 
   // Count stats
-  const pathCount = Object.keys(spec.paths as Record<string, unknown>).length;
-  const operationCount = Object.values(
-    spec.paths as Record<string, Record<string, unknown>>,
-  ).reduce((n, methods) => n + Object.keys(methods).length, 0);
+  const paths = spec.paths ?? {};
+  const pathCount = Object.keys(paths).length;
+  const operationCount = Object.values(paths).reduce(
+    (n, methods) => n + Object.keys(methods ?? {}).length,
+    0,
+  );
 
   console.log(`Generated ${OUTPUT_PATH}`);
   console.log(`  ${pathCount} paths, ${operationCount} operations`);
