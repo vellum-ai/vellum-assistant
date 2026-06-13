@@ -322,6 +322,7 @@ export function ChatLayout() {
     handleMarkConversationRead,
     handleTogglePinConversation,
     handleRenameConversation,
+    handleReorderConversations,
     handleMarkAllReadInGroup,
     handleArchiveAllInGroup,
   } = useConversationActions({
@@ -561,6 +562,7 @@ export function ChatLayout() {
       activeAppId={activeAppId ?? undefined}
       onOpenApp={handleOpenAppFromSidebar}
       onPinConversation={handleTogglePinConversation}
+      onReorderConversations={handleReorderConversations}
       onRenameConversation={handleRenameConversation}
       onArchiveConversation={handleArchiveConversation}
       onUnarchiveConversation={handleUnarchiveConversation}
