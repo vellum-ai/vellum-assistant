@@ -880,6 +880,9 @@ async function handleRunScheduleNow(id: string) {
         conversationId: schedule.wakeConversationId,
         hint: schedule.message,
         source: "defer",
+        ...(schedule.inferenceProfile
+          ? { forceOverrideProfile: schedule.inferenceProfile }
+          : {}),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

@@ -357,6 +357,9 @@ export async function runScheduleDueWorkOnce(
           conversationId: wakeConversationId,
           hint: job.message,
           source: "defer",
+          ...(job.inferenceProfile
+            ? { forceOverrideProfile: job.inferenceProfile }
+            : {}),
         });
 
         if (result.reason === "timeout" && isOneShot) {
