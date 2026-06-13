@@ -45,6 +45,7 @@ import { appendEvent, clearEventLog, getEventLog, getOperations, getOperationByI
 import { getClientId } from "./client-identity.js";
 import {
   startCloudLogin,
+  CloudLoginCancelledError,
   getStoredSession,
   clearSession,
   getSelectedAssistant,
@@ -1365,12 +1366,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponseFn) => {
         assistants,
         assistantsError,
       });
-    })().catch((err) =>
+    })().catch((err) => {
+      // User dismissed the auth window — not an error, just a no-op.
+      if (err instanceof CloudLoginCancelledError) {
+        sendResponseFn({ ok: false, cancelled: true });
+        return;
+      }
       sendResponseFn({
         ok: false,
         error: err instanceof Error ? err.message : String(err),
-      }),
-    );
+      });
+    });
     return true; // async
   }
 
