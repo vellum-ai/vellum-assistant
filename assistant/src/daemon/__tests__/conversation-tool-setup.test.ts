@@ -29,6 +29,8 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
+
 // ── Module-level mocks ─────────────────────────────────────────────
 
 // Control how many capable clients the hub reports per capability.
@@ -97,6 +99,20 @@ describe("isToolActiveForContext — no_response channel gating", () => {
 
   test("no_response is hidden when channel capabilities are unresolved", () => {
     expect(isToolActiveForContext("no_response", makeCtx())).toBe(false);
+  });
+
+  test("no_response is hidden when the no-response-tool flag is disabled", () => {
+    const ctx = makeCtx({
+      hasNoClient: true,
+      channelCapabilities: { channel: "slack", supportsDynamicUi: false },
+    });
+    setOverridesForTesting({ "no-response-tool": false });
+    try {
+      expect(isToolActiveForContext("no_response", ctx)).toBe(false);
+    } finally {
+      setOverridesForTesting({});
+    }
+    expect(isToolActiveForContext("no_response", ctx)).toBe(true);
   });
 });
 

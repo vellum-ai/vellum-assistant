@@ -64,6 +64,7 @@ import { searchPkbFiles } from "../../../memory/pkb/pkb-search.js";
 import { getPkbRoot, PKB_WORKSPACE_SCOPE } from "../../../memory/pkb/types.js";
 import { readMemoryV2StaticContent } from "../../../memory/v2/static-context.js";
 import type { Message } from "../../../providers/types.js";
+import { isNoResponseToolEnabled } from "../../../tools/no-response.js";
 import { getLogger } from "../../../util/logger.js";
 import { getSandboxWorkingDir } from "../../../util/platform.js";
 import {
@@ -268,6 +269,7 @@ const unifiedTurnContextInjector: Injector = {
       detectedTimezone: ctx.detectedTimezone,
       timeSinceLastMessage: ctx.timeSinceLastMessage,
       modelProfile: ctx.modelProfile,
+      noResponseToolEnabled: isNoResponseToolEnabled(),
     });
     return {
       id: "unified-turn-context",

@@ -32,7 +32,10 @@
       "label": "Pre-chat Onboarding Experiment 2026-06-06",
       "description": "Pre-chat onboarding experiment with control and variant-a arms. Control shows the full funnel; variant-a shows the condensed pared-down flow.",
       "defaultEnabled": "control",
-      "values": ["control", "variant-a"]
+      "values": [
+        "control",
+        "variant-a"
+      ]
     },
     {
       "id": "experiment-activation-flow-2026-06-03",
@@ -41,7 +44,10 @@
       "label": "Activation Flow Experiment 2026-06-03",
       "description": "Multivariate activation-flow experiment. control = standard flow; variant-a = activation rail. Targeted via LaunchDarkly.",
       "defaultEnabled": "control",
-      "values": ["control", "variant-a"]
+      "values": [
+        "control",
+        "variant-a"
+      ]
     },
     {
       "id": "local-docker-enabled",
@@ -410,6 +416,14 @@
       "label": "Self-intro first message",
       "description": "On the first conversation, send a natural self-introduction (e.g. \"Hi Vela, I'm alex. Nice to meet you.\") on the user's behalf and route it through real LLM inference, instead of serving the canned first greeting. Names come from the onboarding context; falls back to the canned greeting when no name is known. Exposed to clients so pre-hatch onboarding can compute the source-of-truth initial message, and to the assistant so older clients can still be gated server-side. See assistant/src/daemon/first-greeting.ts (buildSelfIntroMessage).",
       "defaultEnabled": false
+    },
+    {
+      "id": "no-response-tool",
+      "scope": "assistant",
+      "key": "no-response-tool",
+      "label": "No-response turn-control tool",
+      "description": "Signal channel-thread silence via the no_response tool (ends the turn with no reply posted). When disabled, the turn context falls back to prompting the legacy <no_response/> text sentinel and the tool is hidden.",
+      "defaultEnabled": true
     }
   ]
 }

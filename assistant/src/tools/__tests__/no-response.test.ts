@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
+import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
 import { isToolAllowedInChannel } from "../../channels/permission-profiles.js";
-import { NO_RESPONSE_TOOL_NAME, noResponseTool } from "../no-response.js";
+import {
+  isNoResponseToolEnabled,
+  NO_RESPONSE_TOOL_NAME,
+  noResponseTool,
+} from "../no-response.js";
 import type { ToolContext } from "../types.js";
 
 const context = {
@@ -26,6 +31,18 @@ describe("noResponseTool", () => {
 
     expect(result.isError).toBe(false);
     expect(result.yieldToUser).toBe(true);
+  });
+
+  test("is enabled by default and disabled via the no-response-tool flag", () => {
+    expect(isNoResponseToolEnabled()).toBe(true);
+
+    setOverridesForTesting({ "no-response-tool": false });
+    try {
+      expect(isNoResponseToolEnabled()).toBe(false);
+    } finally {
+      setOverridesForTesting({});
+    }
+    expect(isNoResponseToolEnabled()).toBe(true);
   });
 
   test("bypasses channel permission profiles — silence must never be blocked", () => {

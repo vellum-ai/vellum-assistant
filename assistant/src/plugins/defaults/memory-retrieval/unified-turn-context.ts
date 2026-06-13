@@ -35,6 +35,14 @@ export interface UnifiedTurnContextOptions {
    * paying per-turn token cost.
    */
   modelProfile?: string | null;
+  /**
+   * Whether the `no_response` turn-control tool is available this turn
+   * (`no-response-tool` feature flag). Selects the response_discretion
+   * wording: tool instruction when true (default), legacy `<no_response/>`
+   * sentinel instruction when false. Must match the tool-exposure gate in
+   * conversation-tool-setup.ts so the prompt never references a hidden tool.
+   */
+  noResponseToolEnabled?: boolean;
 }
 
 /**
@@ -210,8 +218,12 @@ export function buildUnifiedTurnContextBlock(
 
   // Response discretion for non-vellum channels.
   if (options.channelName && options.channelName !== "vellum") {
+    const silenceInstruction =
+      options.noResponseToolEnabled !== false
+        ? "call the no_response tool — with no reply text — to stay silent."
+        : "output exactly <no_response/> as your entire reply to stay silent.";
     lines.push(
-      `response_discretion: Not every message in a channel thread requires your response. If a message is clearly not directed at you (e.g. people talking among themselves, acknowledgements, reactions), call the no_response tool — with no reply text — to stay silent.`,
+      `response_discretion: Not every message in a channel thread requires your response. If a message is clearly not directed at you (e.g. people talking among themselves, acknowledgements, reactions), ${silenceInstruction}`,
     );
     if (options.channelName === "slack") {
       lines.push("if you are going to do work, use task_progress");

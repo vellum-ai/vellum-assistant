@@ -1727,9 +1727,33 @@ describe("buildUnifiedTurnContextBlock", () => {
     expect(vellumText).not.toContain("response_discretion:");
     expect(telegramText).toContain("response_discretion:");
     expect(telegramText).toContain("no_response tool");
-    // The literal sentinel must never be prompted — models leaked it into
-    // channel replies; silence is signaled via the no_response tool instead.
+    // The literal sentinel must never be prompted by default — models leaked
+    // it into channel replies; silence is signaled via the no_response tool.
     expect(telegramText).not.toContain("<no_response/>");
+  });
+
+  test("response discretion falls back to the sentinel when the no-response-tool flag is off", () => {
+    const baseOptions: UnifiedTurnContextOptions = {
+      timestamp: "2026-04-02T12:00:00Z",
+      interfaceName: "telegram",
+      channelName: "telegram",
+    };
+
+    const flagOffText = buildUnifiedTurnContextBlock({
+      ...baseOptions,
+      noResponseToolEnabled: false,
+    });
+    const flagOnText = buildUnifiedTurnContextBlock({
+      ...baseOptions,
+      noResponseToolEnabled: true,
+    });
+
+    expect(flagOffText).toContain("response_discretion:");
+    expect(flagOffText).toContain("<no_response/>");
+    expect(flagOffText).not.toContain("no_response tool");
+
+    expect(flagOnText).toContain("no_response tool");
+    expect(flagOnText).not.toContain("<no_response/>");
   });
 
   test("adds task_progress hint only for Slack turns", () => {

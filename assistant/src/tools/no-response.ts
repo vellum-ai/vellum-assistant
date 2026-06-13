@@ -1,3 +1,6 @@
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { getConfig } from "../config/loader.js";
+import type { AssistantConfig } from "../config/types.js";
 import { RiskLevel } from "../permissions/types.js";
 import { getLogger } from "../util/logger.js";
 import type {
@@ -9,6 +12,29 @@ import type {
 const log = getLogger("no-response-tool");
 
 export const NO_RESPONSE_TOOL_NAME = "no_response";
+
+const NO_RESPONSE_TOOL_FLAG = "no-response-tool" as const;
+
+/**
+ * Kill switch for the tool-based silence signal. Default-enabled; when the
+ * flag is off, the tool is hidden from channel turns and the turn context
+ * falls back to prompting the legacy `<no_response/>` text sentinel
+ * (delivery-side sentinel handling is always active, so the off state is
+ * exactly the pre-tool behavior).
+ *
+ * Tolerates an unloaded config (e.g. isolated tests): flag resolution reads
+ * only the override cache and the registry default, so an empty config is
+ * safe and keeps the kill switch effective even before config load.
+ */
+export function isNoResponseToolEnabled(): boolean {
+  let config: AssistantConfig;
+  try {
+    config = getConfig();
+  } catch {
+    config = {} as AssistantConfig;
+  }
+  return isAssistantFeatureFlagEnabled(NO_RESPONSE_TOOL_FLAG, config);
+}
 
 /**
  * Turn-control tool for channel conversations: the model calls it to end the
