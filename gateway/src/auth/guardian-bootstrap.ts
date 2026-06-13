@@ -259,7 +259,7 @@ export async function createGuardianBinding(
       // lowercased address we're about to write.
       await assistantDbRun(
         `DELETE FROM contact_channels
-         WHERE type = ? AND LOWER(address) = LOWER(?) AND id != ?`,
+         WHERE type = ? AND LOWER(address) = LOWER(?) AND id != ? AND status != 'blocked'`,
         [params.channel, params.externalUserId, channelId],
       );
 

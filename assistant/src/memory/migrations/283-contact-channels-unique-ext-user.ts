@@ -11,8 +11,8 @@ const log = getLogger("migration-283");
  * canonicalize(externalUserId) for every active channel type.
  *
  * Steps:
- *  1. Deduplicate by (type, LOWER(address)) — handles historical rows where
- *     Slack addresses were stored uppercase by the old gateway code.
+ *  1. Deduplicate by (type, LOWER(address)) — Slack addresses may be
+ *     uppercase and collide once lowercased.
  *  2. Lowercase all remaining address values.
  *  3. Deduplicate by (type, external_user_id) — handles corruption.
  *  4. Drop the unique and non-unique indexes on (type, external_user_id).
@@ -118,6 +118,6 @@ export function migrateContactChannelsUniqueExtUser(database: DrizzleDb): void {
     /*sql*/ `DROP INDEX IF EXISTS idx_contact_channels_type_ext_user_unique`,
   );
 
-  // Also drop the old non-unique index if it exists from older installs.
+  // Drop the non-unique variant that may exist on some installs.
   raw.run(/*sql*/ `DROP INDEX IF EXISTS idx_contact_channels_type_ext_user`);
 }

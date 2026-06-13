@@ -2,10 +2,9 @@
  * One-time migration: normalize all contact_channels.address values to
  * lowercase and deduplicate case-insensitive collisions.
  *
- * Historical Slack channels were stored with uppercase addresses (e.g.
- * 'U12345ABC') because the old contactChannelAddress() preserved casing for
- * Slack. All lookups now query by lowercased address, so existing uppercase
- * values would cause lookup misses.
+ * Slack channels may have uppercase addresses (e.g. 'U12345ABC') — address
+ * is the canonical identity column for all channel types. All lookups query
+ * by lowercased address, so uppercase values cause lookup misses.
  *
  * Steps:
  *  1. Deduplicate by (type, LOWER(address)) — keeps the best row per group
