@@ -27,6 +27,7 @@ import {
     supportsLlmContextSummaryView,
     useSupportsLlmContextSummaryView,
 } from "@/lib/backwards-compat/llm-context-summary-view";
+import { isElectron } from "@/runtime/is-electron";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useIsSessionInitializing } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
@@ -114,6 +115,7 @@ interface InspectorProps {
 
 function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
   const assistantId = useActiveAssistantId();
+  const electron = isElectron();
   const {
     data,
     isLoading: isLoadingContext,
@@ -168,8 +170,18 @@ function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
     [conversationId, messageId],
   );
 
+  // On the Electron macOS shell the window runs with a hidden title bar, so a
+  // global `WindowDragRegion` drag strip and the traffic lights occupy the top
+  // of the renderer. This standalone route has no inline title bar to claim that
+  // band (only chat does), so — like `SidebarShell` — reserve top space to clear
+  // the controls. Without it the header's back button sits under the drag strip
+  // and its clicks are swallowed by window dragging. Off Electron the layout is
+  // unchanged.
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div
+      className="flex h-full min-h-0 flex-col"
+      style={electron ? { paddingTop: "2.75rem" } : undefined}
+    >
       <Header
         assistantId={assistantId}
         conversationId={conversationId}
