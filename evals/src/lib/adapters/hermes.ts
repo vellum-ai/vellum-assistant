@@ -10,7 +10,7 @@ import type { Profile } from "../profile";
 import type { TestSetupCommand } from "../setup-command";
 import { runArtifacts } from "../metrics";
 import {
-  applyDockerEgressJail,
+  attachDockerEgressJail,
   type DockerEgressJail,
 } from "../egress/docker-jail";
 import {
@@ -36,9 +36,11 @@ import { generateHermesEvalSessionId, seedHermesSession } from "./hermes-seed";
  *   - `-e <PROVIDER_KEY>` flags forwarded from the eval process env. Hermes
  *     normally reads keys from `/opt/data/.env`; we run with an ephemeral
  *     `/opt/data` per run so direct `-e` is the only way to get keys in.
- *   - `applyDockerEgressJail` to constrain outbound traffic to the same
+ *   - `attachDockerEgressJail` to constrain outbound traffic to the same
  *     model-provider allowlist Vellum runs against. Keeps cross-species
- *     cost comparisons honest.
+ *     cost comparisons honest. Hermes owns its own network namespace (it
+ *     warms up provider SDKs from PyPI before the jail closes), so the
+ *     jail attaches to it rather than owning the namespace.
  *   - `docker exec --env PATH=...` for setup, send, and seed-conversation
  *     actions. The Hermes binary lives at `/opt/hermes/.venv/bin/hermes`;
  *     the official docs note it's NOT on PATH for `docker exec` sessions,
@@ -524,7 +526,8 @@ export class HermesAgent implements BaseAgent {
 
       await this.warmUpProviderDeps();
 
-      this.jail = await applyDockerEgressJail(this.runner, {
+      this.jail = await attachDockerEgressJail(this.runner, {
+        runId: this.id,
         containerName: this.containerName,
         recordingDir: runArtifacts(this.id).runDir,
       });
