@@ -29,7 +29,7 @@ function applyEvents(
 
 const defaultCtx: UIContext = {
   hasStreamingAssistantMessage: false,
-  hasStreamingAssistantThinking: false,
+  hasVisibleResponseContent: false,
   hasPendingSecret: false,
   hasPendingConfirmation: false,
   hasPendingQuestion: false,
@@ -421,22 +421,25 @@ describe("ACTIVITY_STATE_THINKING", () => {
     expect(state.phase).toBe("thinking");
   });
 
-  test("is discarded when idle with null activeTurnId", () => {
+  test("revives a wrongly-idled turn", () => {
+    // A non-idle daemon activity state is authoritative liveness — it must
+    // restore the sending phase even from idle, because an aux LLM call's
+    // message_complete/idle can clobber the phase mid-turn while the real
+    // generation is still running. Out-of-order events are dropped upstream
+    // by the SSE handler's activityVersion gate.
     const state = turnReducer(INITIAL_TURN_STATE, {
       type: "ACTIVITY_STATE_THINKING",
     });
-    expect(state.phase).toBe("idle");
-    expect(state).toBe(INITIAL_TURN_STATE);
+    expect(state.phase).toBe("thinking");
   });
 
-  test("is discarded when errored with null activeTurnId", () => {
+  test("revives from errored: daemon activity outranks a local error verdict", () => {
     const errored: TurnState = {
       ...INITIAL_TURN_STATE,
       phase: "errored",
     };
     const state = turnReducer(errored, { type: "ACTIVITY_STATE_THINKING" });
-    expect(state.phase).toBe("errored");
-    expect(state).toBe(errored);
+    expect(state.phase).toBe("thinking");
   });
 
   test("does not affect activeToolCallCount", () => {
@@ -1244,7 +1247,7 @@ describe("shouldShowThinkingIndicator", () => {
     ).toBe(true);
   });
 
-  test("hidden when streaming and assistant text is present", () => {
+  test("hidden when streaming and visible assistant text is present", () => {
     const streaming = applyEvents(INITIAL_TURN_STATE, [
       { type: "USER_SEND_REQUESTED" },
       { type: "ASSISTANT_TEXT_DELTA" },
@@ -1253,6 +1256,7 @@ describe("shouldShowThinkingIndicator", () => {
       shouldShowThinkingIndicator(streaming.phase, streaming.activeToolCallCount, {
         ...defaultCtx,
         hasStreamingAssistantMessage: true,
+        hasVisibleResponseContent: true,
       }),
     ).toBe(false);
   });
@@ -1350,10 +1354,11 @@ describe("shouldShowThinkingIndicator", () => {
     ).toBe(true);
   });
 
-  test("hidden once the live message has reasoning content (inline link owns it)", () => {
-    // Same thinking phase as above, but the live assistant message has emitted
-    // reasoning — an inline SingleActivity is now showing the loading state,
-    // so the standalone dots row defers to avoid two competing indicators.
+  test("hidden once the live message renders visible content (inline UI owns it)", () => {
+    // Same thinking phase as above, but the live assistant message has
+    // visible content (e.g. streamed reasoning) — an inline SingleActivity
+    // is showing the loading state, so the standalone dots row defers to
+    // avoid two competing indicators.
     const afterTool = applyEvents(INITIAL_TURN_STATE, [
       { type: "USER_SEND_REQUESTED", turnId: "t-1" },
       { type: "ASSISTANT_TEXT_DELTA" },
@@ -1366,14 +1371,15 @@ describe("shouldShowThinkingIndicator", () => {
       shouldShowThinkingIndicator(afterTool.phase, afterTool.activeToolCallCount, {
         ...defaultCtx,
         hasStreamingAssistantMessage: true,
-        hasStreamingAssistantThinking: true,
+        hasVisibleResponseContent: true,
       }),
     ).toBe(false);
   });
 
-  test("still visible pre-reasoning: bubble exists but no thinking content yet", () => {
-    // A streaming assistant bubble with no reasoning content → the inline link
-    // isn't showing, so the standalone dots must remain to signal progress.
+  test("still visible when a live bubble exists but renders nothing yet", () => {
+    // A live assistant bubble with no visible content (e.g. created by an
+    // aux LLM call that produced no renderable output) → the dots must
+    // remain, or the transcript reads as stalled while the model works.
     const thinking = applyEvents(INITIAL_TURN_STATE, [
       { type: "USER_SEND_REQUESTED", turnId: "t-1" },
       { type: "ACTIVITY_STATE_THINKING" },
@@ -1382,7 +1388,20 @@ describe("shouldShowThinkingIndicator", () => {
       shouldShowThinkingIndicator(thinking.phase, thinking.activeToolCallCount, {
         ...defaultCtx,
         hasStreamingAssistantMessage: true,
-        hasStreamingAssistantThinking: false,
+        hasVisibleResponseContent: false,
+      }),
+    ).toBe(true);
+  });
+
+  test("visible during streaming phase while nothing has rendered yet", () => {
+    // Mid-turn false-idle recovery: the daemon's tool_running/streaming
+    // activity re-enters "streaming"; with no visible response content the
+    // dots must show — phase choreography alone must never blank the UI.
+    expect(
+      shouldShowThinkingIndicator("streaming", 0, {
+        ...defaultCtx,
+        hasStreamingAssistantMessage: true,
+        hasVisibleResponseContent: false,
       }),
     ).toBe(true);
   });

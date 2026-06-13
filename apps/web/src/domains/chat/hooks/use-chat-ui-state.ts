@@ -100,17 +100,27 @@ export function useChatUIState(): ChatUIState {
   );
   const hasStreamingAssistantMessage = liveAssistantMessageId != null;
 
-  // True once the live assistant message has emitted reasoning content — at
-  // which point an inline `SingleActivity` is rendering it (and owning the
-  // streaming "Thinking" loading state). Used to hand off from the standalone
-  // thinking-dots row so the two indicators never compete.
-  const hasStreamingAssistantThinking = useMemo(() => {
+  // True once the live assistant row renders something visible — streamed
+  // text, reasoning (the inline `SingleActivity` owns the loading state
+  // then), a tool-call chip, or a surface. The standalone thinking-dots row
+  // yields to this, and ONLY this: a live bubble with no renderable content
+  // must keep the dots up, or the transcript reads as stalled (see
+  // `shouldShowThinkingIndicator`).
+  const hasVisibleResponseContent = useMemo(() => {
     if (liveAssistantMessageId == null) return false;
     const live = messages.find((m) => m.id === liveAssistantMessageId);
     if (!live) return false;
     return (
+      (live.textSegments?.some((s) => s.trim().length > 0) ?? false) ||
       (live.thinkingSegments?.length ?? 0) > 0 ||
-      !!live.contentBlocks?.some((b) => b.type === "thinking")
+      (live.toolCalls?.length ?? 0) > 0 ||
+      (live.surfaces?.length ?? 0) > 0 ||
+      !!live.contentBlocks?.some(
+        (b) =>
+          b.type === "thinking" ||
+          b.type === "tool_use" ||
+          (b.type === "text" && b.text.trim().length > 0),
+      )
     );
   }, [messages, liveAssistantMessageId]);
 
@@ -122,7 +132,7 @@ export function useChatUIState(): ChatUIState {
   const uiContext: UIContext = useMemo(
     () => ({
       hasStreamingAssistantMessage,
-      hasStreamingAssistantThinking,
+      hasVisibleResponseContent,
       hasPendingSecret: !!pendingSecret,
       hasPendingConfirmation: !!pendingConfirmation,
       hasPendingQuestion: !!pendingQuestion,
@@ -133,7 +143,7 @@ export function useChatUIState(): ChatUIState {
     }),
     [
       hasStreamingAssistantMessage,
-      hasStreamingAssistantThinking,
+      hasVisibleResponseContent,
       pendingSecret,
       pendingConfirmation,
       pendingQuestion,

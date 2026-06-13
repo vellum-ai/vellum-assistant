@@ -57,7 +57,7 @@ function fakeRuntimeMessage(overrides: Partial<ConversationMessage> = {}): Conve
 
 const DEFAULT_UI_CONTEXT: UIContext = {
   hasStreamingAssistantMessage: false,
-  hasStreamingAssistantThinking: false,
+  hasVisibleResponseContent: false,
   hasPendingSecret: false,
   hasPendingConfirmation: false,
   hasPendingQuestion: false,
@@ -392,7 +392,32 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     expect(snapshot.done.lastTerminalReason).toBe("complete");
   });
 
-  test("streaming with assistant message in flight → hidden with streamingAssistantMessageActive", () => {
+  test("streaming with visible response content → hidden with hasVisibleResponseContent", () => {
+    const refs = makeRefs({
+      turn: {
+        ...INITIAL_TURN_STATE,
+        phase: "streaming",
+        activeTurnId: "turn-1",
+      },
+      uiContext: {
+        hasStreamingAssistantMessage: true,
+        hasVisibleResponseContent: true,
+      },
+    });
+    const api = createChatDebugApi(refs);
+
+    const snapshot = api.thinkingIndicator();
+
+    expect(snapshot.visible).toBe(false);
+    expect(snapshot.failingConditions).toEqual([
+      "hasVisibleResponseContent",
+    ]);
+    expect(snapshot.done.terminal).toBe(false);
+  });
+
+  test("streaming with a live bubble but nothing visible → dots stay on", () => {
+    // The mid-turn blank-window regression: a live assistant bubble with no
+    // renderable content must not suppress the indicator.
     const refs = makeRefs({
       turn: {
         ...INITIAL_TURN_STATE,
@@ -405,11 +430,8 @@ describe("createChatDebugApi.thinkingIndicator", () => {
 
     const snapshot = api.thinkingIndicator();
 
-    expect(snapshot.visible).toBe(false);
-    expect(snapshot.failingConditions).toEqual([
-      "streamingAssistantMessageActive",
-    ]);
-    expect(snapshot.done.terminal).toBe(false);
+    expect(snapshot.visible).toBe(true);
+    expect(snapshot.failingConditions).toEqual([]);
   });
 
   test("active tool call suppresses indicator (activeToolCallCount>0)", () => {

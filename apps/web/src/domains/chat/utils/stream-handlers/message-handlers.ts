@@ -181,18 +181,20 @@ export function handleAssistantActivityState(
     ctx.lastActivityVersionRef.current.set(convId, event.activityVersion);
   }
 
-  if (event.phase === "thinking") {
-    ctx.turnActions.onActivityThinking(event.statusText);
-    recordDiagnostic("sse_activity_state_thinking_handled", {
-      convId,
-      reason: event.reason,
-      activityVersion: event.activityVersion,
-    });
-    return;
-  }
-
   if (event.phase !== "idle") {
-    recordDiagnostic("sse_activity_state_non_idle", {
+    // Every running phase is a liveness signal: recover the local turn
+    // phase (it may have been wrongly idled by an aux LLM call's
+    // message_complete arriving mid-turn) and re-mark the conversation as
+    // processing so the indicator/stop affordances stay lit for the whole
+    // generation. `awaiting_confirmation` is excluded — the
+    // confirmation_request interaction flow owns the turn phase there.
+    if (event.phase !== "awaiting_confirmation") {
+      ctx.turnActions.onDaemonActivity(event.phase, event.statusText);
+      if (convId) {
+        markConversationProcessingFromStream(ctx, convId);
+      }
+    }
+    recordDiagnostic("sse_activity_state_non_idle_handled", {
       convId,
       phase: event.phase,
       reason: event.reason,

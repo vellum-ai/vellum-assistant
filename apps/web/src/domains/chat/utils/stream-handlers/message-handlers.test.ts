@@ -144,7 +144,7 @@ describe("handleAssistantActivityState", () => {
       },
       ctx,
     );
-    expect(ctx.turnActions.onActivityThinking).not.toHaveBeenCalled();
+    expect(ctx.turnActions.onDaemonActivity).not.toHaveBeenCalled();
     expect(ctx.endTurn).not.toHaveBeenCalled();
   });
 
@@ -170,7 +170,7 @@ describe("handleAssistantActivityState", () => {
     expect(ctx.startReconciliationLoop).not.toHaveBeenCalled();
   });
 
-  it("calls onActivityThinking for thinking phase", () => {
+  it("calls onDaemonActivity for thinking phase", () => {
     const ctx = makeCtx();
     handleAssistantActivityState(
       {
@@ -184,12 +184,15 @@ describe("handleAssistantActivityState", () => {
       ctx,
     );
     expect(ctx.lastActivityVersionRef.current.get("conv-1")).toBe(2);
-    expect(ctx.turnActions.onActivityThinking).toHaveBeenCalledWith(undefined);
+    expect(ctx.turnActions.onDaemonActivity).toHaveBeenCalledWith(
+      "thinking",
+      undefined,
+    );
     expect(ctx.setMessages).not.toHaveBeenCalled();
     expect(ctx.startReconciliationLoop).not.toHaveBeenCalled();
   });
 
-  it("forwards statusText in onActivityThinking call", () => {
+  it("forwards statusText in onDaemonActivity call", () => {
     const ctx = makeCtx();
     handleAssistantActivityState(
       {
@@ -203,12 +206,38 @@ describe("handleAssistantActivityState", () => {
       },
       ctx,
     );
-    expect(ctx.turnActions.onActivityThinking).toHaveBeenCalledWith(
+    expect(ctx.turnActions.onDaemonActivity).toHaveBeenCalledWith(
+      "thinking",
       "Processing bash results",
     );
   });
 
-  it("returns early for non-idle, non-thinking phase", () => {
+  it("recovers liveness from tool_running phase (mid-turn false idle)", () => {
+    // An aux LLM call's message_complete/idle can wrongly end the local
+    // turn while the real generation is still running. The daemon's next
+    // tool_running activity (e.g. reason preview_start while tool args
+    // stream) must re-enter a sending phase so the UI isn't stuck blank.
+    const ctx = makeCtx();
+    handleAssistantActivityState(
+      {
+        type: "assistant_activity_state",
+        activityVersion: 8,
+        phase: "tool_running",
+        anchor: "assistant_turn",
+        reason: "preview_start",
+        statusText: "Preparing File Write...",
+        conversationId: "conv-1",
+      },
+      ctx,
+    );
+    expect(ctx.turnActions.onDaemonActivity).toHaveBeenCalledWith(
+      "tool_running",
+      "Preparing File Write...",
+    );
+    expect(ctx.endTurn).not.toHaveBeenCalled();
+  });
+
+  it("handles streaming phase as liveness", () => {
     const ctx = makeCtx();
     handleAssistantActivityState(
       {
@@ -226,7 +255,27 @@ describe("handleAssistantActivityState", () => {
         ctx.streamContext!.conversationId,
       ),
     ).toBe(1);
-    expect(ctx.turnActions.onActivityThinking).not.toHaveBeenCalled();
+    expect(ctx.turnActions.onDaemonActivity).toHaveBeenCalledWith(
+      "streaming",
+      undefined,
+    );
+    expect(ctx.endTurn).not.toHaveBeenCalled();
+  });
+
+  it("does not touch the turn phase for awaiting_confirmation", () => {
+    const ctx = makeCtx();
+    handleAssistantActivityState(
+      {
+        type: "assistant_activity_state",
+        activityVersion: 1,
+        phase: "awaiting_confirmation",
+        anchor: "assistant_turn",
+        reason: "confirmation_requested",
+        conversationId: "conv-1",
+      },
+      ctx,
+    );
+    expect(ctx.turnActions.onDaemonActivity).not.toHaveBeenCalled();
     expect(ctx.endTurn).not.toHaveBeenCalled();
   });
 });

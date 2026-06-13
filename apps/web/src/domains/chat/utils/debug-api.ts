@@ -95,9 +95,9 @@ export interface ChatDebugThinkingConditions {
   hasPendingContactRequest: boolean;
   hasUncompletedVisibleSurface: boolean;
   hasStreamingAssistantMessage: boolean;
-  /** True when the live assistant message already has reasoning content, so the
-   * inline `SingleActivity` owns the loading state and the dots row defers. */
-  hasStreamingAssistantThinking: boolean;
+  /** True when the live assistant row renders visible content (text,
+   * reasoning, a tool chip, or a surface) — the dots row defers to it. */
+  hasVisibleResponseContent: boolean;
   activeConversationIsProcessing: boolean;
   hasPendingAssistantResponse: boolean;
 }
@@ -566,7 +566,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       hasPendingContactRequest: uiContext.hasPendingContactRequest,
       hasUncompletedVisibleSurface: uiContext.hasUncompletedVisibleSurface,
       hasStreamingAssistantMessage: uiContext.hasStreamingAssistantMessage,
-      hasStreamingAssistantThinking: uiContext.hasStreamingAssistantThinking,
+      hasVisibleResponseContent: uiContext.hasVisibleResponseContent,
       activeConversationIsProcessing:
         uiContext.activeConversationIsProcessing === true,
       hasPendingAssistantResponse:
@@ -595,17 +595,8 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     if (conditions.hasUncompletedVisibleSurface) {
       failingConditions.push("hasUncompletedVisibleSurface");
     }
-    if (
-      !(
-        conditions.isThinking ||
-        conditions.restoredProcessing ||
-        !conditions.hasStreamingAssistantMessage
-      )
-    ) {
-      failingConditions.push("streamingAssistantMessageActive");
-    }
-    if (conditions.hasStreamingAssistantThinking) {
-      failingConditions.push("hasStreamingAssistantThinking");
+    if (conditions.hasVisibleResponseContent) {
+      failingConditions.push("hasVisibleResponseContent");
     }
     if (conditions.activeToolCallCount > 0) {
       failingConditions.push("activeToolCallCount>0");
