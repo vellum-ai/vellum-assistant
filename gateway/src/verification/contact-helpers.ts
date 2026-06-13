@@ -26,13 +26,8 @@ import { canonicalizeInboundIdentity } from "./identity.js";
 
 const log = getLogger("verification-contacts");
 
-function contactChannelAddress(
-  sourceChannel: string,
-  canonicalUserId: string,
-): string {
-  return sourceChannel === "slack"
-    ? canonicalUserId
-    : canonicalUserId.toLowerCase();
+function contactChannelAddress(canonicalUserId: string): string {
+  return canonicalUserId.toLowerCase();
 }
 
 // ---------------------------------------------------------------------------
@@ -103,7 +98,7 @@ export async function upsertVerifiedContactChannel(params: {
   const canonicalUserId =
     canonicalizeInboundIdentity(sourceChannel, params.externalUserId) ??
     params.externalUserId;
-  const address = contactChannelAddress(sourceChannel, canonicalUserId);
+  const address = contactChannelAddress(canonicalUserId);
   const contactDisplayName = displayName ?? username ?? canonicalUserId;
 
   // Check if a channel for this actor already exists.
@@ -114,9 +109,8 @@ export async function upsertVerifiedContactChannel(params: {
   }>(
     `SELECT cc.id AS channelId, cc.contact_id AS contactId, cc.status AS channelStatus
      FROM contact_channels cc
-     WHERE cc.type = ? AND (cc.address = ? OR cc.external_user_id = ?)
+     WHERE cc.type = ? AND LOWER(cc.address) = LOWER(?)
      ORDER BY
-       CASE WHEN cc.address = ? THEN 0 ELSE 1 END,
        CASE cc.status
          WHEN 'active' THEN 0
          WHEN 'unverified' THEN 1
@@ -124,7 +118,7 @@ export async function upsertVerifiedContactChannel(params: {
        END,
        cc.updated_at DESC
      LIMIT 1`,
-    [sourceChannel, address, canonicalUserId, address],
+    [sourceChannel, address],
   );
 
   if (existing.length > 0) {
@@ -277,7 +271,7 @@ export async function upsertContactChannel(params: {
   const canonicalUserId =
     canonicalizeInboundIdentity(sourceChannel, params.externalUserId) ??
     params.externalUserId;
-  const address = contactChannelAddress(sourceChannel, canonicalUserId);
+  const address = contactChannelAddress(canonicalUserId);
   const contactDisplayName = displayName ?? username ?? canonicalUserId;
 
   const existing = await assistantDbQuery<{
@@ -287,9 +281,8 @@ export async function upsertContactChannel(params: {
   }>(
     `SELECT cc.id AS channelId, cc.contact_id AS contactId, cc.status AS channelStatus
      FROM contact_channels cc
-     WHERE cc.type = ? AND (cc.address = ? OR cc.external_user_id = ?)
+     WHERE cc.type = ? AND LOWER(cc.address) = LOWER(?)
      ORDER BY
-       CASE WHEN cc.address = ? THEN 0 ELSE 1 END,
        CASE cc.status
          WHEN 'active' THEN 0
          WHEN 'unverified' THEN 1
@@ -297,7 +290,7 @@ export async function upsertContactChannel(params: {
        END,
        cc.updated_at DESC
      LIMIT 1`,
-    [sourceChannel, address, canonicalUserId, address],
+    [sourceChannel, address],
   );
 
   if (existing.length > 0) {

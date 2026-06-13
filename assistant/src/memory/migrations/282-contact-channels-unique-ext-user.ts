@@ -4,17 +4,15 @@ import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 const log = getLogger("migration-282");
 
 /**
- * Originally this migration deduped contact_channels rows sharing the same
- * (type, external_user_id) and created a partial unique index. The unique
- * index is no longer needed because all identity lookups now use the
- * (type, address) unique constraint from migration 105. The external_user_id
- * column is redundant — address always equals canonicalize(externalUserId)
- * for every active channel type.
+ * Deduplicates contact_channels rows sharing the same (type, external_user_id)
+ * and drops the indexes on that pair. All identity lookups use the
+ * (type, address) unique constraint from migration 105; the external_user_id
+ * column is redundant — address equals canonicalize(externalUserId) for every
+ * active channel type.
  *
- * This migration now:
- *  1. Still deduplicates any historical corruption (idempotent, harmless).
- *  2. Drops the partial unique index on (type, external_user_id) if it
- *     exists from a prior run.
+ * Steps:
+ *  1. Deduplicates any historical corruption (idempotent, harmless).
+ *  2. Drops the unique and non-unique indexes on (type, external_user_id).
  */
 export function migrateContactChannelsUniqueExtUser(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
