@@ -274,7 +274,19 @@ function ensureLocalBinOnPath(): void {
   }
 }
 
-export interface HatchDockerOptions {
+export interface HatchDockerParams {
+  /** Assistant species to hatch (e.g. `"vellum"`). */
+  species: Species;
+  /** Run detached without attaching to logs or interactive setup. */
+  detached?: boolean;
+  /** Instance display name. Defaults to an auto-generated name. */
+  name?: string | null;
+  /** Build from a local source tree and hot-reload on change. */
+  watch?: boolean;
+  /** Hatch-time config values (key → value). */
+  configValues?: Record<string, string>;
+  /** Extra env vars forwarded into the assistant container. */
+  flagEnvVars?: Record<string, string>;
   setupProviderCredentials?: boolean;
   /**
    * Path to a local source tree to build images from before hatching. When
@@ -1069,18 +1081,19 @@ function startFileWatcher(opts: {
   };
 }
 
-export async function hatchDocker(
-  species: Species,
-  detached: boolean,
-  name: string | null,
-  watch: boolean = false,
-  configValues: Record<string, string> = {},
-  flagEnvVars: Record<string, string> = {},
-  options: HatchDockerOptions = {},
-): Promise<void> {
+export async function hatchDocker(params: HatchDockerParams): Promise<void> {
+  const {
+    species,
+    detached = false,
+    name = null,
+    configValues = {},
+    flagEnvVars = {},
+  } = params;
+  let watch = params.watch ?? false;
+
   resetLogFile("hatch.log");
   const provider =
-    options.setupProviderCredentials === false
+    params.setupProviderCredentials === false
       ? undefined
       : resolveHatchProvider(configValues);
 
@@ -1104,13 +1117,13 @@ export async function hatchDocker(
     // or unrelated process, we walk upward until we find a free port, so
     // concurrent instances don't collide on a docker bind error.
     let gatewayPort: number;
-    if (options.netnsContainer) {
-      if (options.gatewayPort === undefined) {
+    if (params.netnsContainer) {
+      if (params.gatewayPort === undefined) {
         throw new Error(
           "hatchDocker: gatewayPort is required when netnsContainer is set (the namespace owner publishes the port before hatch runs)",
         );
       }
-      gatewayPort = options.gatewayPort;
+      gatewayPort = params.gatewayPort;
     } else {
       const preferredGatewayPort = getDefaultPorts(
         getCurrentEnvironment(),
@@ -1130,8 +1143,8 @@ export async function hatchDocker(
     };
 
     const sourcePath =
-      typeof options.sourcePath === "string" && options.sourcePath.length > 0
-        ? options.sourcePath
+      typeof params.sourcePath === "string" && params.sourcePath.length > 0
+        ? params.sourcePath
         : null;
     const buildFromSource = sourcePath !== null;
     let repoRoot: string | undefined;
@@ -1281,7 +1294,7 @@ export async function hatchDocker(
     // When joining an externally-owned network namespace, the owner already
     // provides the network stack — creating a per-instance network here would
     // be unused and leak on teardown.
-    if (options.netnsContainer) {
+    if (params.netnsContainer) {
       log("📁 Joining existing network namespace; creating volumes...");
     } else {
       log("📁 Creating network and volumes...");
@@ -1394,8 +1407,8 @@ export async function hatchDocker(
         imageTags,
         instanceName,
         res,
-        netnsContainer: options.netnsContainer,
-        assistantCaCertPath: options.assistantCaCertPath,
+        netnsContainer: params.netnsContainer,
+        assistantCaCertPath: params.assistantCaCertPath,
       },
       log,
     );
@@ -1435,7 +1448,7 @@ export async function hatchDocker(
       logFd,
       runtimeUrl,
       containersUpAt,
-      analyze: options.analyze ?? false,
+      analyze: params.analyze ?? false,
     });
 
     if (!ready && !(watch && repoRoot)) {
@@ -1493,8 +1506,8 @@ export async function hatchDocker(
         instanceName,
         repoRoot,
         res,
-        netnsContainer: options.netnsContainer,
-        assistantCaCertPath: options.assistantCaCertPath,
+        netnsContainer: params.netnsContainer,
+        assistantCaCertPath: params.assistantCaCertPath,
       });
 
       await new Promise<void>((resolve) => {

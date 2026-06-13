@@ -672,21 +672,19 @@ export async function hatch(): Promise<void> {
   }
 
   if (remote === "docker") {
-    await hatchDocker(
+    await hatchDocker({
       species,
       detached,
       name,
       watch,
       configValues,
       flagEnvVars,
-      {
-        sourcePath,
-        analyze,
-        netnsContainer: netnsContainer ?? undefined,
-        gatewayPort: gatewayPort ?? undefined,
-        assistantCaCertPath: assistantCaCert ?? undefined,
-      },
-    );
+      sourcePath,
+      analyze,
+      netnsContainer: netnsContainer ?? undefined,
+      gatewayPort: gatewayPort ?? undefined,
+      assistantCaCertPath: assistantCaCert ?? undefined,
+    });
     return;
   }
 
