@@ -457,6 +457,7 @@ export function WorkspaceFileViewer({
   onChangeViewMode,
   onBrowse,
   pathRename,
+  pathDelete,
 }: {
   assistantId: string;
   selectedPath: string | null;
@@ -466,6 +467,8 @@ export function WorkspaceFileViewer({
   onBrowse?: () => void;
   /** Last successful workspace rename, so edit state can follow the file. */
   pathRename?: { from: string; to: string } | null;
+  /** Last successful workspace delete, so drafts for the path are discarded. */
+  pathDelete?: { path: string } | null;
 }) {
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
@@ -499,6 +502,19 @@ export function WorkspaceFileViewer({
       prev == null ? prev : { ...prev, path: remap(prev.path) },
     );
   }, [pathRename]);
+
+  // Discard drafts tied to a deleted file (or one under a deleted folder) so
+  // recreating the same path doesn't resurrect the old contents — and Save
+  // can't write them into the new file.
+  useEffect(() => {
+    if (!pathDelete) return;
+    const { path } = pathDelete;
+    const covers = (p: string) => p === path || p.startsWith(`${path}/`);
+    setEditingPath((prev) => (prev != null && covers(prev) ? null : prev));
+    setEditOverride((prev) =>
+      prev != null && covers(prev.path) ? null : prev,
+    );
+  }, [pathDelete]);
 
   const isEditing = editingPath != null && editingPath === selectedPath;
   const originalContent = data?.content ?? "";

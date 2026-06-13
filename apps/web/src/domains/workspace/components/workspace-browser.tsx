@@ -57,6 +57,8 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
     setDrawerOpen(false);
   }, []);
 
+  const [lastDelete, setLastDelete] = useState<{ path: string } | null>(null);
+
   const handlePathDeleted = useCallback((path: string) => {
     const isDeleted = (p: string) => p === path || p.startsWith(`${path}/`);
     setSelectedPath((prev) => (prev !== null && isDeleted(prev) ? null : prev));
@@ -64,6 +66,7 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
       const next = new Set([...prev].filter((p) => !isDeleted(p)));
       return next.size === prev.size ? prev : next;
     });
+    setLastDelete({ path });
   }, []);
 
   const [lastRename, setLastRename] = useState<{
@@ -146,6 +149,7 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
             onChangeViewMode={setViewMode}
             onBrowse={() => setDrawerOpen(true)}
             pathRename={lastRename}
+            pathDelete={lastDelete}
           />
         </div>
       </div>
