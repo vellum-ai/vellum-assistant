@@ -19,7 +19,6 @@
 
 import { type Dispatch, type MutableRefObject, type RefObject, type SetStateAction, useCallback, useEffect, useLayoutEffect, useMemo } from "react";
 
-import { useEscapeCancel } from "@/domains/chat/hooks/use-escape-cancel";
 import { useChatUIState } from "@/domains/chat/hooks/use-chat-ui-state";
 import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
 import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
@@ -81,7 +80,6 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
-import { useVellumCommands } from "@/runtime/vellum-commands";
 
 // ---------------------------------------------------------------------------
 // Props — only values that cannot be owned locally
@@ -222,19 +220,6 @@ export function ChatMainPanel({
 
   // Conversation count (for nudges — TanStack Query deduped)
   const { conversations } = useConversationListQuery(assistantId, true);
-
-  // -------------------------------------------------------------------------
-  // Global Escape cancel — focused app case (document keydown) and
-  // unfocused case (IPC command from the Electron escape monitor).
-  // -------------------------------------------------------------------------
-  useEscapeCancel(canStopGenerating, handleStopGenerating);
-  useVellumCommands({
-    cancelActiveAction: () => {
-      if (canStopGenerating) {
-        void handleStopGenerating();
-      }
-    },
-  });
 
   // -------------------------------------------------------------------------
   // UI-scoped hooks
