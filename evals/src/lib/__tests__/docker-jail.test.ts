@@ -340,7 +340,9 @@ describe("docker egress jail", () => {
     expect(runner.runs[1]?.args[0]).toBe("build");
     const dockerRun = runner.runs[2];
     const networkIdx = dockerRun?.args.indexOf("--network") ?? -1;
-    expect(dockerRun?.args[networkIdx + 1]).toBe("container:eval-run-ca-hermes");
+    expect(dockerRun?.args[networkIdx + 1]).toBe(
+      "container:eval-run-ca-hermes",
+    );
     expect(dockerRun?.args).not.toContain("-p");
 
     // AND it installs the CA into the target container — cp must precede
