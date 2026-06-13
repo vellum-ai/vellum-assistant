@@ -617,8 +617,9 @@ interface ForwardCutOutcome {
  * `floorIndex`, which the caller anchors to the start of the most recent
  * complete user→assistant exchange so the current in-flight turn is never cut.
  * Every candidate cut must pass {@link isForwardCutBoundary} so tool pairs are
- * never orphaned. Returns the original `startIndex` unchanged when no forward
- * boundary improves on it.
+ * never orphaned. Returns the original `startIndex` unchanged when the model's
+ * own tail already fits the budget (the cut is enforcement, not optimization)
+ * or when no forward boundary improves on it.
  *
  * Reports `tailFloorReached` when the cut exhausts its forward boundaries (the
  * loop never broke early on a fit) while the best tail it found is still over
@@ -634,10 +635,15 @@ function advanceTailForBudget(args: {
   estimateTail: (tail: Message[]) => number;
 }): ForwardCutOutcome {
   const { messages, startIndex, floorIndex, targetTokens, estimateTail } = args;
+  // The model's own tail choice already fits — keep it untouched. Without this
+  // early return the loop below would advance to the first forward boundary
+  // regardless (smaller tails also fit), needlessly dropping verbatim messages
+  // the budget never required us to drop.
+  if (estimateTail(messages.slice(startIndex)) <= targetTokens) {
+    return { index: startIndex, tailFloorReached: false };
+  }
   let chosen = startIndex;
-  // Seed with the model's starting tail so a no-advance run still reports
-  // whether that tail (the floor, when no forward boundary improves on it) fits.
-  let fits = estimateTail(messages.slice(startIndex)) <= targetTokens;
+  let fits = false;
   for (let i = startIndex + 1; i <= floorIndex; i++) {
     if (!isForwardCutBoundary(messages, i)) continue;
     chosen = i;
@@ -646,7 +652,6 @@ function advanceTailForBudget(args: {
       fits = true;
       break;
     }
-    fits = false;
   }
   return { index: chosen, tailFloorReached: !fits };
 }
@@ -981,7 +986,7 @@ export async function runAssistantDrivenCompaction(
   }
 
   const summaryText = buildSummaryMemoryText(parsed.summary, parsed.keyState);
-  const summaryMessage: Message = {
+  let summaryMessage: Message = {
     role: "assistant",
     content: [{ type: "text", text: summaryText }],
   };
@@ -1019,9 +1024,10 @@ export async function runAssistantDrivenCompaction(
   // rebuilt history (summary + retained images + verbatim tail) still exceeds
   // `targetTokens`, advance the cut forward — onto clean user-turn boundaries
   // only — until it fits or the most-recent-complete-exchange floor is hit.
-  // The summary text already covers everything before the tail semantically,
-  // so growing the summarized region after the fact stays coherent without a
-  // second LLM call.
+  // No second LLM call: the summary stays as written, and the span dropped
+  // between the model's cut and the enforced cut is acknowledged with an
+  // explicit truncation notice appended to the summary message (see below),
+  // so the loss is visible in-context rather than silent.
   let tailIndex = pairedTailIndex;
   // Whether the deterministic forward-cut hit the tail floor while still over
   // `targetTokens` — propagated onto the success result so the window-manager's
@@ -1056,12 +1062,33 @@ export async function runAssistantDrivenCompaction(
     tailFloorReached = advanced.tailFloorReached;
     if (advanced.index !== pairedTailIndex) {
       tailIndex = advanced.index;
+      // The LLM wrote its summary believing the verbatim tail would start at
+      // `pairedTailIndex`, so the messages in [pairedTailIndex, tailIndex) are
+      // covered by neither the summary's detail nor the retained tail. Append
+      // a deterministic truncation notice so the loss is visible in-context
+      // instead of silent — the conversation can recompute or recall what it
+      // needs rather than acting on a gap it doesn't know exists. The notice
+      // is a few dozen tokens against a multi-thousand-token target, so the
+      // budget estimate above remains effectively accurate.
+      const dropped = args.messages.slice(pairedTailIndex, tailIndex);
+      const droppedUser = dropped.filter((m) => m.role === "user").length;
+      const droppedAssistant = dropped.length - droppedUser;
+      const truncationNote =
+        `\n\n[Context budget enforcement: ${dropped.length} message(s) ` +
+        `(${droppedUser} user, ${droppedAssistant} assistant) between this ` +
+        `summary and the retained tail were truncated to fit the context ` +
+        `budget and are not covered in detail above.]`;
+      summaryMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: summaryText + truncationNote }],
+      };
       log.info(
         {
           conversationId: args.conversationId,
           modelTailIndex: pairedTailIndex,
           tailIndex,
           floorIndex,
+          droppedFromTail: dropped.length,
           targetTokens: args.targetTokens,
           tailFloorReached,
         },

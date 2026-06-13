@@ -250,4 +250,95 @@ describe("runAssistantDrivenCompaction — low-watermark forward cut", () => {
       tail[0].content.some((b) => b.type === "tool_result");
     expect(opensWithToolResult).toBe(false);
   });
+
+  test("keeps the model's tail untouched when it already fits the budget", async () => {
+    // 10 turns = 20 messages; the model anchors its tail at turn 4 (index 8)
+    // and the target is far above the rebuilt-history estimate. Enforcement
+    // must not advance the cut at all — the cut is enforcement, not
+    // optimization.
+    const messages: Message[] = [];
+    for (let i = 0; i < 10; i++) {
+      messages.push(userTurn(i, "short user turn body here"));
+      messages.push(assistantTurn(i, "short assistant reply body here"));
+    }
+
+    const result = await runAssistantDrivenCompaction({
+      conversationId: "conv-test",
+      messages,
+      provider: makeProvider(
+        compactionResponse(4, "short user turn body here"),
+      ),
+      systemPrompt: "system",
+      compaction: { enabled: true, autoThreshold: 0.7 },
+      maxInputTokens: 100_000,
+      targetTokens: 50_000,
+      previousEstimatedInputTokens: 90_000,
+    });
+
+    expect(result.compacted).toBe(true);
+    // The model's cut (turn 4 → index 8) keeps messages 8..19 = 12 messages.
+    expect(result.preservedTailMessages).toBe(12);
+    // No span was dropped, so the summary carries no truncation notice.
+    const summaryBlock = result.messages[0]?.content.find(
+      (b) => b.type === "text",
+    );
+    expect(
+      summaryBlock && "text" in summaryBlock ? summaryBlock.text : "",
+    ).not.toContain("Context budget enforcement");
+  });
+
+  test("acknowledges the span dropped by an advanced cut in the summary message", async () => {
+    // Same shape as the first test: a heavy conversation where the model's
+    // tail choice overshoots the budget and the cut must advance. The span
+    // between the model's cut and the enforced cut is in neither the
+    // summary's detail nor the retained tail, so the summary message must
+    // carry an explicit truncation notice.
+    const messages: Message[] = [];
+    for (let i = 0; i < 40; i++) {
+      messages.push(
+        userTurn(
+          i,
+          "User message with a fairly long body so that each turn carries real token weight in the estimate. ".repeat(
+            3,
+          ),
+        ),
+      );
+      messages.push(
+        assistantTurn(
+          i,
+          "Assistant reply, also reasonably long to contribute estimate weight. ".repeat(
+            3,
+          ),
+        ),
+      );
+    }
+
+    const result = await runAssistantDrivenCompaction({
+      conversationId: "conv-test",
+      messages,
+      provider: makeProvider(
+        compactionResponse(4, "User message with a fairly long body"),
+      ),
+      systemPrompt: "system",
+      compaction: { enabled: true, autoThreshold: 0.7 },
+      maxInputTokens: 100_000,
+      targetTokens: 1500,
+      previousEstimatedInputTokens: 90_000,
+    });
+
+    expect(result.compacted).toBe(true);
+    const summaryBlock = result.messages[0]?.content.find(
+      (b) => b.type === "text",
+    );
+    const summaryTextOut =
+      summaryBlock && "text" in summaryBlock ? summaryBlock.text : "";
+    // The notice names the dropped span (count by role) so the loss is
+    // visible in-context rather than silent.
+    expect(summaryTextOut).toContain("Context budget enforcement");
+    expect(summaryTextOut).toMatch(
+      /\d+ message\(s\) \(\d+ user, \d+ assistant\)/,
+    );
+    // The original summary body is preserved verbatim ahead of the notice.
+    expect(summaryTextOut).toContain(SUMMARY);
+  });
 });
