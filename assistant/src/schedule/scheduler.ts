@@ -470,6 +470,9 @@ export async function runScheduleDueWorkOnce(
             await processMessage(conversationId, message, {
               trustClass: "guardian",
               taskRunId,
+              ...(job.inferenceProfile
+                ? { overrideProfile: job.inferenceProfile }
+                : {}),
             });
           },
         );
@@ -602,6 +605,9 @@ export async function runScheduleDueWorkOnce(
       try {
         await processMessage(conversationId, job.message, {
           trustClass: "guardian",
+          ...(job.inferenceProfile
+            ? { overrideProfile: job.inferenceProfile }
+            : {}),
         });
         ok = true;
       } catch (err) {
@@ -622,6 +628,9 @@ export async function runScheduleDueWorkOnce(
         systemHint: `Schedule: ${job.name}`,
         trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
         callSite: "mainAgent",
+        ...(job.inferenceProfile
+          ? { overrideProfile: job.inferenceProfile }
+          : {}),
         timeoutMs: SCHEDULE_TALK_TIMEOUT_MS,
         origin: "schedule",
         groupId: "system:scheduled",

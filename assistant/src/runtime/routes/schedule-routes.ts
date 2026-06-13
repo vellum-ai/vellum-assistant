@@ -12,6 +12,7 @@ import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
 import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
 import { getConversation } from "../../memory/conversation-crud.js";
 import { getUsageCostForConversationWindow } from "../../memory/llm-usage-store.js";
+import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import {
   describeRRuleExpression,
   isSingleFireRRule,
@@ -66,6 +67,7 @@ const scheduleSchema = z.object({
   maxRetries: z.number(),
   retryBackoffMs: z.number(),
   timeoutMs: z.number().nullable(),
+  inferenceProfile: z.string().nullable(),
   createdFromConversationId: z.string().nullable(),
   createdFromConversationExists: z.boolean(),
   createdFromConversationArchivedAt: z.number().nullable(),
@@ -181,6 +183,7 @@ function serializeSchedule(
     maxRetries: j.maxRetries,
     retryBackoffMs: j.retryBackoffMs,
     timeoutMs: j.timeoutMs,
+    inferenceProfile: j.inferenceProfile,
     createdFromConversationId: j.createdFromConversationId,
     createdFromConversationExists: sourceConversation.exists,
     createdFromConversationArchivedAt: sourceConversation.archivedAt,
@@ -236,6 +239,16 @@ function handleCreateSchedule(body: Record<string, unknown>) {
   const timezone = timezoneRaw === "" ? null : timezoneRaw;
   const enabled = body.enabled !== false;
   const mode = (body.mode as string | undefined) ?? "execute";
+  const inferenceProfile =
+    body.inferenceProfile == null ? null : body.inferenceProfile;
+
+  if (inferenceProfile !== null) {
+    if (typeof inferenceProfile !== "string") {
+      throw new BadRequestError("inferenceProfile must be a string or null");
+    }
+    const profileError = validateScheduleInferenceProfile(inferenceProfile);
+    if (profileError) throw new BadRequestError(profileError);
+  }
 
   if (!name) throw new BadRequestError("name is required");
   if (!expression) throw new BadRequestError("expression is required");
@@ -269,6 +282,7 @@ function handleCreateSchedule(body: Record<string, unknown>) {
       timezone,
       expression: normalized.expression,
       syntax: normalized.syntax,
+      inferenceProfile,
     });
     log.info({ id: job.id, name: job.name }, "Schedule created");
   } catch (err) {
@@ -388,6 +402,20 @@ function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
     }
     const timeoutError = validateScriptTimeoutMs(updates.timeoutMs);
     if (timeoutError) throw new BadRequestError(timeoutError);
+  }
+
+  // Inference profile: null clears the override (back to the default
+  // main-agent model selection); a string must name a configured profile.
+  if ("inferenceProfile" in body) {
+    const inferenceProfile = body.inferenceProfile;
+    if (inferenceProfile !== null && typeof inferenceProfile !== "string") {
+      throw new BadRequestError("inferenceProfile must be a string or null");
+    }
+    if (typeof inferenceProfile === "string") {
+      const profileError = validateScheduleInferenceProfile(inferenceProfile);
+      if (profileError) throw new BadRequestError(profileError);
+    }
+    updates.inferenceProfile = inferenceProfile;
   }
 
   try {
@@ -575,6 +603,13 @@ export const ROUTES: RouteDefinition[] = [
         .describe("Whether the schedule starts active (default true)")
         .optional(),
       mode: z.string().describe("Currently must be 'execute'").optional(),
+      inferenceProfile: z
+        .string()
+        .nullable()
+        .describe(
+          "Inference profile (llm.profiles key) the schedule's runs use. Omitted or null = default, i.e. the mainAgent call-site model selection.",
+        )
+        .optional(),
     }),
     responseBody: z.object({
       schedules: z.array(scheduleSchema).describe("Updated schedule list"),
@@ -681,6 +716,13 @@ export const ROUTES: RouteDefinition[] = [
         .nullable()
         .describe("Script-mode execution timeout in ms; null = use default")
         .optional(),
+      inferenceProfile: z
+        .string()
+        .nullable()
+        .describe(
+          "Inference profile (llm.profiles key) the schedule's runs use; null clears it back to the default mainAgent call-site model selection",
+        )
+        .optional(),
     }),
     responseBody: z.object({
       schedules: z.array(scheduleSchema).describe("Updated schedule list"),
@@ -784,6 +826,9 @@ async function handleRunScheduleNow(id: string) {
               attachments: [],
               onEvent: () => {},
               isInteractive: false,
+              ...(schedule.inferenceProfile
+                ? { overrideProfile: schedule.inferenceProfile }
+                : {}),
             });
           } finally {
             conversation.taskRunId = undefined;
@@ -877,6 +922,9 @@ async function handleRunScheduleNow(id: string) {
       attachments: [],
       onEvent: () => {},
       isInteractive: false,
+      ...(schedule.inferenceProfile
+        ? { overrideProfile: schedule.inferenceProfile }
+        : {}),
     });
     completeScheduleRun(runId, { status: "ok" });
   } catch (err) {
