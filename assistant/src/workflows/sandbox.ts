@@ -43,6 +43,19 @@ const DEFAULT_MEMORY_LIMIT_BYTES = 256 * 1024 * 1024;
  */
 const INTERRUPT_DEADLINE_MS = 5_000;
 
+/**
+ * Minimum latency (ms) a host call must have awaited for its time to be excused
+ * from the contiguous-CPU {@link INTERRUPT_DEADLINE_MS} guard. The deadline is
+ * reset around a host call so a multi-second leaf/agent round-trip (the VM
+ * suspended in asyncify) is not counted as script CPU — but ONLY for calls that
+ * actually awaited that long. Cheap synchronous host fns (`usage`, `phase`,
+ * `log`, `leaf`) return in microseconds; if they reset the deadline too, a tight
+ * loop over one (e.g. `while (true) usage()`) would refresh the guard every
+ * iteration and pin the run slot burning CPU forever. Sub-threshold calls do not
+ * reset, so such a loop trips the CPU guard at {@link INTERRUPT_DEADLINE_MS}.
+ */
+const HOST_CALL_DEADLINE_RESET_THRESHOLD_MS = 50;
+
 /** Thrown when a script invokes a banned non-deterministic primitive. */
 export class WorkflowDeterminismError extends Error {
   constructor(message: string) {
@@ -315,12 +328,20 @@ function installNativeBridge(
       const parsedArgs = JSON.parse(argsJson) as unknown[];
       // A host throw/rejection propagates as a VM exception the script can
       // catch, or — if uncaught — as a WorkflowScriptError to the caller.
+      const startedAtMs = Date.now();
       const result = await fn(...parsedArgs);
       // The VM is about to resume script execution. Reset the CPU budget so the
       // (possibly multi-second) host-call latency we just awaited does not count
       // against the interrupt deadline — that guards contiguous script CPU only,
-      // not cumulative host-call wall-clock. `signal` remains the hard stop.
-      resetDeadline();
+      // not cumulative host-call wall-clock. But reset ONLY when the call
+      // actually awaited a meaningful amount of time: a cheap synchronous host
+      // fn (`usage`/`phase`/`log`/`leaf`) returns in microseconds, and resetting
+      // for it would let `while (true) usage()` refresh the deadline every
+      // iteration and burn CPU forever. Sub-threshold calls don't reset, so such
+      // a loop trips the guard at the deadline. `signal` remains the hard stop.
+      if (Date.now() - startedAtMs >= HOST_CALL_DEADLINE_RESET_THRESHOLD_MS) {
+        resetDeadline();
+      }
       // `undefined` JSON-stringifies to `undefined`; map it to the VM's
       // undefined so the sync wrapper returns `undefined` rather than NaN.
       if (result === undefined) return vm.undefined;

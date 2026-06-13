@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { createWorkflowSandbox, WorkflowScriptError } from "./sandbox.js";
+import {
+  createWorkflowSandbox,
+  WorkflowResourceError,
+  WorkflowScriptError,
+} from "./sandbox.js";
 
 // Workflow scripts are SYNCHRONOUS: host functions block the script via
 // asyncify (the VM stack unwinds while the host promise settles, then resumes),
@@ -178,5 +182,40 @@ describe("createWorkflowSandbox — determinism bans", () => {
     // 1577836800000 = 2020-01-01T00:00:00Z. The explicit-arg path is allowed
     // (deterministic); only the zero-arg wall-clock read is banned.
     expect(result).toEqual([true, 2020]);
+  });
+});
+
+// The interrupt deadline must bound script CPU even when the script loops over
+// host calls — a cheap host call must NOT reset the deadline, or the guard is
+// trivially evaded.
+describe("createWorkflowSandbox — CPU guard", () => {
+  test("a tight loop over a cheap host fn trips the interrupt deadline", async () => {
+    // `cheap()` returns instantly, so it must not reset the CPU deadline —
+    // otherwise this loop would refresh the guard every iteration and pin the
+    // run forever. With a short deadline it trips promptly.
+    const sandbox = createWorkflowSandbox({
+      hostFunctions: { cheap: () => 1 },
+      interruptDeadlineMs: 100,
+    });
+    await expect(
+      sandbox.run(`while (true) { cheap(); }`, null),
+    ).rejects.toThrow(WorkflowResourceError);
+  });
+
+  test("a genuinely long host call does not trip the deadline (latency excused)", async () => {
+    // A single host call whose await (1000ms) far exceeds the deadline (200ms)
+    // must NOT trip: the reset excuses real leaf/agent latency. With the reset
+    // gated on a 50ms threshold, this 1000ms call still resets.
+    const sandbox = createWorkflowSandbox({
+      hostFunctions: {
+        slow: async () => {
+          await new Promise((r) => setTimeout(r, 1000));
+          return "ok";
+        },
+      },
+      interruptDeadlineMs: 200,
+    });
+    const result = await sandbox.run(`return slow();`, null);
+    expect(result).toBe("ok");
   });
 });
