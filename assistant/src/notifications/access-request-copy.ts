@@ -446,7 +446,7 @@ export function buildAccessRequestSeedContentBlocks(
         {
           id: `apr:${p.requestId}:reject`,
           label: "Reject",
-          style: "secondary",
+          style: "destructive",
         },
       ]
     : undefined;

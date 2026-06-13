@@ -177,7 +177,7 @@ describe("buildAccessRequestSeedContentBlocks", () => {
     expect(actions[1]).toEqual({
       id: "apr:req-123:reject",
       label: "Reject",
-      style: "secondary",
+      style: "destructive",
     });
   });
 

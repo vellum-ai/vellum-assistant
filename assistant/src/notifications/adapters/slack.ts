@@ -13,6 +13,7 @@ import {
   isSlackDmConversation,
   parseAccessRequestPayload,
   sanitizeIdentityField,
+  sanitizeMessagePreview,
 } from "../access-request-copy.js";
 import { isConversationSeedSane } from "../conversation-seed-composer.js";
 import { nonEmpty } from "../copy-composer.js";
@@ -122,6 +123,17 @@ function buildAccessRequestBlocks(payload: Record<string, unknown>): unknown[] {
 
   if (fields.length > 0) {
     blocks.push({ type: "section", fields });
+  }
+
+  // Message preview — shows the requester's original message when available.
+  if (p.messagePreview) {
+    const sanitized = sanitizeMessagePreview(p.messagePreview);
+    if (sanitized) {
+      blocks.push({
+        type: "section",
+        text: { type: "mrkdwn", text: `> _"${sanitized}"_` },
+      });
+    }
   }
 
   // Unified warnings: revoked + trust signals
