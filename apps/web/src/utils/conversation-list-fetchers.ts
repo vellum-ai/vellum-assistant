@@ -302,17 +302,6 @@ async function fetchMergedConversationList(
 // `hasMore` so callers can tell a complete list from a window.
 // ---------------------------------------------------------------------------
 
-/** First page of the foreground conversation list (sorted newest-first). */
-export async function listConversationsFirstPage(
-  assistantId: string,
-): Promise<ConversationListPage> {
-  const page = await fetchConversationListPage(assistantId, 0);
-  return {
-    ...page,
-    conversations: [...page.conversations].sort(byTimestampDesc("lastMessageAt")),
-  };
-}
-
 /** First page of the background conversation list. */
 export async function listBackgroundConversationsFirstPage(
   assistantId: string,

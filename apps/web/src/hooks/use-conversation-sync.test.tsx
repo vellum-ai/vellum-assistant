@@ -57,7 +57,7 @@ const realListFetchersModule = await import(
   "@/utils/conversation-list-fetchers"
 );
 type ListFirstPage = Awaited<
-  ReturnType<typeof realListFetchersModule.listConversationsFirstPage>
+  ReturnType<typeof realListFetchersModule.listBackgroundConversationsFirstPage>
 >;
 
 let listFirstPageImpl: (
@@ -78,7 +78,6 @@ function recordFirstPage(bucket: string) {
 
 mock.module("@/utils/conversation-list-fetchers", () => ({
   ...realListFetchersModule,
-  listConversationsFirstPage: recordFirstPage("foreground"),
   listBackgroundConversationsFirstPage: recordFirstPage("background"),
   listScheduledConversationsFirstPage: recordFirstPage("scheduled"),
 }));

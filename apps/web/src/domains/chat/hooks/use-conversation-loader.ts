@@ -147,8 +147,8 @@ export function useConversationLoader({
   // `useBackgroundConversationListQuery`, gated on the sidebar revealing
   // those sections, so a large background backlog never blocks the initial
   // render. Sibling consumers in `ChatLayout` and `ChatPage` mount the same
-  // foreground query — they all share one cache entry under
-  // `conversationsQueryKey(assistantId)`, so dedupe and structural-sharing
+  // foreground query — they all share one cache entry under the
+  // `conversationListInfiniteQueryKey`, so dedupe and structural-sharing
   // are automatic.
   //
   // The query owns:

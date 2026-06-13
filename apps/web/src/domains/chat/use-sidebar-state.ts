@@ -224,13 +224,11 @@ export function useSidebarState({
         visibleRecentsCount > SIDEBAR_CONVERSATION_LIMIT &&
         grouped.recents.length > SIDEBAR_CONVERSATION_LIMIT,
       onShowMore: () => {
-        setVisibleRecentsCount((prev) =>
-          Math.min(
-            grouped.recents.length + SIDEBAR_CONVERSATION_LIMIT,
-            Math.max(prev, effectiveVisibleCount) + SIDEBAR_CONVERSATION_LIMIT,
-          ),
+        const nextCount = Math.min(
+          grouped.recents.length + SIDEBAR_CONVERSATION_LIMIT,
+          Math.max(visibleRecentsCount, effectiveVisibleCount) + SIDEBAR_CONVERSATION_LIMIT,
         );
-        const nextCount = Math.max(visibleRecentsCount, effectiveVisibleCount) + SIDEBAR_CONVERSATION_LIMIT;
+        setVisibleRecentsCount(nextCount);
         if (nextCount >= grouped.recents.length && hasNextPage) {
           fetchNextPage?.();
         }
