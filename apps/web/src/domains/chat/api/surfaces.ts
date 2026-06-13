@@ -7,15 +7,22 @@ import {
   surfaceactionsPost,
   surfacesBySurfaceIdGet,
 } from "@/generated/daemon/sdk.gen";
-import type { SurfacesBySurfaceIdGetResponse } from "@/generated/daemon/types.gen";
+import type {
+  SurfaceactionsPostResponse,
+  SurfacesBySurfaceIdGetResponse,
+} from "@/generated/daemon/types.gen";
 import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
+
+export type SurfaceActionResult =
+  | { ok: false }
+  | { ok: true; applied?: boolean; reason?: string; replyText?: string };
 
 export async function submitSurfaceAction(
   assistantId: string,
   surfaceId: string,
   actionId: string,
   data?: Record<string, unknown>,
-): Promise<{ ok: boolean }> {
+): Promise<SurfaceActionResult> {
   if (
     !surfaceId ||
     typeof surfaceId !== "string" ||
@@ -26,15 +33,21 @@ export async function submitSurfaceAction(
   }
 
   try {
-    const { response } = await surfaceactionsPost({
+    const { data: resData, response } = await surfaceactionsPost({
       path: { assistant_id: assistantId },
       body: { surfaceId, actionId, data },
       throwOnError: false,
     });
-    if (!response?.ok) {
+    if (!response?.ok || !resData) {
       return { ok: false };
     }
-    return { ok: true };
+    const body = resData as SurfaceactionsPostResponse;
+    return {
+      ok: true,
+      ...(typeof body.applied === "boolean" ? { applied: body.applied } : {}),
+      ...(body.reason ? { reason: body.reason } : {}),
+      ...(body.replyText ? { replyText: body.replyText } : {}),
+    };
   } catch {
     return { ok: false };
   }

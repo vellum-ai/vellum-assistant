@@ -25,8 +25,11 @@ import {
 // below its content.
 const ONBOARDING_CONTENT_SIZE = { width: 440, height: 660 } as const;
 
-// Default bounds for the main window once onboarding is done.
-const MAIN_DEFAULT_BOUNDS = { width: 1280, height: 800 } as const;
+// Default state for the main window once onboarding is done: maximized — a
+// normal window filling the display's work area, deliberately NOT native
+// macOS fullscreen. Applies only until a real session is persisted; after
+// that, `window-state` restores whatever bounds/mode the user left.
+const MAIN_DEFAULT_STATE = "maximized";
 
 // Minimum size for the main-app window, mirroring the macOS Swift client's
 // main window (`MainWindow.swift`: `contentMinSize` 800×600). The window can't
@@ -61,6 +64,22 @@ const applyTrafficLightPosition = (
   win.setWindowButtonPosition(
     compact ? null : { ...MAIN_TRAFFIC_LIGHT_POSITION },
   );
+};
+
+// Shrink the window to the compact onboarding layout. Lower the floor before
+// shrinking: `setContentSize` clamps to the current minimum, so the 800×600
+// main floor must drop to 440×660 first or the window wouldn't actually
+// shrink.
+const applyOnboardingContentSize = (win: BrowserWindow): void => {
+  win.setMinimumSize(
+    ONBOARDING_CONTENT_SIZE.width,
+    ONBOARDING_CONTENT_SIZE.height,
+  );
+  win.setContentSize(
+    ONBOARDING_CONTENT_SIZE.width,
+    ONBOARDING_CONTENT_SIZE.height,
+  );
+  win.center();
 };
 
 /**
@@ -177,10 +196,13 @@ const createMainWindow = (): BrowserWindow => {
   const loadTarget = getRendererRootUrl(app.isPackaged);
 
   // Onboarding opens at the 440×660 default; otherwise restore the user's
-  // saved main-app bounds. Both layouts are resizable larger, but each
-  // carries its own minimum (`minWidth`/`minHeight`): the compact onboarding
-  // flow can't be dragged below its 440×660 content, and the main app can't
-  // be dragged below 800×600 (mirroring the Swift client's `contentMinSize`).
+  // saved main-app state — which defaults to maximized (work-area bounds)
+  // when nothing has been persisted yet. A saved fullscreen session's
+  // `fullscreen` flag rides the spread into the `BrowserWindow` constructor.
+  // Both layouts are resizable larger, but each carries its own minimum
+  // (`minWidth`/`minHeight`): the compact onboarding flow can't be dragged
+  // below its 440×660 content, and the main app can't be dragged below
+  // 800×600 (mirroring the Swift client's `contentMinSize`).
   // The persisted flag lets a relaunch *during* onboarding rebuild the small
   // window directly (no flash); the absent-flag default is `false` (open large) so we
   // never cramp the `/account/*` screens that render outside RootLayout —
@@ -195,7 +217,7 @@ const createMainWindow = (): BrowserWindow => {
         useContentSize: true,
       }
     : {
-        ...restoreBounds("main", MAIN_DEFAULT_BOUNDS),
+        ...restoreBounds("main", MAIN_DEFAULT_STATE),
         minWidth: MAIN_MIN_SIZE.width,
         minHeight: MAIN_MIN_SIZE.height,
       };
@@ -368,6 +390,11 @@ export const dispatchToMain = (command: VellumCommand): void => {
  * the entry shrink is skipped, the exit restore is captured under "main".
  * Re-asserting the current mode (the renderer fires this on every
  * navigation) is a cheap no-op past the early return.
+ *
+ * Native fullscreen is handled on both transitions: entering onboarding
+ * leaves fullscreen first (a restored fullscreen session, or a green-button
+ * press at the pre-onboarding `/account/*` screens), and leaving onboarding
+ * re-enters it when the saved session being restored was fullscreen.
  */
 export const setOnboarding = (active: boolean): void => {
   const wasActive = readOnboardingActive();
@@ -382,27 +409,35 @@ export const setOnboarding = (active: boolean): void => {
   applyTrafficLightPosition(win, active);
 
   if (active) {
-    // Lower the floor before shrinking: `setContentSize` clamps to the current
-    // minimum, so the 800×600 main floor must drop to 440×660 first or the
-    // window wouldn't actually shrink.
-    win.setMinimumSize(
-      ONBOARDING_CONTENT_SIZE.width,
-      ONBOARDING_CONTENT_SIZE.height,
-    );
-    win.setContentSize(
-      ONBOARDING_CONTENT_SIZE.width,
-      ONBOARDING_CONTENT_SIZE.height,
-    );
-    win.center();
+    if (win.isFullScreen()) {
+      // macOS ignores geometry changes while in (or animating out of)
+      // fullscreen, so leave fullscreen first and defer the shrink until
+      // the transition lands. The mode re-check guards the rare flip back
+      // to main before `leave-full-screen` fires.
+      win.once("leave-full-screen", () => {
+        if (win.isDestroyed() || !readOnboardingActive()) return;
+        applyOnboardingContentSize(win);
+      });
+      win.setFullScreen(false);
+    } else {
+      applyOnboardingContentSize(win);
+    }
   } else {
     // Swap the onboarding floor for the roomier 800×600 main-app floor.
     win.setMinimumSize(MAIN_MIN_SIZE.width, MAIN_MIN_SIZE.height);
-    const bounds = restoreBounds("main", MAIN_DEFAULT_BOUNDS);
+    const bounds = restoreBounds("main", MAIN_DEFAULT_STATE);
     win.setBounds({ width: bounds.width, height: bounds.height });
     if (bounds.x !== undefined && bounds.y !== undefined) {
       win.setPosition(bounds.x, bounds.y);
     } else {
       win.center();
+    }
+    if (bounds.fullscreen) {
+      // Enter fullscreen only after the windowed geometry above is applied —
+      // it becomes the rectangle the user lands on when exiting fullscreen.
+      // Entering (never forcing an exit) keeps a mid-onboarding green-button
+      // press intact when the saved state happens to be windowed.
+      win.setFullScreen(true);
     }
   }
 };

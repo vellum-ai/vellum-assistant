@@ -67,10 +67,15 @@ export const writeOnboardingActive = (active: boolean): void => {
   store().set("onboardingActive", active);
 };
 
-interface Defaults {
-  width: number;
-  height: number;
-}
+/**
+ * What to open with when no state has been persisted for the key yet:
+ * either a fixed windowed size (Electron centers it), or `"maximized"` —
+ * a normal window filling the primary display's work area. macOS has no
+ * sticky maximized window state, so work-area bounds are what "maximized"
+ * means there (the green button's zoom) — deliberately NOT native
+ * fullscreen. A saved state always wins once one exists.
+ */
+type Defaults = { width: number; height: number } | "maximized";
 
 export interface RestoredWindowState {
   x?: number;
@@ -93,15 +98,22 @@ export interface RestoredWindowState {
  *   - A monitor that shrunk (resolution change) doesn't leave the window
  *     extending past the new edge.
  *
- * Omitting `x` / `y` when no state exists is intentional — Electron
- * centers the window in that case, which is the right first-run UX.
+ * For fixed-size defaults, omitting `x` / `y` when no state exists is
+ * intentional — Electron centers the window in that case, which is the
+ * right first-run UX. The `"maximized"` default carries the work area's
+ * own origin instead.
  */
 export const restoreBounds = (
   key: string,
   defaults: Defaults,
 ): RestoredWindowState => {
   const saved = store().get("windows", {})[key];
-  if (!saved) return defaults;
+  if (!saved) {
+    if (defaults === "maximized") {
+      return { ...screen.getPrimaryDisplay().workArea };
+    }
+    return defaults;
+  }
 
   const display = screen.getDisplayMatching(saved);
   const wa = display.workArea;

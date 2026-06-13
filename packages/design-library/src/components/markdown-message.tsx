@@ -167,7 +167,10 @@ function buildMarkdownComponents(
   LinkComponent: MarkdownLinkComponent,
 ): Components {
   return {
-    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+    // mb-6 (24px) equals one --text-chat-line-height, so a `\n\n` paragraph
+    // break reads as a full blank line — distinct from the 24px hard break a
+    // single `\n` produces. Smaller margins make the two nearly identical.
+    p: ({ children }) => <p className="mb-6 last:mb-0">{children}</p>,
     // Markdown headings keep the canonical scale sizes but restore bold weight
     // via `!font-bold` (the scale variants bake font-weight:500 into the utility,
     // so a plain `font-bold` loses to the custom rule; `!important` wins).

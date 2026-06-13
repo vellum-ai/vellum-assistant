@@ -11,16 +11,24 @@ import { z } from "zod";
 
 import type { ChannelId } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
+import { findGuardianForChannel } from "../../contacts/contact-store.js";
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { processGuardianDecision } from "../guardian-action-service.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
 import { resolveLocalTrustContext } from "../local-actor-identity.js";
 import {
   resolveTrustContext,
   withSourceChannel,
 } from "../trust-context-resolver.js";
-import { BadRequestError, InternalError, NotFoundError, RouteError } from "./errors.js";
+import { parseCallbackData } from "./channel-route-shared.js";
+import {
+  BadRequestError,
+  InternalError,
+  NotFoundError,
+  RouteError,
+} from "./errors.js";
 import { resolveSurfaceConversation } from "./surface-conversation-resolver.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -95,6 +103,9 @@ async function handleSurfaceAction({
 }: RouteHandlerArgs): Promise<{
   ok: boolean;
   conversationId?: string;
+  applied?: boolean;
+  reason?: string;
+  replyText?: string;
 }> {
   const conversationId = body?.conversationId as string | null | undefined;
   const surfaceId = body?.surfaceId as string | undefined;
@@ -109,6 +120,59 @@ async function handleSurfaceAction({
   }
   if (conversationId != null && typeof conversationId !== "string") {
     throw new BadRequestError("conversationId must be a string");
+  }
+
+  // Intercept access-request approval actions (apr:<requestId>:<action>)
+  // before conversation resolution — these are cross-conversation decisions
+  // that route through the canonical guardian decision primitive.
+  const aprDecision = parseCallbackData(actionId, "vellum");
+  if (aprDecision) {
+    // Resolve the actor's guardian principal ID. In dev mode the synthetic
+    // "dev-bypass" principal won't match the real guardian binding, so fall
+    // back to the local guardian binding — mirrors guardian-action-routes.ts.
+    let guardianPrincipalId: string | undefined =
+      headers?.["x-vellum-actor-principal-id"] ?? undefined;
+    if (
+      isHttpAuthDisabled() &&
+      headers?.["x-vellum-actor-principal-id"] === "dev-bypass"
+    ) {
+      const binding = findGuardianForChannel("vellum");
+      guardianPrincipalId = binding?.contact.principalId ?? undefined;
+    }
+
+    const result = await processGuardianDecision({
+      requestId: aprDecision.requestId!,
+      action: aprDecision.action,
+      conversationId: conversationId ?? undefined,
+      channel: "vellum",
+      actorContext: {
+        actorPrincipalId: guardianPrincipalId,
+        guardianPrincipalId,
+      },
+    });
+
+    if (!result.ok) {
+      throw new BadRequestError(result.message);
+    }
+    if (!result.applied) {
+      log.warn(
+        { actionId, requestId: aprDecision.requestId, reason: result.reason },
+        "Access request decision not applied",
+      );
+    } else {
+      log.info(
+        { actionId, requestId: result.requestId },
+        "Access request decision applied via surface action",
+      );
+    }
+    return {
+      ok: true,
+      applied: result.applied,
+      ...(!result.applied ? { reason: result.reason } : {}),
+      ...(result.applied && result.replyText
+        ? { replyText: result.replyText }
+        : {}),
+    };
   }
 
   const conversation = await resolveSurfaceConversation(
@@ -255,6 +319,24 @@ export const ROUTES: RouteDefinition[] = [
           "Id of a newly launched conversation when the action dispatched one. Omitted otherwise.",
         )
         .optional(),
+      applied: z
+        .boolean()
+        .describe(
+          "Whether the action was applied. Present only for guardian decision actions (apr:*). False when the request was already resolved, expired, or the actor lacks permission.",
+        )
+        .optional(),
+      reason: z
+        .string()
+        .describe(
+          "Explanation when applied is false (e.g. 'already_resolved', 'expired', 'principal_mismatch').",
+        )
+        .optional(),
+      replyText: z
+        .string()
+        .describe(
+          "Guardian-facing reply from the resolver (e.g. verification code for access-request approvals). Present only when applied is true and the resolver produced a reply.",
+        )
+        .optional(),
     }),
     handler: handleSurfaceAction,
   },
@@ -270,9 +352,7 @@ export const ROUTES: RouteDefinition[] = [
     description: "Revert the most recent action on a surface.",
     tags: ["surfaces"],
     requestBody: z.object({
-      conversationId: z
-        .string()
-        .describe("Conversation that owns the surface"),
+      conversationId: z.string().describe("Conversation that owns the surface"),
     }),
     responseBody: z.object({
       ok: z.boolean(),
