@@ -6,9 +6,11 @@
 import {
   type Dirent,
   existsSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -448,6 +450,29 @@ function handleWorkspaceMkdir({ body, headers }: RouteHandlerArgs) {
 // POST /v1/workspace/rename — rename/move files and directories
 // ---------------------------------------------------------------------------
 
+/**
+ * On case-insensitive filesystems (macOS/iOS defaults) a case-only rename's
+ * destination "exists" because it resolves to the source itself. Treat only
+ * true path aliases of one directory entry as the same file:
+ * - lstat, not stat, so two symlinks to one target stay distinct entries;
+ * - matching inodes alone are not enough — hard links share an inode while
+ *   being distinct entries, and POSIX rename() between two hard links is a
+ *   silent no-op. realpath canonicalizes case/normalization aliases of the
+ *   same entry to one string, while distinct entries keep distinct names.
+ */
+function isSamePathAlias(a: string, b: string): boolean {
+  try {
+    const statA = lstatSync(a);
+    const statB = lstatSync(b);
+    if (statA.dev !== statB.dev || statA.ino !== statB.ino) {
+      return false;
+    }
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
+  }
+}
+
 function handleWorkspaceRename({ body, headers }: RouteHandlerArgs) {
   const oldPath = body?.oldPath as string | undefined;
   const newPath = body?.newPath as string | undefined;
@@ -474,7 +499,7 @@ function handleWorkspaceRename({ body, headers }: RouteHandlerArgs) {
     throw new NotFoundError("Source path not found");
   }
 
-  if (existsSync(resolvedNew)) {
+  if (existsSync(resolvedNew) && !isSamePathAlias(resolvedOld, resolvedNew)) {
     throw new ConflictError("Destination already exists");
   }
 

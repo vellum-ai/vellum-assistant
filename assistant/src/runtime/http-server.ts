@@ -56,11 +56,11 @@ import {
 } from "./middleware/auth.js";
 import { withErrorHandling } from "./middleware/error-handler.js";
 import {
-  apiRateLimiter,
   extractClientIp,
   ipRateLimiter,
   rateLimitHeaders,
   rateLimitResponse,
+  selectAuthenticatedRateLimiter,
 } from "./middleware/rate-limiter.js";
 import { withRequestLogging } from "./middleware/request-logger.js";
 import {
@@ -690,7 +690,11 @@ export class RuntimeHttpServer {
     if (!isHttpAuthDisabled()) {
       const clientIp = extractClientIp(req, server);
       const token = extractBearerToken(req);
-      const limiter = token ? apiRateLimiter : ipRateLimiter;
+      // Authenticated loopback clients (desktop app, CLI — anything on the
+      // daemon's own host) get a higher budget than remote clients.
+      const limiter = token
+        ? selectAuthenticatedRateLimiter(clientIp)
+        : ipRateLimiter;
       const limiterKind = token ? "authenticated" : "unauthenticated";
       const result = limiter.check(clientIp, path);
       if (!result.allowed) {

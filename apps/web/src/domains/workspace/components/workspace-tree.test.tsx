@@ -1,9 +1,10 @@
 /**
  * Tests for `WorkspaceTreeCreateMenu`.
  *
- * Verifies the mobile vs desktop branch — desktop renders a Radix Popover
- * with the New File / New Folder rows; mobile renders a BottomSheet (Radix
- * Dialog). Selecting either row forwards `onSelectKind(kind)` to the parent.
+ * Verifies the mobile vs desktop branch — desktop renders a Radix dropdown
+ * Menu with the New File / New Folder rows; mobile renders a BottomSheet
+ * (Radix Dialog). Selecting either row forwards `onSelectKind(kind)` to the
+ * parent.
  *
  * Uses `renderToStaticMarkup` + `mock.module` for design library compounds
  * (same pattern as conversation-actions-menu.test.tsx).
@@ -35,13 +36,20 @@ mock.module("@vellumai/design-library/components/bottom-sheet", () => ({
   },
 }));
 
-mock.module("@vellumai/design-library/components/popover", () => ({
-  Popover: {
+mock.module("@vellumai/design-library/components/menu", () => ({
+  Menu: {
     Root: passthrough,
     Trigger: ({ children }: Record<string, unknown>) =>
-      createElement("div", { "data-testid": "pop-trigger" }, children as ReactNode),
-    Content: ({ children, role }: Record<string, unknown>) =>
-      createElement("div", { role }, children as ReactNode),
+      createElement("div", { "data-testid": "menu-trigger" }, children as ReactNode),
+    // Mirror the roles the real Radix menu primitives render with.
+    Content: ({ children }: Record<string, unknown>) =>
+      createElement("div", { role: "menu" }, children as ReactNode),
+    Item: ({ children, onSelect, leftIcon: _leftIcon }: Record<string, unknown>) =>
+      createElement(
+        "button",
+        { role: "menuitem", onClick: onSelect as () => void },
+        children as ReactNode,
+      ),
   },
 }));
 
@@ -78,7 +86,7 @@ beforeEach(() => {
 });
 
 describe("WorkspaceTreeCreateMenu", () => {
-  test("desktop branch renders Popover with New File / New Folder items", () => {
+  test("desktop branch renders Menu with New File / New Folder items", () => {
     mockIsMobile = false;
     const html = renderToStaticMarkup(
       createElement(WorkspaceTreeCreateMenu, {
