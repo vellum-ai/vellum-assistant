@@ -369,4 +369,154 @@ describe("UserSimulator", () => {
       "call end_conversation with a reason that explains why",
     );
   });
+
+  test("decide returns the simulator's allow confirmation", async () => {
+    // GIVEN the simulator answers a pending confirmation with `allow`
+    const test = await makeTestDef();
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          content: [
+            {
+              type: "tool_use",
+              name: "respond_to_confirmation",
+              input: { decision: "allow", reason: "matches the SPEC goal" },
+            },
+          ],
+          stop_reason: "tool_use",
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+    const simulator = new UserSimulator({ apiKey: "test-key", maxTurns: 5 });
+
+    // WHEN it decides with a pending tool confirmation
+    const decision = await simulator.decide({
+      test,
+      transcript: [],
+      pendingConfirmation: { toolName: "Bash", input: { cmd: "ls" } },
+    });
+
+    // THEN the decision confirms allow and carries the model's reason
+    expect(decision).toEqual({
+      action: "confirm",
+      decision: "allow",
+      reason: "matches the SPEC goal",
+    });
+  });
+
+  test("decide returns the simulator's deny confirmation", async () => {
+    // GIVEN the simulator answers a pending confirmation with `deny`
+    const test = await makeTestDef();
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          content: [
+            {
+              type: "tool_use",
+              name: "respond_to_confirmation",
+              input: { decision: "deny" },
+            },
+          ],
+          stop_reason: "tool_use",
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+    const simulator = new UserSimulator({ apiKey: "test-key", maxTurns: 5 });
+
+    // WHEN it decides with a pending tool confirmation
+    const decision = await simulator.decide({
+      test,
+      transcript: [],
+      pendingConfirmation: { toolName: "Bash", input: { cmd: "rm -rf /" } },
+    });
+
+    // THEN the decision denies and omits the optional reason
+    expect(decision).toEqual({
+      action: "confirm",
+      decision: "deny",
+      reason: undefined,
+    });
+  });
+
+  test("decide forces the respond_to_confirmation tool and describes a pending confirmation", async () => {
+    // GIVEN a confirmation request carrying tool details and a risk reason
+    const test = await makeTestDef();
+    let requestBody:
+      | {
+          tools?: Array<{ name?: string }>;
+          tool_choice?: { type?: string; name?: string };
+          messages?: Array<{ role: string; content: string }>;
+        }
+      | undefined;
+    globalThis.fetch = (async (
+      _url: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      requestBody = JSON.parse(String(init?.body));
+      return new Response(
+        JSON.stringify({
+          content: [
+            {
+              type: "tool_use",
+              name: "respond_to_confirmation",
+              input: { decision: "allow" },
+            },
+          ],
+          stop_reason: "tool_use",
+        }),
+        { status: 200 },
+      );
+    }) as typeof fetch;
+    const simulator = new UserSimulator({ apiKey: "test-key", maxTurns: 5 });
+
+    // WHEN it decides with a pending tool confirmation
+    await simulator.decide({
+      test,
+      transcript: [],
+      pendingConfirmation: {
+        toolName: "WriteFile",
+        input: { path: "/etc/hosts" },
+        riskLevel: "high",
+        riskReason: "writes outside the workspace",
+      },
+    });
+
+    // THEN the request forces the respond_to_confirmation tool
+    expect(requestBody?.tools).toEqual([
+      expect.objectContaining({ name: "respond_to_confirmation" }),
+    ]);
+    expect(requestBody?.tool_choice).toEqual({
+      type: "tool",
+      name: "respond_to_confirmation",
+    });
+    // AND the trailing user message describes the tool, input, and risk
+    const lastMessage = requestBody?.messages?.at(-1);
+    expect(lastMessage?.role).toBe("user");
+    expect(lastMessage?.content).toContain("WriteFile");
+    expect(lastMessage?.content).toContain("/etc/hosts");
+    expect(lastMessage?.content).toContain("writes outside the workspace");
+  });
+
+  test("decide throws SimulatorParseError when a pending confirmation yields no decision", async () => {
+    // GIVEN the model replies without calling respond_to_confirmation
+    const test = await makeTestDef();
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          content: [{ type: "text", text: "I am not sure" }],
+          stop_reason: "end_turn",
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+    const simulator = new UserSimulator({ apiKey: "test-key", maxTurns: 5 });
+
+    // WHEN / THEN deciding the confirmation surfaces a structured parse error
+    await expect(
+      simulator.decide({
+        test,
+        transcript: [],
+        pendingConfirmation: { toolName: "Bash", input: {} },
+      }),
+    ).rejects.toThrow(SimulatorParseError);
+  });
 });

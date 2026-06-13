@@ -4,6 +4,7 @@ import type {
   AgentMessage,
   BaseAgent,
 } from "../adapter";
+import { confirmationRequestId } from "../adapter";
 import {
   appendAssistantEvents,
   appendSimulatorMessage,
@@ -309,11 +310,14 @@ export async function collectAndPersistEvents(input: {
   isTurnComplete: (event: AgentEvent) => boolean;
   /** Remaining wall-clock budget for the run (caps this turn's wait). */
   maxMs: number;
+  /** Invoked for every collected event, before the next one is pulled. */
+  onEvent?: (event: AgentEvent) => void | Promise<void>;
 }): Promise<CollectAndPersistEventsResult> {
   const { events, completed } = await input.collector.collectUntilTurnComplete({
     isComplete: input.isTurnComplete,
     maxMs: input.maxMs,
     graceQuietMs: TURN_TRAILER_QUIET_MS,
+    onEvent: input.onEvent,
   });
   input.assistantEvents.push(...events);
   await appendAssistantEvents(input.runId, events);
@@ -535,6 +539,14 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
         });
         break;
       }
+      // No `pendingConfirmation` was supplied, so the simulator's only valid
+      // moves are sending the next user message or ending; a `confirm` here
+      // means the contract changed under us.
+      if (decision.action !== "send") {
+        throw new Error(
+          `simulator returned an unexpected "${decision.action}" decision at the turn boundary`,
+        );
+      }
       progress({
         step: "simulator",
         status: "done",
@@ -554,6 +566,58 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
       // pre-assignment throws), and TS won't propagate that narrowing
       // across a function boundary on its own.
       const sendingAgent = agent;
+      // Resolve tool confirmations through the simulator. The agent
+      // legitimately reaches for tools above the auto-approve risk
+      // threshold, and a headless hatch has no interactive approver, so
+      // the simulator — which plays the user — decides whether the tool
+      // advances the SPEC's goal. Without an answer the turn-completion
+      // signal would never arrive and the run would burn its whole
+      // wall-clock budget. A failed decision falls back to allow (and is
+      // logged) so a transient simulator error can't hang the run.
+      const respondToConfirmation = async (
+        event: AgentEvent,
+      ): Promise<void> => {
+        const requestId = confirmationRequestId(event);
+        if (
+          requestId === undefined ||
+          typeof sendingAgent.confirm !== "function"
+        ) {
+          return;
+        }
+        let decision: "allow" | "deny" = "allow";
+        try {
+          const verdict = await simulator.decide({
+            test: input.test,
+            transcript: await readTranscript(input.runId),
+            pendingConfirmation: {
+              toolName: event.message.toolName ?? "",
+              input: event.message.input ?? {},
+              riskLevel: event.message.riskLevel,
+              riskReason: event.message.riskReason,
+            },
+          });
+          if (verdict.action === "confirm") {
+            decision = verdict.decision;
+          } else {
+            console.warn(
+              `[run-once] simulator returned ${verdict.action} for confirmation ${requestId}, defaulting to allow`,
+            );
+          }
+        } catch (err) {
+          console.warn(
+            `[run-once] simulator failed to decide confirmation ${requestId}, defaulting to allow: ` +
+              (err instanceof Error ? err.message : String(err)),
+          );
+        }
+        try {
+          await sendingAgent.confirm({ requestId, decision });
+        } catch (err) {
+          console.warn(
+            `[run-once] failed to resolve confirmation ${requestId}: ` +
+              (err instanceof Error ? err.message : String(err)),
+          );
+        }
+      };
       await sendAndPersistSimulatorMessage({
         runId: input.runId,
         agentSend: (message) => sendingAgent.send(message),
@@ -579,6 +643,7 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
           includeInTranscript: true,
           isTurnComplete: (event) => sendingAgent.isTurnComplete(event),
           maxMs: Math.max(0, runDeadline - Date.now()),
+          onEvent: respondToConfirmation,
         });
       // A zero-event window means the event stream went silent for the
       // entire remaining run budget without delivering anything — a

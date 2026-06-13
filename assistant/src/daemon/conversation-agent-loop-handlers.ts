@@ -867,6 +867,7 @@ function handleThinkingDelta(
     thinking: event.thinking,
     conversationId: deps.ctx.conversationId,
     messageId: state.lastAssistantMessageId,
+    timestampMs: Date.now(),
   });
   // Mirror thinking into the same running view as text so the debounced
   // partial flush persists it mid-turn -- long reasoning streams survive a

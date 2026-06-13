@@ -138,6 +138,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
       type: "assistant_thinking_delta" as const,
       thinking: "Let me reason through this...",
       conversationId: "conv-thinking-test",
+      timestampMs: 1_700_000_000_000,
     };
     const event = await publishAndReadFrame("parity-thinking-delta", msg);
 
@@ -145,6 +146,7 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
     const m = event.message as typeof msg;
     expect(m.thinking).toBe("Let me reason through this...");
     expect(m.conversationId).toBe("conv-thinking-test");
+    expect(m.timestampMs).toBe(1_700_000_000_000);
   });
 
   // ── tool_input_delta ─────────────────────────────────────────────────────

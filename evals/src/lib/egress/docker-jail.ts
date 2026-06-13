@@ -1,12 +1,23 @@
+import { createServer } from "node:net";
 import { dirname, resolve } from "node:path";
 import { readFile, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { assertSuccess, type CommandRunner } from "../runtime/command-runner";
 
+/** Host→container port mapping the jail publishes for its namespace tenants. */
+export interface JailPublishPort {
+  hostPort: number;
+  containerPort: number;
+}
+
 export interface DockerEgressJailConfig {
-  /** Container whose network namespace should be restricted. */
-  containerName: string;
+  /**
+   * Stable run identifier. Names the jail container
+   * (`<runId>-egress-jail`) and the Docker network it owns
+   * (`<runId>-egress-net`).
+   */
+  runId: string;
   /** Hostnames allowed for outbound model traffic. */
   allowHosts?: string[];
   /**
@@ -20,6 +31,15 @@ export interface DockerEgressJailConfig {
   recordingImage?: string;
   /** Optional override for the recording sidecar Dockerfile directory. */
   recordingDockerfileDir?: string;
+  /**
+   * Host→container port mappings the jail publishes on behalf of the
+   * tenant containers that join its network namespace. The jail owns the
+   * namespace, so it is the only container in the group that can bind host
+   * ports — tenants started with `--network container:<jail>` cannot
+   * publish their own. Omit for tenants reached purely via `docker exec`
+   * (e.g. Hermes), which need no host ports.
+   */
+  publishPorts?: ReadonlyArray<JailPublishPort>;
   /**
    * Host path to bind-mount at `/fixtures` inside the recording sidecar.
    *
@@ -36,8 +56,50 @@ export interface DockerEgressJailConfig {
 }
 
 export interface DockerEgressJail {
+  /**
+   * Name of the jail container. Tenant containers join its network
+   * namespace via `--network container:<netnsContainer>`, so they are born
+   * behind the recording proxy + iptables allowlist with no pre-jail
+   * window — the rules exist before any tenant daemon's first packet.
+   */
+  readonly netnsContainer: string;
+  /**
+   * Host path to the mitmproxy CA PEM the sidecar generated at boot.
+   * Tenants must trust this CA before their first outbound TLS (e.g. the
+   * assistant via `NODE_EXTRA_CA_CERTS`, Hermes via `installRecordingCa`),
+   * otherwise the intercepted handshake fails closed.
+   */
+  readonly caCertPath: string;
   stop(): Promise<void>;
   readUsageRecords(): Promise<Array<Record<string, unknown>>>;
+}
+
+/**
+ * Resolve a free TCP port on the host by binding to port 0 and reading
+ * back the OS-assigned port. The jail must publish host ports before any
+ * tenant exists, so the caller allocates here and hands the result to both
+ * the jail (`publishPorts`) and the tenant (e.g. `hatch --gateway-port`).
+ *
+ * There is an unavoidable TOCTOU window between releasing the probe socket
+ * and Docker binding the port; in the evals sandbox (one run per host port
+ * range at a time) this is not a contended resource.
+ */
+export async function findOpenHostPort(): Promise<number> {
+  return await new Promise<number>((resolvePort, reject) => {
+    const server = createServer();
+    server.unref();
+    server.on("error", reject);
+    server.listen(0, () => {
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        server.close();
+        reject(new Error("failed to resolve an open host port"));
+        return;
+      }
+      const { port } = address;
+      server.close(() => resolvePort(port));
+    });
+  });
 }
 
 /**
@@ -166,64 +228,212 @@ async function waitForRecordingCa(recordingDir: string): Promise<string> {
 }
 
 /**
- * Install the recording sidecar's CA into the assistant container's
- * system trust store. Required for any host listed in mitmproxy's
- * `--allow-hosts` regex — without it, TLS handshake fails before the
- * addon's request hook sees the URL, and recording / mocking are both
- * silently dead code.
+ * Install the recording sidecar's CA into a tenant container's system
+ * trust store via `docker cp` + `docker exec ... update-ca-certificates`.
+ * Required for any host listed in mitmproxy's `--allow-hosts` regex —
+ * without it, the TLS handshake fails before the addon's request hook
+ * sees the URL, and recording / mocking are both silently dead code.
  *
- * Uses `docker cp` + `docker exec ... update-ca-certificates`, which
- * assumes a Debian-family base image. The current assistant container
- * is Debian; if that ever changes, this step needs to grow a per-base
- * dispatch (alpine ships `update-ca-certificates` too but from a
- * different package; minimal images ship neither).
+ * Used for tenants whose daemon does not reach out until after setup
+ * completes (e.g. Hermes idles until its first message), so the trust
+ * store can be patched post-start. Tenants that open outbound TLS at
+ * process start (e.g. the assistant daemon) must instead trust the CA
+ * from launch — see `hatch --assistant-ca-cert` / `NODE_EXTRA_CA_CERTS`.
+ *
+ * Assumes a Debian-family base image (`update-ca-certificates`). Both the
+ * assistant and Hermes containers are Debian; if that ever changes, this
+ * step needs a per-base dispatch (alpine ships the tool from a different
+ * package; minimal images ship neither).
  */
-async function installRecordingCa(
+export async function installRecordingCa(
   runner: CommandRunner,
   recordingDir: string,
-  assistantContainer: string,
+  tenantContainer: string,
 ): Promise<void> {
   const caPath = await waitForRecordingCa(recordingDir);
   const cp = await runner.run("docker", [
     "cp",
     caPath,
-    `${assistantContainer}:${ASSISTANT_CA_TARGET}`,
+    `${tenantContainer}:${ASSISTANT_CA_TARGET}`,
   ]);
-  assertSuccess(cp, `copy recording CA into ${assistantContainer}`);
+  assertSuccess(cp, `copy recording CA into ${tenantContainer}`);
   const update = await runner.run("docker", [
     "exec",
-    assistantContainer,
+    tenantContainer,
     "update-ca-certificates",
   ]);
-  assertSuccess(update, `update CA trust store in ${assistantContainer}`);
+  assertSuccess(update, `update CA trust store in ${tenantContainer}`);
 }
 
 /** Deterministic Docker names make cleanup idempotent and debuggable. */
-export function dockerEgressJailContainerName(containerName: string): string {
-  return `${containerName}-egress-jail`;
+export function dockerEgressJailContainerName(runId: string): string {
+  return `${runId}-egress-jail`;
+}
+
+/** Name of the Docker network the jail owns for a run. */
+export function dockerEgressJailNetworkName(runId: string): string {
+  return `${runId}-egress-net`;
 }
 
 /**
- * Apply a block-by-default outbound policy to an already-created Docker
- * container without requiring changes to the species being evaluated.
+ * Create the recording egress jail as the owner of a fresh network
+ * namespace, before any tenant container exists.
  *
- * Launches the recording mitmproxy sidecar attached to the target
- * container's network namespace. The sidecar installs the iptables
- * allowlist AND tees every outbound model request through mitmproxy
- * so token-counting + cost reconstruction works end-to-end. The policy
- * and the recording remain attached to the namespace until the target
- * container is retired.
+ * The mitmproxy sidecar boots on its own Docker network with
+ * `NET_ADMIN`, installs the iptables allowlist + NAT REDIRECT into its
+ * own namespace, and generates the interception CA — all while no tenant
+ * is running. Tenants (the assistant/gateway/CES via `hatch
+ * --netns-container`, or Hermes via `--network container:<jail>`) are then
+ * born into the already-jailed stack: every outbound model request is
+ * teed through mitmproxy from the tenant's very first packet, so
+ * token-counting + cost reconstruction has no pre-jail window to leak
+ * through.
  *
- * This is the only egress-jail mode evals support — the previous
- * non-recording variant was removed per PR #31348 review feedback so
- * every eval run produces ground-truth usage out of the box.
+ * Because the jail owns the namespace, it is also the container that
+ * publishes host ports for the group (`publishPorts`). It must outlive its
+ * tenants: tear tenants down first, then call `stop()` (removes the jail
+ * container, then its network).
+ *
+ * The recording sidecar is mandatory — every eval run produces
+ * ground-truth usage out of the box, so there is no non-recording mode.
  */
 export async function applyDockerEgressJail(
   runner: CommandRunner,
   config: DockerEgressJailConfig,
 ): Promise<DockerEgressJail> {
   const allowHosts = config.allowHosts ?? DEFAULT_ALLOW_HOSTS;
-  const jailContainer = dockerEgressJailContainerName(config.containerName);
+  const jailContainer = dockerEgressJailContainerName(config.runId);
+  const jailNetwork = dockerEgressJailNetworkName(config.runId);
+  const recordingDir = config.recordingDir;
+  const recordingImage = config.recordingImage ?? DEFAULT_RECORDING_IMAGE;
+  const dockerfileDir =
+    config.recordingDockerfileDir ?? defaultRecordingDockerfileDir();
+
+  await runner
+    .run("docker", ["rm", "-f", jailContainer])
+    .catch(() => undefined);
+  await runner
+    .run("docker", ["network", "rm", jailNetwork])
+    .catch(() => undefined);
+
+  const build = await runner.run("docker", [
+    "build",
+    "-t",
+    recordingImage,
+    dockerfileDir,
+  ]);
+  assertSuccess(build, `build recording egress jail image ${recordingImage}`);
+
+  const network = await runner.run("docker", [
+    "network",
+    "create",
+    jailNetwork,
+  ]);
+  assertSuccess(network, `create egress jail network ${jailNetwork}`);
+
+  const publishArgs = (config.publishPorts ?? []).flatMap((p) => [
+    "-p",
+    `${p.hostPort}:${p.containerPort}`,
+  ]);
+
+  const fixturesArgs = config.pluginFixturesDir
+    ? [
+        "-v",
+        `${resolve(config.pluginFixturesDir)}:/fixtures:ro`,
+        "-e",
+        "PLUGIN_FIXTURES_DIR=/fixtures",
+      ]
+    : [];
+
+  const result = await runner.run("docker", [
+    "run",
+    "-d",
+    "--name",
+    jailContainer,
+    "--network",
+    jailNetwork,
+    "--cap-add",
+    "NET_ADMIN",
+    "--label",
+    "evals.vellum.ai/egress-jail=1",
+    "--label",
+    "evals.vellum.ai/egress-recording=1",
+    "-e",
+    `ALLOW_HOSTS=${allowHosts.join(",")}`,
+    "-v",
+    `${resolve(recordingDir)}:/recording`,
+    ...publishArgs,
+    ...fixturesArgs,
+    recordingImage,
+  ]);
+  assertSuccess(result, `create recording docker egress jail ${jailContainer}`);
+
+  // Block until the sidecar has written the interception CA, so callers
+  // can hand its path to tenants (`hatch --assistant-ca-cert`) knowing the
+  // file exists. The sidecar's iptables rules are installed in the same
+  // entrypoint before `mitmdump` execs, so once the CA is present the jail
+  // is fully armed.
+  const caCertPath = await waitForRecordingCa(recordingDir);
+
+  return {
+    netnsContainer: jailContainer,
+    caCertPath,
+    readUsageRecords: () => readRecordingUsage(recordingDir),
+    stop: async () => {
+      await runner
+        .run("docker", ["rm", "-f", jailContainer])
+        .catch(() => undefined);
+      await runner
+        .run("docker", ["network", "rm", jailNetwork])
+        .catch(() => undefined);
+    },
+  };
+}
+
+export interface DockerEgressJailAttachConfig {
+  /** Stable run identifier. Names the jail container (`<runId>-egress-jail`). */
+  runId: string;
+  /**
+   * Existing container whose network namespace the jail joins via
+   * `--network container:<containerName>`. That container owns the
+   * namespace and any host ports; the jail only installs the iptables
+   * policy + recording proxy into it. The CA is patched into this
+   * container's trust store post-start (see `installRecordingCa`).
+   */
+  containerName: string;
+  /** Hostnames allowed for outbound model traffic. */
+  allowHosts?: string[];
+  /** Host-side run artifact directory; mounted at `/recording`. */
+  recordingDir: string;
+  /** Prebuilt recording sidecar image. Defaults to a local evals image tag. */
+  recordingImage?: string;
+  /** Optional override for the recording sidecar Dockerfile directory. */
+  recordingDockerfileDir?: string;
+  /** Host path to bind-mount at `/fixtures` (plugin install mocking). */
+  pluginFixturesDir?: string;
+}
+
+/**
+ * Apply the recording egress jail to an already-running container by
+ * joining its network namespace, rather than owning a fresh one.
+ *
+ * Used for species that must run with open egress before the jail closes
+ * — e.g. Hermes warms up provider SDKs from PyPI at hatch, then idles
+ * until its first message — so the container is created (and warmed up)
+ * first and the jail attaches afterward. The trust store is patched
+ * post-start via `installRecordingCa`, which is safe because no outbound
+ * model TLS happens until the first turn, well after attachment.
+ *
+ * Contrast with `applyDockerEgressJail`, where the jail owns the
+ * namespace and tenants are born already-jailed (used by the assistant,
+ * whose daemon opens outbound TLS at process start).
+ */
+export async function attachDockerEgressJail(
+  runner: CommandRunner,
+  config: DockerEgressJailAttachConfig,
+): Promise<DockerEgressJail> {
+  const allowHosts = config.allowHosts ?? DEFAULT_ALLOW_HOSTS;
+  const jailContainer = dockerEgressJailContainerName(config.runId);
   const recordingDir = config.recordingDir;
   const recordingImage = config.recordingImage ?? DEFAULT_RECORDING_IMAGE;
   const dockerfileDir =
@@ -272,17 +482,17 @@ export async function applyDockerEgressJail(
   ]);
   assertSuccess(
     result,
-    `apply recording docker egress jail to ${config.containerName}`,
+    `attach recording docker egress jail to ${config.containerName}`,
   );
 
-  // Hand the mitmproxy CA off to the assistant container BEFORE any
-  // setup command runs. The CA needs to be in the trust store before
-  // the first TLS-intercepted call (anthropic for recording, github
-  // for plugin mocking), otherwise mitmproxy's interception fails
+  // Patch the mitmproxy CA into the target container's trust store before
+  // any TLS-intercepted call. Without it mitmproxy's interception fails
   // closed and the addon hooks never fire.
   await installRecordingCa(runner, recordingDir, config.containerName);
 
   return {
+    netnsContainer: config.containerName,
+    caCertPath: resolve(recordingDir, RECORDING_CA_FILENAME),
     readUsageRecords: () => readRecordingUsage(recordingDir),
     stop: async () => {
       await runner
@@ -303,9 +513,9 @@ export function vellumDockerAssistantContainer(instanceName: string): string {
  *
  * Exposed for the vellum adapter's hatch-failure forensics so we can
  * snapshot every container the hatch could have left behind, not just
- * the assistant. The gateway container is the one that fails to bind
- * host port 20100 in the canonical "address already in use" failure
- * mode — its docker inspect is the most actionable artifact.
+ * the assistant — any of the three can crash-loop or exit during boot,
+ * and their `docker inspect` output is the most actionable artifact for
+ * diagnosing a failed hatch.
  */
 export function vellumDockerSiblingContainers(
   instanceName: string,
