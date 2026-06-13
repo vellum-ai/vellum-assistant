@@ -44,8 +44,12 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     await configPatchMock();
     return { data: daemonConfig };
   },
-  configLlmCallsitesGet: mock(async () => ({
-    data: {
+}));
+
+mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
+  configLlmCallsitesGetOptions: (options: { path: { assistant_id: string } }) => ({
+    queryKey: [{ _id: "configLlmCallsitesGet", path: options.path }],
+    queryFn: async () => ({
       domains: [{ id: "memory", displayName: "Memory" }],
       callSites: [
         {
@@ -62,23 +66,24 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
           domain: "agentLoop",
         },
       ],
-    },
-    response: { ok: true },
-  })),
-  usageBreakdownGet: mock(async () => ({
-    data: {
+    }),
+  }),
+  usageBreakdownGetOptions: (options: {
+    path: { assistant_id: string };
+    query: { from: number; to: number; groupBy: string };
+  }) => ({
+    queryKey: [
+      { _id: "usageBreakdownGet", path: options.path, query: options.query },
+    ],
+    queryFn: async () => ({
       breakdown: [
         usageRow("memoryRetrospective", "Memory Retrospective", 0.25),
         // recall stays available when memory is off, so it must not count.
         usageRow("recall", "Recall", 5),
         usageRow("mainAgent", "Main Agent", 10),
       ],
-    },
-    response: { ok: true },
-  })),
-}));
-
-mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
+    }),
+  }),
   configGetQueryKey: (options: { path: { assistant_id: string } }) => [
     { _id: "configGet", baseUrl: undefined, path: options.path },
   ],
