@@ -60,6 +60,27 @@ export function formatInterval(ms: number): string {
   return `Every ${minutes} min`;
 }
 
+/**
+ * Flatten infinite-query run pages into a single newest-first list,
+ * deduping by run id (a row can repeat across a page boundary when new
+ * runs land between page fetches).
+ */
+export function flattenRunPages(
+  pages: { runs: ScheduleRun[] }[] | undefined,
+): ScheduleRun[] | undefined {
+  if (!pages) return undefined;
+  const seen = new Set<string>();
+  const runs: ScheduleRun[] = [];
+  for (const page of pages) {
+    for (const run of page.runs) {
+      if (seen.has(run.id)) continue;
+      seen.add(run.id);
+      runs.push(run);
+    }
+  }
+  return runs;
+}
+
 // ---------------------------------------------------------------------------
 // Schedule / run predicates
 // ---------------------------------------------------------------------------

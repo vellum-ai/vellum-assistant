@@ -29,6 +29,13 @@ import {
   MEMORY_RETROSPECTIVE_SOURCE,
 } from "../../memory/memory-retrospective-constants.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import {
+  paginateRuns,
+  parseRunsBeforeCursor,
+  parseRunsLimit,
+  RUNS_NEXT_CURSOR_SCHEMA,
+  RUNS_PAGINATION_QUERY_PARAMS,
+} from "./runs-pagination.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 type RetrospectiveKind = "legacy" | "fork";
@@ -45,13 +52,17 @@ const SOURCE_KINDS: ReadonlyArray<{
  * Fetch the most recent retrospective conversations across BOTH source
  * sentinels (legacy + fork), newest first. Fetches `limit` rows from each
  * source before merging so the merged top-N is correct regardless of how
- * runs are distributed across kinds.
+ * runs are distributed across kinds. The same `before` cursor applies to
+ * each source query, so paging never skips rows from either kind.
  */
 function listRetrospectiveConversations(
   limit: number,
+  before?: number,
 ): Array<{ row: ConversationRow; kind: RetrospectiveKind }> {
   const merged = SOURCE_KINDS.flatMap(({ source, kind }) =>
-    listConversationsBySource(source, limit).map((row) => ({ row, kind })),
+    listConversationsBySource(source, limit, {
+      beforeCreatedAt: before,
+    }).map((row) => ({ row, kind })),
   );
   merged.sort((a, b) => b.row.createdAt - a.row.createdAt);
   return merged.slice(0, limit);
@@ -141,13 +152,7 @@ export const ROUTES: RouteDefinition[] = [
       "— typically the most recent run per source conversation unless the " +
       "operator retains history.",
     tags: ["retrospective"],
-    queryParams: [
-      {
-        name: "limit",
-        schema: { type: "integer" },
-        description: "Max runs to return (default 20, max 100)",
-      },
-    ],
+    queryParams: RUNS_PAGINATION_QUERY_PARAMS(20),
     responseBody: z.object({
       runs: z
         .array(
@@ -170,20 +175,24 @@ export const ROUTES: RouteDefinition[] = [
           }),
         )
         .describe("Retrospective run records"),
+      nextCursor: RUNS_NEXT_CURSOR_SCHEMA,
     }),
     handler: async ({ queryParams }: RouteHandlerArgs) => {
       const params = queryParams ?? {};
-      const rawLimit = Number(params.limit ?? 20);
-      const limit = Number.isFinite(rawLimit)
-        ? Math.min(Math.max(Math.floor(rawLimit), 1), 100)
-        : 20;
-      const rows = listRetrospectiveConversations(limit);
+      const limit = parseRunsLimit(params, 20);
+      const before = parseRunsBeforeCursor(params);
+      const { rows, nextCursor } = paginateRuns(
+        listRetrospectiveConversations(limit + 1, before),
+        limit,
+        (r) => r.row.createdAt,
+      );
       const assistantStats = getMessageRoleStatsByConversation(
         rows.map((r) => r.row.id),
         "assistant",
       );
       const now = Date.now();
       return {
+        nextCursor,
         runs: rows.map(({ row: c, kind }) => {
           const stat = assistantStats.get(c.id);
           // Fork-based retrospectives copy the source conversation's
