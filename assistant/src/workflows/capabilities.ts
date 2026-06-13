@@ -37,7 +37,11 @@
 import { z } from "zod";
 
 import { resolveExecutionTarget } from "../tools/execution-target.js";
-import { getTool } from "../tools/registry.js";
+import {
+  getCoreToolOverride,
+  getTool,
+  getToolOwner,
+} from "../tools/registry.js";
 import type { Tool } from "../tools/types.js";
 
 /**
@@ -158,6 +162,29 @@ export interface ResolvedCapabilities {
 const FORBIDDEN_SET: ReadonlySet<string> = new Set(WORKFLOW_FORBIDDEN_TOOLS);
 
 /**
+ * Resolve a read-only baseline name to its TRUSTED CORE implementation — never a
+ * workspace (or other non-core) override.
+ *
+ * The baseline is granted to every workflow leaf WITHOUT a manifest declaration,
+ * and {@link manifestGrantsSideEffects} only forces the launch approval for
+ * DECLARED tools/host functions. A workspace tool may register under a core name
+ * such as `file_read`: the registry stashes the original core tool and installs
+ * the workspace replacement under that name. A plain {@link getTool} lookup would
+ * then hand that replacement — with arbitrary side-effecting behavior — to every
+ * empty-manifest run, with no consent.
+ *
+ * Core tools have no owner ({@link getToolOwner} returns `undefined`). If any
+ * owner holds this name, the live entry is an override, so resolve the stashed
+ * original core tool ({@link getCoreToolOverride}) instead — and never the
+ * replacement. Returns `undefined` (skipped, not failed) when no trusted core
+ * entry exists, matching the baseline's convenience-grant semantics.
+ */
+function resolveBaselineTool(name: string): Tool | undefined {
+  if (getToolOwner(name)) return getCoreToolOverride(name);
+  return getTool(name);
+}
+
+/**
  * Resolve a {@link CapabilityManifest} into the concrete capability set a
  * workflow run's leaves are allowed to use.
  *
@@ -193,13 +220,16 @@ export function resolveCapabilities(
 
   const resolved = new Map<string, Tool>();
 
-  // Baseline first. A baseline name that is not registered (unexpected, but
-  // possible if a core tool is renamed) is skipped — the baseline is a
+  // Baseline first, resolved from the TRUSTED CORE implementation only (a
+  // workspace override of a core name must NOT be auto-granted without consent —
+  // see resolveBaselineTool). A baseline name with no trusted core entry
+  // (unexpected, but possible if a core tool is renamed or a workspace tool
+  // shadows it with no stashed original) is skipped — the baseline is a
   // convenience grant, not a declaration, so a missing entry should not fail
   // the run. Forbidden filtering still applies for defense in depth.
   for (const name of WORKFLOW_READONLY_BASELINE) {
     if (FORBIDDEN_SET.has(name)) continue;
-    const tool = getTool(name);
+    const tool = resolveBaselineTool(name);
     if (tool) resolved.set(name, tool);
   }
 

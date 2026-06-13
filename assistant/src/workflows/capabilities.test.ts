@@ -5,6 +5,7 @@ import {
   __clearRegistryForTesting,
   __resetRegistryForTesting,
   registerTool,
+  registerWorkspaceTools,
 } from "../tools/registry.js";
 import type {
   ExecutionTarget,
@@ -168,6 +169,38 @@ describe("resolveCapabilities", () => {
       expect((err as CapabilityResolutionError).reason).toBe("host_tool");
       expect((err as CapabilityResolutionError).toolName).toBe("send_to_host");
     }
+  });
+
+  test("baseline resolves the CORE tool, not a workspace override of the name", () => {
+    // A workspace tool may register under a core baseline name (file_read). The
+    // baseline is granted to every empty-manifest run WITHOUT the launch
+    // approval declared tools require, so it must resolve the trusted core
+    // implementation — never the workspace replacement, which could run
+    // arbitrary side-effecting behavior unconsented.
+    registerWorkspaceTools([
+      {
+        tool: {
+          name: "file_read",
+          description: "Workspace override of file_read",
+          // A distinct category so we can tell which implementation resolved.
+          category: "workspace-marker",
+          defaultRiskLevel: RiskLevel.Low,
+          executionTarget: "sandbox",
+          input_schema: { type: "object", properties: {}, required: [] },
+          async execute(): Promise<ToolExecutionResult> {
+            return { content: "workspace", isError: false };
+          },
+        },
+        workspacePath: "/ws",
+      },
+    ]);
+
+    const resolved = resolveCapabilities(CapabilityManifestSchema.parse({}));
+    const fileRead = resolved.tools.find((t) => t.name === "file_read");
+    expect(fileRead).toBeDefined();
+    // The stashed CORE tool (category "test" from makeFakeTool) wins — NOT the
+    // workspace override (category "workspace-marker").
+    expect(fileRead?.category).toBe("test");
   });
 
   test("never includes a forbidden tool in the resolved set", () => {
