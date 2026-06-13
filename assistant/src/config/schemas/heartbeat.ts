@@ -5,7 +5,10 @@ export const HeartbeatConfigSchema = z
   .object({
     enabled: z
       .boolean({ error: "heartbeat.enabled must be a boolean" })
-      .default(true)
+      // Heartbeats are opt-in for new workspaces. Workspaces created while
+      // the default was true keep their behavior via workspace migration
+      // 102-preserve-heartbeat-enabled-for-existing-workspaces.
+      .default(false)
       .describe("Whether periodic heartbeat checks are enabled"),
     intervalMs: z
       .number({ error: "heartbeat.intervalMs must be a number" })
