@@ -70,6 +70,11 @@ export const writeOnboardingActive = (active: boolean): void => {
 interface Defaults {
   width: number;
   height: number;
+  // Open in native fullscreen when no state has been persisted yet. The
+  // width/height still matter: they're the windowed rectangle the user
+  // lands on when they exit fullscreen. A saved state's own `isFullScreen`
+  // always wins once one exists.
+  fullscreen?: boolean;
 }
 
 export interface RestoredWindowState {

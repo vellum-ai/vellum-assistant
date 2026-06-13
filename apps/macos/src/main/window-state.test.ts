@@ -163,6 +163,27 @@ describe("restoreBounds", () => {
     expect(restoreBounds("main", DEFAULTS).fullscreen).toBe(true);
   });
 
+  test("passes a fullscreen default through when nothing is persisted", () => {
+    expect(restoreBounds("main", { ...DEFAULTS, fullscreen: true })).toEqual({
+      width: 800,
+      height: 600,
+      fullscreen: true,
+    });
+  });
+
+  test("a saved windowed state overrides a fullscreen default", () => {
+    savedWindows.main = {
+      x: 0,
+      y: 0,
+      width: 800,
+      height: 600,
+      isFullScreen: false,
+    };
+    expect(
+      restoreBounds("main", { ...DEFAULTS, fullscreen: true }).fullscreen,
+    ).toBe(false);
+  });
+
   test("namespaces by key so windows don't clobber each other", () => {
     savedWindows.main = {
       x: 10,
