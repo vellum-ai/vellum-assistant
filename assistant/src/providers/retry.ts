@@ -13,6 +13,7 @@ import {
   isRetryableNetworkError,
   sleep,
 } from "../util/retry.js";
+import { applyEmergencyFableReroute } from "./fable-reroute.js";
 import { resolveLogitBiasPreset } from "./inference/logit-bias.js";
 import { isAdaptiveThinkingOnlyModel } from "./model-catalog.js";
 import {
@@ -318,6 +319,18 @@ function normalizeSendMessageOptions(
     // leaks unknown fields into provider request bodies — Anthropic (and other
     // strict-schema clients) reject the request with
     // "Extra inputs are not permitted".
+  }
+
+  // Emergency kill-switch: when `emergency-fable-reroute` is enabled, send
+  // Claude Fable invocations to Claude Opus 4.8 instead. Applied after the
+  // call-site/explicit model is finalized but before the model-specific wire
+  // normalization below, so thinking/temperature handling sees the rerouted
+  // (non-adaptive) model rather than Fable.
+  if (typeof nextConfig.model === "string") {
+    nextConfig.model = applyEmergencyFableReroute(
+      nextConfig.model,
+      getConfig(),
+    );
   }
 
   // Convert schema-shape `{ enabled, streamThinking }` into Anthropic's

@@ -10,6 +10,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "emergency-fable-reroute",
+      "scope": "assistant",
+      "key": "emergency-fable-reroute",
+      "label": "Emergency Fable Reroute",
+      "description": "Emergency kill-switch that reroutes Claude Fable (claude-fable-5) invocations to Claude Opus 4.8 (claude-opus-4-8). Default off; enable only during a Fable outage or regression.",
+      "defaultEnabled": false
+    },
+    {
       "id": "memory-retrospective-fork",
       "scope": "assistant",
       "key": "memory-retrospective-fork",
