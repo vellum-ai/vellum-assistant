@@ -359,8 +359,8 @@ describe("collectAndPersistEvents", () => {
 
   test("invokes onEvent for every collected event", async () => {
     // GIVEN a stream with a confirmation_request before the completion
-    // signal (the hook is how the runner auto-approves tool
-    // confirmations in a headless hatch)
+    // signal (the hook is how the runner routes tool confirmations to
+    // the simulator in a headless hatch)
     const runId = await freshRunId("on-event");
     const assistantEvents: AgentEvent[] = [];
     const collector = new AgentEventCollector(
@@ -494,6 +494,9 @@ describe("runEvalOnce — hatch failure metadata", () => {
     async decide(): Promise<SimulatorDecision> {
       return { action: "end", reason: "unreachable in hatch-throw test" };
     },
+    async confirmTool() {
+      return { decision: "allow" as const };
+    },
   };
 
   afterEach(() => {
@@ -568,6 +571,9 @@ describe("runEvalOnce — construction failure diagnostic gap", () => {
         action: "end",
         reason: "unreachable in construction-throw test",
       };
+    },
+    async confirmTool() {
+      return { decision: "allow" as const };
     },
   };
 

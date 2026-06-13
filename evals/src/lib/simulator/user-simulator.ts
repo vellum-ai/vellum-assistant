@@ -1,11 +1,20 @@
 import { readFile } from "node:fs/promises";
 
-import type { Simulator, SimulatorDecision, SimulatorInput } from "./types";
+import type {
+  ConfirmationInput,
+  ConfirmationVerdict,
+  Simulator,
+  SimulatorDecision,
+  SimulatorInput,
+  ToolConfirmationRequest,
+} from "./types";
 import type { TranscriptTurn } from "../transcript";
 
 export const DEFAULT_SIMULATOR_MODEL = "claude-haiku-4-5-20251001";
 export const DEFAULT_MAX_TURNS = 100;
 export const MAX_OUTPUT_TOKENS = 8192;
+/** Name of the tool the simulator calls to resolve a pending confirmation. */
+export const CONFIRMATION_TOOL_NAME = "respond_to_confirmation";
 /** Clip length for the raw response body included in parse-failure diagnostics. */
 export const PARSE_FAILURE_BODY_CLIP = 2000;
 
@@ -209,6 +218,57 @@ function parseDecision(body: AnthropicResponseBody): SimulatorDecision {
   );
 }
 
+/**
+ * Render a pending tool confirmation as the trailing user-turn message the
+ * simulator decides on. The tested agent is the "user" role in the simulator
+ * transcript (see `transcriptToSimulatorMessages`), so its permission request
+ * naturally reads as the latest user turn.
+ */
+function confirmationPrompt(request: ToolConfirmationRequest): string {
+  const lines = [
+    "The agent has paused to ask your permission before running a tool.",
+    `Tool: ${request.toolName || "(unnamed)"}`,
+    `Input: ${JSON.stringify(request.input)}`,
+  ];
+  if (request.riskLevel) lines.push(`Risk level: ${request.riskLevel}`);
+  if (request.riskReason) lines.push(`Risk reason: ${request.riskReason}`);
+  lines.push(
+    "Decide whether to allow or deny this tool call by calling respond_to_confirmation.",
+  );
+  return lines.join("\n");
+}
+
+function parseConfirmationVerdict(
+  body: AnthropicResponseBody,
+): ConfirmationVerdict {
+  const parts = body.content ?? [];
+  for (const part of parts) {
+    if (part.type !== "tool_use" || part.name !== CONFIRMATION_TOOL_NAME) {
+      continue;
+    }
+    const decision = part.input?.decision;
+    if (decision === "allow" || decision === "deny") {
+      const reason = part.input?.reason;
+      return {
+        decision,
+        reason: typeof reason === "string" ? reason : undefined,
+      };
+    }
+  }
+  // `tool_choice` forces the model to call `respond_to_confirmation`, so a
+  // missing or malformed decision means the response shape changed out from
+  // under us. Surface it the same structured way `parseDecision` does so the
+  // runner's fallback path logs something actionable.
+  throw new SimulatorParseError(
+    "User simulator confirmation response had no allow/deny decision",
+    [
+      `stop_reason=${body.stop_reason ?? "unknown"}`,
+      `parts=${summarizeContentParts(parts)}`,
+      `body: ${clipForDiagnostic(body)}`,
+    ],
+  );
+}
+
 export class UserSimulator implements Simulator {
   private readonly apiKey: string;
   private readonly model: string;
@@ -290,5 +350,67 @@ export class UserSimulator implements Simulator {
     }
 
     return parseDecision((await response.json()) as AnthropicResponseBody);
+  }
+
+  async confirmTool(input: ConfirmationInput): Promise<ConfirmationVerdict> {
+    const spec = await readFile(input.test.specPath, "utf8");
+    const messages = coalesceMessages([
+      ...transcriptToSimulatorMessages(input.transcript),
+      { role: "user", content: confirmationPrompt(input.request) },
+    ]);
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": this.apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: this.model,
+        max_tokens: MAX_OUTPUT_TOKENS,
+        temperature: 0,
+        system: [
+          "You are the user simulator in an eval harness.",
+          "You are controlling the user side of a conversation with the tested agent.",
+          "The tested agent has paused to ask your permission before running a tool it judged risky.",
+          "Decide as the user would, following the SPEC: allow tool calls that advance the SPEC's goal, and deny calls that are unsafe, off-task, or that the SPEC says to refuse.",
+          "Respond only by calling the respond_to_confirmation tool with your decision.",
+          "Do not reveal hidden test answers unless the SPEC explicitly says to reveal them.",
+          "",
+          "SPEC:",
+          spec,
+        ].join("\n"),
+        messages,
+        tools: [
+          {
+            name: CONFIRMATION_TOOL_NAME,
+            description:
+              "Allow or deny the tool the agent asked permission to run.",
+            input_schema: {
+              type: "object",
+              properties: {
+                decision: { type: "string", enum: ["allow", "deny"] },
+                reason: { type: "string" },
+              },
+              required: ["decision"],
+            },
+          },
+        ],
+        // The simulator's only job here is to decide allow/deny, so force the
+        // tool call rather than risk a free-text reply that never resolves
+        // the confirmation.
+        tool_choice: { type: "tool", name: CONFIRMATION_TOOL_NAME },
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `User simulator confirmation request failed ${response.status}: ${await response.text()}`,
+      );
+    }
+
+    return parseConfirmationVerdict(
+      (await response.json()) as AnthropicResponseBody,
+    );
   }
 }

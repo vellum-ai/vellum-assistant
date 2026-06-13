@@ -17,6 +17,8 @@ export interface AgentEvent {
     input?: Record<string, unknown>;
     result?: string;
     isError?: boolean;
+    riskLevel?: string;
+    riskReason?: string;
     content?: string;
     message?: string;
     chunk?: string;
