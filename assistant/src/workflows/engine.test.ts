@@ -421,6 +421,49 @@ describe("executeWorkflow — pipeline", () => {
       .some((p) => p.startsWith("s1:"));
     expect(stage1AfterStage2).toBe(false);
   });
+
+  test("a stage returning a plain value passes it through without spawning a leaf", async () => {
+    const fake = makeFakeRunner();
+    const res = await execute(
+      "wf-pipeline-passthrough",
+      `return pipeline(
+         args.items,
+         (it) => leaf("s1:" + it),
+         (prev) => ({ wrapped: prev }),
+       );`,
+      fake.runner,
+      configWith(),
+      { items: ["a", "b"] },
+    );
+
+    expect(res.status).toBe("completed");
+    // Stage 2's plain object passed through unchanged.
+    expect(res.result).toEqual([
+      { wrapped: "out:s1:a" },
+      { wrapped: "out:s1:b" },
+    ]);
+    // Only stage 1 ran leaves — the plain-value stage spent no agents.
+    expect(fake.prompts).toEqual(["s1:a", "s1:b"]);
+  });
+
+  test("a stage may mix leaf specs and plain pass-through values (order preserved)", async () => {
+    const fake = makeFakeRunner();
+    const res = await execute(
+      "wf-pipeline-mixed",
+      `return pipeline(
+         args.items,
+         (it) => (it === "skip" ? "kept:" + it : leaf("run:" + it)),
+       );`,
+      fake.runner,
+      configWith(),
+      { items: ["x", "skip", "y"] },
+    );
+
+    expect(res.status).toBe("completed");
+    // "skip" passed through as a plain string; the others ran as leaves, in order.
+    expect(res.result).toEqual(["out:run:x", "kept:skip", "out:run:y"]);
+    expect(fake.prompts).toEqual(["run:x", "run:y"]);
+  });
 });
 
 describe("executeWorkflow — resume", () => {

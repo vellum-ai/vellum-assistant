@@ -48,7 +48,7 @@ HOST API (all synchronous):
 - \`leaf(prompt, opts?)\` — return a leaf DESCRIPTOR (does not run yet) for use inside \`parallel\`/\`map\`/\`pipeline\`.
 - \`parallel(specs)\` — run an array of \`leaf(...)\` descriptors CONCURRENTLY; returns results in order; a failed leaf becomes \`null\` (does not throw).
 - \`map(items, build)\` — \`build(item, i)\` returns a \`leaf(...)\` descriptor per item; runs them like \`parallel\`.
-- \`pipeline(items, ...stages)\` — each stage returns a \`leaf(...)\` descriptor OR a plain value; there is a barrier between stages (each stage sees the prior stage's results).
+- \`pipeline(items, ...stages)\` — each stage maps over the prior stage's results: return a \`leaf(...)\` descriptor to run an agent on that item, OR any plain value (string/number/object/null) to pass it through UNCHANGED (filter/transform/skip locally — no agent spent). Per-stage barrier (each stage sees the prior stage's results).
 - \`phase(title)\` — mark a named phase for progress reporting.
 - \`log(msg)\` — emit a progress log line.
 - \`usage()\` — returns \`{ agentsSpawned, inputTokens, outputTokens }\` so far.

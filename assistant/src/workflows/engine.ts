@@ -231,21 +231,35 @@ export class WorkflowNestingDepthError extends Error {
 const SCRIPT_PRELUDE = `
 const map = (items, build) => parallel(items.map((it, i) => __toSpec(build(it, i))));
 const pipeline = (items, ...stages) =>
-  stages.reduce(
-    (acc, stage) => parallel(acc.map((it, i) => __toSpec(stage(it, i)))),
-    items,
-  );
+  stages.reduce((acc, stage) => {
+    const staged = acc.map((it, i) => stage(it, i));
+    const specs = staged.filter(__isSpec);
+    if (specs.length === 0) return staged;
+    const ran = parallel(specs);
+    let k = 0;
+    return staged.map((v) => (__isSpec(v) ? ran[k++] : v));
+  }, items);
 `;
 
 /**
- * Normalize what a `map`/`pipeline` build callback returns into a leaf spec.
- * A build callback may return either a {@link LeafSpec} (from calling
- * `leaf(...)` itself, idiomatic) or a bare prompt string (sugar). `parallel`
- * accepts both, but normalizing here keeps the spec array uniform.
+ * `map`/`pipeline` helpers, evaluated before the user script.
+ *
+ * - `__isSpec` recognizes a {@link LeafSpec} produced by `leaf(...)`.
+ * - `__toSpec` normalizes a `map` build callback's return into a leaf spec:
+ *   a {@link LeafSpec} (idiomatic) or a bare prompt string (sugar). `map` ALWAYS
+ *   runs a leaf per item, so a non-spec is wrapped via `leaf(v)`.
+ *
+ * `pipeline` differs DELIBERATELY: a stage that returns a leaf spec runs it, but
+ * a stage that returns any PLAIN value (string, number, object, null) passes it
+ * through unchanged to the next stage — so a stage can filter/transform/skip
+ * locally without spending an agent. This matches the documented contract
+ * ("each stage returns a leaf(...) descriptor OR a plain value"); only explicit
+ * `leaf(...)` results consume agent budget.
  */
 const SCRIPT_PRELUDE_HELPERS = `
-const __toSpec = (v) =>
-  (v && typeof v === "object" && v.__workflowSpec === true) ? v : leaf(v);
+const __isSpec = (v) =>
+  !!v && typeof v === "object" && v.__workflowSpec === true;
+const __toSpec = (v) => (__isSpec(v) ? v : leaf(v));
 `;
 
 /**
