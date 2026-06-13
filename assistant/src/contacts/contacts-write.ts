@@ -100,7 +100,7 @@ export function upsertContactChannel(params: {
       {
         type: params.sourceChannel,
         address,
-        externalUserId: address,
+        externalUserId: params.externalUserId ? address : null,
         externalChatId: params.externalChatId ?? null,
         status: (params.status as ChannelStatus) ?? undefined,
         policy: (params.policy as ChannelPolicy) ?? undefined,

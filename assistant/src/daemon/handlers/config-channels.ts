@@ -405,7 +405,8 @@ export async function verifyTrustedContact(
 
   // --- Slack verification ---
   if (verificationChannel === "slack") {
-    const slackUserId = channel.address ?? destination;
+    const slackUserId =
+      channel.externalUserId ?? channel.address ?? destination;
 
     const hasIdentityBinding = Boolean(
       channel.address || channel.externalChatId,
@@ -420,7 +421,8 @@ export async function verifyTrustedContact(
 
     const sessionResult = createOutboundSession({
       channel: verificationChannel,
-      expectedExternalUserId: channel.address ?? undefined,
+      expectedExternalUserId:
+        channel.externalUserId ?? channel.address ?? undefined,
       expectedChatId: channel.externalChatId ?? undefined,
       identityBindingStatus: "bound",
       destinationAddress: slackUserId,
