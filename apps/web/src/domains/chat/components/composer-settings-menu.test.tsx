@@ -12,8 +12,8 @@
  * "+" must close the popover and call `openProfileQuickAdd`, and simulating the
  * provider's `onCreated(name)` callback must run the composer's autoselect.
  *
- * We stub the generated daemon/api SDK so the menu's mount-time config fetch
- * and the autoselect per-thread profile PUT are observable.
+ * We stub the generated daemon SDK so the component's TanStack Query hooks
+ * receive test data without network requests.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -43,7 +43,6 @@ mock.module("@/stores/assistant-feature-flag-store", () => {
   };
   return { useAssistantFeatureFlagStore: store };
 });
-
 
 // --- threshold-api (mount-time access-level fetches) -------------------------
 mock.module("@/lib/threshold-api", () => ({
@@ -114,31 +113,33 @@ mock.module("@vellumai/design-library", () => {
 const NEW_PROFILE_NAME = "fast-cheap";
 const NEW_PROFILE_LABEL = "Fast & Cheap";
 
-// --- generated SDK -----------------------------------------------------------
-// Mocks are loosely typed (`unknown` args, structural returns) so per-test
-// overrides and `.mock.calls` indexing don't fight the generated SDK types.
-const inferenceprofilePut = mock(
-  async (_opts: unknown): Promise<{ data: unknown }> => ({ data: {} }),
-);
-const clientGet = mock(
-  // One pre-existing profile so the picker renders a list and order.
+// --- generated daemon SDK ----------------------------------------------------
+// Mock the SDK functions used by the component (directly and via generated
+// TanStack Query options). configGetOptions/conversationsByIdGetOptions from
+// the generated react-query module call configGet/conversationsByIdGet
+// internally, so mocking the SDK module covers both layers.
+const configGetMock = mock(
   async (_opts: unknown): Promise<{ data: unknown }> => ({
     data: { llm: { profileOrder: ["smart"], profiles: { smart: { label: "Smart" } }, activeProfile: "smart" } },
   }),
 );
-const clientPatch = mock(
+const conversationsByIdGetMock = mock(
+  async (_opts: unknown) => ({
+    data: { conversation: { inferenceProfile: null } },
+  }),
+);
+const configPatchMock = mock(
+  async (_opts: unknown): Promise<{ data: unknown }> => ({ data: {} }),
+);
+const inferenceprofilePut = mock(
   async (_opts: unknown): Promise<{ data: unknown }> => ({ data: {} }),
 );
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
-  conversationsByIdGet: async () => ({
-    data: { conversation: { inferenceProfile: null } },
-  }),
+  configGet: configGetMock,
+  conversationsByIdGet: conversationsByIdGetMock,
+  configPatch: configPatchMock,
   conversationsByIdInferenceprofilePut: inferenceprofilePut,
-}));
-
-mock.module("@/generated/api/client.gen", () => ({
-  client: { get: clientGet, patch: clientPatch },
 }));
 
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
@@ -163,8 +164,9 @@ beforeEach(() => {
   isMobileRef.value = false;
   openProfileQuickAdd.mockClear();
   inferenceprofilePut.mockClear();
-  clientPatch.mockClear();
-  clientGet.mockClear();
+  configPatchMock.mockClear();
+  configGetMock.mockClear();
+  conversationsByIdGetMock.mockClear();
   toastSuccess.mockClear();
   toastError.mockClear();
 });
@@ -192,7 +194,7 @@ describe("Model Profile quick-add", () => {
   });
 
   test('"+" New Profile renders even with zero profiles', async () => {
-    clientGet.mockImplementationOnce(async () => ({
+    configGetMock.mockImplementationOnce(async () => ({
       data: { llm: { profileOrder: [], profiles: {}, activeProfile: null } },
     }));
     renderMenu();
@@ -205,6 +207,12 @@ describe("Model Profile quick-add", () => {
   test("clicking + closes the popover and opens the quick-add controller", async () => {
     renderMenu();
     await waitFor(() => screen.getByLabelText("New Profile"));
+
+    // Wait for config to load so the "+" is enabled.
+    await waitFor(() => {
+      const plus = screen.getByLabelText("New Profile") as HTMLButtonElement;
+      expect(plus.disabled).toBe(false);
+    });
 
     fireEvent.click(screen.getByLabelText("New Profile"));
 
@@ -219,7 +227,11 @@ describe("Model Profile quick-add", () => {
 
   test("the onCreated callback autoselects the new profile for the thread", async () => {
     renderMenu();
-    await waitFor(() => screen.getByLabelText("New Profile"));
+    // Wait for the config to load and "+" to enable.
+    await waitFor(() => {
+      const plus = screen.getByLabelText("New Profile") as HTMLButtonElement;
+      expect(plus.disabled).toBe(false);
+    });
     fireEvent.click(screen.getByLabelText("New Profile"));
 
     await waitFor(() => {
@@ -228,6 +240,18 @@ describe("Model Profile quick-add", () => {
 
     // Simulate the provider persisting a profile and invoking onCreated — the
     // composer must run handleProfileSelect (per-thread override PUT).
+    // Update the mock first: after creation the server returns the new profile,
+    // so the background refetch (triggered by handleProfileSelect's success
+    // handler) must see the new entry to avoid overwriting the optimistic cache.
+    configGetMock.mockImplementation(async () => ({
+      data: {
+        llm: {
+          profileOrder: ["smart", NEW_PROFILE_NAME],
+          profiles: { smart: { label: "Smart" }, [NEW_PROFILE_NAME]: { label: NEW_PROFILE_LABEL } },
+          activeProfile: "smart",
+        },
+      },
+    }));
     const onCreated = openProfileQuickAdd.mock.calls[0]![0]!.onCreated!;
     onCreated(NEW_PROFILE_NAME, NEW_PROFILE_LABEL);
 
@@ -250,7 +274,7 @@ describe("Model Profile quick-add", () => {
     // Config never resolves — the "+" must stay disabled (opening the modal
     // with the empty initial profileOrder/profileMap would let a duplicate
     // overwrite a profile and reset the persisted order).
-    clientGet.mockImplementationOnce(() => new Promise(() => {}));
+    configGetMock.mockImplementationOnce(() => new Promise(() => {}));
     renderMenu();
 
     await waitFor(() => screen.getByLabelText("New Profile"));
@@ -280,7 +304,11 @@ describe("Model Profile quick-add", () => {
     });
 
     renderMenu();
-    await waitFor(() => screen.getByLabelText("New Profile"));
+    // Wait for config to load.
+    await waitFor(() => {
+      const plus = screen.getByLabelText("New Profile") as HTMLButtonElement;
+      expect(plus.disabled).toBe(false);
+    });
     fireEvent.click(screen.getByLabelText("New Profile"));
 
     await waitFor(() => {
@@ -309,7 +337,7 @@ describe("Profile selection after conversation change (LUM-2279)", () => {
 
     // Hang subsequent config fetches so the re-fetch from the conversationId
     // change never completes — holds the race window open.
-    clientGet.mockImplementation(() => new Promise(() => {}));
+    configGetMock.mockImplementation(() => new Promise(() => {}));
     rerender(tree("conv-2"));
 
     // Click the profile — without the fix this is silently dropped.

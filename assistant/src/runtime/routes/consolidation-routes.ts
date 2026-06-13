@@ -31,6 +31,13 @@ import { getUsageCostForConversationWindow } from "../../memory/llm-usage-store.
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
+import {
+  paginateRuns,
+  parseRunsBeforeCursor,
+  parseRunsLimit,
+  RUNS_NEXT_CURSOR_SCHEMA,
+  RUNS_PAGINATION_QUERY_PARAMS,
+} from "./runs-pagination.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 function isConsolidationAvailable(): boolean {
@@ -162,13 +169,7 @@ export const ROUTES: RouteDefinition[] = [
       "on the conversation row. Shape mirrors `heartbeat/runs` so the " +
       "schedules settings UI can reuse its run-row component.",
     tags: ["consolidation"],
-    queryParams: [
-      {
-        name: "limit",
-        schema: { type: "integer" },
-        description: "Max runs to return (default 20, max 100)",
-      },
-    ],
+    queryParams: RUNS_PAGINATION_QUERY_PARAMS(20),
     responseBody: z.object({
       runs: z
         .array(
@@ -189,16 +190,18 @@ export const ROUTES: RouteDefinition[] = [
           }),
         )
         .describe("Consolidation run records"),
+      nextCursor: RUNS_NEXT_CURSOR_SCHEMA,
     }),
     handler: async ({ queryParams }: RouteHandlerArgs) => {
       const params = queryParams ?? {};
-      const rawLimit = Number(params.limit ?? 20);
-      const limit = Number.isFinite(rawLimit)
-        ? Math.min(Math.max(Math.floor(rawLimit), 1), 100)
-        : 20;
-      const rows = listConversationsBySource(
-        MEMORY_V2_CONSOLIDATION_SOURCE,
+      const limit = parseRunsLimit(params, 20);
+      const before = parseRunsBeforeCursor(params);
+      const { rows, nextCursor } = paginateRuns(
+        listConversationsBySource(MEMORY_V2_CONSOLIDATION_SOURCE, limit + 1, {
+          beforeCreatedAt: before,
+        }),
         limit,
+        (c) => c.createdAt,
       );
       // Aggregate assistant-message stats in one batched query: presence of
       // an assistant message is the strongest "agent emitted output" signal
@@ -212,6 +215,7 @@ export const ROUTES: RouteDefinition[] = [
       );
       const now = Date.now();
       return {
+        nextCursor,
         runs: rows.map((c) => {
           const stat = assistantStats.get(c.id);
           const hasAssistantOutput = (stat?.count ?? 0) > 0;

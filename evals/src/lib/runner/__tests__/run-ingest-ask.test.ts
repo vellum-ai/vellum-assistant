@@ -182,6 +182,11 @@ function makeFakeAgent(opts: FakeAgentOptions = {}): FakeAgentHarness {
       throw new Error("unreachable: runIngestAsk does not run setup commands");
     },
     events: eventsFn,
+    // Not exercised: runIngestAsk drives collection with its own quiet/
+    // sentinel windows, not the turn-completion signal.
+    isTurnComplete(): boolean {
+      return false;
+    },
     async shutdown(): Promise<void> {
       shutdowns += 1;
     },

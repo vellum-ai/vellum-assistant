@@ -14,7 +14,7 @@
 export interface ProfilePickerEntry {
   readonly name: string;
   readonly label?: string | null;
-  readonly status?: "active" | "disabled";
+  readonly status?: "active" | "disabled" | null;
 }
 
 /**
@@ -29,6 +29,45 @@ export interface ProfilePickerEntry {
  * `assistant/src/config/seed-inference-profiles.ts`.
  */
 export const AUTO_PROFILE_NAME = "auto";
+
+/**
+ * Hides the meta-"auto" profile when the `query-complexity-routing`
+ * feature flag is off. The daemon seeds `"auto"` into `llm.profiles`
+ * unconditionally, so every list-style profile UI must run its source
+ * array through this gate before render, or `Auto` shows up in the
+ * picker for users whose workspace has the flag disabled.
+ */
+export function gateAutoProfile<T extends ProfilePickerEntry>(
+  profiles: ReadonlyArray<T>,
+  queryComplexityRoutingEnabled: boolean,
+): T[] {
+  if (queryComplexityRoutingEnabled) return [...profiles];
+  return profiles.filter((p) => p.name !== AUTO_PROFILE_NAME);
+}
+
+/**
+ * Chooses the profile used when a call-site override is toggled on.
+ * The optional preferred profile is used only when it is active and visible
+ * under the current feature-flag gate; otherwise the first active visible
+ * profile is used.
+ */
+export function selectSeedProfileForOverride<T extends ProfilePickerEntry>(
+  profiles: ReadonlyArray<T>,
+  preferredProfile: string | null | undefined,
+  queryComplexityRoutingEnabled: boolean,
+): string | undefined {
+  const candidates = gateAutoProfile(
+    profiles.filter((p) => p.status !== "disabled"),
+    queryComplexityRoutingEnabled,
+  );
+  if (
+    preferredProfile &&
+    candidates.some((p) => p.name === preferredProfile)
+  ) {
+    return preferredProfile;
+  }
+  return candidates[0]?.name;
+}
 
 /**
  * Returns the subset of `profiles` to render in a picker.
@@ -51,21 +90,6 @@ export function visibleProfilesForPicker<T extends ProfilePickerEntry>(
   return profiles.filter(
     (p) => p.status !== "disabled" || selected.has(p.name),
   );
-}
-
-/**
- * Hides the meta-"auto" profile when the `query-complexity-routing`
- * feature flag is off. The daemon seeds `"auto"` into `llm.profiles`
- * unconditionally, so every list-style profile UI must run its source
- * array through this gate before render, or `Auto` shows up in the
- * picker for users whose workspace has the flag disabled.
- */
-export function gateAutoProfile<T extends ProfilePickerEntry>(
-  profiles: ReadonlyArray<T>,
-  queryComplexityRoutingEnabled: boolean,
-): T[] {
-  if (queryComplexityRoutingEnabled) return [...profiles];
-  return profiles.filter((p) => p.name !== AUTO_PROFILE_NAME);
 }
 
 /**

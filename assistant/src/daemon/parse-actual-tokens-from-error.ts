@@ -30,13 +30,52 @@ export function parseActualTokensFromError(
   }
 
   // Untyped path — accept either an Error or a string.
+  return parseFromMessage(extractMessage(errorOrMessage));
+}
+
+/**
+ * Message patterns that identify a provider context-overflow rejection.
+ * Covers the typed wrapper's source patterns plus common provider phrasings
+ * that adapter paths (e.g. managed-proxy rewrappers) surface as untyped
+ * errors:
+ *   "prompt is too long: 242201 tokens > 200000 maximum"   (Anthropic)
+ *   "too many input tokens: 242201 > 200000"                (OpenAI)
+ *   "context_length_exceeded" / "maximum context length"    (OpenAI-compat)
+ */
+const OVERFLOW_MESSAGE_PATTERNS: readonly RegExp[] = [
+  /prompt is too long/i,
+  /too many (?:input )?tokens/i,
+  /context[_\s-]?length[_\s-]?exceeded/i,
+  /maximum context length/i,
+  /\d[\d,]*\s*tokens?\s*[>≥]\s*\d/i,
+];
+
+/**
+ * Heuristic context-overflow check that also catches REWRAPPED provider
+ * errors. `isContextOverflowError` only matches the typed
+ * `ContextOverflowError` wrapper; adapter layers (managed-proxy rewrappers,
+ * retry shims) can re-throw the same rejection as a plain `Error`, hiding the
+ * typed signal. Callers that must not misread an overflow as a clean
+ * no-output stop (e.g. the suppressed-compaction agent-wake path) should use
+ * this instead of the bare typed check.
+ *
+ * Accepts the same inputs as {@link parseActualTokensFromError}: a typed
+ * error, a plain `Error`/object with a `message`, or a raw string.
+ */
+export function looksLikeContextOverflowError(err: unknown): boolean {
+  if (isContextOverflowError(err)) return true;
+  const message = extractMessage(err);
+  if (message === null) return false;
+  return OVERFLOW_MESSAGE_PATTERNS.some((pattern) => pattern.test(message));
+}
+
+/** Pull a message string out of an untyped error-ish value, if possible. */
+function extractMessage(errorOrMessage: unknown): string | null {
   if (errorOrMessage == null) return null;
-  if (typeof errorOrMessage === "string") {
-    return parseFromMessage(errorOrMessage);
-  }
+  if (typeof errorOrMessage === "string") return errorOrMessage;
   if (typeof errorOrMessage === "object" && "message" in errorOrMessage) {
     const msg = (errorOrMessage as { message?: unknown }).message;
-    if (typeof msg === "string") return parseFromMessage(msg);
+    if (typeof msg === "string") return msg;
   }
   return null;
 }

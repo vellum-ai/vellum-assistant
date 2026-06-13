@@ -32,7 +32,9 @@ function resolveRingColor(ratio: number): string {
   if (ratio >= 0.6) {
     return "var(--system-mid-strong)";
   }
-  return "var(--system-positive-strong)";
+  // Neutral below the warning thresholds, matching macOS VContextWindowIndicator.
+  // Not --system-positive-strong: velvet restyles that token to its pink accent.
+  return "var(--content-tertiary)";
 }
 
 function formatTokens(count: number): string {

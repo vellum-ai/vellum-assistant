@@ -36,7 +36,7 @@ export type { HatchResult } from "./hatch";
 export { runRetire } from "./retire";
 export type { RetireResult } from "./retire";
 export { runWake } from "./wake";
-export type { WakeResult } from "./wake";
+export type { WakeOptions, WakeResult } from "./wake";
 export { getGuardianAccessToken } from "./guardian-token";
 export type { TokenResult } from "./guardian-token";
 export {

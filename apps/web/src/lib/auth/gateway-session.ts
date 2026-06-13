@@ -4,6 +4,39 @@ import {
 } from "@/lib/local-mode";
 import type { LockfileAssistant } from "@/runtime/local-mode-host";
 
+/**
+ * Thrown when the gateway `/auth/token` mint rejects the request, carrying the
+ * response `status` so callers can branch on the failure class. A `401` means
+ * the gateway refused the guardian token itself — most often an
+ * `invalid_signature` after the gateway restarted with a different signing key
+ * than the on-disk guardian token was leased against — which a guardian
+ * re-provision (`wake --repair-guardian`) fixes by re-leasing against the
+ * running gateway. A `403` is a loopback/Origin boundary refusal that repair
+ * can't change, and `5xx`/network failures are transient.
+ *
+ * Distinct from {@link GuardianTokenError} (thrown by `fetchGuardianTokenHost`
+ * when the guardian token is missing/unrefreshable on disk): this is the
+ * downstream mint rejecting a token that read back fine.
+ */
+export class GatewayTokenError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "GatewayTokenError";
+    this.status = status;
+  }
+}
+
+/**
+ * True when a connect failure is the gateway rejecting the guardian token at
+ * the `/auth/token` mint (a `401`), which a guardian re-provision can recover.
+ * `403` (boundary refusal) and `5xx`/network failures are not re-provisionable.
+ */
+export function isRepairableGatewayTokenError(error: unknown): boolean {
+  return error instanceof GatewayTokenError && error.status === 401;
+}
+
 const LS_TOKEN_KEY = "vellum:gw:token";
 const LS_EXPIRES_KEY = "vellum:gw:expiresAt";
 const LS_TOKEN_SOURCE_KEY = "vellum:gw:tokenSource";
@@ -64,7 +97,10 @@ async function acquireGatewayToken(tokenUrl?: string, guardianToken?: string): P
   }
   const res = await fetch(url, { method: "POST", headers });
   if (!res.ok) {
-    throw new Error(`Gateway token request failed: ${res.status}`);
+    throw new GatewayTokenError(
+      res.status,
+      `Gateway token request failed: ${res.status}`,
+    );
   }
   const { token, expiresAt } = (await res.json()) as {
     token: string;

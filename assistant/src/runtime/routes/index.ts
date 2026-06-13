@@ -110,6 +110,7 @@ import { ROUTES as PUBLISH_ROUTES } from "./publish-routes.js";
 import { ROUTES as QUESTION_ROUTES } from "./question-routes.js";
 import { ROUTES as RECORDING_ROUTES } from "./recording-routes.js";
 import { ROUTES as RENAME_CONVERSATION_ROUTES } from "./rename-conversation-routes.js";
+import { ROUTES as RETROSPECTIVE_ROUTES } from "./retrospective-routes.js";
 import { ROUTES as SANITY_ROUTES } from "./sanity-routes.js";
 import { ROUTES as SCHEDULE_ROUTES } from "./schedule-routes.js";
 import { ROUTES as SECRET_ROUTES } from "./secret-routes.js";
@@ -117,6 +118,7 @@ import { ROUTES as SEQUENCE_ROUTES } from "./sequence-routes.js";
 import { ROUTES as SETTINGS_ROUTES } from "./settings-routes.js";
 import { ROUTES as SKILL_ROUTES } from "./skills-routes.js";
 import { ROUTES as SLACK_CHANNEL_RESOLVE_ROUTES } from "./slack-channel-routes.js";
+import { ROUTES as SOUNDS_CONFIG_ROUTES } from "./sounds-config-routes.js";
 import { ROUTES as STT_ROUTES } from "./stt-routes.js";
 import { ROUTES as SUBAGENT_ROUTES } from "./subagents-routes.js";
 import { ROUTES as SUGGEST_TRUST_RULE_ROUTES } from "./suggest-trust-rule-routes.js";
@@ -239,10 +241,12 @@ export const ROUTES: RouteDefinition[] = [
   ...QUESTION_ROUTES,
   ...RECORDING_ROUTES,
   ...RENAME_CONVERSATION_ROUTES,
+  ...RETROSPECTIVE_ROUTES,
   ...SCHEDULE_ROUTES,
   ...SANITY_ROUTES,
   ...SECRET_ROUTES,
   ...SETTINGS_ROUTES,
+  ...SOUNDS_CONFIG_ROUTES,
   ...SKILL_ROUTES,
   ...A2A_ROUTES,
   ...SLACK_CHANNEL_CONFIG_ROUTES,

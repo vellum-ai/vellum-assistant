@@ -319,13 +319,13 @@ const useOrgStoreBase = create<OrgStore>()((set) => ({
   },
 }));
 
-// Domain data — generated hook (used in components)
-const { data } = useAssistantsListQuery();
+// Domain data — query factory spread into useQuery (used in components)
+const { data } = useQuery({ ...assistantsListOptions() });
 ```
 
 ### Why React Query (not SWR or others)
 
-- [HeyAPI `@tanstack/react-query` plugin](https://heyapi.dev/openapi-ts/plugins/tanstack-query) auto-generates ready-to-use hooks (`useXxxQuery()`, `useXxxMutation()`), factory functions (`xxxOptions()`, `xxxMutation()`), and typed cache helpers (`setXxxQueryData()`) from the OpenAPI spec. No equivalent plugin exists for SWR (still in proposal stage) or other libraries — this alone is decisive given our HeyAPI codegen pipeline. See [`CONVENTIONS.md` — Generated hooks vs factory functions](./CONVENTIONS.md#generated-hooks-vs-factory-functions) for when to use each layer.
+- [HeyAPI `@tanstack/react-query` plugin](https://heyapi.dev/openapi-ts/plugins/tanstack-query) auto-generates typed query factories (`xxxOptions()`), mutation hooks (`useXxxMutation()`), and cache helpers (`setXxxQueryData()`) from the OpenAPI spec. No equivalent plugin exists for SWR (still in proposal stage) or other libraries — this alone is decisive given our HeyAPI codegen pipeline. See [`CONVENTIONS.md` — Generated artifacts](./CONVENTIONS.md#generated-artifacts-and-when-to-use-each) for when to use each layer.
 - First-class mutation support, optimistic updates, and Redux-DevTools-style query inspection.
 - 12M+ weekly downloads (2026), the most feature-complete option in the React server-state space.
 - Boundary with Zustand is documented explicitly — see the section above. React Query handles server state; Zustand handles client state; they do not overlap.
@@ -363,13 +363,13 @@ natural retry (the next event re-triggers the handler).
 
 | Context | Tool | Why |
 |---|---|---|
-| React component rendering data | Generated hook (`useXxxQuery()`) | Declarative; tied to component lifecycle |
+| React component rendering data | `useQuery({ ...xxxOptions() })` | Declarative; factory spread accepts all TQ options |
 | Event handler, bus subscriber, loader | `queryClient.fetchQuery({ ...xxxOptions() })` | Imperative; outside React render cycle |
 | Optimistic cache write | `setXxxQueryData()` | Typed; no network round-trip |
 
-See [`CONVENTIONS.md` — Generated hooks vs factory
-functions](./CONVENTIONS.md#generated-hooks-vs-factory-functions) for
-the full generated-artifact catalog and
+See [`CONVENTIONS.md` — Generated
+artifacts](./CONVENTIONS.md#generated-artifacts-and-when-to-use-each)
+for the full generated-artifact catalog and
 [`EVENT_BUS.md` — Event-driven cache refresh](./EVENT_BUS.md#event-driven-cache-refresh-via-fetchquery)
 for a concrete example.
 
@@ -506,9 +506,8 @@ the eager `ChatPage` path) must gate on `useIsOrgReady()`:
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 
 const isOrgReady = useIsOrgReady();
-const query = useAssistantsListQuery({
-  query: { hosting: "platform" },
-  // generated hooks accept the same options as useQuery
+const query = useQuery({
+  ...assistantsListOptions({ query: { hosting: "platform" } }),
   enabled: enabled && Boolean(assistantId) && isOrgReady,
 });
 ```

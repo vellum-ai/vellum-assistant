@@ -18,9 +18,15 @@ import type { QueryClient } from "@tanstack/react-query";
 import {
   buildInitializingTimeoutError,
   resolveAssistantLifecycleState,
+  TRANSPORT_ERROR_MESSAGE,
 } from "@/assistant/lifecycle";
+import { publish } from "@/lib/event-bus";
 
 const TEST_INITIALIZING_TIMEOUT_MS = 30;
+// Shrunk transient-error auto-retry delay. Large enough that a timer
+// armed by an unrelated test gets cleared by `afterEach` before it
+// fires; small enough for the recovery tests' `waitFor` budget.
+const TEST_ERROR_RETRY_DELAY_MS = 200;
 
 // --- module mocks --- //
 
@@ -79,6 +85,8 @@ mock.module("@/assistant/lifecycle", () => ({
   buildInitializingTimeoutError,
   INITIALIZING_TIMEOUT_MS: TEST_INITIALIZING_TIMEOUT_MS,
   resolveAssistantLifecycleState,
+  TRANSPORT_ERROR_MESSAGE,
+  errorRetryDelayMs: () => TEST_ERROR_RETRY_DELAY_MS,
 }));
 
 // --- imports under test --- //
@@ -849,6 +857,228 @@ describe("lifecycleService — selection subscription", () => {
     ).toBeNull();
     expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
       kind: "loading",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Transport-shaped failures (LUM-2402)
+//
+// A wake-time network flap must not tear down a live chat surface
+// (active → full-screen error) and must never strand the user on a
+// dead error screen: transient errors carry friendly copy and
+// auto-retry with backoff / on network-online signals.
+// ---------------------------------------------------------------------------
+
+describe("lifecycleService — transport-shaped failures", () => {
+  function activeResult(id: string) {
+    return {
+      ok: true as const,
+      status: 200,
+      data: {
+        id,
+        status: "active",
+        is_local: false,
+        maintenance_mode: { enabled: false },
+      },
+    };
+  }
+
+  /** The structured 502 the Electron platform proxy synthesizes. */
+  const proxyNetworkErrorResult = {
+    ok: false as const,
+    status: 502,
+    error: {
+      detail: "Couldn't reach Vellum. Check your internet connection and try again.",
+      code: "proxy_network_error",
+    },
+  };
+
+  async function driveActive(id: string): Promise<void> {
+    getAssistantMock.mockImplementationOnce(async () => activeResult(id));
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
+      "active",
+    );
+  }
+
+  test("active + thrown re-check degrades to reachable:false instead of tearing down", async () => {
+    await driveActive("asst-live");
+    getAssistantMock.mockImplementationOnce(async () => {
+      throw new Error("Failed to fetch");
+    });
+
+    await lifecycleService.checkAssistant();
+
+    const state = useAssistantLifecycleStore.getState().assistantState;
+    expect(state.kind).toBe("active");
+    if (state.kind === "active") {
+      expect(state.reachable).toBe(false);
+    }
+    // The degraded session keeps its operational-status polling target.
+    expect(
+      useAssistantLifecycleStore.getState().operationalStatusAssistantId,
+    ).toBe("asst-live");
+  });
+
+  test("active + proxy-synthesized network 502 degrades instead of tearing down", async () => {
+    await driveActive("asst-live-2");
+    getAssistantMock.mockImplementationOnce(async () => proxyNetworkErrorResult);
+
+    await lifecycleService.checkAssistant();
+
+    const state = useAssistantLifecycleStore.getState().assistantState;
+    expect(state.kind).toBe("active");
+    if (state.kind === "active") {
+      expect(state.reachable).toBe(false);
+    }
+    expect(
+      useAssistantLifecycleStore.getState().operationalStatusAssistantId,
+    ).toBe("asst-live-2");
+  });
+
+  test("active + genuine server error still tears down to the error screen", async () => {
+    await driveActive("asst-live-3");
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 500,
+      error: { detail: "Internal server error" },
+    }));
+
+    await lifecycleService.checkAssistant();
+
+    const state = useAssistantLifecycleStore.getState().assistantState;
+    expect(state).toMatchObject({
+      kind: "error",
+      message: "Internal server error",
+    });
+    if (state.kind === "error") {
+      expect(state.transient).toBeUndefined();
+    }
+  });
+
+  test("initializing + transport blip stays initializing (watchdog is the backstop)", async () => {
+    getAssistantMock.mockImplementationOnce(async () =>
+      initializingResult("asst-init-blip"),
+    );
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
+      "initializing",
+    );
+
+    getAssistantMock.mockImplementationOnce(async () => proxyNetworkErrorResult);
+    await lifecycleService.checkAssistant();
+
+    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
+      "initializing",
+    );
+  });
+
+  test("boot-time transport failure lands on a transient error with friendly copy", async () => {
+    getAssistantMock.mockImplementationOnce(async () => {
+      throw new Error("net::ERR_NETWORK_CHANGED");
+    });
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+
+    await lifecycleService.checkAssistant();
+
+    expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
+      kind: "error",
+      transient: true,
+      message: TRANSPORT_ERROR_MESSAGE,
+    });
+  });
+
+  test("transient error auto-retries with backoff and recovers to active", async () => {
+    getAssistantMock.mockImplementationOnce(async () => {
+      throw new Error("Failed to fetch");
+    });
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
+      "error",
+    );
+
+    // Next check (fired by the armed retry timer) succeeds.
+    getAssistantMock.mockImplementationOnce(async () =>
+      activeResult("asst-recovered"),
+    );
+
+    await waitFor(
+      () =>
+        useAssistantLifecycleStore.getState().assistantState.kind === "active",
+      1000,
+    );
+    expect(
+      useResolvedAssistantsStore.getState().activeAssistantId,
+    ).toBe("asst-recovered");
+  });
+
+  test("app.online retries a transient error immediately, ahead of the backoff timer", async () => {
+    getAssistantMock.mockImplementationOnce(async () => {
+      throw new Error("Failed to fetch");
+    });
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
+      "error",
+    );
+    const callsBefore = getAssistantMock.mock.calls.length;
+    getAssistantMock.mockImplementationOnce(async () =>
+      activeResult("asst-online"),
+    );
+
+    publish("app.online", {});
+
+    // The re-check starts synchronously from the online signal — no
+    // backoff wait involved.
+    expect(getAssistantMock.mock.calls.length).toBe(callsBefore + 1);
+    await waitFor(
+      () =>
+        useAssistantLifecycleStore.getState().assistantState.kind === "active",
+      1000,
+    );
+  });
+
+  test("non-transient error does not auto-retry", async () => {
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 500,
+      error: { detail: "Internal server error" },
+    }));
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+    const callsAfterError = getAssistantMock.mock.calls.length;
+
+    // Give a would-be retry timer ample time to fire.
+    await new Promise((resolve) =>
+      setTimeout(resolve, TEST_ERROR_RETRY_DELAY_MS * 2),
+    );
+
+    expect(getAssistantMock.mock.calls.length).toBe(callsAfterError);
+    expect(useAssistantLifecycleStore.getState().assistantState).toMatchObject({
+      kind: "error",
+      message: "Internal server error",
     });
   });
 });

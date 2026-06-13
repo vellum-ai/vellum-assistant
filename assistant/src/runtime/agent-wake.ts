@@ -63,6 +63,11 @@ import {
   classifyDiskPressureTurnPolicy,
   type DiskPressureTurnPolicyDecision,
 } from "../daemon/disk-pressure-policy.js";
+import { looksLikeContextOverflowError } from "../daemon/parse-actual-tokens-from-error.js";
+import type {
+  SubagentToolGateMode,
+  WakeToolContextPin,
+} from "../daemon/tool-setup-types.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import {
   broadcastWakeSurface,
@@ -80,7 +85,8 @@ import {
   recordRequestLog,
   setAgentLoopExitReasonOnLatestLog,
 } from "../memory/llm-request-log-store.js";
-import { isContextOverflowError, type Message } from "../providers/types.js";
+import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
+import type { Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("agent-wake");
@@ -92,6 +98,14 @@ const WAKE_PREAMBLE =
 /** Static postamble user message — ends conversation on a user turn. */
 const WAKE_POSTAMBLE =
   "[system] End of message from external system, continue the conversation.";
+
+/**
+ * Warn line shared by the two reactive over-window failure sites (provider
+ * rejection escaped as a throw / swallowed into a no-output stop). The
+ * pre-flight estimate site logs its own distinct message.
+ */
+const OVER_WINDOW_REJECTION_LOG_MESSAGE =
+  "agent-wake: provider rejected the input as over-window with auto-compaction suppressed; failing the wake";
 
 export interface WakeOptions {
   conversationId: string;
@@ -193,18 +207,39 @@ export interface WakeOptions {
    */
   allowedTools?: readonly string[];
   /**
-   * How `allowedTools` is enforced. Defaults to `"wire"` — the historical
-   * behavior, byte-identical when absent: the provider request's tool array
-   * is filtered down to the allowlist. Pass `"execution"` to keep the
-   * conversation's full tool surface on the wire and enforce the allowlist
-   * at execution time instead. Provider prompt caches key on the rendered
-   * `tools → system → messages` prefix, so wire-filtering the tool array
-   * invalidates the source conversation's cached prefix; execution mode
-   * preserves it. Used by fork-based memory retrospectives when matching
-   * the source conversation's inference profile. Ignored when
-   * `allowedTools` is absent.
+   * How `allowedTools` is enforced — see {@link SubagentToolGateMode} for the
+   * wire-vs-execution semantics and cache-parity rationale. Defaults to
+   * `"wire"` (the historical behavior, byte-identical when absent). Ignored
+   * when `allowedTools` is absent.
    */
-  toolGateMode?: "wire" | "execution";
+  toolGateMode?: SubagentToolGateMode;
+  /**
+   * Client-context pin applied (and restored) alongside `allowedTools` for
+   * the duration of the wake — see {@link WakeToolContextPin}. Pass only
+   * with `toolGateMode: "execution"`: it exists purely so the wire tool
+   * definitions resolve under the SOURCE conversation's client context
+   * (provider prompt-cache parity) and is pointless when the wire is
+   * allowlist-filtered anyway. Definition resolution only — pinned-in tools
+   * remain execution-rejected by the gate. Ignored when `allowedTools` is
+   * absent.
+   */
+  toolContextPin?: WakeToolContextPin;
+  /**
+   * Explicit persona/channel slugs for the wake's system-prompt build,
+   * applied to the conversation for the duration of the run and restored
+   * afterwards. Wakes bypass the orchestrator's turn-start persona snapshot,
+   * so their prompt is otherwise built from whatever snapshot the
+   * conversation already holds — for a freshly hydrated conversation (the
+   * fork-retrospective case) that is the no-trust-context derivation
+   * (guardian persona + "vellum" channel) regardless of which actor/channel
+   * the conversation belongs to. Used by fork-based memory retrospectives to
+   * render the SOURCE conversation's persona sections — both for review
+   * quality and for byte-parity with the source's cached system-prompt
+   * prefix. May also pin `hasNoClient` for the prompt build (see
+   * {@link SystemPromptPersonaOverride}). Prompt-build selection only; trust
+   * class and approval semantics are governed solely by `trustContext`.
+   */
+  personaOverride?: SystemPromptPersonaOverride;
 }
 
 /**
@@ -560,6 +595,23 @@ export async function wakeAgentForOpportunity(
       forceOverrideProfile,
     });
 
+    // Apply the caller's persona override for the duration of the run. The
+    // wake's agent loop builds the system prompt through the conversation's
+    // resolveSystemPrompt callback, which reads this field; cleared (below,
+    // before drainQueue) so a queued user turn never builds its prompt under
+    // the wake's override. Assigned only AFTER the profile/config reads above
+    // — those can throw, and they run before the try/finally that clears the
+    // override, so an earlier assignment would strand the override on the
+    // cached Conversation and corrupt every later prompt build on it.
+    if (opts.personaOverride) {
+      conversation.wakePersonaOverride = opts.personaOverride;
+    }
+    const clearWakePersonaOverride = (): void => {
+      if (opts.personaOverride) {
+        conversation.wakePersonaOverride = undefined;
+      }
+    };
+
     // Mark processing for the duration of the wake — including the pre-run
     // compaction gate below, whose summary LLM call must not race a user
     // send into a concurrent agent loop on the same conversation. A user
@@ -579,10 +631,18 @@ export async function wakeAgentForOpportunity(
     // like fork-based memory retrospectives suppress this gate: the fork
     // is throwaway and a summarization LLM call on it is wasted spend.
     // Failure is non-fatal — the wake proceeds on the uncompacted history
-    // exactly as it would have before the gate existed.
+    // exactly as it would have before the gate existed. The gate's window
+    // sizing is threaded from the wake's own call-site resolution above —
+    // without it, `maybeCompact` sizes the threshold against `mainAgent`,
+    // which can pass un-compacted a wake whose call site resolves a smaller
+    // window (and then overflow at the provider).
     if (!suppressAutoCompaction) {
       try {
-        await conversation.maybeCompact();
+        await conversation.maybeCompact({
+          callSite,
+          overrideProfile,
+          forceOverrideProfile,
+        });
       } catch (err) {
         log.warn(
           { conversationId, source, err },
@@ -774,11 +834,13 @@ export async function wakeAgentForOpportunity(
       // Detect an over-window rejection on a compaction-suppressed wake.
       // `provider_error` fires at the provider-call site; `error` fires from
       // the loop's generic catch — check both so a rewrapping retry layer
-      // can't hide the signal.
+      // can't hide the signal. The heuristic check also catches adapter
+      // paths (e.g. managed-proxy rewrappers) that surface the overflow as
+      // an untyped error the typed `instanceof` check would miss.
       if (
         suppressAutoCompaction &&
         (event.type === "provider_error" || event.type === "error") &&
-        isContextOverflowError(event.error)
+        looksLikeContextOverflowError(event.error)
       ) {
         suppressedContextOverflow = true;
       }
@@ -904,6 +966,7 @@ export async function wakeAgentForOpportunity(
           conversation,
           new Set(opts.allowedTools),
           opts.toolGateMode,
+          opts.toolContextPin,
         );
         return true;
       } catch (err) {
@@ -938,16 +1001,18 @@ export async function wakeAgentForOpportunity(
     // block skips its generic outcome log for this path — the failure
     // already logged its own dedicated warn line.
     let failedContextOverflow = false;
-    // Shared failure path for a provider over-window rejection on a
-    // compaction-suppressed wake (reached from the run's catch when the
-    // rejection escaped as a throw, or post-run when the loop swallowed it
-    // into a graceful no-output stop and only the event capture saw it).
-    const failSuppressedContextOverflow = (err?: unknown): WakeResult => {
+    // Shared failure path for an over-window condition on a
+    // compaction-suppressed wake (reached from the pre-flight estimate, from
+    // the run's catch when the rejection escaped as a throw, or post-run when
+    // the loop swallowed it into a graceful no-output stop and only the event
+    // capture saw it). `extraLogFields` is spread into the warn line so each
+    // site can attach its own context (err, token estimates).
+    const failSuppressedContextOverflow = (
+      logMessage: string,
+      extraLogFields: Record<string, unknown> = {},
+    ): WakeResult => {
       failedContextOverflow = true;
-      log.warn(
-        { conversationId, source, ...(err === undefined ? {} : { err }) },
-        "agent-wake: provider rejected the input as over-window with auto-compaction suppressed; failing the wake",
-      );
+      log.warn({ conversationId, source, ...extraLogFields }, logMessage);
       return {
         invoked: false,
         producedToolCalls: false,
@@ -980,21 +1045,13 @@ export async function wakeAgentForOpportunity(
           estimatedInputTokens !== null &&
           estimatedInputTokens > effectiveContextWindow.maxInputTokens
         ) {
-          failedContextOverflow = true;
-          log.warn(
+          return failSuppressedContextOverflow(
+            "agent-wake: input exceeds the effective context window and auto-compaction is suppressed; failing fast",
             {
-              conversationId,
-              source,
               estimatedInputTokens,
               maxInputTokens: effectiveContextWindow.maxInputTokens,
             },
-            "agent-wake: input exceeds the effective context window and auto-compaction is suppressed; failing fast",
           );
-          return {
-            invoked: false,
-            producedToolCalls: false,
-            reason: "context_overflow" as const,
-          };
         }
       }
 
@@ -1038,12 +1095,16 @@ export async function wakeAgentForOpportunity(
       } catch (err) {
         // An over-window throw on a compaction-suppressed wake is the
         // suppression contract's failure mode, not a generic loop error —
-        // surface it as a deterministic failed result.
+        // surface it as a deterministic failed result. The heuristic check
+        // also catches rewrapped (untyped) provider overflow errors.
         if (
           suppressedContextOverflow ||
-          (suppressAutoCompaction && isContextOverflowError(err))
+          (suppressAutoCompaction && looksLikeContextOverflowError(err))
         ) {
-          return failSuppressedContextOverflow(err);
+          return failSuppressedContextOverflow(
+            OVER_WINDOW_REJECTION_LOG_MESSAGE,
+            { err },
+          );
         }
         // Capture the error for post-finally logging, then short-circuit
         // the rest of the try body — no tail to push/persist when the
@@ -1059,7 +1120,7 @@ export async function wakeAgentForOpportunity(
       // `suppressedContextOverflow` by `onEvent`). Map it to a deterministic
       // failure instead of the silent no-op it would otherwise read as.
       if (suppressedContextOverflow) {
-        return failSuppressedContextOverflow();
+        return failSuppressedContextOverflow(OVER_WINDOW_REJECTION_LOG_MESSAGE);
       }
 
       // Run completed cleanly. The canonical user-turn pattern
@@ -1110,6 +1171,7 @@ export async function wakeAgentForOpportunity(
       // processing to already be false). The finally block handles the
       // error/early-return paths where no tail was produced.
       restoreWakeAllowedTools();
+      clearWakePersonaOverride();
       try {
         conversation.setProcessing(false);
       } catch (err) {
@@ -1137,6 +1199,7 @@ export async function wakeAgentForOpportunity(
       // `drainedInTry` is still false.
       if (!drainedInTry) {
         restoreWakeAllowedTools();
+        clearWakePersonaOverride();
         try {
           conversation.setProcessing(false);
         } catch (err) {

@@ -64,10 +64,12 @@ import {
 import type {
   SubagentToolGateMode,
   ToolSetupContext,
+  WakeToolContextPin,
 } from "./tool-setup-types.js";
 export type {
   SubagentToolGateMode,
   ToolSetupContext,
+  WakeToolContextPin,
 } from "./tool-setup-types.js";
 
 // ── resolveConversationAttribution ───────────────────────────────────
@@ -134,12 +136,10 @@ export function createToolExecutor(
     ctx.sendToClient(msg),
   );
 
-  // Execution-layer allowlist gate (`subagentToolGateMode === "execution"`):
-  // the wire request carries the conversation's full tool surface (so the
-  // provider prompt-cache prefix stays byte-identical to normal turns), and
-  // the allowlist is enforced here instead — BEFORE any executor dispatch,
-  // so a non-allowlisted tool's executor never runs. The error tool_result
-  // lets the model continue with an allowlisted tool or finish.
+  // Execution-layer allowlist gate (`subagentToolGateMode === "execution"`,
+  // see {@link SubagentToolGateMode}): rejects non-allowlisted calls BEFORE
+  // any executor dispatch, so a non-allowlisted tool's executor never runs.
+  // The error tool_result lets the model continue or finish.
   const rejectNonAllowlistedTool = (
     toolName: string,
   ): ToolExecutionResult | null => {
@@ -161,6 +161,17 @@ export function createToolExecutor(
   ) => {
     const { name: executionName, input: executionInput } =
       resolveToolInvocationAlias(name, input, ctx.allowedToolNames);
+
+    // The execution-layer gate must run FIRST — before any interception or
+    // pre-execution side effect (switch_inference_profile profile switching,
+    // DoorDash step marking) — so a non-allowlisted tool can neither run nor
+    // mutate conversation state. `skill_execute` is dispatch indirection: it
+    // is gated on its resolved inner tool name inside the interception below,
+    // mirroring how wire mode gates the underlying tool, not the wrapper.
+    if (executionName !== "skill_execute") {
+      const rejection = rejectNonAllowlistedTool(executionName);
+      if (rejection) return rejection;
+    }
 
     if (isDoordashCommand(executionName, executionInput)) {
       markDoordashStepInProgress(ctx, executionInput);
@@ -321,9 +332,6 @@ export function createToolExecutor(
       return result;
     }
 
-    const rejection = rejectNonAllowlistedTool(executionName);
-    if (rejection) return rejection;
-
     const result = await executor.execute(
       executionName,
       executionInput,
@@ -396,13 +404,17 @@ export interface SkillProjectionContext {
   /** When set, only tools in this set are included in the resolved tool list (subagent delegation). */
   subagentAllowedTools?: Set<string>;
   /**
-   * How {@link subagentAllowedTools} is enforced. Absent or `"wire"` filters
-   * the resolved tool definitions (historical behavior); `"execution"` keeps
-   * the full tool surface on the wire — preserving provider prompt-cache
-   * parity — and relies on the executor callback's execution-layer gate to
-   * reject non-allowlisted calls.
+   * How {@link subagentAllowedTools} is enforced — see
+   * {@link SubagentToolGateMode}. Absent means `"wire"`.
    */
   subagentToolGateMode?: SubagentToolGateMode;
+  /**
+   * When set (execution-gate-mode wakes), tool-definition resolution reads
+   * `hasNoClient` / `transportInterface` / `channelCapabilities` exclusively
+   * from this pin instead of the live conversation — see
+   * {@link WakeToolContextPin}.
+   */
+  readonly toolContextPin?: WakeToolContextPin;
   /** True when the current turn is restricted to disk-pressure cleanup-safe tools. */
   diskPressureCleanupModeActive?: boolean;
   /** True when this conversation belongs to a subagent spawned by SubagentManager. */
@@ -521,6 +533,19 @@ export function isToolActiveForContext(
   name: string,
   ctx: SkillProjectionContext,
 ): boolean {
+  // Execution-gate-mode wakes pin the client-context inputs so the wire tool
+  // surface matches the SOURCE conversation's live turns rather than the
+  // fork's clientless hydration (see {@link WakeToolContextPin}). When the
+  // pin is present it replaces all three values — channel capabilities pin
+  // to `undefined` (see the pin's doc for why unset IS parity), never
+  // falling through to live state.
+  const pin = ctx.toolContextPin;
+  const hasNoClient = pin ? pin.hasNoClient : ctx.hasNoClient;
+  const channelCapabilities = pin ? undefined : ctx.channelCapabilities;
+  const transportInterface = pin
+    ? pin.transportInterface
+    : ctx.transportInterface;
+
   // When the conversation is acting as a subagent, the parent orchestrator
   // restricts the tool list. A tool that isn't on the allowlist is not
   // available for this turn, so short-circuit before any capability checks.
@@ -555,16 +580,16 @@ export function isToolActiveForContext(
   }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
     if (
-      ctx.channelCapabilities?.channel === "slack" &&
+      channelCapabilities?.channel === "slack" &&
       SLACK_TASK_PROGRESS_UI_TOOL_NAMES.has(name)
     ) {
-      return !ctx.hasNoClient;
+      return !hasNoClient;
     }
-    return ctx.channelCapabilities?.supportsDynamicUi ?? !ctx.hasNoClient;
+    return channelCapabilities?.supportsDynamicUi ?? !hasNoClient;
   }
   if (HOST_TOOL_NAMES.has(name)) {
     const capability = HOST_TOOL_TO_CAPABILITY.get(name);
-    const transport = ctx.transportInterface;
+    const transport = transportInterface;
 
     // Per-capability check is authoritative for structural support: if the
     // transport cannot service this capability, the tool is filtered out.
@@ -583,7 +608,7 @@ export function isToolActiveForContext(
         capability &&
         CROSS_CLIENT_EXPOSED_CAPABILITIES.has(capability) &&
         transport !== "chrome-extension" &&
-        !ctx.hasNoClient &&
+        !hasNoClient &&
         assistantEventHub.listClientsByCapability(capability).length > 0
       ) {
         return true;
@@ -603,23 +628,20 @@ export function isToolActiveForContext(
     // For transports that surface approvals over SSE (macos, backwards-compat
     // fallback), deny when no client is present so the guardian auto-approve
     // path cannot execute host commands unattended.
-    return !ctx.hasNoClient;
+    return !hasNoClient;
   }
   if (CLIENT_CAPABILITY_TOOL_NAMES.has(name)) {
-    if (
-      name === "ask_question" &&
-      ctx.channelCapabilities?.clientOS === "macos"
-    ) {
+    if (name === "ask_question" && channelCapabilities?.clientOS === "macos") {
       // macOS has no UI handler for question_request yet; hiding the tool
       // avoids a 5-minute prompter timeout when the LLM would otherwise call it.
       return false;
     }
-    return !ctx.hasNoClient;
+    return !hasNoClient;
   }
   if (PLATFORM_TOOL_NAMES.has(name)) {
     // Check the *client's* platform, not the daemon's process.platform.
     // In Docker the daemon runs on Linux but the connected client may be macOS.
-    return ctx.channelCapabilities?.clientOS === "macos" && !ctx.hasNoClient;
+    return channelCapabilities?.clientOS === "macos" && !hasNoClient;
   }
   if (SUBAGENT_ONLY_TOOL_NAMES.has(name)) {
     return ctx.isSubagent === true;
@@ -678,10 +700,8 @@ export function createResolveToolsCallback(
     // When the conversation is acting as a subagent, restrict core tools to
     // only those explicitly allowed by the parent orchestrator. In
     // `"execution"` gate mode the allowlist is NOT applied to the wire
-    // definitions — the provider request keeps the conversation's full tool
-    // surface (tool definitions lead the provider prompt-cache prefix, so
-    // filtering them would invalidate the cached prefix) and the executor
-    // callback rejects non-allowlisted calls at execution time instead.
+    // definitions (see {@link SubagentToolGateMode}) — the executor callback
+    // rejects non-allowlisted calls at execution time instead.
     const wireAllowlist =
       ctx.subagentToolGateMode === "execution"
         ? undefined

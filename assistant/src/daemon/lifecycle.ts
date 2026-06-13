@@ -1278,6 +1278,13 @@ export async function runDaemon(): Promise<void> {
       log.warn({ err }, "Assistant symlink installation failed — continuing");
     }
 
+    // Seed preloaded apps (personal landing page) in background (non-blocking).
+    void import("../memory/preloaded-apps.js")
+      .then(({ seedPreloadedApps }) => seedPreloadedApps(config))
+      .catch((err) =>
+        log.warn({ err }, "Preloaded app seeding failed — continuing"),
+      );
+
     // Download embedding runtime in background (non-blocking).
     // If download fails, local embeddings gracefully fall back to cloud backends.
     void (async () => {

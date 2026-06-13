@@ -45,7 +45,7 @@ export const MemoryRetrospectiveConfigSchema = z
       })
       .default(false)
       .describe(
-        "When false (default), superseded retrospective conversations are deleted once a newer run succeeds — dedup only ever reads the most recent run via findMostRecentRetrospectiveFor, so older runs are dead weight (fork-based runs each carry a full copy of the source conversation's messages). Operators who want to retain the full run history set this to true; retained runs also skip the startup orphan sweep so they survive restarts.",
+        "When false (default), superseded retrospective conversations are deleted once a newer run succeeds — the persisted remembered_log on memory_retrospective_state is the dedup baseline (the most recent run is scanned only as a fallback for state rows that predate the log column), so older runs are dead weight (fork-based runs each carry a full copy of the source conversation's messages). Operators who want to retain the full run history set this to true; retained runs also skip the startup orphan sweep so they survive restarts.",
       ),
 
     matchConversationProfile: z

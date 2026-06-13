@@ -10,10 +10,9 @@
  * Mounted with `@testing-library/react` (happy-dom — see `apps/web/test-setup.ts`).
  */
 
-import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createElement, useEffect } from "react";
 
 const NEW_PROFILE_NAME = "fast-cheap";
@@ -55,26 +54,29 @@ mock.module("@/domains/settings/ai/provider-connections-client", () => ({
   filterFlaggedConnections: (c: unknown) => c,
 }));
 
+const configGetSetQueryDataMock = mock((_client: unknown, _opts: unknown, _data: unknown) => {});
 mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   inferenceProviderconnectionsGetOptions: () => ({
     queryKey: [{ _id: "inferenceProviderconnectionsGet" }],
     queryFn: async () => ({ connections: [] }),
   }),
+  configGetSetQueryData: configGetSetQueryDataMock,
 }));
 
-const clientPatch = mock(
+const configPatchMock = mock(
   async (_opts: unknown): Promise<{ data: unknown }> => ({ data: {} }),
 );
 // The save path re-reads the latest server config so the appended profileOrder
 // is authoritative regardless of what the modal was opened with. Default to one
 // pre-existing profile; individual tests override per-call as needed.
-const clientGet = mock(
+const configGetMock = mock(
   async (_opts: unknown): Promise<{ data: unknown }> => ({
     data: { llm: { profileOrder: ["smart"], profiles: { smart: { label: "Smart" } } } },
   }),
 );
-mock.module("@/generated/api/client.gen", () => ({
-  client: { get: clientGet, patch: clientPatch },
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  configGet: configGetMock,
+  configPatch: configPatchMock,
 }));
 
 import {
@@ -109,8 +111,9 @@ function renderProvider(existingNames: string[]) {
 beforeEach(() => {
   toastSuccess.mockClear();
   onCreated.mockClear();
-  clientPatch.mockClear();
-  clientGet.mockClear();
+  configPatchMock.mockClear();
+  configGetMock.mockClear();
+  configGetSetQueryDataMock.mockClear();
 });
 
 afterEach(() => {
@@ -132,9 +135,9 @@ describe("ProfileQuickAddProvider", () => {
 
     // Persists via the daemon config PATCH with the appended profileOrder.
     await waitFor(() => {
-      expect(clientPatch).toHaveBeenCalledTimes(1);
+      expect(configPatchMock).toHaveBeenCalledTimes(1);
     });
-    const patchBody = (clientPatch.mock.calls[0]![0] as { body: { llm: Record<string, unknown> } }).body.llm;
+    const patchBody = (configPatchMock.mock.calls[0]![0] as { body: { llm: Record<string, unknown> } }).body.llm;
     expect((patchBody.profiles as Record<string, unknown>)[NEW_PROFILE_NAME]).toBeTruthy();
     expect(patchBody.profileOrder).toEqual(["smart", NEW_PROFILE_NAME]);
 
@@ -156,7 +159,7 @@ describe("ProfileQuickAddProvider", () => {
     // an EMPTY existingNames (simulating a click before config loaded); the
     // PATCH must still append to the server's order, preserving both existing
     // profiles rather than resetting the order to just the new name.
-    clientGet.mockImplementationOnce(async () => ({
+    configGetMock.mockImplementationOnce(async () => ({
       data: {
         llm: {
           profileOrder: ["smart", "creative"],
@@ -170,11 +173,11 @@ describe("ProfileQuickAddProvider", () => {
     fireEvent.click(screen.getByTestId("modal-save-btn"));
 
     await waitFor(() => {
-      expect(clientPatch).toHaveBeenCalledTimes(1);
+      expect(configPatchMock).toHaveBeenCalledTimes(1);
     });
     // Re-read the freshest config before persisting.
-    expect(clientGet).toHaveBeenCalledTimes(1);
-    const patchBody = (clientPatch.mock.calls[0]![0] as { body: { llm: Record<string, unknown> } }).body.llm;
+    expect(configGetMock).toHaveBeenCalledTimes(1);
+    const patchBody = (configPatchMock.mock.calls[0]![0] as { body: { llm: Record<string, unknown> } }).body.llm;
     expect(patchBody.profileOrder).toEqual(["smart", "creative", NEW_PROFILE_NAME]);
   });
 
@@ -182,7 +185,7 @@ describe("ProfileQuickAddProvider", () => {
     // The new name already exists on the server (in the map), e.g. created by
     // another client while the modal was open. A create must NOT deep-merge over
     // it (config PATCHes merge profile entries) — it must abort with no PATCH.
-    clientGet.mockImplementationOnce(async () => ({
+    configGetMock.mockImplementationOnce(async () => ({
       data: {
         llm: {
           profileOrder: ["smart"],
@@ -198,36 +201,34 @@ describe("ProfileQuickAddProvider", () => {
     // The reload ran, but the duplicate is rejected: no PATCH, no success, and
     // the modal stays open so the inline error is visible.
     await waitFor(() => {
-      expect(clientGet).toHaveBeenCalledTimes(1);
+      expect(configGetMock).toHaveBeenCalledTimes(1);
     });
-    expect(clientPatch).not.toHaveBeenCalled();
+    expect(configPatchMock).not.toHaveBeenCalled();
     expect(toastSuccess).not.toHaveBeenCalled();
     expect(onCreated).not.toHaveBeenCalled();
     expect(screen.getByTestId("modal-save-btn")).toBeTruthy();
   });
 
-  test("invalidates the daemon config cache after a successful create so Settings stays in sync", async () => {
-    const { queryClient } = renderProvider(["smart"]);
-    const invalidateSpy = spyOn(queryClient, "invalidateQueries");
+  test("writes the PATCH response to the shared config query cache so Settings stays in sync", async () => {
+    renderProvider(["smart"]);
     await waitFor(() => screen.getByTestId("modal-save-btn"));
     fireEvent.click(screen.getByTestId("modal-save-btn"));
 
     await waitFor(() => {
-      expect(clientPatch).toHaveBeenCalledTimes(1);
+      expect(configPatchMock).toHaveBeenCalledTimes(1);
     });
-    // The shared daemon-config query is invalidated so a previously-loaded
-    // Settings/AI tab refetches and shows the newly created profile.
+    // The PATCH response (merged config) is written directly to the shared
+    // config query cache via configGetSetQueryData so all consumers see the
+    // new profile immediately without a refetch.
     await waitFor(() => {
-      expect(invalidateSpy).toHaveBeenCalledWith({
-        queryKey: assistantDaemonConfigQueryKey("assistant-1"),
-      });
+      expect(configGetSetQueryDataMock).toHaveBeenCalledTimes(1);
     });
   });
 
   test("a failed config reload ABORTS the save — no PATCH, no success toast, modal stays open", async () => {
     // The fresh config read fails (throwOnError: true rejects). The save must
     // abort rather than fall back to empty server state and reset profileOrder.
-    clientGet.mockImplementationOnce(async () => {
+    configGetMock.mockImplementationOnce(async () => {
       throw new Error("config read failed");
     });
 
@@ -238,9 +239,9 @@ describe("ProfileQuickAddProvider", () => {
     // The reload was attempted, but the PATCH never runs and nothing is reported
     // as a success; the modal remains open so the inline error is visible.
     await waitFor(() => {
-      expect(clientGet).toHaveBeenCalledTimes(1);
+      expect(configGetMock).toHaveBeenCalledTimes(1);
     });
-    expect(clientPatch).not.toHaveBeenCalled();
+    expect(configPatchMock).not.toHaveBeenCalled();
     expect(toastSuccess).not.toHaveBeenCalled();
     expect(onCreated).not.toHaveBeenCalled();
     expect(screen.getByTestId("modal-save-btn")).toBeTruthy();

@@ -1554,14 +1554,37 @@ export class AgentLoop {
           );
           // Run the hook on the truncated reply so output-filter plugins still
           // see it, and so a turn that streamed nothing live gets its final
-          // emit (without this the client would see nothing). The retry decision
-          // is ignored here: a max-tokens stop is terminal.
-          const { finalized: safeAssistantMessage } =
-            await finalizeAssistantMessage({
-              role: "assistant",
-              content: safeContent,
-            });
+          // emit (without this the client would see nothing). A recovery hook
+          // (max-tokens-continue) may set `decision: "continue"` to resume the
+          // truncated turn: it leaves `messages` as the next history (the
+          // truncated turn followed by a continuation nudge), so unlike the
+          // no-tool retry below the partial output is kept, not discarded.
+          // Otherwise the stop is terminal and the continuation card surfaces.
+          const {
+            finalized: safeAssistantMessage,
+            decision: maxTokensDecision,
+            messages: maxTokensMessages,
+          } = await finalizeAssistantMessage({
+            role: "assistant",
+            content: safeContent,
+          });
           emitFinalAssistantText(safeAssistantMessage.content);
+          if (
+            maxTokensDecision === "continue" &&
+            postModelCallContinues < MAX_POST_MODEL_CALL_CONTINUES
+          ) {
+            postModelCallContinues++;
+            rlog.warn(
+              { turn: toolUseTurns, retry: postModelCallContinues },
+              "max-tokens stop — auto-continuing the truncated turn",
+            );
+            await onEvent({
+              type: "message_complete",
+              message: safeAssistantMessage,
+            });
+            history = maxTokensMessages;
+            continue;
+          }
           history.push(safeAssistantMessage);
           await onEvent({
             type: "max_tokens_reached",

@@ -41,6 +41,25 @@ describe("runWake", () => {
     expect(spawnArgs[0]).toEqual(["bun", ["run", "cli", "wake", "asst-42"]]);
   });
 
+  test("repairGuardian: true appends --repair-guardian to the CLI args", async () => {
+    const pending = runWake(invocation, "asst-42", { repairGuardian: true });
+    lastChild.emit("close", 0);
+
+    expect(await pending).toEqual({ ok: true });
+    expect(spawnArgs[0]).toEqual([
+      "bun",
+      ["run", "cli", "wake", "asst-42", "--repair-guardian"],
+    ]);
+  });
+
+  test("repairGuardian: false omits the flag", async () => {
+    const pending = runWake(invocation, "asst-42", { repairGuardian: false });
+    lastChild.emit("close", 0);
+
+    expect(await pending).toEqual({ ok: true });
+    expect(spawnArgs[0]).toEqual(["bun", ["run", "cli", "wake", "asst-42"]]);
+  });
+
   test("a non-zero exit resolves to a failure carrying the CLI's output", async () => {
     const pending = runWake(invocation, "asst-42");
     lastChild.stderr.emit("data", Buffer.from("no sibling environment to seed from"));

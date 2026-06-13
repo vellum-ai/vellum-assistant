@@ -1,9 +1,13 @@
 import { Loader2 } from "lucide-react";
-import { Outlet } from "react-router";
+import { Outlet, useNavigate } from "react-router";
 
 import { Typography } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library/components/button";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { handleLogout } from "@/lib/auth/handle-logout";
+import { isLocalMode } from "@/lib/local-mode";
+import { useHasPlatformSession } from "@/stores/auth-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 /**
@@ -42,6 +46,12 @@ export function ActiveAssistantGate() {
 }
 
 function ActiveAssistantPlaceholder() {
+  const navigate = useNavigate();
+  // Keep an escape hatch reachable while the assistant lifecycle is
+  // unresolved: hide in pure local mode unless a platform session exists.
+  const hasPlatformSession = useHasPlatformSession();
+  const showLogout = !isLocalMode() || hasPlatformSession;
+
   return (
     <div
       className="flex min-h-0 flex-1 flex-col items-center justify-center gap-[var(--app-spacing-md)] text-[var(--content-tertiary)]"
@@ -52,6 +62,11 @@ function ActiveAssistantPlaceholder() {
       <Typography variant="body-medium-default">
         Connecting to your assistant…
       </Typography>
+      {showLogout && (
+        <Button variant="ghost" onClick={() => void handleLogout(navigate)}>
+          Log Out
+        </Button>
+      )}
     </div>
   );
 }

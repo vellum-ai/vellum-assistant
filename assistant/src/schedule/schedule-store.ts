@@ -1,5 +1,5 @@
 import { Cron } from "croner";
-import { and, asc, desc, eq, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, lt, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../memory/db-connection.js";
@@ -745,12 +745,26 @@ export function getLastScheduleConversationId(jobId: string): string | null {
   return row?.conversationId ?? null;
 }
 
-export function getScheduleRuns(jobId: string, limit?: number): ScheduleRun[] {
+/**
+ * List runs for a schedule, newest first. When `before` is set, only runs
+ * with `createdAt` strictly older than it are returned (cursor for
+ * paginating into history).
+ */
+export function getScheduleRuns(
+  jobId: string,
+  limit?: number,
+  before?: number,
+): ScheduleRun[] {
   const db = getDb();
   const rows = db
     .select()
     .from(scheduleRuns)
-    .where(eq(scheduleRuns.jobId, jobId))
+    .where(
+      and(
+        eq(scheduleRuns.jobId, jobId),
+        before != null ? lt(scheduleRuns.createdAt, before) : undefined,
+      ),
+    )
     .orderBy(desc(scheduleRuns.createdAt))
     .limit(limit ?? 10)
     .all();

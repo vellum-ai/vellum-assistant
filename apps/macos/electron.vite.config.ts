@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import path from "node:path";
 
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 
@@ -44,11 +45,20 @@ const resolveBuildSha = (): string => {
   }
 };
 
+// Local builds drive the repo CLI source directly instead of installing the
+// published package; release builds bake an empty path and keep the pinned
+// npm install (see getLocalCliEntry in src/main/cli-installer.ts).
+const LOCAL_CLI_ENTRY =
+  (process.env.VELLUM_ENVIRONMENT || "local") === "local"
+    ? path.resolve(__dirname, "../../cli/src/index.ts")
+    : "";
+
 const BUILD_DEFINES = {
   __VELLUM_BUILD_SHA__: JSON.stringify(resolveBuildSha()),
   __VELLUM_ENVIRONMENT__: JSON.stringify(
     process.env.VELLUM_ENVIRONMENT || "local",
   ),
+  __VELLUM_LOCAL_CLI_ENTRY__: JSON.stringify(LOCAL_CLI_ENTRY),
   __VELLUM_ENABLE_CHROME_DEVTOOLS__: JSON.stringify(
     process.env.VELLUM_ENABLE_CHROME_DEVTOOLS === "true" ||
       process.env.VELLUM_ENABLE_CHROME_DEVTOOLS === "1",

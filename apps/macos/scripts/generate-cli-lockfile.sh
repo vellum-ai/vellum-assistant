@@ -16,6 +16,16 @@ if [ -z "$VERSION" ]; then
   exit 1
 fi
 
+# Local builds drive the repo CLI source directly (see getLocalCliEntry in
+# cli-installer.ts) and never install from npm. Ship an empty seed dir so
+# electron-builder's extraResources mapping still resolves.
+if [ "${VELLUM_ENVIRONMENT:-local}" = "local" ]; then
+  echo "Local build: skipping CLI lockfile (app runs the repo CLI source)"
+  rm -rf "$SEED_DIR"
+  mkdir -p "$SEED_DIR"
+  exit 0
+fi
+
 echo "Generating CLI lockfile for vellum@$VERSION ..."
 
 rm -rf "$SEED_DIR"

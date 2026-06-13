@@ -3,12 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import {
-    fetchSoundsConfig,
-    listAvailableSounds,
-    saveSoundsConfig,
-    type AvailableSound,
-} from "@/domains/settings/api/sounds";
+import type { AvailableSound } from "@/domains/settings/api/sounds";
 import {
     defaultSoundsConfig,
     displayLabelForFilename,
@@ -16,16 +11,20 @@ import {
     SOUND_EVENT_IDS,
     type SoundEventConfig,
     type SoundEventId,
-    type SoundsConfig,
 } from "@/domains/settings/types/sounds";
 import { getSoundManager } from "@/domains/settings/utils/sound-manager";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import {
-    assistantSoundsAvailableQueryKey,
-    assistantSoundsConfigQueryKey,
-} from "@/lib/sync/query-tags";
+  soundsAvailableGetOptions,
+  soundsConfigGetOptions,
+  soundsConfigGetSetQueryData,
+  soundsConfigPutMutation,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import type { SoundsConfigGetResponse } from "@/generated/daemon/types.gen";
 import { Card } from "@vellumai/design-library/components/card";
 import { Toggle } from "@vellumai/design-library/components/toggle";
+
+type SoundsConfig = SoundsConfigGetResponse;
 
 function ToggleRow({
   label,
@@ -202,43 +201,42 @@ export function SoundsPage() {
   const queryClient = useQueryClient();
   const assistantId = useActiveAssistantId();
 
-  const configQueryKey = useMemo(
-    () => assistantSoundsConfigQueryKey(assistantId),
+  const configOptions = useMemo(
+    () => soundsConfigGetOptions({ path: { assistant_id: assistantId } }),
     [assistantId],
   );
-  const availableQueryKey = useMemo(
-    () => assistantSoundsAvailableQueryKey(assistantId),
+  const availableOptions = useMemo(
+    () => soundsAvailableGetOptions({ path: { assistant_id: assistantId } }),
     [assistantId],
   );
 
-  const { data: rawConfig } = useQuery({
-    queryKey: configQueryKey,
-    queryFn: () => fetchSoundsConfig(assistantId),
-  });
+  const { data: rawConfig } = useQuery(configOptions);
 
-  const { data: availableRaw } = useQuery({
-    queryKey: availableQueryKey,
-    queryFn: () => listAvailableSounds(assistantId),
-  });
+  const { data: availableRaw } = useQuery(availableOptions);
 
   const config = rawConfig ?? defaultSoundsConfig();
-  const available = availableRaw ?? [];
+  const available = availableRaw?.sounds ?? [];
+
+  const sdkOptions = useMemo(
+    () => ({ path: { assistant_id: assistantId } }),
+    [assistantId],
+  );
 
   const saveMutation = useMutation({
-    mutationFn: (next: SoundsConfig) => saveSoundsConfig(assistantId, next),
-    onMutate: async (next) => {
-      await queryClient.cancelQueries({ queryKey: configQueryKey });
-      const previous = queryClient.getQueryData<SoundsConfig>(configQueryKey);
-      queryClient.setQueryData(configQueryKey, next);
+    ...soundsConfigPutMutation(sdkOptions),
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({ queryKey: configOptions.queryKey });
+      const previous = queryClient.getQueryData(configOptions.queryKey);
+      soundsConfigGetSetQueryData(queryClient, sdkOptions, variables.body);
       return { previous };
     },
     onError: (_error, _next, context) => {
       if (context?.previous !== undefined) {
-        queryClient.setQueryData(configQueryKey, context.previous);
+        soundsConfigGetSetQueryData(queryClient, sdkOptions, context.previous);
       }
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: configQueryKey });
+      void queryClient.invalidateQueries({ queryKey: configOptions.queryKey });
     },
   });
 
@@ -255,12 +253,15 @@ export function SoundsPage() {
   const updateConfig = useCallback(
     (producer: (prev: SoundsConfig) => SoundsConfig) => {
       const prev =
-        queryClient.getQueryData<SoundsConfig>(configQueryKey) ??
+        queryClient.getQueryData(configOptions.queryKey) ??
         defaultSoundsConfig();
       const next = producer(prev);
-      saveMutation.mutate(next);
+      saveMutation.mutate({
+        path: { assistant_id: assistantId },
+        body: next,
+      });
     },
-    [configQueryKey, queryClient, saveMutation],
+    [assistantId, configOptions.queryKey, queryClient, saveMutation],
   );
 
   const setGlobalEnabled = (enabled: boolean) => {
