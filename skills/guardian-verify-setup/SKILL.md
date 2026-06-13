@@ -62,10 +62,10 @@ Based on the chosen channel, ask for the required destination:
 - **Slack**: Offer to look up the user's Slack member ID automatically to reduce friction:
   1. **Auto-lookup (preferred)**: Ask the user for their Slack display name or @handle, then look up their member ID using the Slack API.
 
-     Set `USER_QUERY` to whatever the user gave you (display name, @handle, or full name — the search matches against all of them). For example, if the user says "find me, I'm @ashlee", set `USER_QUERY="ashlee"`. If they say "Ashlee Radka", set `USER_QUERY="Ashlee Radka"`. **Do not leave `USER_QUERY` as a literal `<...>` placeholder string.**
+     Set `USER_QUERY` to whatever the user gave you (display name, @handle, or full name — the search matches against all of them). For example, if the user says "find me, I'm @alice", set `USER_QUERY="alice"`. If they say "Alice Example", set `USER_QUERY="Alice Example"`. **Do not leave `USER_QUERY` as a literal `<...>` placeholder string.**
 
      ```bash
-     USER_QUERY="ashlee"  # ← replace with the actual value the user provided
+     USER_QUERY="alice"  # ← replace with the actual value the user provided
 
      # Get the bot token from the credential store
      BOT_TOKEN=$(assistant credentials reveal --service slack_channel --field bot_token)
@@ -266,13 +266,14 @@ When in a **rebind flow**, apply the same guard as Slack/voice: only report succ
 
 ## Step 6: Check Verification Status
 
-After the user reports entering the code, verify the binding was created. Replace `<channel>` below with the actual channel name (`phone`, `telegram`, `slack`, or `email`) before running:
+After the user reports entering the code, verify the binding was created. Set `CHANNEL` to the channel currently being verified before running:
 
 ```bash
-assistant channel-verification-sessions status --channel <channel> --json
+CHANNEL="slack"  # ← replace with the actual channel (`phone`, `telegram`, `slack`, or `email`)
+assistant channel-verification-sessions status --channel "$CHANNEL" --json
 ```
 
-⚠️ CRITICAL — point of action: **`<channel>` is a placeholder, not the literal string to send.** Substitute it with the channel currently being verified (`phone`, `telegram`, `slack`, or `email`).
+⚠️ CRITICAL — point of action: **`CHANNEL` must be substituted with one of `phone`, `telegram`, `slack`, or `email` before running.** Do NOT leave it as a literal `<...>` placeholder — bash will parse `<channel>` as input redirection and the command will fail silently with the wrong argument.
 
 If the response shows the channel is bound, confirm success: "Verification complete! Your [channel] identity is now verified."
 
@@ -280,13 +281,14 @@ If not yet bound, offer to resend (Step 4) or generate a new session (Step 3).
 
 ## Step 7: Revoke Verification
 
-If the user wants to remove themselves (or the current verified identity) from a channel, use the revoke endpoint. Replace `<channel>` below with the actual channel name (`phone`, `telegram`, `slack`, or `email`) before running:
+If the user wants to remove themselves (or the current verified identity) from a channel, use the revoke endpoint. Set `CHANNEL` to the channel to unbind from before running:
 
 ```bash
-assistant channel-verification-sessions revoke --channel <channel> --json
+CHANNEL="slack"  # ← replace with the actual channel (`phone`, `telegram`, `slack`, or `email`)
+assistant channel-verification-sessions revoke --channel "$CHANNEL" --json
 ```
 
-⚠️ CRITICAL — point of action: **`<channel>` is a placeholder.** Substitute it with the actual channel to unbind from (`phone`, `telegram`, `slack`, or `email`) before running.
+⚠️ CRITICAL — point of action: **`CHANNEL` must be substituted with one of `phone`, `telegram`, `slack`, or `email` before running.** Do NOT leave it as a literal `<...>` placeholder — bash will parse `<channel>` as input redirection and the command will fail silently with the wrong argument.
 
 ### On success (`success: true`)
 
