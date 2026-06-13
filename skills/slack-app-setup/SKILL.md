@@ -130,11 +130,12 @@ If the user wants to skip → continue to Step 5 (default if they say no), and l
 bash {
   command: "curl -s -X POST https://slack.com/api/auth.test"
   network_mode: "proxied"
+  credential_ids: ["slack_channel/bot_token"]
   activity: "to fetch bot identity for the success message"
 }
 ```
 
-The `slack_channel/bot_token` credential auto-injects via the proxy. Response is JSON:
+The `slack_channel/bot_token` credential is bound via `credential_ids` so the proxy injects the `Authorization: Bearer` header. Response is JSON:
 
 ```json
 {
