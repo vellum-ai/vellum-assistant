@@ -41,6 +41,13 @@ import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { parseEpochMillisRange } from "./epoch-millis-range.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import {
+  paginateRuns,
+  parseRunsBeforeCursor,
+  parseRunsLimit,
+  RUNS_NEXT_CURSOR_SCHEMA,
+  RUNS_PAGINATION_QUERY_PARAMS,
+} from "./runs-pagination.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("schedule-routes");
@@ -156,6 +163,45 @@ function isOneShotForDisplay(
   return job.syntax === "rrule" && isSingleFireRRule(job.cronExpression);
 }
 
+function serializeSchedule(
+  j: ScheduleJob,
+  sourceConversationCache: Map<string, CreatedFromConversationState>,
+) {
+  const sourceConversation = getCreatedFromConversationState(
+    j.createdFromConversationId,
+    sourceConversationCache,
+  );
+  return {
+    id: j.id,
+    name: j.name,
+    enabled: j.enabled,
+    syntax: j.syntax,
+    expression: j.expression,
+    cronExpression: j.cronExpression,
+    timezone: j.timezone,
+    message: j.message,
+    script: j.script,
+    nextRunAt: j.nextRunAt,
+    lastRunAt: j.lastRunAt,
+    lastStatus: j.lastStatus,
+    retryCount: j.retryCount,
+    maxRetries: j.maxRetries,
+    retryBackoffMs: j.retryBackoffMs,
+    timeoutMs: j.timeoutMs,
+    createdFromConversationId: j.createdFromConversationId,
+    createdFromConversationExists: sourceConversation.exists,
+    createdFromConversationArchivedAt: sourceConversation.archivedAt,
+    description: j.description,
+    cadenceDescription: getCadenceDescription(j),
+    mode: j.mode,
+    status: j.status,
+    routingIntent: j.routingIntent,
+    reuseConversation: j.reuseConversation,
+    wakeConversationId: j.wakeConversationId,
+    isOneShot: isOneShotForDisplay(j),
+  };
+}
+
 function handleListSchedules(queryParams: Record<string, string>) {
   const includeAll = queryParams.include_all === "true";
   const jobs = listSchedules();
@@ -167,42 +213,18 @@ function handleListSchedules(queryParams: Record<string, string>) {
     CreatedFromConversationState
   >();
   return {
-    schedules: filtered.map((j) => {
-      const sourceConversation = getCreatedFromConversationState(
-        j.createdFromConversationId,
-        sourceConversationCache,
-      );
-      return {
-        id: j.id,
-        name: j.name,
-        enabled: j.enabled,
-        syntax: j.syntax,
-        expression: j.expression,
-        cronExpression: j.cronExpression,
-        timezone: j.timezone,
-        message: j.message,
-        script: j.script,
-        nextRunAt: j.nextRunAt,
-        lastRunAt: j.lastRunAt,
-        lastStatus: j.lastStatus,
-        retryCount: j.retryCount,
-        maxRetries: j.maxRetries,
-        retryBackoffMs: j.retryBackoffMs,
-        timeoutMs: j.timeoutMs,
-        createdFromConversationId: j.createdFromConversationId,
-        createdFromConversationExists: sourceConversation.exists,
-        createdFromConversationArchivedAt: sourceConversation.archivedAt,
-        description: j.description,
-        cadenceDescription: getCadenceDescription(j),
-        mode: j.mode,
-        status: j.status,
-        routingIntent: j.routingIntent,
-        reuseConversation: j.reuseConversation,
-        wakeConversationId: j.wakeConversationId,
-        isOneShot: isOneShotForDisplay(j),
-      };
-    }),
+    schedules: filtered.map((j) =>
+      serializeSchedule(j, sourceConversationCache),
+    ),
   };
+}
+
+function handleGetSchedule(id: string) {
+  const job = getSchedule(id);
+  if (!job) {
+    throw new NotFoundError("Schedule not found");
+  }
+  return { schedule: serializeSchedule(job, new Map()) };
 }
 
 function handleCreateSchedule(body: Record<string, unknown>) {
@@ -343,6 +365,21 @@ function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
     }
   }
 
+  // Re-derive syntax whenever the expression changes, mirroring the create
+  // handler. Without this, switching an expression between cron and rrule
+  // would validate the new expression against the schedule's old syntax.
+  if (typeof updates.expression === "string") {
+    const normalized = normalizeScheduleSyntax({
+      expression: updates.expression,
+    });
+    if (!normalized) {
+      throw new BadRequestError(
+        "expression could not be parsed as cron or rrule",
+      );
+    }
+    updates.syntax = normalized.syntax;
+  }
+
   if ("description" in body) {
     const description =
       typeof body.description === "string" ? body.description.trim() : "";
@@ -389,14 +426,17 @@ function handleListScheduleRuns(
   if (!schedule) {
     throw new NotFoundError("Schedule not found");
   }
-  const rawLimit = Number(queryParams.limit ?? 10);
-  const limit = Number.isFinite(rawLimit)
-    ? Math.min(Math.max(Math.floor(rawLimit), 1), 100)
-    : 10;
-  const runs = getScheduleRuns(id, limit);
+  const limit = parseRunsLimit(queryParams, 10);
+  const before = parseRunsBeforeCursor(queryParams);
+  const { rows, nextCursor } = paginateRuns(
+    getScheduleRuns(id, limit + 1, before),
+    limit,
+    (r) => r.createdAt,
+  );
   const now = Date.now();
   return {
-    runs: runs.map((r) => {
+    nextCursor,
+    runs: rows.map((r) => {
       const conversation = r.conversationId
         ? getConversation(r.conversationId)
         : null;
@@ -494,6 +534,25 @@ export const ROUTES: RouteDefinition[] = [
     handler: ({ queryParams }: RouteHandlerArgs) =>
       handleScheduleUsageSummary(queryParams ?? {}),
   },
+  // Must stay after literal `schedules/*` GET siblings (e.g. usage-summary):
+  // the router matches in declaration order and `:id` would shadow them.
+  {
+    operationId: "getSchedule",
+    endpoint: "schedules/:id",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Get schedule",
+    description: "Return a single schedule by ID.",
+    tags: ["schedules"],
+    responseBody: z.object({
+      schedule: scheduleSchema.describe("Schedule object"),
+    }),
+    handler: ({ pathParams }: RouteHandlerArgs) =>
+      handleGetSchedule(pathParams!.id),
+  },
   {
     operationId: "createSchedule",
     endpoint: "schedules",
@@ -543,15 +602,10 @@ export const ROUTES: RouteDefinition[] = [
     summary: "List schedule runs",
     description: "Return recent invocation history for a schedule.",
     tags: ["schedules"],
-    queryParams: [
-      {
-        name: "limit",
-        schema: { type: "integer" },
-        description: "Max runs to return (default 10, max 100)",
-      },
-    ],
+    queryParams: RUNS_PAGINATION_QUERY_PARAMS(10),
     responseBody: z.object({
       runs: z.array(scheduleRunSchema).describe("Schedule run objects"),
+      nextCursor: RUNS_NEXT_CURSOR_SCHEMA,
     }),
     handler: ({ pathParams, queryParams }: RouteHandlerArgs) =>
       handleListScheduleRuns(pathParams!.id, queryParams ?? {}),

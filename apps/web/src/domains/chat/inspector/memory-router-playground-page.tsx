@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Card } from "@vellumai/design-library";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
-import { canUseLlmInspector } from "@/domains/chat/inspector/access";
+import { useCanUseLlmInspector } from "@/domains/chat/inspector/access";
 import type {
     MemoryRouterSimulateRequest,
     MemoryRouterSimulateResponse,
@@ -16,7 +16,7 @@ import {
     useLlmProfiles,
     useSimulateMemoryRouter,
 } from "@/domains/chat/inspector/memory-router-simulator-api";
-import { useAuthStore, useIsSessionInitializing } from "@/stores/auth-store";
+import { useIsSessionInitializing } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 /**
@@ -32,18 +32,18 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
  *
  * Gated by:
  *   1. The `memoryRouterPlayground` client feature flag (default off).
- *   2. The same staff gate that protects the LLM context inspector
- *      (/assistant/conversations/:conversationId/inspect).
+ *   2. The same staff/developer-flag gate that protects the LLM context
+ *      inspector (/assistant/conversations/:conversationId/inspect).
  */
 export function MemoryRouterPlaygroundPage(): ReactNode {
-  const user = useAuthStore.use.user();
+  const canInspect = useCanUseLlmInspector();
   const authLoading = useIsSessionInitializing();
   const flagEnabled = useClientFeatureFlagStore.use.memoryRouterPlayground();
 
   if (authLoading) {
     return <CenteredMessage>Loading…</CenteredMessage>;
   }
-  if (!canUseLlmInspector(user) || !flagEnabled) {
+  if (!canInspect || !flagEnabled) {
     return (
       <CenteredMessage>
         Memory router playground is not available.

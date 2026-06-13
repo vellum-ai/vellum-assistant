@@ -66,6 +66,8 @@ let authUserStub: AuthUserStub | null = {
   isStaff: false,
 };
 let sessionInitializingStub = false;
+let developerNavFlagStub = false;
+let flagsHydratedStub = true;
 
 let contextStub: ContextStub = {
   data: undefined,
@@ -137,6 +139,18 @@ mock.module("@/stores/auth-store", () => ({
   useIsSessionInitializing: () => sessionInitializingStub,
 }));
 
+// Mocked rather than driven via `setState`: zustand v5 serves
+// `getInitialState()` to server renders (`renderToStaticMarkup`), so
+// runtime state changes would never reach the component under test.
+mock.module("@/stores/assistant-feature-flag-store", () => ({
+  useAssistantFeatureFlagStore: {
+    use: {
+      settingsDeveloperNav: () => developerNavFlagStub,
+      hasHydrated: () => flagsHydratedStub,
+    },
+  },
+}));
+
 mock.module("@/domains/chat/inspector/inspector-api", () => ({
   useLlmContext: (
     _assistantId: string | undefined,
@@ -187,6 +201,10 @@ beforeEach(() => {
   assistantStub = { assistantId: "asst-1" };
   authUserStub = { email: "dev@vellum.ai", isStaff: false };
   sessionInitializingStub = false;
+  // Hydrated, flag-off baseline: gating tests exercise the denial branch
+  // by default; flag tests opt in explicitly.
+  developerNavFlagStub = false;
+  flagsHydratedStub = true;
   contextStub = {
     data: undefined,
     isLoading: true,
@@ -225,9 +243,49 @@ describe("InspectPage — gating", () => {
 
     const html = renderInspector();
 
-    expect(html).toContain("Inspector is available to Vellum developers only");
+    expect(html).toContain("Inspector is available to Vellum staff");
     // header chrome shouldn't render
     expect(html).not.toContain("LLM Context Inspector");
+  });
+
+  test("allows flag-gated sessions without a staff identity", () => {
+    // Local-gateway sessions have no email/staff bit; the
+    // settings-developer-nav assistant flag is their path in.
+    authUserStub = { email: null, isStaff: false };
+    developerNavFlagStub = true;
+    paramsStub = { conversationId: "conv-abc" };
+    contextStub = {
+      data: {
+        conversationId: "conv-int-1",
+        conversationKey: "conv-abc",
+        conversationKind: "user",
+        conversationTotalEstimatedCostUsd: null,
+        logs: [makeLog("log-1", 1)],
+        memoryRecall: null,
+        memoryV2Activation: null,
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: () => {},
+    };
+
+    const html = renderInspector();
+
+    expect(html).not.toContain("Inspector is available to Vellum staff");
+    expect(html).toContain("LLM Context Inspector");
+  });
+
+  test("treats the pre-hydration window as loading, not denial", () => {
+    // Until /feature-flags lands, the flag reads registry-default false —
+    // non-staff sessions must see the loading state, not a denial flash.
+    authUserStub = { email: "person@example.com", isStaff: false };
+    flagsHydratedStub = false;
+
+    const html = renderInspector();
+
+    expect(html).toContain("Loading…");
+    expect(html).not.toContain("Inspector is available to Vellum staff");
   });
 
   test("allows staff users even without a vellum.ai email", () => {
@@ -251,9 +309,7 @@ describe("InspectPage — gating", () => {
 
     const html = renderInspector();
 
-    expect(html).not.toContain(
-      "Inspector is available to Vellum developers only",
-    );
+    expect(html).not.toContain("Inspector is available to Vellum staff");
     // Real CallRail emits one row per log — assert the page reached the
     // loaded state, not the empty/loading/error branches.
     expect(html).toContain("LLM Context Inspector");

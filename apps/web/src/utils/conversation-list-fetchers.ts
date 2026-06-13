@@ -60,35 +60,55 @@ type FetchConversationListOptions = {
   archiveStatus?: "active" | "archived" | "all";
 };
 
+/** One page of a conversation list plus whether more pages exist. */
+export type ConversationListPage = {
+  conversations: Conversation[];
+  hasMore: boolean;
+};
+
+async function fetchConversationListPage(
+  assistantId: string,
+  offset: number,
+  options: FetchConversationListOptions = {},
+): Promise<ConversationListPage> {
+  const { conversationType, archiveStatus } = options;
+  const { data, error, response } = await conversationsGet({
+    path: { assistant_id: assistantId },
+    query: {
+      limit: CONVERSATION_LIST_PAGE_SIZE,
+      offset,
+      ...(conversationType ? { conversationType } : {}),
+      ...(archiveStatus ? { archiveStatus } : {}),
+    },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to list conversations.");
+  if (!response.ok) {
+    const msg = extractErrorMessage(error, response, "Failed to list conversations.");
+    throw new ApiError(response.status, msg);
+  }
+
+  return {
+    conversations: (data?.conversations ?? []).map(toConversation),
+    hasMore: data?.hasMore ?? false,
+  };
+}
+
 async function fetchConversationList(
   assistantId: string,
   options: FetchConversationListOptions = {},
 ): Promise<Conversation[]> {
-  const { conversationType, archiveStatus } = options;
   const all: Conversation[] = [];
 
   for (let page = 0; page < CONVERSATION_LIST_MAX_PAGES; page++) {
     const offset = page * CONVERSATION_LIST_PAGE_SIZE;
-    const { data, error, response } = await conversationsGet({
-      path: { assistant_id: assistantId },
-      query: {
-        limit: CONVERSATION_LIST_PAGE_SIZE,
-        offset,
-        ...(conversationType ? { conversationType } : {}),
-        ...(archiveStatus ? { archiveStatus } : {}),
-      },
-      throwOnError: false,
-    });
-    assertHasResponse(response, error, "Failed to list conversations.");
-    if (!response.ok) {
-      const msg = extractErrorMessage(error, response, "Failed to list conversations.");
-      throw new ApiError(response.status, msg);
-    }
+    const { conversations, hasMore } = await fetchConversationListPage(
+      assistantId,
+      offset,
+      options,
+    );
+    all.push(...conversations);
 
-    const conversations = data?.conversations ?? [];
-    all.push(...conversations.map(toConversation));
-
-    const hasMore = data?.hasMore ?? false;
     if (!hasMore) break;
 
     if (conversations.length === 0) break;
@@ -227,6 +247,58 @@ export async function listArchivedConversations(
   assistantId: string,
 ): Promise<Conversation[]> {
   return fetchMergedConversationList(assistantId, "archived", "archivedAt");
+}
+
+// ---------------------------------------------------------------------------
+// First-page fetchers
+//
+// Single-request variants of the list fetchers above, used by the
+// sync_changed consumer to refresh the top of a cached list without
+// re-draining every page. At thousands of conversations the full drain is
+// hundreds of sequential GETs, which exhausts the daemon's per-client
+// rate-limit budget when sync events arrive continuously during an active
+// turn. Each returns the bucket's newest rows (one page, already filtered
+// and sorted with the same semantics as its full-list counterpart) plus
+// `hasMore` so callers can tell a complete list from a window.
+// ---------------------------------------------------------------------------
+
+/** First page of {@link listConversations} (foreground bucket). */
+export async function listConversationsFirstPage(
+  assistantId: string,
+): Promise<ConversationListPage> {
+  const page = await fetchConversationListPage(assistantId, 0);
+  return {
+    ...page,
+    conversations: [...page.conversations].sort(byTimestampDesc("lastMessageAt")),
+  };
+}
+
+/** First page of {@link listBackgroundConversations} (background bucket). */
+export async function listBackgroundConversationsFirstPage(
+  assistantId: string,
+): Promise<ConversationListPage> {
+  const page = await fetchConversationListPage(assistantId, 0, {
+    conversationType: "background",
+  });
+  return {
+    ...page,
+    conversations: page.conversations
+      .filter((c) => !isScheduledConversation(c))
+      .sort(byTimestampDesc("lastMessageAt")),
+  };
+}
+
+/** First page of {@link listScheduledConversations} (scheduled bucket). */
+export async function listScheduledConversationsFirstPage(
+  assistantId: string,
+): Promise<ConversationListPage> {
+  const page = await fetchConversationListPage(assistantId, 0, {
+    conversationType: "scheduled",
+  });
+  return {
+    ...page,
+    conversations: [...page.conversations].sort(byTimestampDesc("lastMessageAt")),
+  };
 }
 
 // ---------------------------------------------------------------------------
