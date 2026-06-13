@@ -100,9 +100,9 @@ interface TokenBudgetFieldProps {
 /**
  * A token-budget control: a fine-grained slider paired with a numeric input for
  * typing an exact limit, plus a Reset that clears the override. When no override
- * is set the field reads as the model's resolved default — shown both as a
- * compact label and as the input's placeholder — so the effective value is never
- * hidden behind the bare word "Default".
+ * is set the field reads as the resolved default — shown both as a compact label
+ * and as the input's placeholder — so the effective value is never hidden behind
+ * the bare word "Default".
  */
 function TokenBudgetField({
   label,
@@ -253,6 +253,13 @@ export function ProfileAdvancedParams({
   thinkingLevel,
   onThinkingLevelChange,
 }: ProfileAdvancedParamsProps) {
+  // The model's hard output ceiling doubles as the slider/input max. The
+  // resolved runtime default, however, is the global schema default
+  // (`llm.default.maxTokens`), independent of the model — bounded by the
+  // ceiling so it never exceeds what the model can emit.
+  const maxOutputCeiling =
+    selectedModel?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+
   return (
     // space-y-4 matches the modal body's rhythm so each advanced param gets
     // the same vertical breathing room as the "normal" fields above. Without
@@ -264,10 +271,8 @@ export function ProfileAdvancedParams({
           label="Max Output Tokens"
           value={maxTokens}
           onChange={onMaxTokensChange}
-          defaultValue={
-            selectedModel?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS
-          }
-          max={selectedModel?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS}
+          defaultValue={Math.min(DEFAULT_MAX_OUTPUT_TOKENS, maxOutputCeiling)}
+          max={maxOutputCeiling}
           disabled={isReadOnly}
         />
       )}

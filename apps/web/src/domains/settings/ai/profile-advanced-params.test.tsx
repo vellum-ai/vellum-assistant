@@ -2,10 +2,13 @@
  * Tests for the token-budget controls (Max Output Tokens / Context Window) in
  * `ProfileAdvancedParams`:
  *
- *   1. With no override set, the field surfaces the model's resolved default
+ *   1. With no override set, the field surfaces the resolved default
  *      numerically — a "Default · NNN" label, the slider thumb parked at the
  *      resolved value, and the same value as the input's placeholder — instead
- *      of hiding it behind the bare word "Default".
+ *      of hiding it behind the bare word "Default". Context Window resolves to
+ *      the model's default window, while Max Output resolves to the global
+ *      `llm.default.maxTokens` schema default (bounded by the model's hard
+ *      output ceiling), not the model's max output.
  *   2. The limit can be set explicitly by typing into the numeric input, not
  *      only by dragging the slider; clearing the input restores the default,
  *      and out-of-range entries clamp to the model's bounds on blur.
@@ -36,6 +39,7 @@ interface FieldOverrides {
   contextWindowMaxInputTokens?: number | null;
   onMaxTokensChange?: (v: number | null) => void;
   onContextWindowChange?: (v: number | null) => void;
+  selectedModel?: typeof MODEL;
 }
 
 function renderParams(overrides: FieldOverrides) {
@@ -44,7 +48,7 @@ function renderParams(overrides: FieldOverrides) {
       visibility={overrides.visibility}
       isReadOnly={false}
       model="claude-opus-4"
-      selectedModel={MODEL}
+      selectedModel={overrides.selectedModel ?? MODEL}
       maxTokens={overrides.maxTokens ?? null}
       onMaxTokensChange={overrides.onMaxTokensChange ?? (() => {})}
       contextWindowMaxInputTokens={
@@ -109,19 +113,53 @@ describe("ProfileAdvancedParams token-budget fields", () => {
     expect(input.placeholder).toBe("200000");
   });
 
-  test("Max Output Tokens reads its default from the model's max output", () => {
+  test("Max Output Tokens reads its default from the resolved schema default, not the model max", () => {
     // GIVEN the Max Output Tokens field with no override
-    // AND a model whose max output is 128K
+    // AND a model whose max output (128K) exceeds the global schema default
     renderParams({ visibility: maxTokensOnly, maxTokens: null });
 
     // WHEN the field renders in its default state
 
-    // THEN the field surfaces the model's max output as the resolved default
-    expect(screen.getByText("Default · 128K")).toBeTruthy();
+    // THEN it surfaces the resolved runtime default (llm.default.maxTokens =
+    // 64K) — what the assistant actually uses when maxTokens is unset — rather
+    // than the model's higher output ceiling
+    expect(screen.getByText("Default · 64K")).toBeTruthy();
     const input = screen.getByRole("spinbutton", {
       name: "Max Output Tokens (tokens)",
     }) as HTMLInputElement;
-    expect(input.placeholder).toBe("128000");
+    expect(input.placeholder).toBe("64000");
+
+    // AND the model's higher ceiling still governs the slider/input maximum
+    expect(screen.getByRole("slider").getAttribute("aria-valuemax")).toBe(
+      "128000",
+    );
+  });
+
+  test("Max Output Tokens clamps its default to a model ceiling below the schema default", () => {
+    // GIVEN the Max Output Tokens field with no override
+    // AND a model whose max output (32K) is below the global schema default
+    renderParams({
+      visibility: maxTokensOnly,
+      maxTokens: null,
+      selectedModel: {
+        maxOutputTokens: 32_000,
+        contextWindowTokens: 1_000_000,
+        defaultContextWindowTokens: 200_000,
+      },
+    });
+
+    // WHEN the field renders in its default state
+
+    // THEN the default is bounded by the model's ceiling so the field never
+    // advertises an output budget the model cannot emit
+    expect(screen.getByText("Default · 32K")).toBeTruthy();
+    const slider = screen.getByRole("slider");
+    expect(slider.getAttribute("aria-valuenow")).toBe("32000");
+    expect(slider.getAttribute("aria-valuemax")).toBe("32000");
+    const input = screen.getByRole("spinbutton", {
+      name: "Max Output Tokens (tokens)",
+    }) as HTMLInputElement;
+    expect(input.placeholder).toBe("32000");
   });
 
   test("typing an explicit limit commits the parsed value", () => {
