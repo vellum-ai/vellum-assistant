@@ -4,7 +4,10 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { resolveSelectedAssistantId } from "@/assistant/selection";
 import { retireAssistant } from "@/assistant/retire-service";
-import { clearGatewayToken } from "@/lib/auth/gateway-session";
+import {
+  clearGatewayToken,
+  isRepairableGatewayTokenError,
+} from "@/lib/auth/gateway-session";
 import { isGuardianRepairable } from "@/lib/local-mode";
 import { ConnectRecoveryDialog } from "@/domains/onboarding/components/connect-recovery-dialog";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
@@ -91,12 +94,14 @@ export function SelectAssistantScreen() {
       void navigate(routes.assistant, { replace: true });
     } catch (err) {
       console.error("selectAssistant.handleConnect failed", err);
-      // A token that's gone for good can only be fixed by re-provisioning,
-      // so offer the recovery dialog; every other failure keeps the generic
-      // message — repair can't help those.
+      // Offer recovery when a guardian re-provision can fix it: the token is
+      // gone/unrefreshable on disk, or the gateway rejected it at the
+      // /auth/token mint (a 401 from a signing-key mismatch). Otherwise keep
+      // the generic message — repair can't help.
       if (
         assistant.isLocal &&
-        requiresGuardianReprovision(err) &&
+        (requiresGuardianReprovision(err) ||
+          isRepairableGatewayTokenError(err)) &&
         isGuardianRepairable(assistant.id)
       ) {
         setRecoveryAssistant(assistant);

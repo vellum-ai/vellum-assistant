@@ -398,12 +398,17 @@ const bridge: VellumBridge = {
         ipcRenderer.off("vellum:connectivity:state", handler);
       };
     },
+    get: () =>
+      ipcRenderer.invoke(
+        "vellum:connectivity:get",
+      ) as Promise<ConnectivityState>,
     setDevice: (online: boolean): void => {
       ipcRenderer.send("vellum:connectivity:device", online);
     },
-    retry: (): void => {
-      ipcRenderer.send("vellum:connectivity:retry");
-    },
+    retry: () =>
+      ipcRenderer.invoke(
+        "vellum:connectivity:retry",
+      ) as Promise<ConnectivityState>,
   },
   notifications: {
     show: (

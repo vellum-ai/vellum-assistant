@@ -20,6 +20,7 @@ const ALLOWLIST = new Set([
   "assistant/src/memory/app-git-service.ts", // uses getAppsDir for git repo root, not per-app paths
   "assistant/src/daemon/app-source-watcher.ts", // uses getAppsDir for recursive fs.watch root, not per-app paths
   "assistant/src/tools/filesystem/write.ts", // uses getAppsDir as an exemption root for the artifact-HTML guard, not per-app paths
+  "assistant/src/memory/preloaded-apps.ts", // seeds fixed-slug apps (id === dirName by construction) and writes the definition JSON, which app-store has no fixed-id helper for
 ]);
 
 function isTestFile(filePath: string): boolean {

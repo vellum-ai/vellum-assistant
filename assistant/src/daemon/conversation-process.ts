@@ -222,8 +222,7 @@ async function buildPassthroughBatch(
     // otherwise diverge.
     if (candIf?.userMessageInterface !== headInterface?.userMessageInterface)
       break;
-    if (candidate.sourceActorPrincipalId !== head.sourceActorPrincipalId)
-      break;
+    if (candidate.sourceActorPrincipalId !== head.sourceActorPrincipalId) break;
     if (classifySlash(candidate.content) !== "passthrough") break;
     if (
       resolveVerificationSessionIntent(candidate.content).kind ===
@@ -1358,6 +1357,12 @@ export interface ProcessMessageOptions {
   currentPage?: string;
   isInteractive?: boolean;
   callSite?: LLMCallSite;
+  /**
+   * Optional ad-hoc inference-profile override applied to every LLM call
+   * this turn issues (e.g. a schedule's pinned profile). Forwarded to
+   * {@link Conversation.runAgentLoop}.
+   */
+  overrideProfile?: string;
   displayContent?: string;
 }
 
@@ -1380,6 +1385,7 @@ export async function processMessage(
     currentPage,
     isInteractive,
     callSite,
+    overrideProfile,
     displayContent,
   } = options;
   await conversation.ensureActorScopedHistory();
@@ -1852,11 +1858,14 @@ export async function processMessage(
     isUserMessage?: boolean;
     titleText?: string;
     callSite?: LLMCallSite;
+    overrideProfile?: string;
   } = { isUserMessage: true };
   if (isInteractive !== undefined) loopOptions.isInteractive = isInteractive;
   if (agentLoopContent !== resolvedContent)
     loopOptions.titleText = resolvedContent;
   if (callSite !== undefined) loopOptions.callSite = callSite;
+  if (overrideProfile !== undefined)
+    loopOptions.overrideProfile = overrideProfile;
 
   await conversation.runAgentLoop(agentLoopContent, userMessageId, {
     ...loopOptions,

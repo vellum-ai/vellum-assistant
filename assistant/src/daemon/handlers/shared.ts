@@ -167,6 +167,13 @@ export interface ConversationCreateOptions {
    */
   callSite?: LLMCallSite;
   /**
+   * Optional ad-hoc inference-profile override (`llm.profiles` key) applied
+   * to every LLM call the turn issues. Background callers with a pinned
+   * profile (e.g. schedules) pass it here so the agent loop layers the
+   * profile via `SendMessageOptions.config.overrideProfile`.
+   */
+  overrideProfile?: string;
+  /**
    * Slack inbound metadata captured at the channel ingress boundary. When
    * present (and the turn channel resolves to Slack), persistence writes a
    * `slackMeta` sub-object into the message's `metadata` JSON for the

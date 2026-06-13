@@ -23,6 +23,7 @@ export const cronJobs = sqliteTable("cron_jobs", {
   maxRetries: integer("max_retries").notNull().default(3),
   retryBackoffMs: integer("retry_backoff_ms").notNull().default(60000),
   timeoutMs: integer("timeout_ms"), // script-mode execution timeout override (ms); null = use default
+  inferenceProfile: text("inference_profile"), // llm.profiles key for LLM-executed runs; null = default main-agent selection
   createdFromConversationId: text("created_from_conversation_id"),
   createdBy: text("created_by").notNull(), // 'agent' | 'user'
   mode: text("mode").notNull().default("execute"), // 'notify' | 'execute'

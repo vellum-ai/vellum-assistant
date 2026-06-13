@@ -10,7 +10,7 @@
  * from stores — no props required for layout decisions.
  */
 
-import { lazy, useCallback } from "react";
+import { lazy, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router";
 import { Loader2 } from "lucide-react";
 import { ResizablePanel } from "@vellumai/design-library";
@@ -110,6 +110,47 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     if (!aid) return;
     void useSubagentStore.getState().fetchDetailIfNeeded(aid, id);
   }, []);
+
+  // -------------------------------------------------------------------------
+  // Escape closes whichever right-hand side panel is open (tool detail /
+  // thought process, subagent detail, document viewer). Surfaces stacked
+  // above the panel that own Escape — Radix layers (dialogs, popovers,
+  // dropdowns), the command palette, voice recording, the attachment
+  // preview — all run before this bubble-phase window listener (document
+  // capture or React tree handlers) and call preventDefault when they
+  // consume the key, so `defaultPrevented` means the keypress was already
+  // claimed by something above the panel. The full-width app viewer and the
+  // app-editing split are deliberately excluded: the viewer owns Escape for
+  // fullscreen exit, and editing is an explicit session with its own close
+  // affordance. Closing restores `viewBefore*`, so repeated presses unwind
+  // stacked panels (tool detail → document → chat) one layer at a time.
+  // -------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (isMobile) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      // Don't intercept IME composition (CJK input confirmation).
+      if (event.isComposing || event.keyCode === 229) return;
+      const viewer = useViewerStore.getState();
+      switch (viewer.mainView) {
+        case "tool-detail":
+          viewer.closeToolDetail();
+          break;
+        case "subagent-detail":
+          viewer.closeSubagentDetail();
+          break;
+        case "document":
+          viewer.closeDocument();
+          break;
+        default:
+          return;
+      }
+      event.preventDefault();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isMobile]);
 
   // -------------------------------------------------------------------------
   // Layout routing

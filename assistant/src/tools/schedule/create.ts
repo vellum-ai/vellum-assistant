@@ -1,3 +1,4 @@
+import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import { formatIntegrationSummary } from "../../schedule/integration-status.js";
 import { validateRruleSetLines } from "../../schedule/recurrence-engine.js";
 import { normalizeScheduleSyntax } from "../../schedule/recurrence-types.js";
@@ -49,11 +50,25 @@ export async function executeScheduleCreate(
   const maxRetries = input.max_retries as number | undefined;
   const retryBackoffMs = input.retry_backoff_ms as number | undefined;
   const timeoutMs = input.timeout_ms as number | undefined;
+  const inferenceProfile = input.inference_profile as string | undefined;
 
   if (timeoutMs !== undefined) {
     const timeoutError = validateScriptTimeoutMs(timeoutMs);
     if (timeoutError) {
       return { content: `Error: ${timeoutError}`, isError: true };
+    }
+  }
+
+  if (inferenceProfile !== undefined) {
+    if (typeof inferenceProfile !== "string") {
+      return {
+        content: "Error: inference_profile must be a string",
+        isError: true,
+      };
+    }
+    const profileError = validateScheduleInferenceProfile(inferenceProfile);
+    if (profileError) {
+      return { content: `Error: ${profileError}`, isError: true };
     }
   }
 
@@ -157,6 +172,7 @@ export async function executeScheduleCreate(
         maxRetries,
         retryBackoffMs,
         timeoutMs,
+        inferenceProfile,
         createdFromConversationId: context.conversationId,
       });
 
@@ -170,6 +186,9 @@ export async function executeScheduleCreate(
           `  Description: ${job.description}`,
           `  Type: one-shot`,
           `  Mode: ${job.mode}`,
+          ...(job.inferenceProfile
+            ? [`  Inference profile: ${job.inferenceProfile}`]
+            : []),
           `  Fire at: ${fireDate}`,
           `  Enabled: ${job.enabled}`,
           `  Status: ${job.status}`,
@@ -241,6 +260,7 @@ export async function executeScheduleCreate(
       maxRetries,
       retryBackoffMs,
       timeoutMs,
+      inferenceProfile,
       createdFromConversationId: context.conversationId,
     });
 
@@ -261,6 +281,9 @@ export async function executeScheduleCreate(
         `  Description: ${job.description}`,
         `  Syntax: ${job.syntax}`,
         `  Mode: ${job.mode}`,
+        ...(job.inferenceProfile
+          ? [`  Inference profile: ${job.inferenceProfile}`]
+          : []),
         `  Schedule: ${scheduleDescription}${
           job.timezone ? ` (${job.timezone})` : ""
         }`,

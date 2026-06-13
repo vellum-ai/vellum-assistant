@@ -7,8 +7,12 @@ import { SideMenu } from "@vellumai/design-library";
 export interface SidebarItem {
   id: string;
   label: string;
-  href: string;
+  /** Navigation target. Omit for action items, which supply `onSelect` instead. */
+  href?: string;
   icon: LucideIcon;
+  /** Action items (e.g. Log Out) run this instead of navigating. Rendered as a
+   *  button with no trailing chevron and never marked active. */
+  onSelect?: () => void;
 }
 
 interface SidebarTreeProps {
@@ -29,36 +33,45 @@ export function SidebarTree({
   const navigate = useNavigate();
 
   const renderItem = (item: SidebarItem, isLast: boolean, isIndexItem: boolean) => {
+    const { href, onSelect } = item;
     const isActive =
-      pathname === item.href ||
-      pathname.startsWith(item.href + "/") ||
-      (isIndexItem && indexPath != null && pathname === indexPath);
+      href != null &&
+      (pathname === href ||
+        pathname.startsWith(href + "/") ||
+        (isIndexItem && indexPath != null && pathname === indexPath));
     return (
       <Fragment key={item.id}>
         <SideMenu.Item
           icon={item.icon}
           label={item.label}
           active={isActive}
-          trailingIcon={ChevronRight}
-          trailingIconClassName="md:hidden"
-          href={item.href}
-          onClick={(e) => {
-            // Modifier and middle clicks fall through to the native <a> so
-            // Cmd/Ctrl-click opens a new tab, Shift-click opens a window,
-            // and "Copy link address" works. Plain left-clicks become SPA
-            // navigation via react-router.
-            if (
-              e.metaKey ||
-              e.ctrlKey ||
-              e.shiftKey ||
-              e.altKey ||
-              e.button !== 0
-            ) {
-              return;
-            }
-            e.preventDefault();
-            navigate(item.href);
-          }}
+          // Action items (no href) render as a button; the chevron would
+          // wrongly read as "navigates to a page", so omit it for them.
+          trailingIcon={href != null ? ChevronRight : undefined}
+          trailingIconClassName={href != null ? "md:hidden" : undefined}
+          href={href}
+          onSelect={onSelect}
+          onClick={
+            href == null
+              ? undefined
+              : (e) => {
+                  // Modifier and middle clicks fall through to the native <a>
+                  // so Cmd/Ctrl-click opens a new tab, Shift-click opens a
+                  // window, and "Copy link address" works. Plain left-clicks
+                  // become SPA navigation via react-router.
+                  if (
+                    e.metaKey ||
+                    e.ctrlKey ||
+                    e.shiftKey ||
+                    e.altKey ||
+                    e.button !== 0
+                  ) {
+                    return;
+                  }
+                  e.preventDefault();
+                  navigate(href);
+                }
+          }
         />
         {!isLast && (
           <div

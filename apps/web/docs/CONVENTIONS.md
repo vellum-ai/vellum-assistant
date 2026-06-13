@@ -833,10 +833,10 @@ bun run dev                       # predev regenerates automatically
 Plugins (configured in `openapi-ts.config.ts`):
 - `@hey-api/client-fetch` — Fetch-based HTTP client, bundled inline
   in the generated output ([no runtime dep needed](https://github.com/hey-api/openapi-ts/pull/790))
-- `@tanstack/react-query` — generates ready-to-use hooks
-  (`useXxxQuery()`, `useXxxMutation()`) plus factory functions
-  (`xxxOptions()`, `xxxMutation()`) and typed cache helpers
-  (`setXxxQueryData()`)
+- `@tanstack/react-query` — generates query factories (`xxxOptions()`),
+  mutation hooks (`useXxxMutation()`), mutation factories
+  (`xxxMutation()`), query keys (`xxxQueryKey()`), and typed cache
+  helpers (`setXxxQueryData()`)
 - `@hey-api/typescript` — generates TypeScript types from schemas
   (included by default, does not need explicit config)
 
@@ -844,33 +844,51 @@ References:
 - [HeyAPI — Configuration](https://heyapi.dev/openapi-ts/configuration)
 - [HeyAPI — TanStack Query plugin](https://heyapi.dev/openapi-ts/plugins/tanstack-query)
 
-### Generated hooks vs factory functions
+### Generated artifacts and when to use each
 
-The TanStack Query plugin generates two layers per endpoint:
+The TanStack Query plugin generates several layers per endpoint:
 
 | Generated artifact | Example | Use when |
 |---|---|---|
-| **Hook** (`useXxxQuery`, `useXxxMutation`) | `useAssistantsListQuery()` | Default — inside React components |
-| **Factory** (`xxxOptions`, `xxxMutation`) | `assistantsListOptions()` | Outside React — `prefetchQuery()`, `fetchQuery()`, `ensureQueryData()`, route loaders |
+| **Query factory** (`xxxOptions`) | `assistantsListOptions()` | Queries — spread into `useQuery()` with any TQ options (`enabled`, `select`, `staleTime`, etc.) |
+| **Mutation hook** (`useXxxMutation`) | `useAssistantsDoctorSessionsCreateMutation()` | Mutations — accepts all TQ mutation options (`onSuccess`, `onError`, `onMutate`, `onSettled`) |
+| **Mutation factory** (`xxxMutation`) | `assistantsDoctorSessionsCreateMutation()` | Outside React — `queryClient.executeMutation()`, or when you need the raw options object |
 | **Cache helper** (`setXxxQueryData`) | `setAssistantsListQueryData()` | Typed optimistic writes to the query cache |
+| **Query key** (`xxxQueryKey`) | `assistantsListQueryKey()` | Cache invalidation, `queryClient.invalidateQueries()` |
 
-**Use the generated hooks by default.** They handle query key
-construction, type inference, and the `useQuery`/`useMutation` wiring
-internally:
+**Queries use the factory pattern.** The generated `useXxxQuery()`
+hooks only accept SDK parameters (`path`, `query`, `body`) — they do
+**not** accept TanStack Query options like `enabled`, `select`, or
+`staleTime`. Since almost every query in the codebase needs at least
+`enabled` (for org-readiness gating, conditional fetching, etc.), use
+the factory + `useQuery()` pattern:
 
 ```ts
-// Preferred — generated hook, no manual wiring
-const { data } = useAssistantsListQuery({ query: { hosting: "platform" } });
+// Queries — spread factory into useQuery() so you can pass TQ options
+const { data } = useQuery({
+  ...assistantsListOptions({ query: { hosting: "platform" } }),
+  enabled: isOrgReady,
+});
+
+// Mutations — generated hooks work, they accept TQ callbacks
 const mutation = useAssistantsDoctorSessionsCreateMutation({
   onSuccess(data) { /* ... */ },
 });
 
-// Only when you need the options object outside a hook:
+// Outside React — factory directly
 await queryClient.prefetchQuery(assistantsListOptions());
+
+// Optimistic writes — typed cache helper
+setAssistantsListQueryData(queryClient, undefined, (old) => /* ... */);
 ```
 
-Do not spread factory functions into `useQuery()`/`useMutation()` in
-new code — that's the legacy pattern being migrated away.
+This is TanStack Query's [recommended
+approach](https://tanstack.com/query/latest/docs/framework/react/guides/query-options)
+— the `queryOptions()` factory defines `queryKey` + `queryFn`,
+consumers add TQ options at the call site. It is a [known
+limitation](https://github.com/hey-api/openapi-ts/pull/3528) in
+HeyAPI's TanStack Query plugin that the generated mutation hooks
+accept TQ options via a spread, but the generated query hooks do not.
 
 ### Prefer generated clients over hand-written fetch
 
@@ -1075,7 +1093,8 @@ resolved as platform-hosted" check on the query's `enabled`:
 const platformGate = usePlatformGate({ platformHostedOnly: true });
 const isPlatformHosted = useActiveAssistantIsPlatformHosted();
 
-const query = useSomeOrgScopedQuery({
+const query = useQuery({
+  ...someOrgScopedOptions(),
   enabled: platformGate === "full" && isPlatformHosted,
 });
 ```
@@ -1239,6 +1258,30 @@ the `Vellum-Organization-Id` header and uses bearer auth instead.
   (the `true` flag replaces the entire state instead of merging).
 
   Reference: [Zustand — Testing](https://zustand.docs.pmnd.rs/guides/testing)
+
+### Storybook
+
+Stories are tests, not just visual demos. They verify that a component
+renders correctly given the data it actually receives in production.
+
+- **Use the component's prop types, not ad-hoc shapes.** Each story
+  should construct props that match the component's typed interface.
+  If the component accepts `Surface`, construct a valid `Surface` —
+  the type system enforces correctness.
+- **Data must match production format.** Story data should reflect what
+  the backend actually produces. If the backend has a bug (e.g.
+  warnings rendering on one line), fix the backend — don't patch the
+  story data to compensate. Backend builder correctness is verified by
+  backend unit tests; stories verify the component renders that data
+  correctly.
+- **Keep helpers thin.** A story helper that constructs the prop object
+  (e.g. filling in `surfaceId`, `surfaceType`, `actions`) is fine as
+  long as it accepts the component's data shape directly. Don't create
+  helpers that transform a different input format into the prop shape —
+  that adds a layer of indirection that hides what the component
+  actually receives.
+
+Reference: [Storybook — Writing stories](https://storybook.js.org/docs/writing-stories)
 
 ---
 

@@ -4,11 +4,14 @@
  * Routes `conversationsList` umbrella tags, per-conversation
  * `conversation:<id>:metadata` tags, and the `conversation_title_updated`
  * event into TanStack Query cache operations. Debounces list-level
- * invalidations so rapid-fire sync_changed bursts collapse into a
- * single refetch.
+ * signals so rapid-fire sync_changed bursts collapse into a single
+ * first-page window refresh (`refreshConversationListWindows`) rather
+ * than a full paginated re-drain — at thousands of conversations the
+ * drain is hundreds of sequential GETs, which exhausts the daemon's
+ * per-client rate-limit budget during active turns.
  *
- * Also handles SSE reconnect (`sse.opened`) by scheduling a debounced
- * conversation list refetch to catch events missed during the gap.
+ * Also handles SSE reconnect (`sse.opened`) by scheduling the same
+ * debounced window refresh to catch events missed during the gap.
  *
  * Per-conversation content events (text deltas, tool calls) are
  * ignored — those remain owned by the conversation-scoped
@@ -23,11 +26,17 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { type MutableRefObject, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { refreshConversationRow } from "@/utils/conversation-cache-mutations";
-import { invalidateConversationQueries, patchConversation } from "@/utils/conversation-cache";
+import {
+  refreshConversationListWindows,
+  refreshConversationRow,
+} from "@/utils/conversation-cache-mutations";
+import { patchConversation } from "@/utils/conversation-cache";
 import { createConcurrencyLimiter } from "@/utils/concurrency-limiter";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import { conversationGroupsQueryKey } from "@/lib/sync/query-tags";
+import {
+  archivedConversationsQueryKey,
+  conversationGroupsQueryKey,
+} from "@/lib/sync/query-tags";
 import { getClientId } from "@/lib/telemetry/client-identity";
 import {
   parseConversationSyncTag,
@@ -44,11 +53,12 @@ const CONVERSATION_LIST_DEBOUNCE_MS = 250;
  * parallel, blowing the 300 req/min rate limit.
  *
  * Excess calls are dropped. For events that include `conversationsList`
- * (shape-changing: create, delete, reorder), the debounced list refetch
- * reconciles dropped rows. For metadata-only events (seen_changed),
- * dropped rows stay stale until the next reconnect/refetch — acceptable
- * as a rate-limit guard. The long-term fix is a typed event with inline
- * state so the client can patch the cache without a GET.
+ * (shape-changing: create, delete, reorder), the debounced first-page
+ * window refresh reconciles dropped rows. For metadata-only events
+ * (seen_changed), dropped rows stay stale until the next
+ * reconnect/refresh — acceptable as a rate-limit guard. The long-term
+ * fix is a typed event with inline state so the client can patch the
+ * cache without a GET.
  */
 const MAX_CONCURRENT_ROW_REFRESHES = 6;
 
@@ -58,8 +68,8 @@ const MAX_CONCURRENT_ROW_REFRESHES = 6;
  * Handles two bus channels:
  * - `sse.event` — routes `conversationsList` and `conversation:<id>:metadata`
  *   tags from `sync_changed` events
- * - `sse.opened` — schedules a debounced list refetch on reconnect to
- *   catch events missed during the transport gap
+ * - `sse.opened` — schedules a debounced first-page window refresh on
+ *   reconnect to catch events missed during the transport gap
  */
 export function useConversationSync(
   assistantId: string | null,
@@ -150,7 +160,23 @@ function scheduleConversationListRefetch(
   if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
   debounceTimerRef.current = setTimeout(() => {
     debounceTimerRef.current = null;
-    void invalidateConversationQueries(queryClient, assistantId);
+    // One first-page GET per populated list bucket — never a full
+    // paginated drain (see refreshConversationListWindows).
+    void refreshConversationListWindows(queryClient, assistantId).catch(
+      (err: unknown) => {
+        captureError(err, {
+          context: "useConversationSync.refreshListWindows",
+          bestEffort: true,
+          extra: { assistantId },
+        });
+      },
+    );
+    // The archive view renders rarely and sorts by archive time, so a
+    // plain invalidation (refetch only while its observer is mounted)
+    // stays cheap and correct. Groups are a single unpaginated GET.
+    void queryClient.invalidateQueries({
+      queryKey: archivedConversationsQueryKey(assistantId),
+    });
     void queryClient.invalidateQueries({
       queryKey: conversationGroupsQueryKey(assistantId),
     });

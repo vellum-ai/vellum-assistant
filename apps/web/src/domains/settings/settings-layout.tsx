@@ -1,14 +1,18 @@
+import { LogOut } from "lucide-react";
 import { useMemo } from "react";
-import { Outlet, useLocation } from "react-router";
+import { Outlet, useLocation, useNavigate } from "react-router";
 
 import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { handleLogout } from "@/lib/auth/handle-logout";
+import { isLocalMode } from "@/lib/local-mode";
 import { isElectron } from "@/runtime/is-electron";
+import { useHasPlatformSession } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { routes } from "@/utils/routes";
 import { SETTINGS_SIDEBAR } from "@/utils/settings-navigation";
 import { SidebarShell } from "@/components/sidebar-shell";
-import { SidebarTree } from "@/components/sidebar-tree";
+import { SidebarTree, type SidebarItem } from "@/components/sidebar-tree";
 
 /**
  * React Router layout route for `/assistant/settings/*`.
@@ -22,6 +26,10 @@ export function SettingsLayout() {
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   const billingGate = usePlatformGate();
   const { pathname } = useLocation();
+  const navigate = useNavigate();
+  // Hide logout in pure local mode unless a platform session exists.
+  const hasPlatformSession = useHasPlatformSession();
+  const showLogout = !isLocalMode() || hasPlatformSession;
 
   const filteredItems = useMemo(
     () =>
@@ -52,13 +60,22 @@ export function SettingsLayout() {
     [platformNotifications, platformGate, billingGate],
   );
 
-  const bottomItems = useMemo(
-    () =>
-      settingsDeveloperNav
-        ? SETTINGS_SIDEBAR.filter((item) => item.id === "developer")
-        : [],
-    [settingsDeveloperNav],
-  );
+  const bottomItems = useMemo<SidebarItem[]>(() => {
+    const items: SidebarItem[] = [];
+    if (settingsDeveloperNav) {
+      items.push(...SETTINGS_SIDEBAR.filter((item) => item.id === "developer"));
+    }
+    // Log Out is pinned to the very bottom of the nav as an action item.
+    if (showLogout) {
+      items.push({
+        id: "logout",
+        label: "Log Out",
+        icon: LogOut,
+        onSelect: () => void handleLogout(navigate),
+      });
+    }
+    return items;
+  }, [settingsDeveloperNav, showLogout, navigate]);
 
   const pageTitle = useMemo(() => {
     if (pathname === routes.settings.root) return "Settings";

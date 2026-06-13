@@ -74,7 +74,10 @@ export function TranscriptMessageBody({
   const isUser = message.role === "user";
   const hasAttachments = Boolean(message.attachments?.length);
 
-  const groups = groupContentBlocks(message.contentBlocks ?? []);
+  // User-typed thinking tags must render verbatim; only assistant text splits.
+  const groups = groupContentBlocks(message.contentBlocks ?? [], {
+    splitInlineThinking: !isUser,
+  });
 
   const textBubbleClass = isSlackMessage
     ? "max-w-[80%] text-[var(--content-default)] sm:max-w-[640px]"

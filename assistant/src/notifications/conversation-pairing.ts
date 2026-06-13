@@ -146,12 +146,14 @@ export async function pairDeliveryWithConversation(
       signal.conversationMetadata?.conversationType ??
       (strategy === "start_new_conversation" ? "standard" : "background");
 
-    // Prefer model-provided conversationSeedMessage when present and sane;
-    // fall back to the runtime composer which adapts verbosity to the
-    // delivery surface (vellum/macos = richer, telegram = compact).
-    const messageContent = isConversationSeedSane(copy.conversationSeedMessage)
-      ? copy.conversationSeedMessage
-      : composeConversationSeed(signal, channel, copy);
+    // Structured content blocks take precedence — they enable Surface-based
+    // rendering in the web/macOS/iOS apps (e.g. a card widget instead of
+    // plain text). Falls back to model-provided seed or runtime composer.
+    const messageContent = copy.seedContentBlocks
+      ? JSON.stringify(copy.seedContentBlocks)
+      : isConversationSeedSane(copy.conversationSeedMessage)
+        ? copy.conversationSeedMessage
+        : composeConversationSeed(signal, channel, copy);
 
     // Attempt to reuse an existing conversation when the model requests it
     if (conversationAction?.action === "reuse_existing") {

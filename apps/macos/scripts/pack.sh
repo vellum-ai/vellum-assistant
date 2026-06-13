@@ -63,6 +63,12 @@ esac
 
 cd "$APP_DIR"
 
+# Local builds run the repo CLI source at runtime (see getLocalCliEntry in
+# src/main/cli-installer.ts); install its deps so the checkout is runnable.
+if [ "$VELLUM_ENVIRONMENT" = "local" ]; then
+  (cd "$APP_DIR/../../cli" && bun install)
+fi
+
 bash scripts/fetch-bun.sh --arch "$BUN_ARCH"
 bash scripts/generate-icon.sh
 bash scripts/build-mac-helper.sh

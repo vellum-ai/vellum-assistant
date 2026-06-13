@@ -45,12 +45,14 @@ import {
 } from "../memory/canonical-guardian-store.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
+import { processGuardianDecision } from "../runtime/guardian-action-service.js";
 import { GUARDIAN_DECISION_ACTIONS } from "../runtime/guardian-decision-types.js";
 import {
   type GuardianReplyContext,
   routeGuardianReply,
 } from "../runtime/guardian-reply-router.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
+import { parseCallbackData } from "../runtime/routes/channel-route-shared.js";
 import { listGuardianDecisionPrompts } from "../runtime/routes/guardian-action-routes.js";
 
 initializeDb();
@@ -166,6 +168,12 @@ describe("routing invariant: all decision paths reference applyCanonicalGuardian
     // which is a shared wrapper around applyCanonicalGuardianDecision
     {
       path: "runtime/routes/guardian-action-routes.ts",
+      symbols: ["processGuardianDecision"],
+    },
+    // Surface action route handler (Vellum in-app card buttons) — intercepts
+    // apr:* action IDs and routes through processGuardianDecision
+    {
+      path: "runtime/routes/surface-action-routes.ts",
       symbols: ["processGuardianDecision"],
     },
     // Shared service where processGuardianDecision is defined — must route
@@ -1939,5 +1947,135 @@ describe("routing invariant: kind-specific action sets in prompt mapping", () =>
     expect(actionIds).toEqual(["approve_once", "reject"]);
     expect(actionIds).not.toContain("approve_10m");
     expect(actionIds).not.toContain("approve_conversation");
+  });
+});
+
+// ===========================================================================
+// SECTION 11: Surface action → access request approval routing
+// ===========================================================================
+
+describe("routing invariant: surface action apr:* buttons route through canonical primitive", () => {
+  beforeEach(() => resetTables());
+
+  test("parseCallbackData extracts requestId and action from apr: action IDs", () => {
+    const result = parseCallbackData(
+      "apr:access-req-test-slack-U123-1700000000:approve_once",
+      "vellum",
+    );
+    expect(result).not.toBeNull();
+    expect(result!.requestId).toBe("access-req-test-slack-U123-1700000000");
+    expect(result!.action).toBe("approve_once");
+    expect(result!.source).toBe("vellum_surface");
+  });
+
+  test("parseCallbackData returns vellum_surface source for vellum channel", () => {
+    const result = parseCallbackData("apr:req-1:reject", "vellum");
+    expect(result).not.toBeNull();
+    expect(result!.source).toBe("vellum_surface");
+  });
+
+  test("processGuardianDecision approves access_request from vellum surface", async () => {
+    const requestId = `access-req-test-slack-U123-${Date.now()}`;
+    createCanonicalGuardianRequest({
+      id: requestId,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "slack",
+      conversationId: "conv-surface-test",
+      requesterExternalUserId: "U123",
+      requesterChatId: "D456",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      toolName: "ingress_access_request",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const result = await processGuardianDecision({
+      requestId,
+      action: "approve_once",
+      channel: "vellum",
+      actorContext: {
+        actorPrincipalId: TEST_PRINCIPAL_ID,
+        guardianPrincipalId: TEST_PRINCIPAL_ID,
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok && "applied" in result) {
+      expect(result.applied).toBe(true);
+    }
+
+    const resolved = getCanonicalGuardianRequest(requestId);
+    expect(resolved!.status).toBe("approved");
+  });
+
+  test("processGuardianDecision denies access_request from vellum surface", async () => {
+    const requestId = `access-req-test-slack-U789-${Date.now()}`;
+    createCanonicalGuardianRequest({
+      id: requestId,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "slack",
+      conversationId: "conv-surface-deny",
+      requesterExternalUserId: "U789",
+      requesterChatId: "D012",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      toolName: "ingress_access_request",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const result = await processGuardianDecision({
+      requestId,
+      action: "reject",
+      channel: "vellum",
+      actorContext: {
+        actorPrincipalId: TEST_PRINCIPAL_ID,
+        guardianPrincipalId: TEST_PRINCIPAL_ID,
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok && "applied" in result) {
+      expect(result.applied).toBe(true);
+    }
+
+    const resolved = getCanonicalGuardianRequest(requestId);
+    expect(resolved!.status).toBe("denied");
+  });
+
+  test("principal mismatch rejects surface action decision", async () => {
+    const requestId = `access-req-test-slack-U999-${Date.now()}`;
+    createCanonicalGuardianRequest({
+      id: requestId,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "slack",
+      conversationId: "conv-surface-mismatch",
+      requesterExternalUserId: "U999",
+      requesterChatId: "D345",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      toolName: "ingress_access_request",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const result = await processGuardianDecision({
+      requestId,
+      action: "approve_once",
+      channel: "vellum",
+      actorContext: {
+        actorPrincipalId: "wrong-principal",
+        guardianPrincipalId: "wrong-principal",
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok && "applied" in result) {
+      expect(result.applied).toBe(false);
+    }
+
+    const req = getCanonicalGuardianRequest(requestId);
+    expect(req!.status).toBe("pending");
   });
 });

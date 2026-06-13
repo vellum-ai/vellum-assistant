@@ -67,6 +67,12 @@ export interface RunBackgroundJobOptions {
   trustContext: TrustContext;
   /** LLM call-site identifier — drives provider/model/effort/etc. resolution. */
   callSite: LLMCallSite;
+  /**
+   * Optional ad-hoc inference-profile override (`llm.profiles` key) applied
+   * to every LLM call the job's turn issues. Used by schedules with a pinned
+   * profile; omitted = the call site's default resolution.
+   */
+  overrideProfile?: string;
   /** Hard timeout for `processMessage` in milliseconds. */
   timeoutMs: number;
   /**
@@ -267,6 +273,9 @@ export async function runBackgroundJob(
     const work = processMessage(conversation.id, opts.prompt, {
       trustContext: opts.trustContext,
       callSite: opts.callSite,
+      ...(opts.overrideProfile
+        ? { overrideProfile: opts.overrideProfile }
+        : {}),
     });
     // Absorb late rejections: if the timeout wins the race, `work` keeps
     // running and may eventually reject — swallow so it doesn't surface as

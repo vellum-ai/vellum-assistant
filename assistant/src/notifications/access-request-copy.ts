@@ -11,15 +11,104 @@
 // dependency-free (avoiding a circular import with copy-composer, which
 // imports access-request helpers for its templates).
 
-function str(value: unknown, fallback: string): string {
-  if (typeof value === "string" && value.length > 0) return value;
-  return fallback;
-}
-
 function nonEmpty(value: string | undefined): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+// ── Typed payload reader ────────────────────────────────────────────────────
+//
+// The notification signal pipeline delivers contextPayload as
+// Record<string, unknown>. This parser narrows it to typed fields so
+// consumer code (copy builders, adapters) can skip per-field typeof guards.
+
+export interface ParsedAccessRequestPayload {
+  requestId?: string;
+  requestCode?: string;
+  sourceChannel?: string;
+  conversationExternalId?: string;
+  actorExternalId?: string;
+  actorDisplayName?: string;
+  actorUsername?: string;
+  senderIdentifier?: string;
+  guardianBindingChannel?: string;
+  guardianResolutionSource?: string;
+  previousMemberStatus?: string;
+  messagePreview?: string;
+  isStranger?: boolean;
+  isRestricted?: boolean;
+  messageTs?: string;
+}
+
+export function parseAccessRequestPayload(
+  payload: Record<string, unknown>,
+): ParsedAccessRequestPayload {
+  const s = (key: string): string | undefined => {
+    const v = payload[key];
+    return typeof v === "string" ? v : undefined;
+  };
+  const b = (key: string): true | undefined =>
+    payload[key] === true ? true : undefined;
+
+  return {
+    requestId: s("requestId"),
+    requestCode: s("requestCode"),
+    sourceChannel: s("sourceChannel"),
+    conversationExternalId: s("conversationExternalId"),
+    actorExternalId: s("actorExternalId"),
+    actorDisplayName: s("actorDisplayName"),
+    actorUsername: s("actorUsername"),
+    senderIdentifier: s("senderIdentifier"),
+    guardianBindingChannel: s("guardianBindingChannel"),
+    guardianResolutionSource: s("guardianResolutionSource"),
+    previousMemberStatus: s("previousMemberStatus"),
+    messagePreview: s("messagePreview"),
+    isStranger: b("isStranger"),
+    isRestricted: b("isRestricted"),
+    messageTs: s("messageTs"),
+  };
+}
+
+// ── Warnings ────────────────────────────────────────────────────────────────
+
+/**
+ * Build a list of human-readable warning strings for an access request.
+ * Used by both the Slack Block Kit card and the plain-text contract.
+ */
+export function buildAccessRequestWarnings(
+  p: ParsedAccessRequestPayload,
+): string[] {
+  const warnings: string[] = [];
+  if (p.previousMemberStatus === "revoked") {
+    warnings.push("This user was previously revoked.");
+  }
+  if (p.isStranger) {
+    warnings.push("External Slack user (not in this workspace).");
+  }
+  if (p.isRestricted) {
+    warnings.push("Guest / restricted account.");
+  }
+  return warnings;
+}
+
+// ── Slack conversation helpers ───────────────────────────────────────────────
+
+/** Slack DM conversation IDs start with `D` followed by alphanumeric chars. */
+export function isSlackDmConversation(conversationExternalId: string): boolean {
+  return /^D[A-Z0-9]+$/i.test(conversationExternalId);
+}
+
+/**
+ * Build a Slack message permalink from a channel ID and message timestamp.
+ * Format: https://slack.com/archives/{channelId}/p{ts_without_dot}
+ * Workspace-agnostic — resolves for any authenticated Slack viewer.
+ */
+export function buildSlackMessagePermalink(
+  conversationExternalId: string,
+  messageTs: string,
+): string {
+  return `https://slack.com/archives/${conversationExternalId}/p${messageTs.replace(".", "")}`;
 }
 
 // ── Identity sanitization ───────────────────────────────────────────────────
@@ -42,37 +131,17 @@ export function sanitizeIdentityField(value: string): string {
   return clamped;
 }
 
-export function buildAccessRequestIdentityLine(
-  payload: Record<string, unknown>,
-): string {
-  const requester = sanitizeIdentityField(
-    str(payload.senderIdentifier, "Someone"),
-  );
-  const sourceChannel =
-    typeof payload.sourceChannel === "string"
-      ? payload.sourceChannel
-      : undefined;
-  const callerName = nonEmpty(
-    typeof payload.actorDisplayName === "string"
-      ? payload.actorDisplayName
-      : undefined,
-  );
-  const actorUsername = nonEmpty(
-    typeof payload.actorUsername === "string"
-      ? payload.actorUsername
-      : undefined,
-  );
-  const actorExternalId = nonEmpty(
-    typeof payload.actorExternalId === "string"
-      ? payload.actorExternalId
-      : undefined,
-  );
+/** Internal typed implementation — avoids re-parsing when called from
+ *  buildAccessRequestContractText which has already parsed the payload. */
+function buildIdentityLineFromParsed(p: ParsedAccessRequestPayload): string {
+  const requester = sanitizeIdentityField(p.senderIdentifier || "Someone");
+  const callerName = nonEmpty(p.actorDisplayName);
+  const actorUsername = nonEmpty(p.actorUsername);
+  const actorExternalId = nonEmpty(p.actorExternalId);
 
-  if (sourceChannel === "phone" && callerName) {
+  if (p.sourceChannel === "phone" && callerName) {
     const safeName = sanitizeIdentityField(callerName);
-    const safeId = sanitizeIdentityField(
-      str(payload.actorExternalId, requester),
-    );
+    const safeId = sanitizeIdentityField(p.actorExternalId || requester);
     return `${safeName} (${safeId}) is calling and requesting access to the assistant.`;
   }
 
@@ -84,11 +153,10 @@ export function buildAccessRequestIdentityLine(
   const sanitizedExternalId = actorExternalId
     ? sanitizeIdentityField(actorExternalId)
     : undefined;
-  // When the requester is a raw Slack user ID (e.g. the fallback path in
-  // access-request-helper sets senderIdentifier to the raw actorExternalId),
-  // format it as a Slack mention so it renders as a clickable display name.
+  // When the requester is a raw Slack user ID, format it as a Slack mention
+  // so Slack auto-renders it as a clickable display name.
   const formattedRequester =
-    sourceChannel === "slack" && /^U[A-Z0-9]+$/i.test(requester)
+    p.sourceChannel === "slack" && /^U[A-Z0-9]+$/i.test(requester)
       ? `<@${requester}>`
       : requester;
   const parts = [formattedRequester];
@@ -100,19 +168,23 @@ export function buildAccessRequestIdentityLine(
     sanitizedExternalId !== requester &&
     sanitizedExternalId !== sanitizedUsername
   ) {
-    // For Slack, use the <@U...> mention format so Slack auto-renders
-    // the user ID as a clickable display name.
     const formattedId =
-      sourceChannel === "slack" && /^U[A-Z0-9]+$/i.test(sanitizedExternalId)
+      p.sourceChannel === "slack" && /^U[A-Z0-9]+$/i.test(sanitizedExternalId)
         ? `<@${sanitizedExternalId}>`
         : `[${sanitizedExternalId}]`;
     parts.push(formattedId);
   }
-  if (sourceChannel) {
-    parts.push(`via ${sourceChannel}`);
+  if (p.sourceChannel) {
+    parts.push(`via ${p.sourceChannel}`);
   }
 
   return `${parts.join(" ")} is requesting access to the assistant.`;
+}
+
+export function buildAccessRequestIdentityLine(
+  payload: Record<string, unknown>,
+): string {
+  return buildIdentityLineFromParsed(parseAccessRequestPayload(payload));
 }
 
 // ── Message preview ─────────────────────────────────────────────────────────
@@ -142,13 +214,10 @@ export function sanitizeMessagePreview(value: string): string {
  *
  * Returns `undefined` when no usable preview is available.
  */
-function buildAccessRequestMessagePreview(
-  payload: Record<string, unknown>,
+function buildMessagePreviewFromParsed(
+  p: ParsedAccessRequestPayload,
 ): string | undefined {
-  const raw =
-    typeof payload.messagePreview === "string"
-      ? payload.messagePreview
-      : undefined;
+  const raw = p.messagePreview;
   if (!raw) return undefined;
 
   const sanitized = sanitizeMessagePreview(raw);
@@ -252,32 +321,35 @@ export function hasInviteFlowDirective(text: string | undefined): boolean {
 export function buildAccessRequestContractText(
   payload: Record<string, unknown>,
 ): string {
-  const requestCode = nonEmpty(
-    typeof payload.requestCode === "string" ? payload.requestCode : undefined,
-  );
-  const previousMemberStatus =
-    typeof payload.previousMemberStatus === "string"
-      ? payload.previousMemberStatus
-      : undefined;
-
-  const guardianResolutionSource =
-    typeof payload.guardianResolutionSource === "string"
-      ? payload.guardianResolutionSource
-      : undefined;
-  const sourceChannel =
-    typeof payload.sourceChannel === "string"
-      ? payload.sourceChannel
-      : undefined;
+  const p = parseAccessRequestPayload(payload);
+  const requestCode = nonEmpty(p.requestCode);
 
   const lines: string[] = [];
-  lines.push(buildAccessRequestIdentityLine(payload));
-  const preview = buildAccessRequestMessagePreview(payload);
+  lines.push(buildIdentityLineFromParsed(p));
+
+  const preview = buildMessagePreviewFromParsed(p);
   if (preview) {
     lines.push(preview);
   }
-  if (previousMemberStatus === "revoked") {
-    lines.push("Note: this user was previously revoked.");
+
+  // Unified warnings: revoked status + trust signals.
+  for (const warning of buildAccessRequestWarnings(p)) {
+    lines.push(`Note: ${warning.charAt(0).toLowerCase()}${warning.slice(1)}`);
   }
+
+  // Conversation context: source channel + permalink when available.
+  if (p.sourceChannel === "slack" && p.conversationExternalId) {
+    const permalink = p.messageTs
+      ? buildSlackMessagePermalink(p.conversationExternalId, p.messageTs)
+      : undefined;
+    const isDm = isSlackDmConversation(p.conversationExternalId);
+    const channelLabel = isDm ? "Direct message" : p.conversationExternalId;
+    const source = permalink
+      ? `Source: Slack — ${channelLabel} (${permalink})`
+      : `Source: Slack — ${channelLabel}`;
+    lines.push(source);
+  }
+
   if (requestCode) {
     const code = requestCode.toUpperCase();
     lines.push(
@@ -285,14 +357,118 @@ export function buildAccessRequestContractText(
     );
   }
   lines.push(buildAccessRequestInviteDirective());
+
   if (
-    (guardianResolutionSource === "vellum-anchor" ||
-      guardianResolutionSource === "none") &&
-    sourceChannel
+    (p.guardianResolutionSource === "vellum-anchor" ||
+      p.guardianResolutionSource === "none") &&
+    p.sourceChannel
   ) {
     lines.push(
-      `Note: You haven't verified your identity on ${sourceChannel} yet. If this was you trying to message your assistant, say "help me verify as guardian on ${sourceChannel}" to set up direct access.`,
+      `Note: You haven't verified your identity on ${p.sourceChannel} yet. If this was you trying to message your assistant, say "help me verify as guardian on ${p.sourceChannel}" to set up direct access.`,
     );
   }
   return lines.join("\n");
+}
+
+// ── Seed content blocks (Surface-based rendering) ───────────────────────────
+
+/**
+ * Build structured content blocks for an access request notification seed
+ * message. Produces a `ui_surface` card block that the web/macOS/iOS apps
+ * render as an interactive card via `SurfaceRouter → CardSurface`, plus a
+ * plain-text fallback block for search, CLI display, and backward-compatible
+ * clients that don't support surfaces.
+ *
+ * The card data shape matches {@link CardSurfaceData} from
+ * `daemon/message-types/surfaces.ts`: `{ title, subtitle, body, metadata }`.
+ */
+export function buildAccessRequestSeedContentBlocks(
+  payload: Record<string, unknown>,
+): unknown[] {
+  const p = parseAccessRequestPayload(payload);
+
+  const rawName = nonEmpty(p.actorDisplayName) ?? nonEmpty(p.senderIdentifier);
+  const displayName = rawName ? sanitizeIdentityField(rawName) : "Someone";
+
+  const metadata: Array<{ label: string; value: string }> = [];
+
+  if (p.actorUsername) {
+    metadata.push({
+      label: "Username",
+      value: `@${sanitizeIdentityField(p.actorUsername)}`,
+    });
+  }
+
+  if (p.sourceChannel === "slack" && p.conversationExternalId) {
+    const isDm = isSlackDmConversation(p.conversationExternalId);
+    metadata.push({
+      label: "Source",
+      value: isDm
+        ? "Slack — Direct message"
+        : `Slack — #${p.conversationExternalId}`,
+    });
+  } else if (p.sourceChannel) {
+    metadata.push({ label: "Source", value: p.sourceChannel });
+  }
+
+  const warnings = buildAccessRequestWarnings(p);
+  const bodyParts: string[] = [];
+
+  if (p.messagePreview) {
+    bodyParts.push(`> "${sanitizeMessagePreview(p.messagePreview)}"`);
+  }
+  for (const w of warnings) {
+    bodyParts.push(`⚠️ ${w}`);
+  }
+  if (p.sourceChannel === "slack" && p.conversationExternalId && p.messageTs) {
+    const permalink = buildSlackMessagePermalink(
+      p.conversationExternalId,
+      p.messageTs,
+    );
+    bodyParts.push(`[View message](${permalink})`);
+  }
+
+  const body =
+    bodyParts.length > 0
+      ? bodyParts.join("\n\n")
+      : "No additional context available.";
+
+  // Actions match the canonical `apr:<requestId>:<action>` callback format
+  // used by Telegram and Slack adapters, and the `SurfaceActionSchema`
+  // shape that `SurfaceContainer` renders as buttons.
+  const actions = p.requestId
+    ? [
+        {
+          id: `apr:${p.requestId}:approve_once`,
+          label: "Approve",
+          style: "primary",
+        },
+        {
+          id: `apr:${p.requestId}:reject`,
+          label: "Reject",
+          style: "destructive",
+        },
+      ]
+    : undefined;
+
+  const surfaceBlock = {
+    type: "ui_surface" as const,
+    surfaceId: `access-request-${p.requestId ?? "unknown"}`,
+    surfaceType: "card" as const,
+    title: "Access Request",
+    data: {
+      title: displayName,
+      subtitle: "Requesting access to the assistant",
+      body,
+      metadata,
+    },
+    ...(actions ? { actions } : {}),
+  };
+
+  const textBlock = {
+    type: "text" as const,
+    text: buildAccessRequestContractText(payload),
+  };
+
+  return [surfaceBlock, textBlock];
 }

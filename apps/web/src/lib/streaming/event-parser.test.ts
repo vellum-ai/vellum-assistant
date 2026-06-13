@@ -2202,6 +2202,8 @@ describe("parseAssistantEvent", () => {
         conversationId: "conv-1",
         inputTokens: 100,
         outputTokens: 50,
+        cacheCreationInputTokens: 30,
+        cacheReadInputTokens: 60,
         totalInputTokens: 100,
         totalOutputTokens: 50,
         estimatedCost: 0.0021,
@@ -2214,6 +2216,8 @@ describe("parseAssistantEvent", () => {
         conversationId: "conv-1",
         inputTokens: 100,
         outputTokens: 50,
+        cacheCreationInputTokens: 30,
+        cacheReadInputTokens: 60,
         totalInputTokens: 100,
         totalOutputTokens: 50,
         estimatedCost: 0.0021,
@@ -2242,7 +2246,7 @@ describe("parseAssistantEvent", () => {
       });
     });
 
-    test("strips unknown top-level fields (e.g. legacy cachedInputTokens)", () => {
+    test("strips unknown top-level fields (e.g. legacy cachedInputTokens) while keeping known cache fields", () => {
       const event = parseEvent({
         type: "usage_update",
         conversationId: "conv-1",
@@ -2260,6 +2264,10 @@ describe("parseAssistantEvent", () => {
         conversationId: "conv-1",
         inputTokens: 100,
         outputTokens: 50,
+        // Part of the canonical schema since the daemon began exposing
+        // per-call cache counts — passes through, unlike the legacy
+        // cachedInputTokens field above.
+        cacheCreationInputTokens: 5,
         totalInputTokens: 100,
         totalOutputTokens: 50,
         estimatedCost: 0.0021,

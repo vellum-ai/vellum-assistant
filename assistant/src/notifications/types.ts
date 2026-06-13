@@ -147,6 +147,17 @@ export interface RenderedChannelCopy {
   deliveryText?: string;
   conversationTitle?: string;
   conversationSeedMessage?: string;
+  /**
+   * Structured content blocks for the seed message. When present,
+   * conversation pairing stores `JSON.stringify(seedContentBlocks)` as the
+   * message content instead of the plain-text seed, enabling Surface
+   * rendering in the web/macOS/iOS apps.
+   *
+   * Typically includes a `ui_surface` block (rendered as an interactive
+   * card) followed by a `text` block (plain-text fallback for search,
+   * backward-compatible clients, and CLI display).
+   */
+  seedContentBlocks?: unknown[];
 }
 
 // -- Conversation action types ------------------------------------------------

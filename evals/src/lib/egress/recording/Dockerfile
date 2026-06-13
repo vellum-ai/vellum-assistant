@@ -18,11 +18,14 @@ FROM mitmproxy/mitmproxy:11.0.2
 
 USER root
 
-# `iptables` + `iproute2` for the netns policy. `getent` (for hostname
-# resolution in the apply script) is in `libc-bin` which is already in
-# the base image. `su` is from `util-linux` (also already in base).
+# `iptables` + `iproute2` for the netns policy. `conntrack` lets the
+# apply script flush pre-jail flows so connections the assistant opened
+# before the jail attached are re-evaluated against the NAT REDIRECT
+# rather than bypassing it. `getent` (for hostname resolution in the
+# apply script) is in `libc-bin` which is already in the base image.
+# `su` is from `util-linux` (also already in base).
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends iptables iproute2 \
+  && apt-get install -y --no-install-recommends iptables iproute2 conntrack \
   && rm -rf /var/lib/apt/lists/*
 
 # The base image already ships a UID-1000 user named `mitmproxy`

@@ -23,18 +23,28 @@ import { ResetButton, SaveButton, ServiceCard } from "@/domains/settings/ai/ai-s
 import type { ServiceMode } from "@/domains/settings/ai/ai-types";
 import { LS_WEB_SEARCH_MODE, LS_WEB_SEARCH_PROVIDER } from "@/domains/settings/ai/ai-types";
 import { getWebSearchProviderKeyStorage } from "@/domains/settings/ai/ai-utils";
-import { useDaemonConfigMutation, useDaemonConfigQuery, useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
+import { useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { configGetOptions, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useQuery } from "@tanstack/react-query";
 import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
 import { useStoredCredentialPresence } from "@/domains/settings/ai/use-stored-credential-presence";
 
 export function WebSearchCard() {
-  const {
-    assistantId,
-    config: daemonConfig,
-  } = useDaemonConfigQuery();
-  const configMutation = useDaemonConfigMutation();
-  const provisionProviderKey = useProvisionProviderKey();
+  const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
+
+  const { data: daemonConfig } = useQuery({
+    ...configGetOptions({ path: { assistant_id: assistantId } }),
+    staleTime: 30_000,
+  });
+
+  const configMutation = useConfigPatchMutation({
+    onSuccess: (data) => {
+      configGetSetQueryData(queryClient, { path: { assistant_id: assistantId } }, data);
+    },
+  });
+  const provisionProviderKey = useProvisionProviderKey();
 
   // Server values derived from daemon config, falling back to localStorage.
   // When the cache refreshes (after save + invalidation), these update
@@ -102,8 +112,11 @@ export function WebSearchCard() {
         await provisionProviderKey(providerToSave, trimmed);
       }
       await configMutation.mutateAsync({
-        services: {
-          "web-search": { mode: webSearchMode, provider: providerToSave },
+        path: { assistant_id: assistantId },
+        body: {
+          services: {
+            "web-search": { mode: webSearchMode, provider: providerToSave },
+          },
         },
       }).catch((error) => {
         toast.error("Failed to update assistant configuration. Please try again.");
@@ -138,6 +151,7 @@ export function WebSearchCard() {
     configMutation,
     provisionProviderKey,
     queryClient,
+    assistantId,
     credentialQueryKey,
     webSearchApiKey,
     webSearchMode,

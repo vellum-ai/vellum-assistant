@@ -5,6 +5,7 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { formatCompactTokens } from "@/domains/settings/ai/ai-utils";
 import {
+    type GeminiThinkingLevel,
     geminiThinkingLevels,
     type ProfileParamVisibility,
 } from "@/domains/settings/ai/profile-param-visibility";
@@ -55,12 +56,12 @@ interface ProfileAdvancedParamsProps {
   onMaxTokensChange: (v: number | null) => void;
   contextWindowMaxInputTokens: number | null;
   onContextWindowChange: (v: number | null) => void;
-  effort: string;
-  onEffortChange: (v: string) => void;
-  speed: string;
-  onSpeedChange: (v: string) => void;
-  verbosity: string;
-  onVerbosityChange: (v: string) => void;
+  effort: (typeof EFFORT_OPTIONS)[number];
+  onEffortChange: (v: (typeof EFFORT_OPTIONS)[number]) => void;
+  speed: (typeof SPEED_OPTIONS)[number];
+  onSpeedChange: (v: (typeof SPEED_OPTIONS)[number]) => void;
+  verbosity: (typeof VERBOSITY_OPTIONS)[number];
+  onVerbosityChange: (v: (typeof VERBOSITY_OPTIONS)[number]) => void;
   temperatureEnabled: boolean;
   onTemperatureEnabledChange: (v: boolean) => void;
   temperature: number;
@@ -69,8 +70,8 @@ interface ProfileAdvancedParamsProps {
   onThinkingEnabledChange: (v: boolean) => void;
   thinkingStreamThinking: boolean;
   onThinkingStreamThinkingChange: (v: boolean) => void;
-  thinkingLevel: string;
-  onThinkingLevelChange: (v: string) => void;
+  thinkingLevel: GeminiThinkingLevel | typeof THINKING_LEVEL_INHERIT;
+  onThinkingLevelChange: (v: GeminiThinkingLevel | typeof THINKING_LEVEL_INHERIT) => void;
 }
 
 /**
@@ -205,7 +206,7 @@ export function ProfileAdvancedParams({
           </label>
           <SegmentControl
             items={EFFORT_OPTIONS.map((v) => ({ value: v, label: v }))}
-            value={effort as (typeof EFFORT_OPTIONS)[number]}
+            value={effort}
             onChange={(v) => onEffortChange(v)}
             ariaLabel="Effort"
           />
@@ -220,7 +221,7 @@ export function ProfileAdvancedParams({
           </label>
           <SegmentControl
             items={SPEED_OPTIONS.map((v) => ({ value: v, label: v }))}
-            value={speed as (typeof SPEED_OPTIONS)[number]}
+            value={speed}
             onChange={(v) => onSpeedChange(v)}
             ariaLabel="Speed"
           />
@@ -235,7 +236,7 @@ export function ProfileAdvancedParams({
           </label>
           <SegmentControl
             items={VERBOSITY_OPTIONS.map((v) => ({ value: v, label: v }))}
-            value={verbosity as (typeof VERBOSITY_OPTIONS)[number]}
+            value={verbosity}
             onChange={(v) => onVerbosityChange(v)}
             ariaLabel="Verbosity"
           />
@@ -309,14 +310,14 @@ export function ProfileAdvancedParams({
             </span>
           </label>
           <SegmentControl
-            items={[THINKING_LEVEL_INHERIT, ...geminiThinkingLevels(model)].map(
+            items={([THINKING_LEVEL_INHERIT, ...geminiThinkingLevels(model)] as const).map(
               (v) => ({
                 value: v,
-                label: v,
+                label: `${v}`,
               }),
             )}
             value={thinkingLevel}
-            onChange={(v) => onThinkingLevelChange(v)}
+            onChange={onThinkingLevelChange}
             ariaLabel="Thinking level"
           />
         </div>

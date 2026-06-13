@@ -273,6 +273,7 @@ export { migrateToolInvocationsTelemetryColumns } from "./278-tool-invocations-t
 export { createSkillLoadedEventsTable } from "./279-create-skill-loaded-events.js";
 export { migrateConversationsSurfacedAt } from "./280-conversations-surfaced-at.js";
 export { migrateMemoryRetrospectiveRememberedLog } from "./281-memory-retrospective-remembered-log.js";
+export { migrateScheduleInferenceProfile } from "./282-schedule-inference-profile.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

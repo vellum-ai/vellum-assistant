@@ -25,11 +25,13 @@
 //     sweep when no job exists at all, since the worst-case false-positive
 //     is leaving a few extra orphans for the next sweep to catch.)
 //   - AND the row is NOT the preserved dedup baseline for its source
-//     conversation. The next retrospective run reads the most-recent prior
-//     retro via `findMostRecentRetrospectiveFor` to seed its
-//     `<already_remembered>` dedup block; sweeping it would force the
-//     next run to re-save facts the prior pass already captured. The
-//     baseline is the most recent row that actually produced output (see
+//     conversation. The primary dedup baseline is the persisted
+//     `remembered_log` on `memory_retrospective_state`, but state rows that
+//     predate the log column fall back to scanning the most-recent prior
+//     retro (via `findMostRecentRetrospectiveFor`) to seed their
+//     `<already_remembered>` dedup block; sweeping it would force such a
+//     run to re-save facts the prior pass already captured. The baseline is
+//     the most recent row that actually produced output (see
 //     `selectPreservedBaseline`) — a crash orphan with no post-fork
 //     assistant message would seed an EMPTY dedup block, so when an older
 //     row with output exists we preserve that one instead.
@@ -51,13 +53,10 @@ import {
 
 import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
-import { deleteConversation, getMessages } from "./conversation-crud.js";
+import { deleteConversation } from "./conversation-crud.js";
 import { getDb } from "./db-connection.js";
-import {
-  MEMORY_RETROSPECTIVE_FORK_SOURCE,
-  MEMORY_RETROSPECTIVE_SOURCES,
-} from "./memory-retrospective-constants.js";
-import { findForkBoundaryCreatedAt } from "./memory-retrospective-fork-boundary.js";
+import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
+import { loadRetrospectiveRunMessages } from "./memory-retrospective-fork-boundary.js";
 import { conversations, memoryJobs } from "./schema.js";
 
 const log = getLogger("memory-retrospective-startup-cleanup");
@@ -121,10 +120,10 @@ export function sweepOrphanMemoryRetrospectiveConversations(
     .map((row) => row.conversationId)
     .filter((id): id is string => typeof id === "string" && id.length > 0);
 
-  // Compute the preserved dedup baseline per source. The next retrospective
-  // run pulls dedup context from the most-recent prior retro (via
-  // `findMostRecentRetrospectiveFor`); sweeping it would re-introduce the
-  // unbounded retrospective growth this cleanup exists to prevent.
+  // Compute the preserved dedup baseline per source. Runs whose state row
+  // predates the persisted `remembered_log` pull dedup context by scanning
+  // the most-recent prior retro (via `findMostRecentRetrospectiveFor`);
+  // sweeping it would leave those runs with no baseline at all.
   const allRetros = db
     .select({
       id: conversations.id,
@@ -240,31 +239,15 @@ function selectPreservedBaseline(rows: RetroRow[]): string {
 
 /**
  * Whether the retrospective row produced any assistant output of its own.
- * Fork-kind rows carry the full copied source prefix (including the source's
- * own assistant turns), so only assistant messages strictly after the fork
- * boundary count; a fork with no detectable boundary contributes nothing to
- * dedup (`collectPriorRetrospectiveRemembers` treats it as empty), so it
- * doesn't qualify either. Legacy-kind rows start empty, so any assistant
- * message counts. Best-effort: a message-load failure disqualifies the row
- * rather than failing the sweep.
+ * `loadRetrospectiveRunMessages` scopes fork-kind rows to the post-fork tail
+ * (the copied source prefix contains the source's own assistant turns) and
+ * returns `null` for rows whose output cannot be determined (load failure or
+ * no detectable fork boundary) — those rows contribute nothing to dedup
+ * (`collectPriorRetrospectiveRemembers` treats them as empty), so they don't
+ * qualify. Legacy-kind rows start empty, so any assistant message counts.
  */
 function retrospectiveHasOutput(row: RetroRow): boolean {
-  let messages: ReturnType<typeof getMessages>;
-  try {
-    messages = getMessages(row.id);
-  } catch (err) {
-    log.warn(
-      { err, conversationId: row.id },
-      "Failed to load retrospective messages while selecting the preserved dedup baseline; treating row as having no output",
-    );
-    return false;
-  }
-  if (row.source === MEMORY_RETROSPECTIVE_FORK_SOURCE) {
-    const boundaryCreatedAt = findForkBoundaryCreatedAt(messages);
-    if (boundaryCreatedAt == null) return false;
-    return messages.some(
-      (m) => m.role === "assistant" && m.createdAt > boundaryCreatedAt,
-    );
-  }
-  return messages.some((m) => m.role === "assistant");
+  const runMessages = loadRetrospectiveRunMessages(row.id, row.source);
+  if (runMessages == null) return false;
+  return runMessages.some((m) => m.role === "assistant");
 }

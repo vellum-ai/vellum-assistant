@@ -3,6 +3,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { captureError } from "@/lib/sentry/capture-error";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 import {
@@ -22,15 +23,26 @@ import {
 } from "@/domains/settings/ai/ai-types";
 
 import { ResetButton, SaveButton, ServiceCard } from "@/domains/settings/ai/ai-shared-ui";
-import { useAssistantId, useDaemonConfigMutation, useDaemonConfigQuery, useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
+import { useProvisionProviderKey } from "@/domains/settings/ai/use-daemon-config";
+import { configGetOptions, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useQuery } from "@tanstack/react-query";
 import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
 import { modelImagegenPut } from "@/generated/daemon/sdk.gen";
 
 export function ImageGenerationCard() {
-  const { config: daemonConfig } = useDaemonConfigQuery();
-  const { resolveAssistantId } = useAssistantId();
+  const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
-  const configMutation = useDaemonConfigMutation();
+
+  const { data: daemonConfig } = useQuery({
+    ...configGetOptions({ path: { assistant_id: assistantId } }),
+    staleTime: 30_000,
+  });
+
+  const configMutation = useConfigPatchMutation({
+    onSuccess: (data) => {
+      configGetSetQueryData(queryClient, { path: { assistant_id: assistantId } }, data);
+    },
+  });
   const provisionProviderKey = useProvisionProviderKey();
   // Server value derived from daemon config, falling back to localStorage.
   // Updates automatically when the cache refreshes.
@@ -57,16 +69,16 @@ export function ImageGenerationCard() {
         await provisionProviderKey("gemini", trimmed);
       }
       await configMutation.mutateAsync({
-        services: { "image-generation": { mode: imageGenMode } },
+        path: { assistant_id: assistantId },
+        body: { services: { "image-generation": { mode: imageGenMode } } },
       }).catch((error) => {
         toast.error("Failed to update assistant configuration. Please try again.");
         captureError(error, { context: "patch_daemon_config" });
         throw error;
       });
-      const resolvedId = await resolveAssistantId();
       try {
         await modelImagegenPut({
-          path: { assistant_id: resolvedId },
+          path: { assistant_id: assistantId },
           body: { modelId: imageGenModel },
           throwOnError: true,
         });
@@ -76,7 +88,7 @@ export function ImageGenerationCard() {
         throw error;
       } finally {
         void queryClient.invalidateQueries({
-          queryKey: assistantDaemonConfigQueryKey(resolvedId),
+          queryKey: assistantDaemonConfigQueryKey(assistantId),
         });
       }
     } catch {
@@ -99,9 +111,9 @@ export function ImageGenerationCard() {
     imageGenApiKey,
     imageGenMode,
     imageGenModel,
+    assistantId,
     configMutation,
     provisionProviderKey,
-    resolveAssistantId,
     queryClient,
   ]);
 

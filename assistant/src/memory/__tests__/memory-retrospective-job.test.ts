@@ -35,8 +35,13 @@ let newMessages: Array<{
   metadata?: string | null;
 }> = [];
 
-// Prior retrospective conversation + messages.
+// Prior retrospective conversation + messages. `priorRetroOwnerId` is the
+// fork-chain conversation the prior is rooted at — `findMostRecentRetrospectiveFor`
+// returns it so the GC ownership check can tell "this source's own prior"
+// (default: the job's source conversation) from an ANCESTOR's preserved
+// baseline reached by the chain walk.
 let priorRetroId: string | null = null;
+let priorRetroOwnerId = "src-conv-1";
 let priorRetroMessages: Array<{ role: string; content: string }> = [];
 
 let mockWakeResult: { invoked: boolean; reason?: string } = { invoked: true };
@@ -78,6 +83,8 @@ type ConversationStub = {
   conversationType?: string | null;
   inferenceProfile?: string | null;
   inferenceProfileExpiresAt?: number | null;
+  originChannel?: string | null;
+  originInterface?: string | null;
 };
 let conversationOverrides: Record<string, ConversationStub> = {};
 
@@ -135,7 +142,9 @@ mock.module("../conversation-crud.js", () => ({
     return [];
   },
   findMostRecentRetrospectiveFor: (_id: string) =>
-    priorRetroId ? { id: priorRetroId } : null,
+    priorRetroId
+      ? { id: priorRetroId, forkParentConversationId: priorRetroOwnerId }
+      : null,
   // The fork path calls `getConversation(sourceConversationId)` to read the
   // source's title for the fork title. `collectPriorRetrospectiveRemembers`
   // also calls it with the prior retro id to discriminate legacy vs fork
@@ -263,6 +272,19 @@ mock.module("../../daemon/trust-context.js", () => ({
   INTERNAL_GUARDIAN_TRUST_CONTEXT: { trustClass: "guardian" },
 }));
 
+// Guardian persona slug resolution for the fork wake's persona override.
+// The real resolver reads the contacts table; the stub records the trust
+// context it was handed (the job must pass `undefined` — the live-turn
+// guardian branch) and returns a scripted slug.
+let mockResolvedUserSlug: string | null = "alice";
+let resolveUserSlugCalls: unknown[] = [];
+mock.module("../../prompts/persona-resolver.js", () => ({
+  resolveUserSlug: (trustContext: unknown) => {
+    resolveUserSlugCalls.push(trustContext);
+    return mockResolvedUserSlug;
+  },
+}));
+
 mock.module("../../runtime/agent-wake.js", () => ({
   wakeAgentForOpportunity: async (
     opts: { conversationId: string; hint: string } & Record<string, unknown>,
@@ -365,6 +387,7 @@ describe("memoryRetrospectiveJob", () => {
       { id: "m3", createdAt: Date.parse("2026-05-11T10:10:00Z") },
     ];
     priorRetroId = null;
+    priorRetroOwnerId = "src-conv-1";
     priorRetroMessages = [];
     mockWakeResult = { invoked: true };
     mockWakeThrows = null;
@@ -383,6 +406,8 @@ describe("memoryRetrospectiveJob", () => {
     conversationOverrides = {};
     messagesByConversationId = {};
     loadedConversations = {};
+    mockResolvedUserSlug = "alice";
+    resolveUserSlugCalls = [];
   });
 
   test("first-run happy path: no state row, no prior retrospective, both pointer fields set on success", async () => {
@@ -744,7 +769,7 @@ describe("memoryRetrospectiveJob", () => {
     expect("toolGateMode" in wakeCalls[0]!.opts).toBe(false);
   });
 
-  test("fork path: matchConversationProfile on but source has no inferenceProfile → wake carries no forceOverrideProfile", async () => {
+  test("fork path: matchConversationProfile on but source has no inferenceProfile → wire mode, no forceOverrideProfile", async () => {
     forkFlagEnabled = true;
 
     await memoryRetrospectiveJob(
@@ -754,13 +779,15 @@ describe("memoryRetrospectiveJob", () => {
 
     expect(wakeCalls).toHaveLength(1);
     expect("forceOverrideProfile" in wakeCalls[0]!.opts).toBe(false);
-    // toolGateMode is gated on the config flag, not on a resolved profile:
-    // without a pinned profile the source's turns ran the call-site default,
-    // and keeping the full tool surface still preserves that cached prefix.
-    expect(wakeCalls[0]!.opts.toolGateMode).toBe("execution");
+    // toolGateMode keys on the RESOLVED profile match, not the bare config
+    // flag: with no pinned profile the wake runs the call-site default
+    // model, so there is no source cache to preserve — shipping the full
+    // tool surface would pay wire cost for nothing. Wire mode (absent
+    // toolGateMode) keeps the smaller filtered request.
+    expect("toolGateMode" in wakeCalls[0]!.opts).toBe(false);
   });
 
-  test("fork path: matchConversationProfile on but the profile session expired → wake carries no forceOverrideProfile", async () => {
+  test("fork path: matchConversationProfile on but the profile session expired → wire mode, no forceOverrideProfile", async () => {
     forkFlagEnabled = true;
     conversationOverrides["src-conv-1"] = {
       source: "user",
@@ -778,6 +805,233 @@ describe("memoryRetrospectiveJob", () => {
 
     expect(wakeCalls).toHaveLength(1);
     expect("forceOverrideProfile" in wakeCalls[0]!.opts).toBe(false);
+    expect("toolGateMode" in wakeCalls[0]!.opts).toBe(false);
+  });
+
+  test("fork path: local/vellum source → wake carries the guardian persona + vellum channel override", async () => {
+    forkFlagEnabled = true;
+    // Default source stub has no originChannel — a local/desktop conversation.
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.opts.personaOverride).toEqual({
+      userSlug: "alice",
+      channelSlug: "vellum",
+      hasNoClient: false,
+    });
+    // Resolved via the live-turn guardian branch: undefined trust context,
+    // never the wake's internal guardian context.
+    expect(resolveUserSlugCalls).toEqual([undefined]);
+  });
+
+  test("fork path: explicit vellum originChannel → override present", async () => {
+    forkFlagEnabled = true;
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+      originChannel: "vellum",
+    };
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.opts.personaOverride).toEqual({
+      userSlug: "alice",
+      channelSlug: "vellum",
+      hasNoClient: false,
+    });
+  });
+
+  test("fork path: channel-routed source → no persona slugs (identity not recoverable), hasNoClient pinned to the live-turn value (true)", async () => {
+    forkFlagEnabled = true;
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+      originChannel: "telegram",
+    };
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(wakeCalls).toHaveLength(1);
+    // The slugs are unrecoverable for a channel-routed source, and the
+    // hasNoClient pin mirrors the source's live turns: channel-routed turns
+    // run clientless (process-message never calls updateClient(_, false)),
+    // so the live-turn value is TRUE — pinned explicitly rather than left to
+    // the fork's hydration default.
+    expect(wakeCalls[0]!.opts.personaOverride).toEqual({ hasNoClient: true });
+    expect(resolveUserSlugCalls).toEqual([]);
+  });
+
+  test("fork path: no guardian resolvable → override falls back to the default persona slug", async () => {
+    forkFlagEnabled = true;
+    mockResolvedUserSlug = null;
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.opts.personaOverride).toEqual({
+      userSlug: "default",
+      channelSlug: "vellum",
+      hasNoClient: false,
+    });
+  });
+
+  test("fork path: persona override is not gated on matchConversationProfile", async () => {
+    forkFlagEnabled = true;
+
+    await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ matchConversationProfile: true }),
+    );
+
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.opts.personaOverride).toEqual({
+      userSlug: "alice",
+      channelSlug: "vellum",
+      hasNoClient: false,
+    });
+  });
+
+  test("fork path: execution mode → toolContextPin derived from the source (desktop default = web, hasNoClient false)", async () => {
+    forkFlagEnabled = true;
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+      conversationType: "standard",
+      inferenceProfile: "profile-x",
+    };
+
+    await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ matchConversationProfile: true }),
+    );
+
+    expect(wakeCalls).toHaveLength(1);
+    // No slice metadata, no originInterface → the non-channel-routed
+    // terminal fallback is "web" (mirroring resolveTurnInterface).
+    expect(wakeCalls[0]!.opts.toolContextPin).toEqual({
+      hasNoClient: false,
+      transportInterface: "web",
+    });
+  });
+
+  test("fork path: wire mode (no resolved profile) → no toolContextPin on the wake", async () => {
+    forkFlagEnabled = true;
+
+    await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ matchConversationProfile: true }),
+    );
+
+    expect(wakeCalls).toHaveLength(1);
+    // The pin exists purely for wire tool-surface cache parity, which is
+    // only in play in execution gate mode.
+    expect("toolContextPin" in wakeCalls[0]!.opts).toBe(false);
+  });
+
+  test("fork path: toolContextPin recovers the interface from the NEWEST stamped user message in the slice", async () => {
+    forkFlagEnabled = true;
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+      conversationType: "standard",
+      inferenceProfile: "profile-x",
+    };
+    newMessages = [
+      {
+        id: "m1",
+        createdAt: Date.parse("2026-05-11T10:00:00Z"),
+        role: "user",
+        metadata: JSON.stringify({ userMessageInterface: "web" }),
+      },
+      {
+        id: "m2",
+        createdAt: Date.parse("2026-05-11T10:05:00Z"),
+        role: "user",
+        metadata: JSON.stringify({ userMessageInterface: "macos" }),
+      },
+      {
+        id: "m3",
+        createdAt: Date.parse("2026-05-11T10:10:00Z"),
+        role: "assistant",
+        metadata: null,
+      },
+    ];
+
+    await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ matchConversationProfile: true }),
+    );
+
+    expect(wakeCalls).toHaveLength(1);
+    // Newest stamped USER message wins (m2's "macos", not m1's "web"); the
+    // assistant row is skipped.
+    expect(wakeCalls[0]!.opts.toolContextPin).toEqual({
+      hasNoClient: false,
+      transportInterface: "macos",
+    });
+  });
+
+  test("fork path: toolContextPin falls back to the row's originInterface when the slice carries no stamp", async () => {
+    forkFlagEnabled = true;
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+      conversationType: "standard",
+      inferenceProfile: "profile-x",
+      originInterface: "macos",
+    };
+
+    await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ matchConversationProfile: true }),
+    );
+
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0]!.opts.toolContextPin).toEqual({
+      hasNoClient: false,
+      transportInterface: "macos",
+    });
+  });
+
+  test("fork path: channel-routed source → toolContextPin pins clientless with the channel's interface", async () => {
+    forkFlagEnabled = true;
+    conversationOverrides["src-conv-1"] = {
+      source: "user",
+      forkParentMessageId: null,
+      title: "Source conversation",
+      conversationType: "standard",
+      inferenceProfile: "profile-x",
+      originChannel: "telegram",
+    };
+
+    await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ matchConversationProfile: true }),
+    );
+
+    expect(wakeCalls).toHaveLength(1);
+    // Channel-routed live turns ran clientless; the channel id doubles as
+    // the interface id when nothing else is recoverable.
+    expect(wakeCalls[0]!.opts.toolContextPin).toEqual({
+      hasNoClient: true,
+      transportInterface: "telegram",
+    });
+    // The persona pin carries the same live-turn hasNoClient value.
+    expect(wakeCalls[0]!.opts.personaOverride).toEqual({ hasNoClient: true });
+  });
+
+  test("legacy path: wake carries no persona override", async () => {
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(wakeCalls).toHaveLength(1);
+    expect("personaOverride" in wakeCalls[0]!.opts).toBe(false);
+    expect(resolveUserSlugCalls).toEqual([]);
   });
 
   test("legacy path: source mid-turn still runs (gate is fork-path only)", async () => {
@@ -1082,6 +1336,32 @@ describe("memoryRetrospectiveJob", () => {
 
     expect(outcome.kind).toBe("wake_failed");
     expect(deletedConversationIds).toEqual(["fork-conv-1"]);
+  });
+
+  // Regression test: `findMostRecentRetrospectiveFor` walks up the fork
+  // chain, so when the source is a user-created fork with no retrospectives
+  // of its own, the prior resolves to the PARENT conversation's most-recent
+  // retrospective. GC must not delete it — it is the parent's preserved
+  // dedup baseline, and destroying it would force the parent's next
+  // retrospective to re-save everything.
+  test("success does NOT delete a prior owned by an ancestor conversation, but still seeds dedup from it (both kinds)", async () => {
+    priorRetroId = "parent-retro-conv-1";
+    priorRetroOwnerId = "parent-conv-0"; // not the job's source ("src-conv-1")
+    priorRetroMessages = [priorRetroMessage(["parent's preserved save"])];
+
+    // Legacy kind.
+    let outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+    expect(outcome.kind).toBe("invoked");
+    expect(deletedConversationIds).toEqual([]);
+    // Dedup still seeds from the ancestor's retro.
+    expect(wakeCalls[0]!.hint).toContain("- parent's preserved save");
+
+    // Fork kind.
+    forkFlagEnabled = true;
+    outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+    expect(outcome.kind).toBe("invoked");
+    expect(deletedConversationIds).toEqual([]);
+    expect(persistedInstructionText()).toContain("- parent's preserved save");
   });
 
   test("keepSupersededRuns=true retains the prior retrospective on success (both kinds)", async () => {

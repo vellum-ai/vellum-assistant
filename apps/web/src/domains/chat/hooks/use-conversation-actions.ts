@@ -8,6 +8,7 @@ import {
   patchConversation,
   restoreConversationCaches,
   snapshotConversationCaches,
+  updateAllConversationCaches,
   type ConversationCacheSnapshot,
 } from "@/utils/conversation-cache";
 import { executeBulkWithFallback } from "@/utils/bulk-with-fallback";
@@ -46,6 +47,7 @@ type MoveToGroupVars = {
   previousIsPinned: boolean;
   previousGroupId: string | undefined;
 };
+type ReorderVars = { assistantId: string; orderedIds: string[] };
 
 type MutationContext = { snapshot: ConversationCacheSnapshot };
 
@@ -224,6 +226,42 @@ export function useConversationActions({
     },
   });
 
+  const reorderMutation = useMutation<void, Error, ReorderVars, MutationContext>({
+    mutationFn: async ({ assistantId: aid, orderedIds }) => {
+      await conversationsReorderPost({
+        path: { assistant_id: aid },
+        body: {
+          // displayOrder-only updates — the daemon preserves each
+          // conversation's pin state and group assignment.
+          updates: orderedIds.map((conversationId, index) => ({
+            conversationId,
+            displayOrder: index,
+          })),
+        },
+        throwOnError: true,
+      });
+    },
+    onMutate: async ({ assistantId: aid, orderedIds }) => {
+      await cancelConversationQueries(queryClient, aid);
+      const snapshot = snapshotConversationCaches(queryClient, aid);
+      const orderById = new Map(orderedIds.map((id, index) => [id, index]));
+      updateAllConversationCaches(queryClient, aid, (conversations) =>
+        conversations.map((c) => {
+          const displayOrder = orderById.get(c.conversationId);
+          return displayOrder === undefined ? c : { ...c, displayOrder };
+        }),
+      );
+      return { snapshot };
+    },
+    onError: (err, _vars, context) => {
+      if (context?.snapshot) restoreConversationCaches(queryClient, context.snapshot);
+      captureError(err, { context: "reorderConversations" });
+    },
+    onSettled: (_data, _err, { assistantId: aid }) => {
+      void invalidateConversationQueries(queryClient, aid);
+    },
+  });
+
   // -------------------------------------------------------------------------
   // Handlers — thin wrappers that compute UI side effects, then fire mutate
   // -------------------------------------------------------------------------
@@ -309,6 +347,23 @@ export function useConversationActions({
       handleMoveToGroup(conversation, targetGroupId);
     },
     [handleMoveToGroup, prePinGroupIdsRef],
+  );
+
+  /**
+   * Persist a user drag-reorder. `ordered` is a sidebar section's full
+   * conversation list (pinned or one custom group) in its new order;
+   * each row's `displayOrder` becomes its index.
+   */
+  const handleReorderConversations = useCallback(
+    (ordered: Conversation[]) => {
+      if (!assistantId || ordered.length < 2) return;
+      haptic.light();
+      reorderMutation.mutate({
+        assistantId,
+        orderedIds: ordered.map((c) => c.conversationId),
+      });
+    },
+    [assistantId, reorderMutation],
   );
 
   const handleRenameConversation = useCallback(
@@ -441,6 +496,7 @@ export function useConversationActions({
     handleMarkConversationRead,
     handleTogglePinConversation,
     handleRenameConversation,
+    handleReorderConversations,
     handleMarkAllReadInGroup,
     handleArchiveAllInGroup,
   };
