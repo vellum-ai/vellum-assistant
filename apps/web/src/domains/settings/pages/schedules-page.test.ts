@@ -60,6 +60,26 @@ const fetchConsolidationRunsMock = mock(
 const fetchHeartbeatRunsMock = mock(
   async (_assistantId: string): Promise<ScheduleRun[]> => [],
 );
+const fetchRetrospectiveRunsMock = mock(
+  async (_assistantId: string): Promise<ScheduleRun[]> => [
+    {
+      id: "retro-run-1",
+      jobId: "retrospective",
+      status: "ok",
+      startedAt: 1_761_792_000_000,
+      finishedAt: 1_761_792_004_000,
+      durationMs: 4000,
+      output: null,
+      error: null,
+      conversationId: "conv-retro-1",
+      conversationExists: true,
+      conversationArchivedAt: null,
+      estimatedCostUsd: 0.0456,
+      createdAt: 1_761_792_000_000,
+      title: "Planning chat (Retrospective)",
+    },
+  ],
+);
 const fetchScheduleRunsMock = mock(
   async (_assistantId: string, _scheduleId: string): Promise<ScheduleRun[]> => [],
 );
@@ -76,6 +96,7 @@ mock.module("@/domains/settings/api/schedules", () => ({
   createSchedule: createScheduleMock,
   fetchConsolidationRuns: fetchConsolidationRunsMock,
   fetchHeartbeatRuns: fetchHeartbeatRunsMock,
+  fetchRetrospectiveRuns: fetchRetrospectiveRunsMock,
   fetchScheduleRuns: fetchScheduleRunsMock,
   fetchScheduleUsageSummary: fetchScheduleUsageSummaryMock,
 }));
@@ -88,6 +109,8 @@ const {
   formatTimestamp,
   groupSchedules,
   pastOneTimeStatus,
+  SYSTEM_TASK_URL_IDS,
+  systemTaskKindFromUrlId,
 } = await import("@/domains/settings/utils/schedule-formatters");
 const { RecentRunsCard } = await import(
   "@/domains/settings/components/recent-runs-card"
@@ -114,6 +137,7 @@ afterEach(() => {
   createScheduleMock.mockClear();
   fetchConsolidationRunsMock.mockClear();
   fetchHeartbeatRunsMock.mockClear();
+  fetchRetrospectiveRunsMock.mockClear();
   fetchScheduleRunsMock.mockClear();
   fetchScheduleUsageSummaryMock.mockClear();
   nowSpy?.mockRestore();
@@ -990,13 +1014,16 @@ describe("system task toggles", () => {
           success: true,
         },
         consolidationConfig: undefined,
+        retrospectiveConfig: undefined,
         heartbeatUsage: readySystemTaskUsage,
         consolidationUsage: readySystemTaskUsage,
+        retrospectiveUsage: readySystemTaskUsage,
         isLoading: false,
         hasError: false,
         onRetry: () => {},
         onSelectHeartbeat: () => {},
         onSelectConsolidation: () => {},
+        onSelectRetrospective: () => {},
       }),
     );
 
@@ -1056,13 +1083,16 @@ describe("system task toggles", () => {
           lastRunAt: null,
           success: true,
         },
+        retrospectiveConfig: undefined,
         heartbeatUsage: readySystemTaskUsage,
         consolidationUsage: readySystemTaskUsage,
+        retrospectiveUsage: readySystemTaskUsage,
         isLoading: false,
         hasError: false,
         onRetry: () => {},
         onSelectHeartbeat: () => {},
         onSelectConsolidation: () => {},
+        onSelectRetrospective: () => {},
       }),
     );
 
@@ -1081,6 +1111,108 @@ describe("system task toggles", () => {
     // Heartbeat is hidden here, so its cached usage must not inflate the
     // aggregate cost on the collapsed trigger ($0.42, not $0.84).
     expect(document.body.textContent).toContain("$0.42 (7d)");
+  });
+
+  test("maps system task url ids to kinds, including memory retrospective", () => {
+    expect(systemTaskKindFromUrlId(SYSTEM_TASK_URL_IDS.heartbeat)).toBe(
+      "heartbeat",
+    );
+    expect(systemTaskKindFromUrlId(SYSTEM_TASK_URL_IDS.consolidation)).toBe(
+      "consolidation",
+    );
+    expect(systemTaskKindFromUrlId(SYSTEM_TASK_URL_IDS.retrospective)).toBe(
+      "retrospective",
+    );
+    expect(SYSTEM_TASK_URL_IDS.retrospective).toBe(
+      "system-memory-retrospective",
+    );
+    expect(systemTaskKindFromUrlId("some-user-schedule")).toBeNull();
+    expect(systemTaskKindFromUrlId(undefined)).toBeNull();
+  });
+
+  test("memory retrospective renders as a third system row with event-driven cadence and no Next timestamp", () => {
+    let retrospectiveClicks = 0;
+
+    render(
+      createElement(SystemTasksSection, {
+        heartbeatConfig: undefined,
+        consolidationConfig: undefined,
+        retrospectiveConfig: {
+          available: true,
+          enabled: true,
+          intervalMs: 30 * 60_000,
+          nextRunAt: null,
+          lastRunAt: 1_761_792_000_000,
+          success: true,
+        },
+        heartbeatUsage: readySystemTaskUsage,
+        consolidationUsage: readySystemTaskUsage,
+        retrospectiveUsage: readySystemTaskUsage,
+        isLoading: false,
+        hasError: false,
+        onRetry: () => {},
+        onSelectHeartbeat: () => {},
+        onSelectConsolidation: () => {},
+        onSelectRetrospective: () => {
+          retrospectiveClicks += 1;
+        },
+      }),
+    );
+
+    // System jobs are collapsed by default — expand the disclosure first.
+    fireEvent.click(screen.getByRole("button", { name: /System/i }));
+
+    expect(screen.getByText("Memory retrospective")).toBeTruthy();
+    expect(screen.getByText("After conversation activity")).toBeTruthy();
+    // Event-driven: nextRunAt is always null and must render nothing —
+    // no "Next: —" placeholder.
+    expect(document.body.textContent).not.toContain("Next:");
+    expect(document.body.textContent).toContain(
+      `Last: ${formatTimestamp(1_761_792_000_000)}`,
+    );
+    expect(screen.queryByRole("button", { name: /run now/i })).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Memory retrospective" }),
+    );
+
+    expect(retrospectiveClicks).toBe(1);
+  });
+
+  test("retrospective detail view titles runs by reviewed conversation and omits Run now and Next run", async () => {
+    renderWithQueryClient(
+      createElement(SystemTaskDetailView, {
+        kind: "retrospective",
+        assistantId: "assistant-1",
+        name: "Memory retrospective",
+        subtitle: "After conversation activity",
+        enabled: true,
+        nextRunAt: null,
+        lastRunAt: 1_761_792_000_000,
+        isRunning: false,
+        onBack: () => {},
+      }),
+    );
+
+    await waitFor(() =>
+      expect(fetchRetrospectiveRunsMock.mock.calls).toEqual([["assistant-1"]]),
+    );
+
+    // Event-driven task: nothing global to trigger, no scheduled next run.
+    expect(screen.queryByRole("button", { name: /Run now/i })).toBeNull();
+    expect(document.body.textContent).not.toContain("Next run");
+    expect(document.body.textContent).toContain("On · Managed by Memory");
+
+    // The run row leads with the reviewed conversation's title and opens
+    // the retrospective conversation like other system run rows.
+    await waitFor(() =>
+      expect(document.body.textContent).toContain(
+        "Planning chat (Retrospective)",
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Run at/i }));
+
+    expect(navigateCalls).toEqual([routes.conversation("conv-retro-1")]);
   });
 
   test("consolidation detail page never renders a toggle even if a handler is passed", async () => {

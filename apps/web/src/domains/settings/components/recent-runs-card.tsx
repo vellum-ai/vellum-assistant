@@ -56,10 +56,18 @@ export function RecentRunsCard({
                     <span className="flex min-w-0 flex-1 items-center gap-3">
                       <StatusDot status={run.status} />
                       <span className="min-w-0 flex-1">
-                        <span className="block text-body-medium-lighter text-[var(--content-default)]">
-                          {formatTimestamp(run.startedAt)}
+                        <span className="block truncate text-body-medium-lighter text-[var(--content-default)]">
+                          {/* Runs with a title (memory retrospectives) lead
+                              with it — it names the reviewed conversation —
+                              and keep the timestamp on the detail line. */}
+                          {hasRunText(run.title)
+                            ? run.title
+                            : formatTimestamp(run.startedAt)}
                         </span>
                         <span className="block text-body-small-default text-[var(--content-tertiary)]">
+                          {hasRunText(run.title)
+                            ? `${formatTimestamp(run.startedAt)} · `
+                            : ""}
                           {formatDuration(run.durationMs)} ·{" "}
                           {formatScheduleCost(run.estimatedCostUsd)}
                           {run.status === "error" && run.error && (

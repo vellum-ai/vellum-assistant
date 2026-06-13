@@ -34,6 +34,7 @@ import {
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { isJson, prettifyJson } from "@/domains/workspace/utils/file-json";
 import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
+import { isHiddenPath } from "@/domains/workspace/utils/is-hidden-path";
 import {
     workspaceFileContentGet,
     workspaceFileGet,
@@ -258,10 +259,6 @@ function BinaryContentViewer({
   return null;
 }
 
-function isHiddenPath(path: string): boolean {
-  return path.split("/").some((segment) => segment.startsWith("."));
-}
-
 function EditFooter({
   isDirty,
   isSaving,
@@ -459,6 +456,8 @@ export function WorkspaceFileViewer({
   viewMode,
   onChangeViewMode,
   onBrowse,
+  pathRename,
+  pathDelete,
 }: {
   assistantId: string;
   selectedPath: string | null;
@@ -466,6 +465,10 @@ export function WorkspaceFileViewer({
   viewMode: WorkspaceViewMode;
   onChangeViewMode: (mode: WorkspaceViewMode) => void;
   onBrowse?: () => void;
+  /** Last successful workspace rename, so edit state can follow the file. */
+  pathRename?: { from: string; to: string } | null;
+  /** Last successful workspace delete, so drafts for the path are discarded. */
+  pathDelete?: { path: string } | null;
 }) {
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
@@ -481,6 +484,37 @@ export function WorkspaceFileViewer({
     path: string;
     content: string;
   } | null>(null);
+
+  // Keep an in-progress edit attached to the file when it (or an ancestor
+  // folder) is renamed — otherwise the draft is orphaned under the old path
+  // and silently disappears from the editor.
+  useEffect(() => {
+    if (!pathRename) return;
+    const { from, to } = pathRename;
+    const remap = (p: string) =>
+      p === from
+        ? to
+        : p.startsWith(`${from}/`)
+          ? to + p.slice(from.length)
+          : p;
+    setEditingPath((prev) => (prev == null ? prev : remap(prev)));
+    setEditOverride((prev) =>
+      prev == null ? prev : { ...prev, path: remap(prev.path) },
+    );
+  }, [pathRename]);
+
+  // Discard drafts tied to a deleted file (or one under a deleted folder) so
+  // recreating the same path doesn't resurrect the old contents — and Save
+  // can't write them into the new file.
+  useEffect(() => {
+    if (!pathDelete) return;
+    const { path } = pathDelete;
+    const covers = (p: string) => p === path || p.startsWith(`${path}/`);
+    setEditingPath((prev) => (prev != null && covers(prev) ? null : prev));
+    setEditOverride((prev) =>
+      prev != null && covers(prev.path) ? null : prev,
+    );
+  }, [pathDelete]);
 
   const isEditing = editingPath != null && editingPath === selectedPath;
   const originalContent = data?.content ?? "";
