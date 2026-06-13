@@ -482,9 +482,7 @@ describe("report html", () => {
     );
     // AND each row keeps its chronological index, so the newest (top) row
     // carries the higher index — the `#` column counts down top-to-bottom
-    expect(html.indexOf("<td>1</td>")).toBeLessThan(
-      html.indexOf("<td>0</td>"),
-    );
+    expect(html.indexOf("<td>1</td>")).toBeLessThan(html.indexOf("<td>0</td>"));
   });
 
   test("execution page inlines captured request/response payloads, noting truncation", () => {
