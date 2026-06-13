@@ -20146,6 +20146,13 @@ paths:
         history."
       tags:
         - retrospective
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Max runs to return (default 20, max 100)
       responses:
         "200":
           description: Successful response
@@ -20232,13 +20239,6 @@ paths:
                 required:
                   - runs
                 additionalProperties: false
-      parameters:
-        - name: limit
-          in: query
-          required: false
-          schema:
-            type: integer
-          description: Max runs to return (default 20, max 100)
   /v1/sanity/connect:
     post:
       operationId: sanity_connect_post
