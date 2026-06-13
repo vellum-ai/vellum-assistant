@@ -247,16 +247,29 @@ describe("CompactionTab — populated state", () => {
     expect(html).toContain("under-threshold");
   });
 
-  test("labels a start-only event (no end row) as incomplete", () => {
-    /** A start row with null end fields renders as incomplete. */
-    // GIVEN an event whose end-phase flags are all null
+  test("labels a legacy-fallback event with unrecoverable flags as unavailable", () => {
+    /**
+     * The `llm_request_logs` fallback leaves the outcome flags null even
+     * though the row exists only for a compaction that produced a summary,
+     * so the outcome is reported as unavailable, not as a failed/incomplete
+     * run that never recorded a result.
+     */
+    // GIVEN a legacy-projected event whose outcome flags are all null
     hookStub = populated([
-      makeEvent({ compacted: null, summaryFailed: null, skipReason: null }),
+      makeEvent({
+        compacted: null,
+        summaryFailed: null,
+        skipReason: null,
+        summaryModel: "summary-model",
+        summaryText: "Recovered summary.",
+      }),
     ]);
     // WHEN the tab renders
     const html = render();
-    // THEN it is labeled as incomplete
-    expect(html).toContain("Compaction incomplete");
+    // THEN it reports the outcome as unavailable without claiming failure
+    expect(html).toContain("Outcome unavailable");
+    expect(html).not.toContain("Compaction incomplete");
+    expect(html).not.toContain("never recorded a result");
   });
 
   test("indexes each card when more than one compaction is attributed", () => {

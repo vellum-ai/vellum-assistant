@@ -156,8 +156,13 @@ interface CompactionOutcome {
  * Derives the human-facing outcome from the event's state flags. The
  * compaction-logs table records `compacted` (did it actually replace
  * messages) and `summaryFailed` (did the summarizer call throw)
- * independently, plus a `skipReason` for no-ops. A start row with no
- * paired end row leaves all three null — the run never completed.
+ * independently, plus a `skipReason` for no-ops.
+ *
+ * All three flags land null only on the degraded `llm_request_logs`
+ * fallback, which can recover the summarizer call but not the
+ * applied/skipped decision or the before/after context state. Those rows
+ * exist only for compactions that produced a summary, so the outcome is
+ * unknown rather than failed — don't claim the run never completed.
  */
 function describeOutcome(event: CompactionTrailEvent): CompactionOutcome {
   if (event.summaryFailed === true) {
@@ -179,8 +184,9 @@ function describeOutcome(event: CompactionTrailEvent): CompactionOutcome {
   }
   return {
     tone: "neutral",
-    label: "Compaction incomplete",
-    detail: "The compactor started but never recorded a result.",
+    label: "Outcome unavailable",
+    detail:
+      "Detailed before/after metrics weren't recorded for this compaction.",
   };
 }
 
