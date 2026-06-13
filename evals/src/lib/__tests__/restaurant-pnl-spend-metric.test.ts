@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import scoreLargestCategoryFound from "../../../benchmarks/personal-intelligence/tests/restaurant-pnl-spend/metrics/largest-category-found";
-import { appendTranscriptTurn, ensureRunArtifacts } from "../metrics";
+import {
+  appendAssistantEvents,
+  appendTranscriptTurn,
+  ensureRunArtifacts,
+} from "../metrics";
 
 async function freshRunId(name: string): Promise<string> {
   const runId = `test-pnl-${name}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -75,6 +79,38 @@ describe("restaurant-pnl-spend largest-category-found metric", () => {
 
     // THEN it earns no credit
     expect(result.score).toBe(0);
+  });
+
+  test("folds streamed deltas into the final message, not just the last delta", async () => {
+    // GIVEN a Vellum-style run where the final answer arrives as several
+    // assistant_text_delta events whose last fragment is only the amount
+    const runId = await freshRunId("deltas");
+    await appendTranscriptTurn(runId, {
+      role: "simulator",
+      content: "Which category did I spend the most on?",
+      emittedAt: "2026-01-01T00:00:00.000Z",
+    });
+    await appendAssistantEvents(runId, [
+      {
+        message: { type: "assistant_text_delta", text: "Your largest spend " },
+        emittedAt: "2026-01-01T00:00:01.000Z",
+      },
+      {
+        message: { type: "assistant_text_delta", text: "category was Labor" },
+        emittedAt: "2026-01-01T00:00:02.000Z",
+      },
+      {
+        message: { type: "assistant_text_delta", text: " at $48,200." },
+        emittedAt: "2026-01-01T00:00:03.000Z",
+      },
+    ]);
+
+    // WHEN the metric scores the run
+    const result = await scoreLargestCategoryFound({ runId });
+
+    // THEN the coalesced message ("...Labor at $48,200.") earns full marks,
+    // even though the trailing delta alone (" at $48,200.") names no category
+    expect(result.score).toBe(1);
   });
 
   test("grades the final answer turn, not an in-passing mention while working", async () => {
