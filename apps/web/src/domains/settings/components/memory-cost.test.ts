@@ -9,6 +9,7 @@ const CALL_SITES = [
   { id: "mainAgent", domain: "agentLoop" },
   { id: "memoryExtraction", domain: "memory" },
   { id: "memoryRetrospective", domain: "memory" },
+  { id: "recall", domain: "memory" },
   { id: "conversationTitle", domain: "ui" },
 ];
 
@@ -36,6 +37,17 @@ describe("sumMemoryCallSiteCostUsd", () => {
       CALL_SITES,
     );
     expect(total).toBeCloseTo(0.1);
+  });
+
+  test("excludes recall, which keeps running when memory is disabled", () => {
+    const total = sumMemoryCallSiteCostUsd(
+      [
+        { groupKey: "recall", totalEstimatedCostUsd: 3 },
+        { groupKey: "memoryRetrospective", totalEstimatedCostUsd: 0.5 },
+      ],
+      CALL_SITES,
+    );
+    expect(total).toBeCloseTo(0.5);
   });
 
   test("ignores call sites the catalog does not know about", () => {

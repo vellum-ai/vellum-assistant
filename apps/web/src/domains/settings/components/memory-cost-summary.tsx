@@ -103,7 +103,7 @@ export function MemoryCostSummary({ assistantId }: { assistantId: string }) {
       </div>
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <span className="text-body-medium-lighter text-[var(--content-tertiary)]">
-          Includes the background work your assistant does to save and recall
+          Includes the background work your assistant does to save and look up
           memories.
         </span>
         <Link

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router";
 
 let daemonConfig: { memory?: { enabled?: boolean } } | undefined;
 let memoryOptOutCapability = true;
@@ -23,12 +24,58 @@ mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => "assistant-1",
 }));
 
+function usageRow(callSiteId: string, label: string, costUsd: number) {
+  return {
+    group: label,
+    groupId: callSiteId,
+    groupKey: callSiteId,
+    totalInputTokens: 100,
+    totalOutputTokens: 10,
+    totalCacheCreationTokens: 0,
+    totalCacheReadTokens: 0,
+    totalEstimatedCostUsd: costUsd,
+    eventCount: 1,
+  };
+}
+
 mock.module("@/generated/daemon/sdk.gen", () => ({
   configGet: mock(async () => ({ data: daemonConfig })),
   configPatch: async () => {
     await configPatchMock();
     return { data: daemonConfig };
   },
+  configLlmCallsitesGet: mock(async () => ({
+    data: {
+      domains: [{ id: "memory", displayName: "Memory" }],
+      callSites: [
+        {
+          id: "memoryRetrospective",
+          displayName: "Memory Retrospective",
+          description: "",
+          domain: "memory",
+        },
+        { id: "recall", displayName: "Recall", description: "", domain: "memory" },
+        {
+          id: "mainAgent",
+          displayName: "Main Agent",
+          description: "",
+          domain: "agentLoop",
+        },
+      ],
+    },
+    response: { ok: true },
+  })),
+  usageBreakdownGet: mock(async () => ({
+    data: {
+      breakdown: [
+        usageRow("memoryRetrospective", "Memory Retrospective", 0.25),
+        // recall stays available when memory is off, so it must not count.
+        usageRow("recall", "Recall", 5),
+        usageRow("mainAgent", "Main Agent", 10),
+      ],
+    },
+    response: { ok: true },
+  })),
 }));
 
 mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
@@ -59,7 +106,9 @@ function renderWithQuery(ui: React.ReactElement) {
   const queryKey = configGetQueryKey({ path: { assistant_id: "assistant-1" } });
   queryClient.setQueryData(queryKey, daemonConfig);
   return render(
-    <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 
@@ -100,6 +149,16 @@ describe("AdvancedPage memory settings", () => {
     await waitFor(() =>
       expect(configPatchMock).toHaveBeenCalled(),
     );
+  });
+
+  test("shows the toggle-gated memory cost for the last 30 days", async () => {
+    renderWithQuery(<AdvancedPage />);
+
+    expect(screen.getByText("Cost in the last 30 days")).toBeTruthy();
+    // Only memory-domain spend gated by the toggle: retrospective ($0.25),
+    // not recall ($5) or the main agent ($10).
+    await waitFor(() => expect(screen.getByText("$0.25")).toBeTruthy());
+    expect(screen.getByRole("link", { name: /View usage/ })).toBeTruthy();
   });
 
   test("hides memory settings when the assistant does not report opt-out support", () => {
