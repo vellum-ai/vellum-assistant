@@ -1,7 +1,6 @@
 import { Copy } from "lucide-react";
 import { type ReactNode } from "react";
 
-import { FileMarkdown } from "@/components/file-markdown";
 import { ToolDefinitionsCard } from "@/domains/chat/inspector/components/tool-definitions-card";
 import { parseToolDefinitions } from "@/domains/chat/inspector/tool-definitions";
 import type {
@@ -16,10 +15,12 @@ interface PromptTabProps {
 
 /**
  * Prompt tab rendering each normalized request section as a card.
- * Text sections render as Markdown; structured payloads and tool
- * results render as code-style `<pre>` text — tool output is program
- * output, not prose. Tool definitions render as an expandable per-tool
- * breakdown. The raw provider JSON lives on the Raw tab.
+ * Every section renders as raw `<pre>` text so the prompt is shown
+ * exactly as sent — no Markdown formatting applied. Structured payloads
+ * and tool output stay in a capped scroll box (they can be huge);
+ * prompt text renders uncapped so the full prompt is readable inline.
+ * Tool definitions render as an expandable per-tool breakdown. The raw
+ * provider JSON lives on the Raw tab.
  */
 export function PromptTab({ entry }: PromptTabProps): ReactNode {
   const sections = entry.requestSections ?? [];
@@ -93,7 +94,9 @@ function SectionCard({ section, index }: SectionCardProps): ReactNode {
   const kind = humanKindLabel(section.kind);
   const formatLabel = languageFormatLabel(section.language ?? null);
   const { text, isStructured } = renderContent(section);
-  const renderAsCode = isStructured || isToolResultKind(section.kind);
+  // Tool output and structured payloads can be huge, so cap their height
+  // into a scroll box; prompt text stays uncapped for inline reading.
+  const capHeight = isStructured || isToolResultKind(section.kind);
 
   return (
     <Card>
@@ -132,29 +135,16 @@ function SectionCard({ section, index }: SectionCardProps): ReactNode {
         />
       </div>
 
-      {renderAsCode ? (
-        <pre
-          className="mt-3 overflow-auto whitespace-pre-wrap break-words rounded-md p-3 text-body-small-default"
-          style={{
-            background: "var(--surface-base)",
-            color: "var(--content-default)",
-            maxHeight: "320px",
-          }}
-        >
-          {text}
-        </pre>
-      ) : (
-        <div
-          className="mt-3 min-w-0 break-words"
-          style={{ color: "var(--content-default)" }}
-        >
-          <FileMarkdown
-            content={text}
-            stripFrontmatter={false}
-            parseHtml={false}
-          />
-        </div>
-      )}
+      <pre
+        className="mt-3 overflow-auto whitespace-pre-wrap break-words rounded-md p-3 text-body-small-default"
+        style={{
+          background: "var(--surface-base)",
+          color: "var(--content-default)",
+          ...(capHeight ? { maxHeight: "320px" } : {}),
+        }}
+      >
+        {text}
+      </pre>
     </Card>
   );
 }
