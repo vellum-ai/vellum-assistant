@@ -19,6 +19,15 @@
  * - A small set of tools is {@link WORKFLOW_FORBIDDEN_TOOLS forbidden} and can
  *   never be granted to a leaf regardless of declaration (recursion vectors,
  *   the workflow-management tools themselves, and CES bundle management).
+ * - Host-proxy tools (resolved `executionTarget === "host"` — e.g. `host_bash`,
+ *   `host_file_*`, computer-use) are rejected too: a leaf builds a synthetic,
+ *   anonymous `ToolContext` that carries none of the originating turn's
+ *   `transportInterface` / `sourceActorPrincipalId` / proxy-resolver fields, so
+ *   a host tool would either fall back to in-container execution or proxy to the
+ *   user's machine WITHOUT the authenticated-identity binding those tools rely
+ *   on. Unattended, fanned-out leaves must not perform host side effects in v1.
+ *   (If host execution is ever wanted, the deliberate path is to thread the
+ *   originating tool context through the engine — not to relax this gate.)
  *
  * This module is pure logic: it performs no feature-flag checks and no I/O
  * beyond the synchronous tool-registry lookup. The `workflows` flag gates the
@@ -27,6 +36,7 @@
 
 import { z } from "zod";
 
+import { resolveExecutionTarget } from "../tools/execution-target.js";
 import { getTool } from "../tools/registry.js";
 import type { Tool } from "../tools/types.js";
 
@@ -118,7 +128,7 @@ export function manifestGrantsSideEffects(rawCapabilities: unknown): boolean {
 export class CapabilityResolutionError extends Error {
   constructor(
     message: string,
-    readonly reason: "unknown_tool" | "forbidden_tool",
+    readonly reason: "unknown_tool" | "forbidden_tool" | "host_tool",
     readonly toolName: string,
   ) {
     super(message);
@@ -200,6 +210,22 @@ export function resolveCapabilities(
       throw new CapabilityResolutionError(
         `Tool "${name}" declared in the workflow manifest does not exist in the tool registry.`,
         "unknown_tool",
+        name,
+      );
+    }
+    // Host-proxy tools run on the user's machine (or fall back to in-container
+    // execution) and depend on originating-turn context — `transportInterface`,
+    // `sourceActorPrincipalId`, the proxy resolver — that a leaf's synthetic,
+    // anonymous ToolContext does not carry. Granting one to an unattended,
+    // fanned-out leaf would perform host side effects in the wrong environment
+    // or without the authenticated-identity binding the proxy requires. Reject
+    // loudly at the consent point rather than silently mis-route at run time.
+    if (resolveExecutionTarget(tool) === "host") {
+      throw new CapabilityResolutionError(
+        `Tool "${name}" runs on the host (executionTarget "host") and cannot ` +
+          `be granted to a workflow leaf, which runs unattended without the ` +
+          `originating turn's host-routing context.`,
+        "host_tool",
         name,
       );
     }

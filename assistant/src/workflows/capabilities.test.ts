@@ -6,7 +6,12 @@ import {
   __resetRegistryForTesting,
   registerTool,
 } from "../tools/registry.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
+import type {
+  ExecutionTarget,
+  Tool,
+  ToolContext,
+  ToolExecutionResult,
+} from "../tools/types.js";
 import {
   CapabilityManifestSchema,
   CapabilityResolutionError,
@@ -16,13 +21,16 @@ import {
   WORKFLOW_READONLY_BASELINE,
 } from "./capabilities.js";
 
-function makeFakeTool(name: string): Tool {
+function makeFakeTool(
+  name: string,
+  executionTarget: ExecutionTarget = "sandbox",
+): Tool {
   return {
     name,
     description: `Fake ${name}`,
     category: "test",
     defaultRiskLevel: RiskLevel.Low,
-    executionTarget: "sandbox",
+    executionTarget,
     input_schema: { type: "object", properties: {}, required: [] },
     async execute(
       _input: Record<string, unknown>,
@@ -137,6 +145,28 @@ describe("resolveCapabilities", () => {
       expect(err).toBeInstanceOf(CapabilityResolutionError);
       expect((err as CapabilityResolutionError).reason).toBe("forbidden_tool");
       expect((err as CapabilityResolutionError).toolName).toBe(forbidden);
+    }
+  });
+
+  test("rejects a declared host-proxy tool (executionTarget host)", () => {
+    // A leaf builds a synthetic, anonymous ToolContext that carries none of the
+    // originating turn's host-routing fields (transportInterface,
+    // sourceActorPrincipalId, proxy resolver), so a host tool would mis-route
+    // at run time. Rejection keys off the resolved executionTarget, NOT the
+    // name — `send_to_host` has no `host_` prefix yet must still be rejected.
+    // Every real host tool (host_bash, host_file_*, computer-use) declares
+    // `executionTarget: "host"`, so this is the path that catches them.
+    registerTool(makeFakeTool("send_to_host", "host"));
+    const manifest = CapabilityManifestSchema.parse({
+      tools: ["send_to_host"],
+    });
+    try {
+      resolveCapabilities(manifest);
+      throw new Error("expected resolveCapabilities to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(CapabilityResolutionError);
+      expect((err as CapabilityResolutionError).reason).toBe("host_tool");
+      expect((err as CapabilityResolutionError).toolName).toBe("send_to_host");
     }
   });
 
