@@ -807,7 +807,22 @@ export function normalizeSlackBlockActions(
   const channelId = payload.channel?.id;
   if (!channelId) return null;
 
-  const routing = resolveAssistant(config, channelId, userId);
+  // DM channels (D...) fall back to the default assistant when the DM
+  // channel ID isn't in the routing table — consistent with the fallback in
+  // normalizeSlackDirectMessage, normalizeSlackReaction, and the message
+  // edit/delete normalizers. Without this, button clicks on guardian
+  // notifications sent as DMs are silently dropped.
+  let routing = resolveAssistant(config, channelId, userId);
+  if (
+    isRejection(routing) &&
+    config.defaultAssistantId &&
+    channelId.startsWith("D")
+  ) {
+    routing = {
+      assistantId: config.defaultAssistantId,
+      routeSource: "default" as const,
+    };
+  }
   if (isRejection(routing)) return null;
 
   const callbackData = action.value ?? action.action_id;
