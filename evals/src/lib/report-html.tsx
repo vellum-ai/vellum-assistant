@@ -1173,17 +1173,35 @@ const SURFACE_STORAGE_POLYFILL = `<script>
 </script>`;
 
 /**
- * Prepend the storage polyfill so it runs before any inline page script.
- * Insertion priority matches the web app's bridge: right after `<head>`,
- * else prepended to the raw markup.
+ * No-op `window.vellum` bridge prepended into the sandboxed surface iframe.
+ * App-backed pages expect the host APIs that apps/web/src/utils/sandbox-bridge.ts
+ * injects (`window.vellum.sendAction` / `window.vellum.fetch`) and call them
+ * during init; a static report has no daemon to forward to, so this stub keeps
+ * those pages from throwing on startup — actions are dropped and fetches reject.
+ */
+const SURFACE_VELLUM_BRIDGE = `<script>
+(function(){
+  window.vellum={
+    route:null,
+    sendAction:function(){},
+    fetch:function(){return Promise.reject(new Error("vellum bridge unavailable in offline report"));}
+  };
+})();
+</script>`;
+
+/**
+ * Prepend the storage polyfill and the no-op vellum bridge so both run before
+ * any inline page script. Insertion priority matches the web app's bridge:
+ * right after `<head>`, else prepended to the raw markup.
  */
 function prepareSurfaceHtml(html: string): string {
+  const prelude = SURFACE_STORAGE_POLYFILL + SURFACE_VELLUM_BRIDGE;
   const headMatch = /<head(\s[^>]*)?>/i.exec(html);
   if (headMatch) {
     const at = headMatch.index + headMatch[0].length;
-    return html.slice(0, at) + SURFACE_STORAGE_POLYFILL + html.slice(at);
+    return html.slice(0, at) + prelude + html.slice(at);
   }
-  return SURFACE_STORAGE_POLYFILL + html;
+  return prelude + html;
 }
 
 function ToolCallBlock({

@@ -563,6 +563,10 @@ describe("report html", () => {
     // AND a storage polyfill is injected so sandboxed pages that touch
     // localStorage during init still render (sessionStorage appears only here)
     expect(html).toContain("sessionStorage");
+    // AND a no-op window.vellum bridge is injected so app-backed pages that
+    // call the host APIs during init don't throw in the offline report
+    expect(html).toContain("window.vellum");
+    expect(html).toContain("sendAction");
     // AND the numeric height hint sizes the frame
     expect(html).toContain("520px");
     // AND the raw payload stays available under a collapsible
