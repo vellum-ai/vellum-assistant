@@ -141,3 +141,42 @@ describe("createWorkflowSandbox — functional", () => {
     expect(result).toBe("undefined");
   });
 });
+
+// Workflow scripts must be deterministic so journaled resume replays identically
+// between the original run and a resume. Wall-clock and entropy are banned.
+describe("createWorkflowSandbox — determinism bans", () => {
+  const banned = async (script: string): Promise<void> => {
+    const sandbox = createWorkflowSandbox({ hostFunctions: {} });
+    await expect(sandbox.run(script, null)).rejects.toThrow(
+      /non-deterministic|new Date/,
+    );
+  };
+
+  test("Date.now() is banned", () => banned(`return Date.now();`));
+  test("new Date() is banned", () => banned(`return new Date().getTime();`));
+  test("Math.random() is banned", () => banned(`return Math.random();`));
+
+  test("new Date() cannot be reached via Date.prototype.constructor", () =>
+    // The wrapper shares RealDate.prototype; if its `constructor` still pointed
+    // at the original Date, this would bypass the ban and read wall-clock time.
+    banned(`return new (Date.prototype.constructor)().getTime();`));
+
+  test("an instance's .constructor is the banned wrapper (no escape)", () =>
+    // `new Date(args)` returns a RealDate whose prototype is the shared object,
+    // so `inst.constructor` must resolve to the banned wrapper, not the original.
+    banned(
+      `const d = new Date(1577836800000); return new (d.constructor)().getTime();`,
+    ));
+
+  test("new Date(timestamp) still works and stays instanceof Date", async () => {
+    const sandbox = createWorkflowSandbox({ hostFunctions: {} });
+    const result = await sandbox.run(
+      `const d = new Date(1577836800000);
+       return [d instanceof Date, d.getUTCFullYear()];`,
+      null,
+    );
+    // 1577836800000 = 2020-01-01T00:00:00Z. The explicit-arg path is allowed
+    // (deterministic); only the zero-arg wall-clock read is banned.
+    expect(result).toEqual([true, 2020]);
+  });
+});

@@ -147,6 +147,19 @@ function buildBootstrap(hostFunctionNames: string[]): string {
     return new RealDate(...dateArgs);
   };
   BannedDate.prototype = RealDate.prototype;
+  // Close the constructor escape hatch: the shared prototype's constructor still
+  // points at the original Date, so new (Date.prototype.constructor)() -- and
+  // someDate.constructor on any instance, since new Date(args) returns a RealDate
+  // whose prototype is this same object -- would bypass the new-Date() ban and
+  // read wall-clock time. Repoint it at the banned wrapper and lock the slot so a
+  // script can neither reach nor restore RealDate (otherwise closure-private).
+  // instanceof Date is unaffected because the prototype object itself is unchanged.
+  Object.defineProperty(RealDate.prototype, "constructor", {
+    value: BannedDate,
+    writable: false,
+    enumerable: false,
+    configurable: false,
+  });
   BannedDate.UTC = RealDate.UTC;
   BannedDate.parse = RealDate.parse;
   BannedDate.now = () => { throw determinismError("Date.now()"); };
