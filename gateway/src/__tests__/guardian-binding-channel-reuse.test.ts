@@ -176,7 +176,7 @@ describe("createGuardianBinding", () => {
     expect(rows[0]).toMatchObject({
       id: "seed-channel",
       contact_id: "guardian-contact",
-      address: "U123EXAMPLE",
+      address: "u123example",
       external_user_id: "U123EXAMPLE",
       status: "active",
       policy: "allow",
@@ -184,7 +184,7 @@ describe("createGuardianBinding", () => {
     });
   });
 
-  test("repairs an old lowercase Slack address by matching the preserved external user ID", async () => {
+  test("claims an existing lowercased Slack channel via case-insensitive match", async () => {
     seedGuardianContact();
     seedSlackContactChannel("u123example");
 
@@ -217,14 +217,14 @@ describe("createGuardianBinding", () => {
       {
         id: "seed-channel",
         contact_id: "guardian-contact",
-        address: "U123EXAMPLE",
+        address: "u123example",
         external_user_id: "U123EXAMPLE",
         status: "active",
       },
     ]);
   });
 
-  test("prefers the cased guardian channel over a lowercase seed duplicate", async () => {
+  test("deduplicates case-insensitive address collisions during guardian binding", async () => {
     seedGuardianContact();
     seedRevokedGuardianSlackChannel();
     seedSlackContactChannel("u123example");
@@ -261,14 +261,8 @@ describe("createGuardianBinding", () => {
       {
         id: "guardian-channel",
         contact_id: "guardian-contact",
-        address: "U123EXAMPLE",
-        status: "active",
-      },
-      {
-        id: "seed-channel",
-        contact_id: "seed-contact",
         address: "u123example",
-        status: "unverified",
+        status: "active",
       },
     ]);
   });

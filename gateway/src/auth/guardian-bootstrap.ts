@@ -255,6 +255,14 @@ export async function createGuardianBinding(
     }
 
     if (claimableChannels[0] || existingChannels[0]) {
+      // Remove case-insensitive duplicates that would conflict with the
+      // lowercased address we're about to write.
+      await assistantDbRun(
+        `DELETE FROM contact_channels
+         WHERE type = ? AND LOWER(address) = LOWER(?) AND id != ?`,
+        [params.channel, params.externalUserId, channelId],
+      );
+
       await assistantDbRun(
         `UPDATE contact_channels
          SET contact_id = ?, address = ?, external_user_id = ?, external_chat_id = ?,
