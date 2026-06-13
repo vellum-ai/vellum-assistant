@@ -283,6 +283,13 @@ function callHashOf(prompt: string, opts: LeafCallOptions): string {
     .digest("hex");
 }
 
+/** Journal call-hash for a nested `workflow(name)` resolution. */
+function workflowCallHashOf(name: string): string {
+  return createHash("sha256")
+    .update(deterministicStringify({ workflow: name }))
+    .digest("hex");
+}
+
 /**
  * Extract the pure-literal `export const meta = { name, description }` from a
  * script. Rejects a computed/missing meta. The literal is parsed via
@@ -632,13 +639,47 @@ export async function executeWorkflow(
       if (depth >= 1) throw new WorkflowNestingDepthError();
       if (signal?.aborted) throw new AbortedSignal();
       const childName = String(nameArg);
-      const saved = library.getWorkflow(childName);
-      if (!saved) throw new WorkflowNotFoundError(childName);
+
+      // Snapshot the resolved child source under its own journal `seq` so a
+      // resumed run executes the SAME child code the original launch did. The
+      // child resolves from a workspace file that may have been EDITED or
+      // DELETED since; without a snapshot, resume would run different child code
+      // against the original run's journal/cap accounting (mixing new
+      // orchestration with replayed leaf results) or fail outright if the file
+      // is gone. The `seq` is drawn in deterministic call order, exactly like a
+      // leaf, so replay realigns. The child's own leaves draw the seqs AFTER it.
+      const seq = nextSeq++;
+      const hash = workflowCallHashOf(childName);
+      const cached = journal.getJournalEntry(runId, seq);
+      let source: string;
+      if (
+        cached &&
+        cached.callHash === hash &&
+        cached.status === "completed" &&
+        cached.result &&
+        typeof (cached.result as { source?: unknown }).source === "string"
+      ) {
+        source = (cached.result as { source: string }).source;
+      } else {
+        const saved = library.getWorkflow(childName);
+        if (!saved) throw new WorkflowNotFoundError(childName);
+        source = saved.source;
+        journal.appendJournalEntry({
+          runId,
+          seq,
+          callHash: hash,
+          kind: "workflow",
+          request: { name: childName, args: childArgs ?? null },
+          result: { source },
+          status: "completed",
+        });
+      }
+
       // The child runs in its OWN sandbox VM (the parent VM is suspended in
       // asyncify and cannot be re-entered), but with host functions bound to the
       // SAME shared run-state and a child label prefix, at depth 1.
       const childHostFns = buildHostFunctions(childName, depth + 1);
-      return runScriptInSandbox(saved.source, childArgs ?? null, childHostFns);
+      return runScriptInSandbox(source, childArgs ?? null, childHostFns);
     };
 
     // Always-available host functions.

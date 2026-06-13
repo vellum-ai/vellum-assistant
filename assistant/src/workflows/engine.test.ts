@@ -887,12 +887,20 @@ describe("executeWorkflow — nested workflow()", () => {
       fake.runner,
     );
 
-    // One contiguous seq sequence across the parent + child boundary.
+    // One contiguous seq sequence across the parent + child boundary. The
+    // workflow() resolution itself takes seq 1 (snapshotting the child source),
+    // then the child's two leaves take 2 and 3, and the parent's p2 takes 4.
     const journal = journalStore.getJournal("wf-nest-seq");
-    expect(journal.map((e) => e.seq)).toEqual([0, 1, 2, 3]);
+    expect(journal.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4]);
+    // The workflow() resolution is journaled as a "workflow" snapshot at seq 1.
+    const snapshot = journal.find((e) => e.seq === 1);
+    expect(snapshot?.kind).toBe("workflow");
+    expect((snapshot?.request as { name: string }).name).toBe("child");
     // Child leaf labels are attributed to the child workflow.
-    const childEntries = journal.filter((e) =>
-      ["c0", "c1"].includes((e.request as { prompt: string }).prompt),
+    const childEntries = journal.filter(
+      (e) =>
+        e.kind === "agent" &&
+        ["c0", "c1"].includes((e.request as { prompt: string }).prompt),
     );
     expect(
       childEntries.map(
@@ -963,5 +971,62 @@ describe("executeWorkflow — nested workflow()", () => {
     );
     expect(res.status).toBe("failed");
     expect(fake.prompts).toEqual([]);
+  });
+
+  test("resume uses the journaled child source after the saved child is deleted", async () => {
+    writeSaved(
+      "child.workflow.ts",
+      `export const meta = { name: "child", description: "c" };
+       return agent("c0");`,
+    );
+    const parent = `const c = workflow("child", {});
+       const p = agent("p1");
+       return [c, p];`;
+
+    const first = makeFakeRunner();
+    const res1 = await execute("wf-nest-resume-del", parent, first.runner);
+    expect(res1.status).toBe("completed");
+    expect(res1.result).toEqual(["out:c0", "out:p1"]);
+    expect(first.prompts).toEqual(["c0", "p1"]);
+
+    // Delete the saved child. A resume that re-resolved from the workspace file
+    // would throw WorkflowNotFoundError; the journaled snapshot must be used.
+    rmSync(join(workspaceDir, "workflows", "child.workflow.ts"));
+
+    const second = makeFakeRunner();
+    const res2 = await execute("wf-nest-resume-del", parent, second.runner);
+    expect(res2.status).toBe("completed");
+    expect(res2.result).toEqual(["out:c0", "out:p1"]);
+    // Everything replays from the journal — no runner calls, and crucially no
+    // WorkflowNotFoundError despite the deleted file.
+    expect(second.prompts).toEqual([]);
+  });
+
+  test("resume runs the original child source even after the saved child is edited", async () => {
+    writeSaved(
+      "child.workflow.ts",
+      `export const meta = { name: "child", description: "c" };
+       return agent("c0");`,
+    );
+    const parent = `return workflow("child", {});`;
+
+    const first = makeFakeRunner();
+    const res1 = await execute("wf-nest-resume-edit", parent, first.runner);
+    expect(res1.result).toBe("out:c0");
+    expect(first.prompts).toEqual(["c0"]);
+
+    // Edit the saved child to spawn a DIFFERENT leaf. Resume must ignore the
+    // new file and re-run the snapshotted original, whose leaf replays from the
+    // journal — so the edited "EDITED" leaf never runs.
+    writeSaved(
+      "child.workflow.ts",
+      `export const meta = { name: "child", description: "c" };
+       return agent("EDITED");`,
+    );
+
+    const second = makeFakeRunner();
+    const res2 = await execute("wf-nest-resume-edit", parent, second.runner);
+    expect(res2.result).toBe("out:c0");
+    expect(second.prompts).toEqual([]);
   });
 });

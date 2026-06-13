@@ -25,11 +25,13 @@ export type WorkflowRunStatus =
   | "interrupted";
 
 /**
- * The journal records leaf-agent calls. The engine only ever writes `"agent"`;
- * the column stays TEXT so adding kinds later needs no migration. (Speculative
- * `"hostFn"` / `"workflow"` variants were removed — narrow to what is emitted.)
+ * The journal records leaf-agent calls (`"agent"`) and nested `workflow()`
+ * resolutions (`"workflow"`). A `"workflow"` entry snapshots the resolved child
+ * source under its own `seq` so a resumed run re-executes the SAME child code
+ * the original launch did, even if the saved workflow was since edited or
+ * deleted. The column stays TEXT so adding kinds later needs no migration.
  */
-export type WorkflowJournalKind = "agent";
+export type WorkflowJournalKind = "agent" | "workflow";
 
 /** A persisted workflow run row, with JSON columns parsed into values. */
 export interface WorkflowRun {
