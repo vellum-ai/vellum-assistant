@@ -224,13 +224,16 @@ export function useSidebarState({
         visibleRecentsCount > SIDEBAR_CONVERSATION_LIMIT &&
         grouped.recents.length > SIDEBAR_CONVERSATION_LIMIT,
       onShowMore: () => {
-        setVisibleRecentsCount((prev) => {
-          const nextCount = Math.max(prev, effectiveVisibleCount) + SIDEBAR_CONVERSATION_LIMIT;
-          if (nextCount >= grouped.recents.length && hasNextPage) {
-            fetchNextPage?.();
-          }
-          return Math.min(grouped.recents.length + SIDEBAR_CONVERSATION_LIMIT, nextCount);
-        });
+        setVisibleRecentsCount((prev) =>
+          Math.min(
+            grouped.recents.length + SIDEBAR_CONVERSATION_LIMIT,
+            Math.max(prev, effectiveVisibleCount) + SIDEBAR_CONVERSATION_LIMIT,
+          ),
+        );
+        const nextCount = Math.max(visibleRecentsCount, effectiveVisibleCount) + SIDEBAR_CONVERSATION_LIMIT;
+        if (nextCount >= grouped.recents.length && hasNextPage) {
+          fetchNextPage?.();
+        }
       },
       onShowLess: () => setVisibleRecentsCount(SIDEBAR_CONVERSATION_LIMIT),
     };
