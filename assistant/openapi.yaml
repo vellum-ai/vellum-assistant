@@ -26600,6 +26600,11 @@ paths:
                   reason:
                     type: string
                     description: Explanation when applied is false (e.g. 'already_resolved', 'expired', 'principal_mismatch').
+                  replyText:
+                    type: string
+                    description:
+                      Guardian-facing reply from the resolver (e.g. verification code for access-request approvals). Present only
+                      when applied is true and the resolver produced a reply.
                 required:
                   - ok
                 additionalProperties: false
