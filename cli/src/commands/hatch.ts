@@ -182,6 +182,9 @@ interface HatchArgs {
   flagEnvVars: Record<string, string>;
   analyze: boolean;
   disablePlatform: boolean;
+  netnsContainer: string | null;
+  gatewayPort: number | null;
+  assistantCaCert: string | null;
 }
 
 function parseArgs(): HatchArgs {
@@ -189,8 +192,10 @@ function parseArgs(): HatchArgs {
     process.argv.slice(3),
   );
   const flagEnvVars = { ...readAmbientFlagEnvVars(), ...cliFlagVars };
-  const disablePlatformAmbient = process.env.VELLUM_DISABLE_PLATFORM?.trim().toLowerCase();
-  let disablePlatform = disablePlatformAmbient === "true" || disablePlatformAmbient === "1";
+  const disablePlatformAmbient =
+    process.env.VELLUM_DISABLE_PLATFORM?.trim().toLowerCase();
+  let disablePlatform =
+    disablePlatformAmbient === "true" || disablePlatformAmbient === "1";
   let species: Species = DEFAULT_SPECIES;
   let detached = false;
   let keepAlive = false;
@@ -200,6 +205,9 @@ function parseArgs(): HatchArgs {
   let sourcePath: string | null = null;
   const configValues: Record<string, string> = {};
   let analyze = false;
+  let netnsContainer: string | null = null;
+  let gatewayPort: number | null = null;
+  let assistantCaCert: string | null = null;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -238,6 +246,15 @@ function parseArgs(): HatchArgs {
       );
       console.log(
         "  --disable-platform        Suppress all outbound platform API calls",
+      );
+      console.log(
+        "  --netns-container <name>  Join an existing container's network namespace (docker target only) instead of creating a per-instance network. The namespace owner publishes host ports, so --gateway-port is required.",
+      );
+      console.log(
+        "  --gateway-port <port>     Use an explicit host port for the gateway runtime URL instead of auto-allocating. Required with --netns-container.",
+      );
+      console.log(
+        "  --assistant-ca-cert <path>  Trust an extra PEM CA bundle in the assistant container (NODE_EXTRA_CA_CERTS) from process start. Useful behind a TLS-terminating egress proxy.",
       );
       process.exit(0);
     } else if (arg === "-d") {
@@ -301,11 +318,38 @@ function parseArgs(): HatchArgs {
       i++;
     } else if (arg === "--disable-platform") {
       disablePlatform = true;
+    } else if (arg === "--netns-container") {
+      const next = args[i + 1];
+      if (!next || next.startsWith("-")) {
+        console.error("Error: --netns-container requires a container name");
+        process.exit(1);
+      }
+      netnsContainer = next;
+      i++;
+    } else if (arg === "--gateway-port") {
+      const next = args[i + 1];
+      const parsed = next ? Number(next) : NaN;
+      if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 65535) {
+        console.error(
+          "Error: --gateway-port requires an integer port in 1-65535",
+        );
+        process.exit(1);
+      }
+      gatewayPort = parsed;
+      i++;
+    } else if (arg === "--assistant-ca-cert") {
+      const next = args[i + 1];
+      if (!next || next.startsWith("-")) {
+        console.error("Error: --assistant-ca-cert requires a path argument");
+        process.exit(1);
+      }
+      assistantCaCert = next;
+      i++;
     } else if (VALID_SPECIES.includes(arg as Species)) {
       species = arg as Species;
     } else {
       console.error(
-        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --watch, --source <path>, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>, --config <key=value>, --flag <key=value>, --analyze, --disable-platform`,
+        `Error: Unknown argument '${arg}'. Valid options: ${VALID_SPECIES.join(", ")}, -d, --watch, --source <path>, --keep-alive, --name <name>, --remote <${VALID_REMOTE_HOSTS.join("|")}>, --config <key=value>, --flag <key=value>, --analyze, --disable-platform, --netns-container <name>, --gateway-port <port>, --assistant-ca-cert <path>`,
       );
       process.exit(1);
     }
@@ -323,6 +367,9 @@ function parseArgs(): HatchArgs {
     flagEnvVars,
     analyze,
     disablePlatform,
+    netnsContainer,
+    gatewayPort,
+    assistantCaCert,
   };
 }
 
@@ -559,6 +606,9 @@ export async function hatch(): Promise<void> {
     flagEnvVars,
     analyze,
     disablePlatform,
+    netnsContainer,
+    gatewayPort,
+    assistantCaCert,
   } = parseArgs();
 
   if (disablePlatform) {
@@ -580,6 +630,25 @@ export async function hatch(): Promise<void> {
     process.exit(1);
   }
 
+  if (
+    (netnsContainer !== null ||
+      gatewayPort !== null ||
+      assistantCaCert !== null) &&
+    remote !== "docker"
+  ) {
+    console.error(
+      "Error: --netns-container, --gateway-port, and --assistant-ca-cert are only supported for docker hatch targets.",
+    );
+    process.exit(1);
+  }
+
+  if (netnsContainer !== null && gatewayPort === null) {
+    console.error(
+      "Error: --gateway-port is required with --netns-container (the namespace owner publishes the port before hatch runs).",
+    );
+    process.exit(1);
+  }
+
   if (UNSUPPORTED_REMOTE_HATCH_TARGETS.has(remote)) {
     console.error(
       `Error: \`vellum hatch --remote ${remote}\` is not a supported provisioning target yet.`,
@@ -591,15 +660,33 @@ export async function hatch(): Promise<void> {
   }
 
   if (remote === "local") {
-    await hatchLocal(species, name, watch, keepAlive, configValues, flagEnvVars);
+    await hatchLocal(
+      species,
+      name,
+      watch,
+      keepAlive,
+      configValues,
+      flagEnvVars,
+    );
     return;
   }
 
   if (remote === "docker") {
-    await hatchDocker(species, detached, name, watch, configValues, flagEnvVars, {
-      sourcePath,
-      analyze,
-    });
+    await hatchDocker(
+      species,
+      detached,
+      name,
+      watch,
+      configValues,
+      flagEnvVars,
+      {
+        sourcePath,
+        analyze,
+        netnsContainer: netnsContainer ?? undefined,
+        gatewayPort: gatewayPort ?? undefined,
+        assistantCaCertPath: assistantCaCert ?? undefined,
+      },
+    );
     return;
   }
 

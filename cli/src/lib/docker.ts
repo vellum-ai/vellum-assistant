@@ -276,6 +276,39 @@ function ensureLocalBinOnPath(): void {
 
 export interface HatchDockerOptions {
   setupProviderCredentials?: boolean;
+  /**
+   * Path to a local source tree to build images from before hatching. When
+   * provided, this path is used directly as the repo root and no file
+   * watcher is started — useful for callers (e.g. evals) that want each
+   * run to pick up local CLI changes without keeping a long-lived watcher
+   * process around. `--watch` independently auto-detects the repo root and
+   * also enables hot-reload.
+   */
+  sourcePath?: string | null;
+  analyze?: boolean;
+  /**
+   * Name of an existing container whose network namespace the assistant,
+   * gateway, and credential-executor join (`--network=container:<name>`),
+   * instead of the assistant owning a freshly-created per-instance network.
+   * When set, hatch creates no Docker network and publishes no host ports —
+   * the namespace owner is responsible for publishing the gateway port — so
+   * `gatewayPort` must also be supplied (the owner had to publish it before
+   * hatch ran).
+   */
+  netnsContainer?: string;
+  /**
+   * Explicit host port to record as the gateway's `runtimeUrl` instead of
+   * auto-allocating a free port. Required alongside `netnsContainer`, where
+   * the namespace owner — not hatch — owns port allocation and publishing.
+   */
+  gatewayPort?: number;
+  /**
+   * Host path to a PEM CA bundle bind-mounted into the assistant container
+   * and trusted at process start via `NODE_EXTRA_CA_CERTS`. Lets the daemon
+   * trust a TLS-terminating egress proxy from its very first outbound
+   * connection.
+   */
+  assistantCaCertPath?: string;
 }
 
 export type DockerProviderCredentialSetupAction =
@@ -669,6 +702,8 @@ export async function startContainers(
     imageTags: Record<ServiceName, string>;
     instanceName: string;
     res: ReturnType<typeof dockerResourceNames>;
+    netnsContainer?: string;
+    assistantCaCertPath?: string;
   },
   log: (msg: string) => void,
 ): Promise<void> {
@@ -891,6 +926,8 @@ function startFileWatcher(opts: {
   instanceName: string;
   repoRoot: string;
   res: ReturnType<typeof dockerResourceNames>;
+  netnsContainer?: string;
+  assistantCaCertPath?: string;
 }): () => void {
   const { gatewayPort, imageTags, instanceName, repoRoot, res } = opts;
 
@@ -912,6 +949,8 @@ function startFileWatcher(opts: {
     instanceName,
     res,
     avatarDevicePath: resolveAvatarDevicePath(),
+    netnsContainer: opts.netnsContainer,
+    assistantCaCertPath: opts.assistantCaCertPath,
   });
   const containerForService: Record<ServiceName, string> = {
     assistant: res.assistantContainer,
@@ -1030,19 +1069,6 @@ function startFileWatcher(opts: {
   };
 }
 
-export interface HatchDockerOptions {
-  /**
-   * Path to a local source tree to build images from before hatching. When
-   * provided, this path is used directly as the repo root and no file
-   * watcher is started — useful for callers (e.g. evals) that want each
-   * run to pick up local CLI changes without keeping a long-lived watcher
-   * process around. `--watch` independently auto-detects the repo root and
-   * also enables hot-reload.
-   */
-  sourcePath?: string | null;
-  analyze?: boolean;
-}
-
 export async function hatchDocker(
   species: Species,
   detached: boolean,
@@ -1069,21 +1095,32 @@ export async function hatchDocker(
     await ensureDockerInstalled();
 
     const instanceName = generateInstanceName(species, name);
-    // Resolve the gateway's host port dynamically. The env-default
+    // Resolve the gateway's host port. When joining an externally-owned
+    // network namespace, the owner has already published the gateway port,
+    // so the caller — not hatch — owns port allocation; use the supplied
+    // port verbatim. Otherwise resolve it dynamically: the env-default
     // (production 7830 / non-prod overrides) is just the *preferred*
-    // starting point — if it's taken by another local assistant, eval
-    // run, or unrelated process, we walk upward until we find a free
-    // port. This replaces the previous "first one in wins, everyone
-    // else gets a docker bind error" behavior and removes the need for
-    // an orphan-cleanup pre-flight in the evals harness.
-    const preferredGatewayPort = getDefaultPorts(
-      getCurrentEnvironment(),
-    ).gateway;
-    const gatewayPort = await findOpenPort(preferredGatewayPort);
-    if (gatewayPort !== preferredGatewayPort) {
-      log(
-        `Preferred gateway port ${preferredGatewayPort} is in use; allocated ${gatewayPort} for this instance.`,
-      );
+    // starting point — if it's taken by another local assistant, eval run,
+    // or unrelated process, we walk upward until we find a free port, so
+    // concurrent instances don't collide on a docker bind error.
+    let gatewayPort: number;
+    if (options.netnsContainer) {
+      if (options.gatewayPort === undefined) {
+        throw new Error(
+          "hatchDocker: gatewayPort is required when netnsContainer is set (the namespace owner publishes the port before hatch runs)",
+        );
+      }
+      gatewayPort = options.gatewayPort;
+    } else {
+      const preferredGatewayPort = getDefaultPorts(
+        getCurrentEnvironment(),
+      ).gateway;
+      gatewayPort = await findOpenPort(preferredGatewayPort);
+      if (gatewayPort !== preferredGatewayPort) {
+        log(
+          `Preferred gateway port ${preferredGatewayPort} is in use; allocated ${gatewayPort} for this instance.`,
+        );
+      }
     }
 
     const imageTags: Record<ServiceName, string> = {
@@ -1241,8 +1278,15 @@ export async function hatchDocker(
     const res = dockerResourceNames(instanceName);
 
     emitProgress(3, 6, "Creating volumes...");
-    log("📁 Creating network and volumes...");
-    await exec("docker", ["network", "create", res.network]);
+    // When joining an externally-owned network namespace, the owner already
+    // provides the network stack — creating a per-instance network here would
+    // be unused and leak on teardown.
+    if (options.netnsContainer) {
+      log("📁 Joining existing network namespace; creating volumes...");
+    } else {
+      log("📁 Creating network and volumes...");
+      await exec("docker", ["network", "create", res.network]);
+    }
     await exec("docker", ["volume", "create", res.socketVolume]);
     await exec("docker", ["volume", "create", res.assistantIpcVolume]);
     await exec("docker", ["volume", "create", res.gatewayIpcVolume]);
@@ -1350,6 +1394,8 @@ export async function hatchDocker(
         imageTags,
         instanceName,
         res,
+        netnsContainer: options.netnsContainer,
+        assistantCaCertPath: options.assistantCaCertPath,
       },
       log,
     );
@@ -1447,6 +1493,8 @@ export async function hatchDocker(
         instanceName,
         repoRoot,
         res,
+        netnsContainer: options.netnsContainer,
+        assistantCaCertPath: options.assistantCaCertPath,
       });
 
       await new Promise<void>((resolve) => {

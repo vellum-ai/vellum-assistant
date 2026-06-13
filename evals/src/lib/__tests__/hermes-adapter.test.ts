@@ -149,12 +149,14 @@ describe("HermesAgent", () => {
       "gateway",
       "run",
     ]);
-    // Recording sidecar now includes build + run (detached) instead of rm + run (--rm)
+    // The jail attaches to the already-running Hermes container's netns
+    // (Hermes owns the namespace; it warmed up provider SDKs from PyPI
+    // before the jail closed). Pre-clean then build then run.
     expect(calls[2]).toEqual([
       "docker",
       "rm",
       "-f",
-      "eval-hermes-1-hermes-egress-jail",
+      "eval-hermes-1-egress-jail",
     ]);
     // Build command
     expect(calls[3][0]).toBe("docker");
@@ -167,7 +169,7 @@ describe("HermesAgent", () => {
       "run",
       "-d",
       "--name",
-      "eval-hermes-1-hermes-egress-jail",
+      "eval-hermes-1-egress-jail",
       "--network",
     ]);
     expect(calls[4]).toContain("container:eval-hermes-1-hermes");
@@ -433,8 +435,10 @@ describe("HermesAgent", () => {
     await agent.send({ content: "hello" });
     await agent.shutdown();
 
-    // The send is one `hermes -z` exec; shutdown then retires the jail and
-    // the container. No event subprocess is spawned to kill.
+    // The send is one `hermes -z` exec; shutdown then removes the
+    // attached jail (a netns tenant of the Hermes container, so it must
+    // go first) and then the Hermes container that owns the namespace.
+    // No event subprocess is spawned to kill.
     expect(runner.runs.map((r) => [r.command, ...r.args]).slice(-3)).toEqual([
       [
         "docker",
@@ -448,7 +452,7 @@ describe("HermesAgent", () => {
         "-z",
         "hello",
       ],
-      ["docker", "rm", "-f", "eval-hermes-2-hermes-egress-jail"],
+      ["docker", "rm", "-f", "eval-hermes-2-egress-jail"],
       ["docker", "rm", "-f", "eval-hermes-2-hermes"],
     ]);
     expect(runner.spawns).toEqual([]);
