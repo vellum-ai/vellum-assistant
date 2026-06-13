@@ -1,13 +1,24 @@
+import { useState } from "react";
+
 import { Button } from "@vellumai/design-library/components/button";
+import { Input } from "@vellumai/design-library/components/input";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 import { Slider } from "@vellumai/design-library/components/slider";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
-import { formatCompactTokens } from "@/domains/settings/ai/ai-utils";
 import {
-    type GeminiThinkingLevel,
-    geminiThinkingLevels,
-    type ProfileParamVisibility,
+  DEFAULT_CONTEXT_WINDOW_BUDGET_TOKENS,
+  TOKEN_SLIDER_MIN_TOKENS,
+  TOKEN_SLIDER_STEP_TOKENS,
+} from "@/domains/settings/ai/ai-types";
+import {
+  clampTokenBudget,
+  formatCompactTokens,
+} from "@/domains/settings/ai/ai-utils";
+import {
+  type GeminiThinkingLevel,
+  geminiThinkingLevels,
+  type ProfileParamVisibility,
 } from "@/domains/settings/ai/profile-param-visibility";
 
 // ---------------------------------------------------------------------------
@@ -33,9 +44,6 @@ const VERBOSITY_OPTIONS = ["low", "medium", "high"] as const;
 export const THINKING_LEVEL_INHERIT = "default";
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 64_000;
-const MIN_MAX_OUTPUT_TOKENS = 1_000;
-const DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000;
-const MIN_CONTEXT_WINDOW_TOKENS = 1_000;
 
 // ---------------------------------------------------------------------------
 // Component
@@ -49,6 +57,7 @@ interface ProfileAdvancedParamsProps {
   selectedModel: {
     maxOutputTokens?: number;
     contextWindowTokens?: number;
+    defaultContextWindowTokens?: number;
   } | null;
 
   // Value + setter pairs for each advanced param
@@ -71,7 +80,145 @@ interface ProfileAdvancedParamsProps {
   thinkingStreamThinking: boolean;
   onThinkingStreamThinkingChange: (v: boolean) => void;
   thinkingLevel: GeminiThinkingLevel | typeof THINKING_LEVEL_INHERIT;
-  onThinkingLevelChange: (v: GeminiThinkingLevel | typeof THINKING_LEVEL_INHERIT) => void;
+  onThinkingLevelChange: (
+    v: GeminiThinkingLevel | typeof THINKING_LEVEL_INHERIT,
+  ) => void;
+}
+
+interface TokenBudgetFieldProps {
+  label: string;
+  /** Explicit override in tokens, or null to inherit the model default. */
+  value: number | null;
+  onChange: (next: number | null) => void;
+  /** Value the daemon applies when no override is set. */
+  defaultValue: number;
+  /** Upper bound the model supports — the slider max and clamp ceiling. */
+  max: number;
+  disabled: boolean;
+}
+
+/**
+ * A token-budget control: a fine-grained slider paired with a numeric input for
+ * typing an exact limit, plus a Reset that clears the override. When no override
+ * is set the field reads as the model's resolved default — shown both as a
+ * compact label and as the input's placeholder — so the effective value is never
+ * hidden behind the bare word "Default".
+ */
+function TokenBudgetField({
+  label,
+  value,
+  onChange,
+  defaultValue,
+  max,
+  disabled,
+}: TokenBudgetFieldProps) {
+  const isDefault = value === null;
+  const effectiveValue = value ?? defaultValue;
+
+  // The number field keeps its in-progress edit as free text so partial entries
+  // (e.g. "12" on the way to "128000") aren't clamped mid-keystroke. An empty
+  // string means "inherit the model default".
+  const [draft, setDraft] = useState(isDefault ? "" : String(value));
+  const [syncedValue, setSyncedValue] = useState(value);
+  if (value !== syncedValue) {
+    // The slider, Reset, or a model switch changed the value out from under the
+    // field — adopt it as the new baseline.
+    // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+    setSyncedValue(value);
+    setDraft(value === null ? "" : String(value));
+  }
+
+  function handleText(raw: string) {
+    setDraft(raw);
+    const trimmed = raw.trim();
+    if (trimmed === "") {
+      onChange(null);
+      return;
+    }
+    const parsed = Number(trimmed);
+    // Commit live only while in range so the slider tracks typing without
+    // snapping partial or out-of-range entries; the blur handler clamps the
+    // rest.
+    if (
+      Number.isFinite(parsed) &&
+      parsed >= TOKEN_SLIDER_MIN_TOKENS &&
+      parsed <= max
+    ) {
+      onChange(parsed);
+    }
+  }
+
+  function commitText(raw: string) {
+    const trimmed = raw.trim();
+    if (trimmed === "") {
+      onChange(null);
+      return;
+    }
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed)) {
+      setDraft(value === null ? "" : String(value));
+      return;
+    }
+    const clamped = clampTokenBudget(parsed, max);
+    setDraft(String(clamped));
+    onChange(clamped);
+  }
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <label className="block text-body-small-default text-[var(--content-tertiary)]">
+          {label}
+        </label>
+        {isDefault ? (
+          <span className="text-body-small-default text-[var(--content-tertiary)]">
+            Default · {formatCompactTokens(defaultValue)}
+          </span>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="flex-1">
+          <Slider
+            value={effectiveValue}
+            onValueChange={(v) => onChange(typeof v === "number" ? v : v[0])}
+            min={TOKEN_SLIDER_MIN_TOKENS}
+            max={max}
+            step={TOKEN_SLIDER_STEP_TOKENS}
+            disabled={disabled}
+            aria-label={label}
+          />
+        </div>
+        <Input
+          type="number"
+          inputMode="numeric"
+          value={draft}
+          placeholder={String(defaultValue)}
+          onChange={(e) => handleText(e.target.value)}
+          onBlur={(e) => commitText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              commitText(e.currentTarget.value);
+            }
+          }}
+          min={TOKEN_SLIDER_MIN_TOKENS}
+          max={max}
+          step={TOKEN_SLIDER_STEP_TOKENS}
+          disabled={disabled}
+          aria-label={`${label} (tokens)`}
+          wrapperClassName="w-32 shrink-0"
+          className="text-right tabular-nums"
+        />
+        <Button
+          variant="ghost"
+          size="compact"
+          onClick={() => onChange(null)}
+          disabled={disabled || isDefault}
+        >
+          Reset
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -112,87 +259,34 @@ export function ProfileAdvancedParams({
     // a spacing wrapper the fragment stacked these blocks flush against each
     // other (and against the disclosure edges).
     <div className="space-y-4">
-      {/* Max Output Tokens */}
       {visibility.maxTokens && (
-        <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              Max Output Tokens
-            </label>
-            <span className="text-body-small-default text-[var(--content-tertiary)]">
-              {maxTokens !== null
-                ? formatCompactTokens(maxTokens)
-                : "Default"}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="flex-1">
-              <Slider
-                value={maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS}
-                onValueChange={(v) =>
-                  onMaxTokensChange(typeof v === "number" ? v : v[0])
-                }
-                min={MIN_MAX_OUTPUT_TOKENS}
-                max={
-                  selectedModel?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS
-                }
-                step={1_000}
-                disabled={isReadOnly}
-              />
-            </div>
-            <Button
-              variant="ghost"
-              size="compact"
-              onClick={() => onMaxTokensChange(null)}
-              disabled={isReadOnly || maxTokens === null}
-            >
-              Reset
-            </Button>
-          </div>
-        </div>
+        <TokenBudgetField
+          label="Max Output Tokens"
+          value={maxTokens}
+          onChange={onMaxTokensChange}
+          defaultValue={
+            selectedModel?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS
+          }
+          max={selectedModel?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS}
+          disabled={isReadOnly}
+        />
       )}
 
-      {/* Context Window */}
       {visibility.contextWindow && (
-        <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              Context Window
-            </label>
-            <span className="text-body-small-default text-[var(--content-tertiary)]">
-              {contextWindowMaxInputTokens !== null
-                ? formatCompactTokens(contextWindowMaxInputTokens)
-                : "Default"}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="flex-1">
-              <Slider
-                value={
-                  contextWindowMaxInputTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS
-                }
-                onValueChange={(v) =>
-                  onContextWindowChange(typeof v === "number" ? v : v[0])
-                }
-                min={MIN_CONTEXT_WINDOW_TOKENS}
-                max={
-                  selectedModel?.contextWindowTokens ??
-                  DEFAULT_CONTEXT_WINDOW_TOKENS
-                }
-                step={50_000}
-                disabled={isReadOnly || !selectedModel}
-              />
-            </div>
-            <Button
-              variant="ghost"
-              size="compact"
-              onClick={() => onContextWindowChange(null)}
-              disabled={isReadOnly || contextWindowMaxInputTokens === null}
-            >
-              Reset
-            </Button>
-          </div>
-        </div>
+        <TokenBudgetField
+          label="Context Window"
+          value={contextWindowMaxInputTokens}
+          onChange={onContextWindowChange}
+          defaultValue={
+            selectedModel?.defaultContextWindowTokens ??
+            DEFAULT_CONTEXT_WINDOW_BUDGET_TOKENS
+          }
+          max={
+            selectedModel?.contextWindowTokens ??
+            DEFAULT_CONTEXT_WINDOW_BUDGET_TOKENS
+          }
+          disabled={isReadOnly || !selectedModel}
+        />
       )}
 
       {/* Effort */}
@@ -310,12 +404,12 @@ export function ProfileAdvancedParams({
             </span>
           </label>
           <SegmentControl
-            items={([THINKING_LEVEL_INHERIT, ...geminiThinkingLevels(model)] as const).map(
-              (v) => ({
-                value: v,
-                label: `${v}`,
-              }),
-            )}
+            items={(
+              [THINKING_LEVEL_INHERIT, ...geminiThinkingLevels(model)] as const
+            ).map((v) => ({
+              value: v,
+              label: `${v}`,
+            }))}
             value={thinkingLevel}
             onChange={onThinkingLevelChange}
             ariaLabel="Thinking level"
