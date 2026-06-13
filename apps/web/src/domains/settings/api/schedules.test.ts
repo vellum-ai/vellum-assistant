@@ -256,23 +256,26 @@ describe("fetchHeartbeatRuns", () => {
         throwOnError: false,
       },
     ]);
-    expect(result).toEqual([
-      {
-        id: "heartbeat-run-1",
-        jobId: "heartbeat",
-        status: "ok",
-        startedAt: 1_761_792_001_000,
-        finishedAt: 1_761_792_004_000,
-        durationMs: 3000,
-        output: null,
-        error: null,
-        conversationId: "conv-heartbeat-1",
-        conversationExists: true,
-        conversationArchivedAt: null,
-        estimatedCostUsd: 0.0567,
-        createdAt: 1_761_792_000_000,
-      },
-    ]);
+    expect(result).toEqual({
+      runs: [
+        {
+          id: "heartbeat-run-1",
+          jobId: "heartbeat",
+          status: "ok",
+          startedAt: 1_761_792_001_000,
+          finishedAt: 1_761_792_004_000,
+          durationMs: 3000,
+          output: null,
+          error: null,
+          conversationId: "conv-heartbeat-1",
+          conversationExists: true,
+          conversationArchivedAt: null,
+          estimatedCostUsd: 0.0567,
+          createdAt: 1_761_792_000_000,
+        },
+      ],
+      nextCursor: null,
+    });
   });
 });
 
@@ -287,23 +290,26 @@ describe("fetchConsolidationRuns", () => {
         throwOnError: false,
       },
     ]);
-    expect(result).toEqual([
-      {
-        id: "conv-consolidation-1",
-        jobId: "consolidation",
-        status: "ok",
-        startedAt: 1_761_792_001_000,
-        finishedAt: 1_761_792_004_000,
-        durationMs: 3000,
-        output: null,
-        error: null,
-        conversationId: "conv-consolidation-1",
-        conversationExists: true,
-        conversationArchivedAt: null,
-        estimatedCostUsd: 0.1234,
-        createdAt: 1_761_792_000_000,
-      },
-    ]);
+    expect(result).toEqual({
+      runs: [
+        {
+          id: "conv-consolidation-1",
+          jobId: "consolidation",
+          status: "ok",
+          startedAt: 1_761_792_001_000,
+          finishedAt: 1_761_792_004_000,
+          durationMs: 3000,
+          output: null,
+          error: null,
+          conversationId: "conv-consolidation-1",
+          conversationExists: true,
+          conversationArchivedAt: null,
+          estimatedCostUsd: 0.1234,
+          createdAt: 1_761_792_000_000,
+        },
+      ],
+      nextCursor: null,
+    });
   });
 });
 
@@ -318,24 +324,27 @@ describe("fetchRetrospectiveRuns", () => {
         throwOnError: false,
       },
     ]);
-    expect(result).toEqual([
-      {
-        id: "conv-retro-1",
-        jobId: "retrospective",
-        status: "ok",
-        startedAt: 1_761_792_001_000,
-        finishedAt: 1_761_792_004_000,
-        durationMs: 3000,
-        output: null,
-        error: null,
-        conversationId: "conv-retro-1",
-        conversationExists: true,
-        conversationArchivedAt: null,
-        estimatedCostUsd: 0.0456,
-        createdAt: 1_761_792_000_000,
-        title: "Planning chat (Retrospective)",
-      },
-    ]);
+    expect(result).toEqual({
+      runs: [
+        {
+          id: "conv-retro-1",
+          jobId: "retrospective",
+          status: "ok",
+          startedAt: 1_761_792_001_000,
+          finishedAt: 1_761_792_004_000,
+          durationMs: 3000,
+          output: null,
+          error: null,
+          conversationId: "conv-retro-1",
+          conversationExists: true,
+          conversationArchivedAt: null,
+          estimatedCostUsd: 0.0456,
+          createdAt: 1_761_792_000_000,
+          title: "Planning chat (Retrospective)",
+        },
+      ],
+      nextCursor: null,
+    });
   });
 });
 

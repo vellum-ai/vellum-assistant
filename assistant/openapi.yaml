@@ -6227,8 +6227,14 @@ paths:
                         - createdAt
                       additionalProperties: false
                     description: Consolidation run records
+                  nextCursor:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description: Cursor for fetching older runs (pass as `before`); null when no older runs exist
                 required:
                   - runs
+                  - nextCursor
                 additionalProperties: false
       parameters:
         - name: limit
@@ -6237,6 +6243,12 @@ paths:
           schema:
             type: integer
           description: Max runs to return (default 20, max 100)
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: "Cursor for older runs: pass the previous page's `nextCursor` to return runs strictly older than it."
   /v1/contact-channels/{contactChannelId}:
     patch:
       operationId: contactchannels_by_contactChannelId_patch
@@ -13423,8 +13435,14 @@ paths:
                         - createdAt
                       additionalProperties: false
                     description: Heartbeat run records
+                  nextCursor:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description: Cursor for fetching older runs (pass as `before`); null when no older runs exist
                 required:
                   - runs
+                  - nextCursor
                 additionalProperties: false
       parameters:
         - name: limit
@@ -13433,6 +13451,12 @@ paths:
           schema:
             type: integer
           description: Max runs to return (default 20, max 100)
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: "Cursor for older runs: pass the previous page's `nextCursor` to return runs strictly older than it."
   /v1/home/feed:
     get:
       operationId: home_feed_get
@@ -22574,8 +22598,14 @@ paths:
                         - title
                       additionalProperties: false
                     description: Retrospective run records
+                  nextCursor:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description: Cursor for fetching older runs (pass as `before`); null when no older runs exist
                 required:
                   - runs
+                  - nextCursor
                 additionalProperties: false
       parameters:
         - name: limit
@@ -22584,6 +22614,12 @@ paths:
           schema:
             type: integer
           description: Max runs to return (default 20, max 100)
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: "Cursor for older runs: pass the previous page's `nextCursor` to return runs strictly older than it."
   /v1/sanity/connect:
     post:
       operationId: sanity_connect_post
@@ -23869,8 +23905,14 @@ paths:
                         - createdAt
                       additionalProperties: false
                     description: Schedule run objects
+                  nextCursor:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description: Cursor for fetching older runs (pass as `before`); null when no older runs exist
                 required:
                   - runs
+                  - nextCursor
                 additionalProperties: false
       parameters:
         - name: id
@@ -23884,6 +23926,12 @@ paths:
           schema:
             type: integer
           description: Max runs to return (default 10, max 100)
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: "Cursor for older runs: pass the previous page's `nextCursor` to return runs strictly older than it."
   /v1/schedules/{id}/toggle:
     post:
       operationId: schedules_by_id_toggle_post

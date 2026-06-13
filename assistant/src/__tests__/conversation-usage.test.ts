@@ -256,6 +256,8 @@ describe("recordUsage", () => {
         conversationId: "conv-usage-1",
         inputTokens: 3_420_218,
         outputTokens: 11_768,
+        cacheCreationInputTokens: 373_619,
+        cacheReadInputTokens: 3_046_461,
         totalInputTokens: 3_420_218,
         totalOutputTokens: 11_768,
         estimatedCost: expectedPricing.estimatedCostUsd ?? 0,

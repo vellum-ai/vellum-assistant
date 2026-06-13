@@ -12,6 +12,7 @@ import {
   hasRunText,
 } from "@/domains/settings/utils/schedule-formatters";
 import { routes } from "@/utils/routes";
+import { Button } from "@vellumai/design-library/components/button";
 import { PanelItem } from "@vellumai/design-library/components/panel-item";
 
 import type { ScheduleRun } from "@/domains/settings/types/schedules";
@@ -20,12 +21,21 @@ interface RecentRunsCardProps {
   runs: ScheduleRun[] | undefined;
   isLoading: boolean;
   emptyMessage?: string;
+  /** Whether older runs exist beyond the loaded pages. */
+  hasMore?: boolean;
+  /** Whether an older page is currently being fetched. */
+  isLoadingMore?: boolean;
+  /** Fetch the next (older) page of runs. */
+  onLoadMore?: () => void;
 }
 
 export function RecentRunsCard({
   runs,
   isLoading,
   emptyMessage = "No runs yet.",
+  hasMore = false,
+  isLoadingMore = false,
+  onLoadMore,
 }: RecentRunsCardProps) {
   const navigate = useNavigate();
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
@@ -129,6 +139,23 @@ export function RecentRunsCard({
               </div>
             );
           })}
+          {hasMore && onLoadMore ? (
+            <div className="flex justify-center pt-3">
+              <Button
+                variant="outlined"
+                size="compact"
+                onClick={onLoadMore}
+                disabled={isLoadingMore}
+                leftIcon={
+                  isLoadingMore ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : undefined
+                }
+              >
+                {isLoadingMore ? "Loading…" : "Load more"}
+              </Button>
+            </div>
+          ) : null}
         </div>
       )}
     </DetailCard>

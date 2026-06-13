@@ -18,7 +18,12 @@ import type {
   ScheduleRun,
   ScheduleUsageSummary,
 } from "@/domains/settings/types/schedules";
-import type { ScheduleUsageSummaryRange } from "@/domains/settings/api/schedules";
+import type {
+  ScheduleRunsPage,
+  ScheduleUsageSummaryRange,
+} from "@/domains/settings/api/schedules";
+
+const RUNS_PAGE_SIZE = schedulesApi.SCHEDULE_RUNS_PAGE_SIZE;
 
 const navigateCalls: string[] = [];
 const navigateMock = (to: string) => {
@@ -39,49 +44,72 @@ const fetchScheduleUsageSummaryMock = mock(
   ): Promise<ScheduleUsageSummary[]> => [],
 );
 const fetchConsolidationRunsMock = mock(
-  async (_assistantId: string): Promise<ScheduleRun[]> => [
-    {
-      id: "consolidation-run-1",
-      jobId: "consolidation",
-      status: "ok",
-      startedAt: 1_761_792_000_000,
-      finishedAt: 1_761_792_003_000,
-      durationMs: 3000,
-      output: null,
-      error: null,
-      conversationId: "conv-consolidation-1",
-      conversationExists: true,
-      conversationArchivedAt: null,
-      estimatedCostUsd: 0.1234,
-      createdAt: 1_761_792_000_000,
-    },
-  ],
+  async (
+    _assistantId: string,
+    _limit?: number,
+    _before?: number,
+  ): Promise<ScheduleRunsPage> => ({
+    runs: [
+      {
+        id: "consolidation-run-1",
+        jobId: "consolidation",
+        status: "ok",
+        startedAt: 1_761_792_000_000,
+        finishedAt: 1_761_792_003_000,
+        durationMs: 3000,
+        output: null,
+        error: null,
+        conversationId: "conv-consolidation-1",
+        conversationExists: true,
+        conversationArchivedAt: null,
+        estimatedCostUsd: 0.1234,
+        createdAt: 1_761_792_000_000,
+      },
+    ],
+    nextCursor: null,
+  }),
 );
 const fetchHeartbeatRunsMock = mock(
-  async (_assistantId: string): Promise<ScheduleRun[]> => [],
+  async (
+    _assistantId: string,
+    _limit?: number,
+    _before?: number,
+  ): Promise<ScheduleRunsPage> => ({ runs: [], nextCursor: null }),
 );
 const fetchRetrospectiveRunsMock = mock(
-  async (_assistantId: string): Promise<ScheduleRun[]> => [
-    {
-      id: "retro-run-1",
-      jobId: "retrospective",
-      status: "ok",
-      startedAt: 1_761_792_000_000,
-      finishedAt: 1_761_792_004_000,
-      durationMs: 4000,
-      output: null,
-      error: null,
-      conversationId: "conv-retro-1",
-      conversationExists: true,
-      conversationArchivedAt: null,
-      estimatedCostUsd: 0.0456,
-      createdAt: 1_761_792_000_000,
-      title: "Planning chat (Retrospective)",
-    },
-  ],
+  async (
+    _assistantId: string,
+    _limit?: number,
+    _before?: number,
+  ): Promise<ScheduleRunsPage> => ({
+    runs: [
+      {
+        id: "retro-run-1",
+        jobId: "retrospective",
+        status: "ok",
+        startedAt: 1_761_792_000_000,
+        finishedAt: 1_761_792_004_000,
+        durationMs: 4000,
+        output: null,
+        error: null,
+        conversationId: "conv-retro-1",
+        conversationExists: true,
+        conversationArchivedAt: null,
+        estimatedCostUsd: 0.0456,
+        createdAt: 1_761_792_000_000,
+        title: "Planning chat (Retrospective)",
+      },
+    ],
+    nextCursor: null,
+  }),
 );
 const fetchScheduleRunsMock = mock(
-  async (_assistantId: string, _scheduleId: string): Promise<ScheduleRun[]> => [],
+  async (
+    _assistantId: string,
+    _scheduleId: string,
+    _limit?: number,
+    _before?: number,
+  ): Promise<ScheduleRunsPage> => ({ runs: [], nextCursor: null }),
 );
 const createScheduleMock = mock(
   async (
@@ -441,7 +469,9 @@ describe("SystemTaskDetailView", () => {
     );
 
     await waitFor(() =>
-      expect(fetchConsolidationRunsMock.mock.calls).toEqual([["assistant-1"]]),
+      expect(fetchConsolidationRunsMock.mock.calls).toEqual([
+        ["assistant-1", RUNS_PAGE_SIZE, undefined],
+      ]),
     );
 
     await waitFor(() =>
@@ -485,7 +515,9 @@ describe("SystemTaskDetailView", () => {
     );
 
     await waitFor(() =>
-      expect(fetchConsolidationRunsMock.mock.calls).toEqual([["assistant-1"]]),
+      expect(fetchConsolidationRunsMock.mock.calls).toEqual([
+        ["assistant-1", RUNS_PAGE_SIZE, undefined],
+      ]),
     );
 
     expect(document.body.textContent).toContain(
@@ -944,7 +976,7 @@ describe("ScheduleDetailView", () => {
 
     await waitFor(() =>
       expect(fetchScheduleRunsMock.mock.calls).toEqual([
-        ["assistant-1", "schedule-123"],
+        ["assistant-1", "schedule-123", RUNS_PAGE_SIZE, undefined],
       ]),
     );
   });
@@ -1056,7 +1088,9 @@ describe("system task toggles", () => {
     );
 
     await waitFor(() =>
-      expect(fetchHeartbeatRunsMock.mock.calls).toEqual([["assistant-1"]]),
+      expect(fetchHeartbeatRunsMock.mock.calls).toEqual([
+        ["assistant-1", RUNS_PAGE_SIZE, undefined],
+      ]),
     );
 
     expect(document.body.textContent).toContain("Disabled");
@@ -1195,7 +1229,9 @@ describe("system task toggles", () => {
     );
 
     await waitFor(() =>
-      expect(fetchRetrospectiveRunsMock.mock.calls).toEqual([["assistant-1"]]),
+      expect(fetchRetrospectiveRunsMock.mock.calls).toEqual([
+        ["assistant-1", RUNS_PAGE_SIZE, undefined],
+      ]),
     );
 
     // Event-driven task: nothing global to trigger, no scheduled next run.
@@ -1233,7 +1269,9 @@ describe("system task toggles", () => {
     );
 
     await waitFor(() =>
-      expect(fetchConsolidationRunsMock.mock.calls).toEqual([["assistant-1"]]),
+      expect(fetchConsolidationRunsMock.mock.calls).toEqual([
+        ["assistant-1", RUNS_PAGE_SIZE, undefined],
+      ]),
     );
 
     expect(screen.queryByLabelText("Toggle Consolidation")).toBeNull();

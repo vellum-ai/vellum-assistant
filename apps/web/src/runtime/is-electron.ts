@@ -232,8 +232,9 @@ declare global {
         onState(
           callback: (state: ConnectivityState) => void,
         ): () => void;
+        get(): Promise<ConnectivityState>;
         setDevice(online: boolean): void;
-        retry(): void;
+        retry(): Promise<ConnectivityState>;
       };
       quickInput?: {
         submit(message: string): Promise<void>;

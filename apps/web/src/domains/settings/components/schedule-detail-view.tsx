@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
   BarChart3,
@@ -15,12 +15,14 @@ import {
   deleteSchedule,
   fetchScheduleRuns,
   runScheduleNow,
+  SCHEDULE_RUNS_PAGE_SIZE,
   updateSchedule,
 } from "@/domains/settings/api/schedules";
 import { RecentRunsCard } from "@/domains/settings/components/recent-runs-card";
 import { StatusDot } from "@/domains/settings/components/schedule-shared-ui";
 import {
   DEFAULT_SCRIPT_TIMEOUT_MS,
+  flattenRunPages,
   formatTimestamp,
   getOpenableScheduleSourceConversationId,
   MAX_SCRIPT_TIMEOUT_SECONDS,
@@ -164,14 +166,26 @@ export function ScheduleDetailView({
   const navigate = useNavigate();
 
   const {
-    data: runs,
+    data,
     isLoading,
     refetch,
-  } = useQuery({
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
     queryKey: assistantScheduleRunsQueryKey(assistantId, schedule.id),
-    queryFn: () => fetchScheduleRuns(assistantId, schedule.id),
+    queryFn: ({ pageParam }) =>
+      fetchScheduleRuns(
+        assistantId,
+        schedule.id,
+        SCHEDULE_RUNS_PAGE_SIZE,
+        pageParam,
+      ),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     staleTime: 10_000,
   });
+  const runs = flattenRunPages(data?.pages);
 
   const [isRunning, setIsRunning] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -336,7 +350,13 @@ export function ScheduleDetailView({
         </div>
       </DetailCard>
 
-      <RecentRunsCard runs={runs} isLoading={isLoading} />
+      <RecentRunsCard
+        runs={runs}
+        isLoading={isLoading}
+        hasMore={hasNextPage}
+        isLoadingMore={isFetchingNextPage}
+        onLoadMore={() => void fetchNextPage()}
+      />
 
       <DetailCard title="Danger zone">
         <div className="flex items-center justify-between gap-4">
