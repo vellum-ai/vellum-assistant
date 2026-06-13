@@ -39,7 +39,7 @@ export async function handleSurfaceAction(
     return;
   }
 
-  let result: { ok: boolean };
+  let result: Awaited<ReturnType<typeof submitSurfaceAction>>;
   try {
     result = await submitSurfaceAction(
       ctx.assistantId,
@@ -61,6 +61,6 @@ export async function handleSurfaceAction(
   useTurnStore.getState().requestSend();
 
   useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) =>
-    completeSubmittedSurface(prev, surfaceId, actionId),
+    completeSubmittedSurface(prev, surfaceId, actionId, result.replyText),
   );
 }
