@@ -470,6 +470,36 @@ export function applyUserMessageEcho(
 // conversation_error
 // ---------------------------------------------------------------------------
 
+/** Whether an assistant row carries any user-visible content. */
+function assistantRowHasContent(row: DisplayMessage): boolean {
+  return (
+    messagePlainText(row).trim().length > 0 ||
+    (row.thinkingSegments != null && row.thinkingSegments.length > 0) ||
+    (row.toolCalls != null && row.toolCalls.length > 0) ||
+    (row.surfaces != null && row.surfaces.length > 0)
+  );
+}
+
+/**
+ * Drop orphaned preview tool calls from every assistant row, removing rows
+ * left with no content at all (a bubble whose only content was the preview).
+ * Used by the terminal error handlers: they tear the stream down before the
+ * daemon's idle activity event arrives, so `finalizeOnIdle` (the usual
+ * preview cleanup point) never runs and an orphaned preview would spin
+ * forever.
+ */
+export function dropOrphanedPreviewToolCalls(
+  prev: DisplayMessage[],
+): DisplayMessage[] {
+  return prev.flatMap((m) => {
+    if (m.role !== "assistant") return [m];
+    const removed = removePreviewToolCalls(m);
+    if (!removed) return [m];
+    const row = { ...m, ...removed };
+    return assistantRowHasContent(row) ? [row] : [];
+  });
+}
+
 /** Handle conversation error: finalize tool calls, remove empty bubbles. */
 export function handleConversationError(
   prev: DisplayMessage[],
@@ -478,22 +508,14 @@ export function handleConversationError(
   const tail = prev[lastIdx];
   if (!tail || tail.role !== "assistant") return prev;
 
-  // Drop preview tool calls first: a non-banner conversation_error tears the
-  // stream down before the idle activity event arrives, so `finalizeOnIdle`
-  // (the usual preview cleanup point) never runs and an orphaned preview
-  // would spin forever. Removing them here also lets a preview-only bubble
-  // correctly read as empty below.
+  // Drop preview tool calls first — see `dropOrphanedPreviewToolCalls` for
+  // why error paths must clean previews themselves. Removing them here also
+  // lets a preview-only bubble correctly read as empty below.
   const withoutPreviews = removePreviewToolCalls(tail);
   const last = withoutPreviews ? { ...tail, ...withoutPreviews } : tail;
 
   const finalized = finalizeRunningToolCalls(last);
-  const hasContent =
-    messagePlainText(last).trim().length > 0 ||
-    (last.thinkingSegments != null && last.thinkingSegments.length > 0) ||
-    (last.toolCalls != null && last.toolCalls.length > 0) ||
-    (last.surfaces != null && last.surfaces.length > 0);
-
-  if (!hasContent) return prev.slice(0, -1);
+  if (!assistantRowHasContent(last)) return prev.slice(0, -1);
 
   const updated = [...prev];
   updated[lastIdx] = {

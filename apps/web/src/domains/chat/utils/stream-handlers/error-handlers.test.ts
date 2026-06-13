@@ -29,18 +29,29 @@ describe("handleStreamError", () => {
     ).mock.calls[0]![0] as (
       prev: Array<{
         role: string;
-        toolCalls?: Array<{ id: string; isPreview?: boolean }>;
+        toolCalls?: Array<{ id: string; name?: string; isPreview?: boolean }>;
+        textSegments?: string[];
       }>,
-    ) => Array<{ toolCalls?: Array<{ id: string }> }>;
+    ) => Array<{ role: string; toolCalls?: Array<{ id: string }> }>;
     const next = updater([
       {
         role: "assistant",
+        textSegments: ["partial text"],
         toolCalls: [
-          { id: "tc-real" },
-          { id: "tc-preview", isPreview: true },
+          { id: "tc-real", name: "bash" },
+          { id: "tc-preview", name: "write_file", isPreview: true },
+        ],
+      },
+      {
+        // A bubble whose only content was the preview must vanish entirely,
+        // not linger as a blank assistant row.
+        role: "assistant",
+        toolCalls: [
+          { id: "tc-preview-2", name: "write_file", isPreview: true },
         ],
       },
     ]);
+    expect(next).toHaveLength(1);
     expect(next[0]!.toolCalls!.map((tc) => tc.id)).toEqual(["tc-real"]);
   });
 });
