@@ -66,6 +66,7 @@ Based on the chosen channel, ask for the required destination:
 
      ```bash
      USER_QUERY="alice"  # ← replace with the actual value the user provided
+     USER_QUERY="${USER_QUERY#@}"  # strip leading @ — Slack .name fields have no @ prefix
 
      # Get the bot token from the credential store
      BOT_TOKEN=$(assistant credentials reveal --service slack_channel --field bot_token)
