@@ -36,6 +36,15 @@ export interface ChatMessageToolCall extends ConversationMessageToolCall {
    * Drop this narrowing once the wire `id` graduates to non-optional.
    */
   id: string;
+  /**
+   * Client-only marker for a tool call ingested from `tool_use_preview_start`
+   * — the model is still streaming the call's arguments, so `input` is empty
+   * and no execution has begun. Cleared (set `false`) when the matching
+   * `tool_use_start` upgrades the entry with real input. Previews are
+   * ephemeral: they are never force-completed by turn finalization and are
+   * removed on idle if no `tool_use_start` ever arrived (aborted mid-call).
+   */
+  isPreview?: boolean;
 }
 
 // ---------------------------------------------------------------------------

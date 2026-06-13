@@ -6,8 +6,43 @@ import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type {
   ToolResultEvent,
+  ToolUsePreviewStartEvent,
   ToolUseStartEvent,
 } from "@vellumai/assistant-api";
+
+/**
+ * Render a pending tool-call block the moment the model starts generating a
+ * tool call, before its arguments finish streaming. The block carries the
+ * tool name with empty input and reads as "running" (spinner) until the
+ * matching `tool_use_start` upgrades it in place with the real input —
+ * `upsertToolCall` merges by id, and the daemon emits both events with the
+ * same provider tool-use id.
+ *
+ * Deliberately does not touch the turn store: `onToolUseStart`/`onToolResult`
+ * are a balanced pair, and a preview followed by its `tool_use_start` would
+ * double-count the call.
+ */
+export function handleToolUsePreviewStart(
+  event: ToolUsePreviewStartEvent,
+  ctx: StreamHandlerContext,
+): void {
+  ctx.cancelReconciliation();
+  const newToolCall: ChatMessageToolCall = {
+    id: event.toolUseId,
+    name: event.toolName,
+    input: {},
+    isPreview: true,
+    startedAt: Date.now(),
+  };
+  ctx.setMessages((prev) => {
+    const next = upsertToolCall(prev, newToolCall, event.messageId);
+    const tail = next[next.length - 1];
+    if (tail?.role === "assistant") {
+      ctx.currentAssistantMessageIdRef.current = tail.id;
+    }
+    return next;
+  });
+}
 
 export function handleToolUseStart(
   event: ToolUseStartEvent,
@@ -21,6 +56,9 @@ export function handleToolUseStart(
     id: toolCallId,
     name: event.toolName,
     input: event.input,
+    // Explicit false (not omitted) so the by-id merge in `upsertToolCall`
+    // clears the flag when this event upgrades a preview block in place.
+    isPreview: false,
     startedAt:
       "startedAt" in event &&
       typeof event.startedAt === "number"

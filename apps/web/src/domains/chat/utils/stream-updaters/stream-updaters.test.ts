@@ -895,6 +895,121 @@ describe("finalizeOnIdle", () => {
     expect(isToolCallCompleted(result[0]!.toolCalls![0]!)).toBe(true);
     expect(isToolCallCompleted(result[1]!.toolCalls![0]!)).toBe(true);
   });
+
+  it("removes orphaned preview tool calls instead of completing them", () => {
+    // A preview whose tool_use_start never arrived (model aborted or was
+    // cancelled mid-arguments) must vanish at idle, across all three slices.
+    const msg = makeAssistantMsg({
+      toolCalls: [
+        { id: "tc-real", name: "bash", input: {} },
+        { id: "tc-preview", name: "write_file", input: {}, isPreview: true },
+      ],
+      contentOrder: [
+        { type: "toolCall", id: "tc-real" },
+        { type: "toolCall", id: "tc-preview" },
+      ],
+      contentBlocks: [
+        {
+          type: "tool_use",
+          toolCall: { id: "tc-real", name: "bash", input: {} },
+        },
+        {
+          type: "tool_use",
+          toolCall: { id: "tc-preview", name: "write_file", input: {} },
+        },
+      ],
+    });
+    const result = finalizeOnIdle([msg]);
+
+    expect(result[0]!.toolCalls!.map((tc) => tc.id)).toEqual(["tc-real"]);
+    expect(isToolCallCompleted(result[0]!.toolCalls![0]!)).toBe(true);
+    expect(result[0]!.contentOrder).toEqual([
+      { type: "toolCall", id: "tc-real" },
+    ]);
+    expect(
+      result[0]!.contentBlocks!.filter((b) => b.type === "tool_use"),
+    ).toHaveLength(1);
+  });
+
+  it("removes previews even when no other tool call needs finalizing", () => {
+    const msg = makeAssistantMsg({
+      toolCalls: [
+        { id: "tc-preview", name: "write_file", input: {}, isPreview: true },
+      ],
+      contentOrder: [{ type: "toolCall", id: "tc-preview" }],
+    });
+    const result = finalizeOnIdle([msg]);
+
+    expect(result[0]!.toolCalls).toHaveLength(0);
+    expect(result[0]!.contentOrder).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// preview tool calls — message_complete must not freeze them
+// ---------------------------------------------------------------------------
+
+describe("finalizeMessageComplete with preview tool calls", () => {
+  it("leaves previews running: tool_use_start for them arrives after message_complete", () => {
+    // The daemon emits message_complete BEFORE the tool_use_start events of
+    // the same LLM call. Stamping completedAt on a preview here would make
+    // the eventual in-place upgrade read as already-completed while the tool
+    // is actually still executing.
+    const msg = makeAssistantMsg({
+      toolCalls: [
+        { id: "tc-preview", name: "write_file", input: {}, isPreview: true },
+      ],
+      contentOrder: [{ type: "toolCall", id: "tc-preview" }],
+    });
+    const result = finalizeMessageComplete([userMsg, msg], {
+      type: "message_complete",
+      messageId: "stable-1",
+    });
+
+    const tc = result[1]!.toolCalls![0]!;
+    expect(tc.completedAt).toBeUndefined();
+    expect(isToolCallRunning(tc)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// preview tool calls — in-place upgrade by tool_use_start
+// ---------------------------------------------------------------------------
+
+describe("upsertToolCall preview upgrade", () => {
+  it("upgrades a preview in place when tool_use_start arrives with the same id", () => {
+    const preview: ChatMessageToolCall = {
+      id: "tc-1",
+      name: "write_file",
+      input: {},
+      isPreview: true,
+      startedAt: 1000,
+    };
+    const withPreview = upsertToolCall([userMsg], preview, "anchor-1");
+    expect(withPreview[1]!.toolCalls![0]!.isPreview).toBe(true);
+
+    const real: ChatMessageToolCall = {
+      id: "tc-1",
+      name: "write_file",
+      input: { path: "a.txt", content: "hello" },
+      isPreview: false,
+      startedAt: 2000,
+    };
+    const upgraded = upsertToolCall(withPreview, real, "anchor-1");
+
+    // Same row, same single tool call — upgraded, not duplicated.
+    expect(upgraded).toHaveLength(2);
+    expect(upgraded[1]!.toolCalls).toHaveLength(1);
+    const tc = upgraded[1]!.toolCalls![0]!;
+    expect(tc.isPreview).toBe(false);
+    expect(tc.input).toEqual({ path: "a.txt", content: "hello" });
+    expect(tc.startedAt).toBe(2000);
+    expect(isToolCallRunning(tc)).toBe(true);
+    // contentOrder gains no duplicate entry.
+    expect(
+      upgraded[1]!.contentOrder!.filter((e) => e.id === "tc-1"),
+    ).toHaveLength(1);
+  });
 });
 
 // ---------------------------------------------------------------------------

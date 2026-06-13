@@ -104,25 +104,71 @@ export function withMergedAlias(
  * slice. With no `result`/`isError`, the timestamp alone reads as completed
  * (not running); reconcile later backfills the real result if it arrives.
  *
+ * Preview tool calls (`isPreview` — args still streaming) are skipped: the
+ * daemon emits `message_complete` *before* the `tool_use_start` events of the
+ * same LLM call, so stamping a preview here would freeze its eventual upgrade
+ * in a falsely-completed state. Orphaned previews are instead removed at turn
+ * idle via `removePreviewToolCalls`.
+ *
  * Returns the patched `toolCalls`/`contentBlocks` fields, or `null` when no
  * tool call was running, so callers can skip rewriting the row.
  */
 export function finalizeRunningToolCalls(
   row: Pick<DisplayMessage, "toolCalls" | "contentBlocks">,
 ): Pick<DisplayMessage, "toolCalls" | "contentBlocks"> | null {
-  if (!row.toolCalls?.some((tc) => isToolCallRunning(tc))) {
+  if (
+    !row.toolCalls?.some((tc) => !tc.isPreview && isToolCallRunning(tc))
+  ) {
     return null;
   }
+  const previewIds = new Set(
+    row.toolCalls.filter((tc) => tc.isPreview).map((tc) => tc.id),
+  );
   const completedAt = Date.now();
   const toolCalls = row.toolCalls.map((tc) =>
-    isToolCallRunning(tc) ? { ...tc, completedAt } : tc,
+    !tc.isPreview && isToolCallRunning(tc) ? { ...tc, completedAt } : tc,
   );
   const contentBlocks = row.contentBlocks?.map((block) =>
-    block.type === "tool_use" && isToolCallRunning(block.toolCall)
+    block.type === "tool_use" &&
+    isToolCallRunning(block.toolCall) &&
+    !previewIds.has(block.toolCall.id ?? "")
       ? { type: "tool_use" as const, toolCall: { ...block.toolCall, completedAt } }
       : block,
   );
   return { toolCalls, contentBlocks };
+}
+
+/**
+ * Drop preview tool calls (`isPreview` — see `ChatMessageToolCall`) from a
+ * row, across `toolCalls`, `contentOrder`, and `contentBlocks`. A preview
+ * still present at turn end never received its `tool_use_start` (the model
+ * aborted or was cancelled mid-arguments) and must not persist — the durable
+ * transcript only contains real tool_use blocks.
+ *
+ * Returns the patched fields, or `null` when the row has no previews.
+ */
+export function removePreviewToolCalls(
+  row: Pick<DisplayMessage, "toolCalls" | "contentOrder" | "contentBlocks">,
+): Pick<
+  DisplayMessage,
+  "toolCalls" | "contentOrder" | "contentBlocks"
+> | null {
+  const previewIds = new Set(
+    (row.toolCalls ?? []).filter((tc) => tc.isPreview).map((tc) => tc.id),
+  );
+  if (previewIds.size === 0) {
+    return null;
+  }
+  return {
+    toolCalls: row.toolCalls?.filter((tc) => !previewIds.has(tc.id)),
+    contentOrder: row.contentOrder?.filter(
+      (entry) => !(entry.type === "toolCall" && previewIds.has(entry.id)),
+    ),
+    contentBlocks: row.contentBlocks?.filter(
+      (block) =>
+        !(block.type === "tool_use" && previewIds.has(block.toolCall.id ?? "")),
+    ),
+  };
 }
 
 // ---------------------------------------------------------------------------

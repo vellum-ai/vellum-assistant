@@ -47,6 +47,7 @@ import {
   handleUISurfaceComplete,
 } from "@/domains/chat/utils/stream-handlers/surface-handlers";
 import {
+  handleToolUsePreviewStart,
   handleToolUseStart,
   handleToolResult,
 } from "@/domains/chat/utils/stream-handlers/tool-call-handlers";
@@ -308,10 +309,11 @@ export function useStreamEventHandler(
         case "tool_result":
           handleToolResult(event, ctx);
           break;
-        // The web transcript renders tool activity from `tool_use_start`
-        // and `tool_result`. It does not surface the optimistic pre-input
-        // affordance or incremental output chunks, so these are ignored.
         case "tool_use_preview_start":
+          handleToolUsePreviewStart(event, ctx);
+          break;
+        // Incremental output chunks are not surfaced; the transcript shows
+        // the full result from `tool_result`.
         case "tool_output_chunk":
           break;
         case "usage_update":

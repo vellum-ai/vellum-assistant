@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import {
   handleToolResult,
+  handleToolUsePreviewStart,
   handleToolUseStart,
 } from "@/domains/chat/utils/stream-handlers/tool-call-handlers";
 
@@ -104,6 +105,85 @@ describe("handleToolUseStart", () => {
     expect(current[0]!.isOptimistic).toBeUndefined();
     expect(current[0]!.toolCalls).toHaveLength(3);
     expect(current[0]!.toolCalls!.map((tc) => tc.id)).toEqual(["tc-1", "tc-2", "tc-3"]);
+  });
+});
+
+describe("handleToolUsePreviewStart", () => {
+  it("renders a pending tool call block without touching the turn store", () => {
+    const ctx = makeCtx();
+    handleToolUsePreviewStart(
+      {
+        type: "tool_use_preview_start",
+        toolUseId: "tc-1",
+        toolName: "write_file",
+        messageId: "anchor-1",
+      },
+      ctx,
+    );
+    expect(ctx.cancelReconciliation).toHaveBeenCalled();
+    // Previews must not increment the onToolUseStart/onToolResult pair —
+    // the matching tool_use_start will, and a preview has no tool_result.
+    expect(ctx.turnActions.onToolUseStart).not.toHaveBeenCalled();
+
+    const updater = (ctx.setMessages as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls[0]![0] as (
+      prev: never[],
+    ) => Array<{
+      role: string;
+      toolCalls: Array<{ id: string; name: string; input: unknown; isPreview?: boolean }>;
+    }>;
+    const next = updater([]);
+    expect(next).toHaveLength(1);
+    expect(next[0]?.role).toBe("assistant");
+    const tc = next[0]?.toolCalls[0];
+    expect(tc?.id).toBe("tc-1");
+    expect(tc?.name).toBe("write_file");
+    expect(tc?.input).toEqual({});
+    expect(tc?.isPreview).toBe(true);
+  });
+
+  it("is upgraded in place by a subsequent tool_use_start with the same id", () => {
+    const ctx = makeCtx();
+    type Row = {
+      role: string;
+      toolCalls?: Array<{
+        id: string;
+        input: Record<string, unknown>;
+        isPreview?: boolean;
+      }>;
+    };
+    let current: Row[] = [];
+    const setMessages = ctx.setMessages as unknown as {
+      mock: { calls: unknown[][] };
+    };
+
+    handleToolUsePreviewStart(
+      {
+        type: "tool_use_preview_start",
+        toolUseId: "tc-1",
+        toolName: "write_file",
+        messageId: "anchor-1",
+      },
+      ctx,
+    );
+    current = (setMessages.mock.calls[0]![0] as (p: Row[]) => Row[])(current);
+
+    handleToolUseStart(
+      {
+        type: "tool_use_start",
+        toolUseId: "tc-1",
+        toolName: "write_file",
+        input: { path: "a.txt" },
+        messageId: "anchor-1",
+      },
+      ctx,
+    );
+    current = (setMessages.mock.calls[1]![0] as (p: Row[]) => Row[])(current);
+
+    expect(current).toHaveLength(1);
+    expect(current[0]!.toolCalls).toHaveLength(1);
+    expect(current[0]!.toolCalls![0]!.isPreview).toBe(false);
+    expect(current[0]!.toolCalls![0]!.input).toEqual({ path: "a.txt" });
   });
 });
 

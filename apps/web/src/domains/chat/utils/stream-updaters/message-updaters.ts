@@ -21,6 +21,7 @@ import {
   findAssistantRowIndexByMessageId,
   withMergedAlias,
   finalizeRunningToolCalls,
+  removePreviewToolCalls,
 } from "@/domains/chat/utils/stream-updaters/shared";
 
 // ---------------------------------------------------------------------------
@@ -272,15 +273,24 @@ export function appendThinkingDelta(
  * any running tool calls as completed. Liveness is derived from the
  * conversation's processing state (see `liveAssistantRowId`), which the
  * idle event clears, so no per-row flag needs flipping here.
+ *
+ * Orphaned preview tool calls — `tool_use_preview_start` blocks whose
+ * `tool_use_start` never arrived (generation aborted or cancelled
+ * mid-arguments) — are removed rather than completed: previews are ephemeral
+ * and the durable transcript only contains real tool_use blocks. The daemon
+ * emits an idle activity state on every terminal path (complete, cancelled,
+ * error), so this is the single cleanup choke point.
  */
 export function finalizeOnIdle(prev: DisplayMessage[]): DisplayMessage[] {
   let changed = false;
   const updated = prev.map((m) => {
     if (m.role !== "assistant") return m;
-    const finalized = finalizeRunningToolCalls(m);
-    if (!finalized) return m;
+    const withoutPreviews = removePreviewToolCalls(m);
+    const row = withoutPreviews ? { ...m, ...withoutPreviews } : m;
+    const finalized = finalizeRunningToolCalls(row);
+    if (!withoutPreviews && !finalized) return m;
     changed = true;
-    return { ...m, ...finalized };
+    return finalized ? { ...row, ...finalized } : row;
   });
   return changed ? updated : prev;
 }

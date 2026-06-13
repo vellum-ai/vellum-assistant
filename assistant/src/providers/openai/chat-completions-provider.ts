@@ -486,7 +486,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
 
       const toolCallMap = new Map<
         number,
-        { id: string; name: string; args: string }
+        { id: string; name: string; args: string; previewEmitted: boolean }
       >();
       let finishReason = "unknown";
       let responseModel = modelOverride ?? this.model;
@@ -572,12 +572,30 @@ export class OpenAIChatCompletionsProvider implements Provider {
             if (choice.delta.tool_calls) {
               for (const tc of choice.delta.tool_calls) {
                 if (!toolCallMap.has(tc.index)) {
-                  toolCallMap.set(tc.index, { id: "", name: "", args: "" });
+                  toolCallMap.set(tc.index, {
+                    id: "",
+                    name: "",
+                    args: "",
+                    previewEmitted: false,
+                  });
                 }
                 const entry = toolCallMap.get(tc.index)!;
                 if (tc.id) entry.id = tc.id;
                 if (tc.function?.name) entry.name += tc.function.name;
                 if (tc.function?.arguments) entry.args += tc.function.arguments;
+                // Surface the tool call as soon as its identity is known so
+                // clients can show activity while arguments stream. The id and
+                // full name arrive together in the call's first delta chunk;
+                // the toolUseId must match the final tool_use block (entry.id)
+                // so clients can upgrade the preview in place.
+                if (!entry.previewEmitted && entry.id && entry.name) {
+                  entry.previewEmitted = true;
+                  onEvent?.({
+                    type: "tool_use_preview_start",
+                    toolUseId: entry.id,
+                    toolName: entry.name,
+                  });
+                }
               }
             }
 

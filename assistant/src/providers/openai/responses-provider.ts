@@ -348,6 +348,17 @@ export class OpenAIResponsesProvider implements Provider {
                   args: "",
                 });
                 itemIdToCallId.set(itemId, callId);
+                // Surface the tool call as soon as the item is announced so
+                // clients can show activity while arguments stream. The
+                // toolUseId must match the final tool_use block (callId) so
+                // clients can upgrade the preview in place.
+                if (callId && name) {
+                  onEvent?.({
+                    type: "tool_use_preview_start",
+                    toolUseId: callId,
+                    toolName: name,
+                  });
+                }
               } else if (item?.type === "web_search_call") {
                 const toolUseId = item.id ?? "";
                 webSearchCallIds.push(toolUseId);

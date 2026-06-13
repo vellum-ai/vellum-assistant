@@ -12,8 +12,7 @@ import {
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { reconcileSnapshot } from "@/domains/chat/utils/reconcile-snapshot";
 import { getLocalSeq, recordLocalSeq } from "@/lib/streaming/local-seq";
-import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
-import { mapMessageToolCalls } from "@/domains/chat/utils/map-message-tool-calls";
+import { finalizeOnIdle } from "@/domains/chat/utils/stream-updaters/message-updaters";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { liveAssistantRowId } from "@/domains/chat/utils/stream-updaters/shared";
@@ -310,22 +309,11 @@ export function useMessageReconciliation({
         });
       }
 
-      // Force-complete stale running tool calls. After onPollReconciled the
-      // turn is idle. With Zustand, getState() reflects the update
-      // immediately.
+      // Force-complete stale running tool calls (and drop orphaned preview
+      // blocks — see `finalizeOnIdle`). After onPollReconciled the turn is
+      // idle. With Zustand, getState() reflects the update immediately.
       if (wasStuck || !isSending(useTurnStore.getState().phase)) {
-        setMessages((prev) => {
-          const hasStaleToolCalls = prev.some((m) =>
-            m.toolCalls?.some((tc) => isToolCallRunning(tc)),
-          );
-          if (!hasStaleToolCalls) return prev;
-          const completedAt = Date.now();
-          return prev.map((m) =>
-            mapMessageToolCalls(m, (tc) =>
-              isToolCallRunning(tc) ? { ...tc, completedAt } : tc,
-            ),
-          );
-        });
+        setMessages(finalizeOnIdle);
       }
 
       return { changed, assistantProgress, messagesAdded };
