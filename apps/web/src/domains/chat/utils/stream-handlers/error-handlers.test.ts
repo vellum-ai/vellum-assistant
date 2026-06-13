@@ -17,6 +17,32 @@ describe("handleStreamError", () => {
     expect(ctx.setError).toHaveBeenCalled();
     expect(ctx.cancelAndClearStream).toHaveBeenCalled();
   });
+
+  it("removes orphaned preview tool calls before tearing down the stream", () => {
+    // The teardown below kills the SSE connection before the daemon's idle
+    // activity event arrives, so the idle-time preview cleanup never runs.
+    const ctx = makeCtx();
+    handleStreamError({ type: "error", message: "boom" }, ctx);
+
+    const updater = (
+      ctx.setMessages as unknown as { mock: { calls: unknown[][] } }
+    ).mock.calls[0]![0] as (
+      prev: Array<{
+        role: string;
+        toolCalls?: Array<{ id: string; isPreview?: boolean }>;
+      }>,
+    ) => Array<{ toolCalls?: Array<{ id: string }> }>;
+    const next = updater([
+      {
+        role: "assistant",
+        toolCalls: [
+          { id: "tc-real" },
+          { id: "tc-preview", isPreview: true },
+        ],
+      },
+    ]);
+    expect(next[0]!.toolCalls!.map((tc) => tc.id)).toEqual(["tc-real"]);
+  });
 });
 
 describe("handleConversationErrorEvent", () => {

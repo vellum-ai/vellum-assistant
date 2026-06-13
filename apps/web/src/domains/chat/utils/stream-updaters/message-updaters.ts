@@ -475,8 +475,16 @@ export function handleConversationError(
   prev: DisplayMessage[],
 ): DisplayMessage[] {
   const lastIdx = prev.length - 1;
-  const last = prev[lastIdx];
-  if (!last || last.role !== "assistant") return prev;
+  const tail = prev[lastIdx];
+  if (!tail || tail.role !== "assistant") return prev;
+
+  // Drop preview tool calls first: a non-banner conversation_error tears the
+  // stream down before the idle activity event arrives, so `finalizeOnIdle`
+  // (the usual preview cleanup point) never runs and an orphaned preview
+  // would spin forever. Removing them here also lets a preview-only bubble
+  // correctly read as empty below.
+  const withoutPreviews = removePreviewToolCalls(tail);
+  const last = withoutPreviews ? { ...tail, ...withoutPreviews } : tail;
 
   const finalized = finalizeRunningToolCalls(last);
   const hasContent =

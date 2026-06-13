@@ -451,6 +451,41 @@ describe("handleConversationError", () => {
     const result = handleConversationError(prev);
     expect(result).toBe(prev);
   });
+
+  it("removes orphaned preview tool calls instead of leaving them spinning", () => {
+    // A non-banner conversation_error tears the stream down before the idle
+    // activity event arrives, so this handler is the preview's last chance
+    // at cleanup.
+    const msg = makeAssistantMsg({
+      ...seg("partial response"),
+      toolCalls: [
+        { id: "tc-real", name: "bash", input: {} },
+        { id: "tc-preview", name: "write_file", input: {}, isPreview: true },
+      ],
+      contentOrder: [
+        { type: "toolCall", id: "tc-real" },
+        { type: "toolCall", id: "tc-preview" },
+      ],
+    });
+    const result = handleConversationError([userMsg, msg]);
+
+    expect(result[1]!.toolCalls!.map((tc) => tc.id)).toEqual(["tc-real"]);
+    expect(isToolCallCompleted(result[1]!.toolCalls![0]!)).toBe(true);
+  });
+
+  it("removes a bubble whose only content was a preview tool call", () => {
+    const msg = makeAssistantMsg({
+      ...seg(""),
+      toolCalls: [
+        { id: "tc-preview", name: "write_file", input: {}, isPreview: true },
+      ],
+      contentOrder: [{ type: "toolCall", id: "tc-preview" }],
+    });
+    const result = handleConversationError([userMsg, msg]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toBe(userMsg);
+  });
 });
 
 // ---------------------------------------------------------------------------

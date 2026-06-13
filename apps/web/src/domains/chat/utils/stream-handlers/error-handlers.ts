@@ -1,5 +1,6 @@
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 import { handleConversationError } from "@/domains/chat/utils/stream-updaters/message-updaters";
+import { removePreviewToolCalls } from "@/domains/chat/utils/stream-updaters/shared";
 import { ERROR_MESSAGES } from "@/domains/chat/utils/chat";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import { patchConversation } from "@/utils/conversation-cache";
@@ -22,6 +23,16 @@ export function handleStreamError(
     });
   }
   ctx.endTurn({ conversationId: convId, reason: "error" });
+  // The stream is torn down below before the daemon's idle activity event
+  // can arrive, so `finalizeOnIdle` (the usual preview cleanup point) never
+  // runs — drop orphaned preview tool calls here or they spin forever.
+  ctx.setMessages((prev) =>
+    prev.map((m) => {
+      if (m.role !== "assistant") return m;
+      const removed = removePreviewToolCalls(m);
+      return removed ? { ...m, ...removed } : m;
+    }),
+  );
   const detail =
     (event.code && ERROR_MESSAGES[event.code]) ||
     event.message ||
