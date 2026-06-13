@@ -671,6 +671,13 @@ export class HermesAgent implements BaseAgent {
         this.conversationKey = sessionId;
         return;
       }
+      case "stage-workspace-file": {
+        throw new Error(
+          `Hermes does not support workspace file injection (stage-workspace-file): ` +
+            `it exposes no writable workspace boundary the harness can stage "${command.path}" into. ` +
+            `Document-upload tests are currently Vellum-only.`,
+        );
+      }
     }
   }
 
