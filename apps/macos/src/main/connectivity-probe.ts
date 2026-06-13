@@ -60,8 +60,12 @@ function stopProbing(): void {
   probeTimer = null;
 }
 
-export function installConnectivityProbe(lockfilePaths: string[]): () => void {
-  const runProbe = () => void runProbeOnce(lockfilePaths);
+export function installConnectivityProbe(
+  lockfilePaths: string[],
+): () => Promise<void> {
+  // Returns the probe's promise so the manual-retry IPC handler can await
+  // completion before reporting the post-probe state back to the renderer.
+  const runProbe = () => runProbeOnce(lockfilePaths);
 
   powerMonitor.on("suspend", stopProbing);
   powerMonitor.on("resume", () => startProbing(lockfilePaths));

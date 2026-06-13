@@ -19,7 +19,6 @@ import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
 import { useConnectivityState } from "@/hooks/use-connectivity-state";
 import { useNetworkStatus } from "@/hooks/use-network-status";
 import { captureError } from "@/lib/sentry/capture-error";
-import { retryConnectivity } from "@/runtime/connectivity";
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -126,7 +125,7 @@ function BannerNotice({
 function useAssistantBannerConfig(): BannerConfig | null {
   const electron = isElectron();
   const isNative = useIsNativePlatform();
-  const connectivityState = useConnectivityState();
+  const { connectivityState, retryConnectivity } = useConnectivityState();
   const nativeConnected = useNetworkStatus();
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantState = useAssistantLifecycleStore.use.assistantState();

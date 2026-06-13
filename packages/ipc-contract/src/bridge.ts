@@ -193,8 +193,13 @@ export interface VellumBridge {
   };
   connectivity: {
     onState(callback: (state: ConnectivityState) => void): () => void;
+    /** Pull the current state — lets the renderer re-sync after a missed
+     * `onState` broadcast (e.g. on window focus). */
+    get(): Promise<ConnectivityState>;
     setDevice(online: boolean): void;
-    retry(): void;
+    /** Probe immediately and resolve with the post-probe state, so a manual
+     * retry recovers even when the broadcast channel failed. */
+    retry(): Promise<ConnectivityState>;
   };
   notifications: {
     show(
