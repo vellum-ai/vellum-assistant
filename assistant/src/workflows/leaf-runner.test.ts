@@ -95,7 +95,11 @@ interface SendCall {
   options: {
     tools?: Array<{ name: string; input_schema?: unknown }>;
     systemPrompt?: string;
-    config?: { tool_choice?: { type: string; name: string } };
+    config?: {
+      callSite?: string;
+      overrideProfile?: string;
+      tool_choice?: { type: string; name: string };
+    };
     signal?: AbortSignal;
   };
 }
@@ -351,6 +355,37 @@ describe("runLeaf — profile override", () => {
       trustContext,
     });
     expect(lastResolveOpts?.overrideProfile).toBe("cost-optimized");
+    // The override must ALSO ride on the per-call send config. The schema path
+    // sets `callSite`, and CallSiteConfiguredProvider only injects its stored
+    // override when the per-call config omits `callSite` — so without an
+    // explicit pass-through the leaf silently resolves the default profile.
+    expect(lastSendCall?.options.config?.callSite).toBe("workflowLeaf");
+    expect(lastSendCall?.options.config?.overrideProfile).toBe(
+      "cost-optimized",
+    );
+  });
+
+  test("no profile sends config without an overrideProfile", async () => {
+    const schema = z.object({ a: z.string() });
+    responseQueue = [
+      {
+        content: [
+          {
+            type: "tool_use",
+            name: "emit_result",
+            id: "t",
+            input: { a: "ok" },
+          },
+        ],
+        model: "test",
+        usage: { inputTokens: 1, outputTokens: 1 },
+        stopReason: "tool_use",
+      },
+    ];
+
+    await runLeaf({ prompt: "x", schema, trustContext });
+    expect(lastResolveOpts?.overrideProfile).toBeUndefined();
+    expect(lastSendCall?.options.config?.overrideProfile).toBeUndefined();
   });
 });
 
