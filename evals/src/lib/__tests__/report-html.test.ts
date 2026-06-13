@@ -442,6 +442,51 @@ describe("report html", () => {
     expect(html).toContain("$18.000000");
   });
 
+  test("per-request breakdown is ordered newest-first with timestamps and chronological indices", () => {
+    // GIVEN two requests recorded five seconds apart, stored in chronological
+    // (oldest-first) order as the recorder appends them
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        usage: {
+          requests: [
+            {
+              provider: "anthropic",
+              model: "model-oldest",
+              input_tokens: 10,
+              output_tokens: 10,
+              recorded_at: "2026-06-13T10:00:00Z",
+            },
+            {
+              provider: "anthropic",
+              model: "model-newest",
+              input_tokens: 20,
+              output_tokens: 20,
+              recorded_at: "2026-06-13T10:00:05Z",
+            },
+          ],
+          costStatus: "ok",
+        },
+      },
+    });
+
+    // THEN the table carries a Time column
+    expect(html).toContain("<th>Time</th>");
+    // AND both recorded times render as compact UTC time-of-day
+    expect(html).toContain("10:00:05Z");
+    expect(html).toContain("10:00:00Z");
+    // AND the newest request is rendered above the oldest
+    expect(html.indexOf("model-newest")).toBeLessThan(
+      html.indexOf("model-oldest"),
+    );
+    // AND each row keeps its chronological index, so the newest (top) row
+    // carries the higher index — the `#` column counts down top-to-bottom
+    expect(html.indexOf("<td>1</td>")).toBeLessThan(
+      html.indexOf("<td>0</td>"),
+    );
+  });
+
   test("execution page inlines captured request/response payloads, noting truncation", () => {
     // GIVEN a request whose response payload was truncated by the recorder
     const html = renderReportPage({

@@ -104,6 +104,24 @@ function formatCostCents(value: number | undefined): string {
 }
 
 /**
+ * Parse an ISO `recorded_at` into epoch milliseconds, or `undefined` when the
+ * field is missing or unparseable. Used to order the per-request breakdown by
+ * wall-clock time rather than array position.
+ */
+function recordedAtMs(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? undefined : ms;
+}
+
+/** Render an ISO `recorded_at` as a compact `HH:MM:SS` UTC time-of-day. */
+function formatRecordedAt(value: string | undefined): string {
+  const ms = recordedAtMs(value);
+  if (ms === undefined) return "—";
+  return `${new Date(ms).toISOString().slice(11, 19)}Z`;
+}
+
+/**
  * Render a metric `score` using its declared unit.
  *
  * `MetricResult.unit` defaults to `"fraction"` — the score is a 0-1
@@ -1592,18 +1610,6 @@ function ExecutionTabs({ run }: { run: ReportRunDetail }) {
             Token usage and dollar cost for this run, metered from the egress
             jail&apos;s observed model traffic.
           </p>
-          <div className="cards">
-            <StatCard label="Cost" value={formatCostCents(run.totalCostUsd)} />
-            <StatCard
-              label="Input tokens"
-              value={formatNumber(run.totalInputTokens, 0)}
-            />
-            <StatCard
-              label="Output tokens"
-              value={formatNumber(run.totalOutputTokens, 0)}
-            />
-            <StatCard label="Requests" value={run.usage.requests.length} />
-          </div>
           <CostRequestsTable usage={run.usage} />
           <CostDiagnosticsPanel usage={run.usage} />
         </section>
@@ -1767,6 +1773,18 @@ function RequestPayloads({ record }: { record: Record<string, unknown> }) {
  */
 function CostRequestsTable({ usage }: { usage: UsageSummary }) {
   if (usage.requests.length === 0) return null;
+  // Display newest-first. Each row keeps its chronological index (0 = first
+  // request the run made), so the `#` column counts down as the reader scans
+  // top-to-bottom. Order by `recorded_at` when present, falling back to array
+  // position for records that carry no timestamp.
+  const ordered = usage.requests
+    .map((record, chronologicalIndex) => ({ record, chronologicalIndex }))
+    .sort((a, b) => {
+      const ta = recordedAtMs(readRecordString(a.record, "recorded_at"));
+      const tb = recordedAtMs(readRecordString(b.record, "recorded_at"));
+      if (ta !== undefined && tb !== undefined && ta !== tb) return tb - ta;
+      return b.chronologicalIndex - a.chronologicalIndex;
+    });
   return (
     <div className="cost-requests">
       <h3>Per-request breakdown</h3>
@@ -1774,6 +1792,7 @@ function CostRequestsTable({ usage }: { usage: UsageSummary }) {
         <thead>
           <tr>
             <th>#</th>
+            <th>Time</th>
             <th>Model</th>
             <th>Input</th>
             <th>Output</th>
@@ -1781,7 +1800,7 @@ function CostRequestsTable({ usage }: { usage: UsageSummary }) {
             <th>Cost</th>
           </tr>
         </thead>
-        {usage.requests.map((record, index) => {
+        {ordered.map(({ record, chronologicalIndex }) => {
           const priced = priceUsageRecord(record);
           const cacheWrite = readRecordNumber(
             record,
@@ -1789,9 +1808,12 @@ function CostRequestsTable({ usage }: { usage: UsageSummary }) {
           );
           const cacheRead = readRecordNumber(record, "cache_read_input_tokens");
           return (
-            <tbody key={index}>
+            <tbody key={chronologicalIndex}>
               <tr>
-                <td>{index}</td>
+                <td>{chronologicalIndex}</td>
+                <td>
+                  {formatRecordedAt(readRecordString(record, "recorded_at"))}
+                </td>
                 <td>{readRecordString(record, "model") ?? "—"}</td>
                 <td>
                   {formatNumber(
@@ -1811,7 +1833,7 @@ function CostRequestsTable({ usage }: { usage: UsageSummary }) {
                 <td>{formatCost(priced.costUsd)}</td>
               </tr>
               <tr className="payload-row">
-                <td colSpan={6}>
+                <td colSpan={7}>
                   <RequestPayloads record={record} />
                 </td>
               </tr>
