@@ -482,6 +482,33 @@ describe("runLeaf — tool path", () => {
     // No conversation rows created.
     expect(countConversations()).toBe(before);
   });
+
+  test("a leaf with no schema and an empty tool set runs the tool path (no throw)", async () => {
+    // An empty resolved tool set with no schema must NOT fall through to the
+    // schema path (where schemaToInputSchema(undefined) throws) — it runs the
+    // agent loop with zero tools, i.e. a plain text leaf. This is the
+    // momentarily-empty-baseline case (schedule fires before initializeTools()).
+    responseQueue = [
+      {
+        content: [{ type: "text", text: "plain text leaf" }],
+        model: "test",
+        usage: { inputTokens: 3, outputTokens: 2 },
+        stopReason: "end_turn",
+      },
+    ];
+
+    const result = await runLeaf({
+      prompt: "no tools",
+      tools: [],
+      trustContext,
+    });
+    expect(result.output).toBe("plain text leaf");
+    expect(result.toolCallCount).toBe(0);
+    // The send went out with an empty tool list (the agent-loop path), not a
+    // forced-tool-choice schema call.
+    expect(lastSendCall?.options.tools ?? []).toEqual([]);
+    expect(lastSendCall?.options.config?.tool_choice).toBeUndefined();
+  });
 });
 
 describe("runLeaf — no persistence", () => {

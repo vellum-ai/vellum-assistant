@@ -247,10 +247,17 @@ export async function runLeaf(opts: RunLeafOptions): Promise<LeafResult> {
 
   const overrideProfile = resolveLeafOverrideProfile(opts);
 
-  if (opts.tools && opts.tools.length > 0) {
-    return runToolLeaf(opts, overrideProfile);
+  // Dispatch on schema presence, NOT on a non-empty tool set: a schema leaf does
+  // forced-tool-choice structured output; everything else runs the agent-loop
+  // tool path, which handles an EMPTY tool array as a plain text leaf. Keying off
+  // `tools.length > 0` would route a no-schema leaf with an empty resolved
+  // toolset (e.g. the read-only baseline is momentarily empty if a schedule
+  // fires before `initializeTools()` populates it) into `runSchemaLeaf` with no
+  // schema, where `schemaToInputSchema(undefined)` throws.
+  if (opts.schema !== undefined) {
+    return runSchemaLeaf(opts, overrideProfile);
   }
-  return runSchemaLeaf(opts, overrideProfile);
+  return runToolLeaf(opts, overrideProfile);
 }
 
 /**
