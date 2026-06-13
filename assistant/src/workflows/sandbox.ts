@@ -19,8 +19,9 @@
  * only unwind the main eval stack, never a promise continuation, so scripts
  * must stay synchronous; see {@link buildRunner}.)
  */
+import singlefileAsyncVariant from "@jitl/quickjs-singlefile-mjs-release-asyncify";
 import {
-  newQuickJSAsyncWASMModule,
+  newQuickJSAsyncWASMModuleFromVariant,
   type QuickJSAsyncContext,
   type QuickJSHandle,
 } from "quickjs-emscripten";
@@ -258,7 +259,15 @@ export function createWorkflowSandbox(
       // runtime is an *owned lifetime* of the context — disposing the context
       // tears down the runtime in the correct internal order (disposing the
       // runtime separately mis-orders host-ref teardown and aborts the VM).
-      const QuickJS = await newQuickJSAsyncWASMModule();
+      // Use the SINGLE-FILE async variant (WASM embedded in the JS module). The
+      // default loader fetches a sidecar `emscripten-module.wasm`, which is
+      // absent from the compiled daemon's virtual `/$bunfs/` filesystem
+      // (`bun build --compile` bundles JS but not the .wasm), so every workflow
+      // run aborts with ENOENT. The singlefile variant rides along with the JS
+      // bundle and works in source, Docker, and the compiled binary alike.
+      const QuickJS = await newQuickJSAsyncWASMModuleFromVariant(
+        singlefileAsyncVariant,
+      );
       const vm = QuickJS.newContext() as QuickJSAsyncContext;
       const runtime = vm.runtime;
       runtime.setMemoryLimit(memoryLimitBytes);
