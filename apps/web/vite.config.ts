@@ -112,14 +112,6 @@ export default defineConfig(({ mode }) => {
       dedupe: ["react", "react-dom"],
       preserveSymlinks: true,
     },
-    optimizeDeps: {
-      // The design library is a file: dependency, so the dep-optimizer cache
-      // (node_modules/.vite/deps) never invalidates on its source changes —
-      // the cache keys on lockfile/version only, and file: bumps neither.
-      // Excluding it serves the source directly, so pulled changes apply on
-      // reload and the watch-design-library plugin's HMR hits live modules.
-      exclude: ["@vellumai/design-library"],
-    },
     server: {
       port: parseInt(env.PORT || "3000"),
       strictPort: true,
