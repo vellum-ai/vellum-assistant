@@ -475,7 +475,7 @@
         }
       },
       "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Auth flow differs by environment.",
-      "updatedAt": "2026-06-12T18:05:36.000Z"
+      "updatedAt": "2026-06-12T17:46:32.000Z"
     },
     {
       "id": "meet-join",
@@ -490,7 +490,7 @@
           "feature-flag": "meet"
         }
       },
-      "updatedAt": "2026-06-12T18:05:36.000Z"
+      "updatedAt": "2026-06-12T17:53:41.000Z"
     },
     {
       "id": "meme-generator",
@@ -530,7 +530,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-12T18:05:36.000Z"
+      "updatedAt": "2026-06-12T17:46:32.000Z"
     },
     {
       "id": "notion",
@@ -720,7 +720,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-12T18:05:36.000Z"
+      "updatedAt": "2026-06-12T17:46:32.000Z"
     },
     {
       "id": "slack-app-setup",
@@ -1147,7 +1147,7 @@
           "emoji": "📺"
         }
       },
-      "updatedAt": "2026-06-12T18:05:36.000Z"
+      "updatedAt": "2026-06-12T17:53:41.000Z"
     },
     {
       "id": "watcher",
