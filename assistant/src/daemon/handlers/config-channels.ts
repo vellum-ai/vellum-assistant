@@ -331,7 +331,8 @@ export async function verifyTrustedContact(
       const sessionResult = createOutboundSession({
         channel: verificationChannel,
         expectedChatId: channel.externalChatId,
-        expectedExternalUserId: channel.address ?? undefined,
+        expectedExternalUserId:
+          channel.externalUserId ?? channel.address ?? undefined,
         identityBindingStatus: "bound",
         destinationAddress: effectiveDestination,
         verificationPurpose: "trusted_contact",
