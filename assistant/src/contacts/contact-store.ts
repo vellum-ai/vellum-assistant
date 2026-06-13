@@ -422,6 +422,8 @@ function syncChannels(
           contactId,
           updatedAt: now,
         };
+        if (ch.externalUserId !== undefined)
+          reassignSet.externalUserId = ch.externalUserId;
         if (ch.externalChatId !== undefined)
           reassignSet.externalChatId = ch.externalChatId;
         if (!isBlocked) {
