@@ -404,7 +404,12 @@ function NameItemDialog({
   const [name, setName] = useState(initialName ?? "");
 
   const trimmed = name.trim();
-  const canSubmit = trimmed.length > 0 && !pending;
+  // Single path segment only — a name like "sub/existing.md" or "../x" would
+  // land outside the parent directory and bypass the sibling conflict check.
+  const invalidName =
+    trimmed.length > 0 &&
+    (/[/\\]/.test(trimmed) || trimmed === "." || trimmed === "..");
+  const canSubmit = trimmed.length > 0 && !invalidName && !pending;
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -452,7 +457,12 @@ function NameItemDialog({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={placeholder}
-              errorText={error ?? undefined}
+              errorText={
+                error ??
+                (invalidName
+                  ? "Enter a single file or folder name without slashes."
+                  : undefined)
+              }
               autoComplete="off"
               spellCheck={false}
               fullWidth
