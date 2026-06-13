@@ -105,6 +105,7 @@ async function handleSurfaceAction({
   conversationId?: string;
   applied?: boolean;
   reason?: string;
+  replyText?: string;
 }> {
   const conversationId = body?.conversationId as string | null | undefined;
   const surfaceId = body?.surfaceId as string | undefined;

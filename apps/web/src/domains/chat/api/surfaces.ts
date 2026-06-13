@@ -15,7 +15,7 @@ import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
 
 export type SurfaceActionResult =
   | { ok: false }
-  | { ok: true; replyText?: string };
+  | { ok: true; applied?: boolean; reason?: string; replyText?: string };
 
 export async function submitSurfaceAction(
   assistantId: string,
@@ -44,6 +44,8 @@ export async function submitSurfaceAction(
     const body = resData as SurfaceactionsPostResponse;
     return {
       ok: true,
+      ...(typeof body.applied === "boolean" ? { applied: body.applied } : {}),
+      ...(body.reason ? { reason: body.reason } : {}),
       ...(body.replyText ? { replyText: body.replyText } : {}),
     };
   } catch {

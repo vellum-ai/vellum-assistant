@@ -58,9 +58,23 @@ export async function handleSurfaceAction(
     return;
   }
 
-  useTurnStore.getState().requestSend();
+  // Guardian decision actions (apr:*) are processed synchronously at the
+  // HTTP handler level — no conversation turn is started, so no SSE events
+  // will arrive to complete the turn. Only request a send for actions that
+  // trigger daemon-side conversation processing.
+  const isGuardianDecision = typeof result.applied === "boolean";
+  if (!isGuardianDecision) {
+    useTurnStore.getState().requestSend();
+  }
+
+  // For not-applied decisions (expired, already resolved, principal mismatch),
+  // show the reason instead of the action label.
+  const completionText =
+    isGuardianDecision && result.applied === false
+      ? result.reason ?? "Not applied"
+      : result.replyText;
 
   useChatSessionStore.getState().setMessages((prev: DisplayMessage[]) =>
-    completeSubmittedSurface(prev, surfaceId, actionId, result.replyText),
+    completeSubmittedSurface(prev, surfaceId, actionId, completionText),
   );
 }
