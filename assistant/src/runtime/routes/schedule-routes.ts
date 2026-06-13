@@ -263,7 +263,13 @@ function handleCreateSchedule(body: Record<string, unknown>) {
 
   if (!name) throw new BadRequestError("name is required");
   if (!expression) throw new BadRequestError("expression is required");
-  if (!message) throw new BadRequestError("message is required");
+  // Workflow-mode runs trigger a saved workflow by name and ignore `job.message`
+  // entirely (see the workflow branch below), so only require a message for the
+  // execute path. Requiring it for workflow mode would force API/UI callers to
+  // pass an unused dummy string.
+  if (mode !== "workflow" && !message) {
+    throw new BadRequestError("message is required");
+  }
   if (description === "") {
     throw new BadRequestError("description is required");
   }
@@ -692,7 +698,12 @@ export const ROUTES: RouteDefinition[] = [
         )
         .optional(),
       expression: z.string().describe("Cron or RRULE expression"),
-      message: z.string().describe("Message body to execute on each fire"),
+      message: z
+        .string()
+        .describe(
+          "Message body to execute on each fire. Required for execute mode; ignored for workflow mode (which triggers workflowName/workflowArgs).",
+        )
+        .optional(),
       timezone: z
         .string()
         .nullable()

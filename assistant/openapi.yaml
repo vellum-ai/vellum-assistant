@@ -22997,7 +22997,9 @@ paths:
                   description: Cron or RRULE expression
                 message:
                   type: string
-                  description: Message body to execute on each fire
+                  description:
+                    Message body to execute on each fire. Required for execute mode; ignored for workflow mode (which triggers
+                    workflowName/workflowArgs).
                 timezone:
                   anyOf:
                     - type: string
@@ -23024,7 +23026,6 @@ paths:
               required:
                 - name
                 - expression
-                - message
               additionalProperties: false
   /v1/schedules/{id}:
     delete:

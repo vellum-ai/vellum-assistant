@@ -47,6 +47,14 @@ function patchRoute(): RouteDefinition {
   return route;
 }
 
+function createRoute(): RouteDefinition {
+  const route = SCHEDULE_ROUTES.find(
+    (r) => r.endpoint === "schedules" && r.method === "POST",
+  );
+  if (!route) throw new Error("POST schedules route not found");
+  return route;
+}
+
 describe("PATCH /schedules/:id — workflow-mode name validation", () => {
   beforeEach(clearTables);
 
@@ -171,5 +179,54 @@ describe("PATCH /schedules/:id — workflow-mode name validation", () => {
     }) as { schedules: Array<{ id: string; workflowName: string | null }> };
 
     expect(result.schedules[0].workflowName).toBe("triage-inbox");
+  });
+});
+
+describe("POST /schedules — workflow mode does not require a message", () => {
+  beforeEach(clearTables);
+
+  test("creates a workflow schedule with no message field", () => {
+    // Workflow runs trigger workflowName/workflowArgs and ignore job.message,
+    // so the endpoint must not force a dummy message for workflow mode.
+    const result = createRoute().handler({
+      body: {
+        name: "Nightly triage",
+        description: "Run the triage workflow",
+        expression: "0 9 * * *",
+        mode: "workflow",
+        workflowName: "triage-inbox",
+        // no `message`
+      },
+    }) as { schedules: Array<{ mode: string; workflowName: string | null }> };
+
+    const created = result.schedules.find((s) => s.mode === "workflow");
+    expect(created?.workflowName).toBe("triage-inbox");
+  });
+
+  test("still rejects a workflow schedule with no workflowName", () => {
+    expect(() =>
+      createRoute().handler({
+        body: {
+          name: "Nightly triage",
+          description: "d",
+          expression: "0 9 * * *",
+          mode: "workflow",
+        },
+      }),
+    ).toThrow("workflowName is required");
+  });
+
+  test("execute mode still requires a message", () => {
+    expect(() =>
+      createRoute().handler({
+        body: {
+          name: "Plain execute",
+          description: "d",
+          expression: "0 9 * * *",
+          mode: "execute",
+          // no `message`
+        },
+      }),
+    ).toThrow("message is required");
   });
 });
