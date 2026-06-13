@@ -954,6 +954,47 @@ export async function initializeTools(): Promise<void> {
 }
 
 /**
+ * Register any feature-flag-gated tools (CES `ces-tools`, `workflows`) that are
+ * enabled but not yet in the registry. Idempotent and safe to call repeatedly.
+ *
+ * `initializeTools()` registers the gated tools once at startup, but feature-flag
+ * overrides are fetched from the gateway ASYNCHRONOUSLY and non-blocking (see
+ * `lifecycle.ts` — `initFeatureFlagOverrides()` is fired with `void`), so
+ * `initializeTools()` can run BEFORE the flag value is known and register
+ * nothing. The daemon receives ALL overrides (local `protected/feature-flags.json`
+ * and remote/LaunchDarkly alike) through that async fetch, so this race affects
+ * every install — without this follow-up sync a flag-enabled assistant would
+ * never see the gated tools until a restart, which can lose the same race again.
+ * Call this once the override fetch resolves.
+ *
+ * Enable-direction only: it does not unregister tools whose flag was turned OFF
+ * (a live flip to OFF still requires a restart to drop them — the expected
+ * behavior for daemon-gating flags). Never throws.
+ */
+export async function syncFlagGatedTools(): Promise<void> {
+  try {
+    const { getCesToolsIfEnabled, getWorkflowToolsIfEnabled } =
+      await import("./tool-manifest.js");
+    const enabled = [...getCesToolsIfEnabled(), ...getWorkflowToolsIfEnabled()];
+    const added: string[] = [];
+    for (const tool of enabled) {
+      if (tool.name && !tools.has(tool.name)) {
+        registerTool(tool);
+        added.push(tool.name);
+      }
+    }
+    if (added.length > 0) {
+      log.info({ tools: added }, "Registered flag-gated tools after flag load");
+    }
+  } catch (err) {
+    log.warn(
+      { err },
+      "syncFlagGatedTools failed; flag-gated tools may stay unregistered until restart",
+    );
+  }
+}
+
+/**
  * Reset registry to its post-initializeTools() baseline. Exposed
  * exclusively for test isolation - prevents cross-file contamination
  * when multiple test suites share a single Bun process.

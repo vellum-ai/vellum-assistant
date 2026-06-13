@@ -84,6 +84,7 @@ import {
   setUsageTelemetryReporter,
   UsageTelemetryReporter,
 } from "../telemetry/usage-telemetry-reporter.js";
+import { syncFlagGatedTools } from "../tools/registry.js";
 import { registerBuiltinTtsProviders } from "../tts/providers/register-builtins.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger, initLogger } from "../util/logger.js";
@@ -359,9 +360,14 @@ export async function runDaemon(): Promise<void> {
     // so a slow or unreachable gateway doesn't delay daemon startup (the
     // IPC call has a 3s connect + 5s call timeout that would otherwise
     // stall the critical path).
-    void initFeatureFlagOverrides().catch((err) =>
-      log.warn({ err }, "Background feature flag init failed"),
-    );
+    // After the async fetch resolves, (re)register any flag-gated tools
+    // (`workflows`, `ces-tools`): `initializeTools()` runs during startup before
+    // this fetch completes, so without this follow-up sync a flag-enabled
+    // assistant would not expose the gated tools until a restart (which can lose
+    // the same race). Enable-direction only; chained so it sees the fresh cache.
+    void initFeatureFlagOverrides()
+      .then(() => syncFlagGatedTools())
+      .catch((err) => log.warn({ err }, "Background feature flag init failed"));
 
     startGatewayFlagListener();
 
