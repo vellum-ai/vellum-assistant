@@ -121,7 +121,7 @@ function getIndexes(raw: Database): IndexRow[] {
 }
 
 describe("migration 283 — contact_channels unique (type, external_user_id)", () => {
-  test("no-op on clean database (no duplicates)", () => {
+  test("no-op on clean database (no duplicates), normalizes addresses to lowercase", () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);
     bootstrap(db);
@@ -151,6 +151,71 @@ describe("migration 283 — contact_channels unique (type, external_user_id)", (
     const channels = getAllChannels(raw);
     expect(channels).toHaveLength(2);
     expect(channels.map((c) => c.id).sort()).toEqual(["ch1", "ch2"]);
+    // Addresses are normalized to lowercase
+    expect(channels.find((c) => c.id === "ch1")!.address).toBe("u111");
+    expect(channels.find((c) => c.id === "ch2")!.address).toBe("t222");
+  });
+
+  test("normalizes uppercase Slack addresses to lowercase", () => {
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+    bootstrap(db);
+
+    insertContact(raw, "c1");
+    insertChannel(raw, {
+      id: "ch1",
+      contactId: "c1",
+      type: "slack",
+      address: "U12345ABC",
+      externalUserId: "U12345ABC",
+      status: "active",
+      updatedAt: 1000,
+    });
+
+    migrateContactChannelsUniqueExtUser(db);
+
+    const channels = getAllChannels(raw);
+    expect(channels).toHaveLength(1);
+    expect(channels[0]!.address).toBe("u12345abc");
+    // externalUserId is NOT lowercased — preserves original casing
+    expect(channels[0]!.external_user_id).toBe("U12345ABC");
+  });
+
+  test("deduplicates case-insensitive address collisions before lowercasing", () => {
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+    bootstrap(db);
+
+    insertContact(raw, "c1");
+    insertContact(raw, "c2");
+
+    // Two Slack channels: uppercase and lowercase versions of the same address
+    insertChannel(raw, {
+      id: "ch-upper",
+      contactId: "c1",
+      type: "slack",
+      address: "U12345",
+      externalUserId: "U12345",
+      status: "active",
+      updatedAt: 1000,
+    });
+    insertChannel(raw, {
+      id: "ch-lower",
+      contactId: "c2",
+      type: "slack",
+      address: "u12345",
+      externalUserId: "U12345",
+      status: "unverified",
+      updatedAt: 900,
+    });
+
+    migrateContactChannelsUniqueExtUser(db);
+
+    const channels = getAllChannels(raw);
+    // Only one survives — active wins over unverified
+    expect(channels).toHaveLength(1);
+    expect(channels[0]!.id).toBe("ch-upper");
+    expect(channels[0]!.address).toBe("u12345");
   });
 
   test("deduplicates rows keeping active over unverified", () => {
@@ -166,7 +231,7 @@ describe("migration 283 — contact_channels unique (type, external_user_id)", (
       id: "ch-active",
       contactId: "c1",
       type: "slack",
-      address: "U123",
+      address: "u123",
       externalUserId: "U123",
       status: "active",
       updatedAt: 900,
@@ -175,7 +240,7 @@ describe("migration 283 — contact_channels unique (type, external_user_id)", (
       id: "ch-unverified",
       contactId: "c2",
       type: "slack",
-      address: "U123",
+      address: "u123-alt",
       externalUserId: "U123",
       status: "unverified",
       updatedAt: 1000,
@@ -203,7 +268,7 @@ describe("migration 283 — contact_channels unique (type, external_user_id)", (
       id: "ch-active",
       contactId: "c1",
       type: "slack",
-      address: "U789",
+      address: "u789",
       externalUserId: "U789",
       status: "active",
       updatedAt: 1000,
@@ -212,7 +277,7 @@ describe("migration 283 — contact_channels unique (type, external_user_id)", (
       id: "ch-blocked",
       contactId: "c2",
       type: "slack",
-      address: "U789",
+      address: "u789-alt",
       externalUserId: "U789",
       status: "blocked",
       updatedAt: 800,
@@ -238,7 +303,7 @@ describe("migration 283 — contact_channels unique (type, external_user_id)", (
       id: "ch-old",
       contactId: "c1",
       type: "slack",
-      address: "U456",
+      address: "u456",
       externalUserId: "U456",
       status: "unverified",
       updatedAt: 500,
@@ -247,7 +312,7 @@ describe("migration 283 — contact_channels unique (type, external_user_id)", (
       id: "ch-new",
       contactId: "c2",
       type: "slack",
-      address: "U456",
+      address: "u456-alt",
       externalUserId: "U456",
       status: "unverified",
       updatedAt: 1000,
@@ -332,7 +397,7 @@ describe("migration 283 — contact_channels unique (type, external_user_id)", (
       id: "ch1",
       contactId: "c1",
       type: "slack",
-      address: "U789",
+      address: "u789",
       externalUserId: "U789",
       status: "active",
       updatedAt: 1000,
@@ -346,7 +411,7 @@ describe("migration 283 — contact_channels unique (type, external_user_id)", (
         id: "ch2",
         contactId: "c2",
         type: "slack",
-        address: "U789-alt",
+        address: "u789-alt",
         externalUserId: "U789",
         status: "unverified",
         updatedAt: 2000,
@@ -354,7 +419,7 @@ describe("migration 283 — contact_channels unique (type, external_user_id)", (
     ).not.toThrow();
   });
 
-  test("unique index allows same externalUserId on different channel types", () => {
+  test("same externalUserId on different channel types both survive", () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);
     bootstrap(db);
@@ -364,26 +429,22 @@ describe("migration 283 — contact_channels unique (type, external_user_id)", (
       id: "ch1",
       contactId: "c1",
       type: "slack",
-      address: "U111",
+      address: "u111",
+      externalUserId: "U111",
+      status: "active",
+      updatedAt: 1000,
+    });
+    insertChannel(raw, {
+      id: "ch2",
+      contactId: "c1",
+      type: "telegram",
+      address: "u111",
       externalUserId: "U111",
       status: "active",
       updatedAt: 1000,
     });
 
     migrateContactChannelsUniqueExtUser(db);
-
-    // Same externalUserId but different type — should succeed
-    expect(() =>
-      insertChannel(raw, {
-        id: "ch2",
-        contactId: "c1",
-        type: "telegram",
-        address: "U111",
-        externalUserId: "U111",
-        status: "active",
-        updatedAt: 1000,
-      }),
-    ).not.toThrow();
 
     const channels = getAllChannels(raw);
     expect(channels).toHaveLength(2);
@@ -410,5 +471,6 @@ describe("migration 283 — contact_channels unique (type, external_user_id)", (
 
     const channels = getAllChannels(raw);
     expect(channels).toHaveLength(1);
+    expect(channels[0]!.address).toBe("u999");
   });
 });
