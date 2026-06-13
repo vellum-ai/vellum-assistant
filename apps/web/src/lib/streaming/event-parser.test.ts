@@ -91,6 +91,26 @@ describe("parseAssistantEvent", () => {
     });
   });
 
+  test("parses assistant_thinking_delta preserving the emission timestamp", () => {
+    // GIVEN a streaming reasoning chunk stamped with its daemon emission time
+    // WHEN it is parsed
+    const event = parseEvent({
+      type: "assistant_thinking_delta",
+      thinking: "let me think",
+      messageId: "msg-1",
+      conversationId: "conv-1",
+      timestampMs: 1_700_000_000_000,
+    });
+    // THEN the epoch-ms timestamp survives parsing so timing is observable
+    expect(event).toEqual({
+      type: "assistant_thinking_delta",
+      thinking: "let me think",
+      messageId: "msg-1",
+      conversationId: "conv-1",
+      timestampMs: 1_700_000_000_000,
+    });
+  });
+
   test("parses assistant_thinking_delta with only the required thinking field", () => {
     // GIVEN a delta from an older daemon that doesn't stamp anchor ids
     // WHEN it is parsed

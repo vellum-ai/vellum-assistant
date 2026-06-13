@@ -102,6 +102,7 @@
     "@types/node": "25.5.0",
     "@types/semver": "7.5.8",
     "@types/uuid": "10.0.0",
+    "ajv": "8.18.0",
     "drizzle-kit": "0.31.10",
     "eslint": "10.0.3",
     "eslint-plugin-simple-import-sort": "12.1.1",

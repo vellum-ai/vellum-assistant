@@ -104,6 +104,24 @@ function formatCostCents(value: number | undefined): string {
 }
 
 /**
+ * Parse an ISO `recorded_at` into epoch milliseconds, or `undefined` when the
+ * field is missing or unparseable. Used to order the per-request breakdown by
+ * wall-clock time rather than array position.
+ */
+function recordedAtMs(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? undefined : ms;
+}
+
+/** Render an ISO `recorded_at` as a compact `HH:MM:SS` UTC time-of-day. */
+function formatRecordedAt(value: string | undefined): string {
+  const ms = recordedAtMs(value);
+  if (ms === undefined) return "—";
+  return `${new Date(ms).toISOString().slice(11, 19)}Z`;
+}
+
+/**
  * Render a metric `score` using its declared unit.
  *
  * `MetricResult.unit` defaults to `"fraction"` — the score is a 0-1
@@ -295,6 +313,12 @@ td .row-link { display: block; }
 .block-tool-io-label { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .14em; font-weight: 800; margin-bottom: 4px; }
 .block-tool-io pre { margin: 0; max-height: 280px; overflow: auto; padding: 10px 12px; border-radius: 10px; background: rgba(0,0,0,.4); border: 1px solid var(--border); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
 .block-surface { border-color: rgba(139,92,246,.28); background: rgba(139,92,246,.06); }
+.block-page { padding: 8px; }
+.block-page-head { display: flex; align-items: center; gap: 10px; padding: 4px 6px 8px; }
+.block-page-frame { display: block; width: 100%; height: 480px; border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+.block-page-source { margin-top: 8px; }
+.block-page-source > summary { cursor: pointer; padding: 4px 6px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; font-weight: 800; user-select: none; }
+.block-page-source > summary::-webkit-details-marker { display: none; }
 pre.log { max-height: 480px; overflow: auto; padding: 16px; border-radius: 16px; background: rgba(0,0,0,.45); border: 1px solid var(--border); color: #dbeafe; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 .log-line { display: flex; gap: 12px; padding: 2px 0; }
 .log-ts { color: var(--muted); flex-shrink: 0; font-variant-numeric: tabular-nums; }
@@ -1117,6 +1141,87 @@ function formatBlockJson(value: unknown): string {
   }
 }
 
+/**
+ * Narrow a `dynamic_page` surface payload to its renderable HTML plus an
+ * optional pixel-height hint. Returns undefined when the payload carries no
+ * usable html string, so the caller falls back to the JSON view.
+ */
+function dynamicPageHtml(
+  data: unknown,
+): { html: string; height?: number } | undefined {
+  if (typeof data !== "object" || data === null || !("html" in data)) {
+    return undefined;
+  }
+  const { html } = data;
+  if (typeof html !== "string" || html.length === 0) {
+    return undefined;
+  }
+  let height: number | undefined;
+  if ("height" in data) {
+    const raw = data.height;
+    if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) {
+      height = Math.min(Math.max(Math.round(raw), 200), 1200);
+    }
+  }
+  return { html, height };
+}
+
+/**
+ * In-memory `localStorage` / `sessionStorage` shim prepended into the
+ * sandboxed surface iframe. Without `allow-same-origin` those globals throw a
+ * `SecurityError`, breaking any page that touches them during init. Mirrors
+ * the canonical bridge in apps/web/src/utils/sandbox-bridge.ts (the web chat
+ * renders the same surfaces); kept inline because evals is a separate build
+ * unit that can't import the web app.
+ */
+const SURFACE_STORAGE_POLYFILL = `<script>
+(function(){
+  var store={};
+  var shim={
+    getItem:function(k){return Object.prototype.hasOwnProperty.call(store,k)?store[k]:null;},
+    setItem:function(k,v){store[k]=String(v);},
+    removeItem:function(k){delete store[k];},
+    clear:function(){store={};},
+    get length(){return Object.keys(store).length;},
+    key:function(i){return Object.keys(store)[i]||null;}
+  };
+  try{Object.defineProperty(window,'localStorage',{value:shim,writable:true,configurable:true});}catch(e){window.localStorage=shim;}
+  try{Object.defineProperty(window,'sessionStorage',{value:shim,writable:true,configurable:true});}catch(e){window.sessionStorage=shim;}
+})();
+</script>`;
+
+/**
+ * No-op `window.vellum` bridge prepended into the sandboxed surface iframe.
+ * App-backed pages expect the host APIs that apps/web/src/utils/sandbox-bridge.ts
+ * injects (`window.vellum.sendAction` / `window.vellum.fetch`) and call them
+ * during init; a static report has no daemon to forward to, so this stub keeps
+ * those pages from throwing on startup — actions are dropped and fetches reject.
+ */
+const SURFACE_VELLUM_BRIDGE = `<script>
+(function(){
+  window.vellum={
+    route:null,
+    sendAction:function(){},
+    fetch:function(){return Promise.reject(new Error("vellum bridge unavailable in offline report"));}
+  };
+})();
+</script>`;
+
+/**
+ * Prepend the storage polyfill and the no-op vellum bridge so both run before
+ * any inline page script. Insertion priority matches the web app's bridge:
+ * right after `<head>`, else prepended to the raw markup.
+ */
+function prepareSurfaceHtml(html: string): string {
+  const prelude = SURFACE_STORAGE_POLYFILL + SURFACE_VELLUM_BRIDGE;
+  const headMatch = /<head(\s[^>]*)?>/i.exec(html);
+  if (headMatch) {
+    const at = headMatch.index + headMatch[0].length;
+    return html.slice(0, at) + prelude + html.slice(at);
+  }
+  return prelude + html;
+}
+
 function ToolCallBlock({
   block,
 }: {
@@ -1171,14 +1276,42 @@ function AssistantMessage({ message }: { message: AssistantMessageView }) {
         if (block.kind === "tool_call") {
           return <ToolCallBlock key={index} block={block} />;
         }
+        const label = `${block.surfaceType}${block.title ? ` — ${block.title}` : ""}`;
+        const page =
+          block.surfaceType === "dynamic_page"
+            ? dynamicPageHtml(block.data)
+            : undefined;
+        if (page) {
+          return (
+            <div key={index} className="block-tool block-surface block-page">
+              <div className="block-page-head">
+                <span className="block-tool-glyph">▢</span>
+                <span className="block-tool-name">{label}</span>
+              </div>
+              {/* Untrusted assistant-generated HTML: sandbox without
+                  allow-same-origin so scripts run but can't reach the report
+                  origin, cookies, or storage. */}
+              <iframe
+                className="block-page-frame"
+                title={label}
+                sandbox="allow-scripts"
+                srcDoc={prepareSurfaceHtml(page.html)}
+                style={page.height ? { height: `${page.height}px` } : undefined}
+              />
+              <details className="block-page-source">
+                <summary>Surface data</summary>
+                <div className="block-tool-io">
+                  <pre>{formatBlockJson(block.data)}</pre>
+                </div>
+              </details>
+            </div>
+          );
+        }
         return (
           <details key={index} className="block-tool block-surface">
             <summary>
               <span className="block-tool-glyph">▢</span>
-              <span className="block-tool-name">
-                {block.surfaceType}
-                {block.title ? ` — ${block.title}` : ""}
-              </span>
+              <span className="block-tool-name">{label}</span>
             </summary>
             {block.data !== undefined && (
               <div className="block-tool-io">
@@ -1592,18 +1725,6 @@ function ExecutionTabs({ run }: { run: ReportRunDetail }) {
             Token usage and dollar cost for this run, metered from the egress
             jail&apos;s observed model traffic.
           </p>
-          <div className="cards">
-            <StatCard label="Cost" value={formatCostCents(run.totalCostUsd)} />
-            <StatCard
-              label="Input tokens"
-              value={formatNumber(run.totalInputTokens, 0)}
-            />
-            <StatCard
-              label="Output tokens"
-              value={formatNumber(run.totalOutputTokens, 0)}
-            />
-            <StatCard label="Requests" value={run.usage.requests.length} />
-          </div>
           <CostRequestsTable usage={run.usage} />
           <CostDiagnosticsPanel usage={run.usage} />
         </section>
@@ -1767,6 +1888,18 @@ function RequestPayloads({ record }: { record: Record<string, unknown> }) {
  */
 function CostRequestsTable({ usage }: { usage: UsageSummary }) {
   if (usage.requests.length === 0) return null;
+  // Display newest-first. Each row keeps its chronological index (0 = first
+  // request the run made), so the `#` column counts down as the reader scans
+  // top-to-bottom. Order by `recorded_at` when present, falling back to array
+  // position for records that carry no timestamp.
+  const ordered = usage.requests
+    .map((record, chronologicalIndex) => ({ record, chronologicalIndex }))
+    .sort((a, b) => {
+      const ta = recordedAtMs(readRecordString(a.record, "recorded_at"));
+      const tb = recordedAtMs(readRecordString(b.record, "recorded_at"));
+      if (ta !== undefined && tb !== undefined && ta !== tb) return tb - ta;
+      return b.chronologicalIndex - a.chronologicalIndex;
+    });
   return (
     <div className="cost-requests">
       <h3>Per-request breakdown</h3>
@@ -1774,6 +1907,7 @@ function CostRequestsTable({ usage }: { usage: UsageSummary }) {
         <thead>
           <tr>
             <th>#</th>
+            <th>Time</th>
             <th>Model</th>
             <th>Input</th>
             <th>Output</th>
@@ -1781,7 +1915,7 @@ function CostRequestsTable({ usage }: { usage: UsageSummary }) {
             <th>Cost</th>
           </tr>
         </thead>
-        {usage.requests.map((record, index) => {
+        {ordered.map(({ record, chronologicalIndex }) => {
           const priced = priceUsageRecord(record);
           const cacheWrite = readRecordNumber(
             record,
@@ -1789,9 +1923,12 @@ function CostRequestsTable({ usage }: { usage: UsageSummary }) {
           );
           const cacheRead = readRecordNumber(record, "cache_read_input_tokens");
           return (
-            <tbody key={index}>
+            <tbody key={chronologicalIndex}>
               <tr>
-                <td>{index}</td>
+                <td>{chronologicalIndex}</td>
+                <td>
+                  {formatRecordedAt(readRecordString(record, "recorded_at"))}
+                </td>
                 <td>{readRecordString(record, "model") ?? "—"}</td>
                 <td>
                   {formatNumber(
@@ -1811,7 +1948,7 @@ function CostRequestsTable({ usage }: { usage: UsageSummary }) {
                 <td>{formatCost(priced.costUsd)}</td>
               </tr>
               <tr className="payload-row">
-                <td colSpan={6}>
+                <td colSpan={7}>
                   <RequestPayloads record={record} />
                 </td>
               </tr>

@@ -2,6 +2,7 @@
 
 import type { AssistantActivityStateEvent } from "../../api/events/assistant-activity-state.js";
 import type { AssistantTextDeltaEvent } from "../../api/events/assistant-text-delta.js";
+import type { AssistantThinkingDeltaEvent } from "../../api/events/assistant-thinking-delta.js";
 import type { AssistantTurnStartEvent } from "../../api/events/assistant-turn-start.js";
 import type { ConfirmationRequestEvent } from "../../api/events/confirmation-request.js";
 import type { ErrorEvent } from "../../api/events/error.js";
@@ -75,15 +76,6 @@ export interface SuggestionRequest {
 }
 
 // === Server → Client ===
-
-export interface AssistantThinkingDelta {
-  type: "assistant_thinking_delta";
-  thinking: string;
-  conversationId?: string;
-  /** Database ID of the assistant message this thinking delta belongs to.
-   *  Same semantics as `AssistantTextDeltaEvent.messageId`. */
-  messageId?: string;
-}
 
 export interface ToolInputDelta {
   type: "tool_input_delta";
@@ -160,7 +152,7 @@ export type _MessagesServerMessages =
   | UserMessageEchoEvent
   | AssistantTurnStartEvent
   | AssistantTextDeltaEvent
-  | AssistantThinkingDelta
+  | AssistantThinkingDeltaEvent
   | ToolUseStartEvent
   | ToolUsePreviewStartEvent
   | ToolOutputChunkEvent

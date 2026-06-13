@@ -8,7 +8,10 @@ import {
   DEFAULT_INFRA_ALLOW_HOSTS,
   DEFAULT_MODEL_ALLOW_HOSTS,
   applyDockerEgressJail,
+  attachDockerEgressJail,
   dockerEgressJailContainerName,
+  dockerEgressJailNetworkName,
+  findOpenHostPort,
   vellumDockerAssistantContainer,
 } from "../egress/docker-jail";
 import type {
@@ -31,20 +34,41 @@ class FakeRunner implements CommandRunner {
 }
 
 describe("docker egress jail", () => {
-  test("derives deterministic Docker names from the assistant container", () => {
+  test("derives deterministic Docker names from the run id", () => {
+    // GIVEN a run id
+    // WHEN deriving the assistant, jail, and network names
+    // THEN each is a deterministic suffix of the run id, so cleanup is
+    // idempotent and debuggable across owner/attach modes.
     expect(vellumDockerAssistantContainer("eval-vellum-bare")).toBe(
       "eval-vellum-bare-assistant",
     );
-    expect(dockerEgressJailContainerName("eval-vellum-bare-assistant")).toBe(
-      "eval-vellum-bare-assistant-egress-jail",
+    expect(dockerEgressJailContainerName("eval-vellum-bare")).toBe(
+      "eval-vellum-bare-egress-jail",
+    );
+    expect(dockerEgressJailNetworkName("eval-vellum-bare")).toBe(
+      "eval-vellum-bare-egress-net",
     );
   });
 
-  test("always starts the recording mitm sidecar and reads NDJSON usage records", async () => {
-    // Recording is the only egress-jail mode: every eval run produces
-    // ground-truth usage out of the box (PR #31348 follow-up). The
-    // assertions below pin the exact `docker run` shape so the mitm
-    // sidecar can never silently regress to a non-recording variant.
+  test("findOpenHostPort resolves a usable TCP port", async () => {
+    // GIVEN nothing
+    // WHEN asking the kernel for an open port
+    const port = await findOpenHostPort();
+    // THEN it falls inside the ephemeral range the OS hands out for
+    // bind-to-0, so the jail can publish it on behalf of its tenants.
+    expect(port).toBeGreaterThan(0);
+    expect(port).toBeLessThanOrEqual(65535);
+  });
+
+  test("owner mode creates a network, publishes ports, and exposes the netns container + CA", async () => {
+    // Owner mode is how the assistant runs: the jail owns a fresh
+    // network namespace and is born with all rules + CA in place before
+    // any tenant joins, eliminating the pre-jail connection window. The
+    // assertions pin the exact `docker` call shape so this can never
+    // silently regress to a co-tenant variant.
+    //
+    // GIVEN a recording dir pre-staged with a usage log and the CA the
+    // sidecar entrypoint would drop at boot
     const runner = new FakeRunner();
     const dir = `.runs/test-recording-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     await mkdir(dir, { recursive: true });
@@ -52,40 +76,67 @@ describe("docker egress jail", () => {
       join(dir, "egress-usage.ndjson"),
       '{"provider":"anthropic","model":"claude-haiku-4-5","input_tokens":10,"output_tokens":5}\n',
     );
-    // Pre-stage the CA file so installRecordingCa's polling resolves
-    // immediately. In production the recording sidecar's entrypoint
-    // drops this file at boot; tests don't run that entrypoint, so
-    // without this pre-stage waitForRecordingCa would spin the full
-    // 10s timeout before each applyDockerEgressJail call.
     await writeFile(join(dir, "mitmproxy-ca-cert.pem"), "fake-ca-pem");
 
+    // WHEN applying the jail as the namespace owner, publishing the
+    // gateway port on behalf of the tenants that will join it
     const jail = await applyDockerEgressJail(runner, {
-      containerName: "eval-run-3-assistant",
+      runId: "eval-run-3",
       allowHosts: ["api.anthropic.com"],
       recordingDir: dir,
       recordingImage: "recording:local",
       recordingDockerfileDir: "/workspace/evals/recording",
+      publishPorts: [{ hostPort: 41234, containerPort: 7830 }],
     });
 
+    // THEN the jail pre-cleans its container and network, builds the
+    // image, creates the network it owns, then starts attached to that
+    // network (NOT another container's netns).
     expect(runner.runs[0]).toEqual({
       command: "docker",
-      args: ["rm", "-f", "eval-run-3-assistant-egress-jail"],
+      args: ["rm", "-f", "eval-run-3-egress-jail"],
     });
     expect(runner.runs[1]).toEqual({
       command: "docker",
+      args: ["network", "rm", "eval-run-3-egress-net"],
+    });
+    expect(runner.runs[2]).toEqual({
+      command: "docker",
       args: ["build", "-t", "recording:local", "/workspace/evals/recording"],
     });
-    expect(runner.runs[2]?.args).toContain("-d");
-    expect(runner.runs[2]?.args).toContain(
-      "evals.vellum.ai/egress-recording=1",
-    );
-    expect(runner.runs[2]?.args).toContain("ALLOW_HOSTS=api.anthropic.com");
-    // recordingDir gets resolved to absolute path in docker-jail
+    expect(runner.runs[3]).toEqual({
+      command: "docker",
+      args: ["network", "create", "eval-run-3-egress-net"],
+    });
+
+    const dockerRun = runner.runs[4];
+    expect(dockerRun?.args).toContain("-d");
+    expect(dockerRun?.args).toContain("evals.vellum.ai/egress-recording=1");
+    expect(dockerRun?.args).toContain("ALLOW_HOSTS=api.anthropic.com");
+    // AND it owns the network rather than borrowing a container's netns.
+    const networkIdx = dockerRun?.args.indexOf("--network") ?? -1;
+    expect(networkIdx).toBeGreaterThanOrEqual(0);
+    expect(dockerRun?.args[networkIdx + 1]).toBe("eval-run-3-egress-net");
+    // AND it publishes the gateway port the tenant can't publish itself.
+    expect(dockerRun?.args).toContain("-p");
+    expect(dockerRun?.args).toContain("41234:7830");
     const resolvedDir = resolve(dir);
-    const mountArg = runner.runs[2]?.args.find((arg) =>
+    const mountArg = dockerRun?.args.find((arg) =>
       arg?.includes(":/recording"),
     );
     expect(mountArg).toBe(`${resolvedDir}:/recording`);
+
+    // AND it surfaces the netns container + CA path so the caller can
+    // hand them to `hatch --netns-container` / `--assistant-ca-cert`.
+    expect(jail.netnsContainer).toBe("eval-run-3-egress-jail");
+    expect(jail.caCertPath).toBe(resolve(dir, "mitmproxy-ca-cert.pem"));
+
+    // AND owner mode never installs the CA itself — tenants trust it at
+    // launch via hatch, so there must be no `docker cp` / `update-ca`.
+    expect(runner.runs.some((r) => r.args[0] === "cp")).toBe(false);
+    expect(
+      runner.runs.some((r) => r.args.includes("update-ca-certificates")),
+    ).toBe(false);
 
     await expect(jail.readUsageRecords()).resolves.toEqual([
       {
@@ -96,28 +147,53 @@ describe("docker egress jail", () => {
       },
     ]);
 
+    // AND teardown removes the jail container then the network it owns.
     await jail.stop();
+    expect(runner.runs.at(-2)).toEqual({
+      command: "docker",
+      args: ["rm", "-f", "eval-run-3-egress-jail"],
+    });
     expect(runner.runs.at(-1)).toEqual({
       command: "docker",
-      args: ["rm", "-f", "eval-run-3-assistant-egress-jail"],
+      args: ["network", "rm", "eval-run-3-egress-net"],
     });
   });
 
-  test("defaults to the combined model+infra allowlist", async () => {
+  test("owner mode omits publish args when no ports are requested", async () => {
+    // GIVEN a recording dir but no ports to publish (e.g. a tenant
+    // reached purely via `docker exec`)
+    const runner = new FakeRunner();
+    const dir = `.runs/test-no-ports-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "mitmproxy-ca-cert.pem"), "fake-ca-pem");
+
+    // WHEN applying the jail without publishPorts
+    await applyDockerEgressJail(runner, {
+      runId: "eval-no-ports",
+      recordingDir: dir,
+    });
+
+    // THEN the `docker run` carries no `-p` mapping.
+    expect(runner.runs[4]?.args).not.toContain("-p");
+  });
+
+  test("owner mode defaults to the combined model+infra allowlist", async () => {
+    // GIVEN a recording dir
     const runner = new FakeRunner();
     const dir = `.runs/test-allowlist-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "mitmproxy-ca-cert.pem"), "fake-ca-pem");
 
+    // WHEN applying the jail without an explicit allowHosts
     await applyDockerEgressJail(runner, {
-      containerName: "eval-run-2-assistant",
+      runId: "eval-run-2",
       recordingDir: dir,
     });
 
+    // THEN it wires up the full default allowlist. runs[4] is the
+    // `docker run -d` (rm / network rm / build / network create precede).
     expect(DEFAULT_MODEL_ALLOW_HOSTS).toContain("api.anthropic.com");
-    // runs[0] is the pre-clean `rm -f`; runs[1] is the recording image
-    // build; runs[2] is the `docker run -d` that wires up ALLOW_HOSTS.
-    expect(runner.runs[2]?.args).toContain(
+    expect(runner.runs[4]?.args).toContain(
       `ALLOW_HOSTS=${DEFAULT_ALLOW_HOSTS.join(",")}`,
     );
   });
@@ -169,21 +245,25 @@ describe("docker egress jail", () => {
   });
 
   test("an explicit allowHosts override still wins over the default", async () => {
+    // GIVEN a recording dir
     const runner = new FakeRunner();
     const dir = `.runs/test-allowlist-override-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "mitmproxy-ca-cert.pem"), "fake-ca-pem");
 
+    // WHEN applying the jail with an explicit allowHosts
     await applyDockerEgressJail(runner, {
-      containerName: "eval-run-3-assistant",
+      runId: "eval-run-3",
       recordingDir: dir,
       allowHosts: ["example.test"],
     });
 
-    expect(runner.runs[2]?.args).toContain("ALLOW_HOSTS=example.test");
+    // THEN the override wins over the default allowlist.
+    expect(runner.runs[4]?.args).toContain("ALLOW_HOSTS=example.test");
   });
 
-  test("mounts plugin fixtures dir + sets PLUGIN_FIXTURES_DIR env when configured", async () => {
+  test("owner mode mounts plugin fixtures dir + sets PLUGIN_FIXTURES_DIR env when configured", async () => {
+    // GIVEN a recording dir and a fixtures source dir
     const runner = new FakeRunner();
     const dir = `.runs/test-fixtures-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     await mkdir(dir, { recursive: true });
@@ -192,15 +272,17 @@ describe("docker egress jail", () => {
     const fixturesDir = `.runs/test-fixtures-src-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     await mkdir(fixturesDir, { recursive: true });
 
+    // WHEN applying the jail with pluginFixturesDir set
     await applyDockerEgressJail(runner, {
-      containerName: "eval-run-fixtures-assistant",
+      runId: "eval-run-fixtures",
       recordingDir: dir,
       pluginFixturesDir: fixturesDir,
     });
 
-    const dockerRun = runner.runs[2];
+    // THEN the `docker run` bind-mounts the fixtures and points the
+    // addon at them.
+    const dockerRun = runner.runs[4];
     expect(dockerRun?.command).toBe("docker");
-    // -v <abs-fixtures>:/fixtures:ro lands as a single arg pair.
     const fixturesMount = dockerRun?.args.find((arg) =>
       arg?.includes(":/fixtures:ro"),
     );
@@ -208,18 +290,21 @@ describe("docker egress jail", () => {
     expect(dockerRun?.args).toContain("PLUGIN_FIXTURES_DIR=/fixtures");
   });
 
-  test("omits plugin fixtures args when pluginFixturesDir is not provided", async () => {
+  test("owner mode omits plugin fixtures args when pluginFixturesDir is not provided", async () => {
+    // GIVEN a recording dir without fixtures
     const runner = new FakeRunner();
     const dir = `.runs/test-no-fixtures-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "mitmproxy-ca-cert.pem"), "fake-ca-pem");
 
+    // WHEN applying the jail without pluginFixturesDir
     await applyDockerEgressJail(runner, {
-      containerName: "eval-run-no-fixtures-assistant",
+      runId: "eval-run-no-fixtures",
       recordingDir: dir,
     });
 
-    const dockerRun = runner.runs[2];
+    // THEN no fixtures mount or env is wired up.
+    const dockerRun = runner.runs[4];
     const fixturesMount = dockerRun?.args.find((arg) =>
       arg?.includes(":/fixtures"),
     );
@@ -227,34 +312,62 @@ describe("docker egress jail", () => {
     expect(dockerRun?.args).not.toContain("PLUGIN_FIXTURES_DIR=/fixtures");
   });
 
-  test("installs the recording CA into the assistant container after the sidecar starts", async () => {
+  test("attach mode joins an existing container's netns and installs the CA into it", async () => {
+    // Attach mode is how Hermes runs: it warms up provider SDKs from
+    // PyPI with open egress, then the jail attaches to its already-owned
+    // namespace and patches the trust store post-start (safe because no
+    // model TLS happens until the first turn).
+    //
+    // GIVEN a recording dir pre-staged with the sidecar CA
     const runner = new FakeRunner();
-    const dir = `.runs/test-ca-install-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const dir = `.runs/test-attach-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "mitmproxy-ca-cert.pem"), "fake-ca-pem");
 
-    await applyDockerEgressJail(runner, {
-      containerName: "eval-run-ca-assistant",
+    // WHEN attaching the jail to an existing container
+    const jail = await attachDockerEgressJail(runner, {
+      runId: "eval-run-ca",
+      containerName: "eval-run-ca-hermes",
       recordingDir: dir,
     });
 
-    // runs[0..2] = rm / build / run. Then the CA install pair fires
-    // — cp must precede update-ca-certificates or the exec sees a
-    // trust store that doesn't know about the new CA.
+    // THEN it pre-cleans the jail, builds, and starts sharing the
+    // target container's netns (no network of its own).
+    expect(runner.runs[0]).toEqual({
+      command: "docker",
+      args: ["rm", "-f", "eval-run-ca-egress-jail"],
+    });
+    expect(runner.runs[1]?.args[0]).toBe("build");
+    const dockerRun = runner.runs[2];
+    const networkIdx = dockerRun?.args.indexOf("--network") ?? -1;
+    expect(dockerRun?.args[networkIdx + 1]).toBe(
+      "container:eval-run-ca-hermes",
+    );
+    expect(dockerRun?.args).not.toContain("-p");
+
+    // AND it installs the CA into the target container — cp must precede
+    // update-ca-certificates or the exec sees a stale trust store.
     const cpRun = runner.runs[3];
-    expect(cpRun?.command).toBe("docker");
     expect(cpRun?.args[0]).toBe("cp");
     expect(cpRun?.args[1]).toBe(resolve(dir, "mitmproxy-ca-cert.pem"));
     expect(cpRun?.args[2]).toBe(
-      "eval-run-ca-assistant:/usr/local/share/ca-certificates/vellum-evals-mitmproxy.crt",
+      "eval-run-ca-hermes:/usr/local/share/ca-certificates/vellum-evals-mitmproxy.crt",
     );
-
-    const updateRun = runner.runs[4];
-    expect(updateRun?.command).toBe("docker");
-    expect(updateRun?.args).toEqual([
+    expect(runner.runs[4]?.args).toEqual([
       "exec",
-      "eval-run-ca-assistant",
+      "eval-run-ca-hermes",
       "update-ca-certificates",
     ]);
+
+    // AND the target container is reported as the netns owner.
+    expect(jail.netnsContainer).toBe("eval-run-ca-hermes");
+    expect(jail.caCertPath).toBe(resolve(dir, "mitmproxy-ca-cert.pem"));
+
+    // AND teardown removes only the jail (the owner outlives it).
+    await jail.stop();
+    expect(runner.runs.at(-1)).toEqual({
+      command: "docker",
+      args: ["rm", "-f", "eval-run-ca-egress-jail"],
+    });
   });
 });

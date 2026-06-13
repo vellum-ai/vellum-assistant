@@ -2,21 +2,13 @@ import { app, BrowserWindow, globalShortcut } from "electron";
 
 import log from "./logger";
 import { dispatchToMain } from "./main-window";
-import { onStatusChange, type AssistantStatus } from "./status";
 
 /**
- * Hybrid Escape monitor: registers a system-wide Escape shortcut only
- * when there is something to cancel — the assistant is actively
- * processing, or a dictation recording session is live — AND the app has
- * no focused window. When any BrowserWindow gains focus the shortcut is
- * released so normal in-app Escape handling (modals, popovers, inputs)
- * is unaffected — the renderer's own keydown listeners handle the
- * focused case.
- *
- * A live dictation recording takes priority over a thinking assistant:
- * the recording is the more immediate activity (the user is mid-hold on
- * push-to-talk), and a second Escape can still cancel the assistant once
- * the recording is gone.
+ * Dictation Escape monitor: registers a system-wide Escape shortcut only
+ * when a dictation recording session is live AND the app has no focused
+ * window. When any BrowserWindow gains focus the shortcut is released so
+ * normal in-app Escape handling (modals, popovers, inputs) is unaffected —
+ * the renderer's own keydown listeners handle the focused case.
  *
  * Electron's `globalShortcut` intercepts the keypress at the OS level
  * and swallows it (https://github.com/electron/electron/issues/13010),
@@ -29,21 +21,16 @@ import { onStatusChange, type AssistantStatus } from "./status";
  */
 
 let armed = false;
-let thinking = false;
 let dictationRecording = false;
 let hasFocusedWindow = false;
 
 const shouldBeArmed = (): boolean =>
-  (thinking || dictationRecording) && !hasFocusedWindow;
+  dictationRecording && !hasFocusedWindow;
 
 const arm = (): void => {
   if (armed) return;
   const ok = globalShortcut.register("Escape", () => {
-    dispatchToMain(
-      dictationRecording
-        ? { kind: "cancelDictation" }
-        : { kind: "cancelActiveAction" },
-    );
+    dispatchToMain({ kind: "cancelDictation" });
   });
   if (ok) {
     armed = true;
@@ -91,19 +78,14 @@ let teardown: (() => void) | null = null;
 
 /**
  * Install the escape monitor. Call once from `app.whenReady()`.
- * Subscribes to assistant status changes and window focus/blur events
- * to dynamically arm/disarm the global Escape shortcut.
+ * Subscribes to window focus/blur events to dynamically arm/disarm the
+ * global Escape shortcut while a dictation recording is live.
  */
 export const installEscapeMonitor = (): void => {
   if (teardown) return;
 
   // Determine initial focus state.
   hasFocusedWindow = BrowserWindow.getFocusedWindow() != null;
-
-  const unsubscribeStatus = onStatusChange((status: AssistantStatus) => {
-    thinking = status === "thinking";
-    reconcile();
-  });
 
   const onFocus = (): void => {
     hasFocusedWindow = true;
@@ -126,7 +108,6 @@ export const installEscapeMonitor = (): void => {
   app.on("will-quit", onQuit);
 
   teardown = () => {
-    unsubscribeStatus();
     app.off("browser-window-focus", onFocus);
     app.off("browser-window-blur", onBlur);
     app.off("will-quit", onQuit);

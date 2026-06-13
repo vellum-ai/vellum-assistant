@@ -75,31 +75,25 @@ iptables -t nat -F OUTPUT
 iptables -t nat -A OUTPUT -p tcp --dport 443 -m owner --uid-owner "$MITM_UID" -j RETURN
 iptables -t nat -A OUTPUT -p tcp --dport 443 -j REDIRECT --to-port "$MITM_PORT"
 
-# ---- re-evaluate pre-jail flows against the new NAT policy.
+# ---- re-evaluate any pre-existing flows against the new NAT policy.
 #
-# This sidecar is started AFTER the assistant containers are already
-# running (the harness hatches the assistant, then attaches this jail to
-# its netns). During that pre-jail window the assistant daemon opens a
-# keep-alive HTTPS connection to its model provider (e.g.
-# api.anthropic.com) and pools it. NAT OUTPUT REDIRECT only rewrites the
-# first packet of a NEW conntrack flow, and the filter chain accepts
-# already-established flows via the ESTABLISHED,RELATED rule above — so a
-# connection opened before these rules existed egresses straight to the
-# provider, never traversing mitmproxy. The assistant's main inference
-# reuses that pooled connection and its tokens/cost go unrecorded, while
-# short-lived auxiliary calls (which open fresh post-jail connections)
-# are captured. Whether the pooled connection survives to inference time
-# depends on the SDK's idle keep-alive timeout, which made the gap
-# intermittent.
+# Defensive backstop. NAT OUTPUT REDIRECT only rewrites the first packet
+# of a NEW conntrack flow, and the filter chain accepts already-open flows
+# via the ESTABLISHED,RELATED rule above — so any TCP connection that
+# predates these rules would egress straight to the provider, never
+# traversing mitmproxy, and its tokens/cost would go unrecorded. When the
+# jail owns the network namespace and tenants are born into it, no such
+# flow can exist; this flush guarantees correctness even if a tenant
+# somehow opens a connection before the rules are fully in place.
 #
-# Flushing conntrack here forces every pre-jail flow to be re-evaluated:
-# the next packet on a reused connection is treated as NEW, hits the
-# REDIRECT, and the client transparently reconnects through mitmproxy.
-# conntrack is network-namespace scoped, so this only affects the
-# assistant's own flows, and it runs before `mitmdump` is exec'd so the
-# proxy has no upstream connections to disturb. Best-effort: a flush
-# failure must not take down the jail (recording degrades to the
-# pre-existing behaviour rather than breaking egress entirely).
+# Flushing conntrack forces every existing flow to be re-evaluated: the
+# next packet on a reused connection is treated as NEW, hits the REDIRECT,
+# and the client transparently reconnects through mitmproxy. conntrack is
+# network-namespace scoped, so this only affects this namespace's own
+# flows, and it runs before `mitmdump` is exec'd so the proxy has no
+# upstream connections to disturb. Best-effort: a flush failure must not
+# take down the jail (recording degrades to the pre-existing behaviour
+# rather than breaking egress entirely).
 conntrack -F >/dev/null 2>&1 \
   && echo "recording-jail: flushed pre-jail conntrack flows" >&2 \
   || echo "recording-jail: conntrack flush unavailable (pre-jail flows may bypass)" >&2

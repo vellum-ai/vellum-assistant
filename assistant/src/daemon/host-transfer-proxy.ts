@@ -663,19 +663,22 @@ export class HostTransferProxy {
     const transferId = interaction.metadata?.transferId as string | undefined;
     if (transferId) this.transfers.delete(transferId);
     pendingInteractions.resolve(requestId, "cancelled");
+    const { conversationId } = interaction;
     try {
-      broadcastMessage(
-        {
-          type: "host_transfer_cancel",
-          requestId,
-          conversationId: interaction.conversationId,
-          ...(interaction.targetClientId != null
-            ? { targetClientId: interaction.targetClientId }
-            : {}),
-        },
-        interaction.conversationId,
-        { targetClientId: interaction.targetClientId },
-      );
+      if (conversationId !== undefined) {
+        broadcastMessage(
+          {
+            type: "host_transfer_cancel",
+            requestId,
+            conversationId,
+            ...(interaction.targetClientId != null
+              ? { targetClientId: interaction.targetClientId }
+              : {}),
+          },
+          conversationId,
+          { targetClientId: interaction.targetClientId },
+        );
+      }
     } catch {
       // Best-effort cancel notification
     }
@@ -719,19 +722,22 @@ export class HostTransferProxy {
       const transferId = entry.metadata?.transferId as string | undefined;
       if (transferId) this.transfers.delete(transferId);
       pendingInteractions.resolve(entry.requestId, "cancelled");
+      const { conversationId } = entry;
       try {
-        broadcastMessage(
-          {
-            type: "host_transfer_cancel",
-            requestId: entry.requestId,
-            conversationId: entry.conversationId,
-            ...(entry.targetClientId != null
-              ? { targetClientId: entry.targetClientId }
-              : {}),
-          },
-          entry.conversationId,
-          { targetClientId: entry.targetClientId },
-        );
+        if (conversationId !== undefined) {
+          broadcastMessage(
+            {
+              type: "host_transfer_cancel",
+              requestId: entry.requestId,
+              conversationId,
+              ...(entry.targetClientId != null
+                ? { targetClientId: entry.targetClientId }
+                : {}),
+            },
+            conversationId,
+            { targetClientId: entry.targetClientId },
+          );
+        }
       } catch {
         // Best-effort cancel notification
       }

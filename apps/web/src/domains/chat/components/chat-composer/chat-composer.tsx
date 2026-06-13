@@ -445,7 +445,7 @@ export function ChatComposer({
                       emoji.moveDown();
                       return;
                     }
-                    if (e.key === "Enter") {
+                    if (e.key === "Tab" || e.key === "Enter") {
                       e.preventDefault();
                       const selected = emoji.items[emoji.selectedIndex];
                       if (selected) insertEmoji(selected);

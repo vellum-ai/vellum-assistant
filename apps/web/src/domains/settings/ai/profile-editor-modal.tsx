@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input, Textarea } from "@vellumai/design-library/components/input";
@@ -11,7 +11,7 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import { ChevronRight } from "lucide-react";
 
 import { getModelsForProvider } from "@/assistant/llm-model-catalog";
-import { inferenceProviderconnectionsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import { configGetOptions, inferenceProviderconnectionsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 
 import type { ProfileEntry, ProfilePatchEntry, ProfileStatus, ProfileWithName } from "@/domains/settings/ai/ai-types";
 import { INFERENCE_PROVIDER_DISPLAY_NAMES } from "@/domains/settings/ai/ai-types";
@@ -234,6 +234,19 @@ function ProfileEditorModalInner({
     () => (provider ? getModelsForProvider(provider).find((m) => m.id === model) ?? null : null),
     [provider, model],
   );
+
+  // The advanced-param defaults a profile inherits when it omits an override
+  // live on `llm.default`, not on the profile fragment the editor edits. Read
+  // them from the loaded config (shared cache with ManageProfilesModal) so the
+  // Max Output / Context Window fields advertise the value the daemon will
+  // actually resolve, falling back to the schema defaults when unset.
+  const { data: config } = useQuery({
+    ...configGetOptions({ path: { assistant_id: assistantId } }),
+    staleTime: 30_000,
+  });
+  const defaultMaxOutputTokens = config?.llm?.default?.maxTokens;
+  const defaultContextWindowMaxInputTokens =
+    config?.llm?.default?.contextWindow?.maxInputTokens;
 
   // Derived: which advanced param fields to show
   const visibility = useMemo(
@@ -620,6 +633,8 @@ function ProfileEditorModalInner({
       isReadOnly={isReadOnly}
       model={model}
       selectedModel={selectedModel}
+      defaultMaxOutputTokens={defaultMaxOutputTokens}
+      defaultContextWindowMaxInputTokens={defaultContextWindowMaxInputTokens}
       maxTokens={maxTokens}
       onMaxTokensChange={setMaxTokens}
       contextWindowMaxInputTokens={contextWindowMaxInputTokens}

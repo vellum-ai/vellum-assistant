@@ -10561,6 +10561,8 @@ paths:
                       - hostPattern
                       - injectionType
                     additionalProperties: false
+                conversationId:
+                  type: string
               required:
                 - service
                 - field
@@ -20904,7 +20906,6 @@ paths:
                           type: string
                       required:
                         - requestId
-                        - conversationId
                         - kind
                       additionalProperties: false
                     description: All pending interactions (returned when no filters given)
