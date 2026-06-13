@@ -100,7 +100,10 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
       "heartbeat",
       SYSTEM_TASK_STATS_RUN_LIMIT,
     ],
-    queryFn: () => fetchHeartbeatRuns(assistantId!, SYSTEM_TASK_STATS_RUN_LIMIT),
+    queryFn: () =>
+      fetchHeartbeatRuns(assistantId!, SYSTEM_TASK_STATS_RUN_LIMIT).then(
+        (page) => page.runs,
+      ),
     enabled: !!assistantId && heartbeatConfig != null,
     staleTime: 10_000,
   });
@@ -118,7 +121,9 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
       SYSTEM_TASK_STATS_RUN_LIMIT,
     ],
     queryFn: () =>
-      fetchConsolidationRuns(assistantId!, SYSTEM_TASK_STATS_RUN_LIMIT),
+      fetchConsolidationRuns(assistantId!, SYSTEM_TASK_STATS_RUN_LIMIT).then(
+        (page) => page.runs,
+      ),
     enabled: !!assistantId && consolidationConfig?.available === true,
     staleTime: 10_000,
   });
@@ -136,7 +141,9 @@ export function useSystemTasks(assistantId: string | undefined, tz: string) {
       SYSTEM_TASK_STATS_RUN_LIMIT,
     ],
     queryFn: () =>
-      fetchRetrospectiveRuns(assistantId!, SYSTEM_TASK_STATS_RUN_LIMIT),
+      fetchRetrospectiveRuns(assistantId!, SYSTEM_TASK_STATS_RUN_LIMIT).then(
+        (page) => page.runs,
+      ),
     enabled: !!assistantId && retrospectiveConfig?.available === true,
     staleTime: 10_000,
   });

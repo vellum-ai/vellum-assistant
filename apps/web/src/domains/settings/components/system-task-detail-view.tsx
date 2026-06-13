@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { ArrowLeft, Loader2, Play, Settings } from "lucide-react";
 
 import { DetailCard } from "@/components/detail-card";
@@ -6,9 +6,13 @@ import {
   fetchConsolidationRuns,
   fetchHeartbeatRuns,
   fetchRetrospectiveRuns,
+  SCHEDULE_RUNS_PAGE_SIZE,
 } from "@/domains/settings/api/schedules";
 import { RecentRunsCard } from "@/domains/settings/components/recent-runs-card";
-import { formatTimestamp } from "@/domains/settings/utils/schedule-formatters";
+import {
+  flattenRunPages,
+  formatTimestamp,
+} from "@/domains/settings/utils/schedule-formatters";
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { Tag } from "@vellumai/design-library/components/tag";
@@ -70,16 +74,28 @@ export function SystemTaskDetailView({
     ? "Memory is off, so retrospectives are paused. Turn Memory back on to resume them."
     : "Memory is off, so consolidation is paused. Turn Memory back on to resume consolidation.";
 
-  const { data: runs, isLoading } = useQuery({
-    queryKey: ["system-task-runs", assistantId, kind],
-    queryFn: () =>
-      kind === "heartbeat"
-        ? fetchHeartbeatRuns(assistantId)
-        : kind === "consolidation"
-          ? fetchConsolidationRuns(assistantId)
-          : fetchRetrospectiveRuns(assistantId),
-    staleTime: 10_000,
-  });
+  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
+    useInfiniteQuery({
+      queryKey: ["system-task-runs", assistantId, kind],
+      queryFn: ({ pageParam }) =>
+        kind === "heartbeat"
+          ? fetchHeartbeatRuns(assistantId, SCHEDULE_RUNS_PAGE_SIZE, pageParam)
+          : kind === "consolidation"
+            ? fetchConsolidationRuns(
+                assistantId,
+                SCHEDULE_RUNS_PAGE_SIZE,
+                pageParam,
+              )
+            : fetchRetrospectiveRuns(
+                assistantId,
+                SCHEDULE_RUNS_PAGE_SIZE,
+                pageParam,
+              ),
+      initialPageParam: undefined as number | undefined,
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+      staleTime: 10_000,
+    });
+  const runs = flattenRunPages(data?.pages);
 
   return (
     <div className="space-y-4">
@@ -174,7 +190,13 @@ export function SystemTaskDetailView({
         ) : null}
       </DetailCard>
 
-      <RecentRunsCard runs={runs} isLoading={isLoading} />
+      <RecentRunsCard
+        runs={runs}
+        isLoading={isLoading}
+        hasMore={hasNextPage}
+        isLoadingMore={isFetchingNextPage}
+        onLoadMore={() => void fetchNextPage()}
+      />
     </div>
   );
 }

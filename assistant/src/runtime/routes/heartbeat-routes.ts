@@ -25,6 +25,13 @@ import { getLogger } from "../../util/logger.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError } from "./errors.js";
+import {
+  paginateRuns,
+  parseRunsBeforeCursor,
+  parseRunsLimit,
+  RUNS_NEXT_CURSOR_SCHEMA,
+  RUNS_PAGINATION_QUERY_PARAMS,
+} from "./runs-pagination.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("heartbeat-routes");
@@ -34,15 +41,18 @@ const log = getLogger("heartbeat-routes");
 // ---------------------------------------------------------------------------
 
 function handleListRuns(queryParams: Record<string, string>) {
-  const rawLimit = Number(queryParams.limit ?? 20);
-  const limit = Number.isFinite(rawLimit)
-    ? Math.min(Math.max(Math.floor(rawLimit), 1), 100)
-    : 20;
+  const limit = parseRunsLimit(queryParams, 20);
+  const before = parseRunsBeforeCursor(queryParams);
 
-  const runs = listHeartbeatRuns(limit);
+  const { rows, nextCursor } = paginateRuns(
+    listHeartbeatRuns(limit + 1, before),
+    limit,
+    (r) => r.scheduledFor,
+  );
   const now = Date.now();
   return {
-    runs: runs.map((r) => {
+    nextCursor,
+    runs: rows.map((r) => {
       const conversation = r.conversationId
         ? getConversation(r.conversationId)
         : null;
@@ -113,13 +123,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "List heartbeat runs",
     description: "Return recent heartbeat conversation runs.",
     tags: ["heartbeat"],
-    queryParams: [
-      {
-        name: "limit",
-        schema: { type: "integer" },
-        description: "Max runs to return (default 20, max 100)",
-      },
-    ],
+    queryParams: RUNS_PAGINATION_QUERY_PARAMS(20),
     responseBody: z.object({
       runs: z
         .array(
@@ -140,6 +144,7 @@ export const ROUTES: RouteDefinition[] = [
           }),
         )
         .describe("Heartbeat run records"),
+      nextCursor: RUNS_NEXT_CURSOR_SCHEMA,
     }),
     handler: ({ queryParams }: RouteHandlerArgs) =>
       handleListRuns(queryParams ?? {}),

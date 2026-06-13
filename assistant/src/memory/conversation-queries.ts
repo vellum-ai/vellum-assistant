@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 
 import {
   parseExternalContentEnvelope,
@@ -208,17 +208,24 @@ export function listConversations(
  *                              Defaults to `true` so callers that want a full
  *                              run history get one; pass `false` for views
  *                              that hide archived rows.
+ * @param opts.beforeCreatedAt  Only return rows with `createdAt` strictly
+ *                              older than this epoch-millis cursor (for
+ *                              paginating into history).
  */
 export function listConversationsBySource(
   source: string,
   limit = 20,
-  opts?: { includeArchived?: boolean },
+  opts?: { includeArchived?: boolean; beforeCreatedAt?: number },
 ): ConversationRow[] {
   const db = getDb();
   const includeArchived = opts?.includeArchived ?? true;
-  const where = includeArchived
-    ? eq(conversations.source, source)
-    : and(eq(conversations.source, source), isNull(conversations.archivedAt));
+  const where = and(
+    eq(conversations.source, source),
+    includeArchived ? undefined : isNull(conversations.archivedAt),
+    opts?.beforeCreatedAt != null
+      ? lt(conversations.createdAt, opts.beforeCreatedAt)
+      : undefined,
+  );
   const rows = db
     .select()
     .from(conversations)
