@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, Copy } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import type {
     LlmContextResponse,
@@ -12,6 +13,8 @@ import type {
 } from "@vellumai/assistant-api";
 import { Card } from "@vellumai/design-library";
 
+import { conceptPageQueryOptions } from "../../concept-page-api";
+
 /**
  * Memory tab rendering V1 recall, V2 activation, and/or the V3 selection.
  * When more than one is present a pill switcher lets the user toggle between
@@ -23,8 +26,10 @@ type MemoryView = "recall" | "v2" | "v3";
 
 export function MemoryTab({
   context,
+  assistantId,
 }: {
   context: LlmContextResponse | undefined;
+  assistantId: string | undefined;
 }): ReactNode {
   const recall = context?.memoryRecall ?? null;
   const v2 = context?.memoryV2Activation ?? null;
@@ -76,7 +81,7 @@ export function MemoryTab({
         {activeView === "v3" && v3 != null ? (
           <MemoryV3Section selection={v3} />
         ) : activeView === "v2" && v2 != null ? (
-          <MemoryV2Section activation={v2} />
+          <MemoryV2Section activation={v2} assistantId={assistantId} />
         ) : recall != null ? (
           <MemoryRecallSection recall={recall} />
         ) : null}
@@ -309,8 +314,10 @@ function CandidateRow({ candidate }: { candidate: MemoryCandidate }): ReactNode 
 
 function MemoryV2Section({
   activation,
+  assistantId,
 }: {
   activation: MemoryV2ActivationLog;
+  assistantId: string | undefined;
 }): ReactNode {
   const sorted = useMemo(
     () =>
@@ -330,57 +337,144 @@ function MemoryV2Section({
 
   return (
     <div className="flex flex-col gap-4 p-4">
-      <SectionCard title="Run">
-        <MetaGrid
-          rows={[
-            { label: "Mode", value: activation.mode },
-            { label: "Turn", value: String(activation.turn) },
-            {
-              label: "Concepts evaluated",
-              value: fmt(activation.concepts.length),
-            },
-          ]}
-        />
-      </SectionCard>
+      <ScopeBanner
+        title={`Memory — turn ${activation.turn} (${activation.mode})`}
+        body="Spreading-activation memory pass that ranks concepts and skills for this turn."
+      />
 
-      <SectionCard title="Outcome">
-        <MetaGrid
-          rows={[
-            { label: "In context", value: fmt(inContextCount) },
-            { label: "Injected", value: fmt(injectedCount) },
-            { label: "Not injected", value: fmt(notInjectedCount) },
-          ]}
+      <div className="flex flex-wrap gap-2">
+        <CountPill
+          label={`In context: ${fmt(inContextCount)}`}
+          dotColor={v2StatusColor("in_context")}
         />
-      </SectionCard>
+        <CountPill
+          label={`Injected: ${fmt(injectedCount)}`}
+          dotColor={v2StatusColor("injected")}
+        />
+        <CountPill
+          label={`Not injected: ${fmt(notInjectedCount)}`}
+          dotColor={v2StatusColor("not_injected")}
+        />
+      </div>
 
-      {sorted.length > 0 && (
-        <SectionCard
-          title="Concepts"
-          subtitle={`${sorted.length} concept(s) ranked by final activation.`}
-        >
+      <V2ConfigCard config={cfg} />
+
+      <SectionCard
+        title={`Concept activations (${fmt(sorted.length)})`}
+        subtitle="Sorted by final activation. Skill entries appear with the `skills/` slug prefix; expand a row for the activation breakdown."
+      >
+        {sorted.length > 0 ? (
           <div className="flex flex-col gap-1">
             {sorted.map((concept) => (
-              <ConceptRow key={concept.slug} concept={concept} config={cfg} />
+              <ConceptRow
+                key={concept.slug}
+                concept={concept}
+                config={cfg}
+                assistantId={assistantId}
+              />
             ))}
           </div>
-        </SectionCard>
-      )}
-
-      <SectionCard title="Config" subtitle="Hyperparameters used for this activation run.">
-        <MetaGrid
-          rows={[
-            { label: "d (decay)", value: fmtAct(cfg.d) },
-            { label: "c_user", value: fmtAct(cfg.c_user) },
-            { label: "c_assistant", value: fmtAct(cfg.c_assistant) },
-            { label: "c_now", value: fmtAct(cfg.c_now) },
-            { label: "k", value: fmtAct(cfg.k) },
-            { label: "hops", value: String(cfg.hops) },
-            { label: "top_k", value: String(cfg.top_k) },
-            { label: "epsilon", value: fmtAct(cfg.epsilon) },
-          ]}
-        />
+        ) : (
+          <span
+            className="text-body-medium-lighter"
+            style={{ color: "var(--content-secondary)" }}
+          >
+            No entries ranked.
+          </span>
+        )}
       </SectionCard>
     </div>
+  );
+}
+
+/** Collapsible config card mirroring the macOS V2 tab's disclosure group. */
+function V2ConfigCard({
+  config,
+}: {
+  config: MemoryV2ActivationLog["config"];
+}): ReactNode {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <Card>
+      <div className="flex flex-col gap-3 p-4">
+        <button
+          className="flex w-full items-start justify-between gap-2 text-left"
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            padding: 0,
+          }}
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+        >
+          <span className="flex flex-col gap-0.5">
+            <span
+              className="text-body-medium-default"
+              style={{ color: "var(--content-default)" }}
+            >
+              Config
+            </span>
+            <span
+              className="text-label-default"
+              style={{ color: "var(--content-tertiary)" }}
+            >
+              Activation weights and selection thresholds.
+            </span>
+          </span>
+          <span className="shrink-0" style={{ color: "var(--content-secondary)" }}>
+            {expanded ? (
+              <ChevronDown size={14} aria-hidden />
+            ) : (
+              <ChevronRight size={14} aria-hidden />
+            )}
+          </span>
+        </button>
+        {expanded && (
+          <MetaGrid
+            rows={[
+              { label: "d (decay)", value: fmtAct(config.d) },
+              { label: "c_user", value: fmtAct(config.c_user) },
+              { label: "c_assistant", value: fmtAct(config.c_assistant) },
+              { label: "c_now", value: fmtAct(config.c_now) },
+              { label: "k (sharpening)", value: fmtAct(config.k) },
+              { label: "hops", value: String(config.hops) },
+              { label: "top_k", value: String(config.top_k) },
+              { label: "epsilon", value: fmtAct(config.epsilon) },
+            ]}
+          />
+        )}
+      </div>
+    </Card>
+  );
+}
+
+/** Pill with an optional leading status dot — mirrors the macOS count chips. */
+function CountPill({
+  label,
+  dotColor,
+}: {
+  label: string;
+  dotColor?: string;
+}): ReactNode {
+  return (
+    <span
+      className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-label-default"
+      style={{
+        background: "var(--surface-overlay)",
+        color: "var(--content-secondary)",
+      }}
+    >
+      {dotColor != null && (
+        <span
+          className="shrink-0 rounded-full"
+          style={{ width: 6, height: 6, background: dotColor }}
+          aria-hidden
+        />
+      )}
+      {label}
+    </span>
   );
 }
 
@@ -389,12 +483,7 @@ function MemoryV3Section({
 }: {
   selection: MemoryV3SelectionLog;
 }): ReactNode {
-  const { live, shadow } = selection;
-  const modeLabel = live
-    ? "Live — injected"
-    : shadow
-      ? "Shadow — not injected"
-      : "Off";
+  const live = selection.live;
 
   const coreCount = selection.selections.filter((s) =>
     s.source.startsWith("core"),
@@ -415,38 +504,37 @@ function MemoryV3Section({
         body={
           live
             ? "v3 is the live memory source this turn — the block below was injected into context (v2 suppressed)."
-            : "v3 ran in shadow this turn. The block below is what it WOULD have injected; the live memory came from v2."
+            : "v3 ran in shadow this turn. The block below is what it would have injected; the live memory came from v2."
         }
       />
 
-      <SectionCard title="Selection">
-        <MetaGrid
-          rows={[
-            { label: "Mode", value: modeLabel },
-            { label: "Turn", value: String(selection.turn) },
-            {
-              label: "Selected pages",
-              value: fmt(selection.selections.length),
-            },
-            { label: "Core", value: fmt(coreCount) },
-            { label: "Carry-forward", value: fmt(carryCount) },
-            { label: "Pinned", value: fmt(pinnedCount) },
-          ]}
-        />
-      </SectionCard>
+      <div className="flex flex-wrap gap-2">
+        <CountPill label={`Turn ${selection.turn}`} />
+        <CountPill label={`Selected: ${fmt(selection.selections.length)}`} />
+        <CountPill label={`Core: ${fmt(coreCount)}`} />
+        <CountPill label={`Carried: ${fmt(carryCount)}`} />
+        <CountPill label={`Pinned: ${fmt(pinnedCount)}`} />
+      </div>
 
-      {selection.selections.length > 0 && (
-        <SectionCard
-          title="Selected pages"
-          subtitle={`${selection.selections.length} page(s), tagged by the lane that surfaced them.`}
-        >
+      <SectionCard
+        title={`Selected pages (${fmt(selection.selections.length)})`}
+        subtitle="Pages the v3 working set selected, tagged by the lane that surfaced them."
+      >
+        {selection.selections.length > 0 ? (
           <div className="flex flex-col gap-1">
             {selection.selections.map((row) => (
               <V3SelectionRow key={row.slug} row={row} />
             ))}
           </div>
-        </SectionCard>
-      )}
+        ) : (
+          <span
+            className="text-body-medium-lighter"
+            style={{ color: "var(--content-secondary)" }}
+          >
+            No pages selected.
+          </span>
+        )}
+      </SectionCard>
 
       {selection.injectedText !== "" && (
         <SectionCard
@@ -504,9 +592,11 @@ function formatV3Source(source: string): string {
 function ConceptRow({
   concept,
   config,
+  assistantId,
 }: {
   concept: MemoryV2ConceptRow;
   config: MemoryV2ActivationLog["config"];
+  assistantId: string | undefined;
 }): ReactNode {
   const [expanded, setExpanded] = useState(false);
 
@@ -514,44 +604,45 @@ function ConceptRow({
   const statusColor = v2StatusColor(concept.status);
   const statusText = v2StatusLabel(concept.status);
 
+  // Render the scaled contribution to A_o (coefficient × raw) with the raw
+  // similarity in parens, matching the macOS tab — the scaled values are
+  // what actually sum into the own-activation term.
   const breakdownRows: { label: string; value: string }[] = [
     { label: "A_o (own)", value: fmtAct(concept.ownActivation) },
     { label: "spread Δ", value: fmtAct(concept.spreadContribution) },
     { label: "prior · d", value: fmtAct(concept.priorActivation) },
     {
-      label: `sim_user (×${fmtAct(config.c_user)})`,
-      value: fmtAct(concept.simUser),
+      label: "c_user · sim_u",
+      value: `${fmtAct(concept.simUser * config.c_user)}  (raw ${fmtAct(concept.simUser)})`,
     },
     {
-      label: `sim_asst (×${fmtAct(config.c_assistant)})`,
-      value: fmtAct(concept.simAssistant),
+      label: "c_assistant · sim_a",
+      value: `${fmtAct(concept.simAssistant * config.c_assistant)}  (raw ${fmtAct(concept.simAssistant)})`,
     },
     {
-      label: `sim_now (×${fmtAct(config.c_now)})`,
-      value: fmtAct(concept.simNow),
+      label: "c_now · sim_n",
+      value: `${fmtAct(concept.simNow * config.c_now)}  (raw ${fmtAct(concept.simNow)})`,
     },
   ];
 
-  if ((concept.simUserRerankBoost ?? 0) !== 0) {
+  // Rerank contributes additively to A_o weighted by c_user / c_assistant.
+  // Render both channels whenever the slug was in the rerank pool, so a
+  // "+0.000" boost shows up explicitly rather than vanishing. The
+  // boost-value fallback covers older log rows that pre-date `inRerankPool`.
+  const rerankUser = concept.simUserRerankBoost ?? 0;
+  const rerankAsst = concept.simAssistantRerankBoost ?? 0;
+  if ((concept.inRerankPool ?? false) || rerankUser > 0 || rerankAsst > 0) {
     breakdownRows.push({
-      label: "rerank user Δ",
-      value: fmtAct(concept.simUserRerankBoost ?? 0),
+      label: "c_user · rerank Δ_u",
+      value: `+${fmtAct(rerankUser * config.c_user)}  (raw ${fmtAct(rerankUser)})`,
     });
-  }
-  if ((concept.simAssistantRerankBoost ?? 0) !== 0) {
     breakdownRows.push({
-      label: "rerank asst Δ",
-      value: fmtAct(concept.simAssistantRerankBoost ?? 0),
-    });
-  }
-  if (concept.inRerankPool != null) {
-    breakdownRows.push({
-      label: "in rerank pool",
-      value: concept.inRerankPool ? "Yes" : "No",
+      label: "c_assistant · rerank Δ_a",
+      value: `+${fmtAct(rerankAsst * config.c_assistant)}  (raw ${fmtAct(rerankAsst)})`,
     });
   }
   if (isCustomSource) {
-    breakdownRows.push({ label: "source", value: formatSource(concept.source) });
+    breakdownRows.push({ label: "source", value: concept.source });
   }
   breakdownRows.push({ label: "status", value: statusText });
 
@@ -583,7 +674,7 @@ function ConceptRow({
         >
           {concept.slug}
         </code>
-        {isCustomSource && <TypeChip label={formatSource(concept.source)} />}
+        {isCustomSource && <TypeChip label={concept.source} />}
         <div
           className="shrink-0 overflow-hidden rounded-full"
           style={{
@@ -626,8 +717,62 @@ function ConceptRow({
           {breakdownRows.map(({ label, value }) => (
             <BreakdownRow key={label} label={label} value={value} />
           ))}
+          <ConceptPageContent assistantId={assistantId} slug={concept.slug} />
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Lazily fetches and renders the raw markdown body of a memory v2 concept
+ * page. Mounted only inside an expanded concept row, so the fetch fires on
+ * expand and caches per slug — mirroring the macOS `ConceptPageContentView`.
+ */
+function ConceptPageContent({
+  assistantId,
+  slug,
+}: {
+  assistantId: string | undefined;
+  slug: string;
+}): ReactNode {
+  const query = useQuery({
+    ...conceptPageQueryOptions(assistantId ?? "", slug),
+    enabled: Boolean(assistantId),
+  });
+
+  let body: ReactNode;
+  if (query.isError || query.data?.kind === "missing") {
+    body = (
+      <span
+        className="text-label-small"
+        style={{ color: "var(--content-tertiary)" }}
+      >
+        Page not found on disk — slug may reference a stale Qdrant entry.
+      </span>
+    );
+  } else if (query.data?.kind === "loaded") {
+    body = <CodeBlock text={query.data.rendered} />;
+  } else {
+    body = (
+      <span
+        className="text-label-small"
+        style={{ color: "var(--content-tertiary)" }}
+      >
+        Loading…
+      </span>
+    );
+  }
+
+  return (
+    <div className="mt-2 flex flex-col gap-1">
+      <span
+        className="text-label-small"
+        style={{ color: "var(--content-secondary)" }}
+      >
+        page content
+      </span>
+      {body}
     </div>
   );
 }
@@ -786,22 +931,6 @@ function TypeChip({ label }: { label: string }): ReactNode {
   );
 }
 
-/**
- * Render a concept-row source string for display. Tier tags (`tier1`,
- * `tier2`, `tier3:N`) get spaced out for readability; legacy / non-router
- * sources pass through unchanged.
- */
-function formatSource(source: string): string {
-  if (source === "tier1") return "tier 1";
-  if (source === "tier2") return "tier 2";
-  if (source.startsWith("tier3:")) {
-    const idx = source.slice("tier3:".length);
-    return `tier 3 · b${idx}`;
-  }
-  if (source === "carry_over") return "carry over";
-  return source;
-}
-
 function CopyButton({ text }: { text: string }): ReactNode {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(null);
@@ -874,6 +1003,8 @@ function v2StatusColor(status: string): string {
       return "var(--system-positive-strong)";
     case "not_injected":
       return "var(--content-disabled)";
+    case "page_missing":
+      return "var(--system-mid-strong)";
     default:
       return "var(--content-tertiary)";
   }
