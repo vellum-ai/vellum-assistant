@@ -57,8 +57,19 @@ interface ProfileAdvancedParamsProps {
   selectedModel: {
     maxOutputTokens?: number;
     contextWindowTokens?: number;
-    defaultContextWindowTokens?: number;
   } | null;
+  /**
+   * Resolved `llm.default.maxTokens` from the loaded config — the output
+   * budget a profile inherits when it leaves `maxTokens` unset. Undefined when
+   * the config omits it, in which case the daemon applies its schema default.
+   */
+  defaultMaxOutputTokens?: number;
+  /**
+   * Resolved `llm.default.contextWindow.maxInputTokens` from the loaded config
+   * — the input budget a profile inherits when it leaves the context window
+   * unset. Undefined when the config omits it.
+   */
+  defaultContextWindowMaxInputTokens?: number;
 
   // Value + setter pairs for each advanced param
   maxTokens: number | null;
@@ -232,6 +243,8 @@ export function ProfileAdvancedParams({
   isReadOnly,
   model,
   selectedModel,
+  defaultMaxOutputTokens,
+  defaultContextWindowMaxInputTokens,
   maxTokens,
   onMaxTokensChange,
   contextWindowMaxInputTokens,
@@ -253,12 +266,25 @@ export function ProfileAdvancedParams({
   thinkingLevel,
   onThinkingLevelChange,
 }: ProfileAdvancedParamsProps) {
-  // The model's hard output ceiling doubles as the slider/input max. The
-  // resolved runtime default, however, is the global schema default
-  // (`llm.default.maxTokens`), independent of the model — bounded by the
-  // ceiling so it never exceeds what the model can emit.
+  // Each model's hard ceiling doubles as that field's slider/input max. The
+  // resolved runtime defaults, however, are what a profile inherits when it
+  // omits the override: `llm.default.maxTokens` and
+  // `llm.default.contextWindow.maxInputTokens` from the loaded config (or their
+  // schema defaults — 64000 / 200000 — when the config omits them). Each is
+  // clamped to its model ceiling so the displayed default never advertises a
+  // budget the model can't honor.
   const maxOutputCeiling =
     selectedModel?.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS;
+  const contextWindowCeiling =
+    selectedModel?.contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_BUDGET_TOKENS;
+  const resolvedMaxOutputDefault = Math.min(
+    defaultMaxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+    maxOutputCeiling,
+  );
+  const resolvedContextWindowDefault = Math.min(
+    defaultContextWindowMaxInputTokens ?? DEFAULT_CONTEXT_WINDOW_BUDGET_TOKENS,
+    contextWindowCeiling,
+  );
 
   return (
     // space-y-4 matches the modal body's rhythm so each advanced param gets
@@ -271,7 +297,7 @@ export function ProfileAdvancedParams({
           label="Max Output Tokens"
           value={maxTokens}
           onChange={onMaxTokensChange}
-          defaultValue={Math.min(DEFAULT_MAX_OUTPUT_TOKENS, maxOutputCeiling)}
+          defaultValue={resolvedMaxOutputDefault}
           max={maxOutputCeiling}
           disabled={isReadOnly}
         />
@@ -282,14 +308,8 @@ export function ProfileAdvancedParams({
           label="Context Window"
           value={contextWindowMaxInputTokens}
           onChange={onContextWindowChange}
-          defaultValue={
-            selectedModel?.defaultContextWindowTokens ??
-            DEFAULT_CONTEXT_WINDOW_BUDGET_TOKENS
-          }
-          max={
-            selectedModel?.contextWindowTokens ??
-            DEFAULT_CONTEXT_WINDOW_BUDGET_TOKENS
-          }
+          defaultValue={resolvedContextWindowDefault}
+          max={contextWindowCeiling}
           disabled={isReadOnly || !selectedModel}
         />
       )}
