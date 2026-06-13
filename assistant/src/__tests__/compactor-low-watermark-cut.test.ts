@@ -340,5 +340,10 @@ describe("runAssistantDrivenCompaction — low-watermark forward cut", () => {
     );
     // The original summary body is preserved verbatim ahead of the notice.
     expect(summaryTextOut).toContain(SUMMARY);
+    // The notice also rides the DURABLE summary — applyCompactionResult
+    // persists and rehydrates from `result.summaryText`, so a notice that
+    // lived only on the in-memory message would vanish on reload/fork.
+    expect(result.summaryText).toContain("Context budget enforcement");
+    expect(result.summaryText).toBe(summaryTextOut);
   });
 });

@@ -986,9 +986,15 @@ export async function runAssistantDrivenCompaction(
   }
 
   const summaryText = buildSummaryMemoryText(parsed.summary, parsed.keyState);
+  // The durable summary. When the forward-cut below advances the tail, a
+  // truncation notice is appended HERE — not just on the in-memory message —
+  // because `applyCompactionResult` persists and rehydrates the summary from
+  // the result's `summaryText`: a notice only on the message would vanish on
+  // reload/fork, silently hiding that the dropped span was never summarized.
+  let finalSummaryText = summaryText;
   let summaryMessage: Message = {
     role: "assistant",
-    content: [{ type: "text", text: summaryText }],
+    content: [{ type: "text", text: finalSummaryText }],
   };
 
   const {
@@ -1078,9 +1084,10 @@ export async function runAssistantDrivenCompaction(
         `(${droppedUser} user, ${droppedAssistant} assistant) between this ` +
         `summary and the retained tail were truncated to fit the context ` +
         `budget and are not covered in detail above.]`;
+      finalSummaryText = summaryText + truncationNote;
       summaryMessage = {
         role: "assistant",
-        content: [{ type: "text", text: summaryText + truncationNote }],
+        content: [{ type: "text", text: finalSummaryText }],
       };
       log.info(
         {
@@ -1154,7 +1161,7 @@ export async function runAssistantDrivenCompaction(
         ? { originalTailIndex: resolvedTailIndex }
         : {}),
       retainedImages: resolved.length,
-      summaryChars: summaryText.length,
+      summaryChars: finalSummaryText.length,
     },
     "Applied assistant-driven compaction",
   );
@@ -1182,7 +1189,7 @@ export async function runAssistantDrivenCompaction(
       response.usage.cacheCreationInputTokens ?? 0,
     summaryCacheReadInputTokens: response.usage.cacheReadInputTokens ?? 0,
     summaryRawResponses: response.rawResponse ? [response.rawResponse] : [],
-    summaryText,
+    summaryText: finalSummaryText,
     keyState: parsed.keyState,
     summaryFailed: false,
     tailFloorReached,
