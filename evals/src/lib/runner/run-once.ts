@@ -539,6 +539,14 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
         });
         break;
       }
+      // No `pendingConfirmation` was supplied, so the simulator's only valid
+      // moves are sending the next user message or ending; a `confirm` here
+      // means the contract changed under us.
+      if (decision.action !== "send") {
+        throw new Error(
+          `simulator returned an unexpected "${decision.action}" decision at the turn boundary`,
+        );
+      }
       progress({
         step: "simulator",
         status: "done",
@@ -578,17 +586,23 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
         }
         let decision: "allow" | "deny" = "allow";
         try {
-          const verdict = await simulator.confirmTool({
+          const verdict = await simulator.decide({
             test: input.test,
             transcript: await readTranscript(input.runId),
-            request: {
+            pendingConfirmation: {
               toolName: event.message.toolName ?? "",
               input: event.message.input ?? {},
               riskLevel: event.message.riskLevel,
               riskReason: event.message.riskReason,
             },
           });
-          decision = verdict.decision;
+          if (verdict.action === "confirm") {
+            decision = verdict.decision;
+          } else {
+            console.warn(
+              `[run-once] simulator returned ${verdict.action} for confirmation ${requestId}, defaulting to allow`,
+            );
+          }
         } catch (err) {
           console.warn(
             `[run-once] simulator failed to decide confirmation ${requestId}, defaulting to allow: ` +

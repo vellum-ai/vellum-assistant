@@ -370,7 +370,7 @@ describe("UserSimulator", () => {
     );
   });
 
-  test("confirmTool returns the simulator's allow decision", async () => {
+  test("decide returns the simulator's allow confirmation", async () => {
     // GIVEN the simulator answers a pending confirmation with `allow`
     const test = await makeTestDef();
     globalThis.fetch = (async () =>
@@ -389,21 +389,22 @@ describe("UserSimulator", () => {
       )) as unknown as typeof fetch;
     const simulator = new UserSimulator({ apiKey: "test-key", maxTurns: 5 });
 
-    // WHEN it decides a pending tool confirmation
-    const verdict = await simulator.confirmTool({
+    // WHEN it decides with a pending tool confirmation
+    const decision = await simulator.decide({
       test,
       transcript: [],
-      request: { toolName: "Bash", input: { cmd: "ls" } },
+      pendingConfirmation: { toolName: "Bash", input: { cmd: "ls" } },
     });
 
-    // THEN the verdict carries the allow decision and the model's reason
-    expect(verdict).toEqual({
+    // THEN the decision confirms allow and carries the model's reason
+    expect(decision).toEqual({
+      action: "confirm",
       decision: "allow",
       reason: "matches the SPEC goal",
     });
   });
 
-  test("confirmTool returns the simulator's deny decision", async () => {
+  test("decide returns the simulator's deny confirmation", async () => {
     // GIVEN the simulator answers a pending confirmation with `deny`
     const test = await makeTestDef();
     globalThis.fetch = (async () =>
@@ -422,18 +423,22 @@ describe("UserSimulator", () => {
       )) as unknown as typeof fetch;
     const simulator = new UserSimulator({ apiKey: "test-key", maxTurns: 5 });
 
-    // WHEN it decides a pending tool confirmation
-    const verdict = await simulator.confirmTool({
+    // WHEN it decides with a pending tool confirmation
+    const decision = await simulator.decide({
       test,
       transcript: [],
-      request: { toolName: "Bash", input: { cmd: "rm -rf /" } },
+      pendingConfirmation: { toolName: "Bash", input: { cmd: "rm -rf /" } },
     });
 
-    // THEN the verdict denies and omits the optional reason
-    expect(verdict).toEqual({ decision: "deny", reason: undefined });
+    // THEN the decision denies and omits the optional reason
+    expect(decision).toEqual({
+      action: "confirm",
+      decision: "deny",
+      reason: undefined,
+    });
   });
 
-  test("confirmTool forces the respond_to_confirmation tool and describes the request", async () => {
+  test("decide forces the respond_to_confirmation tool and describes a pending confirmation", async () => {
     // GIVEN a confirmation request carrying tool details and a risk reason
     const test = await makeTestDef();
     let requestBody:
@@ -464,11 +469,11 @@ describe("UserSimulator", () => {
     }) as typeof fetch;
     const simulator = new UserSimulator({ apiKey: "test-key", maxTurns: 5 });
 
-    // WHEN it decides a pending tool confirmation
-    await simulator.confirmTool({
+    // WHEN it decides with a pending tool confirmation
+    await simulator.decide({
       test,
       transcript: [],
-      request: {
+      pendingConfirmation: {
         toolName: "WriteFile",
         input: { path: "/etc/hosts" },
         riskLevel: "high",
@@ -492,7 +497,7 @@ describe("UserSimulator", () => {
     expect(lastMessage?.content).toContain("writes outside the workspace");
   });
 
-  test("confirmTool throws SimulatorParseError when no decision is returned", async () => {
+  test("decide throws SimulatorParseError when a pending confirmation yields no decision", async () => {
     // GIVEN the model replies without calling respond_to_confirmation
     const test = await makeTestDef();
     globalThis.fetch = (async () =>
@@ -507,10 +512,10 @@ describe("UserSimulator", () => {
 
     // WHEN / THEN deciding the confirmation surfaces a structured parse error
     await expect(
-      simulator.confirmTool({
+      simulator.decide({
         test,
         transcript: [],
-        request: { toolName: "Bash", input: {} },
+        pendingConfirmation: { toolName: "Bash", input: {} },
       }),
     ).rejects.toThrow(SimulatorParseError);
   });

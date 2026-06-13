@@ -494,9 +494,6 @@ describe("runEvalOnce — hatch failure metadata", () => {
     async decide(): Promise<SimulatorDecision> {
       return { action: "end", reason: "unreachable in hatch-throw test" };
     },
-    async confirmTool() {
-      return { decision: "allow" as const };
-    },
   };
 
   afterEach(() => {
@@ -571,9 +568,6 @@ describe("runEvalOnce — construction failure diagnostic gap", () => {
         action: "end",
         reason: "unreachable in construction-throw test",
       };
-    },
-    async confirmTool() {
-      return { decision: "allow" as const };
     },
   };
 

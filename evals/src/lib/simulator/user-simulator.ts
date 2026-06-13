@@ -1,8 +1,6 @@
 import { readFile } from "node:fs/promises";
 
 import type {
-  ConfirmationInput,
-  ConfirmationVerdict,
   Simulator,
   SimulatorDecision,
   SimulatorInput,
@@ -272,9 +270,9 @@ function confirmationPrompt(request: ToolConfirmationRequest): string {
   return lines.join("\n");
 }
 
-function parseConfirmationVerdict(
+function parseConfirmationDecision(
   body: AnthropicResponseBody,
-): ConfirmationVerdict {
+): SimulatorDecision {
   const parts = body.content ?? [];
   for (const part of parts) {
     if (part.type !== "tool_use" || part.name !== CONFIRMATION_TOOL_NAME) {
@@ -284,6 +282,7 @@ function parseConfirmationVerdict(
     if (decision === "allow" || decision === "deny") {
       const reason = part.input?.reason;
       return {
+        action: "confirm",
         decision,
         reason: typeof reason === "string" ? reason : undefined,
       };
@@ -321,6 +320,13 @@ export class UserSimulator implements Simulator {
   }
 
   async decide(input: SimulatorInput): Promise<SimulatorDecision> {
+    // A pending confirmation is the simulator's next decision regardless of
+    // where the turn stands, so resolve it before the turn-budget guard (which
+    // is about how many user messages to send, not mid-turn approvals).
+    if (input.pendingConfirmation) {
+      return this.decideConfirmation(input, input.pendingConfirmation);
+    }
+
     const turns = simulatorTurnCount(input.transcript);
     if (turns >= this.maxTurns) {
       return {
@@ -328,7 +334,12 @@ export class UserSimulator implements Simulator {
         reason: `max simulator turns reached (${this.maxTurns})`,
       };
     }
+    return this.decideNextMessage(input);
+  }
 
+  private async decideNextMessage(
+    input: SimulatorInput,
+  ): Promise<SimulatorDecision> {
     const spec = await readFile(input.test.specPath, "utf8");
     const body = await this.requestCompletion({
       failureLabel: "request",
@@ -368,7 +379,10 @@ export class UserSimulator implements Simulator {
     return parseDecision(body);
   }
 
-  async confirmTool(input: ConfirmationInput): Promise<ConfirmationVerdict> {
+  private async decideConfirmation(
+    input: SimulatorInput,
+    request: ToolConfirmationRequest,
+  ): Promise<SimulatorDecision> {
     const spec = await readFile(input.test.specPath, "utf8");
     const body = await this.requestCompletion({
       failureLabel: "confirmation request",
@@ -384,7 +398,7 @@ export class UserSimulator implements Simulator {
       ].join("\n"),
       messages: coalesceMessages([
         ...transcriptToSimulatorMessages(input.transcript),
-        { role: "user", content: confirmationPrompt(input.request) },
+        { role: "user", content: confirmationPrompt(request) },
       ]),
       tools: [
         {
@@ -401,13 +415,13 @@ export class UserSimulator implements Simulator {
           },
         },
       ],
-      // The simulator's only job here is to decide allow/deny, so force the
-      // tool call rather than risk a free-text reply that never resolves the
-      // confirmation. `decide` deliberately omits this so the model can choose
+      // Resolving the confirmation is the only valid move here, so force the
+      // tool call rather than risk a free-text reply that never resolves it.
+      // The next-message path omits tool_choice so the model can choose
       // between user text and ending the conversation.
       toolChoice: { type: "tool", name: CONFIRMATION_TOOL_NAME },
     });
-    return parseConfirmationVerdict(body);
+    return parseConfirmationDecision(body);
   }
 
   /**
