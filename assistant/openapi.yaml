@@ -9929,6 +9929,14 @@ paths:
                                   type: string
                                 pinned:
                                   type: boolean
+                                sectionOrdinal:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                sectionHeading:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
                               required:
                                 - slug
                                 - source
@@ -19354,6 +19362,14 @@ paths:
                                   type: string
                                 pinned:
                                   type: boolean
+                                sectionOrdinal:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                sectionHeading:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
                               required:
                                 - slug
                                 - source
