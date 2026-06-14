@@ -3,12 +3,13 @@
 // ---------------------------------------------------------------------------
 //
 // At daemon startup, walk every concept page on disk and validate its
-// frontmatter against `ConceptPageFrontmatterSchema` (which is `.strict()`).
-// Schema-drifted pages — e.g. a user-authored file that adds a frontmatter
-// key the schema doesn't allow — would otherwise stay invisible until the
-// page lands in a conversation's top-K and `renderInjectionBlock`'s
-// `Promise.all` rejects, silently no-op'ing V2 dynamic injection for the
-// whole turn. Surfacing them as `warn` log lines at boot turns that into a
+// frontmatter against `ConceptPageFrontmatterSchema`. The schema is
+// `.passthrough()`, so unknown keys are tolerated; what this sweep catches is
+// genuinely malformed frontmatter — a wrong type on a declared field, or YAML
+// that doesn't parse. Such pages would otherwise stay invisible until one lands
+// in a conversation's top-K and `renderInjectionBlock`'s `Promise.all` rejects
+// (readPage throws), silently no-op'ing V2 dynamic injection for the whole
+// turn. Surfacing them as `warn` log lines at boot turns that into a
 // debuggable signal.
 //
 // This sweep is intentionally separate from `rebuildConceptPageCorpusStats`:
