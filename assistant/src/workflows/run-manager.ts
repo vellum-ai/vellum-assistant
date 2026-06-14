@@ -574,11 +574,30 @@ function buildCompletionSummary(
       `Tokens: ${result.inputTokens} in / ${result.outputTokens} out.`,
   ];
   if (result.status === "completed") {
-    lines.push(`Result: ${stringifyResult(result.result)}`);
+    lines.push(`Result: ${truncateForSummary(stringifyResult(result.result))}`);
   } else {
     lines.push(`Outcome: ${run?.error ?? result.status}`);
   }
   return lines.join("\n");
+}
+
+/**
+ * Max characters of a workflow result echoed into the completion summary. The
+ * summary rides on the `workflow_completed` SSE event AND is injected into the
+ * originating conversation via a wake, so an unbounded fan-out result (a large
+ * array/object/string) could blow the event or prompt size limit. The full,
+ * untruncated result is retained on the durable run row.
+ */
+const MAX_SUMMARY_RESULT_CHARS = 2000;
+
+/** Bound a result tail for the summary; the full value stays on the run row. */
+function truncateForSummary(s: string): string {
+  if (s.length <= MAX_SUMMARY_RESULT_CHARS) return s;
+  const omitted = s.length - MAX_SUMMARY_RESULT_CHARS;
+  return (
+    `${s.slice(0, MAX_SUMMARY_RESULT_CHARS)}… ` +
+    `[truncated ${omitted} chars; full result on the workflow run record]`
+  );
 }
 
 /** Compact a workflow result for the summary — JSON for objects, string otherwise. */

@@ -406,6 +406,37 @@ describe("WorkflowRunManager — completion", () => {
     expect(run?.outputTokens).toBe(50);
   });
 
+  test("a large result is truncated in the summary but kept whole on the run row", async () => {
+    const h = makeHarness();
+    const big = "x".repeat(50_000);
+    const { runId } = h.manager.start({
+      scriptSource: "export const meta = { name: 'x', description: 'y' }",
+      args: {},
+      manifest: { tools: [], hostFunctions: [], persona: false },
+      conversationId: "conv-big",
+      label: "Digest",
+      trustContext: TRUST,
+    });
+
+    await h.resolveLatest({
+      status: "completed",
+      result: big,
+      agentsSpawned: 1,
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+
+    const completed = h.broadcasts.find((b) => b.type === "workflow_completed");
+    // The summary (event + wake) is bounded well under the raw result size.
+    const summary = String(completed?.summary ?? "");
+    expect(summary.length).toBeLessThan(big.length);
+    expect(summary).toContain("[truncated");
+    expect(h.wakes[0]!.hint).toContain("[truncated");
+
+    // The durable run row keeps the FULL, untruncated result.
+    expect(h.manager.status(runId)?.result).toBe(big);
+  });
+
   test("no conversationId → completion events fire but no wake", async () => {
     const h = makeHarness();
     h.manager.start({
