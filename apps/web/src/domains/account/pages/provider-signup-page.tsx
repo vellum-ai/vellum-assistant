@@ -154,7 +154,12 @@ export function ProviderSignupPage() {
     );
   }
 
-  if (personalPage) {
+  // The personal-page step hides email/username and submits the provider-
+  // supplied values. If the provider didn't supply them (rare — WorkOS social
+  // always returns an email, and allauth suggests a username), fall through to
+  // the editable control form so the user can complete signup rather than hit
+  // an uncorrectable validation error.
+  if (personalPage && email && username) {
     const canSubmit = occupation.trim().length > 0 && !isSubmitting;
     return (
       <PersonalPageShell>
