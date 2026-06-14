@@ -1,27 +1,20 @@
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 
-interface RotatingWordProps {
-  /** Words cycled in place, one at a time. */
-  words: string[];
-  className?: string;
-}
-
 /**
- * Cycles `words` in place on a fixed interval with a vertical cross-fade.
- * A hidden sizer (the longest word) reserves width so surrounding text
- * doesn't reflow as the word changes. Respects `prefers-reduced-motion`.
+ * Cycles `words` in place inside the headline with a vertical cross-fade,
+ * rendered as a styled `<em>` (see `.cast-login__title em`). A hidden sizer
+ * (longest word) reserves width so the headline doesn't reflow. Ported from
+ * the cast prototype's RotatingWord.
  */
-export function RotatingWord({ words, className }: RotatingWordProps) {
+export function RotatingWord({ words }: { words: string[] }) {
   const [index, setIndex] = useState(0);
-  const reduceMotion = useReducedMotion();
   const longest = useMemo(
-    () => words.reduce((a, b) => (a.length >= b.length ? a : b), ""),
+    () => words.reduce((a, b) => (a.length >= b.length ? a : b)),
     [words],
   );
 
   useEffect(() => {
-    if (words.length <= 1) return;
     const id = setInterval(() => {
       setIndex((i) => (i + 1) % words.length);
     }, 2400);
@@ -29,24 +22,20 @@ export function RotatingWord({ words, className }: RotatingWordProps) {
   }, [words.length]);
 
   return (
-    <span className={`relative inline-grid align-bottom ${className ?? ""}`}>
-      <span
-        aria-hidden
-        className="invisible col-start-1 row-start-1 whitespace-nowrap"
-      >
-        {longest}
+    <span className="cast-login__rotating">
+      <span className="cast-login__rotating-sizer" aria-hidden>
+        {longest}.
       </span>
       <AnimatePresence mode="wait">
-        <motion.span
+        <motion.em
           key={words[index]}
-          className="col-start-1 row-start-1 whitespace-nowrap"
-          initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+          initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -8 }}
-          transition={{ duration: 0.35, ease: "easeInOut" }}
+          exit={{ opacity: 0, y: -16 }}
+          transition={{ duration: 0.3, ease: "easeInOut" }}
         >
-          {words[index]}
-        </motion.span>
+          {words[index]}.
+        </motion.em>
       </AnimatePresence>
     </span>
   );

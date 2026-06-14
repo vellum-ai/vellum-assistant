@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
-import { Button, Notice } from "@vellumai/design-library";
-
 import {
   AccountForm,
   AccountHeading,
   AccountInput,
 } from "@/components/account/account-form";
 import { AccountShell } from "@/components/account/account-shell";
+import { PersonalPageShell } from "@/domains/account/components/personal-page-shell";
 import {
   getProviderSignup,
   isConflict,
@@ -158,46 +157,70 @@ export function ProviderSignupPage() {
   if (personalPage) {
     const canSubmit = occupation.trim().length > 0 && !isSubmitting;
     return (
-      <AccountShell>
-        <AccountHeading
-          title="Almost there"
-          subtitle="One more detail to finish setting up your account."
-        />
-        <form onSubmit={onPersonalPageSubmit} className="flex flex-col gap-4">
-          {error && <Notice tone="error">{error}</Notice>}
-          <div className="flex flex-col gap-3">
-            <AccountInput
-              id="firstName"
+      <PersonalPageShell>
+        <form onSubmit={onPersonalPageSubmit} className="cast-about__thread">
+          <h2 className="cast-about__heading">
+            Almost there,
+            <br />
+            one more detail
+          </h2>
+
+          {error && <p className="cast-about__error">{error}</p>}
+
+          <div className="cast-about__step">
+            <span className="cast-about__label">
+              What should I call you? <span className="cast-about__req">*</span>
+            </span>
+            <input
+              className="cast-about__input"
               type="text"
               placeholder="First name"
               value={firstName}
               readOnly
               disabled
             />
-            <AccountInput
-              id="lastName"
+          </div>
+
+          <div className="cast-about__step">
+            <span className="cast-about__label">
+              And your last name? <span className="cast-about__req">*</span>
+            </span>
+            <input
+              className="cast-about__input"
               type="text"
               placeholder="Last name"
               value={lastName}
               readOnly
               disabled
             />
-            <AccountInput
-              id="occupation"
+          </div>
+
+          <div className="cast-about__step">
+            <span className="cast-about__label">
+              Your role <span className="cast-about__req">*</span>
+            </span>
+            <input
+              className="cast-about__input"
               type="text"
               autoComplete="organization-title"
-              placeholder="What's your role? (e.g. Software Engineer)"
+              placeholder="e.g. Software Engineer"
               value={occupation}
               onChange={(e) => setOccupation(e.target.value)}
               autoFocus
-              required
             />
           </div>
-          <Button type="submit" variant="primary" fullWidth disabled={!canSubmit}>
-            {isSubmitting ? "Completing..." : "Continue"}
-          </Button>
+
+          <div className="cast-about__step">
+            <button
+              type="submit"
+              className="cast-about__continue"
+              disabled={!canSubmit}
+            >
+              {isSubmitting ? "Setting up…" : "Continue →"}
+            </button>
+          </div>
         </form>
-      </AccountShell>
+      </PersonalPageShell>
     );
   }
 
