@@ -76,6 +76,15 @@ mock.module("../notifications/emit-signal.js", () => ({
   },
 }));
 
+// Control the tool-registry readiness gate the scheduler checks before launching
+// workflow schedules. Default ready=true so the existing workflow-mode tests are
+// unaffected; one test flips it to exercise the boot-time deferral path. Only the
+// scheduler consumes registry in this test's graph, so a minimal mock suffices.
+let coreToolsReady = true;
+mock.module("../tools/registry.js", () => ({
+  areCoreToolsInitialized: () => coreToolsReady,
+}));
+
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
 import { recordUsageEvent } from "../memory/llm-usage-store.js";
@@ -489,6 +498,7 @@ describe("scheduler workflow mode", () => {
       workflowStartCalls.push(opts);
       return { runId: "wf-run-1" };
     };
+    coreToolsReady = true;
   });
 
   test("a due workflow-mode job triggers the run manager with name/args", async () => {
@@ -586,5 +596,38 @@ describe("scheduler workflow mode", () => {
 
     expect(result.skipped).toBe(1);
     expect(workflowStartCalls).toHaveLength(0);
+  });
+
+  test("defers a due workflow job until tools are registered, then fires it", async () => {
+    coreToolsReady = false;
+    const schedule = createSchedule({
+      name: "Boot workflow",
+      cronExpression: "0 9 * * *",
+      message: "go",
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "triage-inbox",
+    });
+    forceScheduleDue(schedule.id);
+
+    // Tools not yet registered: the run must be deferred, not launched with an
+    // empty baseline. No run-manager start, no run record, marked skipped.
+    const result = await runScheduleDueWorkOnce(
+      async () => {},
+      () => {},
+    );
+    expect(workflowStartCalls).toHaveLength(0);
+    expect(result.skipped).toBe(1);
+    expect(getScheduleRuns(schedule.id)).toHaveLength(0);
+
+    // Re-armed to due (not consumed): once tools are ready, a later tick fires
+    // it with the full baseline.
+    coreToolsReady = true;
+    await runScheduleDueWorkOnce(
+      async () => {},
+      () => {},
+    );
+    expect(workflowStartCalls).toHaveLength(1);
+    expect(workflowStartCalls[0]).toMatchObject({ name: "triage-inbox" });
   });
 });

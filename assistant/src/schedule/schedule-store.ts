@@ -584,6 +584,33 @@ export function failOneShot(id: string): void {
 }
 
 /**
+ * Re-arm a just-claimed schedule so it is due again on the very next tick,
+ * WITHOUT counting as a run or bumping the retry count. Sets status back to
+ * 'active' and pulls `nextRunAt` back to now: `claimDueSchedules` advances
+ * `nextRunAt` for recurring jobs (and flips one-shots to 'firing'), so without
+ * resetting both the claimed occurrence would be dropped until the next cron
+ * time. Used when a tick claims a job it cannot yet process (e.g. a workflow
+ * schedule that fired before the tool registry finished initializing at boot);
+ * unlike a failure path it does not touch `retryCount`, since the deferral is
+ * not the schedule's fault. Keyed by id only (no status guard) because recurring
+ * claims leave the row 'active' while one-shot claims leave it 'firing', and it
+ * runs immediately after the claim within the same tick.
+ */
+export function deferClaimedSchedule(id: string): void {
+  const db = getDb();
+  const now = Date.now();
+  db.update(scheduleJobs)
+    .set({
+      status: "active",
+      nextRunAt: now,
+      updatedAt: now,
+    })
+    .where(eq(scheduleJobs.id, id))
+    .run();
+  if (rawChanges() > 0) notifySchedulesChanged();
+}
+
+/**
  * Revert a one-shot from 'firing' back to 'active' and increment its
  * retry count. Used when a wake times out waiting for an idle conversation
  * — the job should be retried on the next scheduler tick.

@@ -199,6 +199,17 @@ export function getTool(name: string): Tool | undefined {
   return tools.get(name);
 }
 
+/**
+ * True once {@link initializeTools} has populated the core registry (the core
+ * snapshot is captured at the end of init). Callers that must not run before the
+ * read-only baseline (`file_read`/`web_fetch`/etc.) exists — e.g. the scheduler
+ * deferring boot-time workflow triggers — gate on this. It only ever flips
+ * false→true, so a true reading is stable for the process lifetime.
+ */
+export function areCoreToolsInitialized(): boolean {
+  return coreToolsSnapshot !== null;
+}
+
 export function getAllTools(): Tool[] {
   return Array.from(tools.values());
 }

@@ -11,6 +11,7 @@ import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { runSequencesOnce } from "../sequence/engine.js";
+import { areCoreToolsInitialized } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import { runWatchersOnce, type WatcherNotifier } from "../watcher/engine.js";
 import { getWorkflowRunManager } from "../workflows/run-manager.js";
@@ -22,6 +23,7 @@ import {
   completeOneShot,
   completeScheduleRun,
   createScheduleRun,
+  deferClaimedSchedule,
   failOneShotPermanently,
   getLastScheduleConversationId,
   listSchedules,
@@ -445,6 +447,22 @@ export async function runScheduleDueWorkOnce(
           { jobId: job.id, name: job.name },
           "Workflow schedule has no workflowName — skipping",
         );
+        mark("skipped");
+        continue;
+      }
+      // Boot race: the scheduler starts before initializeProvidersAndTools()
+      // registers the read-only baseline (file_read/web_fetch/etc.) that
+      // resolveCapabilities grants to every workflow run. Launching now would
+      // give the run an EMPTY baseline and degrade/fail it. Defer the claimed
+      // job back to due so it fires on a later tick once tools are registered
+      // (the window is just the few seconds of daemon boot). Non-workflow modes
+      // don't depend on the baseline, so only this branch gates.
+      if (!areCoreToolsInitialized()) {
+        log.info(
+          { jobId: job.id, name: job.name, workflowName: job.workflowName },
+          "Deferring workflow schedule until tools are registered",
+        );
+        deferClaimedSchedule(job.id);
         mark("skipped");
         continue;
       }
