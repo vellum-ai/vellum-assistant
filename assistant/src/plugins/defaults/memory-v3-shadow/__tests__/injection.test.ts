@@ -33,6 +33,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { unwrapMemoryBlock } from "../../../../memory/memory-marker.js";
 import { migrateAddMemoryV3Selections } from "../../../../memory/migrations/268-add-memory-v3-selections.js";
 import { migrateAddMemoryV3EverInjected } from "../../../../memory/migrations/277-add-memory-v3-ever-injected.js";
+import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../memory/migrations/283-memory-v3-selections-message-id-and-sections.js";
 import * as schema from "../../../../memory/schema.js";
 import type { InjectionBlock } from "../../../types.js";
 import type { OrchestrateResult } from "../orchestrate.js";
@@ -93,6 +94,7 @@ function makeDb() {
   migrateAddMemoryV3EverInjected(db);
   // The prune valve's recency ranking reads `memory_v3_selections`.
   migrateAddMemoryV3Selections(db);
+  migrateMemoryV3SelectionsMessageIdAndSections(db);
   // The prune valve plans only against slugs whose card sections are
   // locatable in persisted `memoryV3InjectedBlock` rows
   // (`collectPersistedV3Cards`) — minimal `messages` shape it reads.
