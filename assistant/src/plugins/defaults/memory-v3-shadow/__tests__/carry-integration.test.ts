@@ -631,7 +631,10 @@ async function runTurn(
   }
 
   // Spotlight: scoped strip of the stale block (real assembly helper), then
-  // append the fresh one at the current-message tail.
+  // re-attach the fresh one. Real assembly splices it after the memory cards
+  // (after-memory-prefix); this sim appends to the tail because only the
+  // block's presence, content, placement value, and strip-and-replace are
+  // asserted here — not its exact position within the message.
   const spotlight = await memoryV3SpotlightInjector.produce(ctx);
   const stripped = stripSpotlightInjections(history);
   history.splice(0, history.length, ...stripped);
@@ -976,13 +979,13 @@ describe("memory-v3 carry integration — cache contract", () => {
 });
 
 describe("memory-v3 carry integration — spotlight contract", () => {
-  test("spotlight is present every turn, at the user tail, bounded by n × (window + 1)", () => {
+  test("spotlight is present every turn, after the memory cards, bounded by n × (window + 1)", () => {
     for (const record of records) {
       expect(record.spotlightText.startsWith("<memory_spotlight>\n")).toBe(
         true,
       );
       expect(record.spotlightText.endsWith("\n</memory_spotlight>")).toBe(true);
-      expect(record.spotlightPlacement).toBe("append-user-tail");
+      expect(record.spotlightPlacement).toBe("after-memory-prefix");
       expect(record.spotlightEntries).toBeGreaterThanOrEqual(1);
       expect(record.spotlightEntries).toBeLessThanOrEqual(
         SPOTLIGHT_N * (SPOTLIGHT_WINDOW_TURNS + 1),
