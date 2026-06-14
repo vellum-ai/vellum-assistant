@@ -13,7 +13,12 @@ import "@/domains/account/components/personal-page-signup.css";
  */
 export function PersonalPageShell({ children }: { children: ReactNode }) {
   return (
+    // Force the dark palette regardless of the app theme — the demo always sits
+    // on a dark surface. `data-theme="dark"` re-declares the design tokens for
+    // this subtree (custom props inherit down), so the white logo + light text
+    // read correctly even when the app is in light mode.
     <motion.div
+      data-theme="dark"
       className="cast-login"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
