@@ -72,10 +72,17 @@ export function PersonalPageSignupScreen({
   });
 
   const start = (providerHint?: string) => {
+    // A direct provider hint (Apple/Google) goes straight to the social
+    // connection — match the proven /account/login wiring and do NOT also send
+    // the signup `intent` (WorkOS rejects a sign-up screen_hint combined with a
+    // direct provider redirect → error.workos.com/sso). Email (no hint) keeps
+    // `intent: "signup"` so AuthKit shows its hosted sign-up screen. Either way
+    // the post-OAuth routing to the name/occupation step is driven by
+    // `authIntent=signup` in `callbackUrl`, and a first-time social login still
+    // triggers the provider-signup flow.
     startAuthFlow(PROVIDER_ID, callbackUrl, {
-      intent: "signup",
       returnTo,
-      ...(providerHint ? { providerHint } : {}),
+      ...(providerHint ? { providerHint } : { intent: "signup" }),
     }).catch((err) => {
       console.error("[signup] auth flow failed:", err);
       onError?.("Something went wrong. Please try again.");
