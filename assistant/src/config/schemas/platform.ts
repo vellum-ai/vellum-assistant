@@ -110,6 +110,14 @@ export const UiConfigSchema = z
       .describe(
         "IANA timezone identifier detected from the client environment for assistant temporal grounding when no manual override is configured (e.g. 'America/New_York'). Use an empty string to clear the setting.",
       ),
+    emptyStateGreetingCacheTtlMs: z
+      .number({ error: "ui.emptyStateGreetingCacheTtlMs must be a number" })
+      .int("ui.emptyStateGreetingCacheTtlMs must be an integer")
+      .min(0, "ui.emptyStateGreetingCacheTtlMs must be >= 0")
+      .default(4 * 60 * 60 * 1000)
+      .describe(
+        "Server-side cache TTL (ms) for the generated empty-state (new-chat) greeting. 0 disables caching, so a fresh greeting is generated on every request.",
+      ),
   })
   .describe(
     "User interface display settings. Empty-state greeting model selection lives under llm.callSites.emptyStateGreeting.",

@@ -619,6 +619,7 @@ export function ChatMainPanel({
     emptyStatePlaceholder,
   } = useChatEmptyState({
     assistantId,
+    conversationId: activeConversationId,
     isEmptyConversation,
     avatar,
     mainView,
