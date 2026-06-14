@@ -573,13 +573,13 @@ describe("memoryV3SpotlightInjector — ephemeral section spotlight", () => {
   const sectionB = section("page-b", "Beta", "beta section text");
   const sectionC = section("page-c", "Gamma", "gamma section text");
 
-  test("renders selected finder hits' matched sections at the user tail", async () => {
+  test("renders selected finder hits' matched sections right after the memory cards", async () => {
     liveEnabled = true;
     turnResults.set(0, result(["page-a", "page-b"], [["page-a", sectionA]]));
 
     const block = await produceSpotlight("conv-1", 0);
     expect(block).not.toBeNull();
-    expect(block!.placement).toBe("append-user-tail");
+    expect(block!.placement).toBe("after-memory-prefix");
     expect(block!.text.startsWith("<memory_spotlight>\n")).toBe(true);
     expect(block!.text.endsWith("\n</memory_spotlight>")).toBe(true);
     expect(block!.text).toContain(

@@ -31,13 +31,15 @@
  *    memory (prior turns' frozen cards still ride history).
  *
  *  - {@link memoryV3SpotlightInjector} (id `memory-v3-spotlight`,
- *    `append-user-tail`): the EPHEMERAL layer. Renders the top `spotlight.n`
+ *    `after-memory-prefix`): the EPHEMERAL layer. Renders the top `spotlight.n`
  *    selected finder hits' matched sections, plus the previous
  *    `spotlight.windowTurns` turns' entries from an in-memory per-conversation
  *    ring (a daemon restart simply re-warms it), as a `<memory_spotlight>`
- *    block at the current-message tail. Assembly strip-and-replaces this block
- *    every turn (scoped to this block id only); it is never persisted to
- *    metadata.
+ *    block spliced immediately after the `<memory>` cards block (so the two
+ *    memory layers sit adjacent in the prefix, ahead of the user's message
+ *    text). Assembly strip-and-replaces this block every turn (scoped to this
+ *    block id only); it is never persisted to metadata, so the frozen card
+ *    prefix it follows stays byte-stable and cached regardless.
  *
  * Flag gating is unchanged: `memory-v3-live` attaches blocks; `memory-v3-shadow`
  * (live off) logs what WOULD inject (net-new slugs + bytes + spotlight refs)
@@ -376,7 +378,14 @@ export const memoryV3SpotlightInjector: Injector = {
       return {
         id: MEMORY_V3_SPOTLIGHT_BLOCK_ID,
         text: wrapMemorySpotlightBlock(renderSpotlightInner(window)),
-        placement: "append-user-tail",
+        // Splices right after the `<memory>` cards block (this injector's
+        // order 1001 runs after the cards' 1000, and `countMemoryPrefixBlocks`
+        // counts the cards `<memory>` block but not `<memory_spotlight>`, so the
+        // spotlight lands immediately after the cards rather than at the user
+        // tail). Cache-neutral: the block is strip-and-replaced from prior
+        // messages by block id every turn regardless of placement, so the
+        // frozen card prefix stays byte-stable and cached.
+        placement: "after-memory-prefix",
       };
     } catch (err) {
       log.warn(
