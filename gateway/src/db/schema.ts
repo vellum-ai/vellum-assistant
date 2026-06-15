@@ -147,10 +147,6 @@ export const contactChannels = sqliteTable(
       table.type,
       table.externalChatId,
     ),
-    uniqueIndex("idx_contact_channels_type_address_unique").on(
-      table.type,
-      table.address,
-    ),
   ],
 );
 
