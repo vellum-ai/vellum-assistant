@@ -408,17 +408,6 @@ export async function verifyTrustedContact(
     const slackUserId =
       channel.externalUserId ?? channel.address ?? destination;
 
-    const hasIdentityBinding = Boolean(
-      channel.address || channel.externalChatId,
-    );
-    if (!hasIdentityBinding) {
-      return {
-        success: false,
-        error:
-          "Slack verification requires an address or externalChatId for identity binding",
-      };
-    }
-
     const sessionResult = createOutboundSession({
       channel: verificationChannel,
       expectedExternalUserId:
