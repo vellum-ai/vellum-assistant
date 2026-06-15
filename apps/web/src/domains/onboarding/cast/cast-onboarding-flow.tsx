@@ -50,26 +50,58 @@ import {
   setPendingPreChatContext,
 } from "@/domains/onboarding/prechat";
 import { DEFAULT_GROUP_ID } from "@/domains/onboarding/prechat-names";
+import {
+  emitOnboardingFunnelStepCompleted,
+  ONBOARDING_FUNNEL_STEPS,
+  ONBOARDING_FUNNEL_VARIANTS,
+} from "@/domains/onboarding/funnel-events";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { setSelectedAssistant } from "@/assistant/selection";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { useNavigate } from "react-router";
+import { useAuthStore } from "@/stores/auth-store";
+import { useNavigate, useSearchParams } from "react-router";
 import { routes } from "@/utils/routes";
 import "@/domains/onboarding/cast/cast.css";
 
 /**
+ * The surviving cast phases that emit a funnel step on advance. Each maps to a
+ * `cast_*` entry in `ONBOARDING_FUNNEL_STEPS`. The funnel is emitted on the
+ * *advance out of* each phase, mirroring `pre-chat-flow.tsx`'s
+ * `advance(from)` → `emitWebFunnelStep(from.funnelStep)`.
+ */
+const CAST_FUNNEL_STEP_BY_PHASE = {
+  login: ONBOARDING_FUNNEL_STEPS.castLogin,
+  preamble: ONBOARDING_FUNNEL_STEPS.castPreamble,
+  starter: ONBOARDING_FUNNEL_STEPS.castStarter,
+  dialogue: ONBOARDING_FUNNEL_STEPS.castDialogue,
+  style: ONBOARDING_FUNNEL_STEPS.castStyle,
+  done: ONBOARDING_FUNNEL_STEPS.castDone,
+} as const;
+
+/** Phase keys that emit a funnel step (the surviving cast walk). */
+type CastFunnelPhase = keyof typeof CAST_FUNNEL_STEP_BY_PHASE;
+
+/** Callback that emits one cast funnel step for the given phase. */
+type EmitCastFunnelStep = (phase: CastFunnelPhase) => void;
+
+/**
  * Map the cast dialogue "tone" choice onto a personality tone group id
  * understood by {@link PreChatOnboardingContext} ("grounded" | "warm" |
- * "energetic" | "poetic"). The cast flow only collects a binary
- * fast/deep axis, so this is a deliberate, lossy projection:
- *   - `"fast"` (concise, direct) → `"energetic"`
- *   - `"deep"` (thorough, detailed) → `"grounded"`
+ * "energetic" | "poetic", per `PERSONALITY_GROUPS` in
+ * `onboarding/prechat-names.ts`). The cast flow only collects a binary
+ * fast/deep axis, so this is a deliberate, lossy projection onto the two
+ * groups whose descriptors line up with that axis:
+ *   - `"fast"` (concise, direct) → `"energetic"` (descriptor "Fast and direct")
+ *   - `"deep"` (thorough, detailed) → `"grounded"` (descriptor "Calm and precise")
  *   - `null` (skipped) → `DEFAULT_GROUP_ID` ("grounded")
  *
- * TODO(PR 7): confirm this mapping with design — it's a placeholder pick
- * pending the tone/tasks reconciliation pass.
+ * Finalized in PR 7: the fast→energetic / deep→grounded pairing matches the
+ * group descriptors directly, and a skipped tone defaulting to "grounded"
+ * (the same `DEFAULT_GROUP_ID` the control funnel falls back to) keeps the
+ * cast arm consistent with the rest of onboarding. The remaining two groups
+ * ("warm", "poetic") have no corresponding cast axis to project from.
  */
-function castToneToGroupId(tone: "fast" | "deep" | null): string {
+export function castToneToGroupId(tone: "fast" | "deep" | null): string {
   if (tone === "fast") return "energetic";
   if (tone === "deep") return "grounded";
   return DEFAULT_GROUP_ID;
@@ -79,7 +111,7 @@ function castToneToGroupId(tone: "fast" | "deep" | null): string {
 // Types
 // ---------------------------------------------------------------------------
 
-interface CastCompletionData {
+export interface CastCompletionData {
   /** The user identity collected on the login screen. `role` → occupation. */
   firstName: string;
   lastName: string;
@@ -139,10 +171,13 @@ const win = () => ({
 function InteractiveCastFlow({
   onComplete,
   onLoginPhase,
+  emitFunnelStep,
 }: {
   onComplete: (data: CastCompletionData) => void;
   /** Fired once when the flow first enters the login/role phase. */
   onLoginPhase: () => void;
+  /** Emit a cast funnel step on advance out of the given phase. */
+  emitFunnelStep: EmitCastFunnelStep;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -158,6 +193,16 @@ function InteractiveCastFlow({
     loginHatchFiredRef.current = true;
     onLoginPhase();
   }, [phase, onLoginPhase]);
+
+  // De-dupe funnel emissions: a phase can advance from multiple call sites
+  // (e.g. style → done via both `onAdvance` and `onDone`), so guard each phase
+  // to fire its step at most once per flow walk.
+  const emittedPhasesRef = useRef<Set<CastFunnelPhase>>(new Set());
+  function emitPhaseOnce(phase: CastFunnelPhase): void {
+    if (emittedPhasesRef.current.has(phase)) return;
+    emittedPhasesRef.current.add(phase);
+    emitFunnelStep(phase);
+  }
 
   const [userFirstName, setUserFirstName] = useState("");
   const [userLastName, setUserLastName] = useState("");
@@ -248,10 +293,21 @@ function InteractiveCastFlow({
     };
   }
 
+  /**
+   * Finish the flow: emit the terminal `done` funnel step, then hand the
+   * collected selections off to the parent. Wraps every handoff call site so
+   * the `done` step fires exactly once regardless of which screen completes.
+   */
+  function completeHandoff(data: CastCompletionData) {
+    emitPhaseOnce("done");
+    onComplete(data);
+  }
+
   function chooseStarter(char: CastCharacter, chosenName: string) {
     setSelected(char);
     setNames((prev) => ({ ...prev, [char.id]: chosenName }));
     addMemory("face", `Look & feel: ${chosenName}`, "dialogue");
+    emitPhaseOnce("starter");
     setPhase("dialogue");
   }
 
@@ -274,6 +330,7 @@ function InteractiveCastFlow({
   }
   function onStyleDone(next: StyleProfile) {
     setStyle(next);
+    emitPhaseOnce("style");
     setPhase("done");
   }
 
@@ -283,7 +340,10 @@ function InteractiveCastFlow({
     <div className="cast-panel" ref={panelRef}>
       {phase === "login" && (
         <LoginScreen
-          onAdvance={() => setPhase("preamble")}
+          onAdvance={() => {
+            emitPhaseOnce("login");
+            setPhase("preamble");
+          }}
           onContinue={(fn) => setUserFirstName(fn)}
           onIdentity={({ lastName, role }) => {
             setUserLastName(lastName);
@@ -295,7 +355,13 @@ function InteractiveCastFlow({
       {isShellPhase && (
         <SetupShell>
           {phase === "preamble" && (
-            <PreambleScreen firstName={userFirstName} onAdvance={() => setPhase("starter")} />
+            <PreambleScreen
+              firstName={userFirstName}
+              onAdvance={() => {
+                emitPhaseOnce("preamble");
+                setPhase("starter");
+              }}
+            />
           )}
 
           {phase === "starter" && (
@@ -317,7 +383,7 @@ function InteractiveCastFlow({
               brainFileContent={brainFileContent}
               memories={memories}
               onAdvance={() =>
-                onComplete(completionData(selected))
+                completeHandoff(completionData(selected))
               }
               onTonePicked={(value) => {
                 setTone(value);
@@ -336,7 +402,10 @@ function InteractiveCastFlow({
                   connected.length > 0 ? `Connected: ${connected.join(", ")}` : "Tools: skipped",
                 );
               }}
-              onComplete={() => setPhase("style")}
+              onComplete={() => {
+                emitPhaseOnce("dialogue");
+                setPhase("style");
+              }}
               onBack={reopenCustomize}
             />
           )}
@@ -362,7 +431,10 @@ function InteractiveCastFlow({
           heroBox={leftPanelBox}
           jobs={jobs}
           ascended={false}
-          onAdvance={() => setPhase("done")}
+          onAdvance={() => {
+            emitPhaseOnce("style");
+            setPhase("done");
+          }}
           onChoose={() => {
             /* style demo turn — no orchestrator state to capture here */
           }}
@@ -382,13 +454,13 @@ function InteractiveCastFlow({
           ascended={false}
           assistantId={null}
           onAdvance={() =>
-            onComplete(completionData(selected))
+            completeHandoff(completionData(selected))
           }
           onAction={() => {
             /* proof action — no orchestrator state to capture here */
           }}
           onEndpoint={() =>
-            onComplete(completionData(selected))
+            completeHandoff(completionData(selected))
           }
           onBack={() => setPhase("style")}
         />
@@ -408,7 +480,7 @@ function InteractiveCastFlow({
 // ---------------------------------------------------------------------------
 
 /** Build the handoff context from the flow's collected completion data. */
-function buildHandoffFromCompletion(
+export function buildHandoffFromCompletion(
   data: CastCompletionData,
 ): { context: ReturnType<typeof buildCastPreChatContext>; assistantName: string } {
   const selections: CastSelections = {
@@ -448,10 +520,12 @@ function CastFlowBody({
   completedData,
   onCompleted,
   onHandoffError,
+  emitFunnelStep,
 }: {
   completedData: CastCompletionData | null;
   onCompleted: (data: CastCompletionData) => void;
   onHandoffError: (message: string) => void;
+  emitFunnelStep: EmitCastFunnelStep;
 }) {
   const navigate = useNavigate();
   const { start, awaitReady } = useBackgroundHatch();
@@ -514,7 +588,11 @@ function CastFlowBody({
   }
 
   return (
-    <InteractiveCastFlow onComplete={handleComplete} onLoginPhase={start} />
+    <InteractiveCastFlow
+      onComplete={handleComplete}
+      onLoginPhase={start}
+      emitFunnelStep={emitFunnelStep}
+    />
   );
 }
 
@@ -526,6 +604,26 @@ export function CastOnboardingFlow() {
   );
   const [handoffError, setHandoffError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+
+  const [searchParams] = useSearchParams();
+  const isPreview = searchParams.get("preview") === "true";
+  const userId = useAuthStore.use.user()?.id ?? null;
+
+  // Emit one cast funnel step per surviving phase. Gated exactly like
+  // `pre-chat-flow.tsx`'s `emitWebFunnelStep`: skipped entirely in preview, and
+  // (inside `emitOnboardingFunnelStepCompleted`) only sent when share-analytics
+  // is enabled. The cast arm always reports the deterministic `cast` variant —
+  // it is a distinct activation arm, not part of the pared-down/control A/B
+  // split. We pass the variant explicitly rather than resolving from stored
+  // state so a value cached under another experiment (e.g. `pared_down` from the
+  // privacy screen) can never leak into cast funnel events.
+  function emitFunnelStep(phase: CastFunnelPhase): void {
+    if (isPreview) return;
+    emitOnboardingFunnelStepCompleted(CAST_FUNNEL_STEP_BY_PHASE[phase], {
+      userId,
+      variant: ONBOARDING_FUNNEL_VARIANTS.cast,
+    });
+  }
 
   function retryHandoff() {
     setHandoffError(null);
@@ -539,6 +637,7 @@ export function CastOnboardingFlow() {
         completedData={completedData}
         onCompleted={setCompletedData}
         onHandoffError={setHandoffError}
+        emitFunnelStep={emitFunnelStep}
       />
       {handoffError !== null && (
         <div className="cast-handoff-error" role="alert">
