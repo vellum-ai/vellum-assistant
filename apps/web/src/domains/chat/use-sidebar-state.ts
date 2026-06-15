@@ -47,6 +47,8 @@ export interface PaginatedSection {
   showLess: boolean;
   onShowMore: () => void;
   onShowLess: () => void;
+  /** Fires when the user scrolls to the bottom of the expanded list. */
+  onScrollLoadMore?: () => void;
 }
 
 export interface SidebarState {
@@ -226,13 +228,9 @@ export function useSidebarState({
       totalCount: grouped.recents.length,
       showMore: !isExpanded && hasMoreItems,
       showLess: isExpanded,
-      onShowMore: () => {
-        setVisibleRecentsCount(Number.MAX_SAFE_INTEGER);
-        if (hasNextPage) {
-          fetchNextPage?.();
-        }
-      },
+      onShowMore: () => setVisibleRecentsCount(Number.MAX_SAFE_INTEGER),
       onShowLess: () => setVisibleRecentsCount(SIDEBAR_CONVERSATION_LIMIT),
+      onScrollLoadMore: hasNextPage ? fetchNextPage : undefined,
     };
   }, [grouped.recents, visibleRecentsCount, attentionConversationIds, fetchNextPage, hasNextPage]);
 

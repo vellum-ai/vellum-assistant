@@ -9,7 +9,7 @@ import {
     SquarePen,
     X,
 } from "lucide-react";
-import { useCallback, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, type ReactNode } from "react";
 
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
@@ -72,6 +72,26 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onOpenInNewWindow?: (conversation: Conversation) => void;
   onShareFeedback?: () => void;
   onInspect?: (conversation: Conversation) => void;
+}
+
+/** Invisible sentinel that fires `onLoadMore` when it enters the viewport. */
+function LoadMoreSentinel({ onLoadMore }: { onLoadMore: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) onLoadMore();
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [onLoadMore]);
+
+  return <div ref={ref} aria-hidden />;
 }
 
 function SearchButton({ onClose }: { onClose?: () => void }) {
@@ -304,6 +324,7 @@ export function AssistantSideMenu({
     onShowMore?: () => void,
     showLess = false,
     onShowLess?: () => void,
+    onScrollLoadMore?: () => void,
   ): ReactNode => (
     <SideMenu.SubList>
       {items.map((c) =>
@@ -319,6 +340,7 @@ export function AssistantSideMenu({
           />,
         ),
       )}
+      {onScrollLoadMore ? <LoadMoreSentinel onLoadMore={onScrollLoadMore} /> : null}
       {showMore && onShowMore ? (
         <SideMenu.Item
           label="Show more"
@@ -473,6 +495,7 @@ export function AssistantSideMenu({
                 sidebar.recents.onShowMore,
                 sidebar.recents.showLess,
                 sidebar.recents.onShowLess,
+                sidebar.recents.onScrollLoadMore,
               )}
 
               <CollapsibleNavSection.Root

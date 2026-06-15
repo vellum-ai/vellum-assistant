@@ -137,6 +137,35 @@ describe("useSidebarState pagination", () => {
     expect(result.current.slack.showLess).toBe(true);
   });
 
+  test("exposes onScrollLoadMore when hasNextPage is true", () => {
+    const fetchNextPage = mock(() => {});
+    const conversations = Array.from({ length: 12 }, (_, i) =>
+      makeConversation(i),
+    );
+
+    const { result, rerender } = renderHook(
+      ({ hasNextPage }) =>
+        useSidebarState({
+          assistantId: "asst-1",
+          conversations,
+          fetchNextPage,
+          hasNextPage,
+        }),
+      { initialProps: { hasNextPage: true } },
+    );
+
+    // onScrollLoadMore is defined when hasNextPage is true
+    expect(result.current.recents.onScrollLoadMore).toBeDefined();
+
+    // Calling it invokes fetchNextPage
+    act(() => result.current.recents.onScrollLoadMore?.());
+    expect(fetchNextPage).toHaveBeenCalledTimes(1);
+
+    // When hasNextPage becomes false, onScrollLoadMore is undefined
+    rerender({ hasNextPage: false });
+    expect(result.current.recents.onScrollLoadMore).toBeUndefined();
+  });
+
   test("Show more and Show less are never both visible", () => {
     const conversations = Array.from({ length: 20 }, (_, index) =>
       makeConversation(index),
