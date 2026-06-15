@@ -33,14 +33,14 @@ The flow has four user actions: **click**, **install**, **copy tokens**, **verif
 
 | Value     | Type       | Storage method            | Secret? |
 | --------- | ---------- | ------------------------- | ------- |
-| App Token | Credential | `credential_store` prompt | **Yes** |
-| Bot Token | Credential | `credential_store` prompt | **Yes** |
+| App Token | Credential | `assistant credentials prompt` | **Yes** |
+| Bot Token | Credential | `assistant credentials prompt` | **Yes** |
 
 A **User OAuth Token** (`xoxp-...`) is _not_ collected by this skill. It's an optional power-user knob for full-workspace visibility — see [Optional: add a User OAuth Token later](#optional-add-a-user-oauth-token-later) at the end.
 
 ## Step 1 — Check existing configuration
 
-Call `credential_store` with `action: "list"` (no other arguments). Scan the result for entries with `service: "slack_channel"` and note which of `app_token`, `bot_token` are present.
+Run `assistant credentials list --search slack_channel` (via the bash tool). Scan the result for entries with `service: slack_channel` and note which of `app_token`, `bot_token` are present.
 
 Then branch:
 
@@ -50,7 +50,7 @@ Then branch:
 
 An existing `user_token` is never blocking — leave it in place.
 
-> ✓ Checkpoint: You named which of `app_token` / `bot_token` are present before branching. Do not skip the `credential_store list` call and guess.
+> ✓ Checkpoint: You named which of `app_token` / `bot_token` are present before branching. Do not skip the `assistant credentials list` call and guess.
 
 ## Step 2 — Create the Slack app (one click)
 
@@ -86,7 +86,7 @@ Slack lands the user on **Basic Information** after Create. The app token lives 
 
 ### Step 3a — App-Level Token (Basic Information page)
 
-Do both of the following in the **same response** — the instruction text and the `credential_store` prompt go out together:
+Do both of the following in the **same response** — the instruction text and the `assistant credentials prompt` command go out together:
 
 1. Tell the user:
 
@@ -94,11 +94,17 @@ Do both of the following in the **same response** — the instruction text and t
    >
    > **Don't paste it in chat — I'll send you a secure prompt to enter it.**
 
-2. In the same response, call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "app_token"`, `label: "App-Level Token"`, `placeholder: "xapp-..."`, `description: "Paste the App-Level Token you just generated"`.
+2. In the same response, run (via the bash tool):
 
-⚠️ CRITICAL — point of action: **Fire the `credential_store` prompt in this same response. Do not wait for the user to say "okay I have it" before firing it.** The secure prompt queues silently; the user fills it when they're ready. Waiting for verbal confirmation leaves the user stuck staring at instructions with no input field.
+   ```bash
+   assistant credentials prompt --service slack_channel --field app_token \
+     --label "App-Level Token" --placeholder "xapp-..." \
+     --description "Paste the App-Level Token you just generated"
+   ```
 
-⚠️ CRITICAL — point of action: **Always route the token through `credential_store` prompt.** Do NOT ask the user to paste tokens in chat. Do NOT use `ui_show` for collection. Do NOT call `assistant credentials reveal`. The prompt is the only handler that validates and stores securely.
+⚠️ CRITICAL — point of action: **Fire the `assistant credentials prompt` command in this same response. Do not wait for the user to say "okay I have it" before firing it.** The secure prompt queues silently; the user fills it when they're ready. Waiting for verbal confirmation leaves the user stuck staring at instructions with no input field.
+
+⚠️ CRITICAL — point of action: **Always route the token through `assistant credentials prompt`.** Do NOT ask the user to paste tokens in chat. Do NOT use `ui_show` for collection. Do NOT call `assistant credentials reveal`. The prompt is the only handler that validates and stores securely.
 
 ### Step 3b — Install + Bot Token
 
@@ -110,7 +116,13 @@ Tell the user:
 
 Then collect:
 
-- Call `credential_store` with `action: "prompt"`, `service: "slack_channel"`, `field: "bot_token"`, `label: "Bot User OAuth Token"`, `placeholder: "xoxb-..."`, `description: "From Install App page — the Bot User OAuth Token"`.
+- Run (via the bash tool):
+
+  ```bash
+  assistant credentials prompt --service slack_channel --field bot_token \
+    --label "Bot User OAuth Token" --placeholder "xoxb-..." \
+    --description "From Install App page — the Bot User OAuth Token"
+  ```
 
 > ✓ Checkpoint: After Step 3, the `app_token` and `bot_token` are both in the credential store and the user has confirmed both prompts came back successful. If either prompt failed, re-run it before moving on.
 
@@ -174,11 +186,11 @@ If identity was skipped → swap the last two lines for:
 
 ## SKILL COMPLETE WHEN
 
-- [ ] `credential_store list` was called and the existing-state branch was named explicitly (Step 1).
+- [ ] `assistant credentials list` was called and the existing-state branch was named explicitly (Step 1).
 - [ ] `bun run skills/slack-app-setup/scripts/build-manifest-url.ts` returned `{ok: true, data: {url}}` and the URL was rendered as a markdown link (Step 2).
 - [ ] User confirmed they clicked **Create** in Slack.
-- [ ] `credential_store prompt` for `app_token` returned successfully (Step 3a).
-- [ ] `credential_store prompt` for `bot_token` returned successfully (Step 3b).
+- [ ] `assistant credentials prompt` for `app_token` returned successfully (Step 3a).
+- [ ] `assistant credentials prompt` for `bot_token` returned successfully (Step 3b).
 - [ ] `guardian-verify-setup` was loaded and either completed or the user explicitly declined (Step 4).
 - [ ] Success message was posted (Step 5).
 
@@ -202,7 +214,7 @@ To add it later:
 
 1. Open your Slack app at <https://api.slack.com/apps>, pick the app this skill created, go to **Install App**.
 2. Copy the **User OAuth Token** (`xoxp-...`).
-3. Ask the assistant to _store the User OAuth Token_ — it will send you a secure prompt to paste it into. (Under the hood: `credential_store` with `service: "slack_channel"`, `field: "user_token"`.)
+3. Ask the assistant to _store the User OAuth Token_ — it will send you a secure prompt to paste it into. (Under the hood: `assistant credentials prompt --service slack_channel --field user_token`.)
 
 To revoke it later, clear the `user_token` credential the same way you'd clear any Slack credential — see Clearing Credentials below.
 

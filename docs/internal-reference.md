@@ -125,7 +125,7 @@ See [`assistant/docs/architecture/security.md`](../assistant/docs/architecture/s
 #### Credential References
 
 When using `credential_ids` in proxied shell commands, you can use either format:
-- **UUID**: The canonical credential ID (shown in `credential_store list` output and `store`/`prompt` success messages)
+- **UUID**: The canonical credential ID (shown in `assistant credentials list` output and `set`/`prompt` success messages)
 - **service/field**: A human-readable reference like `fal/api_key`
 
 Unknown references fail immediately with a clear error before the command executes.
@@ -154,9 +154,9 @@ Requests that match zero session credentials are handled in two ways: if the tar
 
 If a proxied command receives a 401 or 403 despite having the correct credential stored:
 
-1. **Check the credential reference**: Run `credential_store list` and verify the credential ID or `service/field` matches what you're passing to `credential_ids`.
+1. **Check the credential reference**: Run `assistant credentials list` and verify the credential ID or `service/field` matches what you're passing to `credential_ids`.
 2. **Check host pattern matching**: The credential's `hostPattern` must match the target host. A wildcard pattern `*.example.com` matches `api.example.com` and the bare domain `example.com`. An exact pattern `api.example.com` only matches that specific host.
-3. **Check for ambiguity**: If two credentials match the same host with equal specificity, injection is blocked. Use `credential_store list` to check for overlapping patterns.
+3. **Check for ambiguity**: If two credentials match the same host with equal specificity, injection is blocked. Use `assistant credentials list` to check for overlapping patterns.
 4. **Check the header template**: Ensure the credential has an `injectionTemplate` with `injectionType: "header"` and the correct `headerName` (e.g., `Authorization`) and `valuePrefix` (e.g., `Bearer `).
 5. **Enable debug logging**: Set `LOG_LEVEL=debug` to see decision traces from the policy engine and rewrite callback, including which patterns matched and which credential was selected.
 

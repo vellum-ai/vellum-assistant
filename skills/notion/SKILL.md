@@ -16,8 +16,8 @@ You have access to the Notion API via the managed OAuth connection or an interna
 
 **Step 1 - Determine connection type:**
 
-```
-credential_store action=list
+```bash
+assistant credentials list
 ```
 
 Look at the results to decide which path to use:
@@ -70,7 +70,7 @@ bash:
       -d '{}'
 ```
 
-Where `<credential_id_from_step_1>` is the `id` field from the matching entry in `credential_store action=list` output.
+Where `<credential_id_from_step_1>` is the `id` field from the matching entry in `assistant credentials list` output.
 
 The credential MUST have:
 

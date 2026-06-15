@@ -40,6 +40,6 @@ ChatGPT account credentials and connected-app tokens are **never** imported:
 
 - **ChatGPT / OpenAI account login**: not migrated. The creator signs into Vellum independently.
 - **Connected apps and custom-GPT actions** (Google Drive, GitHub, third-party action OAuth): reconnect through Vellum's vault / OAuth connect flows. Tokens from the export or from any pasted config are ignored.
-- **API keys** referenced in GPT actions or instructions: rebind via `credential_store action=prompt`, never via chat text.
+- **API keys** referenced in GPT actions or instructions: rebind via `assistant credentials prompt`, never via chat text.
 
 When in doubt, pause and ask before sending any production message on a newly reconnected integration.

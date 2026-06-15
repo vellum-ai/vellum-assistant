@@ -42,6 +42,6 @@ Claude / Anthropic credentials and connected secrets are **never** imported:
 
 - **Anthropic / Claude account login**: not migrated. The creator signs into Vellum independently.
 - **Connected MCP servers and integrations**: reconnect through Vellum's MCP setup and OAuth connect flows. Any tokens present in an export or pasted config are ignored.
-- **API keys**: rebind via `credential_store action=prompt`, never via chat text.
+- **API keys**: rebind via `assistant credentials prompt`, never via chat text.
 
 When in doubt, pause and ask before sending any production message on a newly reconnected integration.

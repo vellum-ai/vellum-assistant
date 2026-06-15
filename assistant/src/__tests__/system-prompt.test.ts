@@ -1326,7 +1326,7 @@ describe("buildSystemPrompt", () => {
         const result = buildSystemPrompt();
         expect(result).toContain("## Credential Security");
         expect(result).toContain("Never ask users to share secrets");
-        expect(result).toContain("`credential_store` tool");
+        expect(result).toContain("`assistant credentials prompt`");
       });
 
       test("renders after the access-preference section to preserve original order", () => {

@@ -667,7 +667,7 @@ In desktop deployments, Telegram bot tokens are stored in secure storage (CES HT
 Entry points:
 
   1. Skill-based setup (chat):
-     credential_store action: "prompt" → token stored in secure storage
+     assistant credentials prompt → token stored in secure storage
        → telegram_config HTTP (action: set) — daemon reads token from secure storage
 
   2. Desktop Settings UI (macOS):
