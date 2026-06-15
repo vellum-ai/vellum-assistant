@@ -218,7 +218,11 @@ Resolution: the leaf tool set is the **read-only baseline ∪ declared `tools`**
 minus a forbidden set.
 
 - **Read-only baseline** (always available, no declaration needed): `file_read`,
-  `file_list`, `recall`, `web_search`, `web_fetch`.
+  `file_list`, `recall`, `web_search`. The baseline is auto-granted with no
+  launch approval, so it carries only read-only tools. `web_fetch` is **not**
+  here — it is classified as a side-effect tool (its URL can exfiltrate read data
+  or trigger external actions), so a run that needs it must declare it (which
+  forces the launch approval gate).
 - **Declared tools** must exist in the tool registry — an unknown name is a hard
   authoring error, not a silent drop.
 - **Forbidden tools** can never be granted, even if declared (declaring one is a

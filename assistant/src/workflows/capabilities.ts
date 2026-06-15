@@ -42,6 +42,7 @@ import {
   getTool,
   getToolOwner,
 } from "../tools/registry.js";
+import { isSideEffectTool } from "../tools/side-effects.js";
 import type { Tool } from "../tools/types.js";
 
 /**
@@ -52,13 +53,20 @@ import type { Tool } from "../tools/types.js";
  * `remember`) and arbitrary-execution tools (`bash`, `skill_execute`) are
  * deliberately excluded even though some carry a low risk band; the baseline
  * is gated on read-only behavior, not on the risk level alone.
+ *
+ * `web_fetch` is deliberately NOT here: it is classified as a side-effect tool
+ * (an outbound request can trigger external actions or exfiltrate read data via
+ * the URL — see {@link isSideEffectTool}). The baseline is auto-granted with NO
+ * launch approval, so it must carry no side effects; a run that needs
+ * `web_fetch` must DECLARE it in its manifest, which forces the launch approval
+ * gate ({@link manifestGrantsSideEffects}). {@link resolveCapabilities} also
+ * filters the baseline through `isSideEffectTool` as defense in depth.
  */
 export const WORKFLOW_READONLY_BASELINE: readonly string[] = [
   "file_read",
   "file_list",
   "recall",
   "web_search",
-  "web_fetch",
 ];
 
 /**
@@ -229,6 +237,13 @@ export function resolveCapabilities(
   // the run. Forbidden filtering still applies for defense in depth.
   for (const name of WORKFLOW_READONLY_BASELINE) {
     if (FORBIDDEN_SET.has(name)) continue;
+    // Defense in depth: the baseline is auto-granted with NO launch approval, so
+    // it must never carry a side-effecting tool (e.g. web_fetch, whose URL can
+    // exfiltrate read data or trigger external actions). isSideEffectTool is the
+    // single source of truth; skip any baseline entry it flags so the no-consent
+    // grant can never include a side effect, even if the list above drifts. A
+    // run that needs such a tool must DECLARE it (forcing the launch approval).
+    if (isSideEffectTool(name)) continue;
     const tool = resolveBaselineTool(name);
     if (tool) resolved.set(name, tool);
   }

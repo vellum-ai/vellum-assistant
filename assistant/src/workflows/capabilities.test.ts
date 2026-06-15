@@ -7,6 +7,7 @@ import {
   registerTool,
   registerWorkspaceTools,
 } from "../tools/registry.js";
+import { isSideEffectTool } from "../tools/side-effects.js";
 import type {
   ExecutionTarget,
   Tool,
@@ -90,6 +91,32 @@ describe("resolveCapabilities", () => {
     const resolved = resolveCapabilities(CapabilityManifestSchema.parse({}));
     const names = resolved.tools.map((t) => t.name).sort();
     expect(names).toEqual([...WORKFLOW_READONLY_BASELINE].sort());
+  });
+
+  test("the read-only baseline contains no side-effect tools", () => {
+    // The baseline is auto-granted with NO launch approval, so every entry must
+    // be read-only per the single side-effect source of truth. This invariant
+    // is what the defense-in-depth filter in resolveCapabilities enforces.
+    for (const name of WORKFLOW_READONLY_BASELINE) {
+      expect(isSideEffectTool(name)).toBe(false);
+    }
+  });
+
+  test("does NOT auto-grant web_fetch, but it can still be declared", () => {
+    // web_fetch is a side-effect tool (its URL can exfiltrate read data or
+    // trigger external actions), so an empty-manifest (no-approval) run must not
+    // get it — even when it is registered as a core tool.
+    registerTool(makeFakeTool("web_fetch"));
+    const baseline = resolveCapabilities(CapabilityManifestSchema.parse({}));
+    expect(baseline.tools.map((t) => t.name)).not.toContain("web_fetch");
+
+    // A run that DECLARES web_fetch still gets it — and declaring it flips
+    // manifestGrantsSideEffects, which forces the launch approval gate.
+    const declared = resolveCapabilities(
+      CapabilityManifestSchema.parse({ tools: ["web_fetch"] }),
+    );
+    expect(declared.tools.map((t) => t.name)).toContain("web_fetch");
+    expect(manifestGrantsSideEffects({ tools: ["web_fetch"] })).toBe(true);
   });
 
   test("unions baseline with declared tools (no duplicates)", () => {
