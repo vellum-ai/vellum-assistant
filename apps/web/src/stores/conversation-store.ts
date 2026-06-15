@@ -22,9 +22,9 @@
  *   action that removes from `processingConversationIds`, so the two
  *   collections stay in sync.
  * - `attentionConversationIds` — conversations with pending interactions
- * - `pendingDraftProfile` — model profile picked in the composer for a
- *   not-yet-persisted draft chat, applied to the conversation its first
- *   message mints (see `pendingDraftProfile` below)
+ * - `pendingDraftProfiles` — model profiles picked in the composer for
+ *   conversations whose row isn't loaded yet (drafts, or URL-opened
+ *   conversations mid-load), keyed by conversation id (see field doc below)
  *
  * @see https://zustand.docs.pmnd.rs/guides/flux-inspired-practice
  * @see @/hooks/conversation-queries.ts for the server-state half
@@ -80,18 +80,24 @@ export interface ConversationListState {
   processingSnapshots: Map<string, number | undefined>;
   attentionConversationIds: Set<string>;
   /**
-   * Model profile selected in the composer for a brand-new draft chat that has
-   * no server row yet, keyed by the draft's client-side conversation id. The
-   * first message forwards this as the minted conversation's `inferenceProfile`
-   * (see `use-send-message`) and then clears it.
+   * Model profiles picked in the composer for conversations that have no server
+   * row loaded yet, keyed by conversation id → profile name. Two situations
+   * land here, both because the composer's `conversationId` prop is undefined
+   * until a row materializes:
    *
-   * Scoping the selection here — instead of writing `llm.activeProfile` — keeps
-   * an in-chat model switch on a new chat from silently overwriting the global
-   * default profile (the value the Settings "default profile" control owns).
-   * Keyed by id so a stash left over from an abandoned draft never applies to a
-   * different conversation.
+   * - A brand-new draft chat: the first message forwards the stash as the
+   *   minted conversation's `inferenceProfile` (see `use-send-message`).
+   * - An existing conversation opened by URL/deep link while its row is still
+   *   loading: once the row resolves, `ComposerSettingsMenu` promotes the stash
+   *   to a real per-conversation override.
+   *
+   * Stashing here — instead of writing `llm.activeProfile` — keeps an in-chat
+   * model switch on a new chat from silently overwriting the global default
+   * profile (the value the Settings "default profile" control owns). Keyed by
+   * id (a Map, not a single slot) so juggling several unsent drafts preserves
+   * each one's selection; entries are removed once applied and on reset.
    */
-  pendingDraftProfile: { conversationId: string; profile: string } | null;
+  pendingDraftProfiles: Map<string, string>;
 }
 
 export interface ConversationListActions {
@@ -128,13 +134,9 @@ export interface ConversationListActions {
   addAttentionConversationId: (conversationId: string) => void;
   removeAttentionConversationId: (conversationId: string) => void;
 
-  // --- Pending draft profile ---
+  // --- Pending draft profiles ---
   setPendingDraftProfile: (conversationId: string, profile: string) => void;
-  /**
-   * Clear the stash only if it still belongs to `conversationId`. Scoping the
-   * clear by id means a draft send that resolves after the user moved on to a
-   * different draft can't wipe the newer draft's selection.
-   */
+  /** Remove the stash for a single conversation id (no-op when absent). */
   clearPendingDraftProfile: (conversationId: string) => void;
 
   // --- Compound ---
@@ -155,7 +157,7 @@ const INITIAL_STATE: ConversationListState = {
   processingConversationIds: new Set(),
   processingSnapshots: new Map(),
   attentionConversationIds: new Set(),
-  pendingDraftProfile: null,
+  pendingDraftProfiles: new Map(),
 };
 
 // ---------------------------------------------------------------------------
@@ -255,19 +257,23 @@ export const useConversationStore = createSelectors(
       });
     },
 
-    // --- Pending draft profile ---
+    // --- Pending draft profiles ---
 
     setPendingDraftProfile: (conversationId, profile) => {
-      set({ pendingDraftProfile: { conversationId, profile } });
+      const current = get().pendingDraftProfiles;
+      if (current.get(conversationId) === profile) return;
+      set({ pendingDraftProfiles: new Map(current).set(conversationId, profile) });
     },
 
     clearPendingDraftProfile: (conversationId) => {
-      const current = get().pendingDraftProfile;
-      // No-op when already cleared, or when the stash now belongs to a
-      // different draft (a racing send must not wipe a newer selection) — also
-      // avoids notifying subscribers needlessly.
-      if (current === null || current.conversationId !== conversationId) return;
-      set({ pendingDraftProfile: null });
+      const current = get().pendingDraftProfiles;
+      // No-op when absent so subscribers don't re-render needlessly. Scoped to
+      // a single id so a send (or promotion) that resolves after the user moved
+      // to another draft can't wipe the newer draft's selection.
+      if (!current.has(conversationId)) return;
+      const next = new Map(current);
+      next.delete(conversationId);
+      set({ pendingDraftProfiles: next });
     },
 
     // --- Compound ---
@@ -293,6 +299,7 @@ export const useConversationStore = createSelectors(
         processingConversationIds: new Set(),
         processingSnapshots: new Map(),
         attentionConversationIds: new Set(),
+        pendingDraftProfiles: new Map(),
       });
     },
   })),

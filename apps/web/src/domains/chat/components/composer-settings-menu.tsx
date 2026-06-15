@@ -27,6 +27,7 @@ import {
 } from "@/lib/threshold-api";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
+import { findConversation } from "@/utils/conversation-cache";
 import {
     THRESHOLD_PRESETS,
     overrideAction,
@@ -123,19 +124,17 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   const [optimisticActiveProfile, setOptimisticActiveProfile] = useState<string | null>(null);
   const lastConfirmedProfileRef = useRef<string | null>(null);
 
-  // A brand-new draft chat has no server row, so the menu's `conversationId`
-  // prop is undefined while the draft's client-side id lives in the
-  // conversation store. If the user already picked a model for that draft, the
-  // selection is stashed there (not written to the global default) — reflect it
-  // so the checkmark survives a remount and matches what the first message will
-  // apply. See `pendingDraftProfile` in `conversation-store`.
+  // When a row isn't loaded yet the menu's `conversationId` prop is undefined
+  // while the real/draft id lives in the conversation store. If the user
+  // already picked a model for that id, the selection is stashed there (not
+  // written to the global default) — reflect it so the checkmark survives a
+  // remount and matches what the first message / promotion will apply. See
+  // `pendingDraftProfiles` in `conversation-store`.
   const activeConversationId = useConversationStore.use.activeConversationId();
-  const pendingDraftProfile = useConversationStore.use.pendingDraftProfile();
+  const pendingDraftProfiles = useConversationStore.use.pendingDraftProfiles();
   const draftProfileSelection =
-    !conversationId &&
-    pendingDraftProfile !== null &&
-    pendingDraftProfile.conversationId === activeConversationId
-      ? pendingDraftProfile.profile
+    !conversationId && activeConversationId
+      ? pendingDraftProfiles.get(activeConversationId) ?? null
       : null;
 
   const profileActiveKey =
@@ -169,6 +168,45 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   useLayoutEffect(() => {
     conversationIdRef.current = conversationId;
   }, [conversationId]);
+
+  // Promote a stash that was recorded while this conversation's row was still
+  // loading. An existing conversation opened by URL/deep link has an undefined
+  // `conversationId` prop until its row resolves, so a profile picked in that
+  // window gets stashed (handleProfileSelect can't yet tell it apart from a
+  // draft). Once the row loads we know it's a real server conversation, so
+  // persist the stash as a per-conversation override. Draft stubs (`draft:
+  // true`, added optimistically on first send) are skipped — the send path owns
+  // their stash and applies it to the conversation it mints.
+  const promotingProfileRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!conversationId) return;
+    const stashed = pendingDraftProfiles.get(conversationId);
+    if (stashed === undefined) return;
+    if (findConversation(queryClient, assistantId, conversationId)?.draft) return;
+    if (promotingProfileRef.current.has(conversationId)) return;
+    const id = conversationId;
+    promotingProfileRef.current.add(id);
+    void (async () => {
+      try {
+        await conversationsByIdInferenceprofilePut({
+          path: { assistant_id: assistantId, id },
+          body: { profile: stashed },
+          throwOnError: true,
+        });
+        useConversationStore.getState().clearPendingDraftProfile(id);
+        void queryClient.invalidateQueries({
+          queryKey: conversationsByIdGetQueryKey({
+            path: { assistant_id: assistantId, id },
+          }),
+        });
+      } catch {
+        // Leave the stash so a later interaction can retry; a toast here would
+        // be noisy during navigation/load.
+      } finally {
+        promotingProfileRef.current.delete(id);
+      }
+    })();
+  }, [conversationId, assistantId, pendingDraftProfiles, queryClient]);
 
   // ---------------------------------------------------------------------------
   // Threshold mutation handler
@@ -238,23 +276,24 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
       const capturedConversationId = conversationIdRef.current;
       setOptimisticActiveProfile(name);
 
-      // No server-side conversation yet — a brand-new draft chat. Stash the
-      // selection for the draft instead of overwriting the global default
-      // profile (the value the Settings "default profile" control owns);
-      // `use-send-message` applies it to the conversation the first message
-      // mints. No network call and no rollback — the optimistic/stashed value
-      // stands until the send resolves and the conversation's profile takes over.
+      // No loaded row yet — a brand-new draft, or an existing conversation
+      // still loading. Stash the selection keyed by the active id instead of
+      // overwriting the global default profile (the value the Settings "default
+      // profile" control owns). It is applied by the send path when a draft's
+      // first message mints the conversation, or promoted to a per-conversation
+      // override by the effect above once a real row loads. No network call and
+      // no rollback — the optimistic/stashed value stands until then.
       if (!capturedConversationId) {
-        const draftConversationId =
+        const targetConversationId =
           useConversationStore.getState().activeConversationId;
-        if (draftConversationId) {
+        if (targetConversationId) {
           useConversationStore
             .getState()
-            .setPendingDraftProfile(draftConversationId, name);
+            .setPendingDraftProfile(targetConversationId, name);
           lastConfirmedProfileRef.current = name;
           return true;
         }
-        // Nothing to attach the selection to (no draft id) — revert the
+        // Nothing to attach the selection to (no active id) — revert the
         // optimistic checkmark rather than leave it stranded.
         setOptimisticActiveProfile(lastConfirmedProfileRef.current);
         return false;

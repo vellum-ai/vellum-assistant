@@ -152,39 +152,49 @@ describe("useConversationStore", () => {
     expect(getState().editingConversationId).toBeNull();
     expect(getState().processingConversationIds.size).toBe(0);
     expect(getState().attentionConversationIds.size).toBe(0);
-    expect(getState().pendingDraftProfile).toBeNull();
+    expect(getState().pendingDraftProfiles.size).toBe(0);
   });
 
   // ---------------------------------------------------------------------------
-  // Pending draft profile
+  // Pending draft profiles
   // ---------------------------------------------------------------------------
 
-  describe("pendingDraftProfile", () => {
-    it("stashes a profile keyed by draft conversation id", () => {
+  describe("pendingDraftProfiles", () => {
+    it("stashes a profile keyed by conversation id", () => {
       getState().setPendingDraftProfile("draft-a", "smart");
-      expect(getState().pendingDraftProfile).toEqual({
-        conversationId: "draft-a",
-        profile: "smart",
-      });
+      expect(getState().pendingDraftProfiles.get("draft-a")).toBe("smart");
     });
 
-    it("clears the stash when the id matches", () => {
+    it("preserves each draft's selection when several are unsent", () => {
       getState().setPendingDraftProfile("draft-a", "smart");
-      getState().clearPendingDraftProfile("draft-a");
-      expect(getState().pendingDraftProfile).toBeNull();
+      getState().setPendingDraftProfile("draft-b", "fast");
+      expect(getState().pendingDraftProfiles.get("draft-a")).toBe("smart");
+      expect(getState().pendingDraftProfiles.get("draft-b")).toBe("fast");
     });
 
-    it("leaves a newer draft's stash intact when a stale send clears by old id", () => {
+    it("clears only the named id, leaving other drafts intact", () => {
       // Draft A's send was in flight with "smart"; the user then switched to
-      // draft B and picked "fast" before A's POST resolved. A's clear must not
+      // draft B and picked "fast" before A's POST resolved. Clearing A must not
       // wipe B's selection.
       getState().setPendingDraftProfile("draft-a", "smart");
       getState().setPendingDraftProfile("draft-b", "fast");
       getState().clearPendingDraftProfile("draft-a");
-      expect(getState().pendingDraftProfile).toEqual({
-        conversationId: "draft-b",
-        profile: "fast",
-      });
+      expect(getState().pendingDraftProfiles.has("draft-a")).toBe(false);
+      expect(getState().pendingDraftProfiles.get("draft-b")).toBe("fast");
+    });
+
+    it("returns the same Map reference when setting an unchanged value", () => {
+      getState().setPendingDraftProfile("draft-a", "smart");
+      const before = getState().pendingDraftProfiles;
+      getState().setPendingDraftProfile("draft-a", "smart");
+      expect(getState().pendingDraftProfiles).toBe(before);
+    });
+
+    it("clear is a no-op (same reference) when the id is absent", () => {
+      getState().setPendingDraftProfile("draft-a", "smart");
+      const before = getState().pendingDraftProfiles;
+      getState().clearPendingDraftProfile("draft-z");
+      expect(getState().pendingDraftProfiles).toBe(before);
     });
   });
 });

@@ -390,10 +390,9 @@ describe("Profile selection with no active conversation (new draft chat)", () =>
 
     // The selection is stashed on the draft, scoped to its client-side id...
     await waitFor(() => {
-      expect(useConversationStore.getState().pendingDraftProfile).toEqual({
-        conversationId: "draft-xyz",
-        profile: "smart",
-      });
+      expect(
+        useConversationStore.getState().pendingDraftProfiles.get("draft-xyz"),
+      ).toBe("smart");
     });
     // ...and neither the global default profile nor a per-conversation override
     // is written (no server conversation exists yet).

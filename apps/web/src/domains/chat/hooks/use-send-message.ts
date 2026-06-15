@@ -298,14 +298,13 @@ export function useSendMessage({
       // draft chat (see `ComposerSettingsMenu`). Forwarded only for the draft's
       // first message so the minted conversation gets it as a per-conversation
       // override — keeping the selection scoped to this conversation instead of
-      // mutating the global default profile. The id guard ensures a stash left
-      // over from a different/abandoned draft never leaks onto this send.
-      const stashedDraftProfile =
-        useConversationStore.getState().pendingDraftProfile;
-      const inferenceProfileForSend =
-        isDraft && stashedDraftProfile?.conversationId === requestConversationId
-          ? stashedDraftProfile.profile
-          : undefined;
+      // mutating the global default profile. Keyed by id, so only this draft's
+      // own stash is read.
+      const inferenceProfileForSend = isDraft
+        ? useConversationStore
+            .getState()
+            .pendingDraftProfiles.get(requestConversationId)
+        : undefined;
       const postResult = await postChatMessage(
         requestAssistantId,
         useServerMint ? null : requestConversationId,
@@ -351,11 +350,9 @@ export function useSendMessage({
       // Success — drain the ref so subsequent messages omit the field.
       pendingOnboardingContextRef.current = null;
       // The draft's stashed profile (if any) has now been persisted on the
-      // minted conversation; drop it so it can't re-apply to a later send.
-      // Cleared only on success — a failed draft send keeps the stash so a
-      // retry still carries the chosen profile — and scoped to this draft so a
-      // send that resolves after the user moved to another draft can't wipe the
-      // newer draft's selection.
+      // minted conversation; drop this draft's entry so it can't re-apply to a
+      // later send. Cleared only on success — a failed draft send keeps the
+      // stash so a retry still carries the chosen profile.
       if (inferenceProfileForSend) {
         useConversationStore
           .getState()
