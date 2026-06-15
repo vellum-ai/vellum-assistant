@@ -219,6 +219,131 @@ describe("agent loop output hooks", () => {
     });
   });
 
+  test("post-model-call can append a tool_use block to invoke a tool as if the model had called it", async () => {
+    // GIVEN a plugin whose post-model-call hook appends a tool call (with an
+    // empty id, so the host must assign one) to an otherwise text-only reply,
+    // once, so the re-entry turn terminates the run.
+    let injected = false;
+    const executed: Array<{ name: string; input: unknown; id?: string }> = [];
+    registerOutputHookPlugin({
+      postModelCall: (ctx) => {
+        if (injected) return;
+        injected = true;
+        ctx.content = [
+          ...ctx.content,
+          {
+            type: "tool_use",
+            id: "",
+            name: "ui_show",
+            input: { surface: "x" },
+          },
+        ];
+      },
+    });
+    // AND a provider that streams a visible answer, then ends after re-entry.
+    const { provider } = createMockProvider([
+      textResponse("here is your answer"),
+      textResponse("done"),
+    ]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: [
+        {
+          name: "ui_show",
+          description: "",
+          input_schema: { type: "object", properties: {} },
+        },
+      ],
+      toolExecutor: async (name, input, _onOutput, toolUseId) => {
+        executed.push({ name, input, id: toolUseId });
+        return { content: "shown", isError: false };
+      },
+    });
+    const events: AgentEvent[] = [];
+
+    // WHEN the loop runs
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect(events),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the hook-added call ran through the normal tool path exactly once
+    expect(executed).toHaveLength(1);
+    expect(executed[0]).toMatchObject({
+      name: "ui_show",
+      input: { surface: "x" },
+    });
+    // AND the host backfilled a non-empty id for the empty-id block
+    expect(executed[0].id).toBeTruthy();
+    // AND a tool_use event was emitted for the injected call
+    expect(
+      events.some((e) => e.type === "tool_use" && e.name === "ui_show"),
+    ).toBe(true);
+    // AND the live text reply was preserved, not discarded
+    expect(streamedText(events)).toContain("here is your answer");
+    // AND the persisted assistant turn carries the injected tool call
+    const injectedTurn = history.find(
+      (m) =>
+        m.role === "assistant" &&
+        m.content.some((b) => b.type === "tool_use" && b.name === "ui_show"),
+    );
+    expect(injectedTurn).toBeDefined();
+  });
+
+  test("post-model-call can drop a model tool_use block to suppress the call", async () => {
+    // GIVEN a model reply that carries a tool call the hook decides to remove.
+    const toolAndText: ProviderResponse = {
+      content: [
+        { type: "text", text: "answer" },
+        { type: "tool_use", id: "t1", name: "noop", input: {} },
+      ],
+      model: "mock-model",
+      usage: { inputTokens: 1, outputTokens: 1 },
+      stopReason: "tool_use",
+    };
+    let executions = 0;
+    registerOutputHookPlugin({
+      postModelCall: (ctx) => {
+        ctx.content = ctx.content.filter((b) => b.type !== "tool_use");
+      },
+    });
+    const { provider } = createMockProvider([toolAndText]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      tools: [
+        {
+          name: "noop",
+          description: "",
+          input_schema: { type: "object", properties: {} },
+        },
+      ],
+      toolExecutor: async () => {
+        executions++;
+        return { content: "ok", isError: false };
+      },
+    });
+
+    // WHEN the loop runs
+    const { history } = await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect([]),
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // THEN the dropped call never executed and the turn ended on the text reply
+    expect(executions).toBe(0);
+    expect(
+      lastAssistant(history).content.some((b) => b.type === "tool_use"),
+    ).toBe(false);
+  });
+
   test("pre-model-call can edit the outbound system prompt", async () => {
     registerOutputHookPlugin({
       preModelCall: (ctx) => {

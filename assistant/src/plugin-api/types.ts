@@ -493,8 +493,11 @@ export type PostModelCallDecision = "continue" | "stop";
  *   the hook's result as the persisted and streamed message), and
  *   {@link stopReason} carries the provider's stop reason. Fires once per model
  *   call, including tool-bearing turns (a reply can carry both text and
- *   `tool_use`), so a hook should transform only the blocks it owns and leave
- *   others — notably `tool_use` — intact.
+ *   `tool_use`). A hook should leave blocks it does not own untouched, but it
+ *   may **append a `tool_use` block** to invoke a tool as if the model had
+ *   called it — the loop executes whatever the finalized content carries (see
+ *   {@link content}). This is the supported way for a plugin to drive a tool
+ *   (e.g. render a surface via `ui_show`) deterministically after a turn.
  * - **Provider rejection.** The call threw before any reply existed.
  *   {@link error} holds the rejection, {@link content} is empty, and
  *   {@link stopReason} is `null`. A hook that recognizes the rejection may
@@ -518,8 +521,15 @@ export interface PostModelCallContext {
   /** The call site this message serves — `"mainAgent"` for the user-facing reply; `null` when untagged. */
   readonly callSite: LLMCallSite | null;
   /**
-   * The finalized message content. Mutable — transform the text blocks and leave
-   * `tool_use` (and other non-text blocks) intact. Empty on a provider rejection.
+   * The finalized message content. Mutable, and the source of truth for both
+   * persistence and execution: the loop derives the turn's executable tool
+   * calls from this array *after* the hook chain runs. A hook may transform the
+   * text blocks, **append a `tool_use` block** to invoke a tool as if the model
+   * had called it (executed through the normal tool path — trust rules apply,
+   * and its result/surface is appended after any already-streamed text without
+   * discarding it), or drop a `tool_use` block to suppress a call. The host
+   * assigns an id to any appended `tool_use` block whose `id` is empty or
+   * collides. Empty on a provider rejection.
    */
   content: ContentBlock[];
   /**

@@ -1613,8 +1613,10 @@ export class AgentLoop {
           content: response.content,
         };
 
-        // Check for tool use
-        toolUseBlocks = response.content.filter(
+        // The model's own tool calls. The executable set is finalized after
+        // the `post-model-call` hook below, which may add or drop tool calls;
+        // this raw set drives only the completion log and the max-tokens branch.
+        const modelToolUseBlocks = response.content.filter(
           (block): block is Extract<ContentBlock, { type: "tool_use" }> =>
             block.type === "tool_use",
         );
@@ -1624,7 +1626,7 @@ export class AgentLoop {
             turn: toolUseTurns,
             stopReason: response.stopReason,
             contentBlocks: response.content.length,
-            toolUseCount: toolUseBlocks.length,
+            toolUseCount: modelToolUseBlocks.length,
             durationMs: providerDurationMs,
           },
           "LLM call complete",
@@ -1643,7 +1645,7 @@ export class AgentLoop {
               stopReason: response.stopReason,
               contentBlocks: response.content.length,
               safeContentBlocks: safeContent.length,
-              toolUseCount: toolUseBlocks.length,
+              toolUseCount: modelToolUseBlocks.length,
             },
             "LLM response reached output token limit",
           );
@@ -1706,6 +1708,25 @@ export class AgentLoop {
           messages: postModelCallMessages,
         } = await finalizeAssistantMessage(assistantMessage);
         assistantMessage = finalizedAssistantMessage;
+
+        // Execution follows the FINALIZED content, not the raw reply. A
+        // `post-model-call` hook may append a `tool_use` block to run a tool as
+        // if the model had called it (the supported way for a plugin to surface
+        // a card or take a follow-up action), or drop one the model emitted, so
+        // the loop runs whatever the assistant message ends up carrying.
+        // Normalize ids so the executor and tool_result correlation stay 1:1 —
+        // a hook-added block may carry an empty or duplicate id.
+        toolUseBlocks = assistantMessage.content.filter(
+          (block): block is Extract<ContentBlock, { type: "tool_use" }> =>
+            block.type === "tool_use",
+        );
+        const seenToolUseIds = new Set<string>();
+        for (const block of toolUseBlocks) {
+          if (block.id.length === 0 || seenToolUseIds.has(block.id)) {
+            block.id = crypto.randomUUID();
+          }
+          seenToolUseIds.add(block.id);
+        }
 
         // At the no-tool stop boundary the retry decision is actionable: a
         // recovery hook may repair history and ask to re-query (a tool-bearing
