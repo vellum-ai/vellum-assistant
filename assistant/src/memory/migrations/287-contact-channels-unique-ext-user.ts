@@ -6,19 +6,12 @@ const log = getLogger("migration-287");
 /**
  * Deduplicates historical case collisions in contact_channels.
  *
- * Historical writes lowercased addresses inconsistently — some paths stored
- * 'U12345' and others stored 'u12345' for the same identity. This migration
- * resolves those collisions by keeping the best row per (type, address)
- * group (case-insensitive match for dedup only).
- *
- * Casing restoration (setting address = external_user_id) is intentionally
- * deferred to a later migration that lands alongside the lookup refactor,
- * so there is no window where data format disagrees with code expectations.
+ * Pure dedup — removes duplicate rows but does not change any stored values.
  *
  * Steps:
  *  1. Deduplicate by (type, address) case-insensitively — keeps the best row.
- *  2. Deduplicate by (type, external_user_id) case-insensitively — prevents
- *     future collisions when a later migration normalizes addresses.
+ *  2. Deduplicate by (type, external_user_id) case-insensitively — ensures
+ *     at most one row per external identity.
  *  3. Remove cross-column collision blockers — rows with NULL external_user_id
  *     whose address equals another row's external_user_id.
  */
