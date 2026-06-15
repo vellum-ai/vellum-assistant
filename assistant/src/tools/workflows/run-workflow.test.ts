@@ -227,6 +227,11 @@ describe("manage_workflows", () => {
     expect(missing.isError).toBe(true);
     expect(abortMock).not.toHaveBeenCalled();
 
+    // abort now fetches the run first to enforce ownership; seed an owned run.
+    statusMock.mockReturnValueOnce({
+      id: "r9",
+      conversationId: "conv-1",
+    } as unknown);
     const ok = await manageWorkflowsTool.execute(
       { action: "abort", run_id: "r9" },
       makeContext(),
@@ -258,6 +263,11 @@ describe("manage_workflows", () => {
     expect(missing.isError).toBe(true);
     expect(resumeMock).not.toHaveBeenCalled();
 
+    // resume now fetches the run first to enforce ownership; seed an owned run.
+    statusMock.mockReturnValueOnce({
+      id: "r9",
+      conversationId: "conv-1",
+    } as unknown);
     const ok = await manageWorkflowsTool.execute(
       { action: "resume", run_id: "r9" },
       makeContext(),
@@ -268,6 +278,10 @@ describe("manage_workflows", () => {
   });
 
   test("resume surfaces a run-manager error as a tool error", async () => {
+    statusMock.mockReturnValueOnce({
+      id: "r9",
+      conversationId: "conv-1",
+    } as unknown);
     resumeThrows = new Error(
       "Workflow run r9 is not resumable (status: completed).",
     );
@@ -285,5 +299,75 @@ describe("manage_workflows", () => {
       makeContext(),
     );
     expect(res.isError).toBe(true);
+  });
+
+  // Non-guardian authorization scope: a contact conversation may only see and
+  // control runs it originated, never another conversation's (or a guardian's).
+  const contactContext = () =>
+    ({
+      conversationId: "conv-1",
+      workingDir: "/tmp",
+      trustClass: "trusted_contact",
+    }) as Parameters<typeof manageWorkflowsTool.execute>[1];
+
+  test("list_runs is scoped to the caller's conversation for a non-guardian", async () => {
+    listMock.mockReturnValueOnce([
+      { id: "mine", name: "a", status: "running", conversationId: "conv-1" },
+      { id: "theirs", name: "b", status: "running", conversationId: "conv-2" },
+      { id: "nullconv", name: "c", status: "running", conversationId: null },
+    ] as unknown[]);
+    const res = await manageWorkflowsTool.execute(
+      { action: "list_runs" },
+      contactContext(),
+    );
+    const ids = JSON.parse(res.content).runs.map(
+      (r: { runId: string }) => r.runId,
+    );
+    expect(ids).toEqual(["mine"]);
+  });
+
+  test("a non-guardian cannot status/abort/resume another conversation's run", async () => {
+    const foreign = {
+      id: "theirs",
+      name: "b",
+      status: "interrupted",
+      conversationId: "conv-2",
+    } as unknown;
+
+    statusMock.mockReturnValueOnce(foreign);
+    const status = await manageWorkflowsTool.execute(
+      { action: "status", run_id: "theirs" },
+      contactContext(),
+    );
+    // Reads as not-found — never reveals the foreign run's details.
+    expect(JSON.parse(status.content).found).toBe(false);
+
+    statusMock.mockReturnValueOnce(foreign);
+    await manageWorkflowsTool.execute(
+      { action: "abort", run_id: "theirs" },
+      contactContext(),
+    );
+    expect(abortMock).not.toHaveBeenCalled();
+
+    statusMock.mockReturnValueOnce(foreign);
+    const resume = await manageWorkflowsTool.execute(
+      { action: "resume", run_id: "theirs" },
+      contactContext(),
+    );
+    expect(resume.isError).toBe(true);
+    expect(resume.content).toContain("not found");
+    expect(resumeMock).not.toHaveBeenCalled();
+  });
+
+  test("a non-guardian CAN control a run it originated", async () => {
+    statusMock.mockReturnValueOnce({
+      id: "mine",
+      conversationId: "conv-1",
+    } as unknown);
+    await manageWorkflowsTool.execute(
+      { action: "abort", run_id: "mine" },
+      contactContext(),
+    );
+    expect(abortMock).toHaveBeenCalledWith("mine");
   });
 });
