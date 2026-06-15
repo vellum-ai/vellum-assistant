@@ -103,6 +103,7 @@ export function useEdgeSwipeBack({
         const onEnd = () => {
           el.style.transition = "";
           el.style.transform = "";
+          el.style.willChange = "";
           el.removeEventListener("transitionend", onEnd);
         };
         el.addEventListener("transitionend", onEnd, { once: true });
@@ -110,10 +111,12 @@ export function useEdgeSwipeBack({
         setTimeout(() => {
           el.style.transition = "";
           el.style.transform = "";
+          el.style.willChange = "";
         }, CANCEL_ANIMATION_MS + 50);
       } else {
         el.style.transition = "";
         el.style.transform = "";
+        el.style.willChange = "";
       }
     };
 
