@@ -3162,17 +3162,23 @@ jobs:
 
           # Add the Electron auto-update feed (zip + blockmap + per-arch manifest).
           # electron-builder names the manifest latest-mac.yml for BOTH arches, so
-          # rename per arch to avoid a collision in the Release's flat namespace.
-          # The zips/blockmaps already embed the arch in their names.
+          # copy it to a per-arch filename before upload to avoid an asset-name
+          # collision in the Release's flat namespace. The "#" suffix on a gh asset
+          # sets only a display label, not the uploaded filename, so the rename has
+          # to happen on disk. The zips/blockmaps already embed the arch.
           for ARCH in arm64 x64; do
             UPDATE_DIR="electron-update-artifacts/${ARCH}"
             [ -d "$UPDATE_DIR" ] || continue
             UPDATE_ZIP=$(find "$UPDATE_DIR" -name "*-mac.zip" -type f | grep -m1 .)
-            [ -n "$UPDATE_ZIP" ] && ASSETS+=("$UPDATE_ZIP#$(basename "$UPDATE_ZIP")")
+            [ -n "$UPDATE_ZIP" ] && ASSETS+=("$UPDATE_ZIP")
             UPDATE_BLOCKMAP=$(find "$UPDATE_DIR" -name "*-mac.zip.blockmap" -type f | grep -m1 .)
-            [ -n "$UPDATE_BLOCKMAP" ] && ASSETS+=("$UPDATE_BLOCKMAP#$(basename "$UPDATE_BLOCKMAP")")
+            [ -n "$UPDATE_BLOCKMAP" ] && ASSETS+=("$UPDATE_BLOCKMAP")
             UPDATE_YML=$(find "$UPDATE_DIR" -name "*-mac.yml" -type f | grep -m1 .)
-            [ -n "$UPDATE_YML" ] && ASSETS+=("$UPDATE_YML#latest-mac-${ARCH}.yml")
+            if [ -n "$UPDATE_YML" ]; then
+              RENAMED_YML="${UPDATE_DIR}/latest-mac-${ARCH}.yml"
+              cp "$UPDATE_YML" "$RENAMED_YML"
+              ASSETS+=("$RENAMED_YML")
+            fi
           done
 
           INSTALL_SH="cli/src/adapters/install.sh"
