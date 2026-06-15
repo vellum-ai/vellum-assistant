@@ -62,8 +62,10 @@ export function WebSearchCard() {
     }
     const wsService = daemonConfig.services?.["web-search"];
     return {
-      serverWebSearchMode: wsService?.mode
-        ?? parseServiceMode(getLocalSetting(LS_WEB_SEARCH_MODE, "your-own"), "your-own"),
+      serverWebSearchMode: parseServiceMode(
+        wsService?.mode ?? getLocalSetting(LS_WEB_SEARCH_MODE, "your-own"),
+        "your-own",
+      ),
       serverWebSearchProvider: wsService?.provider || getLocalSetting(LS_WEB_SEARCH_PROVIDER, "inference-provider-native"),
     };
   }, [daemonConfig]);
