@@ -534,6 +534,55 @@ describe("scheduler workflow mode", () => {
     expect(runs[0].status).toBe("ok");
   });
 
+  test("falls back to createdFromConversationId for the completion wake", async () => {
+    // Workflow schedules created via schedule_create store the originating
+    // conversation as createdFromConversationId and leave wakeConversationId
+    // unset; without the fallback the completion summary lands nowhere.
+    const schedule = createSchedule({
+      name: "Morning digest",
+      cronExpression: "0 9 * * *",
+      message: "",
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "digest",
+      createdFromConversationId: "conv-creator",
+    });
+    forceScheduleDue(schedule.id);
+
+    await runScheduleDueWorkOnce(
+      async () => {},
+      () => {},
+    );
+
+    expect(workflowStartCalls).toHaveLength(1);
+    expect(workflowStartCalls[0]).toMatchObject({
+      conversationId: "conv-creator",
+    });
+  });
+
+  test("prefers an explicit wakeConversationId over createdFromConversationId", async () => {
+    const schedule = createSchedule({
+      name: "Both set",
+      cronExpression: "0 9 * * *",
+      message: "",
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "digest",
+      wakeConversationId: "conv-wake",
+      createdFromConversationId: "conv-creator",
+    });
+    forceScheduleDue(schedule.id);
+
+    await runScheduleDueWorkOnce(
+      async () => {},
+      () => {},
+    );
+
+    expect(workflowStartCalls[0]).toMatchObject({
+      conversationId: "conv-wake",
+    });
+  });
+
   test("defaults workflowArgs to {} when unset", async () => {
     const schedule = createSchedule({
       name: "No-args workflow",

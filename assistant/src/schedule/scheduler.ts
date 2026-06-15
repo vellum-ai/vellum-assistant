@@ -485,7 +485,16 @@ export async function runScheduleDueWorkOnce(
         const { runId: workflowRunId } = getWorkflowRunManager().start({
           name: job.workflowName,
           args: job.workflowArgs ?? {},
-          conversationId: job.wakeConversationId ?? undefined,
+          // Where the completion summary is delivered (an agent wake). Prefer an
+          // explicit wake target, then fall back to the conversation that
+          // created the schedule — workflow schedules made via `schedule_create`
+          // store that as `createdFromConversationId` and leave
+          // `wakeConversationId` unset, so without this fallback their result
+          // would surface only to live SSE listeners / the DB, never delivered.
+          conversationId:
+            job.wakeConversationId ??
+            job.createdFromConversationId ??
+            undefined,
           manifest: { tools: [], hostFunctions: [], persona: false },
           trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
         });

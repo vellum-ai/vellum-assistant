@@ -284,6 +284,8 @@ describe("POST /schedules/:id/run — workflow mode triggers the workflow", () =
       mode: "workflow",
       workflowName: "triage-inbox",
       workflowArgs: { scope: "unread" },
+      // schedule_create stores the originating conversation here.
+      createdFromConversationId: "conv-creator",
     });
 
     const result = (await runNowRoute().handler({
@@ -304,6 +306,9 @@ describe("POST /schedules/:id/run — workflow mode triggers the workflow", () =
     expect((call.trustContext as { trustClass: string }).trustClass).toBe(
       "guardian",
     );
+    // No wakeConversationId → completion summary targets the creating
+    // conversation so the run's result is actually delivered.
+    expect(call.conversationId).toBe("conv-creator");
 
     // A schedule run row was recorded as ok with the workflow run id.
     const runs = getScheduleRuns(schedule.id);

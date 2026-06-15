@@ -981,7 +981,14 @@ async function handleRunScheduleNow(id: string) {
       const { runId: workflowRunId } = getWorkflowRunManager().start({
         name: schedule.workflowName,
         args: schedule.workflowArgs ?? {},
-        conversationId: schedule.wakeConversationId ?? undefined,
+        // Deliver the completion summary to the schedule's wake target, falling
+        // back to the conversation that created it (workflow schedules made via
+        // `schedule_create` store `createdFromConversationId` and leave
+        // `wakeConversationId` unset) — mirrors the scheduler's firing path.
+        conversationId:
+          schedule.wakeConversationId ??
+          schedule.createdFromConversationId ??
+          undefined,
         manifest: { tools: [], hostFunctions: [], persona: false },
         trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
       });
