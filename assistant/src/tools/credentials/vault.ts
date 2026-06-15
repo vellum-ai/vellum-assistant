@@ -1,4 +1,10 @@
 import {
+  formatSlackChannelStatus,
+  isSlackChannelCredential,
+  persistPromptedCredential,
+  storeSlackChannelCredential,
+} from "../../credential-execution/prompted-credential.js";
+import {
   clearSlackUserToken,
   type SlackChannelConfigResult,
 } from "../../daemon/handlers/config-slack-channel.js";
@@ -32,12 +38,6 @@ import type {
   CredentialPolicyInput,
 } from "./policy-types.js";
 import { toPolicyFromInput, validatePolicyInput } from "./policy-validate.js";
-import {
-  formatSlackChannelStatus,
-  isSlackChannelCredential,
-  persistPromptedCredential,
-  storeSlackChannelCredential,
-} from "./prompted-credential.js";
 
 const log = getLogger("credential-vault");
 

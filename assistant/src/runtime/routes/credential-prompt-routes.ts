@@ -8,12 +8,12 @@
 
 import { z } from "zod";
 
-import { requestSecretStandalone } from "../../daemon/handlers/shared.js";
-import { assertMetadataWritable } from "../../tools/credentials/metadata-store.js";
 import {
   formatSlackChannelStatus,
   persistPromptedCredential,
-} from "../../tools/credentials/prompted-credential.js";
+} from "../../credential-execution/prompted-credential.js";
+import { requestSecretStandalone } from "../../daemon/handlers/shared.js";
+import { assertMetadataWritable } from "../../tools/credentials/metadata-store.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 

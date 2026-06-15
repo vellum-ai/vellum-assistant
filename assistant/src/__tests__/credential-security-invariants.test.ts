@@ -166,7 +166,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
     // Any new import must be reviewed for secret-leak risk and added here.
     const ALLOWED_IMPORTERS = new Set([
       "tools/credentials/vault.ts", // credential store tool
-      "tools/credentials/prompted-credential.ts", // shared prompt-action persistence (stores secret via setSecureKeyAsync)
+      "credential-execution/prompted-credential.ts", // shared prompt-action persistence (stores secret via setSecureKeyAsync)
       "tools/credentials/broker.ts", // brokered credential access
       "tools/network/web-search.ts", // web search API key lookup
       "daemon/handlers/config-telegram.ts", // Telegram bot token management
