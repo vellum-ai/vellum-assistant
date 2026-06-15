@@ -219,6 +219,11 @@ describe("GET /v1/workspace/tree", () => {
     expect(names).toContain("subdir");
   });
 
+  test("returns the absolute workspace root", () => {
+    const result = handler({ queryParams: {} }) as { root: string };
+    expect(result.root).toBe(testWorkspaceDir);
+  });
+
   test("subdirectory listing returns child entries", () => {
     const result = handler({ queryParams: { path: "subdir" } }) as {
       path: string;

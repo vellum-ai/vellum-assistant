@@ -27544,6 +27544,11 @@ paths:
                 properties:
                   path:
                     type: string
+                  root:
+                    type: string
+                    description:
+                      Absolute workspace root directory. Clients strip this prefix to map absolute paths (as written in chat) to
+                      workspace-relative entry paths.
                   entries:
                     type: array
                     items:
@@ -27579,6 +27584,7 @@ paths:
                     description: Directory entry objects
                 required:
                   - path
+                  - root
                   - entries
                 additionalProperties: false
   /v1/workspace/write:

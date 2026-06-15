@@ -163,6 +163,29 @@ export type MarkdownLinkComponent = (
   props: Pick<AnchorHTMLAttributes<HTMLAnchorElement>, "href" | "children">,
 ) => ReactNode;
 
+/** Styling applied to inline (non-block) `<code>` spans. */
+const INLINE_CODE_CLASS =
+  "rounded bg-stone-100 px-1 py-0.5 font-mono text-body-small-default dark:bg-moss-800";
+
+/**
+ * Renderer for inline (non-block) code spans. `text` is the span's plain-text
+ * content; `className` is the default inline-code styling, supplied so an
+ * override can reuse it (e.g. to render a clickable span that still looks like
+ * code). Block code (fenced ```) does not flow through here.
+ */
+export type MarkdownInlineCodeComponent = (props: {
+  text: string;
+  className: string;
+  children: ReactNode;
+}) => ReactNode;
+
+function DefaultInlineCode({
+  className,
+  children,
+}: Parameters<MarkdownInlineCodeComponent>[0]) {
+  return <code className={className}>{children}</code>;
+}
+
 /**
  * Browser-default `<em>` italic synthesizes an oblique skew on every glyph in
  * the run — including color-emoji glyphs — so `*🥺*` renders a slanted emoji.
@@ -245,6 +268,7 @@ function renderUprightEmoji(children: ReactNode): ReactNode {
 
 function buildMarkdownComponents(
   LinkComponent: MarkdownLinkComponent,
+  InlineCodeComponent: MarkdownInlineCodeComponent,
 ): Components {
   return {
     // mb-6 (24px) equals one --text-chat-line-height, so a `\n\n` paragraph
@@ -312,10 +336,14 @@ function buildMarkdownComponents(
           </code>
         );
       }
+      // react-markdown passes inline-code content as a single text child;
+      // coerce to a string for the override, falling back to default rendering
+      // when it isn't plain text.
+      const text = typeof children === "string" ? children : "";
       return (
-        <code className="rounded bg-stone-100 px-1 py-0.5 font-mono text-body-small-default dark:bg-moss-800">
+        <InlineCodeComponent text={text} className={INLINE_CODE_CLASS}>
           {children}
-        </code>
+        </InlineCodeComponent>
       );
     },
     pre: ({ children }) => <CodeBlockWrapper>{children}</CodeBlockWrapper>,
@@ -510,6 +538,15 @@ export interface MarkdownMessageProps {
    * avoid rebuilding internal component overrides on every render.
    */
   linkComponent?: MarkdownLinkComponent;
+  /**
+   * Custom renderer for inline (non-block) code spans. Receives the span's
+   * plain `text`, the default `className`, and the `children` nodes. Defaults
+   * to a styled `<code>`. Block (fenced) code is unaffected.
+   *
+   * Pass a stable reference (module-level function or `useCallback`) to
+   * avoid rebuilding internal component overrides on every render.
+   */
+  inlineCodeComponent?: MarkdownInlineCodeComponent;
 }
 
 export function MarkdownMessage({
@@ -517,13 +554,18 @@ export function MarkdownMessage({
   className,
   hardLineBreaks,
   linkComponent,
+  inlineCodeComponent,
 }: MarkdownMessageProps) {
   const processed = useMemo(() => {
     const escaped = escapeCurrencyDollars(content);
     return hardLineBreaks ? hardBreakNewlines(escaped) : escaped;
   }, [content, hardLineBreaks]);
   const Link = linkComponent ?? DefaultLink;
-  const components = useMemo(() => buildMarkdownComponents(Link), [Link]);
+  const InlineCode = inlineCodeComponent ?? DefaultInlineCode;
+  const components = useMemo(
+    () => buildMarkdownComponents(Link, InlineCode),
+    [Link, InlineCode],
+  );
   return (
     <div data-slot="markdown-message" className={cn("text-chat text-[var(--content-default)]", className)}>
       <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={components}>
