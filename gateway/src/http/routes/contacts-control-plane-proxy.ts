@@ -20,6 +20,7 @@ import { contacts } from "../../db/schema.js";
 import { fetchImpl } from "../../fetch.js";
 import { ipcCallAssistant } from "../../ipc/assistant-client.js";
 import { getLogger } from "../../logger.js";
+import { canonicalizeInboundIdentity } from "../../verification/identity.js";
 
 const log = getLogger("contacts-control-plane-proxy");
 
@@ -163,8 +164,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           {
             error: {
               code: "BAD_REQUEST",
-              message:
-                "displayName is required and must be a non-empty string",
+              message: "displayName is required and must be a non-empty string",
             },
           },
           { status: 400 },
@@ -214,10 +214,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         }
         const speciesError = validateSpeciesMetadata(
           assistantMeta.species,
-          assistantMeta.metadata as
-            | Record<string, unknown>
-            | null
-            | undefined,
+          assistantMeta.metadata as Record<string, unknown> | null | undefined,
         );
         if (speciesError) {
           return Response.json(
@@ -352,7 +349,8 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
             : undefined,
         channels: channelInputs?.map((ch) => ({
           type: ch.type,
-          address: ch.address,
+          address:
+            canonicalizeInboundIdentity(ch.type, ch.address) ?? ch.address,
           isPrimary: ch.isPrimary,
           externalUserId: ch.externalUserId ?? null,
           externalChatId: ch.externalChatId ?? null,
@@ -366,7 +364,10 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         body: { kind: "contacts_changed" },
       } as unknown as Record<string, unknown>).catch(() => {});
 
-      log.info({ contactId: contact.id, created }, "upsert_contact: handled natively");
+      log.info(
+        { contactId: contact.id, created },
+        "upsert_contact: handled natively",
+      );
       return Response.json({ ok: true, contact });
     },
 
@@ -382,14 +383,24 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       if (rows.length === 0) {
         log.warn({ contactId }, "delete_contact: not found");
         return Response.json(
-          { error: { code: "NOT_FOUND", message: `Contact "${contactId}" not found` } },
+          {
+            error: {
+              code: "NOT_FOUND",
+              message: `Contact "${contactId}" not found`,
+            },
+          },
           { status: 404 },
         );
       }
       if (rows[0].role === "guardian") {
         log.warn({ contactId }, "delete_contact: attempted to delete guardian");
         return Response.json(
-          { error: { code: "FORBIDDEN", message: "Cannot delete a guardian contact" } },
+          {
+            error: {
+              code: "FORBIDDEN",
+              message: "Cannot delete a guardian contact",
+            },
+          },
           { status: 403 },
         );
       }
@@ -433,8 +444,9 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       _req: Request,
       contactChannelId: string,
     ): Promise<Response> {
-      const result =
-        await new ContactStore().markChannelVerified(contactChannelId);
+      const result = await new ContactStore().markChannelVerified(
+        contactChannelId,
+      );
       if (!result) {
         return Response.json(
           {
