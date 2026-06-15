@@ -279,6 +279,34 @@ function readStore(storePath: string): StoreFile | null {
 }
 
 // ---------------------------------------------------------------------------
+// Errors
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown by `get()` / `list()` when the credential store is UNAVAILABLE — the
+ * store file exists but cannot be read, the v2 `store.key` (or v1 machine
+ * entropy) key material is missing, or an entry fails to decrypt. This is
+ * deliberately DISTINCT from a credential being ABSENT (no store file yet, or
+ * the store reads cleanly but lacks the requested key), which returns
+ * `undefined` / `[]`.
+ *
+ * The distinction matters on CES cold start: for a brief window after a
+ * (re)start the key material can be transiently unreadable (see the
+ * `entropyGetter` note on {@link createLocalSecureKeyBackend} — "the file may
+ * not exist at construction time but appears later"). Returning `undefined`
+ * there reports a credential that EXISTS as "not found"; throwing instead
+ * surfaces the true state to the RPC layer (a `HANDLER_ERROR` the daemon maps
+ * to `unreachable`), so a transient read failure is never mistaken for a
+ * missing credential.
+ */
+export class StoreUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StoreUnavailableError";
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Backend implementation
 // ---------------------------------------------------------------------------
 
@@ -310,29 +338,50 @@ export function createLocalSecureKeyBackend(
 
   return {
     async get(key: string): Promise<string | undefined> {
-      try {
-        const store = readStore(storePath);
-        if (!store) return undefined;
-
-        const entry = store.entries[key];
-        if (!entry) return undefined;
-
-        let aesKey: Buffer;
-        if (store.version === 2) {
-          const storeKey = readStoreKey(vellumRoot);
-          if (!storeKey) return undefined;
-          aesKey = storeKey;
-        } else {
-          // v1: derive key from machine entropy via PBKDF2
-          const entropy = entropyGetter?.() ?? staticEntropy;
-          const salt = Buffer.from(store.salt, "hex");
-          aesKey = deriveKey(salt, entropy);
+      const store = readStore(storePath);
+      if (!store) {
+        // No store file at all → the credential is genuinely ABSENT. A store
+        // file that EXISTS but could not be read is UNAVAILABLE, not absent —
+        // surface it rather than reporting a false "not found".
+        if (existsSync(storePath)) {
+          throw new StoreUnavailableError(
+            "credential store exists but could not be read",
+          );
         }
-
-        return decrypt(entry, aesKey);
-      } catch {
         return undefined;
       }
+
+      const entry = store.entries[key];
+      // The store read cleanly and has no such entry → genuinely not found.
+      if (!entry) return undefined;
+
+      let aesKey: Buffer;
+      if (store.version === 2) {
+        const storeKey = readStoreKey(vellumRoot);
+        if (!storeKey) {
+          // The entry exists but the key material to decrypt it is unavailable
+          // (the cold-start race). Unavailable, NOT not-found.
+          throw new StoreUnavailableError(
+            "v2 store entry present but store.key is unavailable",
+          );
+        }
+        aesKey = storeKey;
+      } else {
+        // v1: derive key from machine entropy via PBKDF2. `entropy` is an
+        // OPTIONAL override (managed mode); when undefined, deriveKey falls
+        // back to local machine entropy — the normal local-mode path, so an
+        // undefined value here is NOT "unavailable". A v1 cold-start race (the
+        // override entropy file not yet present) yields the wrong key and
+        // surfaces below as a decrypt failure → unavailable.
+        const entropy = entropyGetter?.() ?? staticEntropy;
+        const salt = Buffer.from(store.salt, "hex");
+        aesKey = deriveKey(salt, entropy);
+      }
+
+      // A decrypt failure means corrupt data or wrong key material — the
+      // credential exists but we cannot produce its value. Let it propagate as
+      // unavailable rather than swallowing it into a false "not found".
+      return decrypt(entry, aesKey);
     },
 
     // NOTE: read-modify-write without file locking. The atomic rename
@@ -387,13 +436,18 @@ export function createLocalSecureKeyBackend(
     },
 
     async list(): Promise<string[]> {
-      try {
-        const store = readStore(storePath);
-        if (!store) return [];
-        return Object.keys(store.entries);
-      } catch {
+      const store = readStore(storePath);
+      if (!store) {
+        // Mirror get(): a store file that exists but is unreadable is
+        // UNAVAILABLE (surface it), not an empty credential set.
+        if (existsSync(storePath)) {
+          throw new StoreUnavailableError(
+            "credential store exists but could not be read",
+          );
+        }
         return [];
       }
+      return Object.keys(store.entries);
     },
   };
 }
