@@ -447,11 +447,21 @@ export async function handleClassifyRisk(
         context,
       );
 
-      // File tools always emit a directory scope ladder: either the filePath's
-      // parent (when provided) or the working directory as the ancestor.
+      // For a to_sandbox transfer the operation's subject is the sandbox
+      // destination (resolved against the sandbox working dir), not the host
+      // source — scope grants and resolved paths must reflect that target so a
+      // source-scoped directory grant can't auto-approve a destination
+      // escalation. sandboxPath is only set for to_sandbox transfers.
+      const subjectPath = params.sandboxPath ?? filePath;
+      const subjectWorkingDir = params.sandboxPath
+        ? (params.sandboxWorkingDir ?? workingDir)
+        : workingDir;
+
+      // File tools always emit a directory scope ladder: either the subject
+      // path's parent (when provided) or the working directory as the ancestor.
       const directoryScopeOptions = generateDirectoryScopeOptions({
-        pathArgs: filePath ? [filePath] : [],
-        workingDir,
+        pathArgs: subjectPath ? [subjectPath] : [],
+        workingDir: subjectWorkingDir,
         workspaceRoot: params.workspaceRoot,
       });
 
@@ -461,15 +471,15 @@ export async function handleClassifyRisk(
         scopeOptions: assessment.scopeOptions,
         allowlistOptions: assessment.allowlistOptions,
         directoryScopeOptions,
-        resolvedPaths: filePath
+        resolvedPaths: subjectPath
           ? [
-              filePath === "~"
+              subjectPath === "~"
                 ? homedir()
-                : filePath.startsWith("~/")
-                  ? join(homedir(), filePath.slice(2))
-                  : isAbsolute(filePath)
-                    ? resolve(filePath)
-                    : resolve(workingDir, filePath),
+                : subjectPath.startsWith("~/")
+                  ? join(homedir(), subjectPath.slice(2))
+                  : isAbsolute(subjectPath)
+                    ? resolve(subjectPath)
+                    : resolve(subjectWorkingDir, subjectPath),
             ]
           : undefined,
         matchType: assessment.matchType,

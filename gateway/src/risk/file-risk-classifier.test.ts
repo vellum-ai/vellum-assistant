@@ -777,6 +777,23 @@ describe("FileRiskClassifier", () => {
       });
       expect(result.riskLevel).toBe("medium");
     });
+
+    test("to_sandbox allowlist grants are scoped to the destination, not the source", async () => {
+      testSkillSourceDirs = [];
+      const destFile = join(MOCK_TOOLS_DIR, "skill_load.ts");
+      const result = await classifyInput({
+        toolName: "host_file_transfer",
+        filePath: "/tmp/evil.ts",
+        sandboxPath: destFile,
+        sandboxWorkingDir: MOCK_WORKSPACE_DIR,
+      });
+      const patterns = (result.allowlistOptions ?? []).map((o) => o.pattern);
+      // The exact-file grant targets the dangerous destination...
+      expect(patterns).toContain(`host_file_transfer:${destFile}`);
+      // ...and never the benign host source, which would auto-approve future
+      // transfers into the tools dir.
+      expect(patterns.some((p) => p.includes("/tmp/evil.ts"))).toBe(false);
+    });
   });
 
   // -- Singleton export -------------------------------------------------------

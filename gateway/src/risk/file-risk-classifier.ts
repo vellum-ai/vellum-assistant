@@ -346,8 +346,15 @@ export class FileRiskClassifier implements RiskClassifier<
     context: FileClassificationContext,
   ): Promise<RiskAssessment> {
     const { toolName, filePath, workingDir } = input;
-    const allowlistOptions = filePath
-      ? buildFileAllowlistOptions(toolName, filePath)
+    // The security-relevant subject of the operation. For a to_sandbox
+    // transfer that's the sandbox destination (where code is planted), not the
+    // benign host source in `filePath`. Allowlist grants and user-override
+    // lookups key on this so a source-scoped rule can't downgrade a
+    // destination escalation, and an approval grants the destination. Only
+    // to_sandbox transfers set `sandboxPath`, so every other case is unchanged.
+    const subjectPath = input.sandboxPath ?? filePath;
+    const allowlistOptions = subjectPath
+      ? buildFileAllowlistOptions(toolName, subjectPath)
       : [];
 
     // Run normal classification first (including all security escalations),
@@ -501,7 +508,7 @@ export class FileRiskClassifier implements RiskClassifier<
     // created them.
     try {
       const ruleCache = getTrustRuleCache();
-      const override = ruleCache.findToolOverride(toolName, filePath);
+      const override = ruleCache.findToolOverride(toolName, subjectPath);
       if (
         override &&
         (override.userModified || override.origin === "user_defined")

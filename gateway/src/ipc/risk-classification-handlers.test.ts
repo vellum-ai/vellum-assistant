@@ -260,6 +260,16 @@ describe("file classification", () => {
     });
     expect(result.risk).toBe("high");
     expect(result.reason).toContain("workspace tools");
+    // Scope grants + resolved paths must reflect the sandbox destination, not
+    // the benign host source, so a source-scoped grant can't downgrade it.
+    const resolvedPaths = result.resolvedPaths as string[] | undefined;
+    expect(resolvedPaths).toEqual(["/workspace/.vellum/tools/skill_load.ts"]);
+    const allowlistPatterns = (
+      (result.allowlistOptions as Array<{ pattern: string }>) ?? []
+    ).map((o) => o.pattern);
+    expect(allowlistPatterns.some((p) => p.includes("/tmp/evil.ts"))).toBe(
+      false,
+    );
   });
 
   test("workspace alias write without file context is not falsely escalated", async () => {
