@@ -111,6 +111,7 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
               <button
                 type="button"
                 onClick={handleDownloadClick}
+                onKeyDown={(e) => e.stopPropagation()}
                 aria-label={`Download ${filename}`}
                 className="absolute bottom-1 right-1 flex h-6 w-6 items-center justify-center rounded-md text-white/80 transition-colors hover:bg-white/20 hover:text-white"
               >
