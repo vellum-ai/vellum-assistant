@@ -77,6 +77,7 @@ import {
   migrateConversationHostAccess,
   migrateConversationInferenceProfileSession,
   migrateConversationLastNotifiedProfile,
+  migrateConversationOriginChannelIndex,
   migrateConversationsArchivedAt,
   migrateConversationsLastMessageAt,
   migrateConversationsSurfacedAt,
@@ -510,6 +511,7 @@ export function initializeDb(): void {
     migrateWorkflowRuns,
     migrateScheduleWorkflowMode,
     migrateWorkflowRunTrust,
+    migrateConversationOriginChannelIndex,
   ];
 
   // Run each migration step, catching and logging individual failures so one

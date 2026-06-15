@@ -217,8 +217,23 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
         ? "all"
         : "active";
 
-  let rows = listConversations(limit, conversationType, offset, archiveStatus);
-  const totalCount = countConversations(conversationType, archiveStatus);
+  const originChannel =
+    queryParams.originChannel !== undefined && queryParams.originChannel !== ""
+      ? queryParams.originChannel
+      : undefined;
+
+  let rows = listConversations(
+    limit,
+    conversationType,
+    offset,
+    archiveStatus,
+    originChannel,
+  );
+  const totalCount = countConversations(
+    conversationType,
+    archiveStatus,
+    originChannel,
+  );
 
   // On the first page, ensure all pinned conversations are included
   // even if they fall outside the paginated window. Pinned injection is
@@ -451,6 +466,25 @@ export const ROUTES: RouteDefinition[] = [
         description:
           'Filter by archive state. Defaults to "active" (non-archived rows only). Pass "archived" to list only archived rows (for the Archive page) or "all" to include both.',
         schema: { type: "string", enum: ["active", "archived", "all"] },
+      },
+      {
+        name: "originChannel",
+        type: "string",
+        required: false,
+        description:
+          "Filter by origin channel. When provided, only conversations with this exact origin_channel value are returned. Omit to include all channels.",
+        schema: {
+          type: "string",
+          enum: [
+            "slack",
+            "telegram",
+            "whatsapp",
+            "email",
+            "a2a",
+            "vellum",
+            "phone",
+          ],
+        },
       },
     ],
     responseBody: listConversationsResponseSchema,
