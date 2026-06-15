@@ -82,6 +82,13 @@ const CATALOG_RECORD: CatalogRecord = {
     description: "Handles voice call conversations.",
     domain: "agentLoop",
   },
+  workflowLeaf: {
+    id: "workflowLeaf",
+    displayName: "Workflow Leaf",
+    description:
+      "Runs an ephemeral leaf agent fanned out by the workflow orchestration engine.",
+    domain: "agentLoop",
+  },
 
   // memory
   memoryExtraction: {

@@ -670,6 +670,30 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.effort).toBe("medium");
   });
 
+  test("workflowLeaf defaults to the cost-optimized profile", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        balanced: {
+          model: "claude-sonnet-4-7",
+          effort: "medium",
+        },
+        "cost-optimized": {
+          model: "claude-haiku-4-5-20251001",
+          effort: "low",
+        },
+      },
+    });
+
+    expect(resolveDefaultProfileKey("workflowLeaf", llm)).toBe(
+      "cost-optimized",
+    );
+    const resolved = resolveCallSiteConfig("workflowLeaf", llm);
+    expect(resolved.model).toBe("claude-haiku-4-5-20251001");
+    expect(resolved.effort).toBe("low");
+    expect(resolved.thinking.enabled).toBe(false);
+  });
+
   test("explicit callSites config overrides CALL_SITE_DEFAULTS", () => {
     const llm = LLMSchema.parse({
       default: fullDefault,

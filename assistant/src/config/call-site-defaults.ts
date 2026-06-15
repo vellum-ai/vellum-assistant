@@ -125,4 +125,9 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     thinking: { enabled: false },
     disableCache: true,
   },
+  workflowLeaf: {
+    profile: "cost-optimized",
+    effort: "low",
+    thinking: { enabled: false },
+  },
 };

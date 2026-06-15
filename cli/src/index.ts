@@ -33,6 +33,7 @@ import { unpair } from "./commands/unpair";
 import { upgrade } from "./commands/upgrade";
 import { use } from "./commands/use";
 import { wake } from "./commands/wake";
+import { workflows } from "./commands/workflows";
 import { resolveAssistant, setActiveAssistant } from "./lib/assistant-config";
 import { loadGuardianToken } from "./lib/guardian-token";
 import { checkHealth } from "./lib/health-check";
@@ -72,6 +73,7 @@ const commands = {
   use,
   wake,
   whoami,
+  workflows,
 } as const;
 
 type CommandName = keyof typeof commands;
@@ -126,6 +128,7 @@ function printHelp(): void {
   console.log("  use      Set the active assistant for commands");
   console.log("  wake     Start the assistant and gateway");
   console.log("  whoami   Show current logged-in user");
+  console.log("  workflows Inspect and control workflow runs");
   console.log("");
   console.log("Options:");
   console.log(
