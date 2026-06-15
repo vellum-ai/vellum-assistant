@@ -22,6 +22,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { Button, Typography } from "@vellumai/design-library";
 
 import { BlinkingAvatar } from "@/domains/onboarding/cast/cast-shell";
 import { CastProof } from "@/domains/onboarding/cast/cast-proof-view";
@@ -87,42 +88,48 @@ export function HandoffScreen({
 
   return (
     <motion.div
-      className="cast-handoff"
+      className="absolute inset-0 z-[4] flex flex-col items-center justify-center p-6"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.4 }}
     >
-      <div style={{ width: 200, height: 200, marginBottom: 32 }}>
+      <div className="mb-8 h-[200px] w-[200px]">
         <BlinkingAvatar character={character} />
       </div>
       <h2 className="cast-handoff__heading">
         Here's what I found I can take care of for you today
       </h2>
-      <ul className="cast-handoff__tasks">
+      <ul className="m-0 mt-7 flex w-full max-w-[340px] list-none flex-col gap-2.5 p-0">
         {tasks.map((task, i) => (
           <motion.li
             key={task}
-            className="cast-handoff__task"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, delay: 0.4 + i * 0.2 }}
           >
-            {task}
+            <Typography
+              variant="body-medium-default"
+              as="div"
+              className="rounded-[var(--radius-xl)] border border-[var(--border-subtle)] bg-[var(--surface-hover)] px-[18px] py-3.5 text-center font-semibold text-[var(--content-default)]"
+            >
+              {task}
+            </Typography>
           </motion.li>
         ))}
       </ul>
       <AnimatePresence>
         {showCta && (
-          <motion.button
-            className="cast-handoff__cta"
-            onClick={() => onCompleteRef.current()}
+          <motion.div
+            className="mt-[18px]"
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
           >
-            Let's go &rarr;
-          </motion.button>
+            <Button variant="ghost" onClick={() => onCompleteRef.current()}>
+              Let's go &rarr;
+            </Button>
+          </motion.div>
         )}
       </AnimatePresence>
     </motion.div>
