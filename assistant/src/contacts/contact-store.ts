@@ -709,17 +709,23 @@ export function mergeContacts(
 
 /**
  * Find a contact by a specific channel address. Returns null if not found.
+ * Canonicalizes the address before querying to match the write-path invariant.
  */
 export function findContactByAddress(
   type: string,
   address: string,
 ): ContactWithChannels | null {
+  const canonical =
+    canonicalizeInboundIdentity(type as ChannelId, address) ?? address;
   const db = getDb();
   const channel = db
     .select()
     .from(contactChannels)
     .where(
-      and(eq(contactChannels.type, type), eq(contactChannels.address, address)),
+      and(
+        eq(contactChannels.type, type),
+        eq(contactChannels.address, canonical),
+      ),
     )
     .get();
 
@@ -769,10 +775,15 @@ export function findContactChannel(params: {
   externalChatId?: string;
 }): { contact: ContactWithChannels; channel: ContactChannel } | null {
   if (params.address) {
-    const contact = findContactByAddress(params.channelType, params.address);
+    const canonical =
+      canonicalizeInboundIdentity(
+        params.channelType as ChannelId,
+        params.address,
+      ) ?? params.address;
+    const contact = findContactByAddress(params.channelType, canonical);
     if (contact) {
       const ch = contact.channels.find(
-        (c) => c.type === params.channelType && c.address === params.address,
+        (c) => c.type === params.channelType && c.address === canonical,
       );
       if (ch) return { contact, channel: ch };
     }
