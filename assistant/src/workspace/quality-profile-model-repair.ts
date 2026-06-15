@@ -1,15 +1,15 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-// Move the managed "quality-optimized" profile to Claude Opus 4.8.
+// Move the managed quality-optimized profile from Claude Fable 5 to Opus 4.8.
 //
 // The assistant-side seed defaults (MANAGED_PROFILE_TEMPLATES in
 // seed-inference-profiles.ts) resolve the quality-optimized model from the
-// intent map, which now points at Opus 4.8. Off-platform (BYOK) instances
-// pick this up on every boot because the seeder overwrites managed profiles.
-// On-platform instances preserve existing profiles (the platform overlay is
-// authoritative), so instances hatched while the quality intent pointed at
-// Claude Fable 5 are stuck on Fable 5.
+// intent map, which maps to Opus 4.8. Off-platform (BYOK) instances pick this
+// up on every boot because the seeder overwrites managed profiles. On-platform
+// instances preserve existing profiles (the platform overlay is authoritative),
+// so a workspace whose overlay supplies a Claude Fable 5 quality-optimized
+// profile keeps it.
 //
 // Workspace migration 103 patches the on-disk config once, but it runs before
 // mergeDefaultWorkspaceConfig() — and on a fresh platform hatch config.json

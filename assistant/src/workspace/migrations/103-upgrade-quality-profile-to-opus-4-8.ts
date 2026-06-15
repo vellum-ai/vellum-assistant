@@ -3,22 +3,21 @@ import { join } from "node:path";
 
 import type { WorkspaceMigration } from "./types.js";
 
-// Move quality-optimized profiles to Claude Opus 4.8.
+// Move the managed quality-optimized profile from Claude Fable 5 to Opus 4.8.
 //
-// The quality-optimized model intent moved back to claude-opus-4-8, but the
-// intent map is only consulted when a profile is seeded: off-platform
-// installs reseed managed profiles on every boot, while on-platform
-// workspaces keep the profile they were hatched with — the seeder skips
-// existing profiles there, and the hatch overlay is consumed exactly once.
-// Existing platform assistants are therefore stuck on whichever model the
-// quality intent pointed at when they hatched (claude-fable-5 after the
-// previous quality-intent change) until a migration rewrites it.
+// The quality-optimized intent maps to claude-opus-4-8, but the intent map is
+// only consulted when a profile is seeded: off-platform installs reseed
+// managed profiles on every boot, while on-platform workspaces keep the
+// profile they were hatched with — the seeder skips existing profiles there,
+// and the hatch overlay is consumed exactly once. A platform workspace holding
+// a Claude Fable 5 quality-optimized profile therefore keeps it until a
+// migration rewrites it.
 //
 // Only the managed quality-optimized profile is touched — the user-owned
-// custom-quality-optimized copy is theirs to manage. Within it, only a model
-// still on the previous quality-intent default is upgraded — matching by model
-// value also covers the OpenRouter-prefixed ids. A profile whose model the
-// user changed to anything else is left untouched.
+// custom-quality-optimized copy is theirs to manage. Within it, only a profile
+// still on claude-fable-5 is rewritten — matching by model value also covers
+// the OpenRouter-prefixed id. A profile whose model the user changed to
+// anything else is left untouched.
 //
 // This migration runs before mergeDefaultWorkspaceConfig(), so on a fresh
 // platform hatch config.json may not exist yet and this no-ops while the later
