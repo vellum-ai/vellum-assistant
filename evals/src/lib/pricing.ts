@@ -18,17 +18,21 @@
  * exactly which provider/model pair lacks coverage instead of silently
  * counting it as $0.
  *
- * Cache reads/writes are priced off the base input rate using
- * Anthropic's standard prompt-cache multipliers (read = 0.1x, 5-minute
- * write = 1.25x, 1-hour write = 2x), mirroring the daemon-side pricing
- * module (`assistant/src/util/pricing.ts`). Skipping them would drop the
- * bulk of a cached agentic turn's cost — the main agent loop reuses a
- * large cached system/context prefix, so `cache_read_input_tokens`
- * typically dwarfs the uncached `input_tokens`. The two write tiers are
- * attributed from the `cache_creation` breakdown the egress recorder
- * forwards. This remains a "good-enough for ranking profiles" estimate
- * (e.g. Anthropic fast-mode's 6x multiplier isn't modeled), not a
- * billing source of truth.
+ * Cache pricing follows the same provider-split the daemon's
+ * `calculateUsageCost` uses (`assistant/src/util/pricing.ts`). Anthropic
+ * reports `input_tokens` as the uncached count and exposes cache
+ * reads/writes as separate, non-overlapping buckets, so they're priced
+ * additively off the base input rate via Anthropic's prompt-cache
+ * multipliers (read = 0.1x, 5-minute write = 1.25x, 1-hour write = 2x);
+ * the two write tiers are attributed from the `cache_creation` breakdown
+ * the egress recorder forwards. OpenAI-compatible providers (OpenAI,
+ * Fireworks) instead fold the cached subset *into* `prompt_tokens`, so
+ * the pricer splits that subset back out and charges it at the row's
+ * `cacheReadPer1M` when the catalog publishes a discounted cache tier
+ * (e.g. Fireworks MiniMax-M3 at $0.06/1M), falling back to the base input
+ * rate otherwise. This remains a "good-enough for ranking profiles"
+ * estimate (e.g. Anthropic fast-mode's 6x multiplier isn't modeled), not
+ * a billing source of truth.
  */
 
 import type { CostDiagnostic, CostDiagnosticReason } from "./metrics";
@@ -53,6 +57,14 @@ interface ModelRow {
   inputPer1M: number;
   /** USD per 1,000,000 output tokens. */
   outputPer1M: number;
+  /**
+   * USD per 1,000,000 cached input tokens, when the provider bills cache
+   * reads at a discounted rate. Omitted for rows whose provider has no
+   * cache-read tier, in which case cached tokens price at `inputPer1M`.
+   * Mirrors `cacheReadPer1mTokens` on the assistant catalog rows in
+   * `assistant/src/providers/model-catalog.ts`.
+   */
+  cacheReadPer1M?: number;
 }
 
 /**
@@ -114,9 +126,15 @@ const PRICING_TABLE: Record<string, ModelRow> = {
   // `assistant/src/providers/model-catalog.ts`. MiniMax-M3 is what the
   // `vellum-minimax` eval profile points at. Fireworks is
   // OpenAI-compatible (chat-completions wire format), so its cached
-  // tokens fold into `prompt_tokens` and are priced through the base
-  // input rate — no separate cache tier, mirroring the OpenAI rows.
-  "fireworks:minimax-m3": { inputPer1M: 0.3, outputPer1M: 1.2 },
+  // subset folds into `prompt_tokens`; the catalog bills those cached
+  // tokens at a discounted $0.06/1M, so the row carries `cacheReadPer1M`
+  // and `priceUsageRecord` splits the cached read out of the inclusive
+  // input count before pricing.
+  "fireworks:minimax-m3": {
+    inputPer1M: 0.3,
+    outputPer1M: 1.2,
+    cacheReadPer1M: 0.06,
+  },
 };
 
 /**
@@ -298,33 +316,49 @@ export function priceUsageRecord(
     return { diagnostic: { reason: "unpriced_model", provider, model } };
   }
 
-  let cost =
-    ((inputTokens ?? 0) / 1_000_000) * pricing.inputPer1M +
-    ((outputTokens ?? 0) / 1_000_000) * pricing.outputPer1M;
+  const inputTok = inputTokens ?? 0;
+  const outputCost = ((outputTokens ?? 0) / 1_000_000) * pricing.outputPer1M;
+  const cacheReadTokens =
+    readNumber(record.cache_read_input_tokens ?? record.cacheReadInputTokens) ??
+    0;
 
   // Anthropic reports `input_tokens` as the *uncached* count, with cache
-  // reads/writes as separate, non-overlapping buckets — so they must be
-  // priced additively off the base input rate via Anthropic's prompt-cache
+  // reads/writes as separate, non-overlapping buckets — so they're priced
+  // additively off the base input rate via Anthropic's prompt-cache
   // multipliers, else the bulk of a cached agentic turn's cost is dropped.
-  // Other providers (e.g. OpenAI) fold the cached subset *into*
-  // `input_tokens`, so it's already priced above; adding it again would
-  // double-bill. Evals only points at Anthropic for caching today.
+  // The two write tiers come from the `cache_creation` breakdown.
   if (provider === "anthropic") {
     const { ephemeral5m, ephemeral1h } = splitAnthropicCacheWriteTokens(record);
-    const cacheReadTokens = readNumber(
-      record.cache_read_input_tokens ?? record.cacheReadInputTokens,
-    );
-    cost +=
+    const cost =
+      (inputTok / 1_000_000) * pricing.inputPer1M +
+      outputCost +
       (ephemeral5m / 1_000_000) *
         pricing.inputPer1M *
         ANTHROPIC_CACHE_MULTIPLIERS.write5m +
       (ephemeral1h / 1_000_000) *
         pricing.inputPer1M *
         ANTHROPIC_CACHE_MULTIPLIERS.write1h +
-      ((cacheReadTokens ?? 0) / 1_000_000) *
+      (cacheReadTokens / 1_000_000) *
         pricing.inputPer1M *
         ANTHROPIC_CACHE_MULTIPLIERS.read;
+    return { costUsd: cost };
   }
+
+  // OpenAI-compatible providers (OpenAI, Fireworks) fold the cached subset
+  // *into* `input_tokens`. Split it back out and price it at the catalog's
+  // dedicated cache-read rate when the row publishes one, else at the base
+  // input rate. Mirrors the non-Anthropic branch of the daemon's
+  // `calculateUsageCost` (`assistant/src/util/pricing.ts`), where
+  // `directInputTokens` is the uncached remainder and `cacheReadInputTokens`
+  // bills at `cacheReadPer1M ?? inputPer1M`. For rows without a cache-read
+  // rate this collapses to `input_tokens * inputPer1M`, leaving the
+  // cache-less OpenAI rows unchanged.
+  const uncachedInputTokens = Math.max(inputTok - cacheReadTokens, 0);
+  const cacheReadRate = pricing.cacheReadPer1M ?? pricing.inputPer1M;
+  const cost =
+    (uncachedInputTokens / 1_000_000) * pricing.inputPer1M +
+    (cacheReadTokens / 1_000_000) * cacheReadRate +
+    outputCost;
 
   return { costUsd: cost };
 }

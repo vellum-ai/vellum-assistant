@@ -263,14 +263,14 @@ def _usage_record_from_openai_usage(
     / `output_tokens` — the same flat shape `summarizeAssistantUsage` and
     the pricing table read for Anthropic.
 
-    The cached subset lives in `usage.prompt_tokens_details.cached_tokens`
-    but is already counted inside `prompt_tokens`, so it is left folded in:
-    the evals pricer charges non-Anthropic cache through the base input
-    rate rather than as a separate discounted tier (see
-    `src/lib/pricing.ts`). Hoisting it to a top-level
-    `cache_read_input_tokens` would not change the price and would risk a
-    future double-count, so only the raw `usage` object preserves it (for
-    report display).
+    The cached subset lives in `usage.prompt_tokens_details.cached_tokens`,
+    counted inside `prompt_tokens`. It is hoisted to a top-level
+    `cache_read_input_tokens` so the pricer can re-price it at a provider's
+    discounted cache-read rate when one exists (e.g. Fireworks MiniMax-M3
+    at $0.06/1M). `priceUsageRecord` subtracts the cached subset out of the
+    inclusive input count before charging it, mirroring the daemon's
+    non-Anthropic `calculateUsageCost` branch, so this does not double-bill
+    (see `src/lib/pricing.ts`).
 
     `provider` is supplied by the caller (`"openai"` or `"fireworks"`)
     because the wire format is identical across both — only the host the
@@ -285,6 +285,11 @@ def _usage_record_from_openai_usage(
         record["input_tokens"] = input_tokens
     if output_tokens is not None:
         record["output_tokens"] = output_tokens
+    prompt_details = usage.get("prompt_tokens_details")
+    if isinstance(prompt_details, dict):
+        cached_tokens = _coerce_int(prompt_details.get("cached_tokens"))
+        if cached_tokens is not None:
+            record["cache_read_input_tokens"] = cached_tokens
     return record
 
 

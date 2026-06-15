@@ -381,15 +381,17 @@ describe("priceUsageRecord", () => {
     expect(result.diagnostic).toBeUndefined();
   });
 
-  test("does not double-bill cached input tokens for Fireworks", () => {
+  test("prices Fireworks cached input tokens at the discounted cache-read rate", () => {
     /**
-     * Fireworks is OpenAI-compatible, so its cached subset is already folded
-     * into `prompt_tokens` (and thus `input_tokens`). The additive cache path
-     * stays Anthropic-only; Fireworks must price the inclusive input count
-     * once, mirroring the OpenAI treatment above.
+     * Fireworks is OpenAI-compatible, so its cached subset is folded into
+     * `prompt_tokens` (and thus `input_tokens`). The MiniMax-M3 catalog row
+     * bills cache reads at a discounted $0.06/1M, so the pricer must split
+     * the cached subset out of the inclusive input count and charge it at
+     * `cacheReadPer1M` rather than the full input rate — mirroring the
+     * daemon's non-Anthropic `calculateUsageCost` branch.
      */
-    // GIVEN a Fireworks record whose `input_tokens` already includes its
-    // cache-read subset
+    // GIVEN a Fireworks record whose `input_tokens` already includes an
+    // 800-token cache-read subset
     const record = {
       provider: "fireworks",
       model: "accounts/fireworks/models/minimax-m3",
@@ -401,8 +403,9 @@ describe("priceUsageRecord", () => {
     // WHEN it is priced
     const result = priceUsageRecord(record);
 
-    // THEN cost is just the input rate on the inclusive count: 1k * 0.3/1M
-    expect(result.costUsd).toBeCloseTo(0.0003, 6);
+    // THEN the 200 uncached tokens bill at $0.30/1M and the 800 cached
+    // tokens at $0.06/1M: 200 * 0.3/1M + 800 * 0.06/1M = 0.000108
+    expect(result.costUsd).toBeCloseTo(0.000108, 6);
     expect(result.diagnostic).toBeUndefined();
   });
 });

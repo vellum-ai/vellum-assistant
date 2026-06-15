@@ -372,6 +372,7 @@ class OpenAICompatibleNonStreamingTests(unittest.TestCase):
         record = _parse_openai_non_streaming("fireworks", body)
 
         # THEN prompt_tokens -> input_tokens, completion_tokens -> output_tokens
+        # AND the cached subset is hoisted to cache_read_input_tokens
         # AND the provider + model + raw usage are preserved
         self.assertEqual(
             record,
@@ -380,6 +381,7 @@ class OpenAICompatibleNonStreamingTests(unittest.TestCase):
                 "model": MINIMAX_MODEL,
                 "input_tokens": 1234,
                 "output_tokens": 567,
+                "cache_read_input_tokens": 200,
                 "usage": {
                     "prompt_tokens": 1234,
                     "completion_tokens": 567,
@@ -389,10 +391,11 @@ class OpenAICompatibleNonStreamingTests(unittest.TestCase):
             },
         )
 
-    def test_does_not_hoist_cached_tokens_to_top_level(self) -> None:
+    def test_hoists_cached_tokens_to_cache_read_input_tokens(self) -> None:
         """
-        Tests that the cached-token subset is left folded into
-        prompt_tokens rather than hoisted to cache_read_input_tokens.
+        Tests that the cached-token subset is hoisted to a top-level
+        cache_read_input_tokens field so the pricer can re-price it at a
+        provider's discounted cache-read rate.
         """
         # GIVEN a response whose usage carries prompt_tokens_details.cached_tokens
         body = _openai_non_streaming_response()
@@ -401,9 +404,9 @@ class OpenAICompatibleNonStreamingTests(unittest.TestCase):
         record = _parse_openai_non_streaming("fireworks", body)
         assert record is not None
 
-        # THEN no separate top-level cache_read_input_tokens field is added
-        # (so the pricer charges the full prompt at the base input rate)
-        self.assertNotIn("cache_read_input_tokens", record)
+        # THEN the cached subset surfaces top-level while staying counted
+        # inside the inclusive input_tokens (the pricer subtracts it back out)
+        self.assertEqual(record["cache_read_input_tokens"], 200)
         self.assertEqual(record["input_tokens"], 1234)
 
     def test_labels_record_with_the_provider_argument(self) -> None:
