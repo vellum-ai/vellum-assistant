@@ -8,6 +8,7 @@ import {
     visibleProfilesForPicker,
     type ProfilePickerEntry,
 } from "@/assistant/profile-pickers";
+import { useStickyProfiles } from "@/assistant/use-sticky-profiles";
 import { useProfileQuickAdd } from "@/components/profile-quick-add-provider";
 import {
     configGetOptions,
@@ -19,7 +20,6 @@ import {
     configPatch,
     conversationsByIdInferenceprofilePut,
 } from "@/generated/daemon/sdk.gen";
-import type { ConfigGetResponse } from "@/generated/daemon/types.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
     deleteConversationOverride,
@@ -83,14 +83,13 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   // Derived server data — read from query cache, no useState copies.
   // ---------------------------------------------------------------------------
 
-  type Profiles = NonNullable<NonNullable<ConfigGetResponse["llm"]>["profiles"]>;
-  const profiles = useMemo<Profiles>(
-    () => configQuery.data?.llm?.profiles ?? {},
-    [configQuery.data],
-  );
-  const profileOrder = useMemo<string[]>(
-    () => configQuery.data?.llm?.profileOrder ?? [],
-    [configQuery.data],
+  // Retain the last non-empty profile list so a transient empty config payload
+  // (e.g. a partial read while the daemon rewrites settings.json) can't blank
+  // the picker until the next good fetch — managed profiles are always seeded,
+  // so an empty profile map is never a legitimate steady state.
+  const { profiles, profileOrder } = useStickyProfiles(
+    configQuery.data?.llm,
+    assistantId,
   );
   const globalActiveProfile = configQuery.data?.llm?.activeProfile ?? null;
   const conversationProfileOverride =
