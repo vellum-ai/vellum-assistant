@@ -126,6 +126,85 @@ describe("reconcileMessagesWithSeq", () => {
     expect(messageText(result[0])).toBe("server");
   });
 
+  test("keeps the streamed assistant row when a seq-unknown snapshot would truncate it", () => {
+    /**
+     * The seq-unknown safety net. On paths with no honest seq (a pre-seq
+     * daemon image, an older client), a debounced `/messages` snapshot that
+     * still lags the just-streamed answer must not blow it away. This is the
+     * 2026-06-15 "how many r's in strawberry" report: the stream rendered the
+     * answer, then a post-completion reconcile carrying an empty snapshot row
+     * clobbered it to nothing while the turn already showed as done.
+     */
+    // GIVEN a fully-streamed assistant answer
+    const local = [
+      makeRow({
+        id: "a1",
+        role: "assistant",
+        ...textBody("3."),
+        timestamp: 1000,
+      }),
+    ];
+
+    // AND a debounced snapshot of the same row that still carries no text
+    const server = [
+      makeRow({
+        id: "a1",
+        role: "assistant",
+        ...textBody(""),
+        timestamp: 1000,
+      }),
+    ];
+
+    // WHEN neither side carries an honest seq
+    const result = reconcileMessagesWithSeq(local, server, {
+      serverSeq: null,
+      localSeq: null,
+    });
+
+    // THEN the rendered answer is preserved, not truncated away
+    expect(result).toHaveLength(1);
+    expect(messageText(result[0])).toBe("3.");
+    // AND the server-assigned identity is still adopted
+    expect(result[0]!.id).toBe("a1");
+  });
+
+  test("still takes a seq-unknown snapshot that extends the row rather than truncating it", () => {
+    /**
+     * The guard fires only on strict truncation. A snapshot that grows the row
+     * (an authoritative correction or a later, fuller persist) is not a
+     * regression, so it still wins even with no seq — keeping the safety net
+     * from pinning the client to stale local content.
+     */
+    // GIVEN a partially-rendered local row
+    const local = [
+      makeRow({
+        id: "a1",
+        role: "assistant",
+        ...textBody("3"),
+        timestamp: 1000,
+      }),
+    ];
+
+    // AND a fuller server row that extends it
+    const server = [
+      makeRow({
+        id: "a1",
+        role: "assistant",
+        ...textBody("3 r's, to be precise."),
+        timestamp: 1000,
+      }),
+    ];
+
+    // WHEN seq is unknown
+    const result = reconcileMessagesWithSeq(local, server, {
+      serverSeq: null,
+      localSeq: null,
+    });
+
+    // THEN the fuller server content is applied
+    expect(messageText(result[0])).toBe("3 r's, to be precise.");
+  });
+
   test("admits brand-new server rows even while the snapshot is stale", () => {
     /**
      * The stale-snapshot gate only protects rows the stream already advanced;
