@@ -23,7 +23,7 @@ import {
 import { GroupActionsMenu, renderGroupMenuItems } from "@/domains/chat/components/group-actions-menu";
 import { ThreadPinToggle } from "@/domains/chat/components/thread-pin-toggle";
 import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
-import { SIDEBAR_CONVERSATION_LIMIT, useSidebarState, type PaginatedSection, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
+import { useSidebarState, type PaginatedSection, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { isConversationPinned } from "@/domains/chat/utils/group-conversations";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
@@ -36,9 +36,6 @@ import {
     SideMenu,
 } from "@vellumai/design-library";
 import { cn } from "@vellumai/design-library/utils/cn";
-
-/** @deprecated Use {@link SIDEBAR_CONVERSATION_LIMIT} from `use-sidebar-state.ts` */
-export const ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT = SIDEBAR_CONVERSATION_LIMIT;
 
 export interface AssistantSideMenuProps extends UseSidebarStateParams {
   assistantName?: string | null;

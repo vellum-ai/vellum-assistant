@@ -31,10 +31,7 @@ mock.module("@/hooks/conversation-queries", () => ({
 }));
 
 import type { Conversation } from "@/types/conversation-types";
-import {
-  ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT,
-  AssistantSideMenu,
-} from "@/domains/chat/components/assistant-side-menu";
+import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { SIDEBAR_CONVERSATION_LIMIT } from "@/domains/chat/use-sidebar-state";
 
 function makeConversation(overrides: Partial<Conversation>): Conversation {
@@ -170,7 +167,7 @@ describe("AssistantSideMenu · Conversations category rows", () => {
 describe("AssistantSideMenu · Show more affordance", () => {
   test("hides 'Show more' when the recent count is at or below the limit", () => {
     const conversations = Array.from(
-      { length: ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT },
+      { length: SIDEBAR_CONVERSATION_LIMIT },
       (_, index) =>
         makeConversation({
           conversationId: `k-${index}`,
@@ -185,7 +182,7 @@ describe("AssistantSideMenu · Show more affordance", () => {
 
   test("renders 'Show more' when the recent count exceeds the limit", () => {
     const conversations = Array.from(
-      { length: ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT + 1 },
+      { length: SIDEBAR_CONVERSATION_LIMIT + 1 },
       (_, index) =>
         makeConversation({
           conversationId: `k-${index}`,
@@ -198,11 +195,6 @@ describe("AssistantSideMenu · Show more affordance", () => {
     expect(html).toContain("Show more");
   });
 
-  test("shares the sidebar conversation page size constant", () => {
-    expect(SIDEBAR_CONVERSATION_LIMIT).toBe(
-      ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT,
-    );
-  });
 });
 
 describe("AssistantSideMenu · active thread accessibility", () => {

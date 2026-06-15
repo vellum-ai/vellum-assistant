@@ -12,7 +12,7 @@
  * - https://tanstack.com/query/latest/docs/framework/react/guides/query-options
  */
 
-import { queryOptions } from "@tanstack/react-query";
+import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { captureError } from "@/lib/sentry/capture-error";
 import { conversationsGet } from "@/generated/daemon/sdk.gen";
 import {
@@ -82,9 +82,9 @@ const QUERY_STALE_TIME_MS = 30_000;
  * updates without raw↔domain conversion overhead.
  */
 export function conversationListInfiniteOptions(assistantId: string) {
-  return {
+  return infiniteQueryOptions({
     queryKey: conversationListInfiniteQueryKey(assistantId),
-    queryFn: async ({ pageParam, signal }: { pageParam: number; signal: AbortSignal }): Promise<ConversationPage> => {
+    queryFn: async ({ pageParam, signal }): Promise<ConversationPage> => {
       const { data } = await conversationsGet({
         path: { assistant_id: assistantId },
         query: { limit: CONVERSATION_LIST_PAGE_SIZE, offset: pageParam },
@@ -97,11 +97,11 @@ export function conversationListInfiniteOptions(assistantId: string) {
         nextOffset: data.nextOffset ?? 0,
       };
     },
-    initialPageParam: 0 as number,
-    getNextPageParam: (lastPage: ConversationPage): number | undefined =>
+    initialPageParam: 0,
+    getNextPageParam: (lastPage): number | undefined =>
       lastPage.hasMore ? lastPage.nextOffset : undefined,
     staleTime: QUERY_STALE_TIME_MS,
-  };
+  });
 }
 
 /**

@@ -47,9 +47,10 @@ export function scheduledConversationsQueryKey(assistantId: string | null) {
 export function conversationGroupsQueryKey(
   assistantId: string | null,
 ): ReturnType<typeof groupsGetQueryKey> {
-  return groupsGetQueryKey({
+  const opts: Options<GroupsGetData> = {
     path: { assistant_id: assistantId ?? "" },
-  } as Options<GroupsGetData>);
+  };
+  return groupsGetQueryKey(opts);
 }
 
 /**
@@ -60,25 +61,28 @@ export function conversationGroupsQueryKey(
 export function assistantDaemonConfigQueryKey(
   assistantId: string | null | undefined,
 ): ReturnType<typeof configGetQueryKey> {
-  return configGetQueryKey({
+  const opts: Options<ConfigGetData> = {
     path: { assistant_id: assistantId ?? "" },
-  } as Options<ConfigGetData>);
+  };
+  return configGetQueryKey(opts);
 }
 
 export function assistantSoundsConfigQueryKey(
   assistantId: string | null | undefined,
 ): ReturnType<typeof soundsConfigGetQueryKey> {
-  return soundsConfigGetQueryKey({
+  const opts: Options<SoundsConfigGetData> = {
     path: { assistant_id: assistantId ?? "" },
-  } as Options<SoundsConfigGetData>);
+  };
+  return soundsConfigGetQueryKey(opts);
 }
 
 export function assistantSoundsAvailableQueryKey(
   assistantId: string | null | undefined,
 ): ReturnType<typeof soundsAvailableGetQueryKey> {
-  return soundsAvailableGetQueryKey({
+  const opts: Options<SoundsAvailableGetData> = {
     path: { assistant_id: assistantId ?? "" },
-  } as Options<SoundsAvailableGetData>);
+  };
+  return soundsAvailableGetQueryKey(opts);
 }
 
 export function assistantSchedulesQueryKey(
