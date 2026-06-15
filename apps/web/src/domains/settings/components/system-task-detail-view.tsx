@@ -162,6 +162,7 @@ export function SystemTaskDetailView({
             assistantId={assistantId}
             defaultCallSite={SYSTEM_TASK_PROFILE_CALL_SITES[kind]}
             fallbackLabel="Default (system task model)"
+            respectCallSiteOverride
           />
           <div className="flex items-center justify-between">
             <span className="text-[var(--content-secondary)]">Status</span>

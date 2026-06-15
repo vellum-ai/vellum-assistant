@@ -5,10 +5,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { Dropdown } from "@vellumai/design-library";
 
-import {
-    buildCallSiteMetadataMap,
-    fetchUsageCallSiteCatalog,
-} from "@/domains/logs/call-site-metadata";
+import { buildCallSiteMetadataMap } from "@/domains/logs/call-site-metadata";
 import {
     UsageTrendChart,
     UsageTrendSkeleton,
@@ -16,6 +13,7 @@ import {
 } from "@/domains/logs/components/usage-trend-chart";
 import { formatCost, formatTokens } from "@/domains/logs/format";
 import { decorateUsageBreakdownGroups } from "@/domains/logs/group-labels";
+import { configLlmCallsitesGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { fetchUsageProfileMetadata } from "@/utils/profile-metadata";
 import {
     fetchUsageBreakdown,
@@ -247,8 +245,9 @@ export function UsageTab({ assistantId }: UsageTabProps) {
   });
 
   const callSiteCatalogQuery = useQuery({
-    queryKey: ["usage-call-sites", assistantId],
-    queryFn: () => fetchUsageCallSiteCatalog(assistantId),
+    ...configLlmCallsitesGetOptions({
+      path: { assistant_id: assistantId },
+    }),
     enabled: effectiveGroupBy === "task",
     staleTime: Infinity,
   });

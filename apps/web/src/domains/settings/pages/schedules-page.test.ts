@@ -43,16 +43,21 @@ const fetchScheduleUsageSummaryMock = mock(
     _range: ScheduleUsageSummaryRange,
   ): Promise<ScheduleUsageSummary[]> => [],
 );
-const fetchUsageProfileMetadataMock = mock(
-  async (_assistantId: string) => ({
-    balanced: { id: "balanced", displayName: "Balanced" },
-    "cost-optimized": {
-      id: "cost-optimized",
-      displayName: "Cost optimized",
+function createDaemonConfigMock(callSites: Record<string, unknown> = {}) {
+  return {
+    llm: {
+      activeProfile: "balanced",
+      profiles: {
+        balanced: { label: "Balanced" },
+        "cost-optimized": { label: "Cost optimized" },
+      },
+      callSites,
     },
-  }),
-);
-const fetchUsageCallSiteCatalogMock = mock(async (_assistantId: string) => ({
+  };
+}
+
+let daemonConfigMock: unknown = createDaemonConfigMock();
+const callSiteCatalogMock = {
   domains: [],
   callSites: [
     {
@@ -84,7 +89,19 @@ const fetchUsageCallSiteCatalogMock = mock(async (_assistantId: string) => ({
       defaultProfile: "cost-optimized",
     },
   ],
-}));
+};
+const configGetOptionsMock = mock(
+  (options: { path: { assistant_id: string } }) => ({
+    queryKey: [{ _id: "configGet", path: options.path }],
+    queryFn: async () => daemonConfigMock,
+  }),
+);
+const configLlmCallsitesGetOptionsMock = mock(
+  (options: { path: { assistant_id: string } }) => ({
+    queryKey: [{ _id: "configLlmCallsitesGet", path: options.path }],
+    queryFn: async () => callSiteCatalogMock,
+  }),
+);
 const fetchConsolidationRunsMock = mock(
   async (
     _assistantId: string,
@@ -170,11 +187,13 @@ mock.module("@/domains/settings/api/schedules", () => ({
   fetchScheduleRuns: fetchScheduleRunsMock,
   fetchScheduleUsageSummary: fetchScheduleUsageSummaryMock,
 }));
-mock.module("@/utils/profile-metadata", () => ({
-  fetchUsageProfileMetadata: fetchUsageProfileMetadataMock,
-}));
-mock.module("@/domains/settings/api/model-profile", () => ({
-  fetchScheduleCallSiteCatalog: fetchUsageCallSiteCatalogMock,
+const daemonQueryGen = await import(
+  "@/generated/daemon/@tanstack/react-query.gen"
+);
+mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
+  ...daemonQueryGen,
+  configGetOptions: configGetOptionsMock,
+  configLlmCallsitesGetOptions: configLlmCallsitesGetOptionsMock,
 }));
 
 const {
@@ -216,8 +235,9 @@ afterEach(() => {
   fetchRetrospectiveRunsMock.mockClear();
   fetchScheduleRunsMock.mockClear();
   fetchScheduleUsageSummaryMock.mockClear();
-  fetchUsageCallSiteCatalogMock.mockClear();
-  fetchUsageProfileMetadataMock.mockClear();
+  configGetOptionsMock.mockClear();
+  configLlmCallsitesGetOptionsMock.mockClear();
+  daemonConfigMock = createDaemonConfigMock();
   nowSpy?.mockRestore();
   nowSpy = null;
 });
@@ -1192,6 +1212,33 @@ describe("system task toggles", () => {
     fireEvent.click(screen.getByLabelText("Toggle Heartbeat"));
 
     expect(toggleCalls).toEqual([true]);
+  });
+
+  test("system task detail shows call-site profile overrides", async () => {
+    daemonConfigMock = createDaemonConfigMock({
+      heartbeatAgent: { profile: "balanced" },
+    });
+
+    renderWithQueryClient(
+      createElement(SystemTaskDetailView, {
+        kind: "heartbeat",
+        assistantId: "assistant-1",
+        name: "Heartbeat",
+        subtitle: "Every 1 hr",
+        enabled: true,
+        nextRunAt: null,
+        lastRunAt: null,
+        isRunning: false,
+        onBack: () => {},
+        onRunNow: () => {},
+        onToggleEnabled: () => {},
+      }),
+    );
+
+    expect(screen.getByText("Model profile")).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByText("Override (Balanced)")).toBeTruthy(),
+    );
   });
 
   test("consolidation never renders an automatic-run toggle", () => {
