@@ -15,10 +15,12 @@ import { join } from "node:path";
 // mergeDefaultWorkspaceConfig() — and on a fresh platform hatch config.json
 // may not exist yet, so the migration no-ops and is checkpointed as completed
 // while the later overlay writes a Fable quality-optimized profile that
-// seeding then preserves by name. lifecycle.ts calls this repair again after
-// the overlay merge + profile seeding so the fix sticks. The migration keeps
-// its own frozen copy of this logic (migration files are self-contained
-// snapshots and must not be imported from).
+// seeding then preserves by name. lifecycle.ts calls this repair on every boot
+// after profile seeding so the fix sticks: the overlay is archived once
+// merged, so gating on the overlay-consuming boot alone would strand the
+// profile if startup crashed between the merge and a successful repair. The
+// migration keeps its own frozen copy of this logic (migration files are
+// self-contained snapshots and must not be imported from).
 //
 // Only the managed quality-optimized profile is touched — the user-owned
 // custom-quality-optimized copy is theirs to manage. Within it, only a model

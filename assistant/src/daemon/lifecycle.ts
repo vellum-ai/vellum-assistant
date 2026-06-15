@@ -618,18 +618,21 @@ export async function runDaemon(): Promise<void> {
     // Opus 4.8, but it runs before mergeDefaultWorkspaceConfig() and on a fresh
     // platform hatch config.json may not exist yet — the migration no-ops and
     // is checkpointed, while the overlay can write a Fable quality-optimized
-    // profile that seeding preserves by name. This idempotent repair re-applies
-    // the model fix after the overlay merge so it sticks regardless of ordering.
-    if (defaultConfigMerge.hadOverlay) {
-      try {
-        repairQualityProfileModel(getWorkspaceDir());
-        log.info("Post-overlay quality profile model repair complete");
-      } catch (err) {
-        log.warn(
-          { err },
-          "Post-overlay quality profile model repair failed — continuing startup",
-        );
-      }
+    // profile that seeding preserves by name. Run this idempotent repair on
+    // every boot after seeding (not just the overlay-consuming boot): the
+    // overlay is archived once it is merged, so a crash between the merge and a
+    // successful repair would leave subsequent boots with hadOverlay=false and
+    // the migration already checkpointed, stranding the Fable profile. It only
+    // writes when a Fable quality-optimized profile is present, so the steady
+    // state is a single config read.
+    try {
+      repairQualityProfileModel(getWorkspaceDir());
+      log.info("Quality profile model repair complete");
+    } catch (err) {
+      log.warn(
+        { err },
+        "Quality profile model repair failed — continuing startup",
+      );
     }
 
     log.info("Daemon startup: loading config");
