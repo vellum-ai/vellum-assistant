@@ -55,6 +55,37 @@ export function up(): MigrationResult {
 
   log.info("Deduplicated contact_channels by (type, address) case-insensitive");
 
+  // Deduplicate by (type, external_user_id) so that normalization below
+  // cannot produce address collisions.
+  db.exec(/*sql*/ `
+    DELETE FROM contact_channels
+    WHERE external_user_id IS NOT NULL
+      AND id NOT IN (
+        SELECT id FROM (
+          SELECT id,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY type, external_user_id COLLATE NOCASE
+                   ORDER BY
+                     CASE status
+                       WHEN 'blocked' THEN 0
+                       WHEN 'revoked' THEN 1
+                       WHEN 'active' THEN 2
+                       WHEN 'unverified' THEN 3
+                       ELSE 4
+                     END,
+                     updated_at DESC
+                 ) AS rn
+          FROM contact_channels
+          WHERE external_user_id IS NOT NULL
+        )
+        WHERE rn = 1
+      )
+  `);
+
+  log.info(
+    "Deduplicated contact_channels by (type, external_user_id) case-insensitive",
+  );
+
   // Restore original platform-provided casing from external_user_id.
   db.exec(/*sql*/ `
     UPDATE contact_channels

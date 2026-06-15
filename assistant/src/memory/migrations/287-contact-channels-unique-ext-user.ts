@@ -15,7 +15,9 @@ const log = getLogger("migration-287");
  *
  * Steps:
  *  1. Deduplicate by (type, address) case-insensitively — keeps the best row.
- *  2. Normalize addresses — restore original casing from external_user_id.
+ *  2. Deduplicate by (type, external_user_id) case-insensitively — prevents
+ *     collisions when step 3 normalizes addresses from external_user_id.
+ *  3. Normalize addresses — restore original casing from external_user_id.
  */
 export function migrateContactChannelsUniqueExtUser(database: DrizzleDb): void {
   const raw = getSqliteFrom(database);
@@ -53,7 +55,43 @@ export function migrateContactChannelsUniqueExtUser(database: DrizzleDb): void {
     );
   }
 
-  // Step 2: Restore original platform-provided casing. external_user_id
+  // Step 2: Deduplicate by (type, external_user_id) so that step 3's
+  // normalization (SET address = external_user_id) cannot produce collisions.
+  // Two rows with different addresses but the same external_user_id would
+  // both get the same address after normalization.
+  const extIdDedupResult = raw.run(/*sql*/ `
+    DELETE FROM contact_channels
+    WHERE external_user_id IS NOT NULL
+      AND id NOT IN (
+        SELECT id FROM (
+          SELECT id,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY type, external_user_id COLLATE NOCASE
+                   ORDER BY
+                     CASE status
+                       WHEN 'blocked' THEN 0
+                       WHEN 'revoked' THEN 1
+                       WHEN 'active' THEN 2
+                       WHEN 'unverified' THEN 3
+                       ELSE 4
+                     END,
+                     updated_at DESC
+                 ) AS rn
+          FROM contact_channels
+          WHERE external_user_id IS NOT NULL
+        )
+        WHERE rn = 1
+      )
+  `);
+
+  if (extIdDedupResult.changes > 0) {
+    log.info(
+      { rowsDeleted: extIdDedupResult.changes },
+      "Deduplicated contact_channels by (type, external_user_id)",
+    );
+  }
+
+  // Step 3: Restore original platform-provided casing. external_user_id
   // stores the exact value from the platform (e.g. "U12345ABC") while
   // address may have been lowercased by old write paths.
   const normalizeResult = raw.run(/*sql*/ `
