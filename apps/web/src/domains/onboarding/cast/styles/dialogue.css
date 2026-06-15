@@ -21,38 +21,6 @@
   flex-direction: column;
   padding: 32px;
 }
-.cast-vn--embedded {
-  position: relative;
-  inset: auto;
-  z-index: auto;
-  width: 100%;
-  height: 100%;
-  background: transparent;
-}
-.cast-vn--centered {
-  align-items: center;
-  justify-content: center;
-}
-.cast-vn--clickable {
-  cursor: pointer;
-}
-.cast-vn__bottom {
-  max-width: 500px;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  text-align: left;
-}
-.cast-vn__text {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 300;
-  line-height: 1.6;
-  color: var(--content-default);
-}
-.cast-vn__break {
-  height: 10px;
-}
 .cast-vn__cursor {
   display: inline;
   animation: cast-blink 0.6s steps(2) infinite;
@@ -72,23 +40,6 @@
   cursor: pointer;
   padding: 0;
 }
-.cast-vn__peekaboo {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  display: flex;
-  justify-content: center;
-  gap: 24px;
-  pointer-events: none;
-}
-.cast-vn__peek {
-  width: 56px;
-  height: 56px;
-  opacity: 0;
-  transform: translateY(30px);
-  animation: cast-peek-up 0.6s ease-out forwards;
-}
 .cast-vn__ghost {
   display: inline-flex;
   align-items: center;
@@ -102,25 +53,6 @@
   font-size: 14px;
   font-weight: 700;
   color: var(--content-tertiary);
-}
-
-/* ---- Loading transition (shared spinner) ---- */
-.cast-vn__spinner {
-  display: flex;
-  gap: 6px;
-}
-.cast-vn__spinner span {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #46c178; /* bespoke VN spinner accent — no token equivalent */
-  animation: cast-bounce 1.2s ease-in-out infinite;
-}
-.cast-vn__spinner span:nth-child(2) {
-  animation-delay: 0.15s;
-}
-.cast-vn__spinner span:nth-child(3) {
-  animation-delay: 0.3s;
 }
 
 /* ---- VN dialogue scene layout (centered, top-anchored) ---- */

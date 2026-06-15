@@ -1,28 +1,19 @@
 /* Cast — scoped token layer.
  *
- * Aliases the Vellum design tokens (@vellumai/design-library/tokens.css) into a
- * `--cast-*` namespace so the per-area sheets can migrate off literal values
- * incrementally. A handful of genuinely-bespoke art values (vignette gradient
- * stops, 3D perspective) live here too, flagged where they have no token
- * equivalent.
- *
- * NOTE (PR 1 of the cast-styling refactor): this layer is established but NOT
- * yet consumed — cast.css values are migrated to these vars in later PRs. */
+ * Holds the genuinely-bespoke cast values that have no design-token equivalent.
+ * Chrome (text, surfaces, borders, radii, spacing) uses the Vellum design tokens
+ * (@vellumai/design-library/tokens.css) directly in the per-area sheets; only the
+ * bespoke cast brand green is centralized here as a `--cast-green*` namespace. */
 
 .cast-stage {
-  /* Design-token aliases */
-  --cast-accent: var(--system-positive-strong);
-  --cast-spotlight: var(--system-mid-strong);
-
-  /* Bespoke art values — no token equivalent */
-  --cast-perspective: 1500px; /* bespoke: 3D crowd ground-plane depth */
-  --cast-tilt: 40deg; /* bespoke: crowd ground-plane rake */
-  --cast-vignette-lift: var(--surface-lift); /* vignette inner stop */
-  --cast-vignette-base: var(--surface-base); /* vignette mid stop */
-  /* vignette outer stop is the runtime-derived --cast-shroud (see .cast-stage) */
-  --cast-spotlight-core: rgba(255, 240, 214, 0.14); /* bespoke: warm spotlight core */
-  /* NOTE: --cast-shadow-lg is referenced by .cast-select__eye-item--active but
-     was never defined in the original cast.css (a pre-existing dangling var).
-     Left undefined here to preserve exact visual parity; a later PR can decide
-     whether to wire it to a token. */
+  /* Bespoke cast brand green — brighter than --system-positive-* (no token
+     equivalent); centralized here so the cast sheets share one source of truth.
+     The login/about classes are also rendered by the account-domain sign-up
+     screens, which mount outside `.cast-stage`; those rules use the literal as a
+     `var(--cast-green, …)` fallback so the color is identical in both contexts.
+     The cursor-spotlight "shroud" (--cast-shroud / --cast-dim) is derived at
+     runtime from the theme surface and lives on `.cast-stage` in shell.css. */
+  --cast-green: #46c178;
+  --cast-green-strong: #3ad17a; /* hover */
+  --cast-green-ink: #0b1f12; /* text/icon on a green fill */
 }
