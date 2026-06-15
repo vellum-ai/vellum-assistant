@@ -773,15 +773,12 @@ describe("resolveOrHatchTarget", () => {
     });
 
     const result = await resolveOrHatchTarget("docker", "new-one");
-    expect(hatchDockerMock).toHaveBeenCalledWith(
-      "vellum",
-      false,
-      "new-one",
-      false,
-      {},
-      {},
-      { setupProviderCredentials: false },
-    );
+    expect(hatchDockerMock).toHaveBeenCalledWith({
+      species: "vellum",
+      detached: false,
+      name: "new-one",
+      setupProviderCredentials: false,
+    });
     expect(result).toBe(newEntry);
   });
 

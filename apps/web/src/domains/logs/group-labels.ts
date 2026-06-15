@@ -1,5 +1,5 @@
 import type { UsageCallSiteMetadataMap } from "./call-site-metadata";
-import type { UsageProfileMetadataMap } from "./profile-metadata";
+import type { UsageProfileMetadataMap } from "@/utils/profile-metadata";
 import type {
   UsageGroupBreakdown,
   UsageGroupBy,

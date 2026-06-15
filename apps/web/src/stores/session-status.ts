@@ -65,3 +65,31 @@ export const isSessionSettled = (status: SessionStatus): boolean =>
 export const hasLivePlatformSession = (
   status: PlatformSessionStatus,
 ): boolean => status === "present";
+
+/**
+ * Statuses where the server itself said "no session": allauth's 401 for
+ * an unauthenticated probe, a 403, or 410 Gone (session invalidated).
+ */
+const SETTLED_SESSION_REJECTION_STATUSES = new Set([401, 403, 410]);
+
+/**
+ * A settled negative answer from a session check — the only failures
+ * allowed to end the session. Everything else that isn't ok says nothing
+ * about the session and must be treated as non-authoritative (LUM-2412):
+ * a request that never completed (`status` undefined), rate limiting
+ * (429), and gateway/outage 5xx including the Electron platform proxy's
+ * synthesized offline 502 (`proxy_network_error` — see
+ * `apps/macos/src/main/platform-forward.ts`). A session check that
+ * throws outright (fetch rejection) is classified the same way by
+ * callers.
+ *
+ * Structural parameter type (not `AllauthResult`) keeps this module
+ * dependency-free per the header note.
+ */
+export const isSettledSessionRejection = (result: {
+  ok: boolean;
+  status?: number;
+}): boolean =>
+  !result.ok &&
+  result.status !== undefined &&
+  SETTLED_SESSION_REJECTION_STATUSES.has(result.status);

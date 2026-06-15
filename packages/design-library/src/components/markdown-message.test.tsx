@@ -281,4 +281,48 @@ describe("MarkdownMessage", () => {
     expect(html).toContain('data-custom="true"');
     expect(html).not.toContain('rel="noopener noreferrer"');
   });
+
+  test("emoji inside markdown italic renders upright, not skewed", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, { content: "*🥺*" }),
+    );
+
+    // The emoji is wrapped in a font-style:normal span inside the <em>, so the
+    // browser's synthetic italic skew never reaches the emoji glyph.
+    const em = html.match(/<em>[\s\S]*?<\/em>/)?.[0] ?? "";
+    expect(em).toContain("🥺");
+    expect(em).toContain("font-style:normal");
+  });
+
+  test("plain text emphasis is left byte-identical (no upright span)", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, { content: "*please*" }),
+    );
+
+    expect(html).toContain("<em>please</em>");
+    expect(html).not.toContain("font-style:normal");
+  });
+
+  test("mixed emphasis keeps words italic and only the emoji upright", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, { content: "*so cute 🥺 really*" }),
+    );
+
+    const em = html.match(/<em>[\s\S]*?<\/em>/)?.[0] ?? "";
+    // Words stay as plain italic text; only the emoji grapheme gets wrapped.
+    expect(em).toContain("so cute ");
+    expect(em).toContain(" really");
+    expect(em).toContain('<span style="font-style:normal">🥺</span>');
+  });
+
+  test("VS15 text-presentation sequence stays italic", () => {
+    // U+231A WATCH + U+FE0E (VS15) explicitly requests text presentation, so it
+    // must keep italic obliqueness — mirrors the macOS rendersAsEmoji rule.
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, { content: "*⌚︎*" }),
+    );
+
+    expect(html).toContain("<em>");
+    expect(html).not.toContain("font-style:normal");
+  });
 });

@@ -48,8 +48,16 @@
           },
           "mode": {
             "type": "string",
-            "enum": ["notify", "execute", "script"],
-            "description": "Whether to notify the user, execute autonomously via LLM, or run a shell command directly. Defaults to \"execute\"."
+            "enum": ["notify", "execute", "script", "workflow"],
+            "description": "Whether to notify the user, execute autonomously via LLM, run a shell command directly (script), or run a saved workflow (workflow). Defaults to \"execute\"."
+          },
+          "workflow_name": {
+            "type": "string",
+            "description": "Name of a saved workflow to run when the schedule triggers. Required for workflow mode."
+          },
+          "workflow_args": {
+            "type": "object",
+            "description": "Arguments object passed to the saved workflow as `args`. Optional; only used in workflow mode."
           },
           "routing_intent": {
             "type": "string",
@@ -79,6 +87,10 @@
           "timeout_ms": {
             "type": "integer",
             "description": "For script mode: maximum time in milliseconds the shell command may run before it is killed. Defaults to 60000 (60s). Allowed range: 1000 to 1800000."
+          },
+          "inference_profile": {
+            "type": "string",
+            "description": "Inference profile (a key from llm.profiles) the schedule's LLM-executed runs should use, e.g. to run a heavy task on a cheaper model. When omitted, runs use the default mainAgent model selection. Must name a configured profile."
           }
         },
         "required": ["name", "description"]
@@ -155,8 +167,16 @@
           },
           "mode": {
             "type": "string",
-            "enum": ["notify", "execute", "script"],
-            "description": "Whether to notify the user, execute autonomously via LLM, or run a shell command directly"
+            "enum": ["notify", "execute", "script", "workflow"],
+            "description": "Whether to notify the user, execute autonomously via LLM, run a shell command directly (script), or run a saved workflow (workflow)"
+          },
+          "workflow_name": {
+            "type": "string",
+            "description": "Name of a saved workflow to run when the schedule triggers. Required when the schedule's resulting mode is workflow."
+          },
+          "workflow_args": {
+            "type": "object",
+            "description": "Arguments object passed to the saved workflow as `args`. Only used in workflow mode."
           },
           "routing_intent": {
             "type": "string",
@@ -186,6 +206,10 @@
           "timeout_ms": {
             "type": ["integer", "null"],
             "description": "For script mode: maximum time in milliseconds the shell command may run before it is killed (default 60000, range 1000 to 1800000). Pass null to clear a custom timeout and revert to the default."
+          },
+          "inference_profile": {
+            "type": ["string", "null"],
+            "description": "Inference profile (a key from llm.profiles) the schedule's LLM-executed runs should use. Pass null to clear the override and revert to the default mainAgent model selection. Must name a configured profile."
           }
         },
         "required": ["job_id"]

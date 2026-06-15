@@ -98,7 +98,7 @@ async function preStageRecordingCa(runId: string): Promise<void> {
 }
 
 describe("VellumAgent", () => {
-  test("hatches a fresh docker assistant, applies the jail externally, runs setup, and subscribes to events", async () => {
+  test("creates the egress jail as netns owner, hatches the assistant into it, runs setup, and subscribes to events", async () => {
     const runner = new FakeRunner();
     const agent = new VellumAgent({
       runner,
@@ -117,57 +117,75 @@ describe("VellumAgent", () => {
 
     expect(agent.id).toBe("eval-run-1");
     expect(agent.conversationKey).toBe("evals:timeline-recall:eval-run-1");
-    // Recording sidecar adds docker build + run calls
+    // The jail is created FIRST as the netns owner, then hatch joins
+    // the assistant into it. runs[0..4] are the jail's lifecycle:
+    // pre-clean container, pre-clean network, build image, create the
+    // network it owns, start attached to that network.
     expect(runner.runs[0]).toEqual({
-      command: "vellum",
-      args: [
-        "hatch",
-        "vellum",
-        "--remote",
-        "docker",
-        "--source",
-        ADAPTER_REPO_ROOT,
-        "--name",
-        "eval-run-1",
-      ],
-      // logPath routes hatch's stdout/stderr into the per-run
-      // subprocess-hatch.log file so the report UI can render it
-      // even when the run failed before assistant_complete fired.
-      // logStep tags every line in that file with `[hatch]` so the
-      // inline UI renderer can pick out which subprocess each line
-      // belongs to (matches the format the test runner log uses).
-      opts: {
-        env: {},
-        logPath: expect.stringMatching(/\/subprocess-hatch\.log$/),
-        logStep: "hatch",
-      },
+      command: "docker",
+      args: ["rm", "-f", "eval-run-1-egress-jail"],
     });
     expect(runner.runs[1]).toEqual({
       command: "docker",
-      args: ["rm", "-f", "eval-run-1-assistant-egress-jail"],
+      args: ["network", "rm", "eval-run-1-egress-net"],
     });
-    // Build command
     expect(runner.runs[2].command).toBe("docker");
     expect(runner.runs[2].args[0]).toBe("build");
     expect(runner.runs[2].args[1]).toBe("-t");
     expect(runner.runs[2].args[2]).toBe("vellum-evals-recording-jail:local");
-    // Run command (detached recording jail)
-    expect(runner.runs[3].command).toBe("docker");
-    expect(runner.runs[3].args.slice(0, 6)).toEqual([
+    expect(runner.runs[3]).toEqual({
+      command: "docker",
+      args: ["network", "create", "eval-run-1-egress-net"],
+    });
+    // The jail owns the network (NOT another container's netns) and
+    // publishes the gateway port the tenants can't publish themselves.
+    expect(runner.runs[4].command).toBe("docker");
+    expect(runner.runs[4].args.slice(0, 6)).toEqual([
       "run",
       "-d",
       "--name",
-      "eval-run-1-assistant-egress-jail",
+      "eval-run-1-egress-jail",
       "--network",
-      "container:eval-run-1-assistant",
+      "eval-run-1-egress-net",
     ]);
-    expect(runner.runs[3].args).toContain("--cap-add");
-    expect(runner.runs[3].args).toContain("NET_ADMIN");
-    expect(runner.runs[3].args).toContain("evals.vellum.ai/egress-recording=1");
-    // Species default feature flag — runs between jail apply (which
-    // now includes the CA handoff at runs[4..5]) and the first setup
-    // command. See VELLUM_DEFAULT_FEATURE_FLAGS in the adapter for the
-    // canonical list.
+    expect(runner.runs[4].args).toContain("--cap-add");
+    expect(runner.runs[4].args).toContain("NET_ADMIN");
+    expect(runner.runs[4].args).toContain("evals.vellum.ai/egress-recording=1");
+    expect(runner.runs[4].args).toContain("-p");
+
+    // hatch comes AFTER the jail and joins the assistant/gateway/CES
+    // into the jail's namespace, trusting its CA from process start.
+    const hatchCall = runner.runs[5];
+    expect(hatchCall.command).toBe("vellum");
+    expect(hatchCall.args.slice(0, 8)).toEqual([
+      "hatch",
+      "vellum",
+      "--remote",
+      "docker",
+      "--source",
+      ADAPTER_REPO_ROOT,
+      "--name",
+      "eval-run-1",
+    ]);
+    const netnsIdx = hatchCall.args.indexOf("--netns-container");
+    expect(hatchCall.args[netnsIdx + 1]).toBe("eval-run-1-egress-jail");
+    const gatewayPortIdx = hatchCall.args.indexOf("--gateway-port");
+    expect(Number(hatchCall.args[gatewayPortIdx + 1])).toBeGreaterThan(0);
+    const caIdx = hatchCall.args.indexOf("--assistant-ca-cert");
+    expect(hatchCall.args[caIdx + 1]).toMatch(/mitmproxy-ca-cert\.pem$/);
+    // logPath routes hatch's stdout/stderr into the per-run
+    // subprocess-hatch.log file so the report UI can render it even
+    // when the run failed before assistant_complete fired. logStep
+    // tags every line in that file with `[hatch]` so the inline UI
+    // renderer can pick out which subprocess each line belongs to.
+    expect(hatchCall.opts).toEqual({
+      env: {},
+      logPath: expect.stringMatching(/\/subprocess-hatch\.log$/),
+      logStep: "hatch",
+    });
+    // Species default feature flag — runs after hatch and before the
+    // first setup command. See VELLUM_DEFAULT_FEATURE_FLAGS in the
+    // adapter for the canonical list.
     expect(runner.runs[6]).toEqual({
       command: "vellum",
       args: [
@@ -223,10 +241,10 @@ describe("VellumAgent", () => {
   test("applies vellum species default flags via `vellum flags set --assistant <id>` BEFORE setup commands", async () => {
     const runner = new FakeRunner();
     // Ordering invariants under test:
-    //   (a) species default flags come AFTER docker jail apply
-    //       (runs[3]) but BEFORE any setup command — gated setup
-    //       steps (e.g. `assistant plugins install`) depend on the
-    //       flag being flipped first.
+    //   (a) species default flags come AFTER hatch (runs[5]) but
+    //       BEFORE any setup command — gated setup steps (e.g.
+    //       `assistant plugins install`) depend on the flag being
+    //       flipped first.
     //   (b) `--assistant <this.id>` is passed explicitly so the
     //       user's active-assistant pointer is never mutated by an
     //       eval run.
@@ -249,13 +267,13 @@ describe("VellumAgent", () => {
     await preStageRecordingCa(agent.id);
     await agent.hatch();
 
-    // runs[0..3] are hatch + jail rm/build/run; runs[4..5] are the CA
-    // handoff (docker cp + docker exec update-ca-certificates) — same
-    // as the canonical happy-path test. Confirm the count to anchor
-    // the indices: 6 pre-flag steps + 1 species default flag
+    // runs[0..4] are the jail lifecycle (rm / network rm / build /
+    // network create / run); runs[5] is hatch joining the assistant
+    // into the jail's namespace. Confirm the count to anchor the
+    // indices: 6 pre-flag steps + 1 species default flag
     // (`external-plugins`) + 1 setup command = 8.
     expect(runner.runs.length).toBe(8);
-    expect(runner.runs[0].args[0]).toBe("hatch");
+    expect(runner.runs[5].args[0]).toBe("hatch");
 
     // Species default: `external-plugins` is always flipped ON for
     // vellum hatches, regardless of manifest contents.
@@ -317,8 +335,8 @@ describe("VellumAgent", () => {
     await preStageRecordingCa(agent.id);
     await agent.hatch();
 
-    // hatch + jail rm/build/run + CA install (cp + update-ca-certs) + 1
-    // species default flag = 7. No setup commands.
+    // jail lifecycle (rm / network rm / build / network create / run) +
+    // hatch + 1 species default flag = 7. No setup commands.
     expect(runner.runs.length).toBe(7);
     expect(runner.runs[6]).toEqual({
       command: "vellum",
@@ -432,6 +450,39 @@ describe("VellumAgent", () => {
     expect(agent.conversationKey).toBe("generated-key-123");
   });
 
+  test("stage-workspace-file setup command docker cp's the payload into the workspace", async () => {
+    const runner = new FakeRunner();
+    const agent = new VellumAgent({
+      runner,
+      profile,
+      testId: "restaurant-pnl-spend",
+      runId: "eval-run-stage",
+    });
+
+    await preStageRecordingCa(agent.id);
+    await agent.hatch();
+
+    const baseline = runner.runs.length;
+    await agent.runSetupCommand({
+      type: "stage-workspace-file",
+      path: "restaurant-pnl.csv",
+      content: "Category,Amount (USD)\nLabor,48200\n",
+    });
+    const newRuns = runner.runs.slice(baseline);
+
+    // mkdir -p the (root) parent, then docker cp the file into /workspace.
+    expect(newRuns[0].args.slice(0, 2)).toEqual([
+      "exec",
+      "eval-run-stage-assistant",
+    ]);
+    expect(newRuns[0].args.slice(2)).toEqual(["mkdir", "-p", "/workspace"]);
+    expect(newRuns[1].command).toBe("docker");
+    expect(newRuns[1].args[0]).toBe("cp");
+    expect(newRuns[1].args[2]).toBe(
+      "eval-run-stage-assistant:/workspace/restaurant-pnl.csv",
+    );
+  });
+
   test("sends through the same conversation key and shuts down resources", async () => {
     const runner = new FakeRunner();
     const agent = new VellumAgent({
@@ -447,14 +498,19 @@ describe("VellumAgent", () => {
     await agent.send({ content: "hello" });
     await agent.shutdown();
 
-    // The shutdown sequence now has six tail entries (in this order):
+    // The shutdown sequence tail, in order. The jail owns the network
+    // namespace its tenants join, so the tenants (assistant/gateway/CES)
+    // must be retired and reaped BEFORE `jail.stop()` removes the jail
+    // container and the network it owns — Docker refuses to remove a
+    // container whose netns another container still shares.
     //  1. `vellum message ...` (final user turn)
-    //  2. `docker rm -f <jail-container>` (this.jail.stop())
-    //  3. `vellum retire <runId>` (the retire call we just wrapped)
-    //  4–6. `docker rm -f <runId>-<sibling>` ×3 (force-reap fallback)
-    // The reaper iterates assistant → gateway → credential-executor
-    // in `VELLUM_HATCH_SERVICES` order.
-    expect(runner.runs.map((r) => [r.command, ...r.args]).slice(-6)).toEqual([
+    //  2. `vellum retire <runId>` (retire the tenants)
+    //  3–5. `docker rm -f <runId>-<sibling>` ×3 (force-reap fallback,
+    //       iterating assistant → gateway → credential-executor in
+    //       `VELLUM_HATCH_SERVICES` order)
+    //  6. `docker rm -f <runId>-egress-jail` (jail.stop(), owner last)
+    //  7. `docker network rm <runId>-egress-net` (jail's owned network)
+    expect(runner.runs.map((r) => [r.command, ...r.args]).slice(-7)).toEqual([
       [
         "vellum",
         "message",
@@ -463,11 +519,12 @@ describe("VellumAgent", () => {
         "evals:timeline-recall:eval-run-2",
         "hello",
       ],
-      ["docker", "rm", "-f", "eval-run-2-assistant-egress-jail"],
       ["vellum", "retire", "eval-run-2"],
       ["docker", "rm", "-f", "eval-run-2-assistant"],
       ["docker", "rm", "-f", "eval-run-2-gateway"],
       ["docker", "rm", "-f", "eval-run-2-credential-executor"],
+      ["docker", "rm", "-f", "eval-run-2-egress-jail"],
+      ["docker", "network", "rm", "eval-run-2-egress-net"],
     ]);
     expect(runner.process.killed).toBe(true);
   });
@@ -514,6 +571,9 @@ describe("VellumAgent", () => {
       runId: "eval-vellum-bare-x-20260524160000123-abcd",
     });
 
+    // The jail is created before hatch, so its CA poll must resolve;
+    // pre-stage the CA the recording sidecar would drop at boot.
+    await preStageRecordingCa(agent.id);
     await expect(agent.hatch()).rejects.toThrow(/name is already in use/);
     const sequence = runner.runs.map((r) => [r.command, ...r.args]);
 
@@ -618,12 +678,13 @@ describe("VellumAgent", () => {
   });
 
   test("force-reaps every sibling container after retire (defense-in-depth against silent retire failures)", async () => {
-    // The previous catch-path swallowed `vellum retire` failures with
-    // .catch(() => undefined), so a retire that returned non-zero left
-    // the assistant container alive and bound to port 7821, wedging the
-    // next hatch. The fallback reap calls `docker rm -f` per sibling
-    // regardless of retire's exit code — if retire's own rm succeeded
-    // we're a no-op; if it failed we close the leak.
+    // A `vellum retire` that returns non-zero leaves the tenant
+    // containers alive. Because they share the egress jail's network
+    // namespace, the leak also blocks `jail.stop()` from removing the
+    // jail container and its network. The fallback reap calls `docker
+    // rm -f` per sibling regardless of retire's exit code — if retire's
+    // own rm succeeded we're a no-op; if it failed we close the leak so
+    // the subsequent jail teardown can proceed.
     class HatchOkSetupFails extends FakeRunner {
       override async run(
         command: string,
@@ -658,7 +719,7 @@ describe("VellumAgent", () => {
 
     // The reaper calls `docker rm -f <name>` for each of the three
     // sibling Vellum hatch containers. Use exact equality (not
-    // startsWith) so unrelated `docker rm -f <runId>-assistant-egress-jail`
+    // startsWith) so unrelated `docker rm -f <runId>-egress-jail`
     // calls from the jail's pre-clean step don't poison the assertion.
     const siblingNames = new Set([
       `${runId}-assistant`,
@@ -679,10 +740,10 @@ describe("VellumAgent", () => {
   });
 
   test("surfaces a [retire] warning when `vellum retire` exits non-zero", async () => {
-    // The previous .catch(() => undefined) gave operators no breadcrumb
-    // back to the failed retire — the cascading port-7821 collisions
-    // looked like spontaneous failures. With the structured warn, the
-    // root cause lands in the runner's subprocess log alongside the
+    // A swallowed retire failure gives operators no trail back to the
+    // root cause — the leaked tenant containers and the blocked jail
+    // teardown look like spontaneous failures. The structured warn
+    // lands the root cause in the runner's subprocess log alongside the
     // original error.
     class HatchOkSetupFailsRetireFails extends FakeRunner {
       override async run(

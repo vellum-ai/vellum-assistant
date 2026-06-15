@@ -24,17 +24,22 @@
  *    all-repeat turn returns an EMPTY-TEXT block: assembly attaches nothing,
  *    but the block's presence still keys v2 suppression (v3 ran and owns the
  *    `<memory>` layer this turn). A `null` return (failure / empty selection /
- *    every net-new card rendered empty) leaves v2's block intact — fallback to
- *    v2 rather than a memory-less turn.
+ *    every net-new card rendered empty) attaches no v3 block: in shadow mode
+ *    (`memory-v3-live` off) v2 still ran this turn, so its block stays as the
+ *    fallback; under `memory-v3-live` the user-prompt-submit hook skips v2
+ *    retrieval entirely, so a null return leaves the turn with no NEW injected
+ *    memory (prior turns' frozen cards still ride history).
  *
  *  - {@link memoryV3SpotlightInjector} (id `memory-v3-spotlight`,
- *    `append-user-tail`): the EPHEMERAL layer. Renders the top `spotlight.n`
+ *    `after-memory-prefix`): the EPHEMERAL layer. Renders the top `spotlight.n`
  *    selected finder hits' matched sections, plus the previous
  *    `spotlight.windowTurns` turns' entries from an in-memory per-conversation
  *    ring (a daemon restart simply re-warms it), as a `<memory_spotlight>`
- *    block at the current-message tail. Assembly strip-and-replaces this block
- *    every turn (scoped to this block id only); it is never persisted to
- *    metadata.
+ *    block spliced immediately after the `<memory>` cards block (so the two
+ *    memory layers sit adjacent in the prefix, ahead of the user's message
+ *    text). Assembly strip-and-replaces this block every turn (scoped to this
+ *    block id only); it is never persisted to metadata, so the frozen card
+ *    prefix it follows stays byte-stable and cached regardless.
  *
  * Flag gating is unchanged: `memory-v3-live` attaches blocks; `memory-v3-shadow`
  * (live off) logs what WOULD inject (net-new slugs + bytes + spotlight refs)
@@ -239,9 +244,11 @@ export const memoryV3Injector: Injector = {
     if (!isPersonalMemoryAllowed(ctx.trust)) return null;
 
     const result = await observeTurnOnce(ctx.conversationId, ctx.turnIndex);
-    // Empty selection falls back to v2 (return null): v2 suppression keys off
-    // BOTH the flag AND a produced block, so a selector failure or a turn with
-    // nothing selected ships v2 memory rather than no memory.
+    // Empty selection → return null (attach nothing). Returning null (vs an
+    // empty block) preserves the shadow-mode v2 fallback: v2 suppression keys
+    // off BOTH the flag AND a produced block, so in shadow a selector failure
+    // or a turn with nothing selected ships v2's memory. Under `memory-v3-live`
+    // the hook skipped v2 retrieval, so the turn simply gets no injected memory.
     if (!result || result.selections.length === 0) return null;
 
     try {
@@ -258,11 +265,13 @@ export const memoryV3Injector: Injector = {
         const card = await renderV3CardContent(slug);
         if (card.trim().length > 0) cards.push({ slug, card });
       }
-      // Every net-new card rendered empty: return null (fall back to v2)
-      // rather than an empty-text block — suppressing v2 with nothing to show
-      // would ship a memory-less turn. Distinct from the all-repeat case
-      // (empty `netNew`), where the empty block correctly keeps v2 suppressed
-      // because the cards already ride history.
+      // Every net-new card rendered empty: return null rather than an
+      // empty-text block. Returning null preserves the shadow-mode v2 fallback
+      // (an empty block would key v2 suppression yet show nothing); under
+      // `memory-v3-live` there is no v2 block, so the turn simply gets no new
+      // memory. Distinct from the all-repeat case (empty `netNew`), where the
+      // empty block correctly keeps v2 suppressed because the cards already
+      // ride history.
       if (netNew.length > 0 && cards.length === 0) return null;
       const entries = cards.map(({ slug, card }) => ({
         slug,
@@ -332,7 +341,7 @@ export const memoryV3Injector: Injector = {
           err: err instanceof Error ? err.message : String(err),
           conversationId: ctx.conversationId,
         },
-        "memory-v3 live render failed (non-fatal) — falling back to v2",
+        "memory-v3 live render failed (non-fatal) — returning null (no v3 block this turn)",
       );
       return null;
     }
@@ -369,7 +378,14 @@ export const memoryV3SpotlightInjector: Injector = {
       return {
         id: MEMORY_V3_SPOTLIGHT_BLOCK_ID,
         text: wrapMemorySpotlightBlock(renderSpotlightInner(window)),
-        placement: "append-user-tail",
+        // Splices right after the `<memory>` cards block (this injector's
+        // order 1001 runs after the cards' 1000, and `countMemoryPrefixBlocks`
+        // counts the cards `<memory>` block but not `<memory_spotlight>`, so the
+        // spotlight lands immediately after the cards rather than at the user
+        // tail). Cache-neutral: the block is strip-and-replaced from prior
+        // messages by block id every turn regardless of placement, so the
+        // frozen card prefix stays byte-stable and cached.
+        placement: "after-memory-prefix",
       };
     } catch (err) {
       log.warn(

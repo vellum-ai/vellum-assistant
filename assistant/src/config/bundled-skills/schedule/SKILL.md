@@ -17,7 +17,7 @@ metadata:
       - "User wants to act immediately or run a quick command that completes within the conversation — schedule is only for deferred or recurring execution"
 ---
 
-Manage scheduled automations. Schedules can be **recurring** (cron or RRULE expression) or **one-shot** (a single `fire_at` timestamp). Schedules support three modes: **execute** (run a message through the assistant), **notify** (send a notification to the user), and **script** (run a shell command directly without LLM involvement).
+Manage scheduled automations. Schedules can be **recurring** (cron or RRULE expression) or **one-shot** (a single `fire_at` timestamp). Schedules support four modes: **execute** (run a message through the assistant), **notify** (send a notification to the user), **script** (run a shell command directly without LLM involvement), and **workflow** (run a saved multi-agent workflow by name).
 
 ## Schedule Syntax
 
@@ -96,8 +96,13 @@ The `mode` parameter controls what happens when a schedule fires:
 - **execute** (default) - sends the schedule's message to a background assistant conversation for autonomous handling. The assistant processes the message as if the user sent it.
 - **notify** - sends a notification to the user via the notification pipeline. No assistant processing occurs.
 - **script** - runs the `script` field as a shell command directly. No LLM invoked, no conversation created. stdout/stderr are captured in the schedule run record. Exit code 0 = success, non-zero = error. Commands run in the workspace directory with a 60-second timeout by default. Override the timeout per schedule with `timeout_ms` (range 1000–1800000 ms) when a script needs more or less time; pass `timeout_ms: null` on update to revert to the default. The guardian can also adjust this from the /assistant/settings/schedules page.
+- **workflow** - runs a saved workflow (by `workflow_name`) at trigger time, optionally with `workflow_args`. Requires the `workflows` feature flag; `workflow_name` is required. Use this to run a previously saved multi-agent workflow on a schedule (e.g. "run my inbox-triage workflow every morning at 8am").
 
-Use `notify` for simple reminders ("remind me to take medicine at 9am"), `execute` for tasks that need assistant action ("check my calendar at 8am and send me a digest"), and `script` for lightweight shell automations that don't need LLM involvement ("refresh a cache", "poll an API", "rotate logs").
+Use `notify` for simple reminders ("remind me to take medicine at 9am"), `execute` for tasks that need assistant action ("check my calendar at 8am and send me a digest"), `script` for lightweight shell automations that don't need LLM involvement ("refresh a cache", "poll an API", "rotate logs"), and `workflow` to run a saved workflow on a schedule.
+
+## Inference Profile
+
+Execute-mode runs use the default `mainAgent` model selection unless the schedule pins an `inference_profile` (a key from `llm.profiles`). Pin a profile when a recurring task should run on a specific model — e.g. a cost-optimized profile for a high-frequency digest. Pass `inference_profile: null` on update to revert to the default. The pinned profile is shown on the schedule's details page in settings.
 
 ## Conversation Reuse
 

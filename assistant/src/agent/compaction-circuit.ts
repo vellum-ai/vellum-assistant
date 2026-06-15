@@ -27,6 +27,17 @@ export class CompactionCircuit {
   readonly conversationId: string;
   consecutiveCompactionFailures = 0;
   compactionCircuitOpenUntil: number | null = null;
+  /**
+   * Estimated input tokens immediately after the most recent compaction pass,
+   * or `null` before any pass this process. The budget gate's regrowth
+   * hysteresis reads it: if the history has not grown by at least
+   * `MIN_REGROWTH` tokens since this watermark, the previous pass already
+   * proved it cannot free more, so re-compacting would only thrash. Lives here
+   * because its lifetime must match the per-conversation circuit (the loop owns
+   * one circuit per conversation). Reset on process restart, the intended "one
+   * free retry after restart" behavior the failure counter already has.
+   */
+  lastPostCompactionEstimate: number | null = null;
 
   constructor(conversationId: string) {
     this.conversationId = conversationId;

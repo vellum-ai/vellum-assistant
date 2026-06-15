@@ -3,6 +3,7 @@ import {
   Fragment,
   forwardRef,
   useCallback,
+  useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -119,6 +120,10 @@ export interface TranscriptProps {
 
 export interface TranscriptHandle {
   scrollToLatest(opts?: { behavior?: "auto" | "smooth" }): void;
+  /** Scroll a message into view by id and briefly highlight it. Returns
+   *  `false` when no element with that message id is currently rendered (e.g.
+   *  the message lives in an older history page not yet loaded). */
+  scrollToMessage(messageId: string): boolean;
   getScrollElement(): HTMLDivElement | null;
   /** Inner wrapper that surrounds all rendered children. Sized to the
    *  scroll content; observable via `ResizeObserver` to detect when
@@ -142,7 +147,15 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       props;
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const contentRef = useRef<HTMLDivElement | null>(null);
+    // Pending removal of the transient deep-link highlight class.
+    const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const viewportMinHeight = useViewportMinHeight(scrollRef);
+
+    useEffect(() => {
+      return () => {
+        if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      };
+    }, []);
 
     const pullEnabled = !!pullRefreshEnabled && !!onPullRefresh;
     const handlePullRefresh = useCallback(async () => {
@@ -168,6 +181,20 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
             top: el.scrollHeight - el.clientHeight,
             behavior: opts?.behavior ?? "auto",
           });
+        },
+        scrollToMessage(messageId) {
+          const target = document.getElementById(`msg-${messageId}`);
+          if (!target) return false;
+          target.scrollIntoView({ block: "center", behavior: "smooth" });
+          target.classList.add("message-highlighted");
+          if (highlightTimerRef.current) {
+            clearTimeout(highlightTimerRef.current);
+          }
+          highlightTimerRef.current = setTimeout(() => {
+            target.classList.remove("message-highlighted");
+            highlightTimerRef.current = null;
+          }, 2000);
+          return true;
         },
         getScrollElement() {
           return scrollRef.current;
@@ -204,6 +231,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
     );
 
     const rowProps = {
+      conversationId,
       onSurfaceAction: rest.onSurfaceAction,
       onForkConversation: rest.onForkConversation,
       onInspectMessage: rest.onInspectMessage,

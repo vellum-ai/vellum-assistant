@@ -38,6 +38,7 @@ mock.module("electron", () => ({
   BrowserWindow: class {},
   screen: {
     getDisplayMatching: () => ({ workArea }),
+    getPrimaryDisplay: () => ({ workArea }),
   },
 }));
 
@@ -161,6 +162,33 @@ describe("restoreBounds", () => {
       isFullScreen: true,
     };
     expect(restoreBounds("main", DEFAULTS).fullscreen).toBe(true);
+  });
+
+  test("returns the primary display's work area for the maximized default", () => {
+    workArea = { x: 0, y: 25, width: 1512, height: 944 };
+    expect(restoreBounds("main", "maximized")).toEqual({
+      x: 0,
+      y: 25,
+      width: 1512,
+      height: 944,
+    });
+  });
+
+  test("a saved state overrides the maximized default", () => {
+    savedWindows.main = {
+      x: 100,
+      y: 200,
+      width: 1000,
+      height: 700,
+      isFullScreen: false,
+    };
+    expect(restoreBounds("main", "maximized")).toEqual({
+      x: 100,
+      y: 200,
+      width: 1000,
+      height: 700,
+      fullscreen: false,
+    });
   });
 
   test("namespaces by key so windows don't clobber each other", () => {

@@ -18,26 +18,28 @@ import { PROVIDER_CATALOG } from "../model-catalog.js";
  * Schema-accepted variants (runtime rejects with a clear "not yet shipped" error):
  *   - service_account: service-account credentials (Vertex AI, Bedrock).
  */
-export const AuthSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("api_key"),
-    credential: z.string().min(1),
-  }),
-  z.object({
-    type: z.literal("platform"),
-  }),
-  z.object({
-    type: z.literal("none"),
-  }),
-  z.object({
-    type: z.literal("oauth_subscription"),
-    credential: z.string().min(1),
-  }),
-  z.object({
-    type: z.literal("service_account"),
-    credential: z.string().min(1),
-  }),
-]);
+export const AuthSchema = z
+  .discriminatedUnion("type", [
+    z.object({
+      type: z.literal("api_key"),
+      credential: z.string().min(1),
+    }),
+    z.object({
+      type: z.literal("platform"),
+    }),
+    z.object({
+      type: z.literal("none"),
+    }),
+    z.object({
+      type: z.literal("oauth_subscription"),
+      credential: z.string().min(1),
+    }),
+    z.object({
+      type: z.literal("service_account"),
+      credential: z.string().min(1),
+    }),
+  ])
+  .meta({ id: "Auth" });
 
 export type Auth = z.infer<typeof AuthSchema>;
 
@@ -75,9 +77,9 @@ export const VALID_CONNECTION_PROVIDERS: readonly string[] =
 
 export type ConnectionProvider = string;
 
-export const ConnectionProviderSchema = z.enum(
-  VALID_CONNECTION_PROVIDERS as readonly [string, ...string[]],
-);
+export const ConnectionProviderSchema = z
+  .enum(VALID_CONNECTION_PROVIDERS as readonly [string, ...string[]])
+  .meta({ id: "ConnectionProvider" });
 
 // ---------------------------------------------------------------------------
 // Per-connection model entries (openai-compatible)
@@ -93,24 +95,26 @@ export type ConnectionModel = z.infer<typeof ConnectionModelSchema>;
 // Full connection shape used by CRUD layer
 // ---------------------------------------------------------------------------
 
-export const ProviderConnectionSchema = z.object({
-  name: z.string().min(1),
-  provider: ConnectionProviderSchema,
-  auth: AuthSchema,
-  label: z.string().min(1).nullable(),
-  baseUrl: z.string().url().nullable(),
-  models: z.array(ConnectionModelSchema).nullable(),
-  createdAt: z.number().int(),
-  updatedAt: z.number().int(),
-  /**
-   * Whether this row is a Vellum-managed connection (`anthropic-managed`,
-   * `openai-managed`, `gemini-managed`). Derived from
-   * `MANAGED_CONNECTION_NAMES` in `connections.ts` at serialize time; the
-   * DB column does not exist. Clients use this to render the read-only
-   * "Vellum" badge + view-only editor and to disable the delete affordance
-   * without mirroring the canonical name list locally.
-   */
-  isManaged: z.boolean(),
-});
+export const ProviderConnectionSchema = z
+  .object({
+    name: z.string().min(1),
+    provider: ConnectionProviderSchema,
+    auth: AuthSchema,
+    label: z.string().min(1).nullable(),
+    baseUrl: z.string().url().nullable(),
+    models: z.array(ConnectionModelSchema).nullable(),
+    createdAt: z.number().int(),
+    updatedAt: z.number().int(),
+    /**
+     * Whether this row is a Vellum-managed connection (`anthropic-managed`,
+     * `openai-managed`, `gemini-managed`). Derived from
+     * `MANAGED_CONNECTION_NAMES` in `connections.ts` at serialize time; the
+     * DB column does not exist. Clients use this to render the read-only
+     * "Vellum" badge + view-only editor and to disable the delete affordance
+     * without mirroring the canonical name list locally.
+     */
+    isManaged: z.boolean(),
+  })
+  .meta({ id: "ProviderConnection" });
 
 export type ProviderConnection = z.infer<typeof ProviderConnectionSchema>;

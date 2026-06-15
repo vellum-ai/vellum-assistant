@@ -24,6 +24,9 @@ export function buildOnboardingSection(
   if (fields.preferredName) {
     lines.push(`- **Preferred name:** ${fields.preferredName}`);
   }
+  if (fields.occupation) {
+    lines.push(`- **Role:** ${fields.occupation}`);
+  }
   if (fields.commonWork.length > 0) {
     lines.push(`- **Common work:** ${fields.commonWork.join("; ")}`);
   }

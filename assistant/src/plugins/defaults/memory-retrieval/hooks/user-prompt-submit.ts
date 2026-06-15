@@ -32,6 +32,7 @@ import type {
   UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
 
+import { isAssistantFeatureFlagEnabled } from "../../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../../config/loader.js";
 import { findConversationOrSubagent } from "../../../../daemon/conversation-registry.js";
 import {
@@ -47,6 +48,22 @@ import { recordMemoryRecallLog } from "../../../../memory/memory-recall-log-stor
 import { broadcastMessage } from "../../../../runtime/assistant-event-hub.js";
 import type { GraphMemoryResult } from "../../../types.js";
 import { MEMORY_V3_INJECTED_BLOCK_METADATA_KEY } from "../../memory-v3-shadow/ever-injected-store.js";
+
+/**
+ * Whether to run v2 graph-memory retrieval this turn. v2 retrieval is the
+ * deprecated path: under `memory-v3-live`, v3 is the injected-memory source and
+ * runtime assembly strips any v2 `<memory>` block, so running v2's retrieval
+ * (embedding + hybrid search + the `memoryRetrieval` LLM router) only to
+ * discard the result is pure per-turn waste. Untrusted actors never run it
+ * either. The caller additionally requires the live conversation and its abort
+ * signal to be present (kept inline at the call site for type narrowing).
+ */
+export function shouldRunV2Retrieval(params: {
+  isTrustedActor: boolean;
+  memoryV3Live: boolean;
+}): boolean {
+  return params.isTrustedActor && !params.memoryV3Live;
+}
 
 /**
  * Persist and broadcast the retrieval's side effects: the injected block on
@@ -250,8 +267,19 @@ const userPromptSubmitMemoryRetrieval: PluginHookFn<
     conversation?.assistantId,
   );
 
+  // v2 graph retrieval is the deprecated path: `shouldRunV2Retrieval` skips it
+  // under memory-v3-live (v3 owns the `<memory>` layer and assembly strips any
+  // v2 block) and for untrusted actors. The `conversation && abortSignal`
+  // presence checks stay inline so the block below narrows. NOTE: this removes
+  // the v2 fallback — under v3-live, a v3 empty/failed selection yields no NEW
+  // injected memory that turn (prior turns' frozen v3 cards still ride history).
+  const memoryV3Live = isAssistantFeatureFlagEnabled("memory-v3-live", config);
   let v2BlockPersisted = false;
-  if (conversation && isTrustedActor && abortSignal) {
+  if (
+    shouldRunV2Retrieval({ isTrustedActor, memoryV3Live }) &&
+    conversation &&
+    abortSignal
+  ) {
     // Retrieval progress (`memory_status`) and the `memory_recalled` summary
     // publish to the shared `broadcastMessage` hub — the sink every turn
     // publisher converges to — rather than a threaded event callback. This

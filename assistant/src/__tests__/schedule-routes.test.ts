@@ -18,6 +18,14 @@ mock.module("../config/loader.js", () => ({
       timezone: null,
     },
   }),
+  getConfigReadOnly: () => ({
+    llm: {
+      profiles: {
+        balanced: { model: "test-model" },
+        "cost-optimized": { model: "test-model-small" },
+      },
+    },
+  }),
   invalidateConfigCache: () => {},
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
@@ -1141,7 +1149,9 @@ describe("POST /schedules — create", () => {
 
   function postCreate(body: Record<string, unknown>) {
     const route = findRoute("schedules", "POST");
-    return route.handler({ body }) as { schedules: Array<{ id: string }> };
+    return route.handler({ body }) as {
+      schedules: Array<{ id: string; inferenceProfile: string | null }>;
+    };
   }
 
   test("creates a recurring execute schedule with defaults", () => {
@@ -1221,7 +1231,7 @@ describe("POST /schedules — create", () => {
     expect(job.description).toBe("Description fallback");
   });
 
-  test("rejects non-execute modes", () => {
+  test("rejects modes other than execute/workflow", () => {
     expect(() =>
       postCreate({
         name: "x",
@@ -1230,7 +1240,37 @@ describe("POST /schedules — create", () => {
         message: "hi",
         mode: "notify",
       }),
-    ).toThrow("Only 'execute' mode is supported");
+    ).toThrow("Only 'execute' and 'workflow' modes are supported");
+  });
+
+  test("rejects workflow-mode creation when the workflows flag is off", () => {
+    // The mocked getConfig returns no feature flags, so `workflows` is off.
+    expect(() =>
+      postCreate({
+        name: "Triage",
+        description: "Triage the inbox every morning",
+        expression: "0 9 * * *",
+        message: "triage inbox",
+        mode: "workflow",
+        workflowName: "triage-inbox",
+      }),
+    ).toThrow("Workflows are not enabled");
+  });
+
+  test("rejects PATCH switching to workflow mode when the flag is off", () => {
+    const schedule = createSchedule({
+      name: "Plain execute",
+      cronExpression: "0 9 * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+    const patch = findRoute("schedules/:id", "PATCH");
+    expect(() =>
+      patch.handler({
+        pathParams: { id: schedule.id },
+        body: { mode: "workflow", workflowName: "triage-inbox" },
+      }),
+    ).toThrow("Workflows are not enabled");
   });
 
   test("rejects an unparseable expression", () => {
@@ -1255,6 +1295,38 @@ describe("POST /schedules — create", () => {
     ).toThrow();
   });
 
+  test("persists and round-trips workflowName/workflowArgs in the list response", () => {
+    // Store-level round trip: the create route is flag-gated (and the mocked
+    // config disables it), so exercise persistence directly via the store.
+    createSchedule({
+      name: "Workflow schedule",
+      cronExpression: "0 9 * * *",
+      message: "trigger",
+      syntax: "cron",
+      mode: "workflow",
+      workflowName: "triage-inbox",
+      workflowArgs: { folder: "primary", limit: 10 },
+    });
+
+    const route = findRoute("schedules", "GET");
+    const result = route.handler({}) as {
+      schedules: Array<{
+        name: string;
+        mode: string;
+        workflowName: string | null;
+      }>;
+    };
+    const job = result.schedules.find((s) => s.name === "Workflow schedule");
+    expect(job).toBeDefined();
+    expect(job!.mode).toBe("workflow");
+    expect(job!.workflowName).toBe("triage-inbox");
+
+    // workflowArgs is not in the list projection; assert it round-trips at the
+    // store layer (this is what the scheduler reads).
+    const stored = listSchedules().find((s) => s.name === "Workflow schedule")!;
+    expect(stored.workflowArgs).toEqual({ folder: "primary", limit: 10 });
+  });
+
   test("respects enabled=false", () => {
     postCreate({
       name: "Off",
@@ -1265,6 +1337,52 @@ describe("POST /schedules — create", () => {
     });
     const job = listSchedules()[0];
     expect(job.enabled).toBe(false);
+  });
+
+  test("persists a valid inferenceProfile and serializes it", () => {
+    const result = postCreate({
+      name: "Cheap digest",
+      description: "High-frequency digest on a cheap model",
+      expression: "0 * * * *",
+      message: "write the digest",
+      inferenceProfile: "cost-optimized",
+    });
+    expect(result.schedules[0].inferenceProfile).toBe("cost-optimized");
+    expect(listSchedules()[0].inferenceProfile).toBe("cost-optimized");
+  });
+
+  test("defaults inferenceProfile to null when omitted", () => {
+    const result = postCreate({
+      name: "Default profile",
+      description: "Runs on the main-agent selection",
+      expression: "0 9 * * *",
+      message: "hi",
+    });
+    expect(result.schedules[0].inferenceProfile).toBeNull();
+  });
+
+  test("rejects an unknown inferenceProfile", () => {
+    expect(() =>
+      postCreate({
+        name: "Bad profile",
+        description: "Unknown profile",
+        expression: "0 9 * * *",
+        message: "hi",
+        inferenceProfile: "does-not-exist",
+      }),
+    ).toThrow('Inference profile "does-not-exist" is not defined');
+  });
+
+  test("rejects a non-string inferenceProfile", () => {
+    expect(() =>
+      postCreate({
+        name: "Bad profile type",
+        description: "Wrong type",
+        expression: "0 9 * * *",
+        message: "hi",
+        inferenceProfile: 42,
+      }),
+    ).toThrow("inferenceProfile must be a string or null");
   });
 });
 
@@ -1297,6 +1415,37 @@ describe("PATCH /schedules/:id — description", () => {
       description: "Updated description",
     });
     expect(listSchedules()[0].description).toBe("Updated description");
+  });
+
+  test("sets, validates, and clears inferenceProfile", () => {
+    const schedule = createSchedule({
+      name: "Profile pin",
+      description: "Pinned profile schedule",
+      cronExpression: "0 9 * * *",
+      message: "hi",
+      syntax: "cron",
+    });
+    const route = findRoute("schedules/:id", "PATCH");
+
+    route.handler({
+      pathParams: { id: schedule.id },
+      body: { inferenceProfile: "balanced" },
+    });
+    expect(listSchedules()[0].inferenceProfile).toBe("balanced");
+
+    expect(() =>
+      route.handler({
+        pathParams: { id: schedule.id },
+        body: { inferenceProfile: "does-not-exist" },
+      }),
+    ).toThrow('Inference profile "does-not-exist" is not defined');
+    expect(listSchedules()[0].inferenceProfile).toBe("balanced");
+
+    route.handler({
+      pathParams: { id: schedule.id },
+      body: { inferenceProfile: null },
+    });
+    expect(listSchedules()[0].inferenceProfile).toBeNull();
   });
 
   test("re-derives syntax when the expression switches cron to rrule", () => {

@@ -23,6 +23,7 @@ export const cronJobs = sqliteTable("cron_jobs", {
   maxRetries: integer("max_retries").notNull().default(3),
   retryBackoffMs: integer("retry_backoff_ms").notNull().default(60000),
   timeoutMs: integer("timeout_ms"), // script-mode execution timeout override (ms); null = use default
+  inferenceProfile: text("inference_profile"), // llm.profiles key for LLM-executed runs; null = default main-agent selection
   createdFromConversationId: text("created_from_conversation_id"),
   createdBy: text("created_by").notNull(), // 'agent' | 'user'
   mode: text("mode").notNull().default("execute"), // 'notify' | 'execute'
@@ -35,6 +36,8 @@ export const cronJobs = sqliteTable("cron_jobs", {
     .default(false), // reuse the same conversation across runs
   script: text("script"), // shell command for script mode (nullable, only used when mode = 'script')
   wakeConversationId: text("wake_conversation_id"), // target conversation for wake mode (nullable)
+  workflowName: text("workflow_name"), // saved workflow to trigger (nullable, only used when mode = 'workflow')
+  workflowArgsJson: text("workflow_args_json"), // JSON-encoded args passed to the workflow run (nullable)
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });

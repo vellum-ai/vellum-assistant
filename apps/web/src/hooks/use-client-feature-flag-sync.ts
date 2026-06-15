@@ -64,3 +64,41 @@ export function useClientFeatureFlagSync(enabled: boolean) {
     }
   }, [data]);
 }
+
+const ACTIVATION_FLOW_STORE_KEY = "experimentActivationFlow20260603";
+const ACTIVATION_FLOW_LS_KEY = `vellum:ff-str:${ACTIVATION_FLOW_STORE_KEY}`;
+
+function readActivationFlowOverride(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem(ACTIVATION_FLOW_LS_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolves the `experiment-activation-flow-2026-06-03` arm for the pre-auth
+ * sign-up pages, with `settled` indicating the server fetch has completed.
+ *
+ * Reads the value DIRECTLY from the flag query data (not the store) so the
+ * decision never races the store write: React runs child effects before parent
+ * effects, so a consumer's redirect effect would otherwise fire before
+ * `AccountLayout`'s sync writes the store, reading a stale default. Precedence:
+ * a local `localStorage` override wins (for testing), then the server-synced
+ * value, then `control`. Callers should hold off acting until `settled`.
+ */
+export function useActivationFlowArm(): { arm: string; settled: boolean } {
+  const freshness = useFlagQueryFreshness();
+  const { data, isFetched } = useQuery({
+    queryKey: CLIENT_FLAG_QUERY_KEY,
+    queryFn: fetchClientFlagValues,
+    ...freshness,
+    retry: 1,
+  });
+  const override = readActivationFlowOverride();
+  const synced = data?.flags
+    ? mapFlags(data.flags).stringFlags[ACTIVATION_FLOW_STORE_KEY]
+    : undefined;
+  return { arm: override ?? synced ?? "control", settled: isFetched };
+}

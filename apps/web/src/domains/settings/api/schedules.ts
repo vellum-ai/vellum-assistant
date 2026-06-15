@@ -11,6 +11,8 @@ import {
   heartbeatConfigPut,
   heartbeatRunnowPost,
   heartbeatRunsGet,
+  retrospectiveConfigGet,
+  retrospectiveRunsGet,
   schedulesByIdDelete,
   schedulesByIdPatch,
   schedulesByIdRunPost,
@@ -25,6 +27,7 @@ import type {
   HeartbeatConfigGetResponse,
   HeartbeatConfigPutResponse,
   HeartbeatRunnowPostResponse,
+  RetrospectiveConfigGetResponse,
 } from "@/generated/daemon/types.gen";
 import {
   ApiError,
@@ -40,6 +43,16 @@ import type {
 } from "@/domains/settings/types/schedules";
 
 export { ApiError };
+
+/** One page of run history plus the cursor for fetching older runs. */
+export interface ScheduleRunsPage {
+  runs: ScheduleRun[];
+  /** Pass back as `before` to fetch older runs; null when history is exhausted. */
+  nextCursor: number | null;
+}
+
+/** Page size used by the run-history detail views. */
+export const SCHEDULE_RUNS_PAGE_SIZE = 25;
 
 export interface CreateSchedulePayload {
   name: string;
@@ -99,10 +112,11 @@ export async function fetchScheduleRuns(
   assistantId: string,
   scheduleId: string,
   limit = 10,
-): Promise<ScheduleRun[]> {
+  before?: number,
+): Promise<ScheduleRunsPage> {
   const { data, error, response } = await schedulesByIdRunsGet({
     path: { assistant_id: assistantId, id: scheduleId },
-    query: { limit },
+    query: { limit, before },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to load schedule runs.");
@@ -112,7 +126,7 @@ export async function fetchScheduleRuns(
       extractErrorMessage(error, response, "Failed to load schedule runs."),
     );
   }
-  return data?.runs ?? [];
+  return { runs: data?.runs ?? [], nextCursor: data?.nextCursor ?? null };
 }
 
 export interface ScheduleUsageSummaryRange {
@@ -195,10 +209,11 @@ export async function runScheduleNow(
 export async function fetchHeartbeatRuns(
   assistantId: string,
   limit = 10,
-): Promise<ScheduleRun[]> {
+  before?: number,
+): Promise<ScheduleRunsPage> {
   const { data, error, response } = await heartbeatRunsGet({
     path: { assistant_id: assistantId },
-    query: { limit },
+    query: { limit, before },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to load heartbeat runs.");
@@ -208,30 +223,34 @@ export async function fetchHeartbeatRuns(
       extractErrorMessage(error, response, "Failed to load heartbeat runs."),
     );
   }
-  return (data?.runs ?? []).map((run) => ({
-    id: run.id,
-    jobId: "heartbeat",
-    status: run.status,
-    startedAt: run.startedAt ?? run.scheduledFor,
-    finishedAt: run.finishedAt,
-    durationMs: run.durationMs,
-    output: run.skipReason ? `Skipped: ${run.skipReason}` : null,
-    error: run.error,
-    conversationId: run.conversationId,
-    conversationExists: run.conversationExists,
-    conversationArchivedAt: run.conversationArchivedAt,
-    estimatedCostUsd: run.estimatedCostUsd,
-    createdAt: run.createdAt,
-  }));
+  return {
+    nextCursor: data?.nextCursor ?? null,
+    runs: (data?.runs ?? []).map((run) => ({
+      id: run.id,
+      jobId: "heartbeat",
+      status: run.status,
+      startedAt: run.startedAt ?? run.scheduledFor,
+      finishedAt: run.finishedAt,
+      durationMs: run.durationMs,
+      output: run.skipReason ? `Skipped: ${run.skipReason}` : null,
+      error: run.error,
+      conversationId: run.conversationId,
+      conversationExists: run.conversationExists,
+      conversationArchivedAt: run.conversationArchivedAt,
+      estimatedCostUsd: run.estimatedCostUsd,
+      createdAt: run.createdAt,
+    })),
+  };
 }
 
 export async function fetchConsolidationRuns(
   assistantId: string,
   limit = 10,
-): Promise<ScheduleRun[]> {
+  before?: number,
+): Promise<ScheduleRunsPage> {
   const { data, error, response } = await consolidationRunsGet({
     path: { assistant_id: assistantId },
-    query: { limit },
+    query: { limit, before },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to load consolidation runs.");
@@ -241,21 +260,62 @@ export async function fetchConsolidationRuns(
       extractErrorMessage(error, response, "Failed to load consolidation runs."),
     );
   }
-  return (data?.runs ?? []).map((run) => ({
-    id: run.id,
-    jobId: "consolidation",
-    status: run.status,
-    startedAt: run.startedAt ?? run.scheduledFor,
-    finishedAt: run.finishedAt,
-    durationMs: run.durationMs,
-    output: null,
-    error: run.error,
-    conversationId: run.conversationId,
-    conversationExists: run.conversationExists,
-    conversationArchivedAt: run.conversationArchivedAt,
-    estimatedCostUsd: run.estimatedCostUsd,
-    createdAt: run.createdAt,
-  }));
+  return {
+    nextCursor: data?.nextCursor ?? null,
+    runs: (data?.runs ?? []).map((run) => ({
+      id: run.id,
+      jobId: "consolidation",
+      status: run.status,
+      startedAt: run.startedAt ?? run.scheduledFor,
+      finishedAt: run.finishedAt,
+      durationMs: run.durationMs,
+      output: null,
+      error: run.error,
+      conversationId: run.conversationId,
+      conversationExists: run.conversationExists,
+      conversationArchivedAt: run.conversationArchivedAt,
+      estimatedCostUsd: run.estimatedCostUsd,
+      createdAt: run.createdAt,
+    })),
+  };
+}
+
+export async function fetchRetrospectiveRuns(
+  assistantId: string,
+  limit = 10,
+  before?: number,
+): Promise<ScheduleRunsPage> {
+  const { data, error, response } = await retrospectiveRunsGet({
+    path: { assistant_id: assistantId },
+    query: { limit, before },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to load retrospective runs.");
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(error, response, "Failed to load retrospective runs."),
+    );
+  }
+  return {
+    nextCursor: data?.nextCursor ?? null,
+    runs: (data?.runs ?? []).map((run) => ({
+      id: run.id,
+      jobId: "retrospective",
+      status: run.status,
+      startedAt: run.startedAt ?? run.scheduledFor,
+      finishedAt: run.finishedAt,
+      durationMs: run.durationMs,
+      output: null,
+      error: run.error,
+      conversationId: run.conversationId,
+      conversationExists: run.conversationExists,
+      conversationArchivedAt: run.conversationArchivedAt,
+      estimatedCostUsd: run.estimatedCostUsd,
+      createdAt: run.createdAt,
+      title: run.title,
+    })),
+  };
 }
 
 export async function fetchHeartbeatConfig(
@@ -345,6 +405,27 @@ export async function fetchConsolidationConfig(
         error,
         response,
         "Failed to load consolidation config.",
+      ),
+    );
+  }
+  return data;
+}
+
+export async function fetchRetrospectiveConfig(
+  assistantId: string,
+): Promise<RetrospectiveConfigGetResponse> {
+  const { data, error, response } = await retrospectiveConfigGet({
+    path: { assistant_id: assistantId },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to load retrospective config.");
+  if (!response.ok || !data) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(
+        error,
+        response,
+        "Failed to load retrospective config.",
       ),
     );
   }

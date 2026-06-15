@@ -22,7 +22,8 @@ import {
 } from "@/domains/chat/components/conversation-actions-menu";
 import { GroupActionsMenu, renderGroupMenuItems } from "@/domains/chat/components/group-actions-menu";
 import { ThreadPinToggle } from "@/domains/chat/components/thread-pin-toggle";
-import { SIDEBAR_CONVERSATION_LIMIT, useSidebarState, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
+import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
+import { SIDEBAR_CONVERSATION_LIMIT, useSidebarState, type PaginatedSection, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { isConversationPinned } from "@/domains/chat/utils/group-conversations";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
@@ -34,6 +35,7 @@ import {
     PanelItem,
     SideMenu,
 } from "@vellumai/design-library";
+import { cn } from "@vellumai/design-library/utils/cn";
 
 /** @deprecated Use {@link SIDEBAR_CONVERSATION_LIMIT} from `use-sidebar-state.ts` */
 export const ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT = SIDEBAR_CONVERSATION_LIMIT;
@@ -57,6 +59,13 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onClose?: () => void;
 
   onPinConversation?: (conversation: Conversation) => void;
+  /**
+   * Persist a drag-reorder within a section. Receives the section's full
+   * conversation list in its new order. When omitted, rows aren't draggable.
+   * Only sections that honor `displayOrder` (Pinned, custom groups) offer
+   * drag-reordering — Recents and Slack stay recency-sorted.
+   */
+  onReorderConversations?: (conversations: Conversation[]) => void;
   onRenameConversation?: (conversation: Conversation) => void;
   onArchiveConversation?: (conversation: Conversation) => void;
   onUnarchiveConversation?: (conversation: Conversation) => void;
@@ -151,6 +160,7 @@ export function AssistantSideMenu({
   onStartNewConversation,
   footerAction,
   onPinConversation,
+  onReorderConversations,
   onRenameConversation,
   onArchiveConversation,
   onUnarchiveConversation,
@@ -180,6 +190,35 @@ export function AssistantSideMenu({
   });
 
   const pinnedApps = usePinnedAppsStore.use.pinnedApps();
+
+  // --- Drag-reorder (Pinned + custom groups; sections sorted by displayOrder) ---
+
+  const dragReorder = useDragReorder<Conversation>({
+    getId: (c) => c.conversationId,
+    onReorder: (_section, ordered) => onReorderConversations?.(ordered),
+  });
+
+  const buildDragProps = (
+    section: string | undefined,
+    items: Conversation[],
+    conversation: Conversation,
+  ) => {
+    if (!section || !onReorderConversations || items.length < 2) return {};
+    const { draggingId, dropIndicator } = dragReorder;
+    const edge =
+      dropIndicator?.section === section &&
+      dropIndicator.itemId === conversation.conversationId
+        ? dropIndicator.edge
+        : null;
+    return {
+      ...dragReorder.getItemProps(section, items, conversation),
+      className: cn(
+        draggingId === conversation.conversationId && "opacity-50",
+        edge === "before" && "shadow-[inset_0_2px_0_0_var(--primary-base)]",
+        edge === "after" && "shadow-[inset_0_-2px_0_0_var(--primary-base)]",
+      ),
+    };
+  };
 
   // --- Render helpers (action wiring, context menu, pin toggle) ---
 
@@ -320,11 +359,11 @@ export function AssistantSideMenu({
 
   const renderFlatList = (
     items: Conversation[],
-    showMore: boolean,
-    onShowMore?: () => void,
-    showLess = false,
-    onShowLess?: () => void,
-    onScrollLoadMore?: () => void,
+    pagination?: Pick<
+      PaginatedSection,
+      "showMore" | "onShowMore" | "showLess" | "onShowLess" | "onScrollLoadMore"
+    >,
+    reorderSection?: string,
   ): ReactNode => (
     <SideMenu.SubList>
       {items.map((c) =>
@@ -337,26 +376,27 @@ export function AssistantSideMenu({
             active={c.conversationId === activeConversationId}
             onSelect={() => selectAndClose(c.conversationId)}
             trailingAction={renderThreadActions(c)}
+            {...buildDragProps(reorderSection, items, c)}
           />,
         ),
       )}
-      {onScrollLoadMore ? <LoadMoreSentinel onLoadMore={onScrollLoadMore} /> : null}
-      {showMore && onShowMore ? (
+      {pagination?.onScrollLoadMore ? <LoadMoreSentinel onLoadMore={pagination.onScrollLoadMore} /> : null}
+      {pagination?.showMore ? (
         <SideMenu.Item
           label="Show more"
           size="compact"
           indent
           emphasized
-          onSelect={onShowMore}
+          onSelect={pagination.onShowMore}
         />
       ) : null}
-      {showLess && onShowLess ? (
+      {pagination?.showLess ? (
         <SideMenu.Item
           label="Show less"
           size="compact"
           indent
           emphasized
-          onSelect={onShowLess}
+          onSelect={pagination.onShowLess}
         />
       ) : null}
     </SideMenu.SubList>
@@ -477,10 +517,7 @@ export function AssistantSideMenu({
           <>
             {sidebar.pinned.length > 0 ? (
               <SideMenu.Section title="Pinned">
-                {renderFlatList(
-                  sidebar.pinned,
-                  false,
-                )}
+                {renderFlatList(sidebar.pinned, undefined, "pinned")}
               </SideMenu.Section>
             ) : null}
 
@@ -489,14 +526,7 @@ export function AssistantSideMenu({
               className="gap-1"
               actions={variant === "overlay" ? undefined : headerActions}
             >
-              {renderFlatList(
-                sidebar.recents.items,
-                sidebar.recents.showMore,
-                sidebar.recents.onShowMore,
-                sidebar.recents.showLess,
-                sidebar.recents.onShowLess,
-                sidebar.recents.onScrollLoadMore,
-              )}
+              {renderFlatList(sidebar.recents.items, sidebar.recents)}
 
               <CollapsibleNavSection.Root
                 type="multiple"
@@ -511,13 +541,7 @@ export function AssistantSideMenu({
                     label="Slack"
                     contextMenuContent={buildGroupContextMenu("Slack", sidebar.slack.all)}
                   >
-                    {renderFlatList(
-                      sidebar.slack.items,
-                      sidebar.slack.showMore,
-                      sidebar.slack.onShowMore,
-                      sidebar.slack.showLess,
-                      sidebar.slack.onShowLess,
-                    )}
+                    {renderFlatList(sidebar.slack.items, sidebar.slack)}
                   </CollapsibleNavSection.Section>
                 ) : null}
               </CollapsibleNavSection.Root>
@@ -570,6 +594,11 @@ export function AssistantSideMenu({
                                   active={c.conversationId === activeConversationId}
                                   onSelect={() => selectAndClose(c.conversationId)}
                                   trailingAction={renderThreadActions(c)}
+                                  {...buildDragProps(
+                                    `group:${group.id}`,
+                                    group.conversations,
+                                    c,
+                                  )}
                                 />,
                               ),
                             )}

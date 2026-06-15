@@ -47,6 +47,10 @@ const handleMock = mock(
 );
 mock.module("./ipc", () => ({ on: onMock, handle: handleMock }));
 
+mock.module("./logger", () => ({
+  default: { info: () => {}, warn: () => {}, error: () => {} },
+}));
+
 const {
   ASSISTANT_STATUSES,
   CONNECTIVITY_STATES,
@@ -262,8 +266,9 @@ describe("installConnectivityIpc", () => {
     expect(
       channels.filter((c) => c === "vellum:connectivity:device"),
     ).toHaveLength(1);
+    const handled = handleRegistrations.map((r) => r.channel);
     expect(
-      channels.filter((c) => c === "vellum:connectivity:retry"),
+      handled.filter((c) => c === "vellum:connectivity:retry"),
     ).toHaveLength(1);
   });
 
@@ -278,14 +283,30 @@ describe("installConnectivityIpc", () => {
     expect(getConnectivity()).toBe("online");
   });
 
-  test("retry channel calls the onRetry callback", () => {
-    const onRetry = mock(() => {});
+  test("retry runs the probe and returns the post-probe state", async () => {
+    const onRetry = mock(() => Promise.resolve());
     installConnectivityIpc(onRetry);
-    const retryReg = registrations.find(
+    const retryReg = handleRegistrations.find(
       (r) => r.channel === "vellum:connectivity:retry",
     )!;
-    retryReg.fn([]);
+    setBackendReachable(false);
+    expect(await retryReg.fn([])).toBe("backend-unreachable");
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  test("retry rebroadcasts the current state even when unchanged", async () => {
+    installConnectivityIpc();
+    const retryReg = handleRegistrations.find(
+      (r) => r.channel === "vellum:connectivity:retry",
+    )!;
+    // State is "online" and never transitions, so the change-gated broadcast
+    // in setConnectivity stays silent — a desynced renderer depends on this
+    // unconditional resend to recover.
+    expect(await retryReg.fn([])).toBe("online");
+    const msgs = sentMessages.filter(
+      (m) => m.channel === "vellum:connectivity:state",
+    );
+    expect(msgs.map((m) => m.payload)).toEqual(["online"]);
   });
 
   test("registers the get channel for current state queries", () => {
