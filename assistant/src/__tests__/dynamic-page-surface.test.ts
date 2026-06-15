@@ -125,6 +125,56 @@ describe("ui_show dynamic_page app substitute guard", () => {
     expect(proxied).toBe(false);
   });
 
+  test("rejects dynamic_page with empty data and does not proxy", async () => {
+    let proxied = false;
+
+    const result = await uiShowTool.execute(
+      {
+        surface_type: "dynamic_page",
+        title: "SKILL.md — elevenlabs-tts",
+        activity: "Reopening SKILL.md with rendered content",
+        data: {},
+      },
+      {
+        conversationId: "conversation-123",
+        workingDir: "/tmp",
+        trustClass: "guardian",
+        proxyToolResolver: async () => {
+          proxied = true;
+          return { content: "proxied", isError: false };
+        },
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("data.html");
+    expect(proxied).toBe(false);
+  });
+
+  test("rejects dynamic_page with whitespace-only html and does not proxy", async () => {
+    let proxied = false;
+
+    const result = await uiShowTool.execute(
+      {
+        surface_type: "dynamic_page",
+        title: "Blank",
+        data: { html: "   \n  " },
+      },
+      {
+        conversationId: "conversation-123",
+        workingDir: "/tmp",
+        trustClass: "guardian",
+        proxyToolResolver: async () => {
+          proxied = true;
+          return { content: "proxied", isError: false };
+        },
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(proxied).toBe(false);
+  });
+
   test("allows transient non-app dynamic_page surfaces", async () => {
     let proxied = false;
 

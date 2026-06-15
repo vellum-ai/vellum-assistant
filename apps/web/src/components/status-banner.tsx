@@ -8,6 +8,10 @@ import {
 } from "@vellumai/design-library/components/notice";
 
 import {
+  type LocalAssistantHealth,
+  useLocalAssistantHealth,
+} from "@/assistant/local-health";
+import {
   isHealthyOperationalStatus,
   type AssistantOperationalState,
   type AssistantOperationalStatus,
@@ -20,6 +24,7 @@ import { useConnectivityState } from "@/hooks/use-connectivity-state";
 import { useNetworkStatus } from "@/hooks/use-network-status";
 import { captureError } from "@/lib/sentry/capture-error";
 import { isElectron } from "@/runtime/is-electron";
+import { wakeLocalAssistantHost } from "@/runtime/local-mode-host";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { cn } from "@/utils/misc";
@@ -32,6 +37,8 @@ interface BannerConfig {
   icon?: ReactNode;
   actions?: ReactNode;
 }
+
+const LOCAL_WAKE_SETTLING_MS = 60_000;
 
 const OPERATIONAL_STATUS_TITLES: Record<AssistantOperationalState, string> = {
   initializing: "Assistant is initializing",
@@ -93,11 +100,64 @@ function operationalStatusBannerConfig(
   }
 }
 
+function localHealthBannerConfig(
+  health: LocalAssistantHealth | null,
+  wakeAction?: ReactNode,
+  wakeError?: ReactNode,
+): BannerConfig | null {
+  switch (health) {
+    case "sleeping":
+      return {
+        tone: wakeError ? "error" : "neutral",
+        title: "Your assistant is asleep",
+        children: wakeError,
+        icon: <Moon className="h-4 w-4" aria-hidden="true" />,
+        actions: wakeAction,
+      };
+    case "starting":
+      return {
+        tone: "neutral",
+        title: "Your assistant is waking up",
+        icon: (
+          <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+        ),
+      };
+    case "crashed":
+      return {
+        tone: "error",
+        title: "Your assistant crashed",
+        children: wakeError,
+        actions: wakeAction,
+      };
+    case "unreachable":
+      return {
+        tone: wakeError ? "error" : "neutral",
+        title: "Your assistant is asleep",
+        icon: <Moon className="h-4 w-4" aria-hidden="true" />,
+        children: wakeError,
+        actions: wakeAction,
+      };
+    case "unhealthy":
+      return {
+        tone: "warning",
+        title: "Assistant is unhealthy",
+      };
+    default:
+      return null;
+  }
+}
+
 function doctorAction(): ReactNode {
   return (
     <Button asChild variant="outlined" size="compact">
       <Link to={`${routes.settings.debug}?tab=doctor`}>Go to Doctor</Link>
     </Button>
+  );
+}
+
+function canWakeLocalHealth(health: LocalAssistantHealth | null): boolean {
+  return (
+    health === "sleeping" || health === "crashed" || health === "unreachable"
   );
 }
 
@@ -115,6 +175,10 @@ function BannerNotice({
         title={banner.title}
         icon={banner.icon}
         actions={banner.actions}
+        className={cn(
+          !banner.children &&
+            "items-center [&>span:first-child]:mt-0",
+        )}
       >
         {banner.children}
       </Notice>
@@ -138,6 +202,10 @@ function useAssistantBannerConfig(): BannerConfig | null {
     Boolean(activeAssistantId) &&
     assistantId === activeAssistantId;
   const statusQuery = useAssistantOperationalStatus(assistantId);
+  // Non-null only for local / self-hosted assistants, where the
+  // platform's operational status never polls and the lifecycle
+  // service's healthz heartbeat is the only signal.
+  const localHealth = useLocalAssistantHealth();
   const {
     data: operationalStatus,
     isError: operationalStatusIsError,
@@ -176,6 +244,33 @@ function useAssistantBannerConfig(): BannerConfig | null {
   const [maintenanceModeExitError, setMaintenanceModeExitError] = useState<
     string | null
   >(null);
+  const [isWakingLocalAssistant, setIsWakingLocalAssistant] = useState(false);
+  const [isLocalWakeSettling, setIsLocalWakeSettling] = useState(false);
+  const [wakeLocalAssistantError, setWakeLocalAssistantError] = useState<
+    string | null
+  >(null);
+
+  useEffect(() => {
+    if (!isLocalWakeSettling) return;
+    const timeout = setTimeout(() => {
+      setIsLocalWakeSettling(false);
+    }, LOCAL_WAKE_SETTLING_MS);
+    return () => clearTimeout(timeout);
+  }, [isLocalWakeSettling]);
+
+  useEffect(() => {
+    if (
+      localHealth === "healthy" ||
+      localHealth === "unhealthy" ||
+      localHealth === "sleeping"
+    ) {
+      setIsLocalWakeSettling(false);
+    }
+  }, [localHealth]);
+
+  useEffect(() => {
+    setIsLocalWakeSettling(false);
+  }, [activeAssistantId]);
 
   const handleExitMaintenanceMode = useCallback(async () => {
     if (!assistantId || isExitingMaintenanceMode) return;
@@ -207,6 +302,51 @@ function useAssistantBannerConfig(): BannerConfig | null {
     }
   }, [assistantId, isExitingMaintenanceMode, refetchOperationalStatus]);
 
+  const handleWakeLocalAssistant = useCallback(async () => {
+    if (!activeAssistantId || isWakingLocalAssistant) return;
+
+    setIsWakingLocalAssistant(true);
+    setIsLocalWakeSettling(true);
+    setWakeLocalAssistantError(null);
+
+    try {
+      const result = await wakeLocalAssistantHost(activeAssistantId);
+      if (!result.ok) {
+        setIsLocalWakeSettling(false);
+        setWakeLocalAssistantError(
+          result.error || "Wake failed. Try running vellum wake in your terminal.",
+        );
+        return;
+      }
+
+      await Promise.allSettled([
+        refetchOperationalStatus(),
+        retryConnectivity(),
+        lifecycleService.checkAssistant(),
+      ]);
+      lifecycleService.triggerReachabilityProbe();
+    } catch (err) {
+      setIsLocalWakeSettling(false);
+      captureError(err, { context: "wake_local_assistant_status_banner" });
+      setWakeLocalAssistantError(
+        "Wake failed. Try running vellum wake in your terminal.",
+      );
+    } finally {
+      setIsWakingLocalAssistant(false);
+    }
+  }, [
+    activeAssistantId,
+    isWakingLocalAssistant,
+    refetchOperationalStatus,
+    retryConnectivity,
+  ]);
+
+  useEffect(() => {
+    if (!canWakeLocalHealth(localHealth)) {
+      setWakeLocalAssistantError(null);
+    }
+  }, [localHealth]);
+
   if (electron && connectivityState === "device-offline") {
     return {
       tone: "warning",
@@ -221,6 +361,38 @@ function useAssistantBannerConfig(): BannerConfig | null {
       title: "You're offline",
       icon: <WifiOff className="h-4 w-4" aria-hidden="true" />,
     };
+  }
+
+  const effectiveLocalHealth =
+    (isWakingLocalAssistant || isLocalWakeSettling) &&
+    canWakeLocalHealth(localHealth)
+      ? "starting"
+      : localHealth;
+  const localWakeAction =
+    canWakeLocalHealth(effectiveLocalHealth) ? (
+      <Button
+        variant="outlined"
+        size="compact"
+        leftIcon={
+          isWakingLocalAssistant ? (
+            <LoaderCircle className="animate-spin" aria-hidden="true" />
+          ) : undefined
+        }
+        disabled={!activeAssistantId || isWakingLocalAssistant}
+        onClick={() => {
+          void handleWakeLocalAssistant();
+        }}
+      >
+        Wake up
+      </Button>
+    ) : undefined;
+  const localHealthBanner = localHealthBannerConfig(
+    effectiveLocalHealth,
+    localWakeAction,
+    wakeLocalAssistantError,
+  );
+  if (localHealthBanner) {
+    return localHealthBanner;
   }
 
   if (electron && connectivityState === "backend-unreachable") {
