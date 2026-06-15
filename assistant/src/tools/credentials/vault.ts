@@ -1,7 +1,5 @@
-import { getConfig } from "../../config/loader.js";
 import {
   clearSlackUserToken,
-  setSlackChannelConfig,
   type SlackChannelConfigResult,
 } from "../../daemon/handlers/config-slack-channel.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
@@ -22,7 +20,6 @@ import type {
   ToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
-import { credentialBroker } from "./broker.js";
 import {
   assertMetadataWritable,
   deleteCredentialMetadata,
@@ -35,43 +32,14 @@ import type {
   CredentialPolicyInput,
 } from "./policy-types.js";
 import { toPolicyFromInput, validatePolicyInput } from "./policy-validate.js";
+import {
+  formatSlackChannelStatus,
+  isSlackChannelCredential,
+  persistPromptedCredential,
+  storeSlackChannelCredential,
+} from "./prompted-credential.js";
 
 const log = getLogger("credential-vault");
-
-function isSlackChannelCredential(
-  service: string,
-  field: string,
-): field is "bot_token" | "app_token" | "user_token" {
-  return (
-    service === "slack_channel" &&
-    (field === "bot_token" || field === "app_token" || field === "user_token")
-  );
-}
-
-async function storeSlackChannelCredential(
-  field: "bot_token" | "app_token" | "user_token",
-  value: string,
-): Promise<SlackChannelConfigResult> {
-  if (field === "bot_token") {
-    return setSlackChannelConfig(value, undefined);
-  }
-  if (field === "app_token") {
-    return setSlackChannelConfig(undefined, value);
-  }
-  return setSlackChannelConfig(undefined, undefined, value);
-}
-
-function formatSlackChannelStatus(result: SlackChannelConfigResult): string {
-  if (result.connected) {
-    const teamLabel = result.teamName ?? "Slack";
-    const botLabel = result.botUsername ? ` (@${result.botUsername})` : "";
-    return ` Slack channel connected to ${teamLabel}${botLabel}.`;
-  }
-  if (result.warning) {
-    return ` ${result.warning}`;
-  }
-  return "";
-}
 
 export const credentialStoreTool = {
   name: "credential_store",
@@ -701,105 +669,26 @@ export const credentialStoreTool = {
           };
         }
 
-        // Handle one-time send delivery: inject into context without persisting
-        if (result.delivery === "transient_send") {
-          if (isSlackChannelCredential(service, field)) {
-            return {
-              content:
-                "Error: Slack channel credentials must be saved to secure storage. Re-run the secure prompt and choose to store the token.",
-              isError: true,
-            };
-          }
-          const config = getConfig();
-          if (!config.secretDetection.allowOneTimeSend) {
-            log.warn(
-              { service, field },
-              "One-time send requested but not enabled in config",
-            );
-            return {
-              content:
-                "Error: one-time send is not enabled. Set secretDetection.allowOneTimeSend to true in config.",
-              isError: true,
-            };
-          }
-          // Ensure metadata exists so broker policy checks work, but don't
-          // overwrite an existing record - a stored credential's policy should
-          // not be silently replaced by the transient prompt's policy.
-          // Metadata must be written before injecting the transient value so
-          // we never leave a dangling value that fails policy checks.
-          if (!getCredentialMetadata(service, field)) {
-            try {
-              upsertCredentialMetadata(service, field, {
-                allowedTools: promptPolicy.allowedTools,
-                allowedDomains: promptPolicy.allowedDomains,
-                usageDescription: promptPolicy.usageDescription,
-                injectionTemplates: promptInjectionTemplates,
-              });
-            } catch (err) {
-              // Without metadata the broker's policy checks will reject usage,
-              // so the transient value would be silently unusable. Fail loudly.
-              log.error(
-                { service, field, err },
-                "metadata write failed for transient credential",
-              );
-              return {
-                content: `Error: failed to write credential metadata for ${service}/${field}; the one-time value was discarded.`,
-                isError: true,
-              };
-            }
-          }
-          // Inject into broker for one-time use by the next tool call, then discard
-          credentialBroker.injectTransient(service, field, result.value);
-          log.info(
-            { service, field, delivery: "transient_send" },
-            "One-time secret delivery used",
-          );
-          return {
-            content: `One-time credential provided for ${service}/${field}. The value was NOT saved to the vault and will be consumed by the next operation.`,
-            isError: false,
-          };
-        }
-
-        let slackChannelResult: SlackChannelConfigResult | undefined;
-        if (isSlackChannelCredential(service, field)) {
-          slackChannelResult = await storeSlackChannelCredential(
-            field,
-            result.value,
-          );
-          if (!slackChannelResult.success) {
-            return {
-              content: `Error: ${
-                slackChannelResult.error ?? "failed to configure Slack channel"
-              }`,
-              isError: true,
-            };
-          }
-        } else {
-          // Default: persist to credential store
-          const key = credentialKey(service, field);
-          const ok = await setSecureKeyAsync(key, result.value);
-          if (!ok) {
-            return {
-              content: "Error: failed to store credential",
-              isError: true,
-            };
-          }
-        }
-        try {
-          upsertCredentialMetadata(service, field, {
+        const persisted = await persistPromptedCredential({
+          service,
+          field,
+          value: result.value,
+          delivery: result.delivery,
+          policy: {
             allowedTools: promptPolicy.allowedTools,
             allowedDomains: promptPolicy.allowedDomains,
             usageDescription: promptPolicy.usageDescription,
             injectionTemplates: promptInjectionTemplates,
-          });
-        } catch (err) {
-          log.warn(
-            { service, field, err },
-            "metadata write failed after storing credential",
-          );
+          },
+        });
+        if (persisted.outcome === "error") {
+          return { content: `Error: ${persisted.message}`, isError: true };
         }
-        if (!isSlackChannelCredential(service, field)) {
-          await syncManualTokenConnection(service);
+        if (persisted.outcome === "transient") {
+          return {
+            content: `One-time credential provided for ${service}/${field}. The value was NOT saved to the vault and will be consumed by the next operation.`,
+            isError: false,
+          };
         }
         const promptMeta = getCredentialMetadata(service, field);
         const promptCredIdSuffix = promptMeta
@@ -808,8 +697,8 @@ export const credentialStoreTool = {
         const promptRetrieveHint = ` Retrieve with: \`assistant credentials reveal --service ${service} --field ${field}\``;
         return {
           content: `Credential stored for ${service}/${field}.${promptCredIdSuffix}${promptRetrieveHint}${
-            slackChannelResult
-              ? formatSlackChannelStatus(slackChannelResult)
+            persisted.slackChannel
+              ? formatSlackChannelStatus(persisted.slackChannel)
               : ""
           }`,
           isError: false,

@@ -695,13 +695,12 @@ Examples:
             }
 
             if (shouldOutputJson(cmd)) {
-              writeOutput(cmd, {
-                ok: true,
-                service: opts.service,
-                field: opts.field,
-              });
+              writeOutput(cmd, ipc.result);
             } else {
-              log.info(`Stored credential ${opts.service}:${opts.field}`);
+              log.info(
+                ipc.result.message ??
+                  `Stored credential ${opts.service}:${opts.field}`,
+              );
             }
           },
         );
