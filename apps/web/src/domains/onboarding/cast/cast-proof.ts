@@ -3,12 +3,15 @@
  *
  * Generates two artifacts from the user's picks:
  *  - RECEIPT  — observation → inference → one-tap offer (the piece the user
- *    reads carefully) — Sonnet 4.6.
- *  - ARTIFACT — a small proactive thing the dude "made" (title + description) —
- *    Haiku 4.5 (fast).
+ *    reads carefully).
+ *  - ARTIFACT — a small proactive thing the dude "made" (title + description).
+ *
+ * The model is left to the daemon's configured provider/profile — we do not
+ * send a `model` override, so this works on non-Anthropic providers too (an
+ * override would silently fall back to templates on those).
  *
  * Both go through the daemon's `POST /v1/assistants/{id}/inference/send`
- * endpoint, which runs server-side with the Anthropic key held in the daemon's
+ * endpoint, which runs server-side with the provider key held in the daemon's
  * credential vault — no key is ever exposed to the browser. Since `/assistant/
  * cast` is a public, unauthenticated prototype route there may be no active
  * assistant / session, so every call falls back to local templated generation
@@ -25,12 +28,6 @@ import { listAssistants } from "@/assistant/api";
 import { JOBS, RATHERS, type JobKey, type RatherKey } from "@/domains/onboarding/cast/cast-content";
 import type { StyleProfile } from "@/domains/onboarding/cast/cast-templates";
 import { inferenceSendPost } from "@/generated/daemon/sdk.gen";
-
-// Current model IDs (see the Claude model catalog). The receipt is the one
-// piece the user reads, so it gets Sonnet; the artifact title is latency-
-// sensitive, so it gets Haiku.
-const RECEIPT_MODEL = "claude-sonnet-4-6";
-const ARTIFACT_MODEL = "claude-haiku-4-5";
 
 export interface Picks {
   jobs: JobKey[];
@@ -116,7 +113,6 @@ function extractJson(text: string): Record<string, unknown> | null {
  * timeout or any error we return null and the caller uses its local fallback. */
 async function callModel(
   assistantId: string,
-  model: string,
   systemPrompt: string,
   message: string,
   { maxTokens = 400, timeoutMs = 6000 }: { maxTokens?: number; timeoutMs?: number } = {},
@@ -125,7 +121,9 @@ async function callModel(
     try {
       const { data } = await inferenceSendPost({
         path: { assistant_id: assistantId },
-        body: { message, systemPrompt, model, maxTokens },
+        // No `model` override (see file header) — the daemon's configured
+        // provider/profile picks it.
+        body: { message, systemPrompt, maxTokens },
         throwOnError: false,
       });
       return data?.response ?? null;
@@ -150,7 +148,6 @@ export async function generateReceipt(
   if (assistantId) {
     const raw = await callModel(
       assistantId,
-      RECEIPT_MODEL,
       "You write tight, perceptive onboarding copy. No greeting, no fluff, no emoji. " +
         'Return ONLY a JSON object: {"observation": string, "inference": string, "offer": string, "verb": string}. ' +
         "observation = one specific thing about them; inference = one non-obvious thing you infer; " +
@@ -202,7 +199,6 @@ export async function generateArtifact(
   if (assistantId) {
     const raw = await callModel(
       assistantId,
-      ARTIFACT_MODEL,
       "You are an assistant who quietly made the user a small useful or delightful artifact while they were " +
         "being onboarded. No greeting, no fluff. " +
         'Return ONLY a JSON object: {"title": string, "description": string}. ' +
@@ -237,7 +233,6 @@ export async function generateArtifacts(
     if (assistantId) {
       const raw = await callModel(
         assistantId,
-        ARTIFACT_MODEL,
         "You are an assistant who quietly made the user a few small useful or delightful artifacts " +
           "while they were being onboarded. No greeting, no fluff. " +
           'Return ONLY a JSON object: {"title": string, "description": string}. ' +
@@ -289,7 +284,6 @@ export async function generateFullArtifact(
   if (assistantId) {
     const raw = await callModel(
       assistantId,
-      RECEIPT_MODEL, // Sonnet — the body is read carefully
       "You write short, genuinely useful or delightful pieces. No preamble, no " +
         '"here is your...". Start directly with the content. Use light markdown ' +
         "(a heading, a short list, a line or two of prose). 200-400 words.",

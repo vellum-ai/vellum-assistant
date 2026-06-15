@@ -24,7 +24,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence } from "motion/react";
 
-import type { JobKey, RatherKey } from "@/domains/onboarding/cast/cast-content";
 import type { StyleProfile } from "@/domains/onboarding/cast/cast-templates";
 import type { CastCharacter } from "@/domains/onboarding/cast/cast-roster";
 import type { Rect } from "@/domains/onboarding/cast/cast-hero-types";
@@ -121,31 +120,22 @@ export interface CastCompletionData {
   /** Dialogue-phase selections: communication tone + connected reach tools. */
   tone: "fast" | "deep" | null;
   connectedTools: string[];
-  jobs: JobKey[];
-  rathers: RatherKey[];
   style: StyleProfile;
   credits: number;
 }
 
 /**
- * Full prototype phase set, order preserved. The live phases the orchestrator
- * transitions through are `login → preamble → starter → dialogue → style →
- * done`. `vibe`, `brain`, `email`, `job`, and `rather` remain in the union for
- * fidelity but were collapsed into the `dialogue` Visual Novel scene and the
- * `style`/`done` panels at the prototype tip — the orchestrator neither sets nor
- * renders them. They are kept here so a sibling PR can re-introduce a phase
- * without reshaping the union.
+ * The live phases the orchestrator transitions through, order preserved:
+ * `login → preamble → starter → dialogue → style → done`. The prototype's
+ * `vibe`/`brain`/`email`/`job`/`rather` phases were collapsed into the
+ * `dialogue` Visual Novel scene and the `style`/`done` panels, so they are not
+ * part of the live state machine.
  */
 type CastPhase =
   | "login"
   | "preamble"
   | "starter"
   | "dialogue"
-  | "vibe"
-  | "brain"
-  | "email"
-  | "job"
-  | "rather"
   | "style"
   | "done";
 
@@ -219,11 +209,8 @@ function InteractiveCastFlow({
     return { top: topBoxFor(w, h), w };
   });
 
-  // Selections collected across the (currently stubbed) job/rather/style phases.
-  // The setters beyond the resets below are wired up by sibling PRs 5b–5g; the
-  // values flow into the screen-slot props and the completion payload.
-  const [jobs, setJobs] = useState<JobKey[]>([]);
-  const [rathers, setRathers] = useState<RatherKey[]>([]);
+  // Style profile collected across the This-or-That rounds; flows into the
+  // screen-slot props and the completion payload.
   const [style, setStyle] = useState<StyleProfile>({});
 
   // Dialogue-phase selections the later handoff PR reads alongside `userRole`,
@@ -286,8 +273,6 @@ function InteractiveCastFlow({
       name,
       tone,
       connectedTools,
-      jobs,
-      rathers,
       style,
       credits: earnedCredits,
     };
@@ -312,8 +297,6 @@ function InteractiveCastFlow({
   }
 
   function reopenCustomize() {
-    setJobs([]);
-    setRathers([]);
     setStyle({});
     setTone(null);
     setConnectedTools([]);
@@ -429,8 +412,6 @@ function InteractiveCastFlow({
           character={selected}
           name={name}
           heroBox={leftPanelBox}
-          jobs={jobs}
-          ascended={false}
           onAdvance={() => {
             emitPhaseOnce("style");
             setPhase("done");
@@ -448,8 +429,6 @@ function InteractiveCastFlow({
         <DoneScreen
           character={selected}
           box={{ ...leftPanelBox, top: leftPanelBox.top + Math.round(leftPanelBox.size * 0.7) }}
-          jobs={jobs}
-          rathers={rathers}
           style={style}
           ascended={false}
           assistantId={null}
@@ -565,6 +544,9 @@ function CastFlowBody({
     await setSelectedAssistant(assistantId);
     lifecycleService.markExpectingFirstMessage();
     await lifecycleService.checkAssistant(assistantId);
+    // The chat surface's existing `initialMessage` auto-send path renders the
+    // research directive (`CAST_RESEARCH_DIRECTIVE`) as the first user message
+    // bubble — no separate send is wired here.
     void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
   }
 

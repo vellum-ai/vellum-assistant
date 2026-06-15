@@ -9,13 +9,12 @@
  *
  * Every slot gets the common navigation pair (`onAdvance` / `onBack`); phases
  * that need shared per-step inputs (the selected character, its name, the user's
- * first name, the accumulated memory list, the collected job/rather/style
- * selections, hero geometry) extend `BaseScreenProps` with their own slice. The
+ * first name, the accumulated memory list, the collected style profile, hero
+ * geometry) extend `BaseScreenProps` with their own slice. The
  * props the orchestrator already passes each phase in the prototype are the
  * source of truth for these shapes.
  */
 
-import type { JobKey, RatherKey } from "@/domains/onboarding/cast/cast-content";
 import type { StyleProfile } from "@/domains/onboarding/cast/cast-templates";
 import type { CastCharacter } from "@/domains/onboarding/cast/cast-roster";
 import type { Rect } from "@/domains/onboarding/cast/cast-hero-types";
@@ -104,8 +103,6 @@ export interface StyleScreenProps extends BaseScreenProps {
   character: CastCharacter;
   name: string;
   heroBox: Rect;
-  jobs: JobKey[];
-  ascended: boolean;
   onChoose: (value: string) => void;
   onRoundPicked: (next: StyleProfile) => void;
   onDone: (next: StyleProfile) => void;
@@ -115,8 +112,6 @@ export interface StyleScreenProps extends BaseScreenProps {
 export interface DoneScreenProps extends BaseScreenProps {
   character: CastCharacter;
   box: Rect;
-  jobs: JobKey[];
-  rathers: RatherKey[];
   style: StyleProfile;
   ascended: boolean;
   assistantId: string | null;
