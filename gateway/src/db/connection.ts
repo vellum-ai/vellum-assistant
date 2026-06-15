@@ -193,8 +193,9 @@ export async function initGatewayDb(): Promise<void> {
   raw.exec("PRAGMA busy_timeout=5000");
   raw.exec("PRAGMA foreign_keys=ON");
 
-  // Deduplicate contact_channels before schema push — the UNIQUE(type,
-  // address) index will fail to create if duplicates exist.
+  // Deduplicate and normalize contact_channels before schema push — the
+  // UNIQUE(type, address) index will fail to create if duplicates exist,
+  // and address must reflect original platform casing for exact lookups.
   try {
     raw.exec(/*sql*/ `
       DELETE FROM contact_channels
@@ -217,6 +218,36 @@ export async function initGatewayDb(): Promise<void> {
         )
         WHERE rn = 1
       )
+    `);
+    raw.exec(/*sql*/ `
+      DELETE FROM contact_channels
+      WHERE external_user_id IS NOT NULL
+        AND id NOT IN (
+          SELECT id FROM (
+            SELECT id,
+                   ROW_NUMBER() OVER (
+                     PARTITION BY type, external_user_id COLLATE NOCASE
+                     ORDER BY
+                       CASE status
+                         WHEN 'blocked' THEN 0
+                         WHEN 'revoked' THEN 1
+                         WHEN 'active' THEN 2
+                         WHEN 'unverified' THEN 3
+                         ELSE 4
+                       END,
+                       updated_at DESC
+                   ) AS rn
+            FROM contact_channels
+            WHERE external_user_id IS NOT NULL
+          )
+          WHERE rn = 1
+        )
+    `);
+    raw.exec(/*sql*/ `
+      UPDATE contact_channels
+      SET address = external_user_id
+      WHERE external_user_id IS NOT NULL
+        AND address != external_user_id
     `);
   } catch {
     // Table doesn't exist yet on fresh installs — schema push will create it.
