@@ -2,6 +2,7 @@ import { ChevronRight, Copy } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { FileMarkdown } from "@/components/file-markdown";
+import { CacheBreakpointMapCard } from "@/domains/chat/inspector/components/cache-breakpoint-map-card";
 import { CacheDiffCard } from "@/domains/chat/inspector/components/cache-diff-card";
 import { CacheHealthCard } from "@/domains/chat/inspector/components/cache-health-card";
 import { ToolDefinitionsContent } from "@/domains/chat/inspector/components/tool-definitions-content";
@@ -29,7 +30,8 @@ interface PromptTabProps {
  * code-style `<pre>` text in a capped scroll box (they can be huge). Tool
  * definitions render as an expandable per-tool breakdown. The raw provider
  * JSON lives on the Raw tab. The cache-diff panel names the block that
- * diverged from the previous turn's request.
+ * diverged from the previous turn's request, and the breakpoint map shows
+ * where the request's cache boundaries fell.
  */
 export function PromptTab({
   entry,
@@ -116,6 +118,8 @@ export function PromptTab({
         previous={previous}
         assistantId={assistantId}
       />
+
+      <CacheBreakpointMapCard entry={entry} assistantId={assistantId} />
     </div>
   );
 }

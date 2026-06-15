@@ -1,0 +1,99 @@
+/* Cast — starter line-up geometry.
+ *
+ * Reduced to the bespoke avatar-morph / roster line-up geometry only. The
+ * customization card (name editor, cycle controls, action buttons) now renders
+ * with `@vellumai/design-library` components + Tailwind tokens directly in
+ * `cast-starter.tsx`; only the layout/morph primitives that have no token or
+ * component equivalent live here. */
+
+/* ---- Beat 1: starter line-up (replaces the crowd) ---- */
+
+.cast-starter {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+}
+.cast-starter__view {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.cast-starter__header {
+  flex: none;
+  padding: 0 var(--app-spacing-xl) 36px;
+  text-align: center;
+  z-index: 2;
+}
+
+/* the Pokémon-style line-up: one card per body shape, on a lit pedestal —
+   exactly two rows of five, centered in the remaining space (no scroll) */
+.cast-roster {
+  flex: none;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 20px 24px 0;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  justify-items: center;
+  overflow: visible;
+}
+.cast-roster__card {
+  position: relative;
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 14px 6px 10px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: var(--radius-xl);
+  outline: none;
+  transition: transform 160ms ease, background 160ms ease;
+}
+.cast-roster__card:hover,
+.cast-roster__card:focus-visible {
+  transform: translateY(-6px);
+}
+.cast-roster__disc {
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  width: 66%;
+  aspect-ratio: 2 / 1;
+  transform: translateX(-50%);
+  border-radius: var(--radius-pill);
+  background: radial-gradient(ellipse at center, rgba(255, 240, 214, 0.16) 0%, transparent 70%);
+  pointer-events: none;
+}
+.cast-roster__avatar {
+  display: block;
+  position: relative;
+  z-index: 1;
+  width: 124px;
+  height: 124px;
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.45));
+}
+.cast-roster__avatar .cast-hover {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+/* inline composed SVGs fill their box (these spans aren't .cast-avatar) */
+.cast-roster__avatar svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+@media (max-width: 560px) {
+  .cast-roster {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}

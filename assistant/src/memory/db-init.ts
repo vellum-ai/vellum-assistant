@@ -55,6 +55,7 @@ import {
   migrateBackfillContactInteractionStats,
   migrateBackfillGuardianPrincipalId,
   migrateBackfillInlineAttachmentsToDisk,
+  migrateBackfillOriginChannelFromBindings,
   migrateBackfillProviderConnectionLabel,
   migrateBackfillUsageCacheAccounting,
   migrateCallSessionInviteMetadata,
@@ -78,6 +79,7 @@ import {
   migrateConversationHostAccess,
   migrateConversationInferenceProfileSession,
   migrateConversationLastNotifiedProfile,
+  migrateConversationOriginChannelIndex,
   migrateConversationsArchivedAt,
   migrateConversationsLastMessageAt,
   migrateConversationsSurfacedAt,
@@ -511,6 +513,8 @@ export function initializeDb(): void {
     migrateWorkflowRuns,
     migrateScheduleWorkflowMode,
     migrateWorkflowRunTrust,
+    migrateConversationOriginChannelIndex,
+    migrateBackfillOriginChannelFromBindings,
     migrateContactChannelsUniqueExtUser,
   ];
 

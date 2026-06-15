@@ -388,6 +388,7 @@ const {
 } = await import("../shadow-plugin.js");
 const { memoryV3Injector, resetMemoryV3InjectorStateForTests } =
   await import("../injector.js");
+const { MemoryV3RetrievalUnavailableError } = await import("../pool-select.js");
 
 afterAll(() => {
   shadowMockActive = false;
@@ -803,5 +804,56 @@ describe("memory-v3 shadow plugin", () => {
       const hits = needle.query("kumquat", 5);
       expect(hits.map((h) => h.article)).toContain(CAPABILITY_SLUG);
     });
+  });
+});
+
+describe("memory-v3 infrastructure-failure handling (hard-fail vs swallow)", () => {
+  const throwInfra = () =>
+    orchestrateSpy.mockImplementationOnce(async () => {
+      throw new MemoryV3RetrievalUnavailableError(
+        "selector provider unavailable",
+      );
+    });
+
+  test("LIVE injector HARD-FAILS the turn on an infra failure (no silent memory loss)", async () => {
+    liveEnabled = true;
+    shadowEnabled = false;
+    throwInfra();
+
+    await expect(produce("conv-infra-live", 0)).rejects.toThrow(
+      MemoryV3RetrievalUnavailableError,
+    );
+  });
+
+  test("SHADOW injector swallows an infra failure (v2 fallback) — no throw, no block", async () => {
+    liveEnabled = false;
+    shadowEnabled = true;
+    throwInfra();
+
+    // Shadow mode: v2 retrieval still ran this turn, so the v3 injector returns
+    // null rather than failing the turn.
+    expect(await produce("conv-infra-shadow", 0)).toBeNull();
+  });
+
+  test("runShadowObservation never throws on an infra failure (fire-and-forget)", async () => {
+    liveEnabled = false;
+    shadowEnabled = true;
+    throwInfra();
+
+    await expect(
+      runShadowObservation("conv-infra-obs", 0),
+    ).resolves.toBeUndefined();
+  });
+
+  test("LIVE injector stays NON-fatal on a non-infra error (degrades to no v3 block)", async () => {
+    liveEnabled = true;
+    shadowEnabled = false;
+    orchestrateSpy.mockImplementationOnce(async () => {
+      throw new Error("some unexpected non-infra bug");
+    });
+
+    // Only INFRA failures hard-fail; any other error stays non-fatal so a bug
+    // in one lane can't take every turn down.
+    expect(await produce("conv-nonfatal-live", 0)).toBeNull();
   });
 });

@@ -28,8 +28,8 @@ import { Tooltip } from "./tooltip";
  * - Use `asChild` to render as a child element (e.g. a `Link`) while keeping
  *   button styling and accessibility semantics. Uses Radix's `Slot`.
  * - Pass `expandOnMobile={false}` to opt an icon-only button out of the larger
- *   circular mobile tap target (keeps the desktop sizing/chrome on mobile) —
- *   useful for compact inline affordances like a chip's remove "×".
+ *   circular tap target on touch-mobile devices — useful for compact inline
+ *   affordances like a chip's remove "×".
  * - Callers may always override styles via `className` / `style`.
  */
 const buttonVariants = cva(
@@ -138,13 +138,13 @@ const buttonVariants = cva(
         iconOnly: true,
         size: "regular",
         expandOnMobile: true,
-        class: "max-md:h-10 max-md:w-10",
+        class: "touch-mobile:h-10 touch-mobile:w-10",
       },
       {
         iconOnly: true,
         size: "compact",
         expandOnMobile: true,
-        class: "max-md:h-10 max-md:w-10",
+        class: "touch-mobile:h-10 touch-mobile:w-10",
       },
       {
         variant: "ghost",
@@ -193,11 +193,11 @@ const buttonVariants = cva(
         iconOnly: true,
         expandOnMobile: true,
         class: [
-          "max-md:bg-[var(--surface-lift)]",
-          "max-md:rounded-full",
-          "max-md:[--vbtn-fg:var(--content-default)]",
-          "max-md:hover:bg-[var(--surface-active)]",
-          "max-md:active:bg-[var(--surface-active)]",
+          "touch-mobile:bg-[var(--surface-lift)]",
+          "touch-mobile:rounded-full",
+          "touch-mobile:[--vbtn-fg:var(--content-default)]",
+          "touch-mobile:hover:bg-[var(--surface-active)]",
+          "touch-mobile:active:bg-[var(--surface-active)]",
         ].join(" "),
       },
     ],
@@ -229,9 +229,9 @@ export interface ButtonProps
   active?: boolean;
   /**
    * When `true` (default), icon-only buttons grow to a larger circular tap
-   * target on mobile (`max-md`). Set to `false` to keep the desktop sizing and
-   * chrome on mobile — useful for compact inline affordances (e.g. a chip's
-   * remove "×") where the enlarged circle is undesirable.
+   * target on touch-mobile devices (narrow viewport + coarse pointer). Set to
+   * `false` to keep the desktop sizing — useful for compact inline affordances
+   * (e.g. a chip's remove "×") where the enlarged circle is undesirable.
    */
   expandOnMobile?: boolean;
   tintColor?: string;
@@ -291,7 +291,7 @@ export function Button({
   // A fixed size keeps the icon at the intended dimension regardless of nesting.
   const iconOnlyClass = cn(
     "inline-flex items-center justify-center shrink-0 size-3.5 [&_svg]:size-3.5",
-    expandOnMobile && "max-md:size-4 max-md:[&_svg]:size-4",
+    expandOnMobile && "touch-mobile:size-4 touch-mobile:[&_svg]:size-4",
   );
 
   const Comp = asChild ? Slot : "button";

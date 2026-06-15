@@ -48,6 +48,13 @@ const envOverrides = getEnvFlagOverridesForScope("client");
 
 interface ClientFeatureFlagMeta {
   stringFlags: Record<string, string>;
+  /**
+   * Flips `true` the first time the client flag query settles (success OR
+   * terminal error), so the synchronous `buildNavigationState()` can tell
+   * whether a server-synced arm has had a chance to land. Stays `false` until
+   * then. See `use-client-feature-flag-sync.ts` for where it is set.
+   */
+  loaded: boolean;
 }
 
 interface ClientFeatureFlagActions {
@@ -57,6 +64,7 @@ interface ClientFeatureFlagActions {
   setStringFlags: (flags: Record<string, string>) => void;
   setStringFlag: (key: string, value: string) => void;
   clearStringOverride: (key: string) => void;
+  setLoaded: () => void;
 }
 
 type ClientFeatureFlagStore = Record<string, boolean> &
@@ -77,6 +85,7 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
       ...localOverrides,
       ...envOverrides.bool,
       stringFlags: { ...CLIENT_STRING_FLAG_DEFAULTS, ...localStringOverrides, ...envOverrides.str },
+      loaded: false,
 
       setFlags: (flags: Record<string, boolean>) =>
         set((prev) => {
@@ -85,8 +94,16 @@ const useClientFeatureFlagStoreBase = create<ClientFeatureFlagStore>()(
           const changed = Object.keys(merged).some(
             (k) => merged[k] !== prev[k],
           );
+          // Receiving server flags means the query has settled; mark loaded so
+          // the synchronous nav-state read no longer treats the arm as unknown.
+          if (!prev.loaded) {
+            return { ...(changed ? merged : {}), loaded: true };
+          }
           return changed ? merged : prev;
         }),
+
+      setLoaded: () =>
+        set((prev) => (prev.loaded ? prev : { loaded: true })),
 
       setFlag: (key: string, value: boolean) => {
         try {

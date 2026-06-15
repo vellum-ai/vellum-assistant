@@ -1,0 +1,151 @@
+/* Cast — keyframes + animation-only rules (split from cast.css; PR 1, verbatim move). */
+
+/* grid tiles replay their signature move on hover; the detail view + starter
+   cards reuse the same moves on hover too */
+.cast-roster__card:hover .cast-hover[data-anim="jump"],
+.cast-hero__body:hover .cast-hover[data-anim="jump"] {
+  animation: cast-jump 0.6s ease;
+}
+.cast-roster__card:hover .cast-hover[data-anim="flip"],
+.cast-hero__body:hover .cast-hover[data-anim="flip"] {
+  animation: cast-flip 0.7s ease;
+}
+.cast-roster__card:hover .cast-hover[data-anim="wiggle"],
+.cast-hero__body:hover .cast-hover[data-anim="wiggle"] {
+  animation: cast-wiggle 0.6s ease;
+}
+.cast-roster__card:hover .cast-hover[data-anim="spin"],
+.cast-hero__body:hover .cast-hover[data-anim="spin"] {
+  animation: cast-spin 0.7s ease;
+}
+@keyframes cast-blink {
+  50% { opacity: 0; }
+}
+
+@keyframes cast-loading-pulse {
+  0%, 100% { opacity: 0.25; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes cast-cursor-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
+
+/* Gaze down + periodic blink for ToneChoice avatar */
+@keyframes cast-gaze-blink {
+  0%, 100% { transform: translateY(4px) scaleY(1); }
+  24%      { transform: translateY(4px) scaleY(1); }
+  26%      { transform: translateY(4px) scaleY(0.1); }
+  28%      { transform: translateY(4px) scaleY(1); }
+  74%      { transform: translateY(4px) scaleY(1); }
+  76%      { transform: translateY(4px) scaleY(0.1); }
+  78%      { transform: translateY(4px) scaleY(1); }
+}
+
+@keyframes cast-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: 0 0; }
+}
+
+@keyframes cast-scribble-pen {
+  0%, 100% { transform: rotate(-12deg) translate(0, 0); }
+  50% { transform: rotate(6deg) translate(-2px, -1px); }
+}
+@keyframes cast-scribble-body {
+  0%, 100% { transform: translate(0, 0) rotate(0); }
+  25% { transform: translate(-1.5px, 0.5px) rotate(-1.5deg); }
+  75% { transform: translate(1.5px, 0.5px) rotate(1.5deg); }
+}
+
+/* ---- Easter egg: Super-Saiyan ascension — bespoke gold art, not tokenized ---- */
+
+.cast-hero.is-ascended .cast-hero__body {
+  filter: drop-shadow(0 0 26px rgba(255, 210, 60, 0.92)) brightness(1.12) saturate(1.2);
+  animation: cast-ascend-shake 0.07s linear infinite;
+}
+
+@keyframes cast-ascend-shake {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(-1.4px, 1px); }
+  50% { transform: translate(1.2px, -1.2px); }
+  75% { transform: translate(-1px, -1px); }
+  100% { transform: translate(1.4px, 1px); }
+}
+
+/* ---- keyframes ---- */
+
+@keyframes cast-drift {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  30% {
+    transform: translateY(-5px) rotate(-1.1deg);
+  }
+  65% {
+    transform: translateY(-1px) rotate(1.1deg);
+  }
+}
+
+@keyframes cast-jump {
+  0% {
+    transform: translateY(0) scale(1, 1);
+  }
+  25% {
+    transform: translateY(0) scale(1.08, 0.92);
+  }
+  55% {
+    transform: translateY(-22px) scale(0.94, 1.06);
+  }
+  80% {
+    transform: translateY(0) scale(1.05, 0.95);
+  }
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+}
+
+@keyframes cast-flip {
+  0% {
+    transform: perspective(400px) rotateY(0);
+  }
+  100% {
+    transform: perspective(400px) rotateY(360deg);
+  }
+}
+
+@keyframes cast-wiggle {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  20% {
+    transform: rotate(-9deg);
+  }
+  45% {
+    transform: rotate(8deg);
+  }
+  70% {
+    transform: rotate(-5deg);
+  }
+  90% {
+    transform: rotate(3deg);
+  }
+}
+
+@keyframes cast-spin {
+  0% {
+    transform: rotate(0);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cast-focus-alive {
+    animation: none !important;
+  }
+}
+

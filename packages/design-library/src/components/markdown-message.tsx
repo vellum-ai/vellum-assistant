@@ -272,8 +272,12 @@ function buildMarkdownComponents(
     ul: ({ children }) => (
       <ul className="mb-2 list-disc pl-5 last:mb-0">{children}</ul>
     ),
-    ol: ({ children }) => (
-      <ol className="mb-2 list-decimal pl-5 last:mb-0">{children}</ol>
+    // `start` must be forwarded: react-markdown emits `<ol start="N">` for a
+    // list that begins at a non-1 number (a bare "3." answer, or a list the
+    // model continues from a prior number). Dropping it silently renumbers
+    // every such list to 1 — e.g. "3." would render as "1.".
+    ol: ({ children, start }) => (
+      <ol start={start} className="mb-2 list-decimal pl-5 last:mb-0">{children}</ol>
     ),
     // h4-h6 are rare in assistant output but must not fall through to
     // unstyled browser defaults (a Tailwind reset strips their size/weight,

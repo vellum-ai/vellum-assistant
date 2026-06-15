@@ -1,0 +1,329 @@
+/* Cast — login + about screens.
+ *
+ * The interactive controls (provider buttons, download CTA, about-you inputs
+ * and Continue) are rendered with `@vellumai/design-library` Button/Input in
+ * login-screen.tsx; the rules below are bespoke-only — layout/composition that
+ * the components don't own, plus className overrides that restore the cast
+ * screen's larger sizing and brand-green accent on top of the design-library
+ * chrome.
+ *
+ * NOTE: several selectors here (`.cast-login__title`, `.cast-login__rotating*`,
+ * `.cast-about__input/__label/__continue/…`) are also consumed by the
+ * account-domain sign-up screens that still render raw controls
+ * (provider-signup-page, personal-page-signup-screen, rotating-word) — they are
+ * intentionally retained even though login-screen.tsx no longer uses all of
+ * them directly.
+ *
+ * The brand greens are centralized as `--cast-green*` in cast-tokens.css (scoped
+ * to `.cast-stage`). Because these login/about classes are also rendered by the
+ * account-domain sign-up screens — which mount OUTSIDE `.cast-stage` — the rules
+ * below reference the tokens with the literal as a `var(--cast-green*, …)`
+ * fallback, so the color is identical whether or not the token is in scope. */
+
+
+/* ---- Login screen (two-column: form | visual) ---- */
+
+.cast-login {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  overflow: hidden;
+}
+
+/* Left column — logo at top, form centered */
+.cast-login__left {
+  flex: 0 0 42%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 48px;
+}
+.cast-login__logo {
+  position: absolute;
+  top: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.cast-login__form {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  max-width: 360px;
+  width: 100%;
+  gap: 0;
+}
+.cast-login__title {
+  margin: 0 0 12px;
+  font-family: "Instrument Serif", var(--font-serif), serif;
+  font-size: clamp(2.1rem, 1rem + 2.8vw, 3.75rem);
+  font-weight: 400;
+  font-style: normal;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  color: var(--content-default);
+}
+.cast-login__rotating {
+  display: inline-block;
+  position: relative;
+  text-align: center;
+  vertical-align: baseline;
+  overflow: hidden;
+}
+.cast-login__rotating-sizer {
+  display: block;
+  height: 0;
+  visibility: hidden;
+  white-space: nowrap;
+}
+.cast-login__title em {
+  display: block;
+  font-style: normal;
+  color: var(--cast-green, #46c178); /* see header note */
+  white-space: nowrap;
+}
+.cast-login__subtitle {
+  margin: 0 0 32px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--content-secondary);
+}
+.cast-login__buttons {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+/* Positioning context for the "Most used" corner badge. */
+.cast-login__btn-row {
+  position: relative;
+  width: 100%;
+}
+/* Cast provider button. Styled with concrete properties (not the
+   design-library `--vbtn-fg` var) so the same class also dresses the raw
+   <button> the account-domain personal-page sign-up screen still renders, while
+   overriding the design-library outlined Button used here. */
+.cast-login__btn {
+  position: relative;
+  width: 100%;
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: auto;
+  padding: 13px 18px;
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-lg);
+  background: var(--surface-hover);
+  color: var(--content-default);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+.cast-login__btn:hover {
+  background: var(--surface-active);
+  border-color: var(--border-element);
+  transform: translateY(-1px);
+}
+.cast-login__btn:active {
+  transform: translateY(0) scale(0.985);
+}
+.cast-login__tag {
+  position: absolute;
+  top: -8px;
+  right: -6px;
+  z-index: 1;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--content-secondary);
+  background: var(--surface-active);
+  border: 1px solid var(--border-subtle);
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  line-height: 1.4;
+  pointer-events: none;
+}
+.cast-login__footer {
+  margin: 0;
+  font-size: 13px;
+  color: var(--content-secondary);
+}
+.cast-login__link {
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--content-default);
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color 140ms ease;
+}
+.cast-login__link:hover {
+  color: var(--primary-base);
+}
+/* Download CTA — cast strong-border pill. Concrete properties so it also
+   dresses the raw <a> the personal-page sign-up screen renders, while
+   overriding the design-library outlined Button used here. */
+.cast-login__download {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: auto;
+  margin-top: 24px;
+  padding: 10px 20px;
+  border: 1px solid var(--content-default);
+  border-radius: var(--radius-lg);
+  background: none;
+  color: var(--content-default);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.cast-login__download:hover {
+  background: color-mix(in srgb, var(--content-default) 10%, transparent);
+}
+
+/* ---- About dialog (post-login onboarding) ---- */
+
+.cast-about__heading {
+  margin: 0 0 24px;
+  font-family: "Instrument Serif", var(--font-serif), serif;
+  font-size: clamp(2.1rem, 1rem + 2.8vw, 3.75rem);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  color: var(--content-default);
+  text-align: center;
+}
+.cast-about__thread {
+  width: 100%;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  align-self: center;
+  margin-top: 0;
+  text-align: left;
+}
+/* Keep the heading pinned — don't let growing steps re-center the form */
+.cast-login__form:has(.cast-about__thread) {
+  justify-content: center;
+}
+.cast-about__step {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+/* Raw label retained for the account-domain sign-up screens that still render
+   plain inputs; the cast about-you form now uses the Input `label` prop. */
+.cast-about__label {
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--content-secondary);
+}
+.cast-about__req {
+  color: var(--content-tertiary);
+}
+/* Raw input retained for the account-domain sign-up screens. */
+.cast-about__input {
+  width: 100%;
+  appearance: none;
+  padding: 11px 14px;
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-lg);
+  background: var(--surface-hover);
+  color: var(--content-default);
+  font-size: 15px;
+  font-weight: 500;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+}
+.cast-about__input:focus {
+  border-color: var(--primary-base);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-base) 18%, transparent);
+}
+.cast-about__input:disabled {
+  opacity: 0.6;
+}
+.cast-about__input::placeholder {
+  color: var(--content-tertiary);
+}
+/* Continue CTA — cast brand-green pill. Concrete properties so it also dresses
+   the raw <button> the account-domain provider sign-up screen renders, while
+   overriding the design-library primary Button used here. */
+.cast-about__continue {
+  width: 100%;
+  appearance: none;
+  border: none;
+  height: auto;
+  padding: 13px 18px;
+  border-radius: var(--radius-lg);
+  background: var(--cast-green, #46c178); /* see header note */
+  color: var(--cast-green-ink, #0b1f12); /* see header note */
+  font-size: 15px;
+  font-weight: 650;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 160ms ease, transform 160ms ease;
+}
+.cast-about__continue:hover:not(:disabled) {
+  background: var(--cast-green-strong, #3ad17a);
+  transform: translateY(-1px);
+}
+.cast-about__continue:disabled {
+  /* Keep the faded brand green (the design-library primary Button would
+     otherwise repaint the disabled state with --primary-disabled). */
+  background: var(--cast-green, #46c178); /* see header note */
+  color: var(--cast-green-ink, #0b1f12); /* see header note */
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Right column — video */
+.cast-login__right {
+  flex: 1 1 0;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+  padding: 40px 40px 40px 0;
+}
+.cast-login__video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--radius-xl);
+}
+
+/* Collapse to single-column on narrow viewports */
+@media (max-width: 768px) {
+  .cast-login {
+    flex-direction: column;
+  }
+  .cast-login__left {
+    flex: 1;
+    padding: 32px 28px;
+    align-items: center;
+  }
+  .cast-login__logo {
+    align-self: flex-start;
+  }
+  .cast-login__right {
+    display: none;
+  }
+}

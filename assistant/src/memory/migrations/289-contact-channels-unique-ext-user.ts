@@ -1,7 +1,7 @@
 import { getLogger } from "../../util/logger.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 
-const log = getLogger("migration-287");
+const log = getLogger("migration-289");
 
 /**
  * Deduplicates historical case collisions in contact_channels.
